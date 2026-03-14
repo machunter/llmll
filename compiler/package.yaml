@@ -1,0 +1,72 @@
+name:                llmll
+version:             0.1.0
+synopsis:            LLMLL compiler - AI-to-AI programming language
+description:         Compiler for the Large Language Model Logical Language
+license:             MIT
+author:              LLMLL Team
+maintainer:          llmll@example.com
+
+ghc-options:
+  - -Wall
+  - -Wcompat
+  - -Widentities
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wpartial-fields
+  - -Wredundant-constraints
+
+default-extensions:
+  - OverloadedStrings
+  - DeriveGeneric
+  - DeriveAnyClass
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+  - LambdaCase
+  - TupleSections
+
+dependencies:
+  - base >= 4.18 && < 5
+  - text >= 2.0
+  - containers >= 0.6
+  - megaparsec >= 9.5
+  - parser-combinators >= 1.3
+  - mtl >= 2.3
+  - aeson >= 2.1
+  - optparse-applicative >= 0.18
+  - QuickCheck >= 2.14
+  - pretty-simple >= 4.1
+  - bytestring >= 0.11
+  - filepath >= 1.4
+  - directory >= 1.3
+  - process >= 1.6
+  - vector >= 0.13
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - LLMLL.Syntax
+    - LLMLL.Lexer
+    - LLMLL.Parser
+    - LLMLL.TypeCheck
+    - LLMLL.HoleAnalysis
+    - LLMLL.Contracts
+    - LLMLL.PBT
+    - LLMLL.Codegen
+    - LLMLL.Diagnostic
+
+executables:
+  llmll:
+    main:                Main.hs
+    source-dirs:         src
+    dependencies:
+      - llmll
+
+tests:
+  llmll-test:
+    main:                Spec.hs
+    source-dirs:         test
+    dependencies:
+      - llmll
+      - hspec >= 2.11
+      - hspec-megaparsec >= 2.2
+      - QuickCheck

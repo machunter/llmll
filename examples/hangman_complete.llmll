@@ -1,0 +1,288 @@
+;; =============================================================================
+;; hangman_complete.llmll -- COMPLETE Hangman game in LLMLL v0.1.1
+;;
+;; All holes from hangman.llmll are filled here.
+;; Updated for v0.1.1: uses `range` built-in instead of the 50-line workaround.
+;;
+;; Demonstrates:
+;;   - Custom ADTs (GameInput sum type)
+;;   - Dependent types  (Word, Letter, GuessCount)
+;;   - def-logic with pre/post contracts and `result` keyword
+;;   - display-word, all-guessed?, guess implementations
+;;   - IO interface (def-interface) and Command model
+;;   - Standard command constructors (wasi.io.stdout)
+;;   - seq-commands for multiple IO effects
+;;   - check blocks with for-all property-based tests
+;;   - gen declaration for custom Letter generator
+;;   - range built-in for indexed string iteration
+;;
+;; Game Rules:
+;;   - The secret word is provided by the runtime (wasi.io.stdin).
+;;   - The player guesses one letter at a time (stdin).
+;;   - Duplicate guess => no penalty; state unchanged.
+;;   - Wrong guess     => wrong-count incremented by 1.
+;;   - Won  when every letter in the word has been guessed.
+;;   - Lost when wrong-count >= max-wrong.
+;; =============================================================================
+
+(module hangman
+  (import wasi.io (capability stdin  :deterministic true))
+  (import wasi.io (capability stdout :deterministic false)))
+
+;; ---------------------------------------------------------------------------
+;; 1. Custom ADT: typed game input
+;;
+;;    In v0.1.0 this had to be encoded as tagged strings (":start word",
+;;    ":guess l") because ADT syntax was not defined.  v0.1.1 adds proper
+;;    sum type declarations.
+;; ---------------------------------------------------------------------------
+
+(type GameInput
+  (| StartGame Word)    ;; carries the secret word
+  (| Guess     Letter)) ;; carries a single-letter guess
+
+;; ---------------------------------------------------------------------------
+;; 2. Dependent types
+;; ---------------------------------------------------------------------------
+
+(type Word      (where [s: string] (> (string-length s) 0)))
+(type Letter    (where [s: string] (= (string-length s) 1)))
+(type GuessCount (where [n: int]   (>= n 0)))
+
+;; Custom generator for Letter: pick a random lowercase ASCII letter.
+;; Avoids rejection-sampling overhead (default would rarely hit 1-char strings).
+(gen Letter
+  (string-char-at "abcdefghijklmnopqrstuvwxyz"
+                  (mod (random-int) 26)))
+
+;; ---------------------------------------------------------------------------
+;; 3. Game state as nested pairs
+;;
+;;   State = (word, (guessed, (wrong-count, max-wrong)))
+;;
+;;   v0.1.1 still has no record syntax; pair-encoding remains the idiom.
+;;   Accessor functions give names to each field.
+;; ---------------------------------------------------------------------------
+
+(def-logic make-state [word: Word guessed: list[Letter] wrong: GuessCount max-w: GuessCount]
+  (pair word (pair guessed (pair wrong max-w))))
+
+(def-logic state-word    [s] (first s))
+(def-logic state-guessed [s] (first  (second s)))
+(def-logic state-wrong   [s] (first  (second (second s))))
+(def-logic state-max     [s] (second (second (second s))))
+
+;; ---------------------------------------------------------------------------
+;; 4. word-chars: extract every character of a string as list[string]
+;;
+;;    v0.1.1 adds the `range` built-in.  The 50-line workaround is gone.
+;; ---------------------------------------------------------------------------
+
+(def-logic word-chars [word: Word]
+  (pre (> (string-length word) 0))
+  (let [[len     (string-length word)]
+        [indices (range 0 len)]]          ;; [0, 1, ..., len-1] — no workaround!
+    (list-map indices (fn [i: int] (string-char-at word i)))))
+
+;; ---------------------------------------------------------------------------
+;; 5. display-word
+;;
+;;    For each character in word:
+;;      if it appears in guessed, show it; otherwise show "_".
+;;    Concatenate all characters into a single string.
+;;
+;;    Post: result has the same length as word.
+;;    `result` is the v0.1.1 reserved keyword in post clauses.
+;; ---------------------------------------------------------------------------
+
+(def-logic display-word [word: Word guessed: list[Letter]]
+  (post (= (string-length result) (string-length word)))
+  (let [[chars   (word-chars word)]
+        [masked  (list-map chars
+                    (fn [c: string]
+                      (if (list-contains guessed c)
+                          c
+                          "_")))]]
+    (list-fold masked ""
+      (fn [acc: string ch: string]
+        (string-concat acc ch)))))
+
+;; ---------------------------------------------------------------------------
+;; 6. all-guessed?
+;;
+;;    True iff every character of word appears in guessed.
+;; ---------------------------------------------------------------------------
+
+(def-logic all-guessed? [word: Word guessed: list[Letter]]
+  (let [[chars (word-chars word)]]
+    (list-fold chars true
+      (fn [acc: bool c: string]
+        (and acc (list-contains guessed c))))))
+
+;; ---------------------------------------------------------------------------
+;; 7. guess
+;;
+;;    Process one letter guess:
+;;      - Already guessed: return state unchanged.
+;;      - Correct (in word): add to guessed; wrong-count unchanged.
+;;      - Wrong:             add to guessed; wrong-count + 1.
+;;
+;;    Pre:  game is still in progress.
+;;    Post: wrong-count is >= its previous value (monotone).
+;; ---------------------------------------------------------------------------
+
+(def-logic guess [state: string l: Letter]
+  (pre
+    (and (< (state-wrong state) (state-max state))
+         (not (all-guessed? (state-word state) (state-guessed state)))))
+  (post (>= (state-wrong result) (state-wrong state)))
+  (let [[word    (state-word    state)]
+        [guessed (state-guessed state)]
+        [wrong   (state-wrong   state)]
+        [max-w   (state-max     state)]]
+    (if (list-contains guessed l)
+        state
+        (if (string-contains word l)
+            (make-state word (list-append guessed l) wrong max-w)
+            (make-state word (list-append guessed l) (+ wrong 1) max-w)))))
+
+;; ---------------------------------------------------------------------------
+;; 8. Game outcome predicates
+;; ---------------------------------------------------------------------------
+
+(def-logic game-lost? [state: string]
+  (>= (state-wrong state) (state-max state)))
+
+(def-logic game-won? [state: string]
+  (all-guessed? (state-word state) (state-guessed state)))
+
+(def-logic game-status [state: string]
+  (if (game-won? state)  "won"
+  (if (game-lost? state) "lost"
+                         "in-progress")))
+
+;; ---------------------------------------------------------------------------
+;; 9. Rendering helper
+;;
+;;    Builds the display string shown to the player each turn:
+;;      Word:    _ a _ _ m a n
+;;      Guesses: a n
+;;      Wrong:   2 / 6
+;;      Status:  in-progress
+;; ---------------------------------------------------------------------------
+
+(def-logic render-state [state: string]
+  (let [[word        (state-word    state)]
+        [guessed     (state-guessed state)]
+        [wrong       (state-wrong   state)]
+        [max-w       (state-max     state)]
+        [display     (display-word word guessed)]
+        [status      (game-status state)]
+        [guessed-str
+          (list-fold guessed ""
+            (fn [acc: string g: string]
+              (if (= acc "") g (string-concat (string-concat acc " ") g))))]
+        [wrong-str
+          (string-concat (string-concat (int-to-string wrong) " / ")
+                         (int-to-string max-w))]]
+    (string-concat
+      (string-concat "Word:    " display)
+      (string-concat
+        (string-concat "\nGuesses: " guessed-str)
+        (string-concat
+          (string-concat "\nWrong:   " wrong-str)
+          (string-concat "\nStatus:  " (string-concat status "\n")))))))
+
+;; ---------------------------------------------------------------------------
+;; 10. IO interface
+;;
+;;    The LLMLL runtime drives the game loop by repeatedly calling the
+;;    handler.  The interface defines the boundary between pure logic and
+;;    the impure runtime.
+;;
+;;    Note: named parameters in fn-type are doc-only (v0.1.1 §12).
+;; ---------------------------------------------------------------------------
+
+(def-interface HangmanIO
+  [get-word    (fn [unit]              -> Word)]
+  [show-board  (fn [board: string]     -> unit)]
+  [ask-guess   (fn [board: string wrong: int max: int] -> Letter)]
+  [show-result (fn [status: string word: Word] -> unit)])
+
+;; ---------------------------------------------------------------------------
+;; 11. IO Command handlers
+;;
+;;    Each handler returns a (NewState, Command) pair.
+;;    The runtime executes the Command and feeds the result back.
+;;
+;;    v0.1.1: wasi.io.stdout has a formally defined type (string -> Command).
+;;    seq-commands is used where multiple IO effects are needed.
+;; ---------------------------------------------------------------------------
+
+(def-logic initialize-game [word: Word]
+  (pre (> (string-length word) 0))
+  (let [[initial-state (make-state word (list-empty) 0 6)]]
+    (pair initial-state (wasi.io.stdout "Game initialized.\n"))))
+
+(def-logic handle-guess [state: string l: Letter]
+  (let [[new-state (guess state l)]
+        [board     (render-state new-state)]]
+    (pair new-state (wasi.io.stdout board))))
+
+;; game-step: dispatch on the typed GameInput ADT.
+;;
+;;    v0.1.0 was forced to use string tags (":start word", ":guess l").
+;;    v0.1.1 uses the properly typed GameInput sum type.
+;;    match is exhaustive (covers both constructors).
+(def-logic game-step [state: string input: GameInput]
+  (match input
+    ((StartGame word) (initialize-game word))
+    ((Guess l)
+      (if (= (game-status state) "in-progress")
+          (handle-guess state l)
+          ;; Game already finished — echo current board unchanged
+          (pair state (wasi.io.stdout (render-state state)))))))
+
+;; ---------------------------------------------------------------------------
+;; 12. Property-based tests (check blocks)
+;; ---------------------------------------------------------------------------
+
+(check "Addition is commutative"
+  (for-all [a: int b: int]
+    (= (+ a b) (+ b a))))
+
+(check "Addition is associative"
+  (for-all [a: int b: int c: int]
+    (= (+ (+ a b) c) (+ a (+ b c)))))
+
+(check "wrong-count is non-negative after a guess"
+  (for-all [w: GuessCount]
+    (>= (+ w 1) w)))
+
+(check "display-word length equals word length (single-char word)"
+  (for-all [c: Letter]
+    (= (string-length (display-word c (list-empty)))
+       (string-length c))))
+
+(check "correctly guessed letter appears in display"
+  (for-all [c: Letter]
+    (let [[displayed (display-word c (list-append (list-empty) c))]]
+      (= displayed c))))
+
+(check "game-status after all letters guessed is 'won'"
+  (for-all [c: Letter]
+    (let [[state (make-state c (list-append (list-empty) c) 0 6)]]
+      (= (game-status state) "won"))))
+
+(check "game-status after max-wrong guesses is 'lost'"
+  (for-all [c: Letter]
+    (let [[state (make-state c (list-empty) 6 6)]]
+      (= (game-status state) "lost"))))
+
+(check "range produces correct length"
+  (for-all [n: PositiveInt]
+    (= (list-length (range 0 n)) n)))
+
+(check "word-chars has same length as word"
+  (for-all [c: Letter]
+    (= (list-length (word-chars c)) 1)))

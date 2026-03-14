@@ -1,0 +1,137 @@
+;; =============================================================================
+;; hangman.llmll -- Hangman game logic in LLMLL
+;;
+;; Demonstrates:
+;;   - Dependent types  (Word, Letter, GuessCount)
+;;   - def-logic with pre/post contracts
+;;   - Holes (?display_word_impl, ?all_guessed_impl, ?guess_impl)
+;;   - check blocks with for-all property-based tests
+;;
+;; Rules:
+;;   - The secret word is provided by the runtime.
+;;   - The player guesses one letter at a time.
+;;   - Duplicate guess => no penalty, state unchanged.
+;;   - Wrong guess     => wrong-count incremented by 1.
+;;   - Won  when every letter in the word has been guessed.
+;;   - Lost when wrong-count >= max-wrong.
+;; =============================================================================
+
+;; ---------------------------------------------------------------------------
+;; 1.  Dependent types
+;; ---------------------------------------------------------------------------
+
+(type Word     (where [s: string] (> (string-length s) 0)))
+(type Letter   (where [s: string] (= (string-length s) 1)))
+(type GuessCount (where [n: int] (>= n 0)))
+
+;; ---------------------------------------------------------------------------
+;; 2.  Game state abstraction
+;;
+;;   State = (word, (guessed, (wrong-count, max-wrong)))
+;;
+;; LLMLL v0.1 has no record syntax; a pair-of-pairs encodes the record.
+;; ---------------------------------------------------------------------------
+
+(def-logic make-state
+    [word: Word guessed: list[Letter] wrong: GuessCount max-w: GuessCount]
+  (post (= result result))
+  (pair word (pair guessed (pair wrong max-w))))
+
+(def-logic state-word    [s: string] (first s))
+(def-logic state-guessed [s: string] (first (second s)))
+(def-logic state-wrong   [s: string] (first (second (second s))))
+(def-logic state-max     [s: string] (second (second (second s))))
+
+;; ---------------------------------------------------------------------------
+;; 3.  Core game logic -- implementations are holes (filled by an agent)
+;; ---------------------------------------------------------------------------
+
+;; The masked display string.
+;; E.g. word="hangman", guessed=["a","n"] => "_an_man"
+;; Post: same length as the secret word.
+(def-logic display-word
+    [word: Word guessed: list[Letter]]
+  (post (= (string-length result) (string-length word)))
+  ?display_word_impl)
+
+;; True when every character in word appears in guessed.
+(def-logic all-guessed?
+    [word: Word guessed: list[Letter]]
+  ?all_guessed_impl)
+
+;; Process one guess and return the updated state.
+;;   - Duplicate letter => unchanged
+;;   - Correct letter   => add to guessed, wrong-count unchanged
+;;   - Wrong letter     => add to guessed, wrong-count + 1
+;;
+;; Contract: wrong-count never decreases after a guess.
+(def-logic guess
+    [state: string l: Letter]
+  (pre
+    (and (< (state-wrong state) (state-max state))
+         (not (all-guessed? (state-word state) (state-guessed state)))))
+  (post (>= (state-wrong result) (state-wrong state)))
+  ?guess_impl)
+
+;; ---------------------------------------------------------------------------
+;; 4.  Game outcome predicates
+;; ---------------------------------------------------------------------------
+
+(def-logic game-lost?
+    [state: string]
+  (>= (state-wrong state) (state-max state)))
+
+(def-logic game-won?
+    [state: string]
+  (all-guessed? (state-word state) (state-guessed state)))
+
+(def-logic game-status
+    [state: string]
+  (if (game-won? state)
+      "won"
+      (if (game-lost? state)
+          "lost"
+          "in-progress")))
+
+;; ---------------------------------------------------------------------------
+;; 5.  IO interface (Command / Response -- the runtime drives the game loop)
+;;
+;; (def-interface HangmanIO
+;;   [get-word    (fn [] -> Word)]
+;;   [ask-guess   (fn [string int int] -> Letter)]
+;;   [show-result (fn [string Word] -> unit)])
+;; ---------------------------------------------------------------------------
+
+;; ---------------------------------------------------------------------------
+;; 6.  Property-based tests
+;;
+;;     Run with:  llmll test hangman.llmll
+;;     Build:     llmll build hangman.llmll
+;;
+;; Every check block is a (for-all ...) that the PBT engine samples 100x.
+;;
+;; The arithmetic properties below verify the invariants that the game logic
+;; relies on (monotone wrong-count, commutativity/associativity of +).
+;; The full game-logic properties (correct/wrong guess) require runtime
+;; evaluation of the hole implementations.
+;; ---------------------------------------------------------------------------
+
+;; Commutativity of addition.
+(check "Addition is commutative"
+  (for-all [a: int b: int]
+    (= (+ a b) (+ b a))))
+
+;; Associativity of addition.
+(check "Addition is associative"
+  (for-all [a: int b: int c: int]
+    (= (+ (+ a b) c) (+ a (+ b c)))))
+
+;; The wrong-count arithmetic: n+1 equals 1+n (needed for monotonicity proof).
+(check "Wrong count increment is commutative"
+  (for-all [w: int]
+    (= (+ w 1) (+ 1 w))))
+
+;; Idempotency of bool identity: (or true x) is not what we want -- (and p q).
+(check "And false short-circuits to false"
+  (for-all [x: bool]
+    (if (and false x) false true)))

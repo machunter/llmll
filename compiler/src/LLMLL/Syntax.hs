@@ -1,0 +1,336 @@
+{-# LANGUAGE StrictData #-}
+-- |
+-- Module      : LLMLL.Syntax
+-- Description : Core AST and type definitions for the LLMLL language.
+--
+-- This is the foundational module. Every other compiler phase depends on it.
+-- Defines the abstract syntax tree, the type system representation,
+-- hole kinds, statements, capabilities, and the Command/Response IO model.
+module LLMLL.Syntax
+  ( -- * Names and Source Locations
+    Name
+  , Span(..)
+  , Located(..)
+
+    -- * Types
+  , Type(..)
+  , typeLabel
+
+    -- * Expressions
+  , Expr(..)
+  , Literal(..)
+  , Pattern(..)
+  , DoStep(..)
+
+    -- * Holes
+  , HoleKind(..)
+  , DelegateSpec(..)
+  , ScaffoldSpec(..)
+
+    -- * Statements (Top-Level Forms)
+  , Statement(..)
+  , Module(..)
+  , Import(..)
+  , Capability(..)
+  , CapabilityKind(..)
+  , DeterministicFlag
+
+    -- * Contracts
+  , Contract(..)
+
+    -- * Properties (check blocks)
+  , Property(..)
+
+    -- * Built-in Types
+  , DelegationError(..)
+
+    -- * Replay Status
+  , ReplayStatus(..)
+
+    -- * Commands
+  , Command(..)
+  ) where
+
+import Data.Text (Text)
+import qualified Data.Text as T
+import GHC.Generics (Generic)
+
+-- ---------------------------------------------------------------------------
+-- Names & Source Location
+-- ---------------------------------------------------------------------------
+
+-- | All identifiers in LLMLL are represented as Text.
+type Name = Text
+
+-- | Source span for error reporting.
+data Span = Span
+  { spanFile   :: FilePath
+  , spanLine   :: Int
+  , spanCol    :: Int
+  , spanEndLine :: Int
+  , spanEndCol  :: Int
+  } deriving (Show, Eq, Ord, Generic)
+
+-- | A value annotated with source location.
+data Located a = Located
+  { locSpan  :: Span
+  , locValue :: a
+  } deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Type System
+-- ---------------------------------------------------------------------------
+
+-- | The LLMLL type representation.
+--
+-- In v0.1, dependent types ('TDependent') store the constraint as a raw
+-- expression AST — parsed but not evaluated at compile time.
+data Type
+  = TInt                          -- ^ 64-bit integer
+  | TFloat                        -- ^ 64-bit float
+  | TString                       -- ^ UTF-8 string
+  | TBool                         -- ^ Boolean
+  | TUnit                         -- ^ No value (void)
+  | TBytes Int                    -- ^ Fixed-length byte array, e.g. bytes[64]
+  | TList Type                    -- ^ Homogeneous list
+  | TMap Type Type                -- ^ Key-value dictionary
+  | TResult Type Type             -- ^ Sum type: Success(t) | Error(e)
+  | TFn [Type] Type               -- ^ Function type: [arg types] -> return type
+  | TPromise Type                 -- ^ Async result wrapper
+  | TDependent Type Expr          -- ^ Dependent type: base type + constraint expr
+  | TDelegationError              -- ^ Built-in DelegationError sum type
+  | TVar Name                     -- ^ Type variable (for generics / interfaces)
+  | TCustom Name                  -- ^ User-defined type name
+  deriving (Show, Eq, Generic)
+
+-- | Human-readable label for a type (for error messages).
+typeLabel :: Type -> Text
+typeLabel TInt            = "int"
+typeLabel TFloat          = "float"
+typeLabel TString         = "string"
+typeLabel TBool           = "bool"
+typeLabel TUnit           = "unit"
+typeLabel (TBytes n)      = "bytes[" <> tshow n <> "]"
+typeLabel (TList t)       = "list[" <> typeLabel t <> "]"
+typeLabel (TMap k v)      = "map[" <> typeLabel k <> "," <> typeLabel v <> "]"
+typeLabel (TResult t e)   = "Result[" <> typeLabel t <> "," <> typeLabel e <> "]"
+typeLabel (TFn args ret)  = "fn[" <> tshow (length args) <> " args] -> " <> typeLabel ret
+typeLabel (TPromise t)    = "Promise[" <> typeLabel t <> "]"
+typeLabel (TDependent b _)= typeLabel b <> " (constrained)"
+typeLabel TDelegationError = "DelegationError"
+typeLabel (TVar n)        = n
+typeLabel (TCustom n)     = n
+
+tshow :: Show a => a -> Text
+tshow = T.pack . show
+
+-- ---------------------------------------------------------------------------
+-- Literals
+-- ---------------------------------------------------------------------------
+
+data Literal
+  = LitInt Integer
+  | LitFloat Double
+  | LitString Text
+  | LitBool Bool
+  | LitUnit
+  deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Patterns (for match expressions)
+-- ---------------------------------------------------------------------------
+
+data Pattern
+  = PConstructor Name [Pattern]   -- ^ e.g. Success(x), Error(e)
+  | PVar Name                     -- ^ Variable binding
+  | PLiteral Literal              -- ^ Literal pattern
+  | PWildcard                     -- ^ Catch-all _
+  deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Expressions
+-- ---------------------------------------------------------------------------
+
+data Expr
+  = ELit Literal                       -- ^ Literal value
+  | EVar Name                          -- ^ Variable reference
+  | ELet [(Name, Maybe Type, Expr)] Expr -- ^ Let bindings with body
+  | EIf Expr Expr Expr                 -- ^ Conditional
+  | EMatch Expr [(Pattern, Expr)]      -- ^ Pattern matching
+  | EApp Name [Expr]                   -- ^ Function application
+  | EOp Name [Expr]                    -- ^ Operator application (+, -, >=, =, etc.)
+  | EPair Expr Expr                    -- ^ Pair constructor (for state + command)
+  | EHole HoleKind                     -- ^ Hole (ambiguity marker)
+  | EAwait Expr                        -- ^ Await a Promise
+  | ELambda [(Name, Type)] Expr        -- ^ Anonymous function
+  | EDo [DoStep]                       -- ^ Monadic do-notation (v0.2 prep)
+  deriving (Show, Eq, Generic)
+
+-- | A step in a do-block.
+data DoStep
+  = DoBind Name Expr     -- ^ name <- expr
+  | DoExpr Expr          -- ^ bare expression (final)
+  deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Holes
+-- ---------------------------------------------------------------------------
+
+-- | The different kinds of holes in LLMLL.
+data HoleKind
+  = HNamed Name                   -- ^ ?implementation_detail
+  | HChoose [Name]                -- ^ ?choose(option1, option2)
+  | HRequestCap Text              -- ^ ?request-cap(wasi.net.connect)
+  | HScaffold ScaffoldSpec        -- ^ ?scaffold(template ...)
+  | HDelegate DelegateSpec        -- ^ ?delegate @agent "desc" -> type
+  | HDelegateAsync DelegateSpec   -- ^ ?delegate-async @agent "desc" -> type
+  | HDelegatePending Type         -- ^ Unresolved delegate (blocks execution)
+  | HConflictResolution           -- ^ Merge conflict marker
+  deriving (Show, Eq, Generic)
+
+-- | Specification for a scaffold hole.
+data ScaffoldSpec = ScaffoldSpec
+  { scaffoldTemplate :: Name
+  , scaffoldLanguage :: Maybe Text
+  , scaffoldModules  :: [Name]
+  , scaffoldStyle    :: Maybe Text
+  , scaffoldVersion  :: Maybe Text
+  } deriving (Show, Eq, Generic)
+
+-- | Specification for a delegate hole.
+data DelegateSpec = DelegateSpec
+  { delegateAgent       :: Name          -- ^ Target agent (@crypto-agent)
+  , delegateDescription :: Text          -- ^ Task description string
+  , delegateReturnType  :: Type          -- ^ Required return type
+  , delegateOnFailure   :: Maybe Expr    -- ^ Optional fallback expression
+  } deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Contracts
+-- ---------------------------------------------------------------------------
+
+-- | Pre/post conditions for a def-logic function.
+data Contract = Contract
+  { contractPre  :: Maybe Expr   -- ^ Precondition (must evaluate to bool)
+  , contractPost :: Maybe Expr   -- ^ Postcondition (must evaluate to bool)
+  } deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Properties (check blocks)
+-- ---------------------------------------------------------------------------
+
+-- | A property-based test specification.
+data Property = Property
+  { propDescription :: Text
+  , propBindings    :: [(Name, Type)]   -- ^ for-all bindings
+  , propBody        :: Expr             -- ^ Property body (must be bool)
+  } deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Statements (Top-Level Forms)
+-- ---------------------------------------------------------------------------
+
+data Statement
+  = SDefLogic
+    { defLogicName   :: Name
+    , defLogicParams :: [(Name, Type)]
+    , defLogicReturn :: Maybe Type
+    , defLogicContract :: Contract
+    , defLogicBody   :: Expr
+    }
+  | SDefInterface
+    { defInterfaceName :: Name
+    , defInterfaceFns  :: [(Name, Type)]  -- ^ Function signatures
+    }
+  | STypeDef
+    { typeDefName :: Name
+    , typeDefBody :: Type
+    }
+  | SCheck Property
+  | SImport Import
+  | SExpr Expr           -- ^ Top-level expression
+  deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Modules
+-- ---------------------------------------------------------------------------
+
+-- | A complete LLMLL module.
+data Module = Module
+  { moduleName    :: Name
+  , moduleImports :: [Import]
+  , moduleBody    :: [Statement]
+  } deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Imports & Capabilities
+-- ---------------------------------------------------------------------------
+
+data Import = Import
+  { importPath        :: Name                  -- ^ e.g. "wasi.filesystem"
+  , importInterface   :: Maybe [(Name, Type)]  -- ^ Optional interface spec
+  , importCapability  :: Maybe Capability      -- ^ Required capability grant
+  } deriving (Show, Eq, Generic)
+
+-- | Whether a capability uses deterministic logging.
+type DeterministicFlag = Bool
+
+data Capability = Capability
+  { capKind          :: CapabilityKind
+  , capTarget        :: Text                   -- ^ e.g. "/data", "https://...", "8080"
+  , capDeterministic :: DeterministicFlag       -- ^ :deterministic true
+  } deriving (Show, Eq, Generic)
+
+data CapabilityKind
+  = CapRead
+  | CapWrite
+  | CapReadWrite
+  | CapNetConnect
+  | CapNetServe
+  | CapHttpPost
+  | CapHttpGet
+  | CapClockMonotonic
+  | CapRandomGet
+  | CapCpu Text          -- ^ CPU capability with core count
+  | CapCustom Text       -- ^ Custom / extensible
+  deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Built-in Error Types
+-- ---------------------------------------------------------------------------
+
+-- | The DelegationError sum type — built into the language.
+data DelegationError
+  = AgentTimeout
+  | AgentCrash
+  | TypeMismatch
+  | AgentNotFound
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Replay Status
+-- ---------------------------------------------------------------------------
+
+-- | Whether a module is replayable (all non-deterministic capabilities
+-- use :deterministic true) or best-effort.
+data ReplayStatus
+  = Replayable       -- ^ ✅ All deterministic
+  | BestEffortReplay -- ^ ⚠️ Some non-deterministic capabilities
+  deriving (Show, Eq, Generic)
+
+-- ---------------------------------------------------------------------------
+-- Commands (IO Model)
+-- ---------------------------------------------------------------------------
+
+-- | A Command represents an IO intent returned by pure logic.
+-- The runtime inspects and executes these.
+data Command
+  = CmdHttpResponse Int Text       -- ^ Status code + body
+  | CmdHttpRequest Text Text Text  -- ^ Method, URL, body
+  | CmdFsRead FilePath
+  | CmdFsWrite FilePath Text
+  | CmdFsDelete FilePath
+  | CmdDbQuery Text                -- ^ Query string
+  | CmdDbInsert Text Text          -- ^ Table, data
+  | CmdCustom Name [Expr]          -- ^ Extensible command
+  deriving (Show, Eq, Generic)

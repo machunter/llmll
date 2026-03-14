@@ -1,0 +1,137 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.38.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           llmll
+version:        0.1.0
+synopsis:       LLMLL compiler - AI-to-AI programming language
+description:    Compiler for the Large Language Model Logical Language
+author:         LLMLL Team
+maintainer:     llmll@example.com
+license:        MIT
+build-type:     Simple
+
+library
+  exposed-modules:
+      LLMLL.Syntax
+      LLMLL.Lexer
+      LLMLL.Parser
+      LLMLL.TypeCheck
+      LLMLL.HoleAnalysis
+      LLMLL.Contracts
+      LLMLL.PBT
+      LLMLL.Codegen
+      LLMLL.Diagnostic
+  other-modules:
+      Main
+      Paths_llmll
+  hs-source-dirs:
+      src
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      LambdaCase
+      TupleSections
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      QuickCheck >=2.14
+    , aeson >=2.1
+    , base >=4.18 && <5
+    , bytestring >=0.11
+    , containers >=0.6
+    , directory >=1.3
+    , filepath >=1.4
+    , megaparsec >=9.5
+    , mtl >=2.3
+    , optparse-applicative >=0.18
+    , parser-combinators >=1.3
+    , pretty-simple >=4.1
+    , process >=1.6
+    , text >=2.0
+    , vector >=0.13
+  default-language: Haskell2010
+
+executable llmll
+  main-is: Main.hs
+  other-modules:
+      LLMLL.Codegen
+      LLMLL.Contracts
+      LLMLL.Diagnostic
+      LLMLL.HoleAnalysis
+      LLMLL.Lexer
+      LLMLL.Parser
+      LLMLL.PBT
+      LLMLL.Syntax
+      LLMLL.TypeCheck
+      Paths_llmll
+  hs-source-dirs:
+      src
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      LambdaCase
+      TupleSections
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      QuickCheck >=2.14
+    , aeson >=2.1
+    , base >=4.18 && <5
+    , bytestring >=0.11
+    , containers >=0.6
+    , directory >=1.3
+    , filepath >=1.4
+    , llmll
+    , megaparsec >=9.5
+    , mtl >=2.3
+    , optparse-applicative >=0.18
+    , parser-combinators >=1.3
+    , pretty-simple >=4.1
+    , process >=1.6
+    , text >=2.0
+    , vector >=0.13
+  default-language: Haskell2010
+
+test-suite llmll-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_llmll
+  hs-source-dirs:
+      test
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      LambdaCase
+      TupleSections
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      QuickCheck
+    , aeson >=2.1
+    , base >=4.18 && <5
+    , bytestring >=0.11
+    , containers >=0.6
+    , directory >=1.3
+    , filepath >=1.4
+    , hspec >=2.11
+    , hspec-megaparsec >=2.2
+    , llmll
+    , megaparsec >=9.5
+    , mtl >=2.3
+    , optparse-applicative >=0.18
+    , parser-combinators >=1.3
+    , pretty-simple >=4.1
+    , process >=1.6
+    , text >=2.0
+    , vector >=0.13
+  default-language: Haskell2010

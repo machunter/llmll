@@ -1,0 +1,21 @@
+;; Example: withdraw function from LLMLL spec Section 4
+;; Tests basic def-logic, pre/post contracts, and dependent types.
+
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def-logic withdraw [balance: int amount: PositiveInt]
+  (pre (>= balance amount))
+  (post (= result (- balance amount)))
+  (- balance amount))
+
+;; Property-based test from spec Section 5.2
+(check "Withdraw never produces negative balance"
+  (for-all [b: int a: PositiveInt]
+    (if (>= b a)
+        (>= (withdraw b a) 0)
+        true)))
+
+;; Property: addition is commutative
+(check "Addition is commutative"
+  (for-all [a: int b: int]
+    (= (+ a b) (+ b a))))
