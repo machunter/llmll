@@ -1,0 +1,9 @@
+.stack-work/
+dist-newstyle/
+.DS_Store
+target/
+compiler/src/Main
+generated/hangman/target/
+generated/hangman/Cargo.lock
+runtime/target/
+runtime/Cargo.lock
