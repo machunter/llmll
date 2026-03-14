@@ -95,6 +95,7 @@ pStatement = choice
   , try pDefInterface
   , try pTypeDef
   , try pCheckBlock
+  , try pGenDecl
   , try pImportStmt
   , SExpr <$> pExpr
   ]
@@ -104,11 +105,18 @@ pDefLogic :: Parser Statement
 pDefLogic = parens $ do
   _ <- symbol "def-logic"
   name <- pIdent
-  params <- brackets (many pTypedParam)
+  params <- brackets (many pDefParam)
   mPre  <- optional (try pPreClause)
   mPost <- optional (try pPostClause)
   body <- pExpr
   pure $ SDefLogic name params Nothing (Contract mPre mPost) body
+
+-- | A def-logic param is either a typed binding (name: type) or a bare name.
+-- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
+pDefParam :: Parser (Name, Type)
+pDefParam = try pTypedParam <|> do
+  n <- pIdent
+  pure (n, TCustom "_")
 
 -- | Parse (def-interface Name [fn-sig ...])
 pDefInterface :: Parser Statement
@@ -151,7 +159,7 @@ pTypeDef = parens $ do
 pTypeBody :: Parser Type
 pTypeBody = choice
   [ try pWhereType   -- (where [x: base] constraint)
-  , try pSumType     -- (| Variant1 Variant2 ...)
+  , try pSumTypeMultiArm     -- (| Ctor1 Payload) (| Ctor2 Payload) ...
   , pType
   ]
 
@@ -163,13 +171,23 @@ pWhereType = parens $ do
   constraint <- pExpr
   pure $ TDependent baseTy constraint
 
--- | Parse sum type: (| Variant1 Variant2 ...)
-pSumType :: Parser Type
-pSumType = parens $ do
+-- | Parse one ADT arm: (| ConstructorName [PayloadType])
+--   e.g.  (| StartGame Word)   or   (| Guess Letter)
+pSumArm :: Parser (Name, Maybe Type)
+pSumArm = parens $ do
   _ <- symbol "|"
-  variants <- some pIdent
-  -- Represent as a custom type for now (sum types need richer representation)
-  pure $ TCustom (T.intercalate " | " variants)
+  ctor <- pIdent
+  payload <- optional pType
+  pure (ctor, payload)
+
+-- | Parse a sum type with one or more (| Ctor Payload) arms.
+-- The arms are direct children of the enclosing (type ...) parens,
+-- so we do NOT wrap this in another parens call.
+pSumTypeMultiArm :: Parser Type
+pSumTypeMultiArm = do
+  arms <- some (try pSumArm)
+  let label = T.intercalate " | " (map fst arms)
+  pure $ TCustom label
 
 -- | Parse (check "description" (for-all [...] body))
 pCheckBlock :: Parser Statement
@@ -178,6 +196,16 @@ pCheckBlock = parens $ do
   desc <- pStringLiteral
   prop <- pForAll
   pure $ SCheck (Property desc (propBindings prop) (propBody prop))
+
+-- | Parse (gen TypeName generator-expr)
+-- Introduces a custom PBT generator for a named type (LLMLL v0.1.1 §5.2).
+-- Represented as a top-level SExpr since Statement doesn't have a GenDecl arm yet.
+pGenDecl :: Parser Statement
+pGenDecl = parens $ do
+  _ <- symbol "gen"
+  _typeName <- pIdent
+  genExpr <- pExpr
+  pure $ SExpr genExpr  -- store the generator expression; type index deferred to v0.2
 
 -- | Parse (for-all [bindings] body) or (∀ [bindings] body)
 pForAll :: Parser Property
@@ -300,6 +328,7 @@ pExpr = choice
   [ try pLetExpr
   , try pIfExpr
   , try pMatchExpr
+  , try pFnExpr        -- (fn [params] body) lambda in expression position
   , try pPairExpr
   , try pAwaitExpr
   , try pDoExpr
@@ -307,6 +336,17 @@ pExpr = choice
   , try pSExprApp     -- (func args...)
   , pAtom
   ]
+
+-- | Parse (fn [typed-params] body) or (fn [typed-params] -> ret-type body)
+-- Anonymous function / lambda expression.
+-- The -> ret-type annotation is optional; we only parse it if '->' is present.
+pFnExpr :: Parser Expr
+pFnExpr = parens $ do
+  _ <- try (symbol "fn") <|> (T.singleton <$> char '\x03BB' <* sc)  -- fn or λ
+  params <- brackets (many pDefParam)
+  _ <- optional (try (pArrowSym *> pType))  -- only consume type when -> present
+  body <- pExpr
+  pure $ ELambda params body
 
 -- | Parse (let [bindings] body)
 pLetExpr :: Parser Expr
@@ -346,12 +386,18 @@ pMatchCase = parens $ do
   body <- pExpr
   pure (pat, body)
 
+-- | Parse pattern in match arm.
+-- Handles:
+--   (Ctor var1 var2)  — constructor pattern with arguments, wrapped in parens
+--   _                 — wildcard
+--   literal           — literal
+--   ident             — variable binding
 pPattern :: Parser Pattern
 pPattern = choice
   [ PWildcard <$ symbol "_"
-  , try $ do
+  , try $ parens $ do   -- (Ctor arg1 arg2 ...) constructor pattern
       name <- pIdent
-      args <- parens (many pPattern)
+      args <- many pPattern
       pure $ PConstructor name args
   , PLiteral <$> pLiteral
   , PVar <$> pIdent

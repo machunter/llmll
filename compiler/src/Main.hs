@@ -21,7 +21,8 @@ import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Options.Applicative
 
-import LLMLL.Parser (parseStatements)
+import LLMLL.Parser (parseStatements, parseModule)
+import LLMLL.Syntax (Statement, Module(..))
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
@@ -101,15 +102,29 @@ main = do
     CmdRepl               -> doRepl
 
 -- ---------------------------------------------------------------------------
+-- Shared source loader: try parseModule first, fall back to parseStatements
+-- ---------------------------------------------------------------------------
+
+-- | Parse a .llmll file that may or may not have a top-level (module ...) wrapper.
+-- Returns the flat list of statements on success.
+parseSrc :: FilePath -> T.Text -> Either T.Text [Statement]
+parseSrc fp src =
+  case parseModule fp src of
+    Right (Module _ _ body) -> Right body
+    Left _  ->
+      case parseStatements fp src of
+        Right stmts -> Right stmts
+        Left err    -> Left (T.pack (show err))
+
+-- ---------------------------------------------------------------------------
 -- check
 -- ---------------------------------------------------------------------------
 
 doCheck :: Bool -> FilePath -> IO ()
 doCheck json fp = do
   src <- TIO.readFile fp
-  case parseStatements fp src of
-    Left err -> do
-      let msg = "Parse error: " <> T.pack (show err)
+  case parseSrc fp src of
+    Left msg -> do
       if json
         then putJsonError "parse" fp msg
         else TIO.putStrLn $ "error: " <> msg
@@ -120,7 +135,7 @@ doCheck json fp = do
         then TIO.putStrLn (formatReportJson report)
         else if reportSuccess report
           then TIO.putStrLn $
-            "✅ " <> T.pack fp <> " — OK (" <> tshow (length stmts) <> " statements)"
+            "\x2705 " <> T.pack fp <> " \8212 OK (" <> tshow (length stmts) <> " statements)"
           else mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
       if reportSuccess report then exitSuccess else exitFailure
 
@@ -131,9 +146,8 @@ doCheck json fp = do
 doHoles :: Bool -> FilePath -> IO ()
 doHoles json fp = do
   src <- TIO.readFile fp
-  case parseStatements fp src of
-    Left err -> do
-      let msg = "Parse error: " <> T.pack (show err)
+  case parseSrc fp src of
+    Left msg -> do
       if json then putJsonError "holes" fp msg else TIO.putStrLn $ "error: " <> msg
       exitFailure
     Right stmts -> do
@@ -142,7 +156,7 @@ doHoles json fp = do
         then TIO.putStrLn (holeReportJson fp report)
         else do
           TIO.putStrLn $
-            T.pack fp <> " — " <> tshow (totalHoles report)
+            T.pack fp <> " \8212 " <> tshow (totalHoles report)
             <> " holes (" <> tshow (blockingHoles report) <> " blocking)"
           mapM_ printHoleEntry (holeEntries report)
       exitSuccess
@@ -177,9 +191,8 @@ holeReportJson fp report =
 doTest :: Bool -> FilePath -> IO ()
 doTest json fp = do
   src <- TIO.readFile fp
-  case parseStatements fp src of
-    Left err -> do
-      let msg = "Parse error: " <> T.pack (show err)
+  case parseSrc fp src of
+    Left msg -> do
       if json then putJsonError "test" fp msg else TIO.putStrLn $ "error: " <> msg
       exitFailure
     Right stmts -> do
@@ -228,9 +241,8 @@ pbtResultJson fp r =
 doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> IO ()
 doBuild json fp mOutDir doWasm = do
   src <- TIO.readFile fp
-  case parseStatements fp src of
-    Left err -> do
-      let msg = "Parse error: " <> T.pack (show err)
+  case parseSrc fp src of
+    Left msg -> do
       if json then putJsonError "build" fp msg else TIO.putStrLn $ "error: " <> msg
       exitFailure
     Right stmts -> do

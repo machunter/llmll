@@ -23,11 +23,11 @@
 ;;   - Wrong guess     => wrong-count incremented by 1.
 ;;   - Won  when every letter in the word has been guessed.
 ;;   - Lost when wrong-count >= max-wrong.
+;;
+;; Required capabilities (declared at module level when the runtime supports it):
+;;   (import wasi.io (capability stdin  :deterministic true))
+;;   (import wasi.io (capability stdout :deterministic false))
 ;; =============================================================================
-
-(module hangman
-  (import wasi.io (capability stdin  :deterministic true))
-  (import wasi.io (capability stdout :deterministic false)))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. Custom ADT: typed game input

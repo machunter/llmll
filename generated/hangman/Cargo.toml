@@ -1,0 +1,14 @@
+[package]
+name = "hangman-complete"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# LLMLL runtime support
+
+[dev-dependencies]
+proptest = "1"
+
+[lib]
+name = "hangman_complete"
+path = "src/lib.rs"

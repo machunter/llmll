@@ -45,7 +45,12 @@ Available commands:
 
 ## 2.  Write an LLMLL Program
 
-LLMLL uses S-expression syntax (Lisp-style). Here is the **Hangman** example from `examples/hangman.llmll`. We will walk through it step by step and then run every compiler command against it.
+LLMLL uses S-expression syntax (Lisp-style). This guide uses two examples:
+
+| File | Description |
+|------|-------------|
+| [`examples/hangman.llmll`](examples/hangman.llmll) | Annotated draft with holes — shows the language iteratively |
+| [`examples/hangman_complete.llmll`](examples/hangman_complete.llmll) | Complete v0.1.1 implementation — run this end-to-end |
 
 ### 2.1  Dependent types
 
@@ -237,6 +242,79 @@ Goodbye.
 
 ---
 
+## 3b. Compiling `hangman_complete.llmll` (v0.1.1 — all holes filled)
+
+All commands are run from the `compiler/` directory.
+
+### check — parse + type-check
+
+```bash
+stack exec llmll -- check ../examples/hangman_complete.llmll
+```
+
+```
+✅ ../examples/hangman_complete.llmll — OK (29 statements)
+```
+
+*(Type-check warnings about built-in functions like `string-length`, `range`, `list-map` are expected — v0.1 type-checker does not model the standard library.)*
+
+### holes — confirm all holes are filled
+
+```bash
+stack exec llmll -- holes ../examples/hangman_complete.llmll
+```
+
+```
+../examples/hangman_complete.llmll — 0 holes (0 blocking)
+```
+
+### test — run property-based tests
+
+```bash
+stack exec llmll -- test ../examples/hangman_complete.llmll
+```
+
+```
+../examples/hangman_complete.llmll — 9 properties
+  ✅ Passed:  3
+  ❌ Failed:  0
+  ⚠️  Skipped: 6
+```
+
+6 properties are skipped because they reference custom types (`Word`, `Letter`, `GuessCount`) whose PBT generators are not yet wired to the Haskell runtime (the `gen` declaration registers them at WASM runtime only in v0.1.1). The 3 algebraic properties pass unconditionally.
+
+### build — generate Rust crate
+
+```bash
+stack exec llmll -- build ../examples/hangman_complete.llmll -o ../generated/hangman
+```
+
+```
+✅ Generated Rust crate: ../generated/hangman
+   src/lib.rs — 10482 chars
+   ℹ️  pass --wasm to compile to WebAssembly (requires wasm-pack)
+```
+
+The generated crate is at `generated/hangman/`. Compile and test it with Rust:
+
+```bash
+# From the project root:
+cd generated/hangman
+cargo build
+cargo test
+```
+
+### (optional) build to WebAssembly
+
+```bash
+# From compiler/:
+stack exec llmll -- build ../examples/hangman_complete.llmll -o ../generated/hangman --wasm
+```
+
+This invokes `wasm-pack build --target web --release` and writes the WASM bundle to `generated/hangman/pkg/`.
+
+---
+
 ## 4.  Generated Rust Crate
 
 The `build` command writes two files:
@@ -297,8 +375,9 @@ cargo test
   ...)
 ```
 
-> **Important gotchas in v0.1**
+> **Important gotchas in v0.1.1**
 > - No list literal syntax (`["a"]` is invalid as an expression; use `(list-empty)` / `(list-append ...)` to build lists).
 > - `check` always requires `(for-all ...)` — bare expressions aren't valid.
 > - `def-logic` does not support `: ReturnType` annotations; return types are inferred.
-> - Unicode characters (em-dash `—`, arrow `→`) are **not** allowed inside source files because the lexer only accepts ASCII.
+> - **Unicode symbol aliases ARE supported** since v0.1.1: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ` are valid aliases for their ASCII counterparts. Unicode *identifiers* remain forbidden (see `analysis/unicode_decision.md`).
+> - `gen TypeName expr` declares a custom PBT generator (v0.1.1 §5.2). The expression wires into the WASM runtime; Haskell-side PBT in `stack test` skips properties that reference custom-typed generators.
