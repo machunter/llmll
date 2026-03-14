@@ -291,17 +291,17 @@ stack exec llmll -- build ../examples/hangman_complete.llmll -o ../generated/han
 
 ```
 ✅ Generated Rust crate: ../generated/hangman
-   src/lib.rs — 10482 chars
+   src/lib.rs — 12845 chars
    ℹ️  pass --wasm to compile to WebAssembly (requires wasm-pack)
 ```
 
-The generated crate is at `generated/hangman/`. Compile and test it with Rust:
+The generated crate is at `generated/hangman/`. The compiler generates the core logic as a library in `src/lib.rs`. To run the game interactively in your terminal, simply add a `src/main.rs` that drives the game loop, and run:
 
 ```bash
 # From the project root:
 cd generated/hangman
 cargo build
-cargo test
+cargo run
 ```
 
 ### (optional) build to WebAssembly
@@ -326,7 +326,7 @@ generated/hangman/
 ```
 
 The generated code includes:
-- **Dependent-type validators** (`pub fn validate_Word(s: &str) -> bool`)
+- **`LlmllVal` Runtime** a comprehensive dynamic runtime handling all LLMLL types and values.
 - **Logic functions** with `assert!()` guards for pre/post contracts
 - **Hole stubs** that compile but panic at runtime: `todo!("?guess_impl")`
 - **A `#[cfg(test)]` module** with proptest-style stubs for each `check` block

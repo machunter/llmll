@@ -221,7 +221,7 @@ The decision was to:
 
 ## Codegen.hs
 
-### 1. ADT sum types → Rust `enum`
+### 1. ADT sum types → `LlmllVal` Type Aliases
 
 **Before.** A type defined with `(type GameInput (| StartGame Word) (| Guess Letter))`
 was emitted as:
@@ -230,17 +230,10 @@ was emitted as:
 pub type GameInput = StartGame | Guess;  // invalid Rust!
 ```
 
-**After.** `emitTypeDef` detects the `" | "` separator in the `TCustom` label and
-emits a proper Rust `enum` with a `use Enum::*;` glob import to bring variants
-into scope for match arms:
+**After.** `emitTypeDef` now emits all LLMLL types, including sum types, as aliases to the `LlmllVal` dynamic type. The structure of the ADT is handled dynamically at runtime via the `LlmllVal::Adt(String, Vec<LlmllVal>)` variant. 
 
 ```rust
-#[derive(Debug, Clone, PartialEq)]
-pub enum GameInput {
-    StartGame(String),
-    Guess(String),
-}
-use GameInput::*;
+pub type GameInput = LlmllVal;
 ```
 
 ---
@@ -289,71 +282,51 @@ isTypeDef _                                  = False
 
 ---
 
-### 4. `LlmllVal` — dynamic value type for untyped functions
+### 4. `LlmllVal` — pure dynamic runtime for LLMLL v0.1
 
-LLMLL v0.1 does not infer return types for `def-logic` functions that lack an
-explicit `-> RetType` annotation (the parser stores `Nothing` for `defLogicReturn`
-in those cases).  Rust requires explicit return type annotations on free functions,
-so the codegen must emit _something_.
+Because LLMLL v0.1 does not feature full type inference and allows highly dynamic patterns (like conditional returns that aren't strictly unified), the codegen has been refactored to a **Pure Dynamic Runtime** model.
 
-The generated `lib.rs` header now declares a `LlmllVal` enum:
+The generated `lib.rs` header now declares a comprehensive `LlmllVal` enum representing any possible runtime value:
 
 ```rust
-pub enum LlmllVal { Int(i64), Float(f64), Text(String), Bool(bool),
-                    Unit, List(Vec<LlmllVal>), Pair(Box<LlmllVal>, Box<LlmllVal>) }
+#[derive(Debug, Clone, PartialEq)]
+pub enum LlmllVal {
+    Int(i64),
+    Float(f64),
+    Text(String),
+    Bool(bool),
+    Unit,
+    List(Vec<LlmllVal>),
+    Pair(Box<LlmllVal>, Box<LlmllVal>),
+    Adt(String, Vec<LlmllVal>),
+}
 ```
 
-It implements `From<i64>`, `From<String>`, `From<bool>`, `From<Vec<String>>`,
-`From<(A,B)>` (tuple → Pair), plus `Add`, `Not`, `PartialEq`, and `PartialOrd`
-so that LLMLL operators (`+`, `not`, `=`, `<`, `>=`) compile without errors.
-
-Untyped functions emit `-> LlmllVal` and wrap their body with `.into()`.  Typed
-functions (those where LLMLL explicitly declares the return type) emit their
-concrete Rust type unchanged.
+ALL types in LLMLL code (parameters, return types, interfaces, etc.) are compiled to `LlmllVal` in Rust. `LlmllVal` implements various traits (`From`, `Add`, `Not`, `PartialEq`, `PartialOrd`) so that logic expressions transcribe cleanly.
 
 ---
 
 ### 5. Standard library stubs in the generated header
 
 All LLMLL built-in functions that the hangman example calls are now emitted inline
-at the top of every generated `lib.rs`, so the crate compiles with no external
-dependency:
+at the top of every generated `lib.rs`, and they rigorously operate on `LlmllVal`:
 
 | LLMLL built-in | Rust signature |
 |---|---|
-| `string-length` | `fn string_length(s: impl AsRef<str>) -> i64` |
-| `string-char-at` | `fn string_char_at(s: impl AsRef<str>, i: i64) -> String` |
-| `string-contains` | `fn string_contains(h: impl AsRef<str>, n: impl AsRef<str>) -> bool` |
-| `string-concat` | `fn string_concat(a: String, b: String) -> String` |
-| `int-to-string` | `fn int_to_string(n: i64) -> String` |
-| `range` | `fn range(from: i64, to: i64) -> Vec<i64>` |
-| `list-empty` | `fn list_empty<T>() -> Vec<T>` |
-| `list-append` | `fn list_append<T: Clone>(v, x) -> Vec<T>` |
-| `list-map` | `fn list_map<T,U>(v, f) -> Vec<U>` |
-| `list-fold` | `fn list_fold<T,U>(v, init, f) -> U` |
-| `pair` | `fn pair(a, b) -> LlmllVal` (LlmllVal::Pair) |
+| `string-length` | `fn string_length(s: LlmllVal) -> LlmllVal` |
+| `string-char-at` | `fn string_char_at(s: LlmllVal, i: LlmllVal) -> LlmllVal` |
+| `string-contains` | `fn string_contains(haystack: LlmllVal, needle: LlmllVal) -> LlmllVal` |
+| `string-concat` | `fn string_concat(a: LlmllVal, b: LlmllVal) -> LlmllVal` |
+| `int-to-string` | `fn int_to_string(n: LlmllVal) -> LlmllVal` |
+| `range` | `fn range(from: LlmllVal, to: LlmllVal) -> LlmllVal` |
+| `list-empty` | `fn list_empty() -> LlmllVal` |
+| `list-append` | `fn list_append(v: LlmllVal, x: LlmllVal) -> LlmllVal` |
+| `list-map` | `fn list_map(v: LlmllVal, f: impl Fn(LlmllVal) -> LlmllVal) -> LlmllVal` |
+| `list-fold` | `fn list_fold(v: LlmllVal, init: LlmllVal, f: impl Fn(LlmllVal, LlmllVal) -> LlmllVal) -> LlmllVal` |
+| `pair` | `fn pair(a: LlmllVal, b: LlmllVal) -> LlmllVal` |
 | `first` | `fn first(p: LlmllVal) -> LlmllVal` |
 | `second` | `fn second(p: LlmllVal) -> LlmllVal` |
-| `wasi.io.stdout` | `fn wasi_io_stdout(s) -> Command` (String stub) |
-
-`string_length` and friends accept `impl AsRef<str>` so they work with both
-`&str` and owned `String` arguments without explicit `.as_str()` calls at every
-call site.
-
----
-
-### 6. `validate_X` stubs
-
-Dependent-type validator functions (`validate_Word`, `validate_Letter`, etc.) are
-emitted from the header as `todo!()` stubs rather than trying to emit the
-constraint expression (which references LLMLL param names that don't exist in the
-Rust scope):
-
-```rust
-pub fn validate_Word(_x: &String) -> bool { todo!("validate_Word: v0.2") }
-```
-
-Full constraint evaluation is tracked as a v0.2 task.
+| `wasi.io.stdout` | `fn wasi_io_stdout(s: LlmllVal) -> Command` |
 
 ---
 
