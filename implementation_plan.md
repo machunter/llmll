@@ -343,3 +343,102 @@ llmll-runtime run build/withdraw.wasm
 - Inspect generated Rust code for readability
 - Review structured diagnostic output for programs with intentional errors
 - Confirm modules with `?delegate-pending` holes pass `check` but fail `build`
+
+---
+
+## v0.1.1 Code Generation Accuracy — Action Items
+
+The following issues were discovered during the Tic-Tac-Toe exercise. Each represents a silent gap between the spec and actual compiler behavior that causes an AI code generator to enter a hallucination loop. Issues are split into **compiler fixes** and **spec clarifications** (spec notes can be applied immediately without touching the compiler).
+
+### 🔴 High Priority
+
+#### Fix 1 — Add Missing Standard Library to Generated `lib.rs`
+**File:** `Codegen.hs` (stdlib preamble)  
+**Gap:** `string-slice`, `string-to-int`, `ok`, `err`, `is-ok`, `unwrap`, `unwrap-or`, and the `-` (`Sub`) operator are all defined in §13 but missing from the emitted Rust runtime preamble. Any program calling them fails `cargo build` with "cannot find function."
+
+| Missing | Implementation |
+|---------|---------------|
+| `string_slice(s, start, end)` | `s.chars().skip(start).take(end-start).collect()` |
+| `string_to_int(s)` | `s.parse::<i64>()` → wrap in `LlmllVal::Adt("Success"/"Error", …)` |
+| `ok(v)` | `LlmllVal::Adt("Success", vec![v])` |
+| `err(e)` | `LlmllVal::Adt("Error", vec![e])` |
+| `is_ok(r)` | Match on `Adt("Success", …)` |
+| `unwrap(r)` | Extract from `Adt("Success", …)`, panic on `Error` |
+| `unwrap_or(r, default)` | Match `Success`/`Error`, return default on `Error` |
+| `Sub` trait for `LlmllVal` | Mirror the existing `Add` impl |
+
+Also add a `cargo check` validation step to `llmll build` — the "✅ Generated Rust crate" message must only appear when the output actually compiles.
+
+---
+
+#### Fix 2 — Implement S-Expression Structured Error Output
+**File:** `Diagnostic.hs`, `Main.hs`  
+**Gap:** Parse errors currently emit a raw Haskell `ParseErrorBundle` debug dump with a byte-level offset. The spec (§10) promises "structured S-expression diagnostics." An AI cannot reliably extract line/column from the raw output.
+
+Target format:
+```lisp
+(error :phase parse
+       :file "examples/tictactoe.llmll"
+       :line 14 :col 3
+       :message "unexpected keyword `module`; expected expression"
+       :hint "use def-logic, type, or check at top level in v0.1.1")
+```
+
+This is the **single most impactful change** for the AI development loop. `Diagnostic.hs` already defines the type; wire it up through `Main.hs` so it is used for all parse failures.
+
+---
+
+#### Spec Note 1 — Pair Type in `typed-param` Position Not Supported
+**File:** `LLMLL.md` §3.2 and §12  
+**Gap:** The grammar (`typed-param = IDENT ":" type`) implies pair types are legal parameter annotations. The parser rejects them with a `TrivialError`. No note in the spec warns of this.
+
+Add to §3.2 and §12:
+> **v0.1.1 Limitation:** `pair-type` is **not accepted** in `typed-param` position. Use an untyped parameter: `[s]` instead of `[s: (a, b)]`. This applies to both `def-logic` params and lambda params inside `list-fold` / `list-map`.
+
+---
+
+### 🟡 Medium Priority
+
+#### Fix 3 — Add Name Resolution Pass to `llmll check`
+**File:** `TypeCheck.hs` (or a new `NameResolution.hs`)  
+**Gap:** `llmll check` reports `✅ OK` even when a program calls stdlib functions (`string-slice`, `wasi.io.stdout`) that are missing from the generated runtime. A name-resolution pass should verify that every `app` and `qual-app` call site maps to a known `def-logic`, built-in, or `def-interface` method, and emit a warning for unknown call sites.
+
+---
+
+#### Spec Note 2 — `module` / `import` Not Parseable at Top Level
+**File:** `LLMLL.md` §8  
+**Gap:** `(module …)` and `(import …)` at file top level silently produce zero parsed statements. Only `def-logic`, `type`, and `check` work at top level in v0.1.1.
+
+Add a "Known Limitation" block to §8:
+> **v0.1.1:** Top-level `(module …)` and `(import …)` do not parse. Write all code using `def-logic`, `type`, and `check` at file scope.
+
+---
+
+### 🟢 Low Priority
+
+#### Spec Note 3 — Capability Enforcement Is Deferred
+**File:** `LLMLL.md` §7 and §9.2  
+**Gap:** §9.2 says capability imports are required for `wasi.io.*` calls, but since `import` doesn't parse (see above), all capability checking is bypassed silently.
+
+Add to §7 and §9.2:
+> **v0.1.1:** Capability enforcement is deferred to v0.2. `wasi.io.stdout` and related constructors are available unconditionally. Do not rely on this for security reasoning.
+
+---
+
+#### Fix 4 — REPL Expression-Level Error Reporting
+**File:** `Main.hs` (REPL loop)  
+**Gap:** Typing a `def-logic` with a bad pair-typed parameter in the REPL silently fails. After Fix 2 (structured errors) is in place, ensure the REPL formats the same S-expression diagnostics for expression-level parse failures.
+
+---
+
+### Summary
+
+| Priority | Item | Target File |
+|----------|------|-------------|
+| 🔴 High | Add missing stdlib to generated `lib.rs` | `Codegen.hs` |
+| 🔴 High | S-expression error output | `Diagnostic.hs`, `Main.hs` |
+| 🔴 High | Spec note: pair type in params | `LLMLL.md` §3.2, §12 |
+| 🟡 Medium | Name resolution pass in `llmll check` | `TypeCheck.hs` |
+| 🟡 Medium | Spec note: `module`/`import` top-level | `LLMLL.md` §8 |
+| 🟢 Low | Spec note: capability enforcement deferred | `LLMLL.md` §7, §9.2 |
+| 🟢 Low | REPL expression-level errors | `Main.hs` (depends on Fix 2) |

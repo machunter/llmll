@@ -9,6 +9,7 @@
 module LLMLL.Parser
   ( parseModule
   , parseStatements
+  , parseTopLevel
   , parseExpr
   , ParseError
   ) where
@@ -66,12 +67,47 @@ parseModule fp = parse (sc *> pModule <* eof) fp
 parseStatements :: FilePath -> Text -> Either ParseError [Statement]
 parseStatements fp = parse (sc *> many pStatement <* eof) fp
 
+-- | Unified top-level parser: accepts both bare statements and files that
+-- begin with an optional @(module Name imports body)@ wrapper (single-file
+-- model, v0.1.1 limitation — see LLMLL.md §8).
+--
+-- When a @(module ...)@ form is detected the module name is discarded and
+-- its body statements are returned as flat top-level statements.  Multiple
+-- @(module ...)@ forms in one file are also allowed (rare but harmless) —
+-- all their bodies are concatenated.
+--
+-- @(import ...)@ at top level (inside or outside a module block) is parsed
+-- as an 'SImport' node; capability enforcement is deferred to v0.2.
+parseTopLevel :: FilePath -> Text -> Either ParseError [Statement]
+parseTopLevel fp = parse (sc *> (concat <$> many pTopLevelItem) <* eof) fp
+
 -- | Parse a single expression (for testing/REPL).
 parseExpr :: FilePath -> Text -> Either ParseError Expr
 parseExpr fp = parse (sc *> pExpr <* eof) fp
 
 -- ---------------------------------------------------------------------------
--- Module
+-- Top-Level Items (unified: statements + optional module wrappers)
+-- ---------------------------------------------------------------------------
+
+-- | One top-level item expands to zero or more statements.
+-- A @(module Name imports body)@ form is flattened into its imports + body.
+-- Any other form is a single statement.
+pTopLevelItem :: Parser [Statement]
+pTopLevelItem = try pModuleFlattened <|> (pure <$> pStatement)
+
+-- | Parse @(module Name [imports...] [statements...])@ and return
+-- its contents as a flat list of statements.  The module name is
+-- ignored (single-file model).  Imports become 'SImport' nodes.
+pModuleFlattened :: Parser [Statement]
+pModuleFlattened = parens $ do
+  _ <- symbol "module"
+  _ <- pIdent          -- module name: recorded but not used in single-file model
+  imports <- many (try pImportStmt)
+  body    <- many pStatement
+  pure (imports ++ body)
+
+-- ---------------------------------------------------------------------------
+-- Module (full module form, used by parseModule)
 -- ---------------------------------------------------------------------------
 
 pModule :: Parser Module

@@ -21,8 +21,8 @@ import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Options.Applicative
 
-import LLMLL.Parser (parseStatements, parseModule)
-import LLMLL.Syntax (Statement, Module(..))
+import LLMLL.Parser (parseTopLevel)
+import LLMLL.Syntax (Statement, Span(..))
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
@@ -31,7 +31,10 @@ import LLMLL.HoleAnalysis
   , formatHoleReport, formatHoleReportSExp)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Codegen (generateRust, CodegenResult(..))
-import LLMLL.Diagnostic (DiagnosticReport(..), Diagnostic(..), Severity(..), formatDiagnostic, formatReportJson)
+import LLMLL.Diagnostic
+  ( DiagnosticReport(..), Diagnostic(..), Severity(..)
+  , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
+  , formatReportJson, megaparsecToDiagnostic)
 
 import qualified Data.Map.Strict as Map
 
@@ -102,19 +105,34 @@ main = do
     CmdRepl               -> doRepl
 
 -- ---------------------------------------------------------------------------
--- Shared source loader: try parseModule first, fall back to parseStatements
+-- Shared source loader
 -- ---------------------------------------------------------------------------
 
--- | Parse a .llmll file that may or may not have a top-level (module ...) wrapper.
--- Returns the flat list of statements on success.
-parseSrc :: FilePath -> T.Text -> Either T.Text [Statement]
+-- | Parse a .llmll file. Accepts both bare top-level statements and files
+-- wrapped in a single @(module Name ...)@ form (single-file model, v0.1.1).
+-- See LLMLL.md §8 for the module/import limitations.
+parseSrc :: FilePath -> T.Text -> Either Diagnostic [Statement]
 parseSrc fp src =
-  case parseModule fp src of
-    Right (Module _ _ body) -> Right body
-    Left _  ->
-      case parseStatements fp src of
-        Right stmts -> Right stmts
-        Left err    -> Left (T.pack (show err))
+  case parseTopLevel fp src of
+    Right stmts -> Right stmts
+    Left  err   -> Left (megaparsecToDiagnostic fp err)
+
+-- | Format a parse Diagnostic — S-expression by default, JSON with --json.
+emitParseDiag :: Bool -> FilePath -> Diagnostic -> IO ()
+emitParseDiag json fp d
+  | json      = TIO.putStrLn (formatDiagnosticJson d)
+  | otherwise = TIO.putStrLn $
+      "(error :phase parse"
+      <> " :file \"" <> T.pack fp <> "\""
+      <> locPart
+      <> " :message " <> quote (diagMessage d)
+      <> maybe "" (\h -> " :hint " <> quote h) (diagSuggestion d)
+      <> ")"
+  where
+    locPart = case diagSpan d of
+      Nothing -> ""
+      Just sp -> " :line " <> tshow (spanLine sp) <> " :col " <> tshow (spanCol sp)
+    quote t = "\"" <> T.replace "\"" "\\\"" t <> "\""
 
 -- ---------------------------------------------------------------------------
 -- check
@@ -124,10 +142,8 @@ doCheck :: Bool -> FilePath -> IO ()
 doCheck json fp = do
   src <- TIO.readFile fp
   case parseSrc fp src of
-    Left msg -> do
-      if json
-        then putJsonError "parse" fp msg
-        else TIO.putStrLn $ "error: " <> msg
+    Left diag -> do
+      emitParseDiag json fp diag
       exitFailure
     Right stmts -> do
       let report = typeCheck emptyEnv stmts
@@ -147,8 +163,8 @@ doHoles :: Bool -> FilePath -> IO ()
 doHoles json fp = do
   src <- TIO.readFile fp
   case parseSrc fp src of
-    Left msg -> do
-      if json then putJsonError "holes" fp msg else TIO.putStrLn $ "error: " <> msg
+    Left diag -> do
+      emitParseDiag json fp diag
       exitFailure
     Right stmts -> do
       let report = analyzeHoles stmts
@@ -192,8 +208,8 @@ doTest :: Bool -> FilePath -> IO ()
 doTest json fp = do
   src <- TIO.readFile fp
   case parseSrc fp src of
-    Left msg -> do
-      if json then putJsonError "test" fp msg else TIO.putStrLn $ "error: " <> msg
+    Left diag -> do
+      emitParseDiag json fp diag
       exitFailure
     Right stmts -> do
       result <- runPropertyTests stmts
@@ -242,8 +258,8 @@ doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> IO ()
 doBuild json fp mOutDir doWasm = do
   src <- TIO.readFile fp
   case parseSrc fp src of
-    Left msg -> do
-      if json then putJsonError "build" fp msg else TIO.putStrLn $ "error: " <> msg
+    Left diag -> do
+      emitParseDiag json fp diag
       exitFailure
     Right stmts -> do
       let modName = T.pack $ takeBaseName fp
@@ -256,21 +272,62 @@ doBuild json fp mOutDir doWasm = do
       TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
       TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
 
-      if json
-        then TIO.putStrLn (buildResultJson fp outDir (cgWarnings result) Nothing)
-        else do
-          TIO.putStrLn $ "✅ Generated Rust crate: " <> T.pack outDir
-          TIO.putStrLn $ "   src/lib.rs — " <> tshow (T.length (cgRustSource result)) <> " chars"
-          mapM_ (\w -> TIO.putStrLn $ "   ⚠️  " <> w) (cgWarnings result)
+      if not json
+        then do
+          TIO.putStrLn $ "   src/lib.rs -- " <> tshow (T.length (cgRustSource result)) <> " chars"
+          mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
+        else pure ()
+
+      -- Run cargo check to validate the generated code
+      cargoOk <- runCargoCheck json outDir
+
+      if cargoOk
+        then do
+          if json
+            then TIO.putStrLn (buildResultJson fp outDir (cgWarnings result) Nothing)
+            else TIO.putStrLn $ "OK Generated Rust crate: " <> T.pack outDir
+        else exitFailure
 
       -- Optionally run wasm-pack
       if doWasm
         then runWasmPack json outDir
         else if json
           then pure ()
-          else TIO.putStrLn "   ℹ️  pass --wasm to compile to WebAssembly (requires wasm-pack)"
+          else TIO.putStrLn "   INFO: pass --wasm to compile to WebAssembly (requires wasm-pack)"
 
       exitSuccess
+
+runCargoCheck :: Bool -> FilePath -> IO Bool
+runCargoCheck json outDir = do
+  mCargo <- findExecutable "cargo"
+  case mCargo of
+    Nothing -> do
+      let msg = "cargo not found in PATH -- install Rust from https://rustup.rs"
+      if json
+        then TIO.putStrLn . T.pack . BL.unpack . encode $
+               object ["cargo_check" .= False, "error" .= msg]
+        else TIO.putStrLn $ "WARN: " <> T.pack msg
+      pure True  -- treat missing cargo as non-fatal; user may build manually
+    Just cargoBin -> do
+      if not json
+        then TIO.putStrLn "   Running cargo check ..."
+        else pure ()
+      (code, _out, stderr_) <- readProcessWithExitCode cargoBin
+        ["check", "--manifest-path", outDir <> "/Cargo.toml", "--quiet"] ""
+      case code of
+        ExitSuccess -> do
+          if not json
+            then TIO.putStrLn "   cargo check OK"
+            else pure ()
+          pure True
+        ExitFailure _ -> do
+          if json
+            then TIO.putStrLn . T.pack . BL.unpack . encode $
+                   object ["cargo_check" .= False, "stderr" .= stderr_]
+            else do
+              TIO.putStrLn "FAIL: cargo check failed:"
+              TIO.putStr (T.pack stderr_)
+          pure False
 
 runWasmPack :: Bool -> FilePath -> IO ()
 runWasmPack json outDir = do
@@ -352,9 +409,9 @@ replLoop _env = do
       | T.null trimmed -> replLoop _env
       | otherwise -> do
           -- Try to parse as a statement or expression
-          case parseStatements "<repl>" trimmed of
+          case parseTopLevel "<repl>" trimmed of
             Left err ->
-              TIO.putStrLn $ "Parse error: " <> T.pack (show err)
+              TIO.putStrLn $ formatDiagnosticSExp (megaparsecToDiagnostic "<repl>" err)
             Right stmts -> do
               mapM_ (\stmt -> TIO.putStrLn $ T.pack (show stmt)) stmts
               let report = typeCheck emptyEnv stmts
@@ -365,11 +422,6 @@ replLoop _env = do
 -- ---------------------------------------------------------------------------
 -- Shared Helpers
 -- ---------------------------------------------------------------------------
-
-putJsonError :: T.Text -> FilePath -> T.Text -> IO ()
-putJsonError phase fp msg =
-  TIO.putStrLn . T.pack . BL.unpack . encode $
-    object [ "phase" .= phase, "file" .= fp, "success" .= False, "error" .= msg ]
 
 tshow :: Show a => a -> T.Text
 tshow = T.pack . show

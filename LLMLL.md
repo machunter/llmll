@@ -107,6 +107,25 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 
 > **`Command` is opaque.** It cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields.
 
+> [!IMPORTANT]
+> **v0.1.1 Limitation — `pair-type` not accepted in `typed-param` position.**
+> The grammar rule `typed-param = IDENT ":" type` accepts any `type`, which syntactically includes `pair-type = "(" type "," type ")"`. However, the v0.1.1 parser **rejects pair types in typed-param position** and will emit a parse error. This applies everywhere `typed-param` is used:
+> - `def-logic` parameter lists (`[s: (a, b)]` → use bare `[s]`)
+> - Lambda parameters inside `list-fold`, `list-map`, etc. (`(fn [acc: (int, string)] ...)` → use `(fn [acc] ...)`)
+> - `for-all` bindings in `check` blocks
+>
+> **Workaround:** Use an untyped parameter and document the expected pair type in a comment. The compiler assigns `TCustom "_"` and performs no type checking on that parameter in v0.1.1.
+> ```lisp
+> ;; WRONG — parse error in v0.1.1:
+> (def-logic cell-at [board: list[string] idx: int])
+>   ;; OK ↑, but lambda inside:
+>   (list-fold board init (fn [acc: (list[string], int) cell] ...))  ;; PARSE ERROR
+>
+> ;; CORRECT — use untyped lambda params:
+> (list-fold board init (fn [acc cell] ...))
+> ```
+> This restriction will be lifted in v0.2.
+
 ### 3.3 Algebraic Sum Types (Custom Variants)
 
 User-defined tagged unions (also called ADTs or discriminated unions) are declared with the `type` keyword using `(| ConstructorName PayloadType)` arms:
@@ -331,6 +350,20 @@ The wrapper maps unverified external code into the `llmll` type system and limit
 
 ## 8. Module System
 
+> [!IMPORTANT]
+> **v0.1.1 Single-File Model — Known Limitations**
+>
+> The v0.1.1 compiler uses a **single-file model**: one `.llmll` source file is compiled into one self-contained Rust crate. Multi-file module resolution (loading a separate `.llmll` file when `(import my.module ...)` is seen) is **deferred to v0.2**.
+>
+> Concretely:
+> - **`(module Name ...)` at the top of a file is accepted and parsed.** The compiler flattens its body into top-level statements; the module name is ignored for codegen purposes (the crate name comes from the filename).
+> - **`(import path ...)` is parsed** and produces an `SImport` AST node. The path is recorded but no file is loaded. Capability enforcement is also deferred (see §9.2 note).
+> - **`wasi.io.stdout` and all other standard command constructors are unconditionally available** in the generated Rust preamble. You do not need a matching `import` for them to work in v0.1.1.
+> - **Qualified identifiers** (dot notation) in function-call position are rewritten: `wasi.io.stdout` → `wasi_io_stdout` (dots become underscores). As long as the built-in function exists in the stdlib preamble, calls resolve correctly.
+>
+> **Recommended practice for v0.1.1:**
+> Write all code using `def-logic`, `type`, `check`, and `gen` at file scope. You may optionally wrap everything in a single `(module Name ...)` block for documentation purposes — the compiler will strip the wrapper. Keep all capability declarations as `(import ...)` for forward compatibility with v0.2, but do not depend on them being enforced.
+
 ```lisp
 (module hangman
   (import wasi.io (capability stdin  :deterministic true))
@@ -343,7 +376,7 @@ The wrapper maps unverified external code into the `llmll` type system and limit
     (all-guessed? (state-word state) (state-guessed state))))
 ```
 
-Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7).
+Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7). _(Full module resolution is introduced in v0.2.)_
 
 ---
 
@@ -726,6 +759,9 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 5. **`match` must be exhaustive.** Use `_` as the final arm if not all cases are covered explicitly. A `match` without `_` that fails at runtime raises `MatchFailure`.
 6. **`result` is reserved** inside `post` clauses. Do not use it as a variable or parameter name anywhere.
 7. **Named parameters in `fn-type` are doc-only.** `(fn [raw: string] -> bytes[64])` and `(fn [string] -> bytes[64])` are type-equivalent.
+
+> [!IMPORTANT]
+> **v0.1.1 Limitation — `pair-type` in `typed-param` is rejected.** The grammar rule `typed-param = IDENT ":" type` allows any `type`, which syntactically includes `pair-type`. The v0.1.1 parser will reject a pair type in that position with a parse error. Use an untyped parameter (`[acc]`) wherever the type is a pair or tuple. This applies to `def-logic` params, `fn` lambda params, and `for-all` bindings.
 
 ---
 

@@ -15,6 +15,7 @@ module LLMLL.Diagnostic
   , formatDiagnosticSExp
   , formatDiagnosticJson
   , formatReportJson
+  , megaparsecToDiagnostic
   ) where
 
 import Data.Text (Text)
@@ -23,6 +24,11 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
 import Data.Aeson (ToJSON(..), object, (.=), encode)
 import Data.Aeson.Types (Value(..))
+import Data.Void (Void)
+import qualified Data.List.NonEmpty as NE
+import Text.Megaparsec (ParseErrorBundle, errorBundlePretty, bundleErrors, attachSourcePos, bundlePosState)
+import Text.Megaparsec.Error (errorOffset)
+import Text.Megaparsec.Pos (unPos, sourceLine, sourceColumn)
 import LLMLL.Syntax (Span(..))
 import GHC.Generics (Generic)
 
@@ -137,3 +143,39 @@ formatReportJson = T.pack . TL.unpack . TLE.decodeUtf8 . encode
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
+
+-- ---------------------------------------------------------------------------
+-- Megaparsec bridge
+-- ---------------------------------------------------------------------------
+
+-- | Convert a Megaparsec 'ParseErrorBundle' into a 'Diagnostic' with a
+-- proper source span.  Uses 'errorBundlePretty' for the message text and
+-- 'attachSourcePos' to recover line \/col from the byte offset.
+megaparsecToDiagnostic :: FilePath -> ParseErrorBundle T.Text Void -> Diagnostic
+megaparsecToDiagnostic fp bundle =
+  let prettyMsg   = T.pack (errorBundlePretty bundle)
+      -- Walk the error list with source positions attached.
+      errList     = NE.toList (fst (attachSourcePos errorOffset (bundleErrors bundle) (bundlePosState bundle)))
+      -- Take the first error's position.
+      mPos        = case errList of
+                      []           -> Nothing
+                      ((_, pos):_) -> Just pos
+      mSpan       = fmap (\pos ->
+                      Span fp
+                           (fromIntegral (unPos (sourceLine   pos)))
+                           (fromIntegral (unPos (sourceColumn pos)))
+                           (fromIntegral (unPos (sourceLine   pos)))
+                           (fromIntegral (unPos (sourceColumn pos))))
+                    mPos
+      -- Strip the "<file>:line:col:\n" prefix that errorBundlePretty adds,
+      -- so downstream formatters can append their own location info.
+      cleanMsg    = stripLocationPrefix prettyMsg
+      suggestion  = Just "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)"
+  in Diagnostic SevError mSpan cleanMsg suggestion (Just "E001")
+  where
+    stripLocationPrefix t =
+      -- errorBundlePretty lines: "<file>:line:col:\nerror: ..."
+      let ls = T.lines t
+      in case ls of
+           (_hdr:rest) -> T.strip (T.unlines rest)
+           []          -> t
