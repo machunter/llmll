@@ -336,15 +336,23 @@ Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-l
 (import wasi.random (capability get-bytes      :deterministic true))
 ```
 
-**External Bridge (FFI):** To use existing Rust/C code, define a Verified Wrapper:
+**External Bridge (FFI):** To use existing Rust/C code, define a Verified Wrapper using the `rust.*` or `c.*` prefix:
 
 ```lisp
-(import rust.ffmpeg
-  (interface [extract-frame (fn [v: VideoPath] -> ImageBytes)])
-  (capability sys.cpu 2-cores))
+(import rust.serde_json (interface [
+  [json-parse (fn [s: string] -> any)]
+]))
 ```
 
-The wrapper maps unverified external code into the `llmll` type system and limits its capabilities. The AI does not implement the body — the compiler generates a foreign call stub.
+In LLMLL, FFI is a strict **two-step workflow**:
+1. **Compiler (Auto-generation):** When `llmll build` sees a `rust.*` import, it generates a Rust FFI stub file (e.g., `src/ffi/serde_json.rs`) containing a `todo!()` for each interface function. **This file is generated only once.**
+2. **Developer (Implementation):** The human developer owns `src/ffi/serde_json.rs`. They edit it to implement the logic using the imported crate's Rust API. `llmll build` will never overwrite this file once it exists. This isolates unsafe integration code from pure LLMLL logic.
+
+> [!CAUTION]
+> **FFI stubs are NOT `?delegate` holes.**
+> The compiler emits `todo!()` macros for both FFI stubs and `?delegate` holes, but they are resolved completely differently. 
+> - **FFI Stubs** (`src/ffi/*.rs`) are resolved **by the developer writing Rust code** using foreign APIs.
+> - **`?delegate` Holes** (in `src/lib.rs`) are resolved **by the Lead-AI/Human reviewer writing LLMLL code** inside the source `.llmll` file. A `?delegate` must NEVER be manually implemented in Rust, as that bypasses the verifier entirely.
 
 ---
 

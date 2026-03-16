@@ -12,9 +12,10 @@ module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, stdout, stderr, utf8)
 import System.Exit (exitFailure, exitSuccess, ExitCode(..))
-import System.FilePath (takeBaseName)
-import System.Directory (createDirectoryIfMissing, findExecutable)
+import System.FilePath (takeBaseName, (</>))
+import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
 import System.Process (readProcessWithExitCode)
+import Control.Monad (unless, forM_)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Aeson (encode, object, (.=))
@@ -257,7 +258,6 @@ pbtResultJson fp r =
       , "samples_run"   .= pbtSamplesRun run
       , "counterexample".= pbtCounterexample run
       ]
-
 -- ---------------------------------------------------------------------------
 -- build (Rust codegen + optional WASM)
 -- ---------------------------------------------------------------------------
@@ -286,6 +286,30 @@ doBuild json fp mOutDir doWasm = do
           if not json
             then TIO.putStrLn $ "   src/main.rs -- " <> tshow (T.length mainSrc) <> " chars"
             else pure ()
+
+      -- Write FFI mod.rs
+      case cgFfiModRs result of
+        Nothing -> pure ()
+        Just ffiModSrc -> do
+          createDirectoryIfMissing True (outDir <> "/src/ffi")
+          TIO.writeFile (outDir <> "/src/ffi/mod.rs") ffiModSrc
+          if not json
+            then TIO.putStrLn $ "   src/ffi/mod.rs -- " <> tshow (T.length ffiModSrc) <> " chars"
+            else pure ()
+
+      -- Write per-crate FFI stubs (generated ONCE, do not overwrite)
+      forM_ (cgFfiCrates result) $ \(crate, stubsSrc) -> do
+          let stubPath = outDir <> "/src/ffi/" <> T.unpack crate <> ".rs"
+          exists <- doesFileExist stubPath
+          if exists
+            then if not json
+                   then TIO.putStrLn $ "   src/ffi/" <> crate <> ".rs -- KEEPING existing developer file"
+                   else pure ()
+            else do
+              TIO.writeFile stubPath stubsSrc
+              if not json
+                then TIO.putStrLn $ "   src/ffi/" <> crate <> ".rs -- generated " <> tshow (T.length stubsSrc) <> " chars"
+                else pure ()
 
       if not json
         then do
@@ -333,6 +357,20 @@ doRun json fp extraArgs = do
       createDirectoryIfMissing True (outDir <> "/src")
       TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
       TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
+      
+      -- Write FFI mod.rs
+      case cgFfiModRs result of
+        Nothing -> pure ()
+        Just ffiModSrc -> do
+          createDirectoryIfMissing True (outDir <> "/src/ffi")
+          TIO.writeFile (outDir <> "/src/ffi/mod.rs") ffiModSrc
+          
+      -- Write per-crate FFI stubs
+      forM_ (cgFfiCrates result) $ \(crate, stubsSrc) -> do
+          let stubPath = outDir <> "/src/ffi/" <> T.unpack crate <> ".rs"
+          exists <- doesFileExist stubPath
+          unless exists $ TIO.writeFile stubPath stubsSrc
+
       case cgMainRs result of
         Nothing -> do
           TIO.putStrLn "ERROR: (def-main ...) is required for `llmll run`. Add a def-main to your .llmll file."
