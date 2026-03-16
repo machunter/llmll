@@ -128,39 +128,43 @@ pModule = parens $ do
 
 pStatement :: Parser Statement
 pStatement = choice
-  [ try pDefLogic
-  , try pDefInterface
-  , try pTypeDef
-  , try pCheckBlock
-  , try pGenDecl
-  , try pImportStmt
+  [ pDefLogic
+  , pDefInterface
+  , pTypeDef
+  , pCheckBlock
+  , pGenDecl
+  , pImportStmt
   , SExpr <$> pExpr
   ]
 
 -- | Parse (def-logic name [params] (pre ...) (post ...) body)
 pDefLogic :: Parser Statement
-pDefLogic = parens $ do
-  _ <- symbol "def-logic"
+pDefLogic = do
+  _ <- try (symbol "(" *> symbol "def-logic")
   name <- pIdent
   params <- brackets (many pDefParam)
   mPre  <- optional (try pPreClause)
   mPost <- optional (try pPostClause)
   body <- pExpr
+  _ <- symbol ")"
   pure $ SDefLogic name params Nothing (Contract mPre mPost) body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
 pDefParam :: Parser (Name, Type)
-pDefParam = try pTypedParam <|> do
+pDefParam = do
   n <- pIdent
-  pure (n, TCustom "_")
+  (do _ <- symbol ":"
+      ty <- pType
+      pure (n, ty)) <|> pure (n, TCustom "_")
 
 -- | Parse (def-interface Name [fn-sig ...])
 pDefInterface :: Parser Statement
-pDefInterface = parens $ do
-  _ <- symbol "def-interface"
+pDefInterface = do
+  _ <- try (symbol "(" *> symbol "def-interface")
   name <- pIdent
   fns <- many (try pInterfaceFn)
+  _ <- symbol ")"
   pure $ SDefInterface name fns
 
 -- | Parse a function signature in a def-interface:
@@ -182,14 +186,19 @@ pFnType = parens $ do
   pure $ TFn args ret
   where
     -- Try named param first (name: type), fall back to bare type
-    pFnParam = try (snd <$> pTypedParam) <|> pType
+    pFnParam = try (do
+      n <- pIdent
+      _ <- symbol ":"
+      ty <- pType
+      pure ty) <|> pType
 
 -- | Parse (type Name definition)
 pTypeDef :: Parser Statement
-pTypeDef = parens $ do
-  _ <- symbol "type"
+pTypeDef = do
+  _ <- try (symbol "(" *> symbol "type")
   name <- pIdent
   body <- pTypeBody
+  _ <- symbol ")"
   pure $ STypeDef name body
 
 -- | Parse the body of a type definition.
@@ -228,20 +237,22 @@ pSumTypeMultiArm = do
 
 -- | Parse (check "description" (for-all [...] body))
 pCheckBlock :: Parser Statement
-pCheckBlock = parens $ do
-  _ <- symbol "check"
+pCheckBlock = do
+  _ <- try (symbol "(" *> symbol "check")
   desc <- pStringLiteral
   prop <- pForAll
+  _ <- symbol ")"
   pure $ SCheck (Property desc (propBindings prop) (propBody prop))
 
 -- | Parse (gen TypeName generator-expr)
 -- Introduces a custom PBT generator for a named type (LLMLL v0.1.1 §5.2).
 -- Represented as a top-level SExpr since Statement doesn't have a GenDecl arm yet.
 pGenDecl :: Parser Statement
-pGenDecl = parens $ do
-  _ <- symbol "gen"
+pGenDecl = do
+  _ <- try (symbol "(" *> symbol "gen")
   _typeName <- pIdent
   genExpr <- pExpr
+  _ <- symbol ")"
   pure $ SExpr genExpr  -- store the generator expression; type index deferred to v0.2
 
 -- | Parse (for-all [bindings] body) or (∀ [bindings] body)
@@ -254,11 +265,12 @@ pForAll = parens $ do
 
 -- | Parse (import path (interface [...]) (capability ...))
 pImportStmt :: Parser Statement
-pImportStmt = parens $ do
-  _ <- symbol "import"
+pImportStmt = do
+  _ <- try (symbol "(" *> symbol "import")
   path <- pDottedIdent
   iface <- optional (try pInterfaceSpec)
   cap <- optional (try pCapabilitySpec)
+  _ <- symbol ")"
   pure $ SImport (Import path iface cap)
 
 pInterfaceSpec :: Parser [(Name, Type)]
@@ -270,7 +282,7 @@ pCapabilitySpec :: Parser Capability
 pCapabilitySpec = parens $ do
   _ <- symbol "capability"
   kind <- pCapKind
-  target <- pStringLiteral <|> (T.pack . show <$> pIntLit) <|> pIdent
+  target <- option "" (pStringLiteral <|> (T.pack . show <$> pIntLit) <|> pIdent)
   det <- option False pDeterministicFlag
   pure $ Capability kind target det
 
@@ -309,7 +321,8 @@ pPostClause = parens $ symbol "post" *> pExpr
 
 pType :: Parser Type
 pType = choice
-  [ TInt      <$ symbol "int"
+  [ try pPairTypeError  -- explicitly catch pair-types in type position and give a helpful error
+  , TInt      <$ symbol "int"
   , TFloat    <$ symbol "float"
   , TString   <$ symbol "string"
   , TBool     <$ symbol "bool"
@@ -323,6 +336,14 @@ pType = choice
   , try pWhereType
   , TCustom <$> pIdent
   ]
+
+-- | V0.1.1 doesn't support pair types in parameters, but a common developer mistake
+-- is to write `[acc: (int, string)]`. If we see `(type, type)`, we fail explicitly
+-- with a helpful error message to prevent confusing backtracking.
+pPairTypeError :: Parser Type
+pPairTypeError = do
+  _ <- try (symbol "(" *> pType <* symbol ",")
+  fail "pair-types (A, B) are not supported in parameters in v0.1.1 (see LLMLL.md §3.2); use untyped parameters like [acc item] instead"
 
 pBytesType :: Parser Type
 pBytesType = do

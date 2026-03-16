@@ -423,6 +423,8 @@ inferLiteral LitUnit       = TUnit
 compatibleWith :: Type -> Type -> Bool
 compatibleWith (TVar _) _            = True  -- type variable matches anything
 compatibleWith _ (TVar _)            = True
+compatibleWith (TCustom "_") _       = True  -- untyped param wildcard
+compatibleWith _ (TCustom "_")       = True
 compatibleWith (TCustom a) (TCustom b) = a == b
 compatibleWith (TDependent a _) b   = compatibleWith a b
 compatibleWith a (TDependent b _)   = compatibleWith a b
