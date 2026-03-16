@@ -93,17 +93,18 @@ parseExpr fp = parse (sc *> pExpr <* eof) fp
 -- A @(module Name imports body)@ form is flattened into its imports + body.
 -- Any other form is a single statement.
 pTopLevelItem :: Parser [Statement]
-pTopLevelItem = try pModuleFlattened <|> (pure <$> pStatement)
+pTopLevelItem = pModuleFlattened <|> (pure <$> pStatement)
 
 -- | Parse @(module Name [imports...] [statements...])@ and return
 -- its contents as a flat list of statements.  The module name is
 -- ignored (single-file model).  Imports become 'SImport' nodes.
 pModuleFlattened :: Parser [Statement]
-pModuleFlattened = parens $ do
-  _ <- symbol "module"
+pModuleFlattened = do
+  _ <- try (symbol "(" *> symbol "module")
   _ <- pIdent          -- module name: recorded but not used in single-file model
   imports <- many (try pImportStmt)
   body    <- many pStatement
+  _ <- symbol ")"
   pure (imports ++ body)
 
 -- ---------------------------------------------------------------------------
