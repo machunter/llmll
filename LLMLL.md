@@ -942,6 +942,38 @@ The identifier `result` is a **reserved pseudo-binding** available only inside `
 - `let` bindings (not a valid expression outside `post`)
 - Parameter lists (reserved keyword — compile error)
 
+### 13.10 Building Services in v0.1.1 (FAQ)
+
+When building practical services (like REST APIs or CLIs) in v0.1.1, developers must understand the boundary between LLMLL's pure logic and the execution environment. Here are solutions to common patterns:
+
+1. **HTTP Requests (Input):**
+   In `:mode http`, the `(def-main)` harness passes the raw HTTP request body to your `:step` logic as a single `string`. LLMLL v0.1.1 does **not** have a built-in `HttpRequest` sum type containing headers or paths. If your service requires routing based on URL paths or reading headers, you **must** use an FFI `(import rust.http_server ...)` to parse the raw byte stream into an LLMLL-compatible structure, or use a custom Rust wrapper instead of the built-in HTTP mode.
+   
+2. **CLI Arguments:**
+   The `(def-main :mode cli)` harness passes the CLI arguments (everything after the executable name) to the `:init` function as a single combined `string` or directly as `LlmllVal::Text`. If you need structured parsing (e.g., `--port 8080 --file data.json`), you currently have two options:
+   - Write a naive string-splitting parser in pure LLMLL S-expressions.
+   - Use `(import rust.clap ...)` or `rust.env` FFI to fetch and parse the arguments in Rust, returning a structured type to LLMLL.
+   
+3. **JSON Parsing & Serialization:**
+   LLMLL v0.1.1 lacks complex JSON built-ins. All JSON exchanges must use the FFI system:
+   ```lisp
+   (import rust.serde_json (interface [
+     [parse-todo-json (fn [s: string] -> TodoList)]
+     [stringify-todo (fn [td: TodoList] -> string)]
+   ]))
+   ```
+   The compiler will generate the `src/ffi/serde_json.rs` stub, and the human developer implements the `todo!()` using the actual `serde_json` crate to map between LLMLL string fields and Rust JSON objects.
+
+4. **Atomic File Writes:**
+   The built-in `wasi.fs.write` behaves as a standard basic I/O write, which can be interrupted. The WASI standard capability does not currently mandate an atomic rename. 
+   To guarantee ACID-like atomic writes (e.g. write to a temp file and rename), you should define a custom FFI capability:
+   ```lisp
+   (import rust.atomic_fs (interface [
+      [atomic-write (fn [path: string content: string] -> bool)]
+   ]))
+   ```
+   The human developer then implements this in `src/ffi/atomic_fs.rs` using standard Rust filesystem maneuvers (`tempfile` crate + `fs::rename`).
+
 ---
 
 ## 14. Version Roadmap
