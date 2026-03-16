@@ -138,16 +138,21 @@ pStatement = choice
   , SExpr <$> pExpr
   ]
 
--- | Parse (def-logic name [params] (pre ...) (post ...) body)
+-- | Parse (def-logic name [params] (pre ...) ... (post ...) body)
+-- Multiple (pre ...) clauses are accepted and desugared to (pre (and ...)).
 pDefLogic :: Parser Statement
 pDefLogic = do
   _ <- try (symbol "(" *> symbol "def-logic")
   name <- pIdent
   params <- brackets (many pDefParam)
-  mPre  <- optional (try pPreClause)
+  preClauses <- many (try pPreClause)
   mPost <- optional (try pPostClause)
   body <- pExpr
   _ <- symbol ")"
+  let mPre = case preClauses of
+               []  -> Nothing
+               [p] -> Just p
+               ps  -> Just (foldl1 (\a b -> EApp "and" [a, b]) ps)
   pure $ SDefLogic name params Nothing (Contract mPre mPost) body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
@@ -408,6 +413,7 @@ pPromiseType = do
 pExpr :: Parser Expr
 pExpr = choice
   [ try pLetExpr
+  , try pCondExpr      -- (cond [c1 e1] [c2 e2] [_ fallback]) sugar
   , try pIfExpr
   , try pMatchExpr
   , try pFnExpr        -- (fn [params] body) lambda in expression position
@@ -449,10 +455,24 @@ pLetBinding = brackets $ do
 pIfExpr :: Parser Expr
 pIfExpr = parens $ do
   _ <- symbol "if"
-  cond <- pExpr
+  cond  <- pExpr
   thenE <- pExpr
-  elseE <- pExpr
+  elseE <- pExpr <?> "else branch (if requires exactly 3 sub-expressions: condition, then, else)"
   pure $ EIf cond thenE elseE
+
+-- | Parse (cond [cond1 expr1] [cond2 expr2] ... [_ fallback])
+-- Desugars to nested (if cond1 expr1 (if cond2 expr2 ... fallback)).
+-- The final arm can use _ as a wildcard (always matched as true fallback).
+pCondExpr :: Parser Expr
+pCondExpr = parens $ do
+  _ <- symbol "cond"
+  arms <- some (brackets $ (,) <$> pExpr <*> pExpr)
+  pure $ foldr desugarArm (ELit (LitBool False)) arms
+  where
+    desugarArm (cond, body) rest =
+      case cond of
+        EVar "_"  -> body            -- wildcard arm: always taken, ignore rest
+        _         -> EIf cond body rest
 
 -- | Parse (match expr [patterns])
 pMatchExpr :: Parser Expr
