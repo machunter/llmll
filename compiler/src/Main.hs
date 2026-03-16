@@ -47,6 +47,7 @@ data Command
   | CmdHoles  FilePath
   | CmdTest   FilePath
   | CmdBuild  FilePath (Maybe FilePath) Bool   -- file, outdir, --wasm
+  | CmdRun    FilePath [String]                -- file, extra args passed to cargo run
   | CmdRepl
   deriving (Show)
 
@@ -74,6 +75,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Run property-based tests (check blocks)"))
       <> command "build" (info buildCmd
           (progDesc "Compile .llmll to Rust; optionally invoke wasm-pack for WASM output"))
+      <> command "run"   (info runCmd
+          (progDesc "Compile and immediately run an LLMLL program (requires def-main)"))
       <> command "repl"  (info (pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
       )
@@ -86,6 +89,10 @@ optionsParser = info (helper <*> opts) $
             (short 'o' <> long "output" <> metavar "DIR"
             <> help "Output directory for generated Rust crate (default: generated/<name>)"))
       <*> switch (long "wasm" <> help "Run wasm-pack after generating Rust (requires wasm-pack in PATH)")
+
+    runCmd = CmdRun
+      <$> fileArg
+      <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -102,6 +109,7 @@ main = do
     CmdHoles fp           -> doHoles  json fp
     CmdTest  fp           -> doTest   json fp
     CmdBuild fp mOut wasm -> doBuild  json fp mOut wasm
+    CmdRun   fp args      -> doRun    json fp args
     CmdRepl               -> doRepl
 
 -- ---------------------------------------------------------------------------
@@ -267,10 +275,17 @@ doBuild json fp mOutDir doWasm = do
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
-      -- Write Rust source
+      -- Write Rust source + optional main.rs
       createDirectoryIfMissing True (outDir <> "/src")
       TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
       TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
+      case cgMainRs result of
+        Nothing   -> pure ()
+        Just mainSrc -> do
+          TIO.writeFile (outDir <> "/src/main.rs") mainSrc
+          if not json
+            then TIO.putStrLn $ "   src/main.rs -- " <> tshow (T.length mainSrc) <> " chars"
+            else pure ()
 
       if not json
         then do
@@ -296,6 +311,47 @@ doBuild json fp mOutDir doWasm = do
           else TIO.putStrLn "   INFO: pass --wasm to compile to WebAssembly (requires wasm-pack)"
 
       exitSuccess
+
+-- ---------------------------------------------------------------------------
+-- run (build into temp dir + cargo run)
+-- ---------------------------------------------------------------------------
+
+doRun :: Bool -> FilePath -> [String] -> IO ()
+doRun json fp extraArgs = do
+  let modName = T.unpack . T.pack $ takeBaseName fp
+      tmpDir  = "/tmp/llmll-run-" <> modName
+  -- Build into tmp dir (reuses doBuild logic via shared helpers)
+  src <- TIO.readFile fp
+  case parseSrc fp src of
+    Left diag -> do
+      emitParseDiag json fp diag
+      exitFailure
+    Right stmts -> do
+      let modNameT = T.pack modName
+          result   = generateRust modNameT stmts
+          outDir   = tmpDir
+      createDirectoryIfMissing True (outDir <> "/src")
+      TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
+      TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
+      case cgMainRs result of
+        Nothing -> do
+          TIO.putStrLn "ERROR: (def-main ...) is required for `llmll run`. Add a def-main to your .llmll file."
+          exitFailure
+        Just mainSrc -> do
+          TIO.writeFile (outDir <> "/src/main.rs") mainSrc
+          mCargo <- findExecutable "cargo"
+          case mCargo of
+            Nothing -> do
+              TIO.putStrLn "ERROR: cargo not found in PATH. Install Rust from https://rustup.rs"
+              exitFailure
+            Just cargoBin -> do
+              (code, _out, err) <- readProcessWithExitCode cargoBin
+                (["run", "--manifest-path", outDir <> "/Cargo.toml", "--quiet", "--"] ++ extraArgs) ""
+              case code of
+                ExitSuccess   -> pure ()
+                ExitFailure _ -> do
+                  TIO.putStr (T.pack err)
+                  exitFailure
 
 runCargoCheck :: Bool -> FilePath -> IO Bool
 runCargoCheck json outDir = do

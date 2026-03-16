@@ -129,6 +129,7 @@ pModule = parens $ do
 pStatement :: Parser Statement
 pStatement = choice
   [ pDefLogic
+  , pDefMain
   , pDefInterface
   , pTypeDef
   , pCheckBlock
@@ -272,6 +273,29 @@ pImportStmt = do
   cap <- optional (try pCapabilitySpec)
   _ <- symbol ")"
   pure $ SImport (Import path iface cap)
+
+-- | Parse (def-main :mode console|cli|http [:port n] :init expr :step expr ...)
+pDefMain :: Parser Statement
+pDefMain = do
+  _ <- try (symbol "(" *> symbol "def-main")
+  mode    <- pModeKeyword *> pEntryMode
+  initE   <- optional (symbol ":init"    *> pExpr)
+  stepE   <- symbol ":step"              *> pExpr
+  readE   <- optional (symbol ":read"    *> pExpr)
+  doneE   <- optional (symbol ":done?"   *> pExpr)
+  onDoneE <- optional (symbol ":on-done" *> pExpr)
+  _       <- symbol ")"
+  pure $ SDefMain mode initE stepE readE doneE onDoneE
+  where
+    pModeKeyword = symbol ":mode"
+
+-- | Parse the mode keyword after `:mode`.
+pEntryMode :: Parser EntryMode
+pEntryMode = choice
+  [ ModeConsole <$ symbol "console"
+  , ModeCli     <$ symbol "cli"
+  , symbol "http" *> (ModeHttp . fromIntegral <$> option (8080 :: Integer) pIntLit)
+  ]
 
 pInterfaceSpec :: Parser [(Name, Type)]
 pInterfaceSpec = parens $ do

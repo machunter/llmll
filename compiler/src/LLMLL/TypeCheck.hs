@@ -220,6 +220,16 @@ checkStatement (SExpr expr) = do
   _ <- inferExpr expr
   pure ()
 
+checkStatement (SDefMain { defMainStep = stepE, defMainDone = doneE }) = do
+  -- Type-check the step and done? expressions
+  _ <- inferExpr stepE
+  case doneE of
+    Nothing -> pure ()
+    Just de -> do
+      doneType <- inferExpr de
+      unless (compatibleWith doneType TBool) $
+        tcWarn ":done? should return bool; found non-bool type (ignored in v0.2)"
+
 -- ---------------------------------------------------------------------------
 -- Expression Type Inference
 -- ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ data CodegenError
 
 data CodegenResult = CodegenResult
   { cgRustSource  :: Text         -- ^ Generated Rust source for lib.rs
+  , cgMainRs      :: Maybe Text   -- ^ Generated main.rs (if def-main present)
   , cgCargoToml   :: Text         -- ^ Generated Cargo.toml
   , cgModuleName  :: Text         -- ^ The module name used
   , cgWarnings    :: [Text]       -- ^ Non-fatal issues encountered
@@ -42,29 +43,182 @@ data CodegenResult = CodegenResult
 generateRust :: Text -> [Statement] -> CodegenResult
 generateRust moduleName stmts =
   let (warnings, source) = runCodegen moduleName stmts
+      mainRs = generateMain moduleName stmts
+      hasMain = maybe False (const True) mainRs
   in CodegenResult
     { cgRustSource  = source
-    , cgCargoToml   = generateCargoToml moduleName
+    , cgMainRs      = mainRs
+    , cgCargoToml   = generateCargoToml moduleName hasMain (defMainModeOf stmts)
     , cgModuleName  = moduleName
     , cgWarnings    = warnings
     }
 
-generateCargoToml :: Text -> Text
-generateCargoToml moduleName = T.unlines
+-- | Extract the EntryMode from statements if a SDefMain exists.
+defMainModeOf :: [Statement] -> Maybe EntryMode
+defMainModeOf stmts = case [defMainMode s | s@SDefMain{} <- stmts] of
+  (m:_) -> Just m
+  []    -> Nothing
+
+generateCargoToml :: Text -> Bool -> Maybe EntryMode -> Text
+generateCargoToml moduleName hasMain mMode = T.unlines $
   [ "[package]"
   , "name = \"" <> T.replace "_" "-" moduleName <> "\""
   , "version = \"0.1.0\""
   , "edition = \"2021\""
   , ""
   , "[dependencies]"
-  , ""
+  ] ++
+  httpDeps ++
+  [ ""
   , "[dev-dependencies]"
   , "proptest = \"1\""
   , ""
   , "[lib]"
   , "name = \"" <> moduleName <> "\""
   , "path = \"src/lib.rs\""
+  ] ++
+  binSection
+  where
+    httpDeps = case mMode of
+      Just (ModeHttp _) ->
+        [ "hyper = { version = \"0.14\", features = [\"full\"] }"
+        , "tokio = { version = \"1\", features = [\"full\"] }"
+        ]
+      _ -> []
+    binSection
+      | hasMain =
+        [ ""
+        , "[[bin]]"
+        , "name = \"" <> moduleName <> "\""
+        , "path = \"src/main.rs\""
+        ]
+      | otherwise = []
+
+-- ---------------------------------------------------------------------------
+-- main.rs Harness Generator
+-- ---------------------------------------------------------------------------
+
+-- | Generate main.rs if any SDefMain is present in the statements.
+generateMain :: Text -> [Statement] -> Maybe Text
+generateMain modName stmts =
+  case [s | s@SDefMain{} <- stmts] of
+    []     -> Nothing
+    (dm:_) -> Just (emitMainRs modName dm)
+
+-- | Render a full main.rs for the given SDefMain.
+emitMainRs :: Text -> Statement -> Text
+emitMainRs modName dm@SDefMain{defMainMode = ModeConsole} = T.unlines
+  [ "use std::io::{self, BufRead, Write};"
+  , "use " <> modName <> "::*;"
+  , ""
+  , "fn main() {"
+  , initBlock
+  , "    let stdin = io::stdin();"
+  , "    for line in stdin.lock().lines() {"
+  , "        let raw_line = line.unwrap();"
+  , "        if raw_line.trim().is_empty() { continue; }"
+  , "        let raw_val = LlmllVal::from(raw_line.trim().to_string());"
+  , readBlock
+  , stepBlock
+  , "        print!(\"{}\", second(result.clone()).as_str());"
+  , "        io::stdout().flush().unwrap();"
+  , doneBlock
+  , "    }"
+  , onDoneBlock
+  , "}"
   ]
+  where
+    initBlock = case defMainInit dm of
+      Nothing -> "    let mut state = LlmllVal::Unit;"
+      Just e  ->
+        let initExpr = emitExprInline e
+        in  "    let init_result = (" <> initExpr <> ");\n" <>
+            "    let mut state = first(init_result.clone());\n" <>
+            "    print!(\"{}\", second(init_result).as_str());\n" <>
+            "    io::stdout().flush().unwrap();"
+    readBlock = case defMainRead dm of
+      Nothing -> "        let input = raw_val;"
+      Just e  -> "        let input = (" <> emitStepCall e "raw_val" <> ");"
+    stepBlock =
+      "        let result = " <> emitStepCall (defMainStep dm) "state.clone(), input" <> ";\n" <>
+      "        state = first(result.clone());"
+    doneBlock = case defMainDone dm of
+      Nothing -> ""
+      Just e  ->
+        "        if (" <> emitStepCall e "state.clone()" <> ").as_bool() { break; }"
+    onDoneBlock = case defMainOnDone dm of
+      Nothing -> ""
+      Just e  -> "    print!(\"{}\", (" <> emitStepCall e "state.clone()" <> ").as_str());"
+
+emitMainRs modName dm@SDefMain{defMainMode = ModeCli} = T.unlines
+  [ "use " <> modName <> "::*;"
+  , ""
+  , "fn main() {"
+  , "    let args: Vec<LlmllVal> = std::env::args().skip(1)"
+  , "        .map(|s| LlmllVal::from(s))"
+  , "        .collect();"
+  , "    let cmd = " <> emitStepCall (defMainStep dm) "LlmllVal::List(args)" <> ";"
+  , "    println!(\"{}\", cmd.as_str());"
+  , "}"
+  ]
+
+emitMainRs modName dm@SDefMain{defMainMode = ModeHttp{httpPort = port}} = T.unlines
+  [ "use std::sync::{Arc, Mutex};"
+  , "use std::convert::Infallible;"
+  , "use hyper::{Body, Request, Response, Server};"
+  , "use hyper::service::{make_service_fn, service_fn};"
+  , "use " <> modName <> "::*;"
+  , ""
+  , "async fn llmll_handle("
+  , "    state: Arc<Mutex<LlmllVal>>,"
+  , "    req: Request<Body>,"
+  , ") -> Result<Response<Body>, Infallible> {"
+  , "    let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();"
+  , "    let raw_body   = LlmllVal::from(String::from_utf8_lossy(&body_bytes).to_string());"
+  , "    let result = {"
+  , "        let st = state.lock().unwrap().clone();"
+  , "        " <> emitStepCall (defMainStep dm) "st, raw_body"
+  , "    };"
+  , "    {"
+  , "        let mut guard = state.lock().unwrap();"
+  , "        *guard = first(result.clone());"
+  , "    }"
+  , "    let resp_text = second(result).into_string();"
+  , "    Ok(Response::new(Body::from(resp_text)))"
+  , "}"
+  , ""
+  , "#[tokio::main]"
+  , "async fn main() {"
+  , initStr
+  , "    let state = Arc::new(Mutex::new(init_state));"
+  , "    let addr  = ([0, 0, 0, 0], " <> T.pack (show port) <> ").into();"
+  , "    let make_svc = make_service_fn(move |_| {"
+  , "        let state = Arc::clone(&state);"
+  , "        async move {"
+  , "            Ok::<_, Infallible>(service_fn(move |req| {"
+  , "                let state = Arc::clone(&state);"
+  , "                async move { llmll_handle(state, req).await }"
+  , "            }))"
+  , "        }"
+  , "    });"
+  , "    println!(\"LLMLL HTTP server listening on :{}\", " <> T.pack (show port) <> ");"
+  , "    Server::bind(&addr).serve(make_svc).await.unwrap();"
+  , "}"
+  ]
+  where
+    initStr = case defMainInit dm of
+      Nothing -> "    let init_state = LlmllVal::Unit;"
+      Just e  -> "    let init_state = " <> emitExprInline e <> ";"
+
+emitMainRs _ _ = "// (def-main): unsupported mode\n"
+
+-- | Emit a Rust call to either a named function or an inline lambda.
+-- Named: foo(args)
+-- Lambda: { let f = |params| body; f(args) }
+emitStepCall :: Expr -> Text -> Text
+emitStepCall (EVar name) args = toRustIdent name <> "(" <> args <> ")"
+emitStepCall lambdaExpr  args =
+  "{ let __step = " <> emitExprInline lambdaExpr <> "; __step(" <> args <> ") }"
 
 -- ---------------------------------------------------------------------------
 -- Main Code Generator
