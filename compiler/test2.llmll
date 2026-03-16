@@ -1,0 +1,1 @@
+(import rust.env (capability "env" :deterministic true) (interface [get-args (fn [unit] -> int)]))

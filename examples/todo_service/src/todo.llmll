@@ -1,0 +1,184 @@
+(module todo
+  ;; ---------------------------------------------------------
+  ;; Capabilities
+  ;; ---------------------------------------------------------
+  (import wasi.io (capability stdout :deterministic false))
+  (import wasi.io (capability stderr :deterministic false))
+
+  (import rust.env (interface [
+    [get-args (fn [unit] -> Result[int, string])]
+  ]))
+
+  ;; JSON serialization FFI
+  (import rust.todo_json (interface [
+    [parse-tasks      (fn [json: string] -> list[Task])]
+    [stringify-tasks  (fn [tasks: list[Task]] -> string)]
+    [parse-task-input (fn [json: string] -> Result[TaskInput, string])]
+  ]))
+
+  ;; Atomic File Writes FFI
+  (import rust.atomic_fs (interface [
+    [atomic-write (fn [path: string content: string] -> Result[unit, string])]
+    [read-file    (fn [path: string] -> Result[string, string])]
+  ]))
+
+  ;; Timer FFI
+  (import rust.timer (interface [
+    [now-ms (fn [unit] -> int)]
+    [now-iso (fn [unit] -> string)]
+  ]))
+
+  ;; ---------------------------------------------------------
+  ;; Types
+  ;; ---------------------------------------------------------
+  
+  ;; HttpMethod = GET | POST | PUT | DELETE
+  (type HttpMethod
+    (| GET unit)
+    (| POST unit)
+    (| PUT unit)
+    (| DELETE unit))
+
+  ;; HttpRequest
+  (type HttpRequest
+    (| Req unit))
+
+  ;; HttpResponse
+  (type HttpResponse
+    (| Res unit))
+
+  ;; Task 
+  (type Task
+    (| T unit))
+
+  ;; TaskInput
+  (type TaskInput
+    (| TI unit))
+
+  ;; AppState
+  (type AppState
+    (| State unit))
+
+  ;; ---------------------------------------------------------
+  ;; Accessors for Task
+  ;; ---------------------------------------------------------
+  (def-logic task-id [t] 
+    (first (unwrap-task t)))
+  (def-logic task-title [t] 
+    (first (second (unwrap-task t))))
+  (def-logic task-completed [t] 
+    (first (second (second (unwrap-task t)))))
+  (def-logic task-priority [t] 
+    (first (second (second (second (unwrap-task t))))))
+  (def-logic task-created [t] 
+    (first (second (second (second (second (unwrap-task t)))))))
+  (def-logic task-completed-date [t] 
+    (second (second (second (second (second (unwrap-task t)))))))
+
+  (def-logic unwrap-task [t] t)
+
+  (def-logic make-task [id title comp prio cred comp_date]
+    (pair id (pair title (pair comp (pair prio (pair cred comp_date))))))
+
+  ;; ---------------------------------------------------------
+  ;; AppState functions
+  ;; ---------------------------------------------------------
+  (def-logic state-tasks [s] (first s))
+  
+  (def-logic state-path [s] (second s))
+
+  (def-logic update-tasks [s new-tasks]
+    (pair new-tasks (state-path s)))
+
+  ;; ---------------------------------------------------------
+  ;; Core Logic
+  ;; ---------------------------------------------------------
+  (def-logic req-method [req] (first req))
+
+  (def-logic req-path [req] (first (second req)))
+
+  (def-logic req-body [req] (second (second req)))
+
+  (def-logic handle-request [state req]
+    (let [[method (req-method req)]
+          [path   (req-path req)]
+          [body   (req-body req)]]
+      (match method
+        ((GET _)    (handle-get state path))
+        ((POST _)   (handle-post state path body))
+        ((PUT _)    (handle-put state path body))
+        ((DELETE _) (handle-delete state path))
+        (_          (pair state (pair 405 "Method Not Allowed"))))))
+
+  (def-logic handle-get [state path]
+    (if (= path "/todos")
+        (pair state (pair 200 (stringify-tasks (state-tasks state))))
+        (pair state (pair 404 "Not Found"))))
+
+  (def-logic handle-post [state path body]
+    (if (= path "/todos")
+        (match (parse-task-input body)
+          ((Success input)
+            (let [[title   (first input)]
+                  [comp_pr (second input)]
+                  [comp    (first comp_pr)]
+                  [prio    (second comp_pr)]
+                  [new-id  (int-to-string (now-ms ()))]
+                  [now     (now-iso ())]
+                  [new-task (make-task new-id title false prio now "")]
+                  [new-tasks (list-append (state-tasks state) new-task)]
+                  [new-state (update-tasks state new-tasks)]]
+              (pair new-state (pair 201 "Created"))))
+          ((Error err)
+            (pair state (pair 400 "Bad Request"))))
+        (pair state (pair 404 "Not Found"))))
+
+  (def-logic generate-id [salt]
+    (int-to-string (+ (now-ms ()) salt)))
+
+  (def-logic handle-put [state path body]
+    (if (string-starts-with path "/todos/")
+        (let [[id (string-slice path 7 (string-length path))]]
+          (match (parse-task-input body)
+            ((Success input)
+              ;; Treat input as (title, (completed, priority))
+              (let [[title   (first input)]
+                    [comp_pr (second input)]
+                    [comp    (first comp_pr)]
+                    [prio    (second comp_pr)]
+                    [now     (now-iso ())]
+                    [new-tasks (list-map (state-tasks state)
+                                 (fn [t]
+                                   (if (= (task-id t) id)
+                                       ;; Preserve creation date, update the rest
+                                       (make-task id title comp prio (task-created t) now)
+                                       t)))]]
+                (if (= new-tasks (state-tasks state))
+                    (pair state (pair 404 "Not Found"))
+                    (pair (update-tasks state new-tasks) (pair 200 "OK")))))
+            ((Error err)
+              (pair state (pair 400 "Bad Request")))))
+        (pair state (pair 404 "Not Found"))))
+
+  (def-logic handle-delete [state path]
+    (if (string-starts-with path "/todos/")
+        (let [[id (string-slice path 7 (string-length path))]
+              [new-tasks (list-fold (state-tasks state) (list-empty)
+                           (fn [acc t]
+                             (if (!= (task-id t) id)
+                                 (list-append acc t)
+                                 acc)))]]
+          ;; Idempotency: even if the task wasn't there, it now isn't, so return 204
+          (pair (update-tasks state new-tasks) (pair 204 "No Content")))
+        (pair state (pair 404 "Not Found"))))
+
+  ;; ---------------------------------------------------------
+  ;; Utilities
+  ;; ---------------------------------------------------------
+  (def-logic string-starts-with [s prefix]
+    (let [[len (string-length prefix)]]
+      (if (>= (string-length s) len)
+          (= (string-slice s 0 len) prefix)
+          false)))
+
+)
