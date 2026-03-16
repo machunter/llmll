@@ -354,6 +354,22 @@ In LLMLL, FFI is a strict **two-step workflow**:
 > - **FFI Stubs** (`src/ffi/*.rs`) are resolved **by the developer writing Rust code** using foreign APIs.
 > - **`?delegate` Holes** (in `src/lib.rs`) are resolved **by the Lead-AI/Human reviewer writing LLMLL code** inside the source `.llmll` file. A `?delegate` must NEVER be manually implemented in Rust, as that bypasses the verifier entirely.
 
+> [!WARNING]
+> **Pitfall: Declaring an interface you don't fully implement (dead stubs).**
+> If you declare `(import rust.my_crate (interface [...]))` but leave the generated `src/ffi/my_crate.rs` stub with a `todo!()` body, **the code will compile but panic at runtime** the moment that function is called. The type system cannot catch this — `todo!()` satisfies the return type but always terminates the process.
+>
+> Rule: Every `(import rust.* ...)` you write must have a fully implemented stub file before running the service. If a function is not yet needed, simply do not import it.
+
+> [!WARNING]
+> **Pitfall: The compiler stub generator does not add Cargo dependencies for you.**
+> When `llmll build` generates `src/ffi/my_crate.rs`, it adds a **commented-out placeholder** in `Cargo.toml`:
+> ```toml
+> # my_crate = "<version>"  # TODO: replace <version> and uncomment
+> ```
+> You **must** uncomment this line and supply a real version from [crates.io](https://crates.io) before `cargo build` will succeed. Then uncomment the matching `use my_crate;` line at the top of the stub file.
+>
+> Conversely, if you remove an `(import rust.* ...)` declaration from your LLMLL source, `llmll build` will regenerate `src/ffi/mod.rs` without that module — but the developer-owned `src/ffi/my_crate.rs` file will remain on disk. Remove it manually (or keep it if you want to reuse it later).
+
 ---
 
 ## 8. Module System

@@ -123,7 +123,9 @@ generateCargoToml moduleName hasMain mMode imports = T.unlines $
           unique = nub crates
       in if null unique
            then []
-           else map (\c -> c <> " = \"*\"") unique
+           else
+             [ "# FFI dependencies — pin exact versions before building:"
+             ] ++ map (\c -> "# " <> c <> " = \"<version>\"  # TODO: replace <version> and uncomment") unique
 
     httpDeps = case mMode of
       Just (ModeHttp _) ->
@@ -568,9 +570,10 @@ emitFfiCrateFile crate imports =
   in T.unlines $
     [ "// FFI Stubs for '" <> crate <> "'. Generated ONCE."
     , "// Edit this file to implement the stubs using the crate API."
+    , "// Add the crate as a [dependency] in Cargo.toml before implementing."
     , "#![allow(unused_variables, dead_code)]"
     , "use crate::LlmllVal;"
-    , "use " <> toRustIdent crate <> ";"
+    , "// use " <> toRustIdent crate <> "; // Uncomment & add to Cargo.toml: " <> toRustIdent crate <> " = \"<version>\""
     , ""
     ] ++ stubs
 
