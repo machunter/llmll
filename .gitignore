@@ -7,3 +7,4 @@ generated/hangman/target/
 generated/hangman/Cargo.lock
 runtime/target/
 runtime/Cargo.lock
+generated/
