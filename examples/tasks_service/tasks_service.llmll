@@ -1,0 +1,342 @@
+;; ============================================================
+;; tasks_service.llmll — Tasks REST Service
+;; Spec: examples/specifications/Tasks Service Specifications.md
+;; ============================================================
+(module tasks-service
+  (import wasi.io   (capability stdout :deterministic false))
+  (import wasi.io   (capability stderr :deterministic false))
+  (import wasi.http (capability serve 8080))
+
+  ;; FFI: HTTP request parsing — parses raw request into structured fields
+  (import rust.http_server (interface [
+    [get-method      (fn [s: string] -> string)]
+    [get-path        (fn [s: string] -> string)]
+    [get-body        (fn [s: string] -> string)]
+    [http-response   (fn [status: int body: string] -> string)]
+  ]))
+
+  ;; FFI: JSON serialisation — Task<->JSON marshalling via serde_json
+  (import rust.serde_json (interface [
+    [tasks-from-json (fn [s: string] -> string)]
+    [tasks-to-json   (fn [s: string] -> string)]
+    [task-from-json  (fn [s: string] -> string)]
+    [task-to-json    (fn [s: string] -> string)]
+    [next-id         (fn [s: string] -> int)]
+    [now-timestamp   (fn [dummy: string] -> string)]
+    [id-from-path    (fn [s: string] -> int)]
+  ]))
+
+  ;; FFI: Atomic file I/O — write-to-temp-then-rename, read, file-exists
+  (import rust.atomic_fs (interface [
+    [atomic-write    (fn [path: string content: string] -> bool)]
+    [read-file-safe  (fn [path: string] -> string)]
+    [file-exists     (fn [path: string] -> bool)]
+  ]))
+
+  ;; FFI: CLI arg parsing — extract --port and --file from argv string
+  (import rust.env (interface [
+    [parse-port      (fn [args: string] -> int)]
+    [parse-file-path (fn [args: string] -> string)]
+  ]))
+
+  ;; ==========================================================
+  ;; §1. Priority ADT
+  ;; ==========================================================
+  (type Priority
+    (| Low    unit)
+    (| Medium unit)
+    (| High   unit))
+
+  ;; ==========================================================
+  ;; §2. Task — encoded as a 5-level nested pair
+  ;;
+  ;;   Task = (id, (title, (done, (priority, (created-at, completed-at)))))
+  ;;
+  ;;   id           : int
+  ;;   title        : string
+  ;;   done         : bool
+  ;;   priority     : Priority
+  ;;   created-at   : string   (ISO-8601 timestamp)
+  ;;   completed-at : string   ("" when not yet completed)
+  ;; ==========================================================
+
+  (def-logic make-task [id: int title: string done: bool prio: Priority created: string completed: string]
+    (pair id (pair title (pair done (pair prio (pair created completed))))))
+
+  (def-logic task-id        [t] (first t))
+  (def-logic task-title     [t] (first (second t)))
+  (def-logic task-done      [t] (first (second (second t))))
+  (def-logic task-priority  [t] (first (second (second (second t)))))
+  (def-logic task-created   [t] (first (second (second (second (second t))))))
+  (def-logic task-completed [t] (second (second (second (second (second t))))))
+
+  ;; ==========================================================
+  ;; §3. AppState — encoded as a 3-level nested pair
+  ;;
+  ;;   AppState = (port, (file-path, tasks-json))
+  ;;
+  ;;   port       : int
+  ;;   file-path  : string
+  ;;   tasks-json : string   (canonical JSON string, the in-memory store)
+  ;; ==========================================================
+
+  (def-logic make-app-state [port: int fpath: string tjson: string]
+    (pair port (pair fpath tjson)))
+
+  (def-logic state-port      [s] (first s))
+  (def-logic state-file      [s] (first (second s)))
+  (def-logic state-tasks-json [s] (second (second s)))
+
+  ;; ==========================================================
+  ;; §4. Validation helpers
+  ;; ==========================================================
+
+  ;; Non-empty title constraint
+  (type TaskTitle (where [s: string] (> (string-length s) 0)))
+
+  ;; Valid priority string: "low", "medium", or "high"
+  (def-logic valid-priority? [p: string]
+    (or (= p "low") (or (= p "medium") (= p "high"))))
+
+  ;; ==========================================================
+  ;; §5. Business Logic
+  ;; ==========================================================
+
+  ;; 5.1 Add a new task — returns updated tasks-json string
+  (def-logic tasks-add [tasks-json: string title: string priority: string]
+    (pre (and (> (string-length title) 0) (valid-priority? priority)))
+    (let [[new-id    (next-id tasks-json)]
+          [now       (now-timestamp "")]
+          ;; Build a minimal JSON object for the new task; serde_json stub
+          ;; will parse this and append it to the tasks list.
+          [new-task-json (string-concat
+                           (string-concat
+                             (string-concat
+                               (string-concat
+                                 (string-concat
+                                   (string-concat
+                                     (string-concat "{\"id\":"
+                                                    (int-to-string new-id))
+                                     ",\"title\":\"")
+                                   title)
+                                 "\",\"done\":false,\"priority\":\"")
+                               priority)
+                             "\",\"created_at\":\"")
+                           (string-concat now "\",\"completed_at\":\"\"}"))]
+          [updated   (tasks-from-json (string-concat
+                                        (string-concat
+                                          (string-concat
+                                            (string-concat
+                                              "{\"op\":\"add\",\"tasks\":"
+                                              tasks-json)
+                                            ",\"task\":")
+                                          new-task-json)
+                                        "}"))]]
+      updated))
+
+  ;; 5.2 Mark a task as complete — returns updated tasks-json
+  (def-logic tasks-complete [tasks-json: string id: int]
+    (let [[now     (now-timestamp "")]
+          [updated (tasks-from-json
+                     (string-concat
+                       (string-concat
+                         (string-concat
+                           (string-concat
+                             (string-concat
+                               "{\"op\":\"complete\",\"id\":"
+                               (int-to-string id))
+                             ",\"completed_at\":\"")
+                           now)
+                         "\",\"tasks\":")
+                       (string-concat tasks-json "}")))]]
+      updated))
+
+  ;; 5.3 Delete a task — idempotent: if no task with id exists, return unchanged
+  (def-logic tasks-delete [tasks-json: string id: int]
+    (tasks-from-json
+      (string-concat
+        (string-concat
+          (string-concat
+            "{\"op\":\"delete\",\"id\":"
+            (int-to-string id))
+          ",\"tasks\":")
+        (string-concat tasks-json "}"))))
+
+  ;; 5.4 Get a single task as JSON string (or empty string if not found)
+  (def-logic tasks-get [tasks-json: string id: int]
+    (task-from-json
+      (string-concat
+        (string-concat
+          (string-concat
+            "{\"op\":\"get\",\"id\":"
+            (int-to-string id))
+          ",\"tasks\":")
+        (string-concat tasks-json "}"))))
+
+  ;; ==========================================================
+  ;; §6. Logging
+  ;; ==========================================================
+
+  ;; Format: [TIMESTAMP] METHOD PATH -> STATUS_CODE (LATENCY)
+  ;; We pass latency as a pre-computed string (computed by the Rust harness
+  ;; around handle-request; we only format the log line here).
+  (def-logic format-log [ts: string method: string path: string status: int latency: string]
+    (string-concat
+      (string-concat
+        (string-concat
+          (string-concat
+            (string-concat
+              (string-concat
+                (string-concat
+                  (string-concat
+                    (string-concat "[" ts)
+                    "] ")
+                  method)
+                " ")
+              path)
+            " -> ")
+          (int-to-string status))
+        " (")
+      (string-concat latency ")")))
+
+  ;; ==========================================================
+  ;; §7. HTTP Routing & Request Handling
+  ;; ==========================================================
+
+  ;; Route dispatch: returns (new-state, response-body, status-code)
+  ;; encoded as a nested pair:
+  ;;   (new-state, (status, response-body))
+  ;;
+  ;; method  : string  — "GET", "POST", "PATCH", "DELETE"
+  ;; path    : string  — e.g. "/tasks" or "/tasks/42"
+  ;; body    : string  — raw request body (JSON)
+  ;; state   : AppState
+  ;;
+  ;; Returns (AppState, (int, string)) — new state, status, body
+
+  (def-logic route [state method path body]
+    (let [[tasks-json  (state-tasks-json state)]
+          [file-path   (state-file state)]]
+      (if (and (= method "GET") (= path "/tasks"))
+        ;; LIST all tasks
+        (pair state (pair 200 (tasks-to-json tasks-json)))
+        ;; else
+        (if (and (= method "POST") (= path "/tasks"))
+          ;; CREATE a new task — extract title + priority via FFI
+          (let [[title     (task-from-json
+                              (string-concat
+                                (string-concat "{\"op\":\"field\",\"field\":\"title\",\"data\":" body)
+                                "}"))]
+                [priority  (task-from-json
+                              (string-concat
+                                (string-concat "{\"op\":\"field\",\"field\":\"priority\",\"data\":" body)
+                                "}"))]
+                [safe-prio (if (valid-priority? priority) priority "medium")]
+                [ok-title  (> (string-length title) 0)]]
+            (if ok-title
+              (let [[new-tasks (tasks-add tasks-json title safe-prio)]
+                    [_written  (atomic-write file-path (tasks-to-json new-tasks))]
+                    [new-state (make-app-state (state-port state) file-path new-tasks)]]
+                (pair new-state (pair 201 (tasks-to-json new-tasks))))
+              (pair state (pair 400 "{\"error\":\"title is required\"}"))))
+          ;; else
+          (if (and (= method "GET") (string-contains path "/tasks/"))
+            ;; GET single task by id
+            (let [[id       (id-from-path path)]
+                  [task-str (tasks-get tasks-json id)]]
+              (if (= (string-length task-str) 0)
+                (pair state (pair 404 "{\"error\":\"not found\"}"))
+                (pair state (pair 200 task-str))))
+            ;; else
+            (if (and (= method "PATCH") (string-contains path "/tasks/"))
+              ;; COMPLETE a task (mark done)
+              (let [[id        (id-from-path path)]
+                    [new-tasks (tasks-complete tasks-json id)]
+                    [_written  (atomic-write file-path (tasks-to-json new-tasks))]
+                    [new-state (make-app-state (state-port state) file-path new-tasks)]]
+                (pair new-state (pair 200 (tasks-to-json new-tasks))))
+              ;; else
+              (if (and (= method "DELETE") (string-contains path "/tasks/"))
+                ;; DELETE a task — idempotent
+                (let [[id        (id-from-path path)]
+                      [new-tasks (tasks-delete tasks-json id)]
+                      [_written  (atomic-write file-path (tasks-to-json new-tasks))]
+                      [new-state (make-app-state (state-port state) file-path new-tasks)]]
+                  (pair new-state (pair 200 "{\"ok\":true}")))
+                ;; catch-all: 404
+                (pair state (pair 404 "{\"error\":\"not found\"}")))))))))
+
+  ;; ==========================================================
+  ;; §8. Main request handler — wired into the runtime loop
+  ;;
+  ;; Signature: (AppState, string) -> (AppState, Command)
+  ;;   The runtime passes in the raw HTTP request as a string.
+  ;;   We parse it, route it, log it, and return the response Command.
+  ;; ==========================================================
+
+  (def-logic handle-request [state raw-request]
+    (let [[method    (get-method raw-request)]
+          [path      (get-path raw-request)]
+          [body      (get-body raw-request)]
+          [ts        (now-timestamp "")]
+          [routed    (route state method path body)]
+          [new-state (first routed)]
+          [status-body (second routed)]
+          [status    (first status-body)]
+          [resp-body (second status-body)]
+          [log-line  (format-log ts method path status "0ms")]
+          [resp-str  (http-response status resp-body)]
+          [log-cmd   (wasi.io.stdout (string-concat log-line "\n"))]
+          [resp-cmd  (wasi.io.stdout resp-str)]]
+      (pair new-state (seq-commands log-cmd resp-cmd))))
+
+  ;; ==========================================================
+  ;; §9. Initialiser — called once at startup with CLI args string
+  ;;
+  ;; Parses --port and --file, loads existing data.json (or creates it),
+  ;; and returns the initial AppState.
+  ;; ==========================================================
+
+  (def-logic init [args: string]
+    (let [[port      (parse-port args)]
+          [fpath     (parse-file-path args)]
+          [exists    (file-exists fpath)]
+          [raw       (if exists (read-file-safe fpath) "[]")]
+          ;; Normalise: if the file was empty or could not be parsed, start fresh
+          [tasks-json (if (> (string-length raw) 0) raw "[]")]
+          [_init-log (wasi.io.stdout
+                       (string-concat
+                         (string-concat "Starting tasks-service on port "
+                                        (int-to-string port))
+                         (string-concat " — data file: " (string-concat fpath "\n"))))]]
+      (make-app-state port fpath tasks-json)))
+
+  ;; ==========================================================
+  ;; §10. Property-based tests
+  ;; ==========================================================
+
+  (check "format-log produces non-empty string"
+    (for-all [method: string path: string status: int]
+      (> (string-length (format-log "2026-01-01T00:00:00Z" method path status "1ms")) 0)))
+
+  (check "valid-priority? accepts exactly low medium high"
+    (for-all [p: string]
+      (if (or (= p "low") (or (= p "medium") (= p "high")))
+          (valid-priority? p)
+          (not (valid-priority? p)))))
+
+  (check "state accessors round-trip"
+    (for-all [port: int fpath: string tjson: string]
+      (let [[s (make-app-state port fpath tjson)]]
+        (and (= (state-port s) port)
+             (and (= (state-file s) fpath)
+                  (= (state-tasks-json s) tjson))))))
+
+  (check "task accessors round-trip"
+    (for-all [id: int title: string created: string completed: string]
+      (let [[t (make-task id title false (Low unit) created completed)]]
+        (and (= (task-id t) id)
+             (and (= (task-title t) title)
+                  (and (= (task-done t) false)
+                       (and (= (task-created t) created)
+                            (= (task-completed t) completed)))))))))

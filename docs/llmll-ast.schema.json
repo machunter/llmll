@@ -1,0 +1,799 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://llmll.dev/schemas/v0.1.1/ast.schema.json",
+  "title": "LLMLL v0.1.1 JSON-AST Schema",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline.",
+
+  "$defs": {
+
+    "Program": {
+      "description": "Top-level structure. A file is a flat list of statements (no implicit root module). Wrap in a module statement if namespacing is desired.",
+      "type": "object",
+      "required": ["llmll_version", "statements"],
+      "additionalProperties": false,
+      "properties": {
+        "llmll_version": {
+          "description": "Must be '0.1.1'.",
+          "type": "string",
+          "const": "0.1.1"
+        },
+        "source_file": {
+          "description": "Optional: original .llmll filename for diagnostics.",
+          "type": "string"
+        },
+        "statements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Statement" }
+        }
+      }
+    },
+
+    "Statement": {
+      "description": "A top-level definition. Corresponds to EBNF 'statement'.",
+      "oneOf": [
+        { "$ref": "#/$defs/DefLogic" },
+        { "$ref": "#/$defs/DefInterface" },
+        { "$ref": "#/$defs/DefInvariant" },
+        { "$ref": "#/$defs/TypeDecl" },
+        { "$ref": "#/$defs/GenDecl" },
+        { "$ref": "#/$defs/CheckDecl" },
+        { "$ref": "#/$defs/ImportDecl" },
+        { "$ref": "#/$defs/ModuleDecl" }
+      ]
+    },
+
+    "DefLogic": {
+      "description": "A pure function with optional pre/post contracts. Corresponds to EBNF 'def-logic'. Return type is always inferred — omit it.",
+      "type": "object",
+      "required": ["kind", "name", "params", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "def-logic" },
+        "name":   { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" }
+        },
+        "pre":    { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'." },
+        "post":   { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only." },
+        "body":   { "$ref": "#/$defs/Expr" }
+      },
+      "examples": [
+        {
+          "kind": "def-logic",
+          "name": "withdraw",
+          "params": [
+            {"name": "balance", "type": {"kind": "primitive", "name": "int"}},
+            {"name": "amount",  "type": {"kind": "named",    "name": "PositiveInt"}}
+          ],
+          "pre":  {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]},
+          "post": {"kind": "op", "op": "=",  "args": [{"kind": "var", "name": "result"}, {"kind": "op", "op": "-", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}]},
+          "body": {"kind": "op", "op": "-", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}
+        }
+      ]
+    },
+
+    "DefInterface": {
+      "description": "A named interface (contract boundary). Corresponds to EBNF 'def-interface'.",
+      "type": "object",
+      "required": ["kind", "name", "methods"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":    { "type": "string", "const": "def-interface" },
+        "name":    { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
+        "methods": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IfaceMethod" }
+        }
+      }
+    },
+
+    "IfaceMethod": {
+      "description": "One method slot in a def-interface.",
+      "type": "object",
+      "required": ["name", "fn_type"],
+      "additionalProperties": false,
+      "properties": {
+        "name":    { "type": "string" },
+        "fn_type": { "$ref": "#/$defs/TypeFn" }
+      }
+    },
+
+    "DefInvariant": {
+      "description": "A module-level invariant (verification deferred to v0.2). Stored but not checked at compile time in v0.1.1.",
+      "type": "object",
+      "required": ["kind", "name", "param", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "def-invariant" },
+        "name":  { "type": "string" },
+        "param": { "$ref": "#/$defs/TypedParam" },
+        "body":  { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "TypeDecl": {
+      "description": "A user-defined type: either a dependent (where) type or a sum type (ADT). Corresponds to EBNF 'type-decl'.",
+      "type": "object",
+      "required": ["kind", "name", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "type-decl" },
+        "name": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
+        "body": {
+          "oneOf": [
+            { "$ref": "#/$defs/TypeWhere", "description": "Dependent type: (where [x: base] predicate)" },
+            {
+              "description": "Sum type / ADT: list of (| Constructor payload) arms",
+              "type": "object",
+              "required": ["kind", "variants"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": "string", "const": "sum" },
+                "variants": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/Variant" }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "examples": [
+        {
+          "kind": "type-decl",
+          "name": "Word",
+          "body": {
+            "kind": "where",
+            "binding": "s",
+            "base_type": {"kind": "primitive", "name": "string"},
+            "predicate": {"kind": "op", "op": ">", "args": [{"kind": "app", "fn": "string-length", "args": [{"kind": "var", "name": "s"}]}, {"kind": "lit-int", "value": 0}]}
+          }
+        },
+        {
+          "kind": "type-decl",
+          "name": "Color",
+          "body": {
+            "kind": "sum",
+            "variants": [
+              {"constructor": "Red",   "payload": {"kind": "primitive", "name": "unit"}},
+              {"constructor": "Green", "payload": {"kind": "primitive", "name": "unit"}},
+              {"constructor": "Blue",  "payload": {"kind": "primitive", "name": "unit"}}
+            ]
+          }
+        }
+      ]
+    },
+
+    "Variant": {
+      "description": "One arm of a sum type.",
+      "type": "object",
+      "required": ["constructor", "payload"],
+      "additionalProperties": false,
+      "properties": {
+        "constructor": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
+        "payload":     { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "GenDecl": {
+      "description": "A custom value generator for a dependent type. Used by the PBT engine. Corresponds to EBNF 'gen-decl'.",
+      "type": "object",
+      "required": ["kind", "type_name", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "gen-decl" },
+        "type_name": { "type": "string", "description": "The dependent type this generator produces values for." },
+        "body":      { "$ref": "#/$defs/Expr", "description": "Expression yielding a value of the base type satisfying the dependent constraint." }
+      }
+    },
+
+    "CheckDecl": {
+      "description": "A property-based test. Must contain exactly one for-all. Corresponds to EBNF 'check'.",
+      "type": "object",
+      "required": ["kind", "label", "for_all"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":    { "type": "string", "const": "check" },
+        "label":   { "type": "string" },
+        "for_all": { "$ref": "#/$defs/ForAll" }
+      }
+    },
+
+    "ForAll": {
+      "description": "The single for-all body inside a check block.",
+      "type": "object",
+      "required": ["kind", "bindings", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":     { "type": "string", "const": "for-all" },
+        "bindings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" }
+        },
+        "body": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ImportDecl": {
+      "description": "Capability or FFI import. In v0.1.1 these are parsed and stored but not enforced.",
+      "type": "object",
+      "required": ["kind", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "import" },
+        "path":       { "type": "string", "description": "Dot-separated qualified path, e.g. 'wasi.io' or 'rust.serde_json'." },
+        "capability": { "$ref": "#/$defs/CapabilitySpec" },
+        "interface":  {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IfaceMethod" },
+          "description": "For FFI imports: the typed interface the foreign library exposes."
+        }
+      }
+    },
+
+    "CapabilitySpec": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":          { "type": "string" },
+        "path_or_port":  { "type": "string", "description": "e.g. '/data' for fs, '8080' for http." },
+        "deterministic": { "type": "boolean", "default": false }
+      }
+    },
+
+    "ModuleDecl": {
+      "description": "An optional namespace wrapper. In v0.1.1 the module name is ignored for codegen; its body is flattened.",
+      "type": "object",
+      "required": ["kind", "name", "imports", "statements"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "module" },
+        "name":       { "type": "string" },
+        "imports":    { "type": "array", "items": { "$ref": "#/$defs/ImportDecl" } },
+        "statements": { "type": "array", "items": { "$ref": "#/$defs/Statement" } }
+      }
+    },
+
+    "TypedParam": {
+      "description": "A named, typed parameter. Note: pair-type in the 'param_type' field is rejected by the v0.1.1 compiler. Use 'untyped' = true and a comment instead.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":       { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "param_type": { "$ref": "#/$defs/Type" },
+        "untyped":    { "type": "boolean", "default": false, "description": "Set true when param_type would be a pair-type (v0.1.1 limitation)." },
+        "comment":    { "type": "string", "description": "When untyped=true, document the expected type here." }
+      }
+    },
+
+    "Type": {
+      "description": "Any LLMLL type expression. Corresponds to EBNF 'type'.",
+      "oneOf": [
+        { "$ref": "#/$defs/TypePrimitive" },
+        { "$ref": "#/$defs/TypeList" },
+        { "$ref": "#/$defs/TypeMap" },
+        { "$ref": "#/$defs/TypeResult" },
+        { "$ref": "#/$defs/TypePromise" },
+        { "$ref": "#/$defs/TypeBytes" },
+        { "$ref": "#/$defs/TypeFn" },
+        { "$ref": "#/$defs/TypeWhere" },
+        { "$ref": "#/$defs/TypePair" },
+        { "$ref": "#/$defs/TypeCommand" },
+        { "$ref": "#/$defs/TypeNamed" }
+      ]
+    },
+
+    "TypePrimitive": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "primitive" },
+        "name": { "type": "string", "enum": ["int", "float", "string", "bool", "unit"] }
+      }
+    },
+
+    "TypeList": {
+      "type": "object",
+      "required": ["kind", "elem_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "list" },
+        "elem_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeMap": {
+      "type": "object",
+      "required": ["kind", "key_type", "val_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":     { "type": "string", "const": "map" },
+        "key_type": { "$ref": "#/$defs/Type" },
+        "val_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeResult": {
+      "type": "object",
+      "required": ["kind", "ok_type", "err_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":     { "type": "string", "const": "result" },
+        "ok_type":  { "$ref": "#/$defs/Type" },
+        "err_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypePromise": {
+      "type": "object",
+      "required": ["kind", "inner_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "promise" },
+        "inner_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeBytes": {
+      "type": "object",
+      "required": ["kind", "length"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "bytes" },
+        "length": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "TypeFn": {
+      "description": "A function type. Named params are documentation-only; both 'typed' and bare type arrays are valid.",
+      "type": "object",
+      "required": ["kind", "params", "return_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":        { "type": "string", "const": "fn-type" },
+        "params":      {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" },
+          "description": "Parameter types. Names are optional (doc-only)."
+        },
+        "return_type": { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeWhere": {
+      "description": "A dependent type: (where [binding: base] predicate).",
+      "type": "object",
+      "required": ["kind", "binding", "base_type", "predicate"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "where" },
+        "binding":   { "type": "string" },
+        "base_type": { "$ref": "#/$defs/Type" },
+        "predicate": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "TypePair": {
+      "description": "A 2-tuple product type: (a, b). NOTE: v0.1.1 rejects pair-type in typed-param position.",
+      "type": "object",
+      "required": ["kind", "fst", "snd"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "pair-type" },
+        "fst":  { "$ref": "#/$defs/Type" },
+        "snd":  { "$ref": "#/$defs/Type" }
+      }
+    },
+
+    "TypeCommand": {
+      "description": "The opaque Command type. Cannot be pattern-matched.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "command" }
+      }
+    },
+
+    "TypeNamed": {
+      "description": "A user-defined type referenced by name, e.g. 'Word', 'PositiveInt', 'GameState'.",
+      "type": "object",
+      "required": ["kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "named" },
+        "name": { "type": "string" }
+      }
+    },
+
+    "Expr": {
+      "description": "Any expression. Corresponds to EBNF 'expr'.",
+      "oneOf": [
+        { "$ref": "#/$defs/ExprLitInt" },
+        { "$ref": "#/$defs/ExprLitFloat" },
+        { "$ref": "#/$defs/ExprLitString" },
+        { "$ref": "#/$defs/ExprLitBool" },
+        { "$ref": "#/$defs/ExprVar" },
+        { "$ref": "#/$defs/ExprLet" },
+        { "$ref": "#/$defs/ExprIf" },
+        { "$ref": "#/$defs/ExprMatch" },
+        { "$ref": "#/$defs/ExprApp" },
+        { "$ref": "#/$defs/ExprQualApp" },
+        { "$ref": "#/$defs/ExprOp" },
+        { "$ref": "#/$defs/ExprPair" },
+        { "$ref": "#/$defs/ExprLambda" },
+        { "$ref": "#/$defs/ExprAwait" },
+        { "$ref": "#/$defs/ExprDo" },
+        { "$ref": "#/$defs/ExprHole" }
+      ]
+    },
+
+    "ExprLitInt": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-int" },
+        "value": { "type": "integer" }
+      }
+    },
+
+    "ExprLitFloat": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-float" },
+        "value": { "type": "number" }
+      }
+    },
+
+    "ExprLitString": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-string" },
+        "value": { "type": "string" }
+      }
+    },
+
+    "ExprLitBool": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-bool" },
+        "value": { "type": "boolean" }
+      }
+    },
+
+    "ExprVar": {
+      "description": "A variable reference. 'result' is only valid inside a post clause.",
+      "type": "object",
+      "required": ["kind", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "var" },
+        "name": { "type": "string" }
+      }
+    },
+
+    "ExprLet": {
+      "description": "Sequential let bindings (let*). Each binding is in scope for all subsequent bindings and the body.",
+      "type": "object",
+      "required": ["kind", "bindings", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "let" },
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "expr"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "expr": { "$ref": "#/$defs/Expr" }
+            }
+          }
+        },
+        "body": { "$ref": "#/$defs/Expr" }
+      },
+      "examples": [
+        {
+          "kind": "let",
+          "bindings": [
+            {"name": "x", "expr": {"kind": "lit-int", "value": 1}},
+            {"name": "y", "expr": {"kind": "op", "op": "+", "args": [{"kind": "var", "name": "x"}, {"kind": "lit-int", "value": 1}]}}
+          ],
+          "body": {"kind": "var", "name": "y"}
+        }
+      ]
+    },
+
+    "ExprIf": {
+      "description": "Conditional: (if cond then else). All three branches are required.",
+      "type": "object",
+      "required": ["kind", "cond", "then_branch", "else_branch"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":        { "type": "string", "const": "if" },
+        "cond":        { "$ref": "#/$defs/Expr" },
+        "then_branch": { "$ref": "#/$defs/Expr" },
+        "else_branch": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprMatch": {
+      "description": "Pattern match. MUST be exhaustive — include a catch-all arm (\"_\") if needed.",
+      "type": "object",
+      "required": ["kind", "scrutinee", "arms"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":      { "type": "string", "const": "match" },
+        "scrutinee": { "$ref": "#/$defs/Expr" },
+        "arms": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/MatchArm" }
+        }
+      }
+    },
+
+    "MatchArm": {
+      "type": "object",
+      "required": ["pattern", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "pattern": { "$ref": "#/$defs/Pattern" },
+        "body":    { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "Pattern": {
+      "description": "A match pattern. Corresponds to EBNF 'pattern'.",
+      "oneOf": [
+        {
+          "description": "Catch-all wildcard: _",
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": { "kind": { "type": "string", "const": "wildcard" } }
+        },
+        {
+          "description": "Variable binding: captures the value.",
+          "type": "object",
+          "required": ["kind", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "bind" },
+            "name": { "type": "string" }
+          }
+        },
+        {
+          "description": "Literal equality: match a specific value.",
+          "type": "object",
+          "required": ["kind", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":  { "type": "string", "const": "literal" },
+            "value": { "oneOf": [{"type": "integer"}, {"type": "number"}, {"type": "string"}, {"type": "boolean"}] }
+          }
+        },
+        {
+          "description": "Constructor pattern: (ConstructorName sub-patterns...).",
+          "type": "object",
+          "required": ["kind", "constructor"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":        { "type": "string", "const": "constructor" },
+            "constructor": { "type": "string" },
+            "sub_patterns": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Pattern" }
+            }
+          }
+        }
+      ]
+    },
+
+    "ExprApp": {
+      "description": "A plain function call: (fn-name arg1 arg2 ...). Use for user-defined def-logic and built-in stdlib functions.",
+      "type": "object",
+      "required": ["kind", "fn", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "app" },
+        "fn":   { "type": "string", "description": "Name of the function. ASCII only. No dots." },
+        "args": { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
+      }
+    },
+
+    "ExprQualApp": {
+      "description": "A qualified capability call: (wasi.io.stdout ...). Use for command constructors.",
+      "type": "object",
+      "required": ["kind", "qual_fn", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":    { "type": "string", "const": "qual-app" },
+        "qual_fn": { "type": "string", "description": "Dot-separated qualified name, e.g. 'wasi.io.stdout'." },
+        "args":    { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
+      }
+    },
+
+    "ExprOp": {
+      "description": "A built-in operator: +, -, *, /, =, !=, <, >, <=, >=, and, or, not, mod.",
+      "type": "object",
+      "required": ["kind", "op", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "op" },
+        "op":   {
+          "type": "string",
+          "enum": ["+", "-", "*", "/", "=", "!=", "<", ">", "<=", ">=", "and", "or", "not", "mod"]
+        },
+        "args": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Expr" },
+          "description": "Unary ops (not) take 1 arg. All others take exactly 2."
+        }
+      }
+    },
+
+    "ExprPair": {
+      "description": "A 2-tuple constructor: (pair fst snd).",
+      "type": "object",
+      "required": ["kind", "fst", "snd"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "pair" },
+        "fst":  { "$ref": "#/$defs/Expr" },
+        "snd":  { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprLambda": {
+      "description": "An anonymous function: (fn [params] body). Note: pair-type params are rejected in v0.1.1.",
+      "type": "object",
+      "required": ["kind", "params", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "lambda" },
+        "params": { "type": "array", "items": { "$ref": "#/$defs/TypedParam" } },
+        "body":   { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprAwait": {
+      "description": "Await a Promise[t]: (await promise-expr).",
+      "type": "object",
+      "required": ["kind", "expr"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "await" },
+        "expr": { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "ExprDo": {
+      "description": "Monadic do-notation: a sequence of bound steps and plain expressions.",
+      "type": "object",
+      "required": ["kind", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "do" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DoStep" }
+        }
+      }
+    },
+
+    "DoStep": {
+      "oneOf": [
+        {
+          "description": "Bound step: (<- name expr)",
+          "type": "object",
+          "required": ["kind", "name", "expr"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "bind-step" },
+            "name": { "type": "string" },
+            "expr": { "$ref": "#/$defs/Expr" }
+          }
+        },
+        {
+          "description": "Plain expression step (for side-effect commands).",
+          "type": "object",
+          "required": ["kind", "expr"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "expr-step" },
+            "expr": { "$ref": "#/$defs/Expr" }
+          }
+        }
+      ]
+    },
+
+    "ExprHole": {
+      "description": "A typed hole. Can be named, a choice, a capability request, a scaffold, or a delegation.",
+      "oneOf": [
+        {
+          "description": "?name — named placeholder.",
+          "type": "object",
+          "required": ["kind", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "hole-named" },
+            "name": { "type": "string" }
+          }
+        },
+        {
+          "description": "?choose(a, b, c) — option selection.",
+          "type": "object",
+          "required": ["kind", "options"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":    { "type": "string", "const": "hole-choose" },
+            "options": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "description": "?request-cap(path) — request a new capability from the operator.",
+          "type": "object",
+          "required": ["kind", "cap_path"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":     { "type": "string", "const": "hole-request-cap" },
+            "cap_path": { "type": "string" }
+          }
+        },
+        {
+          "description": "?scaffold — cold-start a module from a known template.",
+          "type": "object",
+          "required": ["kind", "template"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":     { "type": "string", "const": "hole-scaffold" },
+            "template": { "type": "string" },
+            "options":  { "type": "object", "additionalProperties": true }
+          }
+        },
+        {
+          "description": "?delegate — blocking delegation to a named agent.",
+          "type": "object",
+          "required": ["kind", "agent", "description", "return_type"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":        { "type": "string", "const": "hole-delegate" },
+            "agent":       { "type": "string" },
+            "description": { "type": "string" },
+            "return_type": { "$ref": "#/$defs/Type" },
+            "on_failure":  { "$ref": "#/$defs/Expr" }
+          }
+        },
+        {
+          "description": "?delegate-async — non-blocking delegation, returns Promise[T].",
+          "type": "object",
+          "required": ["kind", "agent", "description", "return_type"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":        { "type": "string", "const": "hole-delegate-async" },
+            "agent":       { "type": "string" },
+            "description": { "type": "string" },
+            "return_type": { "$ref": "#/$defs/Type" }
+          }
+        }
+      ]
+    }
+
+  },
+
+  "$ref": "#/$defs/Program"
+}
