@@ -2,7 +2,7 @@
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **v0.1.1 Scope:** This version closes all specification gaps identified during the Hangman implementation exercise. Every construct in this document has fully defined syntax, grammar, and runtime semantics. Formal compile-time verification (SMT/Z3 via liquid types) is introduced in v0.2; interactive theorem proving (Lean 4) in v0.3. See the [Version Roadmap](#14-version-roadmap) at the end of this document.
+> **v0.1.1 Scope:** This version closes all specification gaps identified during the Hangman implementation exercise. Every construct in this document has fully defined syntax, grammar, and runtime semantics. Compile-time verification via LiquidHaskell arrives in v0.2; interactive theorem proving via Leanstral in v0.3. See the [Version Roadmap](#14-version-roadmap) at the end of this document. For the compiler team's implementation schedule and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -14,7 +14,7 @@
 2. **Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`). A program with holes can be analyzed and type-checked but not executed until the holes are filled. Always prefer a typed hole over a hallucinated implementation.
 3. **Typed Logic:** Every expression has a type. The type system prevents null pointer dereferences, type mismatches, and unguarded IO. Return types are inferred — never annotate them explicitly.
 4. **Runtime Contract Verification:** Logic functions declare `pre` and `post` conditions enforced as runtime assertions. These contracts are the machine-checked trust interface between agents: a caller does not need to understand an implementation, only that its contract holds.
-5. **Capability-Based Security:** The language runs in a WASM sandbox. It has zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly.
+5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.3; WASM-WASI in v0.4). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly.
 
 ---
 
@@ -103,9 +103,11 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 | `Result[t,e]` | Success (`t`) or Error (`e`) | `Result[int,string]` |
 | `Promise[t]` | Pending async value | `Promise[ImageBytes]` |
 | `(a, b)` | 2-tuple (product type) | `(int, string)` |
-| `Command` | An opaque IO command value (see §9) | _(constructed via built-ins only)_ |
+| `Command` | An IO effect value (see §9) | _(constructed via capability constructors only)_ |
 
-> **`Command` is opaque.** It cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields.
+> **`Command` in v0.1.1:** Opaque — cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields.
+>
+> **`Command` from v0.1.2:** In generated Haskell, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library). A function's required capabilities are visible in its type signature. Missing capability declarations become type errors rather than silent runtime failures. The LLMLL surface syntax is unchanged — the effect row is a codegen detail, not a language syntax change.
 
 > [!IMPORTANT]
 > **v0.1.1 Limitation — `pair-type` not accepted in `typed-param` position.**
@@ -114,17 +116,17 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > - Lambda parameters inside `list-fold`, `list-map`, etc. (`(fn [acc: (int, string)] ...)` → use `(fn [acc] ...)`)
 > - `for-all` bindings in `check` blocks
 >
-> **Workaround:** Use an untyped parameter and document the expected pair type in a comment. The compiler assigns `TCustom "_"` and performs no type checking on that parameter in v0.1.1.
+> **Workaround (v0.1.1 only):** Use an untyped parameter and document the expected pair type in a comment. The compiler assigns `TCustom "_"` and performs no type checking on that parameter in v0.1.1.
 > ```lisp
 > ;; WRONG — parse error in v0.1.1:
 > (def-logic cell-at [board: list[string] idx: int])
 >   ;; OK ↑, but lambda inside:
 >   (list-fold board init (fn [acc: (list[string], int) cell] ...))  ;; PARSE ERROR
 >
-> ;; CORRECT — use untyped lambda params:
+> ;; CORRECT in v0.1.1 — use untyped lambda params:
 > (list-fold board init (fn [acc cell] ...))
 > ```
-> This restriction will be lifted in v0.2.
+> **Fixed in v0.2:** `pair-type` is accepted in `typed-param` position as an explicit type system fix (see `§14 v0.2` and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md)). The workaround above is only required in v0.1.1.
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
 
@@ -294,6 +296,7 @@ A program with holes can be **parsed, type-checked, and analyzed** but **not exe
 | `?scaffold(template ...)` | Cold-start a module from a `llmll-hub` skeleton (see §6.1). |
 | `?delegate @agent "description" -> Type` | Delegate implementation to a named agent (see §11.2). |
 | `?delegate-async @agent "description" -> Promise[Type]` | Non-blocking delegation (see §11.2). |
+| `?proof-required` | A contract predicate that is outside the decidable QF arithmetic fragment (v0.2+). The compiler assigns a complexity hint: `:simple` (LiquidHaskell track), `:inductive` (Leanstral track), or `:unknown`. Non-blocking in v0.2; resolved by Leanstral (Lean 4) in v0.3. |
 
 **Usage in expressions:** A hole can appear anywhere an expression is expected:
 
@@ -321,7 +324,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs are sandboxed WASM modules. All interactions with the outside world require `import` statements that grant specific **capabilities**.
+`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.3, and WASM-WASI in v0.4.
 
 ```lisp
 (module cloud-storage
@@ -339,59 +342,57 @@ Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-l
 **External Bridge (FFI):** To use existing Rust/C code, define a Verified Wrapper using the `rust.*` or `c.*` prefix:
 
 ```lisp
-(import rust.serde_json (interface [
-  [json-parse (fn [s: string] -> any)]
+(import haskell.aeson (interface [
+  [json-decode (fn [s: string] -> Result[TodoList, string])]
+  [json-encode (fn [td: TodoList] -> string)]
 ]))
 ```
 
-In LLMLL, FFI stubs are resolved through a **three-tier lookup** — the compiler checks each tier in order before falling back to the next:
+In LLMLL, FFI imports are resolved through a **two-tier lookup** (v0.1.2+). The compiler checks each tier in order:
 
-| Tier | Source | Ownership | Notes |
-|------|--------|-----------|-------|
-| **1 — FFI Standard Library** | Bundled with the compiler (`ffi-stdlib/`) | LLMLL maintainers | Pre-implemented, tested stubs for common crates (`serde_json`, `clap`, `env`, `atomic_fs`, etc.). Automatically copied — no stub file is generated. |
-| **2 — llmll-hub packages** | Fetched from the `llmll-hub` registry (v0.3+) | Community, versioned | `llmll ffi add my_crate` downloads both the interface `.llmll` declaration and the verified `.rs` implementation. |
-| **3 — Developer stub** | Generated by `llmll build` into `src/ffi/<crate>.rs` | Developer | Generated only if neither Tier 1 nor Tier 2 provides a match. Contains `todo!()` bodies the developer must implement. `llmll build` never overwrites this file once it exists. |
+| Tier | Prefix | Mechanism | Stub generated? |
+|------|--------|-----------|----------------|
+| **1 — Hackage** | `haskell.*` | Regular GHC `import`; package added to `package.yaml`. No stub generated. | No |
+| **2 — C libraries** | `c.*` | GHC `foreign import ccall`; compiler generates `src/FFI/<lib>.hs` with typed stub. | Yes |
 
-**Tier 1 example:** The following import resolves automatically with no developer action:
+> **What happened to the Rust FFI tier?** Prior to v0.1.2 the compiler targeted Rust. The legacy `rust.*` namespace and the FFI standard library (`serde_json`, `clap`, `atomic_fs`, etc.) are retired. Their Haskell equivalents are Tier 1 Hackage imports requiring no stub at all:
+>
+> | Legacy (`rust.*`) | Hackage replacement (`haskell.*`) |
+> |-------------------|-----------------------------------|
+> | `rust.serde_json` | `haskell.aeson` (`Data.Aeson`) |
+> | `rust.clap` | `haskell.optparse-applicative` |
+> | `rust.atomic_fs` | `haskell.unix` (`System.Posix.Files`) |
+> | `rust.env` | `haskell.base` (`System.Environment`) |
+> | `rust.timer` | `haskell.base` (`Control.Concurrent`) |
+> | `rust.http_server` | `haskell.warp` (`Network.Wai`) |
+
+**Tier 1 example — zero developer action:**
 
 ```lisp
-;; No stub file generated — compiler copies verified impl from ffi-stdlib/serde_json.rs
-(import rust.serde_json (interface [
-  [parse-todo-json (fn [s: string] -> TodoList)]
-  [stringify-todo  (fn [td: TodoList] -> string)]
+;; Resolves to: import Data.Aeson — no stub file generated
+(import haskell.aeson (interface [
+  [json-decode (fn [s: string] -> Result[TodoList, string])]
+  [json-encode (fn [td: TodoList] -> string)]
 ]))
 ```
 
-**Tier 3 example** (custom crate not in stdlib or hub):
+**Tier 2 example — C FFI stub generated:**
 
 ```lisp
-;; llmll build generates src/ffi/my_special_crate.rs with todo!() stubs
-(import rust.my_special_crate (interface [
-  [compute (fn [x: int] -> int)]
+;; Compiler generates src/FFI/Libsodium.hs with foreign import ccall stubs
+(import c.libsodium (interface [
+  [crypto-sign (fn [msg: bytes[64] key: bytes[32]] -> bytes[96])]
 ]))
 ```
 
 > [!CAUTION]
 > **FFI stubs are NOT `?delegate` holes.**
-> The compiler emits `todo!()` macros for both FFI stubs and `?delegate` holes, but they are resolved completely differently. 
-> - **FFI Stubs** (`src/ffi/*.rs`) are resolved **by the developer writing Rust code** using foreign APIs.
-> - **`?delegate` Holes** (in `src/lib.rs`) are resolved **by the Lead-AI/Human reviewer writing LLMLL code** inside the source `.llmll` file. A `?delegate` must NEVER be manually implemented in Rust, as that bypasses the verifier entirely.
+> Tier 2 C stubs (`src/FFI/*.hs`) are resolved **by the developer writing Haskell FFI code** against the C library.
+> `?delegate` holes are resolved **by the Lead-AI/Human reviewer writing LLMLL code** inside the `.llmll` source file. A `?delegate` must NEVER be manually implemented in generated code — that bypasses the verifier entirely.
 
 > [!WARNING]
-> **Pitfall: Declaring an interface you don't fully implement (dead stubs).**
-> If you declare `(import rust.my_crate (interface [...]))` but leave the generated `src/ffi/my_crate.rs` stub with a `todo!()` body, **the code will compile but panic at runtime** the moment that function is called. The type system cannot catch this — `todo!()` satisfies the return type but always terminates the process.
->
-> Rule: Every `(import rust.* ...)` you write must have a fully implemented stub file before running the service. If a function is not yet needed, simply do not import it.
-
-> [!WARNING]
-> **Pitfall: The compiler stub generator does not add Cargo dependencies for you.**
-> When `llmll build` generates `src/ffi/my_crate.rs` (Tier 3), it adds a **commented-out placeholder** in `Cargo.toml`:
-> ```toml
-> # my_crate = "<version>"  # TODO: replace <version> and uncomment
-> ```
-> You **must** uncomment this line and supply a real version from [crates.io](https://crates.io) before `cargo build` will succeed.
->
-> Tier 1 (ffi-stdlib) stubs already have the correct `Cargo.toml` dependency entries and `use` statements filled in — no manual editing required.
+> **Pitfall: Declaring a C interface you don't fully implement.**
+> If you declare `(import c.mylib (interface [...]))` but leave the generated `src/FFI/Mylib.hs` stub unimplemented, **the code will compile but fail at link time or panic at runtime**. Every `(import c.* ...)` you write must have a fully implemented stub before running the service.
 
 
 
@@ -473,8 +474,8 @@ If a single logic step must emit multiple side effects, use `seq-commands` to co
 
 ```lisp
 (def-logic log-and-respond [state: AppState req: HttpRequest]
-  (let [[log-cmd  (wasi.io.stderr "Request received")]
-        [resp-cmd (wasi.http.response 200 "OK")]]
+  (let [(log-cmd  (wasi.io.stderr "Request received"))
+        (resp-cmd (wasi.http.response 200 "OK"))]
     (pair state (seq-commands log-cmd resp-cmd))))
 ```
 
@@ -486,7 +487,7 @@ If a single logic step must emit multiple side effects, use `seq-commands` to co
 
 ### 9.4 Runtime Execution Loop
 
-The `llmll` runtime (the WASM host) processes each `Command` as follows:
+The LLMLL host runtime processes each `Command` as follows:
 
 1. **Verify** permissions against the module's declared `capability` list. A command without a matching capability raises a `CapabilityError` and halts.
 2. **Intercept** sensitive commands (e.g., `wasi.fs.delete`) for human/Lead-AI review if the module is running in guarded mode.
@@ -497,16 +498,20 @@ The `llmll` runtime (the WASM host) processes each `Command` as follows:
 
 ## 10. Compilation & Execution Pipeline
 
-1. **AI Implementation:** LLM generates `.llmll` source (S-expressions).
-2. **Semantic Check:** Compiler verifies types, immutability, and catalogs all `?holes`. Reports structured S-expression diagnostics.
-3. **Human/Lead-AI Review:** Holes and sensitive `Command` types (e.g., `wasi.fs.delete`) are resolved/approved via Chat/CLI.
-4. **Transpilation:** Validated `.llmll` is converted to **Rust**.
-5. **Binary Generation:** `cargo build --target wasm32-wasi` produces the `.wasm` binary.
-6. **Contract & Property Testing:** The test runner executes `pre`/`post` assertions and `check` blocks against the running WASM module. Failures are reported as structured S-expression diagnostics.
-7. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
+The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (`.ast.json`).
 
-> **v0.2:** Step 2 will include compile-time liquid-type checking via Z3.
-> **Lean 4** integration is deferred to v0.3 and applies only to `?proof-required` holes.
+1. **AI Implementation:** LLM generates `.llmll` S-expressions *or* `.ast.json` (preferred for AI agents — schema-constrained, structurally valid by construction).
+2. **Parse & Semantic Check:** Compiler parses the source, verifies types and immutability, catalogs all `?holes`. Reports structured JSON diagnostics with RFC 6901 JSON Pointers to offending AST nodes. `llmll holes --json` lists all unresolved holes.
+3. **Human/Lead-AI Review:** Holes and sensitive `Command` effects (e.g., `wasi.fs.delete`) are resolved/approved via Chat/CLI.
+4. **Transpilation:** Validated `.llmll` is converted to **Haskell** (`.hs` + `package.yaml`). Generated modules are compiled with `{-# LANGUAGE Safe #-}`, preventing any IO outside the declared capability model.
+5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
+6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
+7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module's declared capabilities (v0.1.2–v0.3). In v0.4 this is replaced by a WASM-WASI VM.
+8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
+
+> **v0.2:** Step 2 will include compile-time LiquidHaskell refinement-type checking. Contracts that are outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
+> **v0.3:** `?proof-required :inductive` holes are resolved by Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds without re-calling Leanstral.
+> **v0.4:** Docker sandbox is replaced by a WASM-WASI VM. `llmll build --target wasm` is available as an opt-in in v0.3.
 
 ---
 
@@ -514,11 +519,11 @@ The `llmll` runtime (the WASM host) processes each `Command` as follows:
 
 Correct replay is the foundation of fault tolerance, audit trails, and (in v0.2) SMT proof validation over execution traces.
 
-### Sources of Non-Determinism in WASM
+### Sources of Non-Determinism
 
 | Source | Problem | Runtime Fix |
 |--------|---------|-------------|
-| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Require `wasm-determinism` extension; reject non-canonical floats at the WASM boundary |
+| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules in v0.1.2–v0.3; `wasm-determinism` extension in v0.4) |
 | **Monotonic clock** | Wall-clock calls diverge across replay runs | Virtualize via `:deterministic true`; log return value |
 | **PRNG** | Non-seeded random generation diverges on replay | Log seed + call sequence; replay re-seeds from log |
 
@@ -548,7 +553,7 @@ Replay feeds each `:input` to the logic in order. `:result` and `:captures` are 
 
 | Condition | Compiler Status |
 |-----------|----------------|
-| All non-deterministic capabilities use `:deterministic true` + WASM determinism extension active | ✅ **replayable** |
+| All non-deterministic capabilities use `:deterministic true` | ✅ **replayable** |
 | Any non-deterministic capability without `:deterministic true` | ⚠️ **best-effort replay** |
 
 ---
@@ -803,14 +808,14 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 
 1. **No return-type annotation.** There is no `: ReturnType` after `[params]` in `def-logic`. Return types are always inferred.
 2. **`check` requires exactly one `for-all`.** A bare boolean expression is not valid inside `check`.
-3. **List literals do not exist.** Use `(list-empty)` and `(list-append list elem)` to build lists.
-4. **`let` bindings are sequential.** Each binding sees all previous bindings. `(let [[x 1] [y (+ x 1)]] y)` is valid and evaluates to `2`.
+3. **List literals** (`[]`, `[a b c]`) are available from **v0.1.2**. In v0.1.1, use `(list-empty)` and `(list-append list elem)` to build lists.
+4. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The old double-bracket form `(let [[x 1] [y 2]] ...)` is a v0.1.1 syntax, replaced in v0.1.2.
 5. **`match` must be exhaustive.** Use `_` as the final arm if not all cases are covered explicitly. A `match` without `_` that fails at runtime raises `MatchFailure`.
 6. **`result` is reserved** inside `post` clauses. Do not use it as a variable or parameter name anywhere.
 7. **Named parameters in `fn-type` are doc-only.** `(fn [raw: string] -> bytes[64])` and `(fn [string] -> bytes[64])` are type-equivalent.
 
 > [!IMPORTANT]
-> **v0.1.1 Limitation — `pair-type` in `typed-param` is rejected.** The grammar rule `typed-param = IDENT ":" type` allows any `type`, which syntactically includes `pair-type`. The v0.1.1 parser will reject a pair type in that position with a parse error. Use an untyped parameter (`[acc]`) wherever the type is a pair or tuple. This applies to `def-logic` params, `fn` lambda params, and `for-all` bindings.
+> **v0.1.1 Limitation — `pair-type` in `typed-param` is rejected.** The grammar rule `typed-param = IDENT ":" type` allows any `type`, which syntactically includes `pair-type`. The v0.1.1 parser will reject a pair type in that position with a parse error. Use an untyped parameter (`[acc]`) wherever the type is a pair or tuple. This applies to `def-logic` params, `fn` lambda params, and `for-all` bindings. **Fixed in v0.2** as an explicit type system deliverable.
 
 ---
 
@@ -896,11 +901,15 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 > (range 5 3)   ;; => empty list
 > ```
 >
-> **List literals don't exist.** Build lists with `list-empty`, `list-append`, or `range`:
+> **List literals** (v0.1.2+): `[]` is the empty list; `[a b c]` is a three-element list. The `list-empty` and `list-append` functions remain valid alternatives.
 > ```lisp
-> ;; Build [0, 1, 2, ..., n-1] for a word of length n
-> (let [[n       (string-length word)]
->       [indices (range 0 n)]]
+> ;; v0.1.2+ — list literal and updated let syntax:
+> (let [(n       (string-length word))
+>       (indices (range 0 n))]
+>   (list-map indices (fn [i: int] (string-char-at word i))))
+>
+> ;; v0.1.1 equivalent (still accepted but deprecated):
+> (let [[n (string-length word)] [indices (range 0 n)]]
 >   (list-map indices (fn [i: int] (string-char-at word i))))
 > ```
 
@@ -983,41 +992,53 @@ The identifier `result` is a **reserved pseudo-binding** available only inside `
 - `let` bindings (not a valid expression outside `post`)
 - Parameter lists (reserved keyword — compile error)
 
-### 13.10 Building Services in v0.1.1 (FAQ)
+### 13.10 Building Services (FAQ)
 
-When building practical services (like REST APIs or CLIs) in v0.1.1, developers must understand the boundary between LLMLL's pure logic and the execution environment. Here are solutions to common patterns:
+When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solutions to common patterns. All examples use the v0.1.2+ Haskell FFI model.
 
 1. **HTTP Requests (Input):**
-   In `:mode http`, the `(def-main)` harness passes the raw HTTP request body to your `:step` logic as a single `string`. LLMLL v0.1.1 does **not** have a built-in `HttpRequest` sum type containing headers or paths. If your service requires routing based on URL paths or reading headers, you **must** use an FFI `(import rust.http_server ...)` to parse the raw byte stream into an LLMLL-compatible structure, or use a custom Rust wrapper instead of the built-in HTTP mode.
-   
-2. **CLI Arguments:**
-   The `(def-main :mode cli)` harness passes the CLI arguments (everything after the executable name) to the `:init` function as a single combined `string` or directly as `LlmllVal::Text`. If you need structured parsing (e.g., `--port 8080 --file data.json`), you currently have two options:
-   - Write a naive string-splitting parser in pure LLMLL S-expressions.
-   - Use `(import rust.clap ...)` or `rust.env` FFI to fetch and parse the arguments in Rust, returning a structured type to LLMLL.
-   
-3. **JSON Parsing & Serialization:**
-   LLMLL v0.1.1 lacks complex JSON built-ins. All JSON exchanges must use the FFI system:
+   LLMLL does not have a built-in `HttpRequest` sum type with headers and paths. If your service requires routing or header inspection, use the Tier 1 Hackage FFI:
    ```lisp
-   (import rust.serde_json (interface [
-     [parse-todo-json (fn [s: string] -> TodoList)]
-     [stringify-todo (fn [td: TodoList] -> string)]
+   (import haskell.warp (interface [
+     [parse-request (fn [s: string] -> Result[HttpRequest, string])]
    ]))
    ```
-   The compiler will generate the `src/ffi/serde_json.rs` stub, and the human developer implements the `todo!()` using the actual `serde_json` crate to map between LLMLL string fields and Rust JSON objects.
+   This resolves to `import Network.Wai` — no stub generated.
+
+2. **CLI Arguments:**
+   For structured argument parsing (e.g., `--port 8080 --file data.json`), you have two options:
+   - Write a naive string-splitting parser in pure LLMLL S-expressions.
+   - Use the Tier 1 Hackage FFI:
+   ```lisp
+   (import haskell.optparse-applicative (interface [
+     [parse-args (fn [s: string] -> Result[CliArgs, string])]
+   ]))
+   ```
+
+3. **JSON Parsing & Serialization:**
+   Use the Tier 1 Hackage FFI — no stub file generated:
+   ```lisp
+   (import haskell.aeson (interface [
+     [json-decode (fn [s: string] -> Result[TodoList, string])]
+     [json-encode (fn [td: TodoList] -> string)]
+   ]))
+   ```
+   This resolves to `import Data.Aeson`. The developer writes a `FromJSON`/`ToJSON` instance for the LLMLL type in a thin Haskell bridge file.
 
 4. **Atomic File Writes:**
-   The built-in `wasi.fs.write` behaves as a standard basic I/O write, which can be interrupted. The WASI standard capability does not currently mandate an atomic rename. 
-   To guarantee ACID-like atomic writes (e.g. write to a temp file and rename), you should define a custom FFI capability:
+   The built-in `wasi.fs.write` does not guarantee atomicity. For ACID-like atomic writes, use the Tier 1 Hackage FFI:
    ```lisp
-   (import rust.atomic_fs (interface [
-      [atomic-write (fn [path: string content: string] -> bool)]
+   (import haskell.unix (interface [
+     [atomic-write (fn [path: string content: string] -> bool)]
    ]))
    ```
-   The human developer then implements this in `src/ffi/atomic_fs.rs` using standard Rust filesystem maneuvers (`tempfile` crate + `fs::rename`).
+   This resolves to `import System.Posix.Files` and `atomicWriteFile` — no `todo!()` stub required.
 
 ---
 
 ## 14. Version Roadmap
+
+> For the compiler team's full implementation schedule, ticket-level deliverables, and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). This section documents **language-visible features** only.
 
 ### v0.1.1 — Current Version
 
@@ -1038,47 +1059,64 @@ Closed all specification gaps found during real-world implementation. The spec i
 
 ### v0.1.2 — Machine-First Foundation
 
-No new language semantics — tooling and interchange format only.
+New language-visible features: JSON-AST as a first-class source format, Haskell codegen target, typed effect row for `Command`, and minor surface syntax fixes.
 
 | Area | Feature |
 |------|---------|
-| JSON-AST | Compiler accepts `.ast.json` files validated against `docs/llmll-ast.schema.json` |
-| JSON-AST | `llmll build --emit json-ast` round-trips S-expressions and JSON; both surface forms are first-class |
+| **Source formats** | Compiler accepts `.ast.json` files validated against `docs/llmll-ast.schema.json` as a first-class source format alongside `.llmll` S-expressions |
+| JSON-AST | `llmll build --emit json-ast` round-trips S-expressions ↔ JSON |
 | Diagnostics | Every compiler error is a JSON object with an RFC 6901 JSON Pointer to the offending AST node |
 | Holes CLI | `llmll holes --json` lists all `?` holes with inferred type, module path, and agent target |
-| **FFI Standard Library** | Bundled `ffi-stdlib/` with pre-implemented stubs for `serde_json`, `clap`, `env`, `atomic_fs`, `timer` — no `todo!()` stub generated for these crates |
+| **Codegen target** | Generated code is **Haskell** (`.hs` + `package.yaml`), replacing Rust. Compiler modules `Lexer.hs`, `Parser.hs`, `TypeCheck.hs`, `HoleAnalysis.hs` are unchanged; only `Codegen.hs` is rewritten |
+| **`Command` model** | `Command` is no longer an opaque type. In generated Haskell it becomes a **typed effect row** (`Eff '[HTTP, FS, ...]`) using the `effectful` library. A function's required capabilities are visible in its type signature. Missing capability declarations are **type errors**, not silently accepted |
+| **FFI tiers** | Two tiers: (1) Hackage — `(import haskell.* ...)` resolves to a native GHC import, no stub generated; (2) C — `(import c.* ...)` generates a `foreign import ccall` stub in `src/FFI/*.hs`. The legacy `rust.*` namespace and Rust FFI stdlib are retired |
+| **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM deferred to v0.4) |
+| `let` syntax | `(let [(x e1) (y e2)] body)` replaces the double-bracket form `(let [[x e1] [y e2]] body)` |
+| List literals | `[]` and `[a b c]` list literals added; `(list-empty)` and `(list-append ...)` remain valid |
 
-> **Rationale:** LLMs generating S-expressions suffer parentheses drift. JSON generation can be schema-constrained at the inference API level, guaranteeing structural validity before the compiler runs.
+> **Rationale — Haskell target:** LLMLL's concepts (pure functions, ADTs, algebraic effects, liquid types) map directly onto Haskell's native semantics. The Haskell target eliminates codegen semantic drift, makes v0.2 compile-time verification a LiquidHaskell integration task (weeks, not months), and shares the compiler's own type universe with generated programs. WASM-WASI remains the long-term deployment target (v0.4); Docker is the research-stage sandbox.
+
+> **Rationale — JSON-AST:** LLMs generating S-expressions suffer parentheses drift — a structural error whose rate is a function of generation length vs. nesting depth, not model quality. JSON schema-constrained generation (via OpenAI Structured Outputs, Gemini schema parameters, etc.) provides mathematical structural validity guarantees before the compiler runs.
 
 ### v0.2 — Module System + Compile-Time Verification
 
-The module system and Z3 verification share a release because cross-module invariant checking is impossible without multi-file resolution.
+The module system ships **first within v0.2** because cross-module invariant verification (`def-invariant` + LiquidHaskell) requires multi-file resolution as substrate.
 
 | Area | Feature |
 |------|---------|
-| **Module system** | Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` |
+| **Module system** | Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent |
 | **Module system** | Namespace isolation: each source file has its own top-level scope |
 | **Module system** | `llmll-hub` read-only module registry (prerequisite for `?scaffold` in v0.3) |
-| Capability | Capability enforcement fully wired up (deferred from v0.1.1) |
-| Liquid types | `{base \| predicate}` refinement syntax, Z3-backed compile-time checking |
-| Liquid types | Constraint language: quantifier-free linear arithmetic + regex — Z3 guaranteed to terminate |
-| Liquid types | Compiler infers missing `pre`/`post` annotations from function bodies |
-| `letrec` | Bounded recursion with mandatory `:decreases` termination annotation (Z3-verified) |
-| `match` | Static exhaustiveness checking for ADT types |
-| `def-invariant` | Z3-backed module invariant verification after every AST merge |
+| **Capability enforcement** | Capability declarations fully enforced by the typed effect row — missing imports are type errors at compile time |
+| **Compile-time contracts** | `pre`/`post` and `where`-type constraints translated to LiquidHaskell `{-@ ... @-}` refinement annotations. Violations are compile-time errors, not runtime surprises. Constraint language: quantifier-free linear arithmetic + regex (decidable, Z3-backed via LiquidHaskell's GHC plugin) |
+| **`?proof-required` holes** | Predicates outside the decidable QF fragment are emitted as `?proof-required` holes with a compiler-assigned complexity hint: `:simple` (LiquidHaskell track), `:inductive` (Leanstral track, v0.3), `:unknown`. Holes are non-blocking in v0.2. |
+| **Type system fix** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.1 workaround (untyped parameters) is no longer needed |
+| `letrec` | Bounded recursion with mandatory `:decreases` termination annotation (LiquidHaskell-verified) |
+| `match` | Static exhaustiveness checking for ADT types — `match` without `_` covering all constructors is a compile error |
+| `def-invariant` | LiquidHaskell-backed module invariant verification after every AST merge |
+| **`llmll typecheck --sketch`** | Partial-program type inference API: accepts a program with holes, returns inferred type of each hole and any type errors present even in the incomplete program. Enables AI agents to type-check before submitting a full program |
 
-### v0.3 — Agent Coordination at Scale + Interactive Proofs
+### v0.3 — Agent Coordination + Interactive Proofs
 
 | Area | Feature |
 |------|---------|
-| Hole protocol | Formal `?delegate` lifecycle: check-out, implementation, JSON-Patch merge, compiler re-verification |
-| `?scaffold` | Cold-start module from `llmll-hub` skeleton; resolves at parse time; all `def-interface` boundaries pre-typed |
-| **llmll-hub FFI packages** | Community-published, versioned FFI bridge packages: `llmll ffi add <crate>` delivers both the `.llmll` interface and verified `.rs` implementation |
-| Proof holes | `?proof-required` hole for predicates outside the liquid-type decidable fragment |
-| Lean 4 agent | Specialist proof-synthesis agent; receives AST node + constraint; returns verified proof term |
-| Lean 4 agent | `llmll check` verifies Lean 4 certificate without re-running the prover |
-| Tactic library | Built-in proof tactics as S-expression macros (`prove-by-induction`, `prove-by-exhaustion`) |
-| Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at WASM boundary |
+| `?delegate` protocol | Formal lifecycle: check-out → implementation → RFC 6902 JSON-Patch submission → compiler re-verification + merge |
+| `?scaffold` | Cold-start module from `llmll-hub` skeleton; all `def-interface` boundaries pre-typed; implementation details as named `?` holes; resolves at parse time |
+| **Leanstral integration** | `?proof-required :inductive` and `:unknown` holes are routed to [Leanstral](https://mistral.ai/news/leanstral) (open-source Lean 4 MCP proof agent) via `lean-lsp-mcp`. The compiler translates LLMLL `TypeWhere` constraints to Lean 4 `theorem` obligations. Verified proof certificates are stored alongside the source; subsequent builds verify certificates without re-calling Leanstral |
+| `llmll check` | Verifies stored Lean 4 proof certificates without re-running Leanstral |
+| Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at the GHC/WASM boundary |
 | Trace proofs | SMT validation of `pre`/`post` over replayed Event Log traces (requires ✅ replayable modules) |
-| Async IO | Monadic `do`-notation as surface syntax; desugars to `(State, Input) -> (NewState, Command)` |
+| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) -> (NewState, Command)`. No new runtime semantics |
+| `Promise[t]` | Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
+
+### v0.4 — WASM Hardening
+
+WASM-WASI is the primary long-term deployment target. Docker + `seccomp-bpf` remains the sandbox through v0.3; v0.4 replaces it.
+
+| Area | Feature |
+|------|---------|
+| `llmll build --target wasm` | Generated Haskell compiled with GHC's `--target=wasm32-wasi` backend |
+| WASM VM | Wasmtime (or equivalent) replaces Docker as the default sandbox |
+| Capability enforcement | WASI import declarations replace Docker network/filesystem policy layers |
+| `{-# LANGUAGE Safe #-}` | Already enforced from v0.1.2; guarantees generated code is structurally WASM-compatible from day one |
 
