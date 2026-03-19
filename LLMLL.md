@@ -408,8 +408,8 @@ In LLMLL, FFI imports are resolved through a **two-tier lookup** (v0.1.2+). The 
 > Concretely:
 > - **`(module Name ...)` at the top of a file is accepted and parsed.** The compiler flattens its body into top-level statements; the module name is ignored for codegen purposes (the crate name comes from the filename).
 > - **`(import path ...)` is parsed** and produces an `SImport` AST node. The path is recorded but no file is loaded. Capability enforcement is also deferred (see §9.2 note).
-> - **`wasi.io.stdout` and all other standard command constructors are unconditionally available** in the generated Rust preamble. You do not need a matching `import` for them to work in v0.1.1.
-> - **Qualified identifiers** (dot notation) in function-call position are rewritten: `wasi.io.stdout` → `wasi_io_stdout` (dots become underscores). As long as the built-in function exists in the stdlib preamble, calls resolve correctly.
+> - **`wasi.io.stdout` and all other standard command constructors are unconditionally available** in the generated stdlib preamble — you do not need a matching `import` for them to work in v0.1.1. In v0.1.2+ (Haskell codegen) they are provided as top-level Haskell bindings in the generated `Lib.hs`.
+> - **Qualified identifiers** (dot notation) in function-call position are normalised by the compiler: `wasi.io.stdout` → `wasi_io_stdout` in v0.1.1 Rust output, and `wasiIoStdout` in v0.1.2+ Haskell output. As long as the built-in exists in the stdlib layer, calls resolve correctly in both targets.
 >
 > **Recommended practice for v0.1.1:**
 > Write all code using `def-logic`, `type`, `check`, and `gen` at file scope. You may optionally wrap everything in a single `(module Name ...)` block for documentation purposes — the compiler will strip the wrapper. Keep all capability declarations as `(import ...)` for forward compatibility with v0.2, but do not depend on them being enforced.
