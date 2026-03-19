@@ -85,19 +85,18 @@ Three bugs were found by an AI developer during the Hangman JSON-AST implementat
 
 **[DESIGN — COMMITTED]** `Command` becomes a typed effect row. A function calling `wasi.http.response` without declaring the HTTP capability is a **type error** in generated Haskell, caught at compile time. This closes the v0.1.1 gap where missing capability declarations were silently accepted.
 
-**[CT]** Rewrite `Codegen.hs` to emit Haskell. All other compiler modules are unchanged (`Lexer.hs`, `Parser.hs`, `ParserJSON.hs`, `TypeCheck.hs`, `HoleAnalysis.hs`).
+**[CT]** Rename `Codegen.hs` → `CodegenHs.hs` (new module `LLMLL.CodegenHs`). Public symbol `generateRust` → `generateHaskell`; `CodegenResult` fields renamed (`cgRustSource` → `cgHsSource`, `cgCargoToml` → `cgPackageYaml`, etc.). Old `Codegen.hs` becomes a deprecated re-export shim; deleted in v0.2.
 
-**[CT]** Generated file layout:
+**[CT]** Generated file layout **(v0.1.2 — single-module)**:
+
+> **Design decision:** For v0.1.2, all `def-logic`, type declarations, and interface definitions are emitted into a single `src/Lib.hs`. The multi-module split (`Logic.hs`, `Types.hs`, `Interfaces.hs`, `Capabilities.hs`) requires cross-module resolution and is deferred to v0.2 when the module system ships — tracked as a [CT] item in Phase 2c below.
 
 | File | Contents |
 |------|----------|
-| `src/Main.hs` | `def-main` harness |
-| `src/Logic.hs` | All `def-logic` functions |
-| `src/Types.hs` | ADT declarations and `where`-type newtype wrappers |
-| `src/Interfaces.hs` | `def-interface` type class declarations |
-| `src/Capabilities.hs` | Effect row definitions (`data HTTP`, `data FS`, etc.) |
-| `src/FFI/*.hs` | Tier 2 (C) FFI stubs, generated on demand |
-| `package.yaml` | Haskell package descriptor (replaces `Cargo.toml`) |
+| `src/Lib.hs` | All `def-logic` functions, type declarations, `def-interface` type classes, and §13 stdlib preamble |
+| `src/Main.hs` | `def-main` harness (only if `SDefMain` present) |
+| `src/FFI/<Name>.hs` | `foreign import ccall` stubs, generated on demand for `c.*` imports |
+| `package.yaml` | hpack descriptor (replaces `Cargo.toml`) |
 
 **[CT]** LLMLL construct → generated Haskell (normative mapping):
 
@@ -263,6 +262,17 @@ In v0.2, `:inductive` and `:unknown` holes compile to `error "proof-required"` a
 **[CT]** `def-invariant` + Z3 verification after every `llmll build` or AST merge. A merge breaking a global invariant is rejected before producing runnable code.
 
 **[CT]** Capability enforcement fully wired: the typed effect row enforces declared capabilities at compile time — missing capability imports are type errors.
+
+**[CT]** Multi-module generated code layout *(promoted from Deliverable 2 v0.1.2)*: split the single `src/Lib.hs` into separate modules now that cross-module resolution exists.
+
+| File | Contents |
+|------|----------|
+| `src/Logic.hs` | All `def-logic` functions |
+| `src/Types.hs` | ADT declarations and `where`-type `newtype` wrappers |
+| `src/Interfaces.hs` | `def-interface` type class declarations |
+| `src/Capabilities.hs` | `effectful` effect row definitions (`data HTTP`, `data FS`, etc.) |
+
+`src/Lib.hs` becomes a re-export aggregator: `module Lib (module Logic, module Types, ...) where`. This change is non-breaking for any code that imports `Lib`.
 
 **Acceptance criteria:**
 - A correct `withdraw` implementation has no LiquidHaskell errors.

@@ -54,6 +54,7 @@ library:
     - LLMLL.HoleAnalysis
     - LLMLL.Contracts
     - LLMLL.PBT
+    - LLMLL.CodegenHs
     - LLMLL.Codegen
     - LLMLL.Diagnostic
 

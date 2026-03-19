@@ -141,7 +141,10 @@ parseTypeBody = withObject "TypeBody" $ \o -> do
       pure $ TDependent baseType (ELet [(binding, Nothing, EVar binding)] predicate)
     "sum" -> do
       variants <- o .: "variants" >>= mapM parseVariant
-      let label = T.intercalate " | " (map fst variants)
+      -- Encode variant payloads as "CtorName:TypeName | CtorName2" for emitTypeDef.
+      let encodeVar (ctor, Nothing)  = ctor
+          encodeVar (ctor, Just pt)  = ctor <> ":" <> typeLabel pt
+          label = T.intercalate " | " (map encodeVar variants)
       pure $ TCustom label
     _ -> fail $ "unknown TypeBody kind: " ++ T.unpack kind
 

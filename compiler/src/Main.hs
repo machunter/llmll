@@ -36,7 +36,7 @@ import LLMLL.HoleAnalysis
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
-import LLMLL.Codegen (generateRust, CodegenResult(..))
+import LLMLL.CodegenHs (generateHaskell, CodegenResult(..))
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
@@ -307,68 +307,69 @@ doBuild json fp mOutDir doWasm emitJson = do
         exitSuccess
 
       let modName = T.pack $ takeBaseName fp
-          result  = generateRust modName stmts
+          result  = generateHaskell modName stmts
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
-      -- Write Rust source + optional main.rs
+      -- Write Haskell source + optional Main.hs
       createDirectoryIfMissing True (outDir <> "/src")
-      TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
-      TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
-      case cgMainRs result of
+      TIO.writeFile (outDir <> "/src/Lib.hs")     (cgHsSource result)
+      TIO.writeFile (outDir <> "/package.yaml")   (cgPackageYaml result)
+      TIO.writeFile (outDir <> "/stack.yaml")     (cgStackYaml result)
+      case cgMainHs result of
         Nothing   -> pure ()
         Just mainSrc -> do
-          TIO.writeFile (outDir <> "/src/main.rs") mainSrc
+          TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
           if not json
-            then TIO.putStrLn $ "   src/main.rs -- " <> tshow (T.length mainSrc) <> " chars"
+            then TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
             else pure ()
 
-      -- Write FFI mod.rs
-      case cgFfiModRs result of
+      -- Write FFI hub module
+      case cgFfiModHs result of
         Nothing -> pure ()
         Just ffiModSrc -> do
-          createDirectoryIfMissing True (outDir <> "/src/ffi")
-          TIO.writeFile (outDir <> "/src/ffi/mod.rs") ffiModSrc
+          createDirectoryIfMissing True (outDir <> "/src/FFI")
+          TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
           if not json
-            then TIO.putStrLn $ "   src/ffi/mod.rs -- " <> tshow (T.length ffiModSrc) <> " chars"
+            then TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
             else pure ()
 
-      -- Write per-crate FFI stubs (generated ONCE, do not overwrite)
-      forM_ (cgFfiCrates result) $ \(crate, stubsSrc) -> do
-          let stubPath = outDir <> "/src/ffi/" <> T.unpack crate <> ".rs"
+      -- Write per-library FFI stubs (generated ONCE, do not overwrite)
+      forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
+          let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
           exists <- doesFileExist stubPath
           if exists
             then if not json
-                   then TIO.putStrLn $ "   src/ffi/" <> crate <> ".rs -- KEEPING existing developer file"
+                   then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
                    else pure ()
             else do
               TIO.writeFile stubPath stubsSrc
               if not json
-                then TIO.putStrLn $ "   src/ffi/" <> crate <> ".rs -- generated " <> tshow (T.length stubsSrc) <> " chars"
+                then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
                 else pure ()
 
       if not json
         then do
-          TIO.putStrLn $ "   src/lib.rs -- " <> tshow (T.length (cgRustSource result)) <> " chars"
+          TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length (cgHsSource result)) <> " chars"
           mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
         else pure ()
 
-      -- Run cargo check to validate the generated code
-      cargoOk <- runCargoCheck json outDir
+      -- Validate generated Haskell with GHC
+      ghcOk <- runGhcCheck json outDir
 
-      if cargoOk
+      if ghcOk
         then do
           if json
             then TIO.putStrLn (buildResultJson fp outDir (cgWarnings result) Nothing)
-            else TIO.putStrLn $ "OK Generated Rust crate: " <> T.pack outDir
+            else TIO.putStrLn $ "OK Generated Haskell package: " <> T.pack outDir
         else exitFailure
 
-      -- Optionally run wasm-pack
+      -- Optionally run wasm-pack (WASM PoC deferred to v0.4)
       if doWasm
-        then runWasmPack json outDir
+        then TIO.putStrLn "   INFO: --wasm targets Haskell WASM backend (ghc --target=wasm32-wasi). See docs/wasm-compat-report.md"
         else if json
           then pure ()
-          else TIO.putStrLn "   INFO: pass --wasm to compile to WebAssembly (requires wasm-pack)"
+          else TIO.putStrLn "   INFO: pass --wasm for WASM PoC output (requires GHC WASM backend)"
 
       exitSuccess
 
@@ -381,29 +382,30 @@ doBuildFromJson json fp mOutDir = do
       emitParseDiag json fp diag
       exitFailure
     Right stmts -> do
-      -- P1 fix: strip .ast suffix BEFORE passing to generateRust (Cargo rejects dots in crate names)
+      -- P1 fix: strip .ast suffix BEFORE passing to generateHaskell (crate names must not contain dots)
       let rawName = T.pack $ takeBaseName fp
           modName = T.replace ".ast" "" rawName
-          result  = generateRust modName stmts
+          result  = generateHaskell modName stmts
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
       createDirectoryIfMissing True (outDir <> "/src")
-      TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
-      TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
-      case cgMainRs result of
+      TIO.writeFile (outDir <> "/src/Lib.hs")   (cgHsSource result)
+      TIO.writeFile (outDir <> "/package.yaml")  (cgPackageYaml result)
+      TIO.writeFile (outDir <> "/stack.yaml")    (cgStackYaml result)
+      case cgMainHs result of
         Nothing      -> pure ()
-        Just mainSrc -> TIO.writeFile (outDir <> "/src/main.rs") mainSrc
-      forM_ (cgFfiCrates result) $ \(crate, stubsSrc) -> do
-        let stubPath = outDir <> "/src/ffi/" <> T.unpack crate <> ".rs"
+        Just mainSrc -> TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
+      forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
+        let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
         exists <- doesFileExist stubPath
         unless exists $ TIO.writeFile stubPath stubsSrc
-      cargoOk <- runCargoCheck json outDir
-      if cargoOk
+      ghcOk <- runGhcCheck json outDir
+      if ghcOk
         then do
           if json
             then TIO.putStrLn (buildResultJson fp outDir (cgWarnings result) Nothing)
-            else TIO.putStrLn $ "OK Generated Rust crate from JSON-AST: " <> T.pack outDir
+            else TIO.putStrLn $ "OK Generated Haskell package from JSON-AST: " <> T.pack outDir
           exitSuccess
         else exitFailure
 
@@ -423,39 +425,40 @@ doRun json fp extraArgs = do
       exitFailure
     Right stmts -> do
       let modNameT = T.pack modName
-          result   = generateRust modNameT stmts
+          result   = generateHaskell modNameT stmts
           outDir   = tmpDir
       createDirectoryIfMissing True (outDir <> "/src")
-      TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
-      TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
-      
-      -- Write FFI mod.rs
-      case cgFfiModRs result of
+      TIO.writeFile (outDir <> "/src/Lib.hs")   (cgHsSource result)
+      TIO.writeFile (outDir <> "/package.yaml")  (cgPackageYaml result)
+      TIO.writeFile (outDir <> "/stack.yaml")   (cgStackYaml result)
+
+      -- Write FFI hub
+      case cgFfiModHs result of
         Nothing -> pure ()
         Just ffiModSrc -> do
-          createDirectoryIfMissing True (outDir <> "/src/ffi")
-          TIO.writeFile (outDir <> "/src/ffi/mod.rs") ffiModSrc
-          
-      -- Write per-crate FFI stubs
-      forM_ (cgFfiCrates result) $ \(crate, stubsSrc) -> do
-          let stubPath = outDir <> "/src/ffi/" <> T.unpack crate <> ".rs"
+          createDirectoryIfMissing True (outDir <> "/src/FFI")
+          TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
+
+      -- Write per-library FFI stubs
+      forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
+          let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
           exists <- doesFileExist stubPath
           unless exists $ TIO.writeFile stubPath stubsSrc
 
-      case cgMainRs result of
+      case cgMainHs result of
         Nothing -> do
           TIO.putStrLn "ERROR: (def-main ...) is required for `llmll run`. Add a def-main to your .llmll file."
           exitFailure
         Just mainSrc -> do
-          TIO.writeFile (outDir <> "/src/main.rs") mainSrc
-          mCargo <- findExecutable "cargo"
-          case mCargo of
+          TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
+          mStack <- findExecutable "stack"
+          case mStack of
             Nothing -> do
-              TIO.putStrLn "ERROR: cargo not found in PATH. Install Rust from https://rustup.rs"
+              TIO.putStrLn "ERROR: stack not found in PATH. Install from https://haskellstack.org"
               exitFailure
-            Just cargoBin -> do
-              (code, _out, err) <- readProcessWithExitCode cargoBin
-                (["run", "--manifest-path", outDir <> "/Cargo.toml", "--quiet", "--"] ++ extraArgs) ""
+            Just stackBin -> do
+              (code, _out, err) <- readProcessWithExitCode stackBin
+                (["exec", "--stack-yaml", outDir <> "/stack.yaml", "--"] ++ extraArgs) ""
               case code of
                 ExitSuccess   -> pure ()
                 ExitFailure _ -> do
@@ -463,67 +466,59 @@ doRun json fp extraArgs = do
                   exitFailure
 
 runCargoCheck :: Bool -> FilePath -> IO Bool
-runCargoCheck json outDir = do
-  mCargo <- findExecutable "cargo"
-  case mCargo of
-    Nothing -> do
-      let msg = "cargo not found in PATH -- install Rust from https://rustup.rs"
-      if json
-        then TIO.putStrLn . T.pack . BLC.unpack . encode $
-               object ["cargo_check" .= False, "error" .= msg]
-        else TIO.putStrLn $ "WARN: " <> T.pack msg
-      pure True  -- treat missing cargo as non-fatal; user may build manually
-    Just cargoBin -> do
-      if not json
-        then TIO.putStrLn "   Running cargo check ..."
-        else pure ()
-      (code, _out, stderr_) <- readProcessWithExitCode cargoBin
-        ["check", "--manifest-path", outDir <> "/Cargo.toml", "--quiet"] ""
+runCargoCheck = runGhcCheck  -- legacy alias
+
+-- | Validate generated Haskell using stack build or ghc --make.
+runGhcCheck :: Bool -> FilePath -> IO Bool
+runGhcCheck json outDir = do
+  mStack <- findExecutable "stack"
+  case mStack of
+    Just stackBin -> do
+      if not json then TIO.putStrLn "   Running stack build ..." else pure ()
+      (code, _out, stderr_) <- readProcessWithExitCode stackBin
+        ["build", "--no-terminal"] ""
       case code of
         ExitSuccess -> do
-          if not json
-            then TIO.putStrLn "   cargo check OK"
-            else pure ()
+          if not json then TIO.putStrLn "   stack build OK" else pure ()
           pure True
         ExitFailure _ -> do
           if json
             then TIO.putStrLn . T.pack . BLC.unpack . encode $
-                   object ["cargo_check" .= False, "stderr" .= stderr_]
+                   object ["ghc_check" .= False, "stderr" .= stderr_]
             else do
-              TIO.putStrLn "FAIL: cargo check failed:"
+              TIO.putStrLn "FAIL: stack build failed:"
               TIO.putStr (T.pack stderr_)
           pure False
+    Nothing -> do
+      mGhc <- findExecutable "ghc"
+      case mGhc of
+        Nothing -> do
+          let msg = "stack/ghc not found -- install from https://haskellstack.org"
+          if json
+            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                   object ["ghc_check" .= False, "error" .= msg]
+            else TIO.putStrLn $ "WARN: " <> T.pack msg
+          pure True  -- non-fatal; user can build manually
+        Just ghcBin -> do
+          if not json then TIO.putStrLn "   Running ghc --make ..." else pure ()
+          (code, _out, stderr_) <- readProcessWithExitCode ghcBin
+            ["--make", "-isrc", outDir <> "/src/Lib.hs"] ""
+          case code of
+            ExitSuccess -> do
+              if not json then TIO.putStrLn "   ghc OK" else pure ()
+              pure True
+            ExitFailure _ -> do
+              if json
+                then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                       object ["ghc_check" .= False, "stderr" .= stderr_]
+                else do
+                  TIO.putStrLn "FAIL: ghc --make failed:"
+                  TIO.putStr (T.pack stderr_)
+              pure False
 
 runWasmPack :: Bool -> FilePath -> IO ()
-runWasmPack json outDir = do
-  mWasmPack <- findExecutable "wasm-pack"
-  case mWasmPack of
-    Nothing -> do
-      let msg = "wasm-pack not found in PATH — install from https://rustwasm.github.io/wasm-pack/"
-      if json
-        then TIO.putStrLn . T.pack . BLC.unpack . encode $
-               object ["wasm" .= False, "error" .= msg]
-        else TIO.putStrLn $ "❌ " <> T.pack msg
-    Just wasmPackBin -> do
-      if not json
-        then TIO.putStrLn $ "🔨 Running wasm-pack build " <> T.pack outDir <> " ..."
-        else pure ()
-      (code, out, err) <- readProcessWithExitCode wasmPackBin
-        ["build", outDir, "--target", "web", "--release"] ""
-      case code of
-        ExitSuccess -> do
-          let wasmDir = outDir <> "/pkg"
-          if json
-            then TIO.putStrLn . T.pack . BLC.unpack . encode $
-                   object ["wasm" .= True, "pkg_dir" .= wasmDir]
-            else TIO.putStrLn $ "✅ WASM output: " <> T.pack wasmDir
-        ExitFailure n -> do
-          if json
-            then TIO.putStrLn . T.pack . BLC.unpack . encode $
-                   object ["wasm" .= False, "exit_code" .= n, "stderr" .= err]
-            else do
-              TIO.putStrLn $ "❌ wasm-pack failed (exit " <> tshow n <> ")"
-              TIO.putStr (T.pack err)
+runWasmPack _json _outDir =
+  TIO.putStrLn "INFO: WASM now uses GHC WASM backend -- see docs/wasm-compat-report.md"
 
 buildResultJson :: FilePath -> FilePath -> [T.Text] -> Maybe T.Text -> T.Text
 buildResultJson fp outDir warnings mWasmPkg =
