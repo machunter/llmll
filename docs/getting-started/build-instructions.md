@@ -48,8 +48,9 @@ LLMLL uses S-expression syntax (Lisp-style). This guide uses two examples:
 
 | File | Description |
 |------|-------------|
-| [`examples/hangman.llmll`](examples/hangman.llmll) | Annotated draft with holes — shows the language iteratively |
-| [`examples/hangman_complete.llmll`](examples/hangman_complete.llmll) | Complete v0.1.1 implementation — run this end-to-end |
+| [`examples/hangman_game/hangman.llmll`](examples/hangman_game/hangman.llmll) | Complete Hangman implementation (v0.1.2, Haskell backend) — run end-to-end |
+| [`examples/hangman_game/hangman.ast.json`](examples/hangman_game/hangman.ast.json) | Same program as JSON-AST — use with `llmll build` directly |
+| [`examples/withdraw.llmll`](examples/withdraw.llmll) | Simple withdraw logic with pre/post contracts |
 
 ### 2.1  Dependent types
 
@@ -144,17 +145,17 @@ All commands are run from the `compiler/` directory.
 ### 3.1  `check` — parse and type-check
 
 ```bash
-stack exec llmll -- check ../examples/hangman.llmll
+stack exec llmll -- check ../examples/hangman_game/hangman.llmll
 ```
 
 ```
-✅ ../examples/hangman.llmll — OK (18 statements)
+✅ ../examples/hangman_game/hangman.llmll — OK (33 statements)
 ```
 
 With `--json` for machine consumption (e.g. CI pipelines):
 
 ```bash
-stack exec llmll -- --json check ../examples/hangman.llmll
+stack exec llmll -- --json check ../examples/hangman_game/hangman.llmll
 ```
 
 ```json
@@ -164,14 +165,11 @@ stack exec llmll -- --json check ../examples/hangman.llmll
 ### 3.2  `holes` — inspect all holes
 
 ```bash
-stack exec llmll -- holes ../examples/hangman.llmll
+stack exec llmll -- holes ../examples/hangman_game/hangman.llmll
 ```
 
 ```
-../examples/hangman.llmll — 3 holes (0 blocking)
-  [ info] ?display_word_impl in def-logic display-word
-  [ info] ?all_guessed_impl in def-logic all-guessed?
-  [ info] ?guess_impl in def-logic guess
+../examples/hangman_game/hangman.llmll — 0 holes (0 blocking)
 ```
 
 Holes are classified as:
@@ -184,14 +182,14 @@ Holes are classified as:
 ### 3.3  `test` — run property-based tests
 
 ```bash
-stack exec llmll -- test ../examples/hangman.llmll
+stack exec llmll -- test ../examples/hangman_game/hangman.llmll
 ```
 
 ```
-../examples/hangman.llmll — 4 properties
-  ✅ Passed:  4
+../examples/hangman_game/hangman.llmll — 9 properties
+  ✅ Passed:  3
   ❌ Failed:  0
-  ⚠️  Skipped: 0
+  ⚠️  Skipped: 6
 ```
 
 Properties are skipped when they contain runtime-only expressions (e.g. calls to hole-bodied functions) that cannot be symbolically evaluated.
@@ -202,7 +200,7 @@ Properties are skipped when they contain runtime-only expressions (e.g. calls to
 
 ```bash
 # S-expression source
-stack exec llmll -- build ../examples/hangman.llmll
+stack exec llmll -- build ../examples/hangman_game/hangman.llmll
 
 # JSON-AST source (auto-detected by .json extension)
 stack exec llmll -- build ../examples/hangman_game/hangman.ast.json
@@ -241,67 +239,18 @@ Goodbye.
 
 ---
 
-## 3b. Compiling `hangman_complete.llmll` (v0.1.1 — all holes filled)
+## 3b. Compiling `withdraw.llmll`
 
-All commands are run from the `compiler/` directory.
-
-### check — parse + type-check
+The `withdraw.llmll` example demonstrates `pre`/`post` contracts on a simple authorization function.
 
 ```bash
-stack exec llmll -- check ../examples/hangman_complete.llmll
+stack exec llmll -- check ../examples/withdraw.llmll
+stack exec llmll -- build ../examples/withdraw.llmll -o ../generated/withdraw
 ```
 
 ```
-✅ ../examples/hangman_complete.llmll — OK (29 statements)
-```
-
-*(Type-check warnings about built-in functions like `string-length`, `range`, `list-map` are expected — v0.1 type-checker does not model the standard library.)*
-
-### holes — confirm all holes are filled
-
-```bash
-stack exec llmll -- holes ../examples/hangman_complete.llmll
-```
-
-```
-../examples/hangman_complete.llmll — 0 holes (0 blocking)
-```
-
-### test — run property-based tests
-
-```bash
-stack exec llmll -- test ../examples/hangman_complete.llmll
-```
-
-```
-../examples/hangman_complete.llmll — 9 properties
-  ✅ Passed:  3
-  ❌ Failed:  0
-  ⚠️  Skipped: 6
-```
-
-6 properties are skipped because they reference custom types (`Word`, `Letter`, `GuessCount`) whose PBT generators are not yet wired to the Haskell runtime (the `gen` declaration registers them at WASM runtime only in v0.1.1). The 3 algebraic properties pass unconditionally.
-
-### build — generate Haskell application
-
-```bash
-stack exec llmll -- build ../examples/hangman_complete.llmll -o ../generated/hangman
-```
-
-```
-OK Generated Haskell package: ../generated/hangman
-   src/Lib.hs -- 9087 chars
-   stack.yaml
-   package.yaml
-```
-
-The generated application is at `generated/hangman/`. The compiler generates the core logic as a library structure. To run the game interactively in your terminal within the sandbox, simply run:
-
-```bash
-# From the project root:
-cd generated/hangman
-stack build
-stack run
+✅ ../examples/withdraw.llmll — OK
+OK Generated Haskell package: ../generated/withdraw
 ```
 
 ---
