@@ -285,95 +285,100 @@ pbtResultJson fp r =
 
 doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> IO ()
 doBuild json fp mOutDir doWasm emitJson = do
-  src <- TIO.readFile fp
-  case parseSrc fp src of
-    Left diag -> do
-      emitParseDiag json fp diag
-      exitFailure
-    Right stmts -> do
-      -- --emit json-ast: write JSON-AST and stop; no Rust codegen
-      when emitJson $ do
-        let modName = T.pack $ takeBaseName fp
-            outDir  = case mOutDir of
-                        Just d  -> d
-                        Nothing -> "generated/" <> T.unpack modName
-            astFile = outDir <> "/" <> T.unpack modName <> ".ast.json"
-        createDirectoryIfMissing True outDir
-        BL.writeFile astFile (emitJsonAST stmts)
-        if json
-          then TIO.putStrLn . T.pack . BLC.unpack . encode $
-                 object ["file" .= fp, "ast_json" .= astFile, "success" .= True]
-          else TIO.putStrLn $ "✅ JSON-AST written to " <> T.pack astFile
-        exitSuccess
+  -- Auto-detect JSON-AST files and delegate to the JSON build path.
+  if takeExtension fp == ".json"
+    then doBuildFromJson json fp mOutDir
+    else do
+      src <- TIO.readFile fp
+      case parseSrc fp src of
+        Left diag -> do
+          emitParseDiag json fp diag
+          exitFailure
+        Right stmts -> do
+          -- --emit json-ast: write JSON-AST and stop; no Rust codegen
+          when emitJson $ do
+            let modName = T.pack $ takeBaseName fp
+                outDir  = case mOutDir of
+                            Just d  -> d
+                            Nothing -> "generated/" <> T.unpack modName
+                astFile = outDir <> "/" <> T.unpack modName <> ".ast.json"
+            createDirectoryIfMissing True outDir
+            BL.writeFile astFile (emitJsonAST stmts)
+            if json
+              then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                     object ["file" .= fp, "ast_json" .= astFile, "success" .= True]
+              else TIO.putStrLn $ "✅ JSON-AST written to " <> T.pack astFile
+            exitSuccess
 
-      let modName = T.pack $ takeBaseName fp
-          result  = generateHaskell modName stmts
-          outDir  = case mOutDir of
-                      Just d  -> d
-                      Nothing -> "generated/" <> T.unpack modName
-      -- Write Haskell source + optional Main.hs
-      createDirectoryIfMissing True (outDir <> "/src")
-      TIO.writeFile (outDir <> "/src/Lib.hs")     (cgHsSource result)
-      TIO.writeFile (outDir <> "/package.yaml")   (cgPackageYaml result)
-      TIO.writeFile (outDir <> "/stack.yaml")     (cgStackYaml result)
-      case cgMainHs result of
-        Nothing   -> pure ()
-        Just mainSrc -> do
-          TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
-          if not json
-            then TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
-            else pure ()
-
-      -- Write FFI hub module
-      case cgFfiModHs result of
-        Nothing -> pure ()
-        Just ffiModSrc -> do
-          createDirectoryIfMissing True (outDir <> "/src/FFI")
-          TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
-          if not json
-            then TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
-            else pure ()
-
-      -- Write per-library FFI stubs (generated ONCE, do not overwrite)
-      forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
-          let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
-          exists <- doesFileExist stubPath
-          if exists
-            then if not json
-                   then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
-                   else pure ()
-            else do
-              TIO.writeFile stubPath stubsSrc
+          let modName = T.pack $ takeBaseName fp
+              result  = generateHaskell modName stmts
+              outDir  = case mOutDir of
+                          Just d  -> d
+                          Nothing -> "generated/" <> T.unpack modName
+          -- Write Haskell source + optional Main.hs
+          createDirectoryIfMissing True (outDir <> "/src")
+          TIO.writeFile (outDir <> "/src/Lib.hs")     (cgHsSource result)
+          TIO.writeFile (outDir <> "/package.yaml")   (cgPackageYaml result)
+          TIO.writeFile (outDir <> "/stack.yaml")     (cgStackYaml result)
+          case cgMainHs result of
+            Nothing   -> pure ()
+            Just mainSrc -> do
+              TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
               if not json
-                then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
+                then TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
                 else pure ()
 
-      if not json
-        then do
-          TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length (cgHsSource result)) <> " chars"
-          mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
-        else pure ()
+          -- Write FFI hub module
+          case cgFfiModHs result of
+            Nothing -> pure ()
+            Just ffiModSrc -> do
+              createDirectoryIfMissing True (outDir <> "/src/FFI")
+              TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
+              if not json
+                then TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
+                else pure ()
 
-      -- Validate generated Haskell with GHC
-      ghcOk <- runGhcCheck json outDir
+          -- Write per-library FFI stubs (generated ONCE, do not overwrite)
+          forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
+              let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
+              exists <- doesFileExist stubPath
+              if exists
+                then if not json
+                       then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
+                       else pure ()
+                else do
+                  TIO.writeFile stubPath stubsSrc
+                  if not json
+                    then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
+                    else pure ()
 
-      if ghcOk
-        then do
-          if json
-            then TIO.putStrLn (buildResultJson fp outDir (cgWarnings result) Nothing)
-            else TIO.putStrLn $ "OK Generated Haskell package: " <> T.pack outDir
-        else exitFailure
+          if not json
+            then do
+              TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length (cgHsSource result)) <> " chars"
+              mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
+            else pure ()
 
-      -- Optionally run wasm-pack (WASM PoC deferred to v0.4)
-      if doWasm
-        then TIO.putStrLn "   INFO: --wasm targets Haskell WASM backend (ghc --target=wasm32-wasi). See docs/wasm-compat-report.md"
-        else if json
-          then pure ()
-          else TIO.putStrLn "   INFO: pass --wasm for WASM PoC output (requires GHC WASM backend)"
+          -- Validate generated Haskell with GHC
+          ghcOk <- runGhcCheck json outDir
 
-      exitSuccess
+          if ghcOk
+            then do
+              if json
+                then TIO.putStrLn (buildResultJson fp outDir (cgWarnings result) Nothing)
+                else TIO.putStrLn $ "OK Generated Haskell package: " <> T.pack outDir
+            else exitFailure
 
--- | Build from a JSON-AST (.ast.json) file.
+          -- Optionally run wasm-pack (WASM PoC deferred to v0.4)
+          if doWasm
+            then TIO.putStrLn "   INFO: --wasm targets Haskell WASM backend (ghc --target=wasm32-wasi). See docs/wasm-compat-report.md"
+            else if json
+              then pure ()
+              else TIO.putStrLn "   INFO: pass --wasm for WASM PoC output (requires GHC WASM backend)"
+
+          exitSuccess
+
+    -- | Build from a JSON-AST (.ast.json) file.
+
 doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> IO ()
 doBuildFromJson json fp mOutDir = do
   bs <- BL.readFile fp
