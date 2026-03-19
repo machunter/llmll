@@ -4,32 +4,37 @@
 --
 -- Subcommands:
 --   check  — parse + type-check, optional --json output
---   holes  — list and classify all holes
+--   holes  — list and classify all holes, optional --json output
 --   test   — run property-based tests (check blocks)
---   build  — emit Rust source + Cargo.toml, optional wasm-pack compilation
---   repl   — interactive read-eval-print loop for LLMLL expressions
+--   build  — emit Haskell/JSON-AST, optional --emit json-ast / --from-json
+--   run    — build into temp dir and execute
+--   repl   — interactive read-eval-print loop
 module Main (main) where
 
-import System.IO (hSetEncoding, hFlush, stdout, stderr, utf8)
+import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
 import System.Exit (exitFailure, exitSuccess, ExitCode(..))
-import System.FilePath (takeBaseName, (</>))
+import System.FilePath (takeBaseName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
 import System.Process (readProcessWithExitCode)
-import Control.Monad (unless, forM_)
+import Control.Monad (unless, forM_, when)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (encode, object, (.=))
-import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.ByteString.Lazy.Char8 as BLC
 import Options.Applicative
 
 import LLMLL.Parser (parseTopLevel)
+import LLMLL.ParserJSON (parseJSONAST)
+import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement, Span(..))
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
   , totalHoles, blockingHoles, holeEntries
   , holeName, holeContext, holeDescription, holeStatus
-  , formatHoleReport, formatHoleReportSExp)
+  , formatHoleReport, formatHoleReportSExp
+  , formatHoleReportJson, holeDensityWarnings)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Codegen (generateRust, CodegenResult(..))
 import LLMLL.Diagnostic
@@ -47,8 +52,9 @@ data Command
   = CmdCheck  FilePath
   | CmdHoles  FilePath
   | CmdTest   FilePath
-  | CmdBuild  FilePath (Maybe FilePath) Bool   -- file, outdir, --wasm
-  | CmdRun    FilePath [String]                -- file, extra args passed to cargo run
+  | CmdBuild  FilePath (Maybe FilePath) Bool Bool  -- file, outdir, --wasm, --emit-json-ast
+  | CmdBuildFromJson FilePath (Maybe FilePath)     -- .ast.json file, outdir
+  | CmdRun    FilePath [String]                    -- file, extra args
   | CmdRepl
   deriving (Show)
 
@@ -60,7 +66,7 @@ data Options = Options
 optionsParser :: ParserInfo Options
 optionsParser = info (helper <*> opts) $
   fullDesc
-  <> progDesc "LLMLL — Large Language Model Logical Language Compiler (v0.1.0)"
+  <> progDesc "LLMLL — Large Language Model Logical Language Compiler (v0.1.2)"
   <> header "llmll — AI-to-AI programming language compiler"
   where
     opts = Options
@@ -69,20 +75,22 @@ optionsParser = info (helper <*> opts) $
 
     commandParser = subparser
       ( command "check" (info (CmdCheck <$> fileArg)
-          (progDesc "Parse and type-check a .llmll file"))
+          (progDesc "Parse and type-check a .llmll or .ast.json file"))
       <> command "holes" (info (CmdHoles <$> fileArg)
           (progDesc "List and classify all holes in a .llmll file"))
       <> command "test"  (info (CmdTest  <$> fileArg)
           (progDesc "Run property-based tests (check blocks)"))
       <> command "build" (info buildCmd
-          (progDesc "Compile .llmll to Rust; optionally invoke wasm-pack for WASM output"))
+          (progDesc "Compile .llmll to Rust; use --emit json-ast to emit JSON-AST instead"))
+      <> command "build-json" (info buildJsonCmd
+          (progDesc "Compile a .ast.json file (JSON-AST) — same as build but from JSON input"))
       <> command "run"   (info runCmd
           (progDesc "Compile and immediately run an LLMLL program (requires def-main)"))
       <> command "repl"  (info (pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
       )
 
-    fileArg = strArgument (metavar "FILE" <> help "Path to .llmll source file")
+    fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
 
     buildCmd = CmdBuild
       <$> fileArg
@@ -90,6 +98,13 @@ optionsParser = info (helper <*> opts) $
             (short 'o' <> long "output" <> metavar "DIR"
             <> help "Output directory for generated Rust crate (default: generated/<name>)"))
       <*> switch (long "wasm" <> help "Run wasm-pack after generating Rust (requires wasm-pack in PATH)")
+      <*> switch (long "emit" <> help "Emit JSON-AST (.ast.json) instead of compiling to Rust")
+
+    buildJsonCmd = CmdBuildFromJson
+      <$> fileArg
+      <*> optional (strOption
+            (short 'o' <> long "output" <> metavar "DIR"
+            <> help "Output directory (default: generated/<name>)"))
 
     runCmd = CmdRun
       <$> fileArg
@@ -106,25 +121,46 @@ main = do
   opts <- execParser optionsParser
   let json = optJson opts
   case optCommand opts of
-    CmdCheck fp           -> doCheck  json fp
-    CmdHoles fp           -> doHoles  json fp
-    CmdTest  fp           -> doTest   json fp
-    CmdBuild fp mOut wasm -> doBuild  json fp mOut wasm
-    CmdRun   fp args      -> doRun    json fp args
-    CmdRepl               -> doRepl
+    CmdCheck fp               -> doCheck  json fp
+    CmdHoles fp               -> doHoles  json fp
+    CmdTest  fp               -> doTest   json fp
+    CmdBuild fp mOut wasm emitJson -> doBuild  json fp mOut wasm emitJson
+    CmdBuildFromJson fp mOut  -> doBuildFromJson json fp mOut
+    CmdRun   fp args          -> doRun    json fp args
+    CmdRepl                   -> doRepl
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
 -- ---------------------------------------------------------------------------
 
--- | Parse a .llmll file. Accepts both bare top-level statements and files
--- wrapped in a single @(module Name ...)@ form (single-file model, v0.1.1).
--- See LLMLL.md §8 for the module/import limitations.
+-- | Parse source (S-expression or JSON-AST). Dispatches on file extension.
+-- .ast.json / .json files are read as ByteString and routed to ParserJSON;
+-- all other files go through the S-expression parser.
 parseSrc :: FilePath -> T.Text -> Either Diagnostic [Statement]
 parseSrc fp src =
+  -- JSON path is handled by loadStatements (reads as BS); this path is S-expr only.
   case parseTopLevel fp src of
     Right stmts -> Right stmts
     Left  err   -> Left (megaparsecToDiagnostic fp err)
+
+-- | Parse source from a lazy ByteString (used for .ast.json files).
+parseSrcBS :: FilePath -> BL.ByteString -> Either Diagnostic [Statement]
+parseSrcBS fp bs = parseJSONAST fp bs
+
+-- | Unified file loader: reads the file and dispatches to the right parser.
+-- Returns Left () if an error was already emitted to stdout/stderr.
+loadStatements :: Bool -> FilePath -> IO (Either () [Statement])
+loadStatements json fp
+  | takeExtension fp == ".json" = do
+      bs <- BL.readFile fp
+      case parseSrcBS fp bs of
+        Left diag -> do { emitParseDiag json fp diag; return (Left ()) }
+        Right ss  -> return (Right ss)
+  | otherwise = do
+      src <- TIO.readFile fp
+      case parseSrc fp src of
+        Left diag -> do { emitParseDiag json fp diag; return (Left ()) }
+        Right ss  -> return (Right ss)
 
 -- | Format a parse Diagnostic — S-expression by default, JSON with --json.
 emitParseDiag :: Bool -> FilePath -> Diagnostic -> IO ()
@@ -149,18 +185,16 @@ emitParseDiag json fp d
 
 doCheck :: Bool -> FilePath -> IO ()
 doCheck json fp = do
-  src <- TIO.readFile fp
-  case parseSrc fp src of
-    Left diag -> do
-      emitParseDiag json fp diag
-      exitFailure
-    Right stmts -> do
-      let report = typeCheck emptyEnv stmts
+  stmts <- loadStatements json fp
+  case stmts of
+    Left ()    -> pure ()     -- error already emitted
+    Right ss   -> do
+      let report = typeCheck emptyEnv ss
       if json
         then TIO.putStrLn (formatReportJson report)
         else if reportSuccess report
           then TIO.putStrLn $
-            "\x2705 " <> T.pack fp <> " \8212 OK (" <> tshow (length stmts) <> " statements)"
+            "\x2705 " <> T.pack fp <> " \8212 OK (" <> tshow (length ss) <> " statements)"
           else mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
       if reportSuccess report then exitSuccess else exitFailure
 
@@ -170,15 +204,17 @@ doCheck json fp = do
 
 doHoles :: Bool -> FilePath -> IO ()
 doHoles json fp = do
-  src <- TIO.readFile fp
-  case parseSrc fp src of
-    Left diag -> do
-      emitParseDiag json fp diag
-      exitFailure
-    Right stmts -> do
-      let report = analyzeHoles stmts
+  stmts <- loadStatements json fp
+  case stmts of
+    Left () -> pure ()
+    Right ss -> do
+      let report = analyzeHoles ss
+          warnings = holeDensityWarnings ss
+      -- Emit density warnings to stderr (informational, not blocking)
+      forM_ warnings $ \w ->
+        hPutStrLn stderr (T.unpack ("WARNING: " <> diagMessage w))
       if json
-        then TIO.putStrLn (holeReportJson fp report)
+        then TIO.putStrLn (formatHoleReportJson fp report)
         else do
           TIO.putStrLn $
             T.pack fp <> " \8212 " <> tshow (totalHoles report)
@@ -193,21 +229,7 @@ doHoles json fp = do
         statusLabel AgentTask   = "AGENT"
         statusLabel NonBlocking = " info"
 
-holeReportJson :: FilePath -> HoleReport -> T.Text
-holeReportJson fp report =
-  T.pack . BL.unpack . encode $ object
-    [ "file"     .= fp
-    , "total"    .= totalHoles report
-    , "blocking" .= blockingHoles report
-    , "holes"    .= map holeEntryJson (holeEntries report)
-    ]
-  where
-    holeEntryJson e = object
-      [ "name"    .= holeName e
-      , "context" .= holeContext e
-      , "status"  .= (show (holeStatus e) :: String)
-      , "desc"    .= holeDescription e
-      ]
+-- (removed — now using HoleAnalysis.formatHoleReportJson)
 
 -- ---------------------------------------------------------------------------
 -- test
@@ -215,11 +237,10 @@ holeReportJson fp report =
 
 doTest :: Bool -> FilePath -> IO ()
 doTest json fp = do
-  src <- TIO.readFile fp
-  case parseSrc fp src of
-    Left diag -> do
-      emitParseDiag json fp diag
-      exitFailure
+  -- P4 fix: use loadStatements so .ast.json is routed to JSON parser
+  mStmts <- loadStatements json fp
+  case mStmts of
+    Left ()    -> exitFailure
     Right stmts -> do
       result <- runPropertyTests stmts
       if json
@@ -243,7 +264,7 @@ printPbtResult fp r = do
 
 pbtResultJson :: FilePath -> PBTResult -> T.Text
 pbtResultJson fp r =
-  T.pack . BL.unpack . encode $ object
+  T.pack . BLC.unpack . encode $ object
     [ "file"    .= fp
     , "total"   .= pbtTotal r
     , "passed"  .= pbtPassed r
@@ -262,14 +283,29 @@ pbtResultJson fp r =
 -- build (Rust codegen + optional WASM)
 -- ---------------------------------------------------------------------------
 
-doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> IO ()
-doBuild json fp mOutDir doWasm = do
+doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> IO ()
+doBuild json fp mOutDir doWasm emitJson = do
   src <- TIO.readFile fp
   case parseSrc fp src of
     Left diag -> do
       emitParseDiag json fp diag
       exitFailure
     Right stmts -> do
+      -- --emit json-ast: write JSON-AST and stop; no Rust codegen
+      when emitJson $ do
+        let modName = T.pack $ takeBaseName fp
+            outDir  = case mOutDir of
+                        Just d  -> d
+                        Nothing -> "generated/" <> T.unpack modName
+            astFile = outDir <> "/" <> T.unpack modName <> ".ast.json"
+        createDirectoryIfMissing True outDir
+        BL.writeFile astFile (emitJsonAST stmts)
+        if json
+          then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                 object ["file" .= fp, "ast_json" .= astFile, "success" .= True]
+          else TIO.putStrLn $ "✅ JSON-AST written to " <> T.pack astFile
+        exitSuccess
+
       let modName = T.pack $ takeBaseName fp
           result  = generateRust modName stmts
           outDir  = case mOutDir of
@@ -336,6 +372,41 @@ doBuild json fp mOutDir doWasm = do
 
       exitSuccess
 
+-- | Build from a JSON-AST (.ast.json) file.
+doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> IO ()
+doBuildFromJson json fp mOutDir = do
+  bs <- BL.readFile fp
+  case parseSrcBS fp bs of
+    Left diag -> do
+      emitParseDiag json fp diag
+      exitFailure
+    Right stmts -> do
+      -- P1 fix: strip .ast suffix BEFORE passing to generateRust (Cargo rejects dots in crate names)
+      let rawName = T.pack $ takeBaseName fp
+          modName = T.replace ".ast" "" rawName
+          result  = generateRust modName stmts
+          outDir  = case mOutDir of
+                      Just d  -> d
+                      Nothing -> "generated/" <> T.unpack modName
+      createDirectoryIfMissing True (outDir <> "/src")
+      TIO.writeFile (outDir <> "/src/lib.rs") (cgRustSource result)
+      TIO.writeFile (outDir <> "/Cargo.toml") (cgCargoToml result)
+      case cgMainRs result of
+        Nothing      -> pure ()
+        Just mainSrc -> TIO.writeFile (outDir <> "/src/main.rs") mainSrc
+      forM_ (cgFfiCrates result) $ \(crate, stubsSrc) -> do
+        let stubPath = outDir <> "/src/ffi/" <> T.unpack crate <> ".rs"
+        exists <- doesFileExist stubPath
+        unless exists $ TIO.writeFile stubPath stubsSrc
+      cargoOk <- runCargoCheck json outDir
+      if cargoOk
+        then do
+          if json
+            then TIO.putStrLn (buildResultJson fp outDir (cgWarnings result) Nothing)
+            else TIO.putStrLn $ "OK Generated Rust crate from JSON-AST: " <> T.pack outDir
+          exitSuccess
+        else exitFailure
+
 -- ---------------------------------------------------------------------------
 -- run (build into temp dir + cargo run)
 -- ---------------------------------------------------------------------------
@@ -398,7 +469,7 @@ runCargoCheck json outDir = do
     Nothing -> do
       let msg = "cargo not found in PATH -- install Rust from https://rustup.rs"
       if json
-        then TIO.putStrLn . T.pack . BL.unpack . encode $
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
                object ["cargo_check" .= False, "error" .= msg]
         else TIO.putStrLn $ "WARN: " <> T.pack msg
       pure True  -- treat missing cargo as non-fatal; user may build manually
@@ -416,7 +487,7 @@ runCargoCheck json outDir = do
           pure True
         ExitFailure _ -> do
           if json
-            then TIO.putStrLn . T.pack . BL.unpack . encode $
+            then TIO.putStrLn . T.pack . BLC.unpack . encode $
                    object ["cargo_check" .= False, "stderr" .= stderr_]
             else do
               TIO.putStrLn "FAIL: cargo check failed:"
@@ -430,7 +501,7 @@ runWasmPack json outDir = do
     Nothing -> do
       let msg = "wasm-pack not found in PATH — install from https://rustwasm.github.io/wasm-pack/"
       if json
-        then TIO.putStrLn . T.pack . BL.unpack . encode $
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
                object ["wasm" .= False, "error" .= msg]
         else TIO.putStrLn $ "❌ " <> T.pack msg
     Just wasmPackBin -> do
@@ -443,12 +514,12 @@ runWasmPack json outDir = do
         ExitSuccess -> do
           let wasmDir = outDir <> "/pkg"
           if json
-            then TIO.putStrLn . T.pack . BL.unpack . encode $
+            then TIO.putStrLn . T.pack . BLC.unpack . encode $
                    object ["wasm" .= True, "pkg_dir" .= wasmDir]
             else TIO.putStrLn $ "✅ WASM output: " <> T.pack wasmDir
         ExitFailure n -> do
           if json
-            then TIO.putStrLn . T.pack . BL.unpack . encode $
+            then TIO.putStrLn . T.pack . BLC.unpack . encode $
                    object ["wasm" .= False, "exit_code" .= n, "stderr" .= err]
             else do
               TIO.putStrLn $ "❌ wasm-pack failed (exit " <> tshow n <> ")"
@@ -456,7 +527,7 @@ runWasmPack json outDir = do
 
 buildResultJson :: FilePath -> FilePath -> [T.Text] -> Maybe T.Text -> T.Text
 buildResultJson fp outDir warnings mWasmPkg =
-  T.pack . BL.unpack . encode $ object $
+  T.pack . BLC.unpack . encode $ object $
     [ "file"       .= fp
     , "out_dir"    .= outDir
     , "success"    .= True

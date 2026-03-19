@@ -17,12 +17,17 @@ module LLMLL.HoleAnalysis
   , holeEntries
   , formatHoleReport
   , formatHoleReportSExp
+  , formatHoleReportJson
+  , holeDensityWarnings
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Aeson (encode, object, (.=), Value)
+import qualified Data.ByteString.Lazy.Char8 as BL
 
 import LLMLL.Syntax
+import LLMLL.Diagnostic (Diagnostic, mkWarning)
 
 -- ---------------------------------------------------------------------------
 -- Data Types
@@ -277,3 +282,60 @@ formatHoleReportSExp r =
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
+
+-- ---------------------------------------------------------------------------
+-- JSON Output (roadmap-specified shape)
+-- ---------------------------------------------------------------------------
+
+-- | Format the hole report as a JSON array matching the roadmap spec:
+-- [ { "kind": "named", "pointer": "/statements/0/body",
+--     "message": "hole: ?impl", "inferred-type": null,
+--     "module-path": "<context>", "agent": null, "status": "non-blocking" } ]
+formatHoleReportJson :: FilePath -> HoleReport -> Text
+formatHoleReportJson _fp report =
+  T.pack . BL.unpack . encode $ map entryToJson (_holeEntries report)
+  where
+    entryToJson e = object
+      [ "kind"          .= holeKindTag (holeKind e)
+      , "pointer"       .= ("/" <> T.replace " " "/" (holeContext e))
+      , "message"       .= ("hole: " <> holeName e)
+      , "inferred-type" .= fmap typeLabel (holeInferredType e)
+      , "module-path"   .= holeContext e
+      , "agent"         .= holeAgent e
+      , "status"        .= statusStr (holeStatus e)
+      ]
+
+    holeKindTag (HNamed _)          = "named"          :: Text
+    holeKindTag (HChoose _)         = "choose"
+    holeKindTag (HRequestCap _)     = "request-cap"
+    holeKindTag (HScaffold _)       = "scaffold"
+    holeKindTag (HDelegate _)       = "delegate"
+    holeKindTag (HDelegateAsync _)  = "delegate-async"
+    holeKindTag (HDelegatePending _)= "delegate-pending"
+    holeKindTag HConflictResolution = "conflict"
+
+    statusStr Blocking    = "blocking"      :: Text
+    statusStr AgentTask   = "agent-task"
+    statusStr NonBlocking = "non-blocking"
+
+-- ---------------------------------------------------------------------------
+-- Hole Density Validator
+-- ---------------------------------------------------------------------------
+
+-- | Post-parse pass: warn when a 'def-logic' body is entirely a single named
+-- hole (hole-to-construct ratio = 1.0). This nudges agents toward targeted
+-- holes rather than wholesale stubs.
+--
+-- Per roadmap: threshold is 1.0 (whole body is one named hole).
+holeDensityWarnings :: [Statement] -> [Diagnostic]
+holeDensityWarnings = concatMap checkStmt
+  where
+    checkStmt (SDefLogic name _params _ret _contract body) =
+      case body of
+        EHole (HNamed holeName_) ->
+          [ (mkWarning Nothing $
+              "def-logic '" <> name <> "' body is entirely a single named hole (?" <> holeName_ <> "). "
+              <> "Prefer targeted holes over wholesale stubs.")
+          ]
+        _ -> []
+    checkStmt _ = []

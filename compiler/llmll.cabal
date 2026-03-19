@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           llmll
-version:        0.1.0
+version:        0.1.2
 synopsis:       LLMLL compiler - AI-to-AI programming language
 description:    Compiler for the Large Language Model Logical Language
 author:         LLMLL Team
@@ -18,6 +18,8 @@ library
       LLMLL.Syntax
       LLMLL.Lexer
       LLMLL.Parser
+      LLMLL.ParserJSON
+      LLMLL.AstEmit
       LLMLL.TypeCheck
       LLMLL.HoleAnalysis
       LLMLL.Contracts
@@ -41,6 +43,7 @@ library
   build-depends:
       QuickCheck >=2.14
     , aeson >=2.1
+    , aeson-pretty >=0.8
     , base >=4.18 && <5
     , bytestring >=0.11
     , containers >=0.6
@@ -59,12 +62,14 @@ library
 executable llmll
   main-is: Main.hs
   other-modules:
+      LLMLL.AstEmit
       LLMLL.Codegen
       LLMLL.Contracts
       LLMLL.Diagnostic
       LLMLL.HoleAnalysis
       LLMLL.Lexer
       LLMLL.Parser
+      LLMLL.ParserJSON
       LLMLL.PBT
       LLMLL.Syntax
       LLMLL.TypeCheck
@@ -83,6 +88,7 @@ executable llmll
   build-depends:
       QuickCheck >=2.14
     , aeson >=2.1
+    , aeson-pretty >=0.8
     , base >=4.18 && <5
     , bytestring >=0.11
     , containers >=0.6
@@ -118,6 +124,7 @@ test-suite llmll-test
   build-depends:
       QuickCheck
     , aeson >=2.1
+    , aeson-pretty >=0.8
     , base >=4.18 && <5
     , bytestring >=0.11
     , containers >=0.6

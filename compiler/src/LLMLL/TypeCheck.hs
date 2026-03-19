@@ -41,28 +41,74 @@ import LLMLL.Diagnostic
 -- | Maps names to their types.
 type TypeEnv = Map Name Type
 
--- | Built-in operators and their types.
+-- | Built-in operators and stdlib functions, always in scope (LLMLL.md §13).
+-- TVar "a" / TVar "b" stand for polymorphic type parameters;
+-- compatibleWith (TVar _) _ = True so they unify with anything.
 builtinEnv :: TypeEnv
-builtinEnv = Map.fromList
-  [ -- Arithmetic
-    ("+",  TFn [TInt, TInt] TInt)
-  , ("-",  TFn [TInt, TInt] TInt)
-  , ("*",  TFn [TInt, TInt] TInt)
-  , ("/",  TFn [TInt, TInt] TInt)
-    -- Comparison (polymorphic — simplified to int for now)
-  , ("=",  TFn [TInt, TInt] TBool)
-  , ("!=", TFn [TInt, TInt] TBool)
-  , ("<",  TFn [TInt, TInt] TBool)
-  , (">",  TFn [TInt, TInt] TBool)
-  , ("<=", TFn [TInt, TInt] TBool)
-  , (">=", TFn [TInt, TInt] TBool)
-    -- Logic
+builtinEnv = Map.fromList $
+  -- §13.1 Arithmetic operators
+  [ ("+",   TFn [TInt, TInt] TInt)
+  , ("-",   TFn [TInt, TInt] TInt)
+  , ("*",   TFn [TInt, TInt] TInt)
+  , ("/",   TFn [TInt, TInt] TInt)
+  , ("mod", TFn [TInt, TInt] TInt)
+  -- §13.2 Comparison & equality (polymorphic — TVar matches any type)
+  , ("=",   TFn [TVar "a", TVar "a"] TBool)
+  , ("!=",  TFn [TVar "a", TVar "a"] TBool)
+  , ("<",   TFn [TInt, TInt] TBool)
+  , (">",   TFn [TInt, TInt] TBool)
+  , ("<=",  TFn [TInt, TInt] TBool)
+  , (">=",  TFn [TInt, TInt] TBool)
+  -- §13.3 Logic
   , ("and", TFn [TBool, TBool] TBool)
   , ("or",  TFn [TBool, TBool] TBool)
   , ("not", TFn [TBool] TBool)
-    -- String
-  , ("regex-match", TFn [TString, TString] TBool)
-    -- Misc
+  -- §13.4 Pair / record
+  , ("pair",   TFn [TVar "a", TVar "b"] (TResult (TVar "a") (TVar "b")))
+  , ("first",  TFn [TResult (TVar "a") (TVar "b")] (TVar "a"))
+  , ("second", TFn [TResult (TVar "a") (TVar "b")] (TVar "b"))
+  -- §13.5 List operations
+  , ("list-empty",    TFn [] (TList (TVar "a")))
+  , ("list-append",   TFn [TList (TVar "a"), TVar "a"] (TList (TVar "a")))
+  , ("list-prepend",  TFn [TVar "a", TList (TVar "a")] (TList (TVar "a")))
+  , ("list-contains", TFn [TList (TVar "a"), TVar "a"] TBool)
+  , ("list-length",   TFn [TList (TVar "a")] TInt)
+  , ("list-head",     TFn [TList (TVar "a")] (TResult (TVar "a") TString))
+  , ("list-tail",     TFn [TList (TVar "a")] (TResult (TList (TVar "a")) TString))
+  , ("list-map",      TFn [TList (TVar "a"), TFn [TVar "a"] (TVar "b")] (TList (TVar "b")))
+  , ("list-filter",   TFn [TList (TVar "a"), TFn [TVar "a"] TBool] (TList (TVar "a")))
+  , ("list-fold",     TFn [TList (TVar "a"), TVar "b", TFn [TVar "b", TVar "a"] (TVar "b")] (TVar "b"))
+  , ("range",         TFn [TInt, TInt] (TList TInt))
+  -- §13.6 String operations
+  , ("string-length",   TFn [TString] TInt)
+  , ("string-contains", TFn [TString, TString] TBool)
+  , ("string-concat",   TFn [TString, TString] TString)
+  , ("string-slice",    TFn [TString, TInt, TInt] TString)
+  , ("string-char-at",  TFn [TString, TInt] TString)
+  , ("string-split",    TFn [TString, TString] (TList TString))
+  , ("regex-match",     TFn [TString, TString] TBool)
+  -- §13.7 Numeric utilities
+  , ("int-to-string",  TFn [TInt] TString)
+  , ("string-to-int",  TFn [TString] (TResult TInt TString))
+  , ("abs",            TFn [TInt] TInt)
+  , ("min",            TFn [TInt, TInt] TInt)
+  , ("max",            TFn [TInt, TInt] TInt)
+  -- §13.8 Result helpers
+  , ("ok",         TFn [TVar "a"] (TResult (TVar "a") (TVar "e")))
+  , ("err",        TFn [TVar "e"] (TResult (TVar "a") (TVar "e")))
+  , ("is-ok",      TFn [TResult (TVar "a") (TVar "e")] TBool)
+  , ("unwrap",     TFn [TResult (TVar "a") (TVar "e")] (TVar "a"))
+  , ("unwrap-or",  TFn [TResult (TVar "a") (TVar "e"), TVar "a"] (TVar "a"))
+  -- §13.9 Standard command constructors (require capability imports, but sigs are known)
+  , ("wasi.io.stdout",     TFn [TString] (TCustom "Command"))
+  , ("wasi.io.stderr",     TFn [TString] (TCustom "Command"))
+  , ("wasi.http.response", TFn [TInt, TString] (TCustom "Command"))
+  , ("wasi.http.post",     TFn [TString, TString] (TCustom "Command"))
+  , ("wasi.fs.read",       TFn [TString] (TCustom "Command"))
+  , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
+  , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
+  , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
+  -- §13.misc Misc
   , ("is-valid?", TFn [TBool] TBool)
   ]
 

@@ -11,6 +11,7 @@ module LLMLL.Diagnostic
   , mkError
   , mkWarning
   , mkInfo
+  , mkErrorAt
   , formatDiagnostic
   , formatDiagnosticSExp
   , formatDiagnosticJson
@@ -41,11 +42,15 @@ data Severity
 
 -- | A single compiler diagnostic.
 data Diagnostic = Diagnostic
-  { diagSeverity   :: Severity
-  , diagSpan       :: Maybe Span
-  , diagMessage    :: Text
-  , diagSuggestion :: Maybe Text
-  , diagCode       :: Maybe Text    -- ^ e.g. "E001", "W002"
+  { diagSeverity    :: Severity
+  , diagSpan        :: Maybe Span
+  , diagMessage     :: Text
+  , diagSuggestion  :: Maybe Text
+  , diagCode        :: Maybe Text     -- ^ e.g. "E001", "W002"
+  -- v0.1.2 additions (roadmap JSON diagnostic shape):
+  , diagKind        :: Maybe Text     -- ^ Error class: "type-mismatch", "undefined-name", "schema-version-mismatch", etc.
+  , diagPointer     :: Maybe Text     -- ^ RFC 6901 JSON Pointer to the offending AST node, e.g. "/statements/2/body"
+  , diagInferredType :: Maybe Text    -- ^ Inferred type at the error site, if available
   } deriving (Show, Eq, Generic)
 
 -- | A collection of diagnostics from a compiler phase.
@@ -60,13 +65,24 @@ data DiagnosticReport = DiagnosticReport
 -- ---------------------------------------------------------------------------
 
 mkError :: Maybe Span -> Text -> Diagnostic
-mkError sp msg = Diagnostic SevError sp msg Nothing Nothing
+mkError sp msg = Diagnostic SevError sp msg Nothing Nothing Nothing Nothing Nothing
 
 mkWarning :: Maybe Span -> Text -> Diagnostic
-mkWarning sp msg = Diagnostic SevWarning sp msg Nothing Nothing
+mkWarning sp msg = Diagnostic SevWarning sp msg Nothing Nothing Nothing Nothing Nothing
 
 mkInfo :: Maybe Span -> Text -> Diagnostic
-mkInfo sp msg = Diagnostic SevInfo sp msg Nothing Nothing
+mkInfo sp msg = Diagnostic SevInfo sp msg Nothing Nothing Nothing Nothing Nothing
+
+-- | Smart constructor for diagnostics with a JSON Pointer and kind class.
+-- Used by ParserJSON and the hole density validator.
+mkErrorAt :: Text   -- ^ kind (e.g. "type-mismatch")
+          -> Text   -- ^ RFC 6901 JSON Pointer
+          -> Text   -- ^ message
+          -> Diagnostic
+mkErrorAt kind ptr msg = (mkError Nothing msg)
+  { diagKind    = Just kind
+  , diagPointer = Just ptr
+  }
 
 -- ---------------------------------------------------------------------------
 -- Formatting
@@ -123,8 +139,11 @@ instance ToJSON Diagnostic where
     , "message"  .= diagMessage d
     ] ++
     maybe [] (\sp -> ["file" .= spanFile sp, "line" .= spanLine sp, "col" .= spanCol sp]) (diagSpan d) ++
-    maybe [] (\s  -> ["suggestion" .= s]) (diagSuggestion d) ++
-    maybe [] (\c  -> ["code" .= c])       (diagCode d)
+    maybe [] (\s  -> ["suggestion"    .= s]) (diagSuggestion d)  ++
+    maybe [] (\c  -> ["code"          .= c]) (diagCode d)        ++
+    maybe [] (\k  -> ["kind"          .= k]) (diagKind d)        ++
+    maybe [] (\p  -> ["pointer"       .= p]) (diagPointer d)     ++
+    maybe [] (\t  -> ["inferred-type" .= t]) (diagInferredType d)
 
 instance ToJSON DiagnosticReport where
   toJSON r = object
@@ -171,7 +190,7 @@ megaparsecToDiagnostic fp bundle =
       -- so downstream formatters can append their own location info.
       cleanMsg    = stripLocationPrefix prettyMsg
       suggestion  = Just "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)"
-  in Diagnostic SevError mSpan cleanMsg suggestion (Just "E001")
+  in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing)
   where
     stripLocationPrefix t =
       -- errorBundlePretty lines: "<file>:line:col:\nerror: ..."

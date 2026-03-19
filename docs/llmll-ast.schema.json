@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.1.1/ast.schema.json",
-  "title": "LLMLL v0.1.1 JSON-AST Schema",
+  "$id": "https://llmll.dev/schemas/v0.1.2/ast.schema.json",
+  "title": "LLMLL v0.1.2 JSON-AST Schema",
   "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline.",
 
   "$defs": {
@@ -9,13 +9,18 @@
     "Program": {
       "description": "Top-level structure. A file is a flat list of statements (no implicit root module). Wrap in a module statement if namespacing is desired.",
       "type": "object",
-      "required": ["llmll_version", "statements"],
+      "required": ["schemaVersion", "llmll_version", "statements"],
       "additionalProperties": false,
       "properties": {
-        "llmll_version": {
-          "description": "Must be '0.1.1'.",
+        "schemaVersion": {
+          "description": "Must be '0.1.2'. The compiler rejects files with an unrecognised version. See docs/json-ast-versioning.md.",
           "type": "string",
-          "const": "0.1.1"
+          "const": "0.1.2"
+        },
+        "llmll_version": {
+          "description": "Must be '0.1.2'.",
+          "type": "string",
+          "const": "0.1.2"
         },
         "source_file": {
           "description": "Optional: original .llmll filename for diagnostics.",

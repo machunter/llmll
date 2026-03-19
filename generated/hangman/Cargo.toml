@@ -1,5 +1,5 @@
 [package]
-name = "hangman-complete"
+name = "hangman"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,5 +9,5 @@ edition = "2021"
 proptest = "1"
 
 [lib]
-name = "hangman_complete"
+name = "hangman"
 path = "src/lib.rs"

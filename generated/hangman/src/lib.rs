@@ -2,6 +2,8 @@
 // DO NOT EDIT — regenerate with `llmll build`
 #![allow(unused_variables, dead_code, unused_mut, unused_imports, clippy::all)]
 
+
+
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -121,7 +123,102 @@ pub fn second(p: LlmllVal) -> LlmllVal {
 }
 pub fn pair(a: LlmllVal, b: LlmllVal) -> LlmllVal { LlmllVal::Pair(Box::new(a), Box::new(b)) }
 pub fn wasi_io_stdout(s: LlmllVal) -> Command { s }
+pub fn wasi_io_stdout_str(s: &str) -> Command { LlmllVal::Text(s.to_string()) }
+// §13.9 — wasi.io, wasi.http, wasi.fs command constructors
+pub fn wasi_io_stderr(s: LlmllVal) -> Command { s }
+/// HTTP response: wasi_http_response(status_int, body_string)
+pub fn wasi_http_response(status: LlmllVal, body: LlmllVal) -> Command {
+    LlmllVal::Text(format!("HTTP {} {}", status.as_int(), body.as_str()))
+}
+pub fn wasi_http_not_found() -> Command { LlmllVal::Text("HTTP 404 Not Found".to_string()) }
+pub fn wasi_http_method_not_allowed() -> Command { LlmllVal::Text("HTTP 405 Method Not Allowed".to_string()) }
+pub fn wasi_http_bad_request(msg: LlmllVal) -> Command { LlmllVal::Text(format!("HTTP 400 {}", msg.as_str())) }
+pub fn wasi_fs_write(path: LlmllVal, content: LlmllVal) -> Command {
+    // In the WASM runtime this would perform the write; here it is a no-op stub.
+    let _ = std::fs::write(path.as_str(), content.as_str().as_bytes());
+    LlmllVal::Unit
+}
 pub fn mod_(a: LlmllVal, b: LlmllVal) -> LlmllVal { LlmllVal::Int(a.as_int() % b.as_int()) }
+pub fn and(a: LlmllVal, b: LlmllVal) -> LlmllVal { LlmllVal::Bool(a.as_bool() && b.as_bool()) }
+pub fn or(a: LlmllVal, b: LlmllVal)  -> LlmllVal { LlmllVal::Bool(a.as_bool() || b.as_bool()) }
+pub fn not(a: LlmllVal)              -> LlmllVal { LlmllVal::Bool(!a.as_bool()) }
+
+// ---------------------------------------------------------------------------
+// §13 standard library — string / Result helpers
+// ---------------------------------------------------------------------------
+pub fn string_slice(s: LlmllVal, start: LlmllVal, end: LlmllVal) -> LlmllVal {
+    let st = start.as_int() as usize;
+    let en = end.as_int() as usize;
+    LlmllVal::Text(s.as_str().chars().skip(st).take(en.saturating_sub(st)).collect())
+}
+pub fn string_to_int(s: LlmllVal) -> LlmllVal {
+    match s.as_str().trim().parse::<i64>() {
+        Ok(n)  => LlmllVal::Adt("Success".to_string(), vec![LlmllVal::Int(n)]),
+        Err(e) => LlmllVal::Adt("Error".to_string(),   vec![LlmllVal::Text(e.to_string())]),
+    }
+}
+pub fn ok(v: LlmllVal) -> LlmllVal { LlmllVal::Adt("Success".to_string(), vec![v]) }
+pub fn err(e: LlmllVal) -> LlmllVal { LlmllVal::Adt("Error".to_string(),   vec![e]) }
+pub fn is_ok(r: LlmllVal) -> LlmllVal {
+    match &r { LlmllVal::Adt(c, _) => LlmllVal::Bool(c == "Success"), _ => LlmllVal::Bool(false) }
+}
+pub fn unwrap(r: LlmllVal) -> LlmllVal {
+    match r { LlmllVal::Adt(ref c, ref v) if c == "Success" => v[0].clone(),
+              _ => panic!("unwrap called on Error") }
+}
+pub fn unwrap_or(r: LlmllVal, default: LlmllVal) -> LlmllVal {
+    match r { LlmllVal::Adt(ref c, ref v) if c == "Success" => v[0].clone(),
+              _ => default }
+}
+pub fn seq_commands(a: LlmllVal, b: LlmllVal) -> LlmllVal {
+    if let (LlmllVal::Text(t1), LlmllVal::Text(t2)) = (&a, &b) {
+        LlmllVal::Text(format!("{}{}", t1, t2))
+    } else {
+        panic!("seq-commands: expected Text commands")
+    }
+}
+
+// Generic FFI helpers — used by src/ffi/**/*.rs
+pub fn llmll_to_str(v: &LlmllVal) -> String { v.as_str().to_string() }
+pub fn llmll_to_i64(v: &LlmllVal) -> i64    { v.as_int() }
+pub fn llmll_to_bool(v: &LlmllVal) -> bool  { v.as_bool() }
+pub fn str_to_llmll(s: String)    -> LlmllVal { LlmllVal::Text(s) }
+pub fn i64_to_llmll(i: i64)       -> LlmllVal { LlmllVal::Int(i) }
+pub fn bool_to_llmll(b: bool)     -> LlmllVal { LlmllVal::Bool(b) }
+
+// ---------------------------------------------------------------------------
+// Arithmetic operator traits — Sub, Mul, Div (mirror Add above)
+// ---------------------------------------------------------------------------
+impl std::ops::Sub for LlmllVal {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Int(a),   Self::Int(b))   => Self::Int(a - b),
+            (Self::Float(a), Self::Float(b)) => Self::Float(a - b),
+            _ => panic!("sub: type mismatch")
+        }
+    }
+}
+impl std::ops::Mul for LlmllVal {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Int(a),   Self::Int(b))   => Self::Int(a * b),
+            (Self::Float(a), Self::Float(b)) => Self::Float(a * b),
+            _ => panic!("mul: type mismatch")
+        }
+    }
+}
+impl std::ops::Div for LlmllVal {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Int(a),   Self::Int(b))   => Self::Int(a / b),
+            (Self::Float(a), Self::Float(b)) => Self::Float(a / b),
+            _ => panic!("div: type mismatch")
+        }
+    }
+}
 
 pub type GameInput = LlmllVal;
 

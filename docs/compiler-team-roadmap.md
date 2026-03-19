@@ -2,10 +2,12 @@
 
 > **Prepared by:** Compiler Team  
 > **Date:** 2026-03-19  
-> **Status:** Active — supersedes the roadmap in `LLMLL.md §14`  
+> **Status:** Active  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
+>
+> **Relationship to `LLMLL.md §14`:** The two documents are **complementary, not competing**. `LLMLL.md §14` is the *language-visible feature list* (what users and AI agents see). This document is the *engineering backlog* — implementation tickets, acceptance criteria, decision records, and bug tracking. When a feature ships it is marked complete here and the user-visible description is kept in `LLMLL.md §14`.
 
 ---
 
@@ -62,6 +64,16 @@
 - An LLM generating JSON against the schema cannot produce a structurally invalid LLMLL program.
 - `llmll build` and `llmll build --from-json` produce identical binaries for all examples.
 - `llmll holes --json` output is a valid JSON array parseable by `jq`.
+
+#### Post-ship bug fixes (discovered via `examples/hangman/walkthrough.md`)
+
+Three bugs were found by an AI developer during the Hangman JSON-AST implementation and fixed before v0.1.2 was considered complete:
+
+| Bug | Location | Fix | Status |
+|-----|----------|-----|---------|
+| **P1** — `build-json` passes `hangman.ast` (with dot) as Cargo crate name; `cargo` rejects it immediately | `Main.hs`, `doBuildFromJson` | Strip `.ast` suffix from `rawName` **before** passing `modName` to `generateRust` | ✅ Fixed |
+| **P2** — `builtinEnv` in `TypeCheck.hs` contained only 8 operator entries; all §13 stdlib calls (`string-length`, `list-map`, `first`, `second`, `range`, …) produced false-positive "unknown function" warnings, causing exit code 1 on every real program | `TypeCheck.hs`, `builtinEnv` | Seeded all ~25 §13 stdlib function signatures; polymorphic positions use `TVar "a"`/`TVar "b"` | ✅ Fixed |
+| **P4** — `llmll test` always read the file as `Text` and called the S-expression parser regardless of extension; `test hangman.ast.json` silently produced a parse error | `Main.hs`, `doTest` | Replace inline `TIO.readFile` + `parseSrc` with `loadStatements json fp` (same dispatcher used by `check`, `holes`, `build`) | ✅ Fixed |
 
 ---
 
@@ -156,6 +168,38 @@ Docker container
 **[CT]** Parser disambiguation: `[...]` in *expression position* = list literal; `[...]` in *parameter-list position* (after function name in `def-logic` or `fn`) = parameter list. Rule documented in `LLMLL.md §12`.
 
 **[CT]** Old `(let [[x 1] ...])` syntax emits a clear error with a migration message.
+
+---
+
+## v0.1.3 — Type Alias Expansion
+
+**Theme:** Close the last spurious type-checker error that affects every real program using dependent type aliases.
+
+> **One-shot impact:** Eliminates the entire class of `expected GuessCount, got int` false errors that appear whenever an integer literal is passed where a named dependent type alias is expected. All programs in `examples/` that declare `where`-constrained aliases currently fail type-checking with this spurious error.
+
+### Deliverable — Structural Type Alias Resolution
+
+**Root cause.** `collectTopLevel (STypeDef name body)` registers the alias as `TCustom name` (opaque nominal entry). The type checker never expands aliases at call sites, so `TInt` (inferred for literal `0`) never unifies with `TCustom "GuessCount"` even though `GuessCount = (where [n: int] (>= n 0))` has `TInt` as its base type.
+
+**[CT]** Fix `collectTopLevel` in `TypeCheck.hs`:
+```haskell
+-- Before (nominal, broken):
+collectTopLevel (STypeDef name body) = Just (name, TCustom name)
+
+-- After (structural, correct):
+collectTopLevel (STypeDef name body) = Just (name, body)
+```
+
+**[CT]** Add a **type alias substitution pass** (a pre-check walk over each `SDefLogic`'s parameter and return type annotations): replace `TCustom n` with the registered structural body when `n` is a known `STypeDef`. This is required to handle transitive aliases (e.g., a parameter typed `Word` where `Word = (where [s: string] (> (string-length s) 0))`).
+
+**[CT]** Update `LLMLL.md §3.4` callout: once this fix ships, remove the workaround guidance and replace it with a note that the limitation is resolved in v0.1.3. (The detailed description of the fix is already in `LLMLL.md §3.4` for reference until then.)
+
+**[SPEC]** No language-visible change. The type system was always defined as structural; this is a compiler implementation catch-up.
+
+**Acceptance criteria:**
+- `llmll check examples/hangman_complete.llmll` produces **zero** type-mismatch errors related to `GuessCount`, `Word`, `Letter`, or `PositiveInt`.
+- `llmll check examples/withdraw.llmll` is unaffected (no regressions).
+- All 21 existing tests still pass.
 
 ---
 
