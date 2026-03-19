@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.1.1)
+# LLMLL: Large Language Model Logical Language (v0.1.2)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **v0.1.1 Scope:** This version closes all specification gaps identified during the Hangman implementation exercise. Every construct in this document has fully defined syntax, grammar, and runtime semantics. Compile-time verification via LiquidHaskell arrives in v0.2; interactive theorem proving via Leanstral in v0.3. See the [Version Roadmap](#14-version-roadmap) at the end of this document. For the compiler team's implementation schedule and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
+> **v0.1.2 Scope:** The Haskell codegen backend is now the default target. This version closes specification gaps from the Hangman implementation exercise and documents the JSON-AST build path. Every construct in this document has fully defined syntax, grammar, and runtime semantics. Compile-time verification via LiquidHaskell arrives in v0.2; interactive theorem proving via Leanstral in v0.3. See the [Version Roadmap](#14-version-roadmap) at the end of this document. For the compiler team's implementation schedule and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 

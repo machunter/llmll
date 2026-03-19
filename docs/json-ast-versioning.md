@@ -46,12 +46,17 @@ When the schema changes between patch versions:
 
 The LLMLL compiler guarantees that for any valid `.llmll` source file:
 
-```
-llmll build FILE --emit json-ast → FILE.ast.json
-llmll build --from-json FILE.ast.json
+```bash
+# Step 1: Emit JSON-AST from S-expression source
+llmll build FILE --emit json-ast       # writes FILE.ast.json
+
+# Step 2: Build directly from JSON-AST (auto-detected by .json extension)
+llmll build FILE.ast.json
 ```
 
 …produces **semantically identical compiled output** to building the original `.llmll` source directly. Any divergence is a compiler bug.
+
+> **Note:** The `build` command auto-detects `.json` / `.ast.json` files by extension and routes them through the JSON-AST parser automatically. There is no separate `--from-json` flag.
 
 ## `llmll_version` vs `schemaVersion`
 

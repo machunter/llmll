@@ -109,7 +109,7 @@ A `?name` is a **Hole** — a named placeholder for logic that has not been writ
 
 - **type-check** the surrounding code,
 - **report** how many holes remain,
-- and **generate Rust stubs** with `todo!()` in their place.
+- and **generate Haskell stubs** with `error "Unimplemented Hole"` in their place.
 
 ```lisp
 (def-logic all-guessed? [word: Word guessed: list[Letter]]
@@ -198,13 +198,20 @@ Properties are skipped when they contain runtime-only expressions (e.g. calls to
 
 ### 3.4  `build` — generate Haskell
 
+`llmll build` accepts both `.llmll` S-expression files and `.ast.json` JSON-AST files:
+
 ```bash
+# S-expression source
 stack exec llmll -- build ../examples/hangman.llmll
+
+# JSON-AST source (auto-detected by .json extension)
+stack exec llmll -- build ../examples/hangman_game/hangman.ast.json
 ```
 
 ```
-✅ Generated Haskell project: generated/hangman
-   src/Lib.hs — 3102 chars
+OK Generated Haskell package: generated/hangman
+   src/Lib.hs -- 4168 chars
+   stack.yaml
    package.yaml
 ```
 
@@ -282,8 +289,9 @@ stack exec llmll -- build ../examples/hangman_complete.llmll -o ../generated/han
 ```
 
 ```
-✅ Generated Haskell project: ../generated/hangman
-   src/Lib.hs — 4845 chars
+OK Generated Haskell package: ../generated/hangman
+   src/Lib.hs -- 9087 chars
+   stack.yaml
    package.yaml
 ```
 
@@ -304,12 +312,14 @@ The `build` command writes two core files:
 
 ```
 generated/hangman/
-  package.yaml     ← dependencies (effectful, QuickCheck, etc.)
+  package.yaml     ← hpack package descriptor (dependencies, modules)
+  stack.yaml       ← GHC version pin (lts-22.43 = GHC 9.6.6)
   src/Lib.hs       ← pure Haskell translation of your LLMLL logic
+  src/Main.hs      ← runtime harness (only if def-main is present)
 ```
 
 The generated code includes:
-- **`Command` Typed Effects** using the `effectful` library.
+- **`IO ()` Command Effects** — WASI commands are `IO ()` actions in v0.1.2; typed effect rows (`effectful`) arrive in v0.2.
 - **Logic functions** with bounds/contracts mapped to runtime `Control.Exception.assert` blocks.
 - **Hole stubs** that compile but throw `error "Unimplemented Hole: ?guess_impl"` at runtime.
 - **A `test/Spec.hs` module** mapping to QuickCheck for each `check` property definition.
