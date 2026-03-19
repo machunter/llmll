@@ -1,6 +1,19 @@
 -- |
 -- Module      : LLMLL.Codegen
--- Description : Transpile LLMLL AST to Rust source code.
+-- Description : [v0.1.1 LEGACY] Transpile LLMLL AST to Rust source code.
+--
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║  PENDING REPLACEMENT — v0.1.2                                       ║
+-- ║                                                                      ║
+-- ║  This module emits Rust source code (lib.rs, Cargo.toml, FFI stubs) ║
+-- ║  and is the v0.1.1 codegen backend. It will be replaced in v0.1.2   ║
+-- ║  with a Haskell emitter that targets the GHC backend + effectful    ║
+-- ║  library for typed capability enforcement.                           ║
+-- ║                                                                      ║
+-- ║  The public interface (generateRust, CodegenResult, ImportKind)      ║
+-- ║  will be preserved by the new module with updated names.             ║
+-- ║  See docs/compiler-team-roadmap.md §v0.1.2 for details.             ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
 --
 -- Converts the LLMLL AST into dynamic Rust code using LlmllVal.
 -- This approach ensures that untyped LLMLL code (v0.1) compiles reliably.

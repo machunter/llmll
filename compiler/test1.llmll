@@ -1,1 +1,0 @@
-(import rust.env (interface [get-args (fn [unit] -> int)]))

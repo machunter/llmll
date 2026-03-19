@@ -8,3 +8,6 @@ generated/hangman/Cargo.lock
 runtime/target/
 runtime/Cargo.lock
 generated/
+
+# Remove runtime/ from tracking (moved to docs/archive)
+runtime/
