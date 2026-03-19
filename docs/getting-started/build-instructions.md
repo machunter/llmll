@@ -4,13 +4,12 @@
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Haskell compiler toolchain |
-| Rust + Cargo | `>= 1.70` | Compile generated Rust code |
-| wasm-pack *(optional)* | `>= 0.12` | Compile to WebAssembly |
+| GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
+| Docker | `>= 24.0` | Containerized `-XSafe` runtime execution |
 
 **Install Stack:** https://docs.haskellstack.org/en/stable/install_and_upgrade/  
-**Install Rust:** `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`  
-**Install wasm-pack:** `curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh`
+**Install Docker:** https://docs.docker.com/get-docker/
+
 
 ---
 
@@ -34,10 +33,10 @@ llmll — AI-to-AI programming language compiler
 Usage: llmll COMMAND [--json]
 
 Available commands:
-  check   Parse and type-check a .llmll file
-  holes   List and classify all holes in a .llmll file
+  check   Parse and type-check a .llmll or .ast.json file
+  holes   List and classify all holes in a file
   test    Run property-based tests (check blocks)
-  build   Compile .llmll to Rust; optionally invoke wasm-pack
+  build   Compile source to a Haskell application
   repl    Start an interactive LLMLL REPL
 ```
 
@@ -135,7 +134,6 @@ A `?name` is a **Hole** — a named placeholder for logic that has not been writ
 > **Syntax rules for check blocks**
 > - Must contain `(for-all [typed-params...] expr)`.
 > - A bare expression like `(= (+ 0 1) 1)` is **not** valid inside `check`.
-> - List literals like `["a", "b"]` are **not** valid expressions in v0.1 — use `(list-empty)` or pass lists through function parameters.
 
 ---
 
@@ -198,28 +196,22 @@ stack exec llmll -- test ../examples/hangman.llmll
 
 Properties are skipped when they contain runtime-only expressions (e.g. calls to hole-bodied functions) that cannot be symbolically evaluated.
 
-### 3.4  `build` — generate Rust
+### 3.4  `build` — generate Haskell
 
 ```bash
 stack exec llmll -- build ../examples/hangman.llmll
 ```
 
 ```
-✅ Generated Rust crate: generated/hangman
-   src/lib.rs — 4989 chars
-   ℹ️  pass --wasm to compile to WebAssembly (requires wasm-pack)
+✅ Generated Haskell project: generated/hangman
+   src/Lib.hs — 3102 chars
+   package.yaml
 ```
 
 Custom output directory:
 
 ```bash
 stack exec llmll -- build ../examples/hangman.llmll -o /path/to/my/project
-```
-
-Compile to WebAssembly (requires `wasm-pack`):
-
-```bash
-stack exec llmll -- build ../examples/hangman.llmll --wasm
 ```
 
 ### 3.5  `repl` — interactive mode
@@ -283,60 +275,51 @@ stack exec llmll -- test ../examples/hangman_complete.llmll
 
 6 properties are skipped because they reference custom types (`Word`, `Letter`, `GuessCount`) whose PBT generators are not yet wired to the Haskell runtime (the `gen` declaration registers them at WASM runtime only in v0.1.1). The 3 algebraic properties pass unconditionally.
 
-### build — generate Rust crate
+### build — generate Haskell application
 
 ```bash
 stack exec llmll -- build ../examples/hangman_complete.llmll -o ../generated/hangman
 ```
 
 ```
-✅ Generated Rust crate: ../generated/hangman
-   src/lib.rs — 12845 chars
-   ℹ️  pass --wasm to compile to WebAssembly (requires wasm-pack)
+✅ Generated Haskell project: ../generated/hangman
+   src/Lib.hs — 4845 chars
+   package.yaml
 ```
 
-The generated crate is at `generated/hangman/`. The compiler generates the core logic as a library in `src/lib.rs`. To run the game interactively in your terminal, simply add a `src/main.rs` that drives the game loop, and run:
+The generated application is at `generated/hangman/`. The compiler generates the core logic as a library structure. To run the game interactively in your terminal within the sandbox, simply run:
 
 ```bash
 # From the project root:
 cd generated/hangman
-cargo build
-cargo run
+stack build
+stack run
 ```
-
-### (optional) build to WebAssembly
-
-```bash
-# From compiler/:
-stack exec llmll -- build ../examples/hangman_complete.llmll -o ../generated/hangman --wasm
-```
-
-This invokes `wasm-pack build --target web --release` and writes the WASM bundle to `generated/hangman/pkg/`.
 
 ---
 
-## 4.  Generated Rust Crate
+## 4.  Generated Haskell Project
 
-The `build` command writes two files:
+The `build` command writes two core files:
 
 ```
 generated/hangman/
-  Cargo.toml       ← ready to compile with cargo
-  src/lib.rs       ← pure Rust translation of your LLMLL logic
+  package.yaml     ← dependencies (effectful, QuickCheck, etc.)
+  src/Lib.hs       ← pure Haskell translation of your LLMLL logic
 ```
 
 The generated code includes:
-- **`LlmllVal` Runtime** a comprehensive dynamic runtime handling all LLMLL types and values.
-- **Logic functions** with `assert!()` guards for pre/post contracts
-- **Hole stubs** that compile but panic at runtime: `todo!("?guess_impl")`
-- **A `#[cfg(test)]` module** with proptest-style stubs for each `check` block
+- **`Command` Typed Effects** using the `effectful` library.
+- **Logic functions** with bounds/contracts mapped to runtime `Control.Exception.assert` blocks.
+- **Hole stubs** that compile but throw `error "Unimplemented Hole: ?guess_impl"` at runtime.
+- **A `test/Spec.hs` module** mapping to QuickCheck for each `check` property definition.
 
-To compile the generated Rust:
+To compile and verify the generated Haskell:
 
 ```bash
 cd generated/hangman
-cargo build
-cargo test
+stack build
+stack test
 ```
 
 ---
@@ -353,9 +336,9 @@ cargo test
   (post postcondition-expr)    ;; optional — can reference `result`
   body-expr)
 
-;; Let binding  — each binding is its own [name expr] pair
-(let [[x (expr1)]
-      [y (expr2)]]
+;; Let binding  — sequential
+(let [(x (expr1))
+      (y (expr2))]
   body)
 
 ;; If expression
@@ -375,9 +358,6 @@ cargo test
   ...)
 ```
 
-> **Important gotchas in v0.1.1**
-> - No list literal syntax (`["a"]` is invalid as an expression; use `(list-empty)` / `(list-append ...)` to build lists).
-> - `check` always requires `(for-all ...)` — bare expressions aren't valid.
-> - `def-logic` does not support `: ReturnType` annotations; return types are inferred.
-> - **Unicode symbol aliases ARE supported** since v0.1.1: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ` are valid aliases for their ASCII counterparts. Unicode *identifiers* remain forbidden (see `analysis/unicode_decision.md`).
-> - `gen TypeName expr` declares a custom PBT generator (v0.1.1 §5.2). The expression wires into the WASM runtime; Haskell-side PBT in `stack test` skips properties that reference custom-typed generators.
+> **Important gotchas**
+> - **Unicode symbol aliases ARE supported** since v0.1.1: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ` are valid aliases for their ASCII counterparts.
+> - `gen TypeName expr` declares a custom PBT generator. The expression wires natively; Haskell-side QuickCheck relies on these declarations.

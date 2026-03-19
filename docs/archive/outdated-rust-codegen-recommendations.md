@@ -1,4 +1,8 @@
-# Rust Code Generation: Compiler Recommendations
+# [OUTDATED] Rust Code Generation: Compiler Recommendations
+
+> [!WARNING]
+> **This document is OUTDATED.**
+> As of LLMLL v0.1.2, the compiler targets **Haskell**, not Rust. The recommendations in this document applied to the legacy `v0.1.1` Rust codegen pipeline and are preserved here only for historical context. See `docs/compiler-team-roadmap.md` for current architectural direction.
 
 ## Executive Summary
 After a review of the generated Rust code for the `hangman` example (`generate/hangman/src/lib.rs`), several systemic issues were identified regarding how the compiler utilizes the Rust language—specifically its type system, error handling, and memory ownership model. 
