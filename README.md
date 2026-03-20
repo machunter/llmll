@@ -1,16 +1,140 @@
 # LLMLL
 
-**LLMLL** (Large Language Model Logical Language) is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
+**LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
+
+## Compiler status — v0.1.2
+
+The active compiler is a **Haskell stack project** in `compiler/`. It replaces the earlier Rust/WASM backend and is the only supported backend as of v0.1.2.
+
+| Command | What it does |
+|---------|--------------|
+| `llmll check <file>` | Parse + type-check; emit structured diagnostics |
+| `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
+| `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
+| `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
+
+### Input formats
+
+Both source formats compile to identical AST nodes:
+
+| Format | Extension | Best for |
+|--------|-----------|----------|
+| S-expressions | `.llmll` | Human editing, concise iteration |
+| JSON-AST | `.ast.json` | AI agents — schema-constrained, structurally valid by construction |
+
+The JSON-AST schema is at `docs/llmll-ast.schema.json`.
+
+### Building the compiler
+
+```bash
+cd compiler
+stack build          # compile
+stack test           # run test suite
+stack exec llmll -- --help
+```
+
+Requires GHC 9.6.6 + Stack. Run `stack setup` if the resolver is missing.
+
+---
+
+## Quick start
+
+```bash
+cd compiler
+
+# Check the example
+stack exec llmll -- check ../examples/hangman_sexp/hangman.llmll
+
+# Build a Haskell package in generated/hangman_sexp
+stack exec llmll -- build ../examples/hangman_sexp/hangman.llmll -o ../generated/hangman_sexp
+
+# Build from JSON-AST
+stack exec llmll -- build ../examples/hangman_json/hangman.ast.json -o ../generated/hangman_json
+
+# Run the generated game
+cd ../generated/hangman_json && stack build && stack exec hangman
+```
+
+---
+
+## Examples
+
+| Example | Format | Description |
+|---------|--------|-------------|
+| `examples/hangman_sexp/` | S-expression | Full Hangman game with ASCII gallows art; uses `def-main :mode console` |
+| `examples/hangman_json/` | JSON-AST | Same program, JSON-AST schema-constrained version |
+| `examples/withdraw.llmll` | S-expression | Simple withdraw with `pre`/`post` contracts; acceptance gate |
+
+---
+
+## What's new in v0.1.2
+
+### Compiler
+
+- **Haskell codegen backend** — replaces the Rust backend entirely. Generated output: `src/Lib.hs` + `package.yaml` + `stack.yaml`, buildable with `stack build`.
+- **JSON-AST input** — `llmll build` auto-detects `.ast.json` extension and parses JSON directly. Avoids S-expression parser ambiguities for AI-generated code.
+- **`def-main` support** — new `def-main :mode console|cli|http` entry-point declaration generates a full `src/Main.hs` harness:
+  - `:mode console` — interactive stdin/stdout loop with `hIsEOF` guard (no `hGetLine: end of file` on exit)
+  - `:mode cli` — single-shot from OS args
+  - `:mode http PORT` — stub HTTP server
+- **`llmll holes`** — works on files with `def-main` (previously crashed with non-exhaustive pattern)
+- **Let-scope fix** — sequential `let` bindings now each extend the type environment for subsequent bindings; unbound variable false-positives eliminated
+- **Overlapping pattern fix** — `match` codegen no longer emits a redundant `_ -> error "..."` arm when the last explicit arm is already a wildcard
+- **Both `let` syntaxes accepted** — single-bracket `(let [(x e)] body)` (v0.1.2 canonical) and double-bracket `(let [[x e]] body)` (v0.1.1, backward-compat) both compile to identical AST
+
+### Spec (LLMLL.md)
+
+- **§9.5 `def-main`** — fully documented: syntax, all three modes, key semantics, S-expression + JSON-AST examples
+- **§12 Formal Grammar** — `def-main` EBNF production added; `def-main` added to `statement` production
+- **§14 Migration notes** — corrected: both `let` forms are accepted; not "replaced"
+
+### Examples
+
+- Rust-era examples removed (`tictactoe`, `my_ttt`, `ttt_3`, `tasks_service`, `todo_service`, `hangman_complete`, `specifications/`)
+- `examples/hangman_sexp/` and `examples/hangman_json/` added — both compile and run end-to-end
+
+---
+
+## Repository layout
+
+```
+LLMLL.md                    ← canonical language specification (v0.1.2)
+compiler/                   ← Haskell compiler (stack project)
+  src/LLMLL/
+    Parser.hs               ← S-expression parser (Megaparsec)
+    ParserJSON.hs           ← JSON-AST parser
+    Syntax.hs               ← AST types
+    TypeCheck.hs            ← Bidirectional type checker
+    HoleAnalysis.hs         ← Hole collector (?hole expressions)
+    CodegenHs.hs            ← Haskell code emitter
+    PBT.hs                  ← QuickCheck property runner
+    Diagnostic.hs           ← Structured error/warning types
+  package.yaml / stack.yaml
+examples/
+  hangman_sexp/             ← Full Hangman (S-expression)
+  hangman_json/             ← Full Hangman (JSON-AST)
+  withdraw.llmll            ← Contract demo
+docs/
+  getting-started/          ← build-instructions.md
+  compiler-team-roadmap.md
+  json-ast-versioning.md
+  llmll-ast.schema.json     ← JSON-AST schema (use with AI agents)
+```
+
+---
 
 ## Documentation
 
-The project documentation has been organized into the `docs/` directory for structure and discoverability:
+| Document | Purpose |
+|----------|---------|
+| [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
+| [`docs/getting-started/build-instructions.md`](docs/getting-started/build-instructions.md) | Step-by-step compilation walkthrough |
+| [`docs/json-ast-versioning.md`](docs/json-ast-versioning.md) | JSON-AST schema versioning and AI agent guidance |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | v0.2 / v0.3 planned features |
+| [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
 
-- **[`docs/getting-started/`](docs/getting-started/)**: Contains tutorials and initial setup guides, such as `build-instructions.md`.
-- **[`docs/compiler/`](docs/compiler/)**: Internals and decisions regarding the Haskell-to-Rust LLMLL compiler (`changelog` and `codegen-recommendations`).
-- **[`docs/spec-discussions/`](docs/spec-discussions/)**: Historical context, questions, and decisions regarding the language specification gaps.
-- **[`docs/project-management/`](docs/project-management/)**: Roadmaps, task tracking, and high-level project goals.
-- **[`docs/analysis/`](docs/analysis/)**: Deep-dives on specific language theories (like Unicode representations or SMT analysis), implementations, and reviews.
-- **[`docs/agent-planning/`](docs/agent-planning/)**: Artifacts related to AI Swarm planning, tasks, and walkthroughs.
+---
 
-The canonical language specification can be found in the root directory: **`LLMLL.md`**.
+## License
+
+GPLv3 with LLMLL Runtime Library Exception — see [`LICENSE`](LICENSE).
