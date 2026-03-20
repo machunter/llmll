@@ -503,13 +503,17 @@ pMatchCase = parens $ do
 --   ident             — variable binding
 pPattern :: Parser Pattern
 pPattern = choice
-  [ PWildcard <$ symbol "_"
+  [ try $ do     -- standalone _ wildcard (not followed by ident chars)
+      _ <- char '_'
+      notFollowedBy (alphaNumChar <|> char '-' <|> char '_')
+      sc
+      pure PWildcard
   , try $ parens $ do   -- (Ctor arg1 arg2 ...) constructor pattern
       name <- pIdent
       args <- many pPattern
       pure $ PConstructor name args
   , PLiteral <$> pLiteral
-  , PVar <$> pIdent
+  , PVar <$> pIdent     -- also matches _foo as a single named binder
   ]
 
 -- | Parse (pair a b)

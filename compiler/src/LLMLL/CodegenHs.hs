@@ -452,7 +452,12 @@ emitMatch scrut cs =
               PWildcard -> True
               PVar _    -> True   -- variable patterns are also exhaustive
               _         -> False
-    catchAll = if lastIsWild then " " else "; _ -> error \"non-exhaustive match\" "
+    -- Also suppress if Left+Right both appear (exhaustive Either match)
+    ctorNames = [c | (PConstructor c _, _) <- cs]
+    isEitherExhaustive = "Left" `elem` ctorNames && "Right" `elem` ctorNames
+    catchAll = if lastIsWild || isEitherExhaustive
+               then " "
+               else "; _ -> error \"non-exhaustive match\" "
 
 emitDo :: [DoStep] -> Text
 emitDo steps =
@@ -476,8 +481,15 @@ emitPat :: Pattern -> Text
 emitPat PWildcard             = "_"
 emitPat (PVar n)              = toHsIdent n
 emitPat (PLiteral lit)        = emitLit lit
-emitPat (PConstructor c [])   = toHsIdent c
-emitPat (PConstructor c subs) = "(" <> toHsIdent c <> " " <> T.unwords (map emitPat subs) <> ")"
+emitPat (PConstructor c [])   = rewriteCtor c
+emitPat (PConstructor c subs) = "(" <> rewriteCtor c <> " " <> T.unwords (map emitPat subs) <> ")"
+
+-- | Rewrite LLMLL constructor names to their Haskell codegen equivalents.
+-- Result[t,e] is emitted as Either e t, so Success -> Right, Error -> Left.
+rewriteCtor :: Name -> Text
+rewriteCtor "Success" = "Right"
+rewriteCtor "Error"   = "Left"
+rewriteCtor other     = toHsIdent other
 
 -- ---------------------------------------------------------------------------
 -- Literal emitter
