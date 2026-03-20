@@ -431,9 +431,18 @@ emitMatch :: Expr -> [(Pattern, Expr)] -> Text
 emitMatch scrut cs =
   "(case " <> emitExpr scrut <> " of { "
   <> T.intercalate "; " (map emitArm cs)
-  <> "; _ -> error \"non-exhaustive match\" })"
+  <> catchAll
+  <> "})"
   where
     emitArm (pat, body) = emitPat pat <> " -> " <> emitExpr body
+    -- Only add a catch-all if the last pattern is not already exhaustive
+    lastIsWild = case cs of
+      [] -> False
+      _  -> case fst (last cs) of
+              PWildcard -> True
+              PVar _    -> True   -- variable patterns are also exhaustive
+              _         -> False
+    catchAll = if lastIsWild then " " else "; _ -> error \"non-exhaustive match\" "
 
 emitDo :: [DoStep] -> Text
 emitDo steps =
@@ -513,7 +522,7 @@ emitMainHs modName stmts =
       [ "module Main where"
       , "import Lib"
       , "import System.Environment (getArgs)"
-      , "import System.IO (hSetBuffering, BufferMode(..), stdin, stdout)"
+      , "import System.IO (hSetBuffering, BufferMode(..), hIsEOF, stdin, stdout)"
       , ""
       ] ++ emitMainBody modName dm
 
@@ -527,9 +536,11 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
   , "  loop state0"
   , "  where"
   , "    loop s = do"
-  , "      line <- getLine"
-  , "      let (s', cmd) = " <> stepCall step <> " s line"
-  , "      cmd"
+  , "      eof <- hIsEOF stdin"
+  , "      if eof then return () else do"
+  , "        line <- getLine"
+  , "        let (s', cmd) = " <> stepCall step <> " s line"
+  , "        cmd"
   , doneCheck
   , onDoneBlock
   ]
@@ -541,8 +552,8 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
     stepCall (EVar n) = toHsIdent n
     stepCall e        = "(\\s l -> " <> emitExpr e <> " s l)"
     doneCheck = case mDone of
-      Nothing -> "      loop s'"
-      Just e  -> "      if " <> emitExpr e <> " s' then return () else loop s'"
+      Nothing -> "        loop s'"
+      Just e  -> "        if " <> emitExpr e <> " s' then return () else loop s'"
     onDoneBlock = case mOnDone of
       Nothing -> ""
       Just e  -> "  " <> emitExpr e <> " state0"
