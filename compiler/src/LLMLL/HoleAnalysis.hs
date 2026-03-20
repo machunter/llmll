@@ -108,6 +108,14 @@ collectHolesStmt _ctx (SCheck prop) =
 collectHolesStmt _ctx (SImport _)  = []
 collectHolesStmt ctx  (SExpr expr) = collectHolesExpr ctx expr
 
+collectHolesStmt _ctx (SDefMain _ mInit step _mRead mDone mOnDone) =
+  let ctx' = "def-main"
+      stepHoles = collectHolesExpr ctx' step
+      initHoles = maybe [] (collectHolesExpr (ctx' <> " [init]")) mInit
+      doneHoles = maybe [] (collectHolesExpr (ctx' <> " [done?]")) mDone
+      onDoneH   = maybe [] (collectHolesExpr (ctx' <> " [on-done]")) mOnDone
+  in stepHoles ++ initHoles ++ doneHoles ++ onDoneH
+
 -- ---------------------------------------------------------------------------
 -- Traversal — Expressions
 -- ---------------------------------------------------------------------------

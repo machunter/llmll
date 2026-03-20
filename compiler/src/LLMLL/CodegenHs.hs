@@ -523,18 +523,21 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
   , "main = do"
   , "  hSetBuffering stdin LineBuffering"
   , "  hSetBuffering stdout NoBuffering"
-  , initLine
-  , "  loop state"
+  , initBlock
+  , "  loop state0"
   , "  where"
   , "    loop s = do"
   , "      line <- getLine"
   , "      let (s', cmd) = " <> stepCall step <> " s line"
-  , "      putStr (show cmd)"
+  , "      cmd"
   , doneCheck
   , onDoneBlock
   ]
   where
-    initLine  = "  let state = " <> maybe "()" emitExpr mInit
+    -- init returns (state, IO ()) pair — destructure and execute the command
+    initBlock = case mInit of
+      Nothing -> "  let state0 = ()"
+      Just e  -> "  let (state0, initCmd) = " <> emitExpr e <> "\n  initCmd"
     stepCall (EVar n) = toHsIdent n
     stepCall e        = "(\\s l -> " <> emitExpr e <> " s l)"
     doneCheck = case mDone of
@@ -542,7 +545,7 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
       Just e  -> "      if " <> emitExpr e <> " s' then return () else loop s'"
     onDoneBlock = case mOnDone of
       Nothing -> ""
-      Just e  -> "    putStr (show (" <> emitExpr e <> " state))"
+      Just e  -> "  " <> emitExpr e <> " state0"
 
 emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step} =
   [ "main :: IO ()"
