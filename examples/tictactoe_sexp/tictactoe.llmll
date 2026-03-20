@@ -1,0 +1,188 @@
+;; Tic-Tac-Toe — LLMLL v0.1.2 S-expression version
+;; State = (board, (current-player, (game-over, winner)))
+;; board = list[string] — 9 cells, each " ", "X", or "O"
+
+(module tictactoe
+  (import wasi.io (capability stdout :deterministic false))
+  (import wasi.io (capability stdin  :deterministic true))
+
+  ;; ---------------------------------------------------------------
+  ;; Board construction
+  ;; ---------------------------------------------------------------
+
+  (def-logic init-board []
+    (let [[b0 (list-empty)]
+          [b1 (list-append b0 " ")]
+          [b2 (list-append b1 " ")]
+          [b3 (list-append b2 " ")]
+          [b4 (list-append b3 " ")]
+          [b5 (list-append b4 " ")]
+          [b6 (list-append b5 " ")]
+          [b7 (list-append b6 " ")]
+          [b8 (list-append b7 " ")]
+          [b9 (list-append b8 " ")]]
+      b9))
+
+  ;; ---------------------------------------------------------------
+  ;; State constructors and accessors
+  ;; ---------------------------------------------------------------
+
+  (def-logic make-state [board: list[string] player: string gameover: bool winner: string]
+    (pair board (pair player (pair gameover winner))))
+
+  ;; Note: params are untyped because the pair type is the full state,
+  ;; and pair-type in typed-param position is rejected in v0.1.1.
+  (def-logic state-board    [s] (first s))
+  (def-logic state-player   [s] (first (second s)))
+  (def-logic state-gameover [s] (first (second (second s))))
+  (def-logic state-winner   [s] (second (second (second s))))
+
+  ;; ---------------------------------------------------------------
+  ;; Board cell access
+  ;; ---------------------------------------------------------------
+
+  ;; cell-at: traverse the board via fold, return cell at index idx.
+  ;; Accumulator = (found-value, current-index)
+  (def-logic cell-at [board: list[string] idx: int]
+    (let [[result-pair
+           (list-fold board
+             (pair " " 0)
+             (fn [acc cell]
+               (let [[cur-val (first acc)]
+                     [cur-i   (second acc)]]
+                 (if (= cur-i idx)
+                     (pair cell   (+ cur-i 1))
+                     (pair cur-val (+ cur-i 1))))))]]
+      (first result-pair)))
+
+  ;; set-cell: return a new board with cell at idx replaced by val.
+  ;; Accumulator = (new-board, current-index)
+  (def-logic set-cell [board: list[string] idx: int val: string]
+    (let [[result-pair
+           (list-fold board
+             (pair (list-empty) 0)
+             (fn [acc cell]
+               (let [[new-board (first acc)]
+                     [cur-i     (second acc)]]
+                 (if (= cur-i idx)
+                     (pair (list-append new-board val)  (+ cur-i 1))
+                     (pair (list-append new-board cell) (+ cur-i 1))))))]]
+      (first result-pair)))
+
+  ;; ---------------------------------------------------------------
+  ;; Win detection
+  ;; ---------------------------------------------------------------
+
+  (def-logic three-match? [board: list[string] a: int b: int c: int p: string]
+    (and (= (cell-at board a) p)
+         (and (= (cell-at board b) p)
+              (= (cell-at board c) p))))
+
+  (def-logic player-wins? [board: list[string] p: string]
+    (or (three-match? board 0 1 2 p)
+    (or (three-match? board 3 4 5 p)
+    (or (three-match? board 6 7 8 p)
+    (or (three-match? board 0 3 6 p)
+    (or (three-match? board 1 4 7 p)
+    (or (three-match? board 2 5 8 p)
+    (or (three-match? board 0 4 8 p)
+        (three-match? board 2 4 6 p)))))))))
+
+  (def-logic board-full? [board: list[string]]
+    (not (list-contains board " ")))
+
+  ;; ---------------------------------------------------------------
+  ;; Helpers
+  ;; ---------------------------------------------------------------
+
+  (def-logic next-player [p: string]
+    (if (= p "X") "O" "X"))
+
+  ;; ---------------------------------------------------------------
+  ;; Rendering
+  ;; ---------------------------------------------------------------
+
+  (def-logic render-row [board: list[string] offset: int]
+    (let [[c0 (cell-at board offset)]
+          [c1 (cell-at board (+ offset 1))]
+          [c2 (cell-at board (+ offset 2))]]
+      (string-concat " "
+        (string-concat c0
+          (string-concat " | "
+            (string-concat c1
+              (string-concat " | " c2)))))))
+
+  (def-logic render-board [board: list[string]]
+    (let [[sep  "\n---+---+---\n"]
+          [row0 (render-row board 0)]
+          [row1 (render-row board 3)]
+          [row2 (render-row board 6)]]
+      (string-concat row0
+        (string-concat sep
+          (string-concat row1
+            (string-concat sep row2))))))
+
+  ;; ---------------------------------------------------------------
+  ;; Move logic
+  ;; ---------------------------------------------------------------
+
+  (def-logic make-move [state input: string]
+    (let [[board     (state-board  state)]
+          [player    (state-player state)]
+          [parse-res (string-to-int input)]]
+      (match parse-res
+        ((Left e)
+           (pair state (wasi.io.stdout "Invalid input — enter a number 0-8.\n")))
+        ((Right idx)
+           (if (or (< idx 0) (>= idx 9))
+               (pair state (wasi.io.stdout "Out of range — enter 0-8.\n"))
+               (let [[current-cell (cell-at board idx)]]
+                 (if (!= current-cell " ")
+                     (pair state (wasi.io.stdout "Cell already taken — choose another.\n"))
+                     (let [[new-board  (set-cell board idx player)]
+                           [won        (player-wins? new-board player)]
+                           [full       (board-full? new-board)]
+                           [is-draw    (and full (not won))]
+                           [over       (or won is-draw)]
+                           [win-str    (if won player (if is-draw "draw" ""))]
+                           [new-state  (make-state new-board (next-player player) over win-str)]
+                           [board-str  (render-board new-board)]
+                           [status-msg (if won
+                                          (string-concat "\nPlayer "
+                                            (string-concat player " wins!\n"))
+                                          (if is-draw
+                                              "\nIt's a draw!\n"
+                                              (string-concat "\nPlayer "
+                                                (string-concat (next-player player)
+                                                  "'s turn (enter 0-8): "))))]
+                           [output (string-concat "\n"
+                                     (string-concat board-str status-msg))]]
+                       (pair new-state (wasi.io.stdout output))))))))))
+
+  ;; ---------------------------------------------------------------
+  ;; Entry point wiring
+  ;; ---------------------------------------------------------------
+
+  (def-logic game-step [state input: string]
+    (if (state-gameover state)
+        (pair state (wasi.io.stdout "Game is over. Thanks for playing!\n"))
+        (make-move state input)))
+
+  (def-logic game-done? [state]
+    (state-gameover state))
+
+  (def-logic init-game []
+    (let [[board         (init-board)]
+          [initial-state (make-state board "X" false "")]
+          [board-str     (render-board board)]
+          [welcome       (string-concat
+                           "=== Tic-Tac-Toe ===\nPositions 0-8:\n 0 | 1 | 2\n---+---+---\n 3 | 4 | 5\n---+---+---\n 6 | 7 | 8\n\nCurrent board:\n"
+                           (string-concat board-str
+                             "\n\nPlayer X's turn (enter 0-8): "))]]
+      (pair initial-state (wasi.io.stdout welcome))))
+
+  (def-main
+    :mode  console
+    :init  (init-game)
+    :step  game-step
+    :done? game-done?))
