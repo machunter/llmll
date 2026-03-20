@@ -915,7 +915,7 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 1. **No return-type annotation.** There is no `: ReturnType` after `[params]` in `def-logic`. Return types are always inferred.
 2. **`check` requires exactly one `for-all`.** A bare boolean expression is not valid inside `check`.
 3. **List literals** (`[]`, `[a b c]`) are available from **v0.1.2**. In v0.1.1, use `(list-empty)` and `(list-append list elem)` to build lists.
-4. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The old double-bracket form `(let [[x 1] [y 2]] ...)` is a v0.1.1 syntax, replaced in v0.1.2.
+4. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The v0.1.1 double-bracket form `(let [[x 1] [y 2]] ...)` is also accepted and equivalent — both forms compile to identical AST nodes.
 5. **`match` must be exhaustive.** Use `_` as the final arm if not all cases are covered explicitly. A `match` without `_` that fails at runtime raises `MatchFailure`.
 6. **`result` is reserved** inside `post` clauses. Do not use it as a variable or parameter name anywhere.
 7. **Named parameters in `fn-type` are doc-only.** `(fn [raw: string] -> bytes[64])` and `(fn [string] -> bytes[64])` are type-equivalent.
@@ -1177,7 +1177,7 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 | **`Command` model** | `Command` is no longer an opaque type. In generated Haskell it becomes a **typed effect row** (`Eff '[HTTP, FS, ...]`) using the `effectful` library. A function's required capabilities are visible in its type signature. Missing capability declarations are **type errors**, not silently accepted |
 | **FFI tiers** | Two tiers: (1) Hackage — `(import haskell.* ...)` resolves to a native GHC import, no stub generated; (2) C — `(import c.* ...)` generates a `foreign import ccall` stub in `src/FFI/*.hs`. The legacy `rust.*` namespace and Rust FFI stdlib are retired |
 | **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM deferred to v0.4) |
-| `let` syntax | `(let [(x e1) (y e2)] body)` replaces the double-bracket form `(let [[x e1] [y e2]] body)` |
+| `let` syntax | `(let [(x e1) (y e2)] body)` — canonical v0.1.2 form; `(let [[x e1] [y e2]] body)` also accepted (v0.1.1 backward compat) |
 | List literals | `[]` and `[a b c]` list literals added; `(list-empty)` and `(list-append ...)` remain valid |
 
 > **Rationale — Haskell target:** LLMLL's concepts (pure functions, ADTs, algebraic effects, liquid types) map directly onto Haskell's native semantics. The Haskell target eliminates codegen semantic drift, makes v0.2 compile-time verification a LiquidHaskell integration task (weeks, not months), and shares the compiler's own type universe with generated programs. WASM-WASI remains the long-term deployment target (v0.4); Docker is the research-stage sandbox.

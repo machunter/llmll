@@ -445,10 +445,17 @@ pLetExpr = parens $ do
   pure $ ELet bindings body
 
 pLetBinding :: Parser (Name, Maybe Type, Expr)
-pLetBinding = brackets $ do
-  name <- pIdent
-  val <- pExpr
-  pure (name, Nothing, val)
+pLetBinding =
+  -- v0.1.2 canonical: (name expr)
+  (parens $ do
+    name <- pIdent
+    val  <- pExpr
+    pure (name, Nothing, val))
+  -- v0.1.1 legacy: [name expr]  (kept for backward compatibility)
+  <|> (brackets $ do
+    name <- pIdent
+    val  <- pExpr
+    pure (name, Nothing, val))
   -- Note: type annotations on let bindings could be added later
 
 -- | Parse (if cond then else)

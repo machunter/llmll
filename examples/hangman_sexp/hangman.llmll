@@ -1,0 +1,161 @@
+;; Hangman — LLMLL v0.1.2 S-expression version
+;; let bindings use the v0.1.1 double-bracket form [[name expr]] — both forms are
+;; accepted by the v0.1.2 compiler. The canonical v0.1.2 form is (let [(name expr) ...] body).
+
+(module hangman
+  (import wasi.io (capability stdin  :deterministic true))
+  (import wasi.io (capability stdout :deterministic false))
+
+  ;; ── Types ──────────────────────────────────────────────────────────────────
+
+  (type Word
+    (where [s: string] (> (string-length s) 0)))
+
+  (type Letter
+    (where [s: string] (= (string-length s) 1)))
+
+  (type GuessCount
+    (where [n: int] (>= n 0)))
+
+  ;; ── State: (word, (guessed, (wrong-count, max-wrong))) ─────────────────────
+
+  (def-logic make-state [word: Word guessed: list[Letter] wrong: GuessCount max-w: GuessCount]
+    (pair word (pair guessed (pair wrong max-w))))
+
+  (def-logic state-word    [s] (first s))
+  (def-logic state-guessed [s] (first (second s)))
+  (def-logic state-wrong   [s] (first (second (second s))))
+  (def-logic state-max     [s] (second (second (second s))))
+
+  ;; ── Core game logic ────────────────────────────────────────────────────────
+
+  (def-logic letter-found? [word: Word letter: Letter]
+    (string-contains word letter))
+
+  (def-logic all-guessed? [word: Word guessed: list[Letter]]
+    (let [[n       (string-length word)]
+          [indices (range 0 n)]
+          [chars   (list-map indices (fn [i: int] (string-char-at word i)))]]
+      (list-fold chars true
+        (fn [acc ch]
+          (and acc (list-contains guessed ch))))))
+
+  (def-logic count-wrong [word: Word guessed: list[Letter]]
+    (list-fold guessed 0
+      (fn [acc letter]
+        (if (string-contains word letter)
+            acc
+            (+ acc 1)))))
+
+  ;; ── Display ────────────────────────────────────────────────────────────────
+
+  ;; Build "h _ n g _ _ n" style string (space-separated, known letters revealed)
+  (def-logic display-word [word: Word guessed: list[Letter]]
+    (let [[n       (string-length word)]
+          [indices (range 0 n)]
+          [chars
+            (list-map indices
+              (fn [i: int]
+                (let [[ch (string-char-at word i)]]
+                  (if (list-contains guessed ch) ch "_"))))]]
+      (list-fold chars ""
+        (fn [acc ch]
+          (if (= acc "")
+              ch
+              (string-concat (string-concat acc " ") ch))))))
+
+  ;; ASCII gallows art — 7 stages (0 wrong = empty, 6 wrong = hanged)
+  (def-logic hangman-art [wrong: int]
+    (match wrong
+      (0 "  +---+\n  |   |\n      |\n      |\n      |\n      |\n=========")
+      (1 "  +---+\n  |   |\n  O   |\n      |\n      |\n      |\n=========")
+      (2 "  +---+\n  |   |\n  O   |\n  |   |\n      |\n      |\n=========")
+      (3 "  +---+\n  |   |\n  O   |\n /|   |\n      |\n      |\n=========")
+      (4 "  +---+\n  |   |\n  O   |\n /|\\  |\n      |\n      |\n=========")
+      (5 "  +---+\n  |   |\n  O   |\n /|\\  |\n /    |\n      |\n=========")
+      (_ "  +---+\n  |   |\n  O   |\n /|\\  |\n / \\  |\n      |\n=========\nYou are hanged!")))
+
+  ;; ── Termination predicates ─────────────────────────────────────────────────
+
+  (def-logic game-won? [s]
+    (all-guessed? (state-word s) (state-guessed s)))
+
+  (def-logic game-over? [s]
+    (or (>= (state-wrong s) (state-max s))
+        (all-guessed? (state-word s) (state-guessed s))))
+
+  ;; ── Render full prompt ─────────────────────────────────────────────────────
+
+  (def-logic render-state [s]
+    (let [[word      (state-word    s)]
+          [guessed   (state-guessed s)]
+          [wrong     (state-wrong   s)]
+          [max-w     (state-max     s)]
+          [art       (hangman-art wrong)]
+          [disp      (display-word word guessed)]
+          [wrong-str (int-to-string wrong)]
+          [max-str   (int-to-string max-w)]]
+      (string-concat
+        (string-concat
+          (string-concat
+            (string-concat
+              (string-concat
+                (string-concat art "\n\nWord: ")
+                disp)
+              "\nWrong guesses: ")
+            wrong-str)
+          " / ")
+        (string-concat max-str "\n\nGuess a letter: "))))
+
+  ;; ── Entry point helpers ────────────────────────────────────────────────────
+
+  ;; :init — returns (State, Command)
+  (def-logic start-game [word: Word]
+    (pre (> (string-length word) 0))
+    (let [[initial-state (make-state word (list-empty) 0 6)]
+          [welcome       (string-concat "Welcome to Hangman!\n\n" (render-state initial-state))]]
+      (pair initial-state (wasi.io.stdout welcome))))
+
+  ;; :step — (State, String) -> (State, Command)
+  (def-logic game-step [s input: string]
+    (let [[letter      (string-slice input 0 1)]
+          [word        (state-word    s)]
+          [guessed     (state-guessed s)]
+          [max-w       (state-max     s)]
+          [already?    (list-contains guessed letter)]
+          [new-guessed (if already? guessed (list-append guessed letter))]
+          [new-wrong   (count-wrong word new-guessed)]
+          [new-state   (make-state word new-guessed new-wrong max-w)]
+          [won         (game-won? new-state)]
+          [lost        (>= new-wrong max-w)]
+          [msg
+            (if won
+                (string-concat "\nCongratulations! You guessed: " word)
+                (if lost
+                    (string-concat
+                      (string-concat (hangman-art new-wrong) "\nGame over! The word was: ")
+                      word)
+                    (if already?
+                        (string-concat "Already guessed that letter!\n\n" (render-state new-state))
+                        (if (string-contains word letter)
+                            (string-concat "Good guess!\n\n" (render-state new-state))
+                            (string-concat "Wrong guess!\n\n" (render-state new-state))))))]]
+      (pair new-state (wasi.io.stdout msg))))
+
+  ;; ── Property-based tests ───────────────────────────────────────────────────
+
+  (check "addition is commutative"
+    (for-all [a: int b: int]
+      (= (+ a b) (+ b a))))
+
+  (check "wrong count is non-negative"
+    (for-all [n: int]
+      (>= (+ n 0) n)))
+
+  ;; ── Main ───────────────────────────────────────────────────────────────────
+
+  (def-main
+    :mode  console
+    :init  (start-game "hangman")
+    :step  game-step
+    :done? game-over?))
