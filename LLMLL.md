@@ -536,6 +536,58 @@ The LLMLL host runtime processes each `Command` as follows:
 3. **Execute** the physical IO via the OS.
 4. **Feed** the result (`Success` or `Error`) back as the next `Input` to the logic.
 
+### 9.5 Entry Point Declaration (`def-main`)
+
+`def-main` declares the program's runtime harness — how the compiled executable starts, reads input, and terminates. Without a `def-main`, the compiler generates a **library only** (no `Main.hs`).
+
+#### Syntax
+
+```lisp
+(def-main
+  :mode    (console | cli | http PORT)   ;; required — selects the harness template
+  :init    init-expr                      ;; returns (State, Command) pair
+  :step    step-fn                        ;; (State, String) -> (State, Command)
+  :done?   done-pred                      ;; State -> Bool (optional; console only)
+  :on-done on-done-fn)                    ;; State -> Command (optional)
+```
+
+#### Modes
+
+| Mode | Harness behaviour |
+|------|-------------------|
+| `console` | Interactive loop: `:init` creates state + welcome message, then loops on stdin calling `:step` until `:done?` returns `true`. |
+| `cli` | Single-shot: reads OS args, calls `:step` once, prints result. |
+| `http PORT` | HTTP server on `PORT`: `:init` creates initial state, each request calls `:step`. |
+
+#### Key semantics
+
+- `:init` must return a `(State, Command)` pair. The `Command` is executed (e.g., print welcome message), and the `State` is passed to the first `:step` call.
+- `:step` receives the current state and one line of input (for `console`) or the OS args (for `cli`). It must return a `(NewState, Command)` pair.
+- `:done?` (optional, console only) receives the new state after each step. If it returns `true`, the loop exits.
+- The `Command` returned by `:step` is executed directly as an IO action (it is **not** printed or shown).
+
+#### Complete example
+
+```lisp
+(def-main
+  :mode console
+  :init (start-game "hangman")
+  :step game-loop
+  :done? is-game-over?)
+```
+
+In JSON-AST:
+
+```json
+{
+  "kind": "def-main",
+  "mode": "console",
+  "init": { "kind": "app", "fn": "start-game", "args": [{"kind": "lit-string", "value": "hangman"}] },
+  "step": { "kind": "var", "name": "game-loop" },
+  "done?": { "kind": "var", "name": "is-game-over?" }
+}
+```
+
 ---
 
 ## 10. Compilation & Execution Pipeline
@@ -716,7 +768,7 @@ The grammar is given in EBNF. `{ x }` means zero or more `x`. `[ x ]` means opti
 (* ============================================================ *)
 program     = { statement } ;
 statement   = type-decl | gen-decl | def-logic | def-interface
-            | def-invariant | module-decl | import | check | expr ;
+            | def-invariant | def-main | module-decl | import | check | expr ;
 
 (* ============================================================ *)
 (* Module                                                        *)
@@ -785,6 +837,18 @@ iface-fn      = "[" IDENT fn-type "]" ;
 (* Invariants                                                    *)
 (* ============================================================ *)
 def-invariant = "(" "def-invariant" IDENT "[" typed-param "]" expr ")" ;
+
+(* ============================================================ *)
+(* Entry point                                                    *)
+(* ============================================================ *)
+def-main    = "(" "def-main"
+                ":mode" ( "console" | "cli" | "(" "http" INT ")" )
+                [ ":init"    expr ]
+                ":step"     expr
+                [ ":read"    expr ]
+                [ ":done?"   expr ]
+                [ ":on-done" expr ]
+              ")" ;
 
 (* ============================================================ *)
 (* Property-based tests & generators                            *)

@@ -28,7 +28,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe)
-import Control.Monad (forM_, forM, when, unless)
+import Control.Monad (forM_, forM, foldM, when, unless)
 import Control.Monad.State.Strict
 
 import LLMLL.Syntax
@@ -142,6 +142,10 @@ tcWarn msg = modify $ \s -> s
 -- | Look up a name in the environment.
 tcLookup :: Name -> TC (Maybe Type)
 tcLookup name = gets (Map.lookup name . tcEnv)
+
+-- | Insert a binding into the current environment (persistent within this monad run).
+tcInsert :: Name -> Type -> TC ()
+tcInsert name ty = modify $ \s -> s { tcEnv = Map.insert name ty (tcEnv s) }
 
 -- | Run a computation in an extended environment.
 withEnv :: [(Name, Type)] -> TC a -> TC a
@@ -293,8 +297,8 @@ inferExpr (EVar name) = do
       pure (TVar name)  -- Return type variable for unbound — not a hard error
 
 inferExpr (ELet bindings body) = do
-  -- Process bindings sequentially, each can refer to previous
-  resolvedBindings <- forM bindings $ \(n, mAnnot, expr) -> do
+  -- Process bindings sequentially: each binding extends the scope for the next
+  resolvedBindings <- foldM (\acc (n, mAnnot, expr) -> do
     inferredTy <- inferExpr expr
     let ty = case mAnnot of
               Nothing -> inferredTy
@@ -302,7 +306,10 @@ inferExpr (ELet bindings body) = do
     case mAnnot of
       Nothing -> pure ()
       Just annotTy -> unify n annotTy inferredTy
-    pure (n, ty)
+    -- Extend scope for subsequent bindings
+    tcInsert n ty
+    pure (acc ++ [(n, ty)])
+    ) [] bindings
   withEnv resolvedBindings (inferExpr body)
 
 inferExpr (EIf cond thenE elseE) = do
