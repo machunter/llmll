@@ -43,7 +43,8 @@
         { "$ref": "#/$defs/GenDecl" },
         { "$ref": "#/$defs/CheckDecl" },
         { "$ref": "#/$defs/ImportDecl" },
-        { "$ref": "#/$defs/ModuleDecl" }
+        { "$ref": "#/$defs/ModuleDecl" },
+        { "$ref": "#/$defs/DefMain" }
       ]
     },
 
@@ -796,6 +797,51 @@
           }
         }
       ]
+    },
+
+    "DefMain": {
+      "description": "Declares the program entry point and runtime harness. Corresponds to EBNF 'def-main' (§9.5 LLMLL.md). Without a def-main the compiler generates a library only. At most one def-main per program.",
+      "type": "object",
+      "required": ["kind", "mode", "step"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "def-main" },
+        "mode": {
+          "description": "Selects the generated harness template.",
+          "oneOf": [
+            { "type": "string", "enum": ["console", "cli"] },
+            {
+              "type": "object",
+              "required": ["kind", "port"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": "string", "const": "http" },
+                "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+              }
+            }
+          ]
+        },
+        "init": {
+          "description": "Expression returning (State, Command) pair. Executed once at startup. Optional — if absent the initial state is ().",
+          "$ref": "#/$defs/Expr"
+        },
+        "step": {
+          "description": "Function or expression of type (State, String) -> (State, Command). Called on each input line (console) or OS args (cli).",
+          "$ref": "#/$defs/Expr"
+        },
+        "read": {
+          "description": "Custom input reader expression (optional, console only).",
+          "$ref": "#/$defs/Expr"
+        },
+        "done?": {
+          "description": "Predicate of type State -> Bool. When true the console loop exits (optional).",
+          "$ref": "#/$defs/Expr"
+        },
+        "on-done": {
+          "description": "Function of type State -> Command called once when done? returns true (optional).",
+          "$ref": "#/$defs/Expr"
+        }
+      }
     }
 
   },

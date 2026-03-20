@@ -313,13 +313,23 @@ emitTypeDef name (TDependent base _) =
 emitTypeDef name body =
   "type " <> toHsIdent name <> " = " <> toHsType body <> "\n"
 
+-- | Map LLMLL primitive type name to the correct Haskell type.
+-- Used in constructor payload position where TCustom would otherwise emit the name verbatim.
+mapLlmllPrimType :: Text -> Text
+mapLlmllPrimType "unit"   = "()"
+mapLlmllPrimType "string" = "String"
+mapLlmllPrimType "int"    = "Int"
+mapLlmllPrimType "bool"   = "Bool"
+mapLlmllPrimType "float"  = "Double"
+mapLlmllPrimType other    = toHsIdent other  -- user-defined types: pascal-case
+
 -- | Emit one data constructor from "CtorName" or "CtorName:PayloadType".
 emitCtorDecl :: Text -> Text
 emitCtorDecl t =
   case T.splitOn ":" t of
     [ctor]          -> toHsIdent ctor
-    [ctor, payload] -> toHsIdent ctor <> " " <> payload
-    (ctor:rest)     -> toHsIdent ctor <> " " <> T.intercalate ":" rest
+    [ctor, payload] -> toHsIdent ctor <> " " <> mapLlmllPrimType (T.strip payload)
+    (ctor:rest)     -> toHsIdent ctor <> " " <> mapLlmllPrimType (T.strip (T.intercalate ":" rest))
     []              -> "_Unknown"
 
 -- | Emit a single data constructor (legacy helper; kept for completeness).
