@@ -117,8 +117,13 @@ runProperty prop = do
       -- Try QuickCheck on integer-only properties
       case tryQuickCheck bindings body of
         Just qcResult -> qcResult >>= \r -> pure $ PBTRun desc (qcStatus r) (qcSamples r) (qcCounterex r)
-        Nothing       -> pure $ PBTRun desc PBTSkipped 0
-            (Just "Property uses non-constant expressions — requires full runtime evaluation")
+        Nothing       ->
+          let reason
+                | bodyMentionsCommand body =
+                    "Property body produces a Command value — Command expressions require full runtime evaluation (not statically evaluable)"
+                | otherwise =
+                    "Property contains non-constant expressions — requires full runtime evaluation"
+          in pure $ PBTRun desc PBTSkipped 0 (Just reason)
 
 -- | Evaluate a property body in a given binding environment.
 -- Returns Just True/False for concrete results, Nothing for non-evaluable.
@@ -161,6 +166,30 @@ generateValue _            = LitInt <$> generate (arbitrary :: Gen Integer)
 
 getNonNeg :: NonNegative Integer -> Integer
 getNonNeg (NonNegative n) = n
+
+-- | Heuristic: does the expression contain a call to a function that is
+-- known to return Command (wasi.* imports, or any function whose name
+-- starts with a typical LLMLL command prefix)?
+-- Used to produce a better PBTSkipped diagnostic.
+bodyMentionsCommand :: Expr -> Bool
+bodyMentionsCommand expr = go expr
+  where
+    go (EApp fn args)         = isCommandFn fn || any go args
+    go (ELet bindings body)   = any (\(_, _, e) -> go e) bindings || go body
+    go (EIf _ t e)            = go t || go e
+    go (EMatch e cases)       = go e || any (go . snd) cases
+    go (EPair a b)            = go a || go b
+    go (EDo steps)            = any goStep steps
+    go (ELambda _ body)       = go body
+    go _                      = False
+
+    goStep (DoBind _ e) = go e
+    goStep (DoExpr e)   = go e
+
+    -- Names known or likely to produce a Command value
+    isCommandFn n = any (`T.isPrefixOf` n)
+      ["wasi.", "console.", "http.", "fs.", "start-game", "game-loop",
+       "step", "done", "command"]
 
 -- ---------------------------------------------------------------------------
 -- QuickCheck Integration (for integer-only properties)

@@ -64,9 +64,12 @@ builtinEnv = Map.fromList $
   , ("or",  TFn [TBool, TBool] TBool)
   , ("not", TFn [TBool] TBool)
   -- §13.4 Pair / record
+  -- first/second accept TVar "p" (any pair-like value) because the type checker
+  -- has no dedicated pair type — EPair produces TResult but explicitly-annotated
+  -- parameters may carry a different static type.  TVar input unifies with anything.
   , ("pair",   TFn [TVar "a", TVar "b"] (TResult (TVar "a") (TVar "b")))
-  , ("first",  TFn [TResult (TVar "a") (TVar "b")] (TVar "a"))
-  , ("second", TFn [TResult (TVar "a") (TVar "b")] (TVar "b"))
+  , ("first",  TFn [TVar "p"] (TVar "a"))
+  , ("second", TFn [TVar "p"] (TVar "b"))
   -- §13.5 List operations
   , ("list-empty",    TFn [] (TList (TVar "a")))
   , ("list-append",   TFn [TList (TVar "a"), TVar "a"] (TList (TVar "a")))

@@ -928,8 +928,8 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | Function | Signature | Notes |
 |----------|-----------|-------|
 | `pair` | `a b -> (a, b)` | Construct a 2-tuple |
-| `first` | `(a, b) -> a` | First projection |
-| `second` | `(a, b) -> b` | Second projection |
+| `first` | `(a, b) -> a` | First projection — accepts any pair, including explicitly-annotated parameters |
+| `second` | `(a, b) -> b` | Second projection — accepts any pair, including explicitly-annotated parameters |
 
 > **Pattern for records:** LLMLL v0.1.1 has no native record syntax. Use nested `pair` values and named accessor functions. A 4-field record uses 3 levels of nesting:
 > ```lisp
