@@ -110,23 +110,44 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > **`Command` from v0.1.2:** In generated Haskell, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library). A function's required capabilities are visible in its type signature. Missing capability declarations become type errors rather than silent runtime failures. The LLMLL surface syntax is unchanged — the effect row is a codegen detail, not a language syntax change.
 
 > [!IMPORTANT]
-> **v0.1.1 Limitation — `pair-type` not accepted in `typed-param` position.**
-> The grammar rule `typed-param = IDENT ":" type` accepts any `type`, which syntactically includes `pair-type = "(" type "," type ")"`. However, the v0.1.1 parser **rejects pair types in typed-param position** and will emit a parse error. This applies everywhere `typed-param` is used:
+> **v0.1.x Limitation — `pair-type` not accepted in `typed-param` position**
+> **Status: Partially resolved — see details below.**
+>
+> The grammar rule `typed-param = IDENT ":" type` syntactically allows `pair-type = "(" type "," type ")"`.
+> **However two separate issues affect pair types — they have different fix statuses:**
+>
+> ---
+>
+> **Issue A — Declaring a pair-type parameter** *(still restricted in v0.1.x, Fixed in v0.2)*
+>
+> Writing `[acc: (int, string)]` in a `def-logic`, lambda, or `for-all` is **rejected by the parser** with a parse error.
+> This applies everywhere `typed-param` is used:
 > - `def-logic` parameter lists (`[s: (a, b)]` → use bare `[s]`)
 > - Lambda parameters inside `list-fold`, `list-map`, etc. (`(fn [acc: (int, string)] ...)` → use `(fn [acc] ...)`)
 > - `for-all` bindings in `check` blocks
 >
-> **Workaround (v0.1.1 only):** Use an untyped parameter and document the expected pair type in a comment. The compiler assigns `TCustom "_"` and performs no type checking on that parameter in v0.1.1.
+> **Workaround (v0.1.x):** Use an untyped parameter with a comment:
 > ```lisp
-> ;; WRONG — parse error in v0.1.1:
-> (def-logic cell-at [board: list[string] idx: int])
->   ;; OK ↑, but lambda inside:
->   (list-fold board init (fn [acc: (list[string], int) cell] ...))  ;; PARSE ERROR
->
-> ;; CORRECT in v0.1.1 — use untyped lambda params:
+> ;; OK in v0.1.x — use untyped lambda params:
 > (list-fold board init (fn [acc cell] ...))
 > ```
-> **Fixed in v0.2:** `pair-type` is accepted in `typed-param` position as an explicit type system fix (see `§14 v0.2` and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md)). The workaround above is only required in v0.1.1.
+> **Fixed in v0.2** as an explicit type system deliverable (see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) §Phase 2c).
+>
+> ---
+>
+> **Issue B — Passing an explicitly-typed variable to `first` / `second`** *(Fixed in v0.1.3.1, commit `ef6f41c`)*
+>
+> In v0.1.1–v0.1.3, a state accessor parameter with an explicit type annotation (e.g. `[s: string]`) would be rejected
+> by the type checker when passed to `first` or `second` with `expected Result[a,b], got string`.
+>
+> **This is no longer an issue.** Since v0.1.3.1 `first` / `second` accept any pair-like value regardless of
+> how the parameter was annotated. **Remove any `"untyped": true` workarounds** from state accessor functions:
+> ```lisp
+> ;; v0.1.3.1+ — explicit type annotation is fine:
+> (def-logic state-word  [s: string] (first s))
+> (def-logic state-score [s: string] (first (second s)))
+> ```
+
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
 
@@ -879,7 +900,9 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 7. **Named parameters in `fn-type` are doc-only.** `(fn [raw: string] -> bytes[64])` and `(fn [string] -> bytes[64])` are type-equivalent.
 
 > [!IMPORTANT]
-> **v0.1.1 Limitation — `pair-type` in `typed-param` is rejected.** The grammar rule `typed-param = IDENT ":" type` allows any `type`, which syntactically includes `pair-type`. The v0.1.1 parser will reject a pair type in that position with a parse error. Use an untyped parameter (`[acc]`) wherever the type is a pair or tuple. This applies to `def-logic` params, `fn` lambda params, and `for-all` bindings. **Fixed in v0.2** as an explicit type system deliverable.
+> **v0.1.x — Two distinct pair-type issues (see §3.2 for full detail):**
+> - **Issue A:** Declaring `[acc: (int, string)]` in any `typed-param` position is a **parse error**. Use untyped `[acc]` instead. **Fixed in v0.2.**
+> - **Issue B:** Passing an explicitly-typed variable to `first`/`second` (e.g. `[s: string]` then `(first s)`) was a type-checker error. **Fixed in v0.1.3.1** — `"untyped": true` workarounds on state accessor params are no longer needed.
 
 ---
 

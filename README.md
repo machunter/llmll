@@ -151,6 +151,7 @@ docs/
 | [`docs/json-ast-versioning.md`](docs/json-ast-versioning.md) | JSON-AST schema versioning and AI agent guidance |
 | [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | v0.2 / v0.3 planned features |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
+| [`docs/known-good-patterns.md`](docs/known-good-patterns.md) | v0.1.3.1 patterns for AI agents — what works today vs old workarounds |
 
 ---
 
