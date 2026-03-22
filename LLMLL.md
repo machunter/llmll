@@ -956,6 +956,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `list-map` | `list[a] (fn [a] -> b) -> list[b]` | Transform each element |
 | `list-filter` | `list[a] (fn [a] -> bool) -> list[a]` | Keep elements satisfying predicate |
 | `list-fold` | `list[a] b (fn [b a] -> b) -> b` | Left fold (accumulate from left) |
+| `list-nth` | `list[a] int -> Result[a, string]` | Element at index; `Error` on out-of-range |
 | `range` | `int int -> list[int]` | `(range from to)` produces `[from, from+1, ..., to-1]`. If `from >= to`, returns empty list. |
 
 > **`range` example:**
@@ -987,6 +988,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `string-slice` | `string int int -> string` | `[start, end)` half-open slice |
 | `string-char-at` | `string int -> string` | Single character at index (as 1-char string) |
 | `string-split` | `string string -> list[string]` | Split on delimiter |
+| `string-trim` | `string -> string` | Strip leading/trailing whitespace and newlines (`Space`, `\t`, `\n`, `\r`) |
 | `regex-match` | `string string -> bool` | Regex predicate (POSIX ERE) |
 
 ### 13.7 Numeric Utilities

@@ -78,6 +78,7 @@ builtinEnv = Map.fromList $
   , ("list-map",      TFn [TList (TVar "a"), TFn [TVar "a"] (TVar "b")] (TList (TVar "b")))
   , ("list-filter",   TFn [TList (TVar "a"), TFn [TVar "a"] TBool] (TList (TVar "a")))
   , ("list-fold",     TFn [TList (TVar "a"), TVar "b", TFn [TVar "b", TVar "a"] (TVar "b")] (TVar "b"))
+  , ("list-nth",      TFn [TList (TVar "a"), TInt] (TResult (TVar "a") TString))
   , ("range",         TFn [TInt, TInt] (TList TInt))
   -- §13.6 String operations
   , ("string-length",   TFn [TString] TInt)
@@ -86,6 +87,7 @@ builtinEnv = Map.fromList $
   , ("string-slice",    TFn [TString, TInt, TInt] TString)
   , ("string-char-at",  TFn [TString, TInt] TString)
   , ("string-split",    TFn [TString, TString] (TList TString))
+  , ("string-trim",     TFn [TString] TString)
   , ("regex-match",     TFn [TString, TString] TBool)
   -- §13.7 Numeric utilities
   , ("int-to-string",  TFn [TInt] TString)
