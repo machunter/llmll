@@ -219,9 +219,9 @@ pTypeBody = choice
 pWhereType :: Parser Type
 pWhereType = parens $ do
   _ <- symbol "where"
-  (_, baseTy) <- brackets pTypedParam
+  (bindName, baseTy) <- brackets pTypedParam
   constraint <- pExpr
-  pure $ TDependent baseTy constraint
+  pure $ TDependent bindName baseTy constraint
 
 -- | Parse one ADT arm: (| ConstructorName [PayloadType])
 --   e.g.  (| StartGame Word)   or   (| Guess Letter)

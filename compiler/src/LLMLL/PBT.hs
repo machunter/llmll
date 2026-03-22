@@ -156,7 +156,7 @@ generateValue TString      = LitString . T.pack <$> generate (arbitrary :: Gen S
 generateValue TBool        = LitBool <$> generate (arbitrary :: Gen Bool)
 generateValue TUnit        = pure LitUnit
 generateValue (TBytes _)   = LitString . T.pack <$> generate (arbitrary :: Gen String)
-generateValue (TDependent base _) = generateValue base  -- ignore constraint for generation
+generateValue (TDependent _ base _) = generateValue base  -- ignore constraint for generation
 generateValue _            = LitInt <$> generate (arbitrary :: Gen Integer)
 
 getNonNeg :: NonNegative Integer -> Integer
@@ -175,7 +175,7 @@ tryQuickCheck bindings body
   where
     isSimpleType TInt  = True
     isSimpleType TBool = True
-    isSimpleType (TDependent TInt _) = True
+    isSimpleType (TDependent _ TInt _) = True
     isSimpleType _     = False
 
 data QCRun = QCRun

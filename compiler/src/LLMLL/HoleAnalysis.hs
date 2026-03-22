@@ -166,7 +166,7 @@ collectHolesDoStep ctx (DoExpr e)   = collectHolesExpr ctx e
 -- ---------------------------------------------------------------------------
 
 collectHolesType :: Text -> Type -> [HoleEntry]
-collectHolesType ctx (TDependent _ constraintExpr) =
+collectHolesType ctx (TDependent _ _ constraintExpr) =
   collectHolesExpr (ctx <> " [constraint]") constraintExpr
 collectHolesType ctx (TList inner) =
   collectHolesType ctx inner

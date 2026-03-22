@@ -171,3 +171,20 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err   -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
+
+  describe "TypeCheck (where binding scope)" $ do
+    it "string where-type binding name preserved in AST" $ do
+      let src = "(type Word (where [s: string] (> (string-length s) 0)))"
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right [STypeDef _name (TDependent bName _base _constraint)] ->
+          bName `shouldBe` "s"
+        Right other -> expectationFailure $ "Unexpected: " ++ show (length other) ++ " stmts"
+
+    it "int where-type binding name preserved in AST" $ do
+      let src = "(type NonNeg (where [n: int] (>= n 0)))"
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right [STypeDef _name (TDependent bName _base _constraint)] ->
+          bName `shouldBe` "n"
+        Right other -> expectationFailure $ "Unexpected: " ++ show (length other) ++ " stmts"

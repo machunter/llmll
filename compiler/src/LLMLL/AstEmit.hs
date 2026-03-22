@@ -141,19 +141,12 @@ typeToJson (TFn args ret)    = object
   , "params"      .= map (\t -> object ["name" .= ("" :: Text), "param_type" .= typeToJson t]) args
   , "return_type" .= typeToJson ret
   ]
-typeToJson (TDependent base constraint) = object
+typeToJson (TDependent bindName base constraint) = object
   [ "kind"      .= ("where" :: Text)
-  , "binding"   .= extractBinding constraint
+  , "binding"   .= bindName
   , "base_type" .= typeToJson base
-  , "predicate" .= exprToJson (extractPredicate constraint)
+  , "predicate" .= exprToJson constraint
   ]
-  where
-    -- The ParserJSON wraps the constraint in ELet[(x,_,EVar x)] pred
-    -- so we unwrap it here.
-    extractBinding (ELet [(n, _, _)] _) = n
-    extractBinding _                    = "_"
-    extractPredicate (ELet [_] body)    = body
-    extractPredicate e                  = e
 typeToJson TDelegationError  = object ["kind" .= ("named" :: Text), "name" .= ("DelegationError" :: Text)]
 typeToJson (TVar n)          = object ["kind" .= ("named" :: Text), "name" .= n]
 typeToJson (TCustom "Command") = object ["kind" .= ("command" :: Text)]

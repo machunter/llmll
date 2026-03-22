@@ -138,7 +138,7 @@ parseTypeBody = withObject "TypeBody" $ \o -> do
       binding   <- o .: "binding" :: Parser Name
       baseType  <- o .: "base_type" >>= parseType
       predicate <- o .: "predicate" >>= parseExpr
-      pure $ TDependent baseType (ELet [(binding, Nothing, EVar binding)] predicate)
+      pure $ TDependent binding baseType predicate
     "sum" -> do
       variants <- o .: "variants" >>= mapM parseVariant
       -- Encode variant payloads as "CtorName:TypeName | CtorName2" for emitTypeDef.
@@ -254,7 +254,7 @@ parseType = withObject "Type" $ \o -> do
       binding   <- o .: "binding" :: Parser Name
       baseType  <- o .: "base_type" >>= parseType
       predicate <- o .: "predicate" >>= parseExpr
-      pure $ TDependent baseType (ELet [(binding, Nothing, EVar binding)] predicate)
+      pure $ TDependent binding baseType predicate
     "pair-type" -> do
       fst_ <- o .: "fst" >>= parseType
       snd_ <- o .: "snd" >>= parseType

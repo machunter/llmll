@@ -307,7 +307,7 @@ emitTypeDef name (TCustom body)
          <> "\n  deriving (Eq, Show)\n"
   -- Plain type alias
   | otherwise = "type " <> toHsIdent name <> " = " <> toHsType (TCustom body) <> "\n"
-emitTypeDef name (TDependent base _) =
+emitTypeDef name (TDependent _ base _) =
   -- Emit as type alias so QuickCheck can generate values via the base Arbitrary instance.
   "type " <> toHsIdent name <> " = " <> toHsType base <> "\n"
 emitTypeDef name body =
@@ -525,7 +525,7 @@ toHsType (TResult t e)     = "(Either " <> toHsType e <> " " <> toHsType t <> ")
 toHsType (TPromise t)      = "(IO " <> toHsType t <> ")"
 toHsType (TFn args ret)    =
   T.intercalate " -> " (map toHsType args ++ [toHsType ret])
-toHsType (TDependent b _)  = toHsType b
+toHsType (TDependent _ b _)  = toHsType b
 toHsType TDelegationError  = "String"
 toHsType (TVar n)          = T.toLower n
 toHsType (TCustom "Command") = "IO ()"

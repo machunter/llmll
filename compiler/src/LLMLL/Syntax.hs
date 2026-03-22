@@ -98,7 +98,7 @@ data Type
   | TResult Type Type             -- ^ Sum type: Success(t) | Error(e)
   | TFn [Type] Type               -- ^ Function type: [arg types] -> return type
   | TPromise Type                 -- ^ Async result wrapper
-  | TDependent Type Expr          -- ^ Dependent type: base type + constraint expr
+  | TDependent Name Type Expr     -- ^ Dependent type: binding name + base type + constraint expr
   | TDelegationError              -- ^ Built-in DelegationError sum type
   | TVar Name                     -- ^ Type variable (for generics / interfaces)
   | TCustom Name                  -- ^ User-defined type name
@@ -117,7 +117,7 @@ typeLabel (TMap k v)      = "map[" <> typeLabel k <> "," <> typeLabel v <> "]"
 typeLabel (TResult t e)   = "Result[" <> typeLabel t <> "," <> typeLabel e <> "]"
 typeLabel (TFn args ret)  = "fn[" <> tshow (length args) <> " args] -> " <> typeLabel ret
 typeLabel (TPromise t)    = "Promise[" <> typeLabel t <> "]"
-typeLabel (TDependent b _)= typeLabel b <> " (constrained)"
+typeLabel (TDependent _ b _)= typeLabel b <> " (constrained)"
 typeLabel TDelegationError = "DelegationError"
 typeLabel (TVar n)        = n
 typeLabel (TCustom n)     = n

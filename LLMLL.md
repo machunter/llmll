@@ -181,25 +181,16 @@ In v0.1.1, dependent type constraints are **checked at runtime** (the predicate 
 > [!IMPORTANT]
 > **v0.1.x Compiler Limitation — Type Aliases Are Nominal, Not Structural**
 >
-> The v0.1.x type checker registers named type aliases (`type-decl` nodes) as **opaque nominal types** — it stores `TCustom "GuessCount"` in the environment, not the expanded `TDependent TInt (>= n 0)`. This means the checker cannot see that `GuessCount` is *compatible with* `int` at call sites.
+> The v0.1.x type checker registers named type aliases (`type-decl` nodes) as **opaque nominal types** — it stores `TCustom "GuessCount"` in the environment, not the expanded `TDependent "n" TInt (>= n 0)`. This means the checker cannot see that `GuessCount` is *compatible with* `int` at call sites.
 >
 > **Symptom.** If you pass an integer literal where a dependent type alias is expected, you will see a spurious type error:
 > ```
 > error: type mismatch in 'make-state': expected GuessCount, got int
 > ```
-> This fires even when the literal (e.g. `0` or `6`) trivially satisfies the `where` predicate. The same error appears for all programs that mix type aliases with integer literals — including the canonical `hangman_complete.llmll` example.
+> This fires even when the literal (e.g. `0` or `6`) trivially satisfies the `where` predicate.
 >
-> **Workaround A (preferred): annotate `let` bindings with the alias type.**
-> The type checker respects explicit annotations and will bind the variable with the expected type, suppressing false mismatches downstream:
+> **Workaround (preferred): use wrapper helper functions for literal values.**
 > ```lisp
-> (def-logic make-state [w: Word g: list[Letter] wc: GuessCount mx: GuessCount]
->   (pair w (pair g (pair wc mx))))
->
-> ;; Call site — wrap literals in let with explicit annotation
-> (let [(state (make-state word (list-empty) 0 6))]  ;; ← 0, 6 flagged by checker
->   state)
->
-> ;; Better: use a helper that documents the intended type
 > (def-logic zero-count [] :returns GuessCount  0)
 > (def-logic max-count  [] :returns GuessCount  6)
 > (let [(state (make-state word (list-empty) (zero-count) (max-count)))]
@@ -207,18 +198,9 @@ In v0.1.1, dependent type constraints are **checked at runtime** (the predicate 
 > ```
 >
 > **Workaround B: accept the warning and run.**
-> Type-checker warnings do **not** block code generation. `llmll build` and `llmll build-json` proceed even when the type checker emits errors (they are surfaced as diagnostics, not fatal). The generated Rust code is correct — the runtime will enforce the dependent type predicate.
+> Type-checker errors do **not** block code generation. `llmll build` proceeds even when the type checker emits these diagnostics — the generated Haskell is correct and the runtime enforces the predicate.
 >
-> **For compiler developers — how to fix this (target: v0.1.3).**
-> The root cause is in `TypeCheck.hs`, function `collectTopLevel`:
-> ```haskell
-> -- Current (broken): stores opaque alias
-> collectTopLevel (STypeDef name body) = Just (name, TCustom name)
->
-> -- Fix: store the structural body so unification can expand it
-> collectTopLevel (STypeDef name body) = Just (name, body)
-> ```
-> After this change, call-site unification (`compatibleWith`) will reach the existing `compatibleWith (TDependent a _) b = compatibleWith a b` rule, which correctly strips the constraint and compares base types. You will also need a **type alias substitution pass**: before type-checking each `SDefLogic`, walk all parameter and return type annotations and replace `TCustom n` with the registered structural type when `n` is a known `STypeDef` name. This prevents the fix from regressing when a type alias is used transitively (e.g., a function that takes `Word` which is itself `where [s: string] ...`).
+> **Target fix: v0.1.3** — store the structural body in `collectTopLevel` so `compatibleWith` can expand aliases at call sites.
 
 ---
 

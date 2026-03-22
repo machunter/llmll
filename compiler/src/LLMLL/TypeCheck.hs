@@ -244,9 +244,9 @@ checkStatement (SDefInterface name fns) = do
 checkStatement (STypeDef name body) = do
   -- Check that dependent type constraints are well-formed
   case body of
-    TDependent base constraint -> do
-      -- Constraint should be boolean
-      ctype <- inferExpr constraint
+    TDependent bindName base constraint -> do
+      -- Bring binding variable into scope before checking the constraint
+      ctype <- withEnv [(bindName, base)] (inferExpr constraint)
       unless (compatibleWith ctype TBool) $
         tcWarn $ "type '" <> name <> "' constraint should be bool, got " <> typeLabel ctype
     _ -> pure ()
@@ -489,8 +489,8 @@ compatibleWith _ (TVar _)            = True
 compatibleWith (TCustom "_") _       = True  -- untyped param wildcard
 compatibleWith _ (TCustom "_")       = True
 compatibleWith (TCustom a) (TCustom b) = a == b
-compatibleWith (TDependent a _) b   = compatibleWith a b
-compatibleWith a (TDependent b _)   = compatibleWith a b
+compatibleWith (TDependent _ a _) b   = compatibleWith a b
+compatibleWith a (TDependent _ b _)   = compatibleWith a b
 compatibleWith (TList a) (TList b)  = compatibleWith a b
 compatibleWith (TMap k1 v1) (TMap k2 v2) = compatibleWith k1 k2 && compatibleWith v1 v2
 compatibleWith (TResult a b) (TResult c d) = compatibleWith a c && compatibleWith b d
