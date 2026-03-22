@@ -434,7 +434,8 @@
         { "$ref": "#/$defs/ExprLambda" },
         { "$ref": "#/$defs/ExprAwait" },
         { "$ref": "#/$defs/ExprDo" },
-        { "$ref": "#/$defs/ExprHole" }
+        { "$ref": "#/$defs/ExprHole" },
+        { "$ref": "#/$defs/ExprLitList" }
       ]
     },
 
@@ -724,6 +725,25 @@
             "expr": { "$ref": "#/$defs/Expr" }
           }
         }
+      ]
+    },
+
+    "ExprLitList": {
+      "description": "List literal: [a, b, c]. Desugared by the parser to nested list-prepend calls.",
+      "type": "object",
+      "required": ["kind", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "lit-list" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
+      },
+      "examples": [
+        { "kind": "lit-list", "items": [] },
+        { "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " }
+        ]}
       ]
     },
 

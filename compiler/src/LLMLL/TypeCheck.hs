@@ -91,6 +91,7 @@ builtinEnv = Map.fromList $
   , ("string-char-at",  TFn [TString, TInt] TString)
   , ("string-split",    TFn [TString, TString] (TList TString))
   , ("string-trim",     TFn [TString] TString)
+  , ("string-concat-many", TFn [TList TString] TString)
   , ("regex-match",     TFn [TString, TString] TBool)
   -- §13.7 Numeric utilities
   , ("int-to-string",  TFn [TInt] TString)

@@ -296,6 +296,14 @@ parseExpr = withObject "Expr" $ \o -> do
     "lit-string" -> ELit . LitString <$> o .: "value"
     "lit-bool"   -> ELit . LitBool   <$> o .: "value"
     "lit-unit"   -> pure (ELit LitUnit)
+
+    -- List literal: desugar [a, b, c] -> (list-prepend a (list-prepend b (list-prepend c (list-empty))))
+    "lit-list" -> do
+      items <- (o .: "items" :: Parser [Value]) >>= mapM parseExpr
+      pure $ foldr (\item acc -> EApp "list-prepend" [item, acc])
+                   (EApp "list-empty" [])
+                   items
+
     "var"        -> EVar             <$> o .: "name"
 
     "let" -> do

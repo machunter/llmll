@@ -989,6 +989,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `string-char-at` | `string int -> string` | Single character at index (as 1-char string) |
 | `string-split` | `string string -> list[string]` | Split on delimiter |
 | `string-trim` | `string -> string` | Strip leading/trailing whitespace and newlines (`Space`, `\t`, `\n`, `\r`) |
+| `string-concat-many` | `list[string] -> string` | Concatenate a list of strings (variadic join without separator) |
 | `regex-match` | `string string -> bool` | Regex predicate (POSIX ERE) |
 
 ### 13.7 Numeric Utilities
