@@ -216,3 +216,24 @@ main = hspec $ do
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
           reportSuccess report `shouldBe` True
+
+  describe "TypeCheck (first/second pair projectors)" $ do
+    it "first accepts a typed param (regression: Issue 1 hangman_json walkthrough)" $ do
+      -- Before fix: first :: TFn [TResult a b] (TVar a) => rejected s:string param
+      -- After fix:  first :: TFn [TVar p] (TVar a)     => accepts any type
+      let src = T.pack $ unlines
+            [ "(def-logic state-word [s: string] (first s))" ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    it "second accepts a typed param (regression: same root cause)" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic state-rest [s: string] (second s))" ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True

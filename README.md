@@ -67,6 +67,25 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 
 ---
 
+## What's new in v0.1.3
+
+### Compiler
+
+- **`first`/`second` pair projectors** — now accept any pair argument regardless of explicit type annotations. Previously a parameter annotated as any type (e.g. `s: string`) that was actually a pair would cause `expected Result[a,b], got string`. The `untyped: true` workaround is no longer required on state accessor parameters.
+- **`where`-clause binding variable in scope** — `TDependent` now carries the binding name; `TypeCheck.hs` uses `withEnv` during constraint type-checking. Eliminates `unbound variable 's'` false warnings on all dependent type aliases.
+- **Nominal alias expansion** — `TCustom "Word"` is now expanded to its structural body before `compatibleWith`. Eliminates all `expected Word, got string` / `expected GuessCount, got int` spurious errors. All examples now check with **0 errors**.
+- **New built-ins** — `(string-trim s)` (strip whitespace/newlines) and `(list-nth xs i)` (safe indexed access returning `Result[a,string]`).
+- **PBT skip diagnostic** — `llmll test` skipped properties now distinguish between "Command-producing function" and "non-constant expression" — makes it clear when a property was skipped due to `Command` vs. a genuine non-evaluable expression.
+
+### Spec (LLMLL.md)
+
+- **§3.4** — nominal alias limitation block removed; replaced with accurate v0.1.2 description
+- **§13.4** — `first`/`second` signature note: "accepts any pair, including explicitly-annotated parameters"
+- **§13.5** — `list-nth` added
+- **§13.6** — `string-trim` added
+
+---
+
 ## What's new in v0.1.2
 
 ### Compiler

@@ -199,6 +199,14 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 - ✅ `stack test`: **25 examples, 0 failures** (was 21; 4 new tests added)
 - ✅ `LLMLL.md §3.4` limitation block removed; replaced with accurate v0.1.2 description
 
+#### Post-ship bug fixes (discovered via `examples/hangman_json/walkthrough.md`, 2026-03-21)
+
+| Bug | Location | Fix | Status |
+|-----|----------|-----|--------|
+| **P1** — `first`/`second` reject any explicitly-typed pair parameter with `expected Result[a,b], got <T>`; agent forced to use `"untyped": true` workaround on all state accessor params | `TypeCheck.hs`, `builtinEnv` | Changed `first`/`second` input from `TResult (TVar "a") (TVar "b")` to `TVar "p"` (fully polymorphic). Without a dedicated pair type in the AST, `TResult` was the wrong constraint — TVar unifies with any argument. | ✅ Fixed (`ef6f41c`) |
+| **P2** — `post` clause on a pair-returning function cannot project `result` via `first`/`second` (same root cause as P1) | Derived from P1 | Same fix | ✅ Fixed (`ef6f41c`) |
+| **P3** — `llmll test` skipped properties show opaque "requires full runtime evaluation" with no reason; agent cannot distinguish Command-skip from non-constant-skip | `PBT.hs`, `runProperty` | Added `bodyMentionsCommand` heuristic walk; skip message now names the specific cause | ✅ Fixed (`ef6f41c`) |
+
 ---
 
 ## v0.2 — Module System + Compile-Time Verification
