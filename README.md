@@ -134,10 +134,10 @@ examples/
   hangman_json/             ← Full Hangman (JSON-AST)
   withdraw.llmll            ← Contract demo
 docs/
-  getting-started/          ← build-instructions.md
-  compiler-team-roadmap.md
-  json-ast-versioning.md
+  getting-started.md        ← Build guide, known-good patterns, schema versioning
+  compiler-team-roadmap.md  ← Engineering backlog
   llmll-ast.schema.json     ← JSON-AST schema (use with AI agents)
+  archive/analysis/         ← Historical analysis docs
 ```
 
 ---
@@ -147,11 +147,9 @@ docs/
 | Document | Purpose |
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
-| [`docs/getting-started/build-instructions.md`](docs/getting-started/build-instructions.md) | Step-by-step compilation walkthrough |
-| [`docs/json-ast-versioning.md`](docs/json-ast-versioning.md) | JSON-AST schema versioning and AI agent guidance |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | v0.2 / v0.3 planned features |
+| [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.2 / v0.3 planned features |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
-| [`docs/known-good-patterns.md`](docs/known-good-patterns.md) | v0.1.3.1 patterns for AI agents — what works today vs old workarounds |
 
 ---
 
