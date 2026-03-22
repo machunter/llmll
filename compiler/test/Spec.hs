@@ -8,6 +8,8 @@ import qualified Data.Text.IO as TIO
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
+import LLMLL.TypeCheck (typeCheck, emptyEnv)
+import LLMLL.Diagnostic (reportSuccess)
 
 main :: IO ()
 main = hspec $ do
@@ -188,3 +190,29 @@ main = hspec $ do
         Right [STypeDef _name (TDependent bName _base _constraint)] ->
           bName `shouldBe` "n"
         Right other -> expectationFailure $ "Unexpected: " ++ show (length other) ++ " stmts"
+
+  describe "TypeCheck (nominal alias expansion)" $ do
+    it "int literal matches a where-alias (NonNeg) without error" $ do
+      -- Before fix: collectTopLevel stored TCustom "NonNeg"; unify(NonNeg, int) => error.
+      -- After fix: expandAlias expands TCustom "NonNeg" -> TDependent "n" TInt ...
+      --            compatibleWith (TDependent _ TInt _) TInt = True => no error.
+      let src = T.pack $ unlines
+            [ "(type NonNeg (where [n: int] (>= n 0)))"
+            , "(def-logic use-nonneg [x: NonNeg] x)"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    it "string literal matches a where-alias (Word) without error" $ do
+      let src = T.pack $ unlines
+            [ "(type Word (where [s: string] (> (string-length s) 0)))"
+            , "(def-logic use-word [w: Word] w)"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True

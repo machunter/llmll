@@ -123,8 +123,9 @@ extendEnv = Map.insert
 -- ---------------------------------------------------------------------------
 
 data TCState = TCState
-  { tcEnv    :: TypeEnv
-  , tcErrors :: [Diagnostic]
+  { tcEnv      :: TypeEnv
+  , tcErrors   :: [Diagnostic]
+  , tcAliasMap :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -159,7 +160,7 @@ withEnv bindings action = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [])
+  let (result, st) = runState action (TCState env [] Map.empty)
   in (result, tcErrors st)
 
 -- ---------------------------------------------------------------------------
@@ -189,7 +190,10 @@ typeCheckModule env m = typeCheck env (moduleBody m)
 checkStatements :: [Statement] -> TC ()
 checkStatements stmts = do
   -- First pass: collect all top-level function and type names
-  let topLevel = mapMaybe collectTopLevel stmts
+  let topLevel  = mapMaybe collectTopLevel stmts
+      aliasMap  = Map.fromList [(n, body) | STypeDef n body <- stmts]
+  -- Populate alias map so expandAlias can resolve TCustom aliases in unify
+  modify $ \s -> s { tcAliasMap = aliasMap }
   withEnv topLevel $ do
     -- Second pass: check each statement in order
     mapM_ checkStatement stmts
@@ -501,9 +505,19 @@ compatibleWith (TBytes m) (TBytes n) = m == n
 compatibleWith a b = a == b
 
 -- | Unify two types, emitting an error if they are incompatible.
+-- | Expand a TCustom alias to its structural body if one is registered.
+-- Leaves all other types unchanged.
+expandAlias :: Type -> TC Type
+expandAlias (TCustom n) = do
+  am <- gets tcAliasMap
+  pure $ fromMaybe (TCustom n) (Map.lookup n am)
+expandAlias t = pure t
+
 unify :: Name -> Type -> Type -> TC ()
-unify ctx expected actual =
-  unless (compatibleWith expected actual) $
+unify ctx expected actual = do
+  expected' <- expandAlias expected
+  actual'   <- expandAlias actual
+  unless (compatibleWith expected' actual') $
     tcError $ "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
               <> ", got " <> typeLabel actual
 

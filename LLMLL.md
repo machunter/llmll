@@ -176,31 +176,7 @@ Any base type can be constrained by a predicate using `(where [binding: base] pr
 (type BlockID      (where [s: string] (regex-match "^[a-f0-9]{64}$" s)))
 ```
 
-In v0.1.1, dependent type constraints are **checked at runtime** (the predicate is evaluated when a value of that type is bound). Compile-time SMT verification of these constraints is introduced in v0.2.
-
-> [!IMPORTANT]
-> **v0.1.x Compiler Limitation — Type Aliases Are Nominal, Not Structural**
->
-> The v0.1.x type checker registers named type aliases (`type-decl` nodes) as **opaque nominal types** — it stores `TCustom "GuessCount"` in the environment, not the expanded `TDependent "n" TInt (>= n 0)`. This means the checker cannot see that `GuessCount` is *compatible with* `int` at call sites.
->
-> **Symptom.** If you pass an integer literal where a dependent type alias is expected, you will see a spurious type error:
-> ```
-> error: type mismatch in 'make-state': expected GuessCount, got int
-> ```
-> This fires even when the literal (e.g. `0` or `6`) trivially satisfies the `where` predicate.
->
-> **Workaround (preferred): use wrapper helper functions for literal values.**
-> ```lisp
-> (def-logic zero-count [] :returns GuessCount  0)
-> (def-logic max-count  [] :returns GuessCount  6)
-> (let [(state (make-state word (list-empty) (zero-count) (max-count)))]
->   state)
-> ```
->
-> **Workaround B: accept the warning and run.**
-> Type-checker errors do **not** block code generation. `llmll build` proceeds even when the type checker emits these diagnostics — the generated Haskell is correct and the runtime enforces the predicate.
->
-> **Target fix: v0.1.3** — store the structural body in `collectTopLevel` so `compatibleWith` can expand aliases at call sites.
+In v0.1.2, dependent type constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker also expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected no longer triggers a spurious type error. Compile-time SMT verification of constraint *values* is introduced in v0.2.
 
 ---
 
