@@ -2,9 +2,9 @@
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
-## Compiler status — v0.1.2
+## Compiler status — v0.1.3.1
 
-The active compiler is a **Haskell stack project** in `compiler/`. It replaces the earlier Rust/WASM backend and is the only supported backend as of v0.1.2.
+The active compiler is a **Haskell stack project** in `compiler/`. It replaces the earlier Rust/WASM backend and is the only supported backend as of v0.1.3.
 
 | Command | What it does |
 |---------|--------------|
