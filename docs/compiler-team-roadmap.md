@@ -170,35 +170,34 @@ Docker container
 
 ---
 
-## v0.1.3 — Type Alias Expansion
+## v0.1.3 — Type Alias Expansion ✅ Shipped (2026-03-21)
 
-**Theme:** Close the last spurious type-checker error that affects every real program using dependent type aliases.
-
-> **One-shot impact:** Eliminates the entire class of `expected GuessCount, got int` false errors that appear whenever an integer literal is passed where a named dependent type alias is expected. All programs in `examples/` that declare `where`-constrained aliases currently fail type-checking with this spurious error.
+**Theme:** Close the last spurious type-checker errors affecting every real program using dependent type aliases, and fix where-clause binding variable scope.
 
 ### Deliverable — Structural Type Alias Resolution
 
-**Root cause.** `collectTopLevel (STypeDef name body)` registers the alias as `TCustom name` (opaque nominal entry). The type checker never expands aliases at call sites, so `TInt` (inferred for literal `0`) never unifies with `TCustom "GuessCount"` even though `GuessCount = (where [n: int] (>= n 0))` has `TInt` as its base type.
+**Implemented in `TypeCheck.hs` (commit `9931a77`):**
 
-**[CT]** Fix `collectTopLevel` in `TypeCheck.hs`:
-```haskell
--- Before (nominal, broken):
-collectTopLevel (STypeDef name body) = Just (name, TCustom name)
+Instead of fixing `collectTopLevel` (which would break forward-reference resolution in function signatures), we took a lower-risk approach:
 
--- After (structural, correct):
-collectTopLevel (STypeDef name body) = Just (name, body)
-```
+- **Added `tcAliasMap :: Map Name Type` to `TCState`** — populated from all `STypeDef` bodies at the start of each type-check run.
+- **Added `expandAlias :: Type -> TC Type`** — looks up `TCustom n` in the alias map and returns the structural body; leaves all other types unchanged.
+- **`unify` now calls `expandAlias` on both `expected` and `actual`** before `compatibleWith`. The existing `compatibleWith (TDependent _ a _) b = compatibleWith a b` rule handles the rest automatically.
 
-**[CT]** Add a **type alias substitution pass** (a pre-check walk over each `SDefLogic`'s parameter and return type annotations): replace `TCustom n` with the registered structural body when `n` is a known `STypeDef`. This is required to handle transitive aliases (e.g., a parameter typed `Word` where `Word = (where [s: string] (> (string-length s) 0))`).
+`collectTopLevel` is unchanged — function signatures still register `TCustom name` for forward references, which is correct.
 
-**[CT]** Update `LLMLL.md §3.4` callout: once this fix ships, remove the workaround guidance and replace it with a note that the limitation is resolved in v0.1.3. (The detailed description of the fix is already in `LLMLL.md §3.4` for reference until then.)
+**Also shipped alongside (commit `fa008b1`):**
 
-**[SPEC]** No language-visible change. The type system was always defined as structural; this is a compiler implementation catch-up.
+- **`where`-clause binding variable scope** — `TDependent` now carries the binding name; `TypeCheck.hs` uses `withEnv [(bindName, base)]` before inferring the constraint, eliminating `unbound variable 's'` / `'n'` false warnings.
+- **Parser**: `_foo` treated as a single `PVar` binder (not `PWildcard` + `foo`).
+- **Codegen**: `Error`→`Left`, `Success`→`Right` rewrite in `emitPat`; exhaustive `Left`+`Right` match suppresses redundant GHC warning.
 
-**Acceptance criteria:**
-- `llmll check examples/hangman_complete.llmll` produces **zero** type-mismatch errors related to `GuessCount`, `Word`, `Letter`, or `PositiveInt`.
-- `llmll check examples/withdraw.llmll` is unaffected (no regressions).
-- All 21 existing tests still pass.
+**Acceptance criteria — all met:**
+- ✅ `llmll check hangman_json`: **0 errors** (was 10: `expected GuessCount, got int` etc.)
+- ✅ `llmll check hangman_sexp`: **0 errors** (was ~10)
+- ✅ `llmll check tictactoe_json` / `tictactoe_sexp`: unaffected, still OK
+- ✅ `stack test`: **25 examples, 0 failures** (was 21; 4 new tests added)
+- ✅ `LLMLL.md §3.4` limitation block removed; replaced with accurate v0.1.2 description
 
 ---
 
