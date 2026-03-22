@@ -204,6 +204,22 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | Multi-file imports | ❌ Not yet | Single file only |
 | `pre`/`post` compile-time verification | ⚠️ Runtime assert only | Correct at runtime; SMT proof in v0.2 |
 
+> [!IMPORTANT]
+> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site.
+>
+> ```lisp
+> ;; CORRECT — imports first:
+> (module my-app
+>   (import wasi.io stdout)
+>   (import haskell.aeson Data.Aeson)
+>   (def-logic greet [name: string] (wasi.io.stdout name)))
+>
+> ;; WRONG — import after def-logic is ignored:
+> (module my-app
+>   (def-logic greet [name: string] (wasi.io.stdout name))
+>   (import wasi.io stdout))   ;; ← ignored, wasi.io.stdout unknown
+> ```
+
 ---
 
 ## Part 5 — Core Language Quick Reference
