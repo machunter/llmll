@@ -51,7 +51,7 @@ import qualified Data.Map.Strict as Map
 data Command
   = CmdCheck  FilePath
   | CmdHoles  FilePath
-  | CmdTest   FilePath
+  | CmdTest   FilePath Bool                         -- file, --emit-only
   | CmdBuild  FilePath (Maybe FilePath) Bool Bool Bool  -- file, outdir, --wasm, --emit-json-ast, --emit-only
   | CmdBuildFromJson FilePath (Maybe FilePath) Bool     -- file, outdir, --emit-only
   | CmdRun    FilePath [String]                         -- file, extra args
@@ -78,7 +78,7 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Parse and type-check a .llmll or .ast.json file"))
       <> command "holes" (info (CmdHoles <$> fileArg)
           (progDesc "List and classify all holes in a .llmll file"))
-      <> command "test"  (info (CmdTest  <$> fileArg)
+      <> command "test"  (info testCmd
           (progDesc "Run property-based tests (check blocks)"))
       <> command "build" (info buildCmd
           (progDesc "Compile .llmll to Rust; use --emit json-ast to emit JSON-AST instead"))
@@ -108,6 +108,10 @@ optionsParser = info (helper <*> opts) $
             <> help "Output directory (default: generated/<name>)"))
       <*> switch (long "emit-only" <> help "Write Haskell files but skip the internal stack build")
 
+    testCmd = CmdTest
+      <$> fileArg
+      <*> switch (long "emit-only" <> help "Generate QuickCheck Haskell but skip running stack test (avoids Stack lock deadlock)")
+
     runCmd = CmdRun
       <$> fileArg
       <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
@@ -125,7 +129,7 @@ main = do
   case optCommand opts of
     CmdCheck fp               -> doCheck  json fp
     CmdHoles fp               -> doHoles  json fp
-    CmdTest  fp               -> doTest   json fp
+    CmdTest  fp emitOnly         -> doTest   json fp emitOnly
     CmdBuild fp mOut wasm emitJson emitOnly -> doBuild  json fp mOut wasm emitJson emitOnly
     CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
     CmdRun   fp args          -> doRun    json fp args
@@ -237,18 +241,35 @@ doHoles json fp = do
 -- test
 -- ---------------------------------------------------------------------------
 
-doTest :: Bool -> FilePath -> IO ()
-doTest json fp = do
+doTest :: Bool -> FilePath -> Bool -> IO ()
+doTest json fp emitOnly = do
   -- P4 fix: use loadStatements so .ast.json is routed to JSON parser
   mStmts <- loadStatements json fp
   case mStmts of
     Left ()    -> exitFailure
     Right stmts -> do
-      result <- runPropertyTests stmts
-      if json
-        then TIO.putStrLn (pbtResultJson fp result)
-        else printPbtResult fp result
-      if pbtFailed result > 0 then exitFailure else exitSuccess
+      -- --emit-only: generate the QuickCheck Haskell source and print it,
+      -- but skip running stack test (avoids Stack project lock deadlock when
+      -- called from inside a running `stack exec llmll` session).
+      if emitOnly
+        then do
+          let modName = T.pack $ takeBaseName fp
+              result  = generateHaskell modName stmts
+              libSrc  = cgHsSource result
+          if json
+            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                   object ["file" .= fp, "emit_only" .= True
+                          , "lib_chars" .= T.length libSrc]
+            else do
+              TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length libSrc) <> " chars"
+              TIO.putStrLn    "   (stack test skipped — --emit-only)"
+          exitSuccess
+        else do
+          result <- runPropertyTests stmts
+          if json
+            then TIO.putStrLn (pbtResultJson fp result)
+            else printPbtResult fp result
+          if pbtFailed result > 0 then exitFailure else exitSuccess
 
 printPbtResult :: FilePath -> PBTResult -> IO ()
 printPbtResult fp r = do
