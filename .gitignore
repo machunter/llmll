@@ -11,3 +11,6 @@ generated/
 
 # Remove runtime/ from tracking (moved to docs/archive)
 runtime/
+
+# Local agent workflows — not part of the project source
+.agents/
