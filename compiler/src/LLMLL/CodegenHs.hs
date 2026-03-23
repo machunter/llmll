@@ -267,6 +267,13 @@ runtimePreamble =
   , "llmll_err :: e -> Either e a"
   , "llmll_err = Left"
   , ""
+  , "-- Short aliases used by codegen"
+  , "ok :: a -> Either e a"
+  , "ok = Right"
+  , ""
+  , "err :: e -> Either e a"
+  , "err = Left"
+  , ""
   , "is_ok :: Either e a -> Bool"
   , "is_ok (Right _) = True"
   , "is_ok _         = False"
@@ -588,12 +595,13 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
   , "  loop state0"
   , "  where"
   , "    loop s = do"
+  , doneGuard            -- check done? BEFORE reading the next line
   , "      eof <- hIsEOF stdin"
   , "      if eof then return () else do"
   , "        line <- getLine"
   , "        let (s', cmd) = " <> stepCall step <> " s line"
   , "        cmd"
-  , doneCheck
+  , "        loop s'"
   , onDoneBlock
   ]
   where
@@ -603,9 +611,11 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
       Just e  -> "  let (state0, initCmd) = " <> emitExpr e <> "\n  initCmd"
     stepCall (EVar n) = toHsIdent n
     stepCall e        = "(\\s l -> " <> emitExpr e <> " s l)"
-    doneCheck = case mDone of
-      Nothing -> "        loop s'"
-      Just e  -> "        if " <> emitExpr e <> " s' then return () else loop s'"
+    -- Check done? at the TOP of the loop, before blocking on stdin.
+    -- This prevents one extra step being rendered after the game ends.
+    doneGuard = case mDone of
+      Nothing -> "      let _done = False"   -- placeholder; never triggers
+      Just e  -> "      if " <> emitExpr e <> " s then return () else do"
     onDoneBlock = case mOnDone of
       Nothing -> ""
       Just e  -> "  " <> emitExpr e <> " state0"
