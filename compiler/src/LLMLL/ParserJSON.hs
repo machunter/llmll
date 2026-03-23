@@ -33,7 +33,7 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 
 -- | The schema version this parser accepts. Compiler rejects any other value.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.1.2"
+expectedSchemaVersion = "0.1.3"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.

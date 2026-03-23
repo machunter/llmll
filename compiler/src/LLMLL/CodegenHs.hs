@@ -602,7 +602,6 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
   , "        let (s', cmd) = " <> stepCall step <> " s line"
   , "        cmd"
   , "        loop s'"
-  , onDoneBlock
   ]
   where
     -- init returns (state, IO ()) pair — destructure and execute the command
@@ -612,13 +611,15 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
     stepCall (EVar n) = toHsIdent n
     stepCall e        = "(\\s l -> " <> emitExpr e <> " s l)"
     -- Check done? at the TOP of the loop, before blocking on stdin.
-    -- This prevents one extra step being rendered after the game ends.
-    doneGuard = case mDone of
-      Nothing -> "      let _done = False"   -- placeholder; never triggers
-      Just e  -> "      if " <> emitExpr e <> " s then return () else do"
-    onDoneBlock = case mOnDone of
-      Nothing -> ""
-      Just e  -> "  " <> emitExpr e <> " state0"
+    -- When :on-done is also declared, call it in the done? branch instead of
+    -- return () — so the final message still prints before the program exits.
+    -- This also fixes the bug where on-done was emitted AFTER the where clause
+    -- (a Haskell parse error) or silently omitted in the JSON-AST path.
+    doneGuard = case (mDone, mOnDone) of
+      (Nothing,  Nothing)  -> "      let _done = False"   -- placeholder; never triggers
+      (Nothing,  Just od)  -> "      let _done = False"   -- no done? — on-done unreachable
+      (Just e,   Nothing)  -> "      if " <> emitExpr e <> " s then return () else do"
+      (Just e,   Just od)  -> "      if " <> emitExpr e <> " s then " <> emitExpr od <> " s else do"
 
 emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step} =
   [ "main :: IO ()"
