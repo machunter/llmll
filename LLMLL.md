@@ -555,6 +555,50 @@ The LLMLL host runtime processes each `Command` as follows:
   :done? is-game-over?)
 ```
 
+#### The `:on-done` hook — avoiding double-render
+
+> [!IMPORTANT]
+> **`:on-done` is the canonical place to print end-of-game messages.**
+
+When `:step` prints a board *and* an end-game message in the same `Command`, the
+final board will appear **twice** on game-over:
+
+1. `:step` executes and prints `"You won!\n"`.
+2. The harness checks `:done?` — it is now `true`.
+3. The loop exits (or calls `:on-done`).
+
+Because `:step` already ran its `Command` before `:done?` was checked, the output
+from step 1 is always visible. If `:step` prints a win/loss message on the **same
+turn it makes the game over**, that message will print once — but any
+`render-state` call embedded in the *next* iteration's check can double the board.
+
+**The fix:** move all terminal output for the final state into `:on-done`.
+
+```lisp
+;; Anti-pattern — game-loop prints the end message as part of its Command.
+;; The harness then calls done? on the same state and the board may render
+;; a second time on the next loop iteration.
+(def-main
+  :mode console
+  :init (start-game "hangman")
+  :step game-loop           ;; game-loop prints board AND "You won!" on win
+  :done? is-game-over?)
+
+;; Canonical pattern — game-loop prints the board only.
+;; show-result prints the final message exactly once, after the loop exits.
+(def-main
+  :mode console
+  :init   (start-game "hangman")
+  :step   game-loop         ;; only prints the board on every turn
+  :done?  is-game-over?
+  :on-done show-result)     ;; prints "You won!" or "Game over!" exactly once
+```
+
+`show-result` has signature `State -> Command`. It is called with the final state
+immediately before the loop exits. Output produced by `:on-done` appears **after**
+the last `:step` output and **exactly once**, regardless of how many times
+`:done?` is checked.
+
 In JSON-AST:
 
 ```json
