@@ -399,13 +399,26 @@ emitDefLogic name params mRet contract body = T.unlines $
 emitCheck :: Property -> Text
 emitCheck prop = T.unlines
   [ "-- check: " <> propDescription prop
-  , "prop_" <> toHsIdent (T.replace " " "_" (propDescription prop))
+  , "prop_" <> sanitizeCheckLabel (propDescription prop)
     <> " :: " <> T.intercalate " -> " (map (toHsType . snd) (propBindings prop) ++ ["Bool"])
-  , "prop_" <> toHsIdent (T.replace " " "_" (propDescription prop))
+  , "prop_" <> sanitizeCheckLabel (propDescription prop)
     <> " " <> T.unwords (map (toHsIdent . fst) (propBindings prop))
     <> " = " <> emitExpr (propBody prop)
   , ""
   ]
+
+-- | Sanitize a check-block label for use as a Haskell 'prop_*' function name.
+-- Replaces any character outside [a-zA-Z0-9] with '_', then collapses runs of
+-- underscores, and strips a leading/trailing underscore.
+sanitizeCheckLabel :: Text -> Text
+sanitizeCheckLabel lbl =
+  let replaced  = T.map (\c -> if isAsciiAlphaNum c then c else '_') lbl
+      collapsed = T.intercalate "_" . filter (not . T.null) $ T.splitOn "__" replaced
+  in T.dropWhile (== '_') . T.dropWhileEnd (== '_') $ collapsed
+  where
+    isAsciiAlphaNum c = (c >= 'a' && c <= 'z')
+                     || (c >= 'A' && c <= 'Z')
+                     || (c >= '0' && c <= '9')
 
 -- ---------------------------------------------------------------------------
 -- Expression emitter

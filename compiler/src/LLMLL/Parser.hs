@@ -421,9 +421,20 @@ pExpr = choice
   , try pAwaitExpr
   , try pDoExpr
   , try pHoleExpr
+  , try pListLitExpr   -- [expr ...] list literal in expression position
   , try pSExprApp     -- (func args...)
   , pAtom
   ]
+
+-- | Parse a list literal in expression position: [expr expr ...]
+-- Desugars to foldr list-prepend (list-empty) — same as lit-list in JSON-AST.
+-- Empty [] desugars to (list-empty).
+pListLitExpr :: Parser Expr
+pListLitExpr = do
+  items <- brackets (many (try pExpr))
+  pure $ foldr (\item acc -> EApp "list-prepend" [item, acc])
+               (EApp "list-empty" [])
+               items
 
 -- | Parse (fn [typed-params] body) or (fn [typed-params] -> ret-type body)
 -- Anonymous function / lambda expression.

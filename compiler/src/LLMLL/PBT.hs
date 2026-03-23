@@ -186,10 +186,10 @@ bodyMentionsCommand expr = go expr
     goStep (DoBind _ e) = go e
     goStep (DoExpr e)   = go e
 
-    -- Names known or likely to produce a Command value
+    -- Names known to produce a Command value — only WASI/IO imports qualify.
+    -- Keep this list narrow: false positives cause valid properties to be skipped.
     isCommandFn n = any (`T.isPrefixOf` n)
-      ["wasi.", "console.", "http.", "fs.", "start-game", "game-loop",
-       "step", "done", "command"]
+      ["wasi.", "console.", "http.", "fs."]
 
 -- ---------------------------------------------------------------------------
 -- QuickCheck Integration (for integer-only properties)

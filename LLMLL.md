@@ -989,7 +989,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 > (range 5 3)   ;; => empty list
 > ```
 >
-> **List literals** (v0.1.2+): `[]` is the empty list; `[a b c]` is a three-element list. The `list-empty` and `list-append` functions remain valid alternatives.
+> **List literals** (v0.1.3.1+): `[]` is the empty list; `[a b c]` is a three-element list — valid in both S-expression and JSON-AST syntax. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)`. In JSON-AST, use `{ "kind": "lit-list", "items": [...] }`. The `list-empty` and `list-prepend` functions remain valid alternatives.
 > ```lisp
 > ;; v0.1.2+ — list literal and updated let syntax:
 > (let [(n       (string-length word))
