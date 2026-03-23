@@ -52,9 +52,9 @@ data Command
   = CmdCheck  FilePath
   | CmdHoles  FilePath
   | CmdTest   FilePath
-  | CmdBuild  FilePath (Maybe FilePath) Bool Bool  -- file, outdir, --wasm, --emit-json-ast
-  | CmdBuildFromJson FilePath (Maybe FilePath)     -- .ast.json file, outdir
-  | CmdRun    FilePath [String]                    -- file, extra args
+  | CmdBuild  FilePath (Maybe FilePath) Bool Bool Bool  -- file, outdir, --wasm, --emit-json-ast, --emit-only
+  | CmdBuildFromJson FilePath (Maybe FilePath) Bool     -- file, outdir, --emit-only
+  | CmdRun    FilePath [String]                         -- file, extra args
   | CmdRepl
   deriving (Show)
 
@@ -96,15 +96,17 @@ optionsParser = info (helper <*> opts) $
       <$> fileArg
       <*> optional (strOption
             (short 'o' <> long "output" <> metavar "DIR"
-            <> help "Output directory for generated Rust crate (default: generated/<name>)"))
-      <*> switch (long "wasm" <> help "Run wasm-pack after generating Rust (requires wasm-pack in PATH)")
-      <*> switch (long "emit" <> help "Emit JSON-AST (.ast.json) instead of compiling to Rust")
+            <> help "Output directory for generated Haskell package (default: generated/<name>)"))
+      <*> switch (long "wasm" <> help "Run wasm-pack after generating (requires wasm-pack in PATH)")
+      <*> switch (long "emit" <> help "Emit JSON-AST (.ast.json) instead of compiling to Haskell")
+      <*> switch (long "emit-only" <> help "Write Haskell files but skip the internal stack build (avoids Stack lock deadlock)")
 
     buildJsonCmd = CmdBuildFromJson
       <$> fileArg
       <*> optional (strOption
             (short 'o' <> long "output" <> metavar "DIR"
             <> help "Output directory (default: generated/<name>)"))
+      <*> switch (long "emit-only" <> help "Write Haskell files but skip the internal stack build")
 
     runCmd = CmdRun
       <$> fileArg
@@ -124,8 +126,8 @@ main = do
     CmdCheck fp               -> doCheck  json fp
     CmdHoles fp               -> doHoles  json fp
     CmdTest  fp               -> doTest   json fp
-    CmdBuild fp mOut wasm emitJson -> doBuild  json fp mOut wasm emitJson
-    CmdBuildFromJson fp mOut  -> doBuildFromJson json fp mOut
+    CmdBuild fp mOut wasm emitJson emitOnly -> doBuild  json fp mOut wasm emitJson emitOnly
+    CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
 
@@ -283,11 +285,11 @@ pbtResultJson fp r =
 -- build (Rust codegen + optional WASM)
 -- ---------------------------------------------------------------------------
 
-doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> IO ()
-doBuild json fp mOutDir doWasm emitJson = do
+doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> IO ()
+doBuild json fp mOutDir doWasm emitJson emitOnly = do
   -- Auto-detect JSON-AST files and delegate to the JSON build path.
   if takeExtension fp == ".json"
-    then doBuildFromJson json fp mOutDir
+    then doBuildFromJson json fp mOutDir emitOnly
     else do
       src <- TIO.readFile fp
       case parseSrc fp src of
@@ -358,8 +360,14 @@ doBuild json fp mOutDir doWasm emitJson = do
               mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
             else pure ()
 
-          -- Validate generated Haskell with GHC
-          ghcOk <- runGhcCheck json outDir
+          -- Validate generated Haskell with GHC (skip when --emit-only)
+          ghcOk <- if emitOnly
+            then do
+              if not json
+                then TIO.putStrLn "   (stack build skipped — --emit-only)"
+                else pure ()
+              pure True
+            else runGhcCheck json outDir
 
           if ghcOk
             then do
@@ -379,8 +387,8 @@ doBuild json fp mOutDir doWasm emitJson = do
 
     -- | Build from a JSON-AST (.ast.json) file.
 
-doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> IO ()
-doBuildFromJson json fp mOutDir = do
+doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> Bool -> IO ()
+doBuildFromJson json fp mOutDir emitOnly = do
   bs <- BL.readFile fp
   case parseSrcBS fp bs of
     Left diag -> do
@@ -405,7 +413,14 @@ doBuildFromJson json fp mOutDir = do
         let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
         exists <- doesFileExist stubPath
         unless exists $ TIO.writeFile stubPath stubsSrc
-      ghcOk <- runGhcCheck json outDir
+      -- Validate generated Haskell with GHC (skip when --emit-only)
+      ghcOk <- if emitOnly
+        then do
+          if not json
+            then TIO.putStrLn "   (stack build skipped — --emit-only)"
+            else pure ()
+          pure True
+        else runGhcCheck json outDir
       if ghcOk
         then do
           if json
