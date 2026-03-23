@@ -85,6 +85,16 @@ stack exec llmll -- build ../examples/withdraw.llmll
 stack exec llmll -- build ../examples/hangman_json/hangman.ast.json -o ../generated/hangman_json
 ```
 
+> [!IMPORTANT]
+> **Stack lock deadlock** — if you have a long-running `stack exec llmll -- repl` terminal open, `llmll build` will deadlock because both try to hold the Stack project lock. Use `--emit-only` to skip the internal `stack build` and run it separately:
+> ```bash
+> # Step 1: write Haskell files only (no stack build)
+> stack exec llmll -- build hangman.ast.json -o ../generated/hangman_json --emit-only
+>
+> # Step 2: build independently
+> cd ../generated/hangman_json && stack build
+> ```
+
 Output layout:
 ```
 generated/hangman_json/
