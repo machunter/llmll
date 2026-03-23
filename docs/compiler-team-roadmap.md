@@ -217,6 +217,9 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 | **P2** — `ok`/`err` not in scope in generated `Lib.hs`; preamble only defined `llmll_ok`/`llmll_err` but codegen emits bare `ok`/`err` | `CodegenHs.hs`, preamble | Added `ok = Right` and `err = Left` short aliases to preamble | ✅ Fixed (`db8f7a6`) |
 | **P3** — Extra step rendered after game over; console harness checked `:done?` after `:step`, not before; one extra stdin read triggered a final render | `CodegenHs.hs`, `emitMainBody` | Restructured generated loop: `done? s` checked at top before `getLine` | ✅ Fixed (`db8f7a6`) |
 | **P1** — `llmll build` deadlocks when called from inside a running `stack exec llmll -- repl` session (Stack project lock contention) | `Main.hs`, `doBuild`/`doBuildFromJson` | Added `--emit-only` flag: writes Haskell files, skips internal `stack build` | ✅ Fixed (`38265af`) |
+| **C1** — `schemaVersion: "0.1.3"` in JSON-AST sources rejected with `schema-version-mismatch`; docs showed `0.1.3` but parser gated on `0.1.2` | `ParserJSON.hs`, `expectedSchemaVersion`; `docs/llmll-ast.schema.json` | Bumped `expectedSchemaVersion` and schema `const` from `"0.1.2"` to `"0.1.3"` | ✅ Fixed (`012b048`) |
+| **C2** — `:on-done` in S-expression `def-main` generated `show_result state0` after the `where` clause — a GHC parse error | `CodegenHs.hs`, `emitMainBody` | `doneGuard` now pattern-matches on `(mDone, mOnDone)` pair; when both present emits `if done? s then onDone s else do` inside the loop | ✅ Fixed (`012b048`) |
+| **C3** — `:on-done` in JSON-AST `def-main` silently omitted from generated `Main.hs` (same root cause as C2) | `CodegenHs.hs`, `emitMainBody` | Same fix as C2 — removed `onDoneBlock` list item that was erroneously placed after `where` | ✅ Fixed (`012b048`) |
 
 ---
 

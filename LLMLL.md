@@ -534,7 +534,7 @@ The LLMLL host runtime processes each `Command` as follows:
 
 | Mode | Harness behaviour |
 |------|-------------------|
-| `console` | Interactive loop: `:init` creates state + welcome message, then loops on stdin calling `:step` until `:done?` returns `true`. |
+| `console` | Interactive loop: `:init` creates state + welcome message, then loops on stdin calling `:step` until `:done?` returns `true`. When `:on-done` is also declared, it is called with the final state when `:done?` becomes `true` — before the loop exits. |
 | `cli` | Single-shot: reads OS args, calls `:step` once, prints result. |
 | `http PORT` | HTTP server on `PORT`: `:init` creates initial state, each request calls `:step`. |
 
