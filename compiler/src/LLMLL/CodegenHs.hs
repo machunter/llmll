@@ -595,31 +595,43 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
   , "  loop state0"
   , "  where"
   , "    loop s = do"
-  , doneGuard            -- check done? BEFORE reading the next line
-  , "      eof <- hIsEOF stdin"
-  , "      if eof then return () else do"
-  , "        line <- getLine"
-  , "        let (s', cmd) = " <> stepCall step <> " s line"
-  , "        cmd"
-  , "        loop s'"
-  ]
+  ] ++ doneLines
   where
     -- init returns (state, IO ()) pair — destructure and execute the command
     initBlock = case mInit of
       Nothing -> "  let state0 = ()"
       Just e  -> "  let (state0, initCmd) = " <> emitExpr e <> "\n  initCmd"
     stepCall (EVar n) = toHsIdent n
-    stepCall e        = "(\\s l -> " <> emitExpr e <> " s l)"
+    stepCall e        = "(\\ s l -> " <> emitExpr e <> " s l)"
+    -- The inner loop body (eof check + step call).
+    -- 'ind' is the indentation prefix:
+    --   6 spaces ("      ") when there is no :done? guard (body sits directly in `do`)
+    --   8 spaces ("        ") when the body must sit inside an `else do` branch
+    loopBody ind =
+      [ ind <> "eof <- hIsEOF stdin"
+      , ind <> "if eof then return () else do"
+      , ind <> "  line <- getLine"
+      , ind <> "  let (s', cmd) = " <> stepCall step <> " s line"
+      , ind <> "  cmd"
+      , ind <> "  loop s'"
+      ]
     -- Check done? at the TOP of the loop, before blocking on stdin.
-    -- When :on-done is also declared, call it in the done? branch instead of
-    -- return () — so the final message still prints before the program exits.
-    -- This also fixes the bug where on-done was emitted AFTER the where clause
-    -- (a Haskell parse error) or silently omitted in the JSON-AST path.
-    doneGuard = case (mDone, mOnDone) of
-      (Nothing,  Nothing)  -> "      let _done = False"   -- placeholder; never triggers
-      (Nothing,  Just od)  -> "      let _done = False"   -- no done? — on-done unreachable
-      (Just e,   Nothing)  -> "      if " <> emitExpr e <> " s then return () else do"
-      (Just e,   Just od)  -> "      if " <> emitExpr e <> " s then " <> emitExpr od <> " s else do"
+    -- When :done? is absent the body is at 6-space indent (same level as `do`).
+    -- When :done? is present the guard ends with `else do` and the body must be
+    -- indented 2 extra spaces (8 total) to sit inside that branch.
+    -- Fixing this resolves the GHC-82311 "empty do block" error in S-expression
+    -- console programs. The JSON-AST path took the (Nothing,_) branch and was
+    -- never affected.
+    doneLines = case (mDone, mOnDone) of
+      (Nothing, _) ->
+          "      let _done = False"   -- placeholder; never triggers
+        : loopBody "      "
+      (Just e, Nothing) ->
+          ("      if " <> emitExpr e <> " s then return () else do")
+        : loopBody "        "
+      (Just e, Just od) ->
+          ("      if " <> emitExpr e <> " s then " <> emitExpr od <> " s else do")
+        : loopBody "        "
 
 emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step} =
   [ "main :: IO ()"

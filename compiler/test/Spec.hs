@@ -10,6 +10,7 @@ import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (reportSuccess)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs)
 
 main :: IO ()
 main = hspec $ do
@@ -237,3 +238,59 @@ main = hspec $ do
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
           reportSuccess report `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- CodegenHs regression: :done? indentation (GHC-82311 empty do block)
+  -- -----------------------------------------------------------------------
+  describe "CodegenHs (:done? indentation)" $ do
+    it "without :done?, loop body is at 6-space indent" $ do
+      -- Build a minimal console def-main with no :done?
+      let stmt = SDefMain
+            { defMainMode   = ModeConsole
+            , defMainInit   = Nothing
+            , defMainStep   = EVar "my_step"
+            , defMainRead   = Nothing
+            , defMainDone   = Nothing
+            , defMainOnDone = Nothing
+            }
+      let result = generateHaskell "test" [stmt]
+      case cgMainHs result of
+        Nothing  -> expectationFailure "expected Main.hs to be generated"
+        Just src -> do
+          -- The eof line should appear at 6-space indent directly in do
+          src `shouldSatisfy` T.isInfixOf "      eof <- hIsEOF stdin"
+
+    it "with :done?, loop body is at 8-space indent inside else do" $ do
+      -- Build a minimal console def-main WITH :done?
+      let stmt = SDefMain
+            { defMainMode   = ModeConsole
+            , defMainInit   = Nothing
+            , defMainStep   = EVar "my_step"
+            , defMainRead   = Nothing
+            , defMainDone   = Just (EVar "is_done")
+            , defMainOnDone = Nothing
+            }
+      let result = generateHaskell "test" [stmt]
+      case cgMainHs result of
+        Nothing  -> expectationFailure "expected Main.hs to be generated"
+        Just src -> do
+          -- The eof line must be at 8-space indent (inside the else do branch)
+          src `shouldSatisfy` T.isInfixOf "        eof <- hIsEOF stdin"
+          -- The broken pattern (6-space after else do) must NOT be present
+          src `shouldSatisfy` (not . T.isInfixOf "else do\n      eof")
+
+    it "with :done? and :on-done, on-done is called in the done branch" $ do
+      let stmt = SDefMain
+            { defMainMode   = ModeConsole
+            , defMainInit   = Nothing
+            , defMainStep   = EVar "my_step"
+            , defMainRead   = Nothing
+            , defMainDone   = Just (EVar "is_done")
+            , defMainOnDone = Just (EVar "finish")
+            }
+      let result = generateHaskell "test" [stmt]
+      case cgMainHs result of
+        Nothing  -> expectationFailure "expected Main.hs to be generated"
+        Just src -> do
+          src `shouldSatisfy` T.isInfixOf "then finish s else do"
+          src `shouldSatisfy` T.isInfixOf "        eof <- hIsEOF stdin"
