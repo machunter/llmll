@@ -217,6 +217,9 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > `:init` must be a **zero-arg function call** `{ "kind": "app", "fn": "start-game", "args": [] }`, not `{ "kind": "var", "name": "start-game" }`.
 
 > [!IMPORTANT]
+> **`def-main` JSON field names are exact.** The fields `"done?"` (with `?`) and `"on-done"` (with hyphen) must match the schema exactly. Common agent mistakes: `"done"`, `"isDone"`, `"onDone"`, `"on_done"` — all silently ignored by JSON parsers that don't validate against the schema.
+
+> [!IMPORTANT]
 > **`:on-done` is the canonical hook for end-of-game output.** If `game-loop` prints a win/loss message on the same turn the game ends, the board can render twice. Move all terminal output for the final state into a dedicated `show-result` function and declare it via `:on-done`. See `LLMLL.md §9.5` for the full before/after pattern.
 
 ### 4.7 Still Restricted in v0.1.x
@@ -224,8 +227,24 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | Feature | Status | Workaround |
 |---------|--------|------------|
 | `[acc: (int, string)]` in `typed-param` | ❌ Parse error | Use bare `[acc]` — Fixed in v0.2 |
+| `[...]` list literal as direct argument to a call inside an `if` branch (S-expression only) | ❌ Parse error | Extract to a `let` binding before the `if` (see note below) |
 | Multi-file imports | ❌ Not yet | Single file only |
 | `pre`/`post` compile-time verification | ⚠️ Runtime assert only | Correct at runtime; SMT proof in v0.2 |
+
+> [!WARNING]
+> **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
+> The S-expression parser misreads `]` when a list literal appears as a function argument inside an `if` body:
+> ```lisp
+> ;; FAILS — parse error 'unexpected ]':
+> (if won
+>     (wasi.io.stdout (string-concat-many ["You won! " word "\n"]))
+>     ...)
+>
+> ;; WORKS — hoist the list into a let binding first:
+> (let [(msg (string-concat-many ["You won! " word "\n"]))]
+>   (if won (wasi.io.stdout msg) ...))
+> ```
+> This restriction does not apply to JSON-AST (`{"kind": "lit-list", ...}` is always unambiguous). Bug tracked as **B3** in `compiler-team-roadmap.md`.
 
 > [!IMPORTANT]
 > **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site.

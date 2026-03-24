@@ -221,6 +221,14 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 | **C2** — `:on-done` in S-expression `def-main` generated `show_result state0` after the `where` clause — a GHC parse error | `CodegenHs.hs`, `emitMainBody` | `doneGuard` now pattern-matches on `(mDone, mOnDone)` pair; when both present emits `if done? s then onDone s else do` inside the loop | ✅ Fixed (`012b048`) |
 | **C3** — `:on-done` in JSON-AST `def-main` silently omitted from generated `Main.hs` (same root cause as C2) | `CodegenHs.hs`, `emitMainBody` | Same fix as C2 — removed `onDoneBlock` list item that was erroneously placed after `where` | ✅ Fixed (`012b048`) |
 
+#### Post-ship bug fixes — round 3 (discovered via hangman re-implementation, 2026-03-23)
+
+| Bug | Location | Fix | Status |
+|-----|----------|-----|--------|
+| **B3** — `[...]` list literal in S-expression fails with `unexpected ']'` when used as a function argument inside an `if` branch body. Top-level `let` bindings and direct expressions work fine; the failure is specific to the nested call-inside-if position. `pListLitExpr` was added in B2 for expression position but the `pExpr` grammar inside if-`then`/`else` branches does not correctly disambiguate `]` from a surrounding parameter-list close when nesting is deep. | `Parser.hs`, `pExpr` / `pIf` | Fix: ensure `pListLitExpr` is tried with the correct bracket-depth context inside `pIf`. Alternatively, disambiguate by requiring list literals to be wrapped in parens when nested: `([ a b c ])`. Workaround: hoist list literals into `let` bindings before the `if` (see `getting-started.md §4.7`). JSON-AST is unaffected. | ❌ Open |
+| **N2** — `string-concat` arity errors (2 args required, >2 given) should suggest `string-concat-many` in the error message. Currently the diagnostic reports only the arity mismatch with no hint. | `TypeCheck.hs`, arity error path | When arity mismatch occurs on `string-concat` and actual > expected, append ` — consider string-concat-many for joining more than 2 strings` to the message. | ❌ Open |
+| **N3** — JSON-AST `let` binding objects with extra keys (e.g. `kind`, `op` mixed in alongside `name`/`expr`) are silently accepted by `parseJSONAST` even though the schema declares `additionalProperties: false` on binding objects. Discovered in tictactoe JSON re-implementation: a malformed binding was accepted as-is, producing a corrupt AST node rather than a clear error. | `ParserJSON.hs`, `parseLet1Binding`; `parseJSONAST` entry point | Add an optional pre-parse JSON Schema validation step (e.g. via `aeson-schema` or `jsonschema-validator`) before `parseEither`. Alternatively, tighten `parseLet1Binding` to fail explicitly on unexpected keys. | ❌ Open |
+
 ---
 
 ## v0.2 — Module System + Compile-Time Verification

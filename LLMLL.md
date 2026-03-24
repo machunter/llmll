@@ -939,6 +939,8 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 2. **`check` requires exactly one `for-all`.** A bare boolean expression is not valid inside `check`.
 3. **`check` block labels must be valid identifiers.** Labels become Haskell `prop_*` function names. Any character outside `[a-zA-Z0-9]` is automatically replaced with `_` by the compiler. Write labels like `"game-over-false-at-start"` rather than `"game over (initial state)"` — both are accepted but special chars are silently normalized.
 4. **List literals** (`[]`, `[a b c]`) are valid in both S-expression and JSON-AST. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)` — **not** a parameter list. In JSON-AST use `{ "kind": "lit-list", "items": [...] }`.
+
+   > **v0.1.x S-expression restriction (B3):** A list literal used as a direct argument to a function call inside an `if` branch body causes a parse error (`unexpected ']'`). Hoist the literal into a `let` binding before the `if`, or use JSON-AST where this is not an issue. See `docs/getting-started.md §4.7`.
 5. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The v0.1.1 double-bracket form `(let [[x 1] [y 2]] ...)` is also accepted and equivalent — both forms compile to identical AST nodes.
 6. **`match` must be exhaustive.** Use `_` as the final arm if not all cases are covered explicitly. A `match` without `_` that fails at runtime raises `MatchFailure`.
 7. **`result` is reserved** inside `post` clauses. Do not use it as a variable or parameter name anywhere.
