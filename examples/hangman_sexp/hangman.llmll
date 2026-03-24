@@ -1,0 +1,151 @@
+;; Hangman — S-expression version
+;; State = (word, (guessed, (wrong-count, max-wrong)))
+;;   word        : string       — the secret word
+;;   guessed     : list[string] — letters guessed so far (1-char strings)
+;;   wrong-count : int          — number of wrong guesses
+;;   max-wrong   : int          — maximum allowed wrong guesses (6)
+
+;; ─── Dependent types ───────────────────────────────────────────────────────
+
+(type Word
+  (where [s: string] (> (string-length s) 0)))
+
+(type Letter
+  (where [s: string] (= (string-length s) 1)))
+
+(type GuessCount
+  (where [n: int] (>= n 0)))
+
+;; ─── State accessors ───────────────────────────────────────────────────────
+
+(def-logic state-word [s: string]
+  (first s))
+
+(def-logic state-guessed [s: string]
+  (first (second s)))
+
+(def-logic state-wrong [s: string]
+  (first (second (second s))))
+
+(def-logic state-max [s: string]
+  (second (second (second s))))
+
+;; ─── State constructor ─────────────────────────────────────────────────────
+
+(def-logic make-state [w: string g: list[string] wc: int mx: int]
+  (pair w (pair g (pair wc mx))))
+
+;; ─── Gallows art ───────────────────────────────────────────────────────────
+
+(def-logic gallows-art [wrong: int]
+  (if (= wrong 0) " -----\n |   |\n |\n |\n |\n |\n-+----\n"
+  (if (= wrong 1) " -----\n |   |\n |   O\n |\n |\n |\n-+----\n"
+  (if (= wrong 2) " -----\n |   |\n |   O\n |   |\n |\n |\n-+----\n"
+  (if (= wrong 3) " -----\n |   |\n |   O\n |  /|\n |\n |\n-+----\n"
+  (if (= wrong 4) " -----\n |   |\n |   O\n |  /|\\\n |\n |\n-+----\n"
+  (if (= wrong 5) " -----\n |   |\n |   O\n |  /|\\\n |  /\n |\n-+----\n"
+  " -----\n |   |\n |   O\n |  /|\\\n |  /\\\n |\n-+----\n")))))))
+
+;; ─── Display word with blanks ──────────────────────────────────────────────
+
+;; Returns "_" if letter not in guessed, else the letter itself
+(def-logic show-letter [letter: string guessed: list[string]]
+  (if (list-contains guessed letter)
+      letter
+      "_"))
+
+;; Build a display string for the word: "h _ n g m _ n"
+(def-logic display-word [word: string guessed: list[string]]
+  (let [(n       (string-length word))
+        (indices (range 0 n))
+        (chars   (list-map indices (fn [i: int] (string-char-at word i))))
+        (shown   (list-map chars   (fn [c: string] (show-letter c guessed))))
+        (joined  (list-fold shown "" (fn [acc c]
+                    (if (= acc "") c (string-concat acc (string-concat " " c))))))]
+    joined))
+
+;; ─── Game status predicates ────────────────────────────────────────────────
+
+;; true if every letter of word has been guessed
+(def-logic all-guessed? [word: string guessed: list[string]]
+  (let [(n       (string-length word))
+        (indices (range 0 n))
+        (letters (list-map indices (fn [i: int] (string-char-at word i))))]
+    (list-fold letters true (fn [acc c] (and acc (list-contains guessed c))))))
+
+(def-logic game-won? [s: string]
+  (all-guessed? (state-word s) (state-guessed s)))
+
+(def-logic game-lost? [s: string]
+  (>= (state-wrong s) (state-max s)))
+
+(def-logic is-game-over? [s: string]
+  (or (game-won? s) (game-lost? s)))
+
+;; ─── Render current board ──────────────────────────────────────────────────
+
+(def-logic render-board [s: string]
+  (let [(art    (gallows-art (state-wrong s)))
+        (disp   (display-word (state-word s) (state-guessed s)))
+        (wrong  (state-wrong s))
+        (max-w  (state-max s))
+        (remain (- max-w wrong))
+        (line1  (string-concat "Word: " disp))
+        (line2  (string-concat "\nWrong guesses: " (int-to-string wrong)))
+        (line3  (string-concat " / " (int-to-string max-w)))
+        (line4  (string-concat "  (" (string-concat (int-to-string remain) " remaining)\n")))]
+    (string-concat art (string-concat "\n" (string-concat line1 (string-concat line2 (string-concat line3 line4)))))))
+
+;; ─── Init ──────────────────────────────────────────────────────────────────
+
+(def-logic start-game []
+  (let [(word  "hangman")
+        (state (make-state word (list-empty) 0 6))
+        (board (render-board state))
+        (msg   (string-concat "=== HANGMAN ===\n" (string-concat board "\nGuess a letter: ")))]
+    (pair state (wasi.io.stdout msg))))
+
+;; ─── Step ──────────────────────────────────────────────────────────────────
+
+(def-logic game-loop [s: string input: string]
+  (let [(trimmed (string-trim input))
+        (letter  (if (> (string-length trimmed) 0)
+                     (string-char-at trimmed 0)
+                     ""))]
+    (if (= letter "")
+        ;; Empty input — ask again
+        (pair s (wasi.io.stdout "Please enter a letter: "))
+        ;; Valid letter
+        (let [(already     (list-contains (state-guessed s) letter))
+              (new-guessed (if already
+                              (state-guessed s)
+                              (list-append (state-guessed s) letter)))
+              (in-word     (string-contains (state-word s) letter))
+              (new-wrong   (if (or already in-word)
+                              (state-wrong s)
+                              (+ (state-wrong s) 1)))
+              (new-state   (make-state (state-word s) new-guessed new-wrong (state-max s)))
+              (feedback    (if already
+                              "You already guessed that letter!\n"
+                              (if in-word "Good guess!\n" "Wrong!\n")))
+              (board       (render-board new-state))
+              (prompt      (if (is-game-over? new-state) "" "Guess a letter: "))
+              (out         (string-concat feedback (string-concat board prompt)))]
+          (pair new-state (wasi.io.stdout out))))))
+
+;; ─── On-done ───────────────────────────────────────────────────────────────
+
+(def-logic show-result [s: string]
+  (let [(won    (game-won? s))
+        (prefix (if won "You won! The word was: " "Game over! The word was: "))
+        (msg    (string-concat prefix (string-concat (state-word s) "\n")))]
+    (wasi.io.stdout msg)))
+
+;; ─── Entry point ───────────────────────────────────────────────────────────
+
+(def-main
+  :mode    console
+  :init    (start-game)
+  :step    game-loop
+  :done?   is-game-over?
+  :on-done show-result)

@@ -1,0 +1,474 @@
+{
+  "schemaVersion": "0.1.3",
+  "llmll_version": "0.1.3",
+  "source_file": "tictactoe.ast.json",
+  "statements": [
+
+    {
+      "kind": "import",
+      "path": "wasi.io",
+      "capability": { "name": "stdout", "deterministic": false }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "state-board",
+      "params": [{ "name": "s" }],
+      "body": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "s" }] }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "state-turn",
+      "params": [{ "name": "s" }],
+      "body": { "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "s" }] }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "make-state",
+      "params": [
+        { "name": "board" },
+        { "name": "turn", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "pair",
+        "fst": { "kind": "var", "name": "board" },
+        "snd": { "kind": "var", "name": "turn" }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "cell-at",
+      "params": [
+        { "name": "board" },
+        { "name": "idx", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "app",
+        "fn": "unwrap-or",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "list-nth",
+            "args": [
+              { "kind": "var", "name": "board" },
+              { "kind": "var", "name": "idx" }
+            ]
+          },
+          { "kind": "lit-string", "value": " " }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "set-cell",
+      "params": [
+        { "name": "board" },
+        { "name": "target", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "mark", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          {
+            "name": "indices",
+            "expr": { "kind": "app", "fn": "range", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 9 }] }
+          }
+        ],
+        "body": {
+          "kind": "app",
+          "fn": "list-map",
+          "args": [
+            { "kind": "var", "name": "indices" },
+            {
+              "kind": "lambda",
+              "params": [{ "name": "i", "param_type": { "kind": "primitive", "name": "int" } }],
+              "body": {
+                "kind": "if",
+                "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "i" }, { "kind": "var", "name": "target" }] },
+                "then_branch": { "kind": "var", "name": "mark" },
+                "else_branch": {
+                  "kind": "app",
+                  "fn": "cell-at",
+                  "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "i" }]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "three-match?",
+      "params": [
+        { "name": "board" },
+        { "name": "a", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "b", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "c", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "ca", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "a" }] } },
+          { "name": "cb", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "b" }] } },
+          { "name": "cc", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "c" }] } },
+          { "name": "not-empty", "expr": { "kind": "op", "op": "!=", "args": [{ "kind": "var", "name": "ca" }, { "kind": "lit-string", "value": " " }] } },
+          { "name": "ab-match", "expr": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "ca" }, { "kind": "var", "name": "cb" }] } },
+          { "name": "ac-match", "expr": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "ca" }, { "kind": "var", "name": "cc" }] } }
+        ],
+        "body": {
+          "kind": "op",
+          "op": "and",
+          "args": [
+            { "kind": "var", "name": "not-empty" },
+            { "kind": "op", "op": "and", "args": [{ "kind": "var", "name": "ab-match" }, { "kind": "var", "name": "ac-match" }] }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "winner?",
+      "params": [{ "name": "board" }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "r0", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 1 }, { "kind": "lit-int", "value": 2 }] } },
+          { "name": "r1", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 3 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 5 }] } },
+          { "name": "r2", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 6 }, { "kind": "lit-int", "value": 7 }, { "kind": "lit-int", "value": 8 }] } },
+          { "name": "c0", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 3 }, { "kind": "lit-int", "value": 6 }] } },
+          { "name": "c1", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 1 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 7 }] } },
+          { "name": "c2", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 2 }, { "kind": "lit-int", "value": 5 }, { "kind": "lit-int", "value": 8 }] } },
+          { "name": "d0", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 8 }] } },
+          { "name": "d1", "expr": { "kind": "app", "fn": "three-match?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 2 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 6 }] } }
+        ],
+        "body": {
+          "kind": "op", "op": "or",
+          "args": [
+            { "kind": "var", "name": "r0" },
+            { "kind": "op", "op": "or", "args": [
+              { "kind": "var", "name": "r1" },
+              { "kind": "op", "op": "or", "args": [
+                { "kind": "var", "name": "r2" },
+                { "kind": "op", "op": "or", "args": [
+                  { "kind": "var", "name": "c0" },
+                  { "kind": "op", "op": "or", "args": [
+                    { "kind": "var", "name": "c1" },
+                    { "kind": "op", "op": "or", "args": [
+                      { "kind": "var", "name": "c2" },
+                      { "kind": "op", "op": "or", "args": [
+                        { "kind": "var", "name": "d0" },
+                        { "kind": "var", "name": "d1" }
+                      ]}
+                    ]}
+                  ]}
+                ]}
+              ]}
+            ]}
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "board-full?",
+      "params": [{ "name": "board" }],
+      "body": {
+        "kind": "op",
+        "op": "not",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "list-contains",
+            "args": [
+              { "kind": "var", "name": "board" },
+              { "kind": "lit-string", "value": " " }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "is-game-over?",
+      "params": [{ "name": "s" }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "board", "expr": { "kind": "app", "fn": "state-board", "args": [{ "kind": "var", "name": "s" }] } },
+          { "name": "won", "expr": { "kind": "app", "fn": "winner?", "args": [{ "kind": "var", "name": "board" }] } },
+          { "name": "full", "expr": { "kind": "app", "fn": "board-full?", "args": [{ "kind": "var", "name": "board" }] } }
+        ],
+        "body": {
+          "kind": "op", "op": "or",
+          "args": [{ "kind": "var", "name": "won" }, { "kind": "var", "name": "full" }]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "render-board",
+      "params": [{ "name": "board" }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "c0", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }] } },
+          { "name": "c1", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 1 }] } },
+          { "name": "c2", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 2 }] } },
+          { "name": "c3", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 3 }] } },
+          { "name": "c4", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 4 }] } },
+          { "name": "c5", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 5 }] } },
+          { "name": "c6", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 6 }] } },
+          { "name": "c7", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 7 }] } },
+          { "name": "c8", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 8 }] } },
+          { "name": "sep", "expr": { "kind": "lit-string", "value": " | " } },
+          { "name": "ln", "expr": { "kind": "lit-string", "value": "\n-----------\n" } },
+          { "name": "row0", "expr": { "kind": "app", "fn": "string-concat-many", "args": [{ "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": " " },
+            { "kind": "var", "name": "c0" },
+            { "kind": "var", "name": "sep" },
+            { "kind": "var", "name": "c1" },
+            { "kind": "var", "name": "sep" },
+            { "kind": "var", "name": "c2" }
+          ]}] } },
+          { "name": "row1", "expr": { "kind": "app", "fn": "string-concat-many", "args": [{ "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": " " },
+            { "kind": "var", "name": "c3" },
+            { "kind": "var", "name": "sep" },
+            { "kind": "var", "name": "c4" },
+            { "kind": "var", "name": "sep" },
+            { "kind": "var", "name": "c5" }
+          ]}] } },
+          { "name": "row2", "expr": { "kind": "app", "fn": "string-concat-many", "args": [{ "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": " " },
+            { "kind": "var", "name": "c6" },
+            { "kind": "var", "name": "sep" },
+            { "kind": "var", "name": "c7" },
+            { "kind": "var", "name": "sep" },
+            { "kind": "var", "name": "c8" }
+          ]}] } }
+        ],
+        "body": {
+          "kind": "app", "fn": "string-concat-many",
+          "args": [{ "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": "\n" },
+            { "kind": "var", "name": "row0" },
+            { "kind": "var", "name": "ln" },
+            { "kind": "var", "name": "row1" },
+            { "kind": "var", "name": "ln" },
+            { "kind": "var", "name": "row2" },
+            { "kind": "lit-string", "value": "\n" }
+          ]}]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "next-player",
+      "params": [{ "name": "turn", "param_type": { "kind": "primitive", "name": "string" } }],
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "turn" }, { "kind": "lit-string", "value": "X" }] },
+        "then_branch": { "kind": "lit-string", "value": "O" },
+        "else_branch": { "kind": "lit-string", "value": "X" }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "start-game",
+      "params": [],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "empty-board", "expr": { "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " },
+            { "kind": "lit-string", "value": " " }
+          ]}},
+          { "name": "init-state", "expr": { "kind": "app", "fn": "make-state", "args": [
+            { "kind": "var", "name": "empty-board" },
+            { "kind": "lit-string", "value": "X" }
+          ]}},
+          { "name": "welcome", "expr": { "kind": "app", "fn": "string-concat-many", "args": [{ "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": "=== Tic-Tac-Toe ===\n" },
+            { "kind": "lit-string", "value": "Enter a position (1-9):\n" },
+            { "kind": "lit-string", "value": " 1 | 2 | 3\n-----------\n 4 | 5 | 6\n-----------\n 7 | 8 | 9\n\n" },
+            { "kind": "lit-string", "value": "Player X goes first. Enter position: " }
+          ]}]}}
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "init-state" },
+          "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "welcome" }] }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-loop",
+      "params": [
+        { "name": "s" },
+        { "name": "input", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "board", "expr": { "kind": "app", "fn": "state-board", "args": [{ "kind": "var", "name": "s" }] } },
+          { "name": "turn", "expr": { "kind": "app", "fn": "state-turn", "args": [{ "kind": "var", "name": "s" }] } },
+          { "name": "clean", "expr": { "kind": "app", "fn": "string-trim", "args": [{ "kind": "var", "name": "input" }] } },
+          { "name": "parsed", "expr": { "kind": "app", "fn": "string-to-int", "args": [{ "kind": "var", "name": "clean" }] } }
+        ],
+        "body": {
+          "kind": "match",
+          "scrutinee": { "kind": "var", "name": "parsed" },
+          "arms": [
+            {
+              "pattern": { "kind": "constructor", "constructor": "Error", "sub_patterns": [{ "kind": "bind", "name": "_err" }] },
+              "body": {
+                "kind": "pair",
+                "fst": { "kind": "var", "name": "s" },
+                "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Invalid input. Enter 1-9: " }] }
+              }
+            },
+            {
+              "pattern": { "kind": "constructor", "constructor": "Success", "sub_patterns": [{ "kind": "bind", "name": "pos" }] },
+              "body": {
+                "kind": "let",
+                "bindings": [
+                  { "name": "idx", "expr": { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "pos" }, { "kind": "lit-int", "value": 1 }] } },
+                  { "name": "in-range", "expr": { "kind": "op", "op": "and", "args": [
+                    { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 0 }] },
+                    { "kind": "op", "op": "<", "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 9 }] }
+                  ]}},
+                  { "name": "current-cell", "expr": { "kind": "app", "fn": "cell-at", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "idx" }] } },
+                  { "name": "cell-free", "expr": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "current-cell" }, { "kind": "lit-string", "value": " " }] } },
+                  { "name": "valid-move", "expr": { "kind": "op", "op": "and", "args": [{ "kind": "var", "name": "in-range" }, { "kind": "var", "name": "cell-free" }] } }
+                ],
+                "body": {
+                  "kind": "if",
+                  "cond": { "kind": "var", "name": "valid-move" },
+                  "then_branch": {
+                    "kind": "let",
+                    "bindings": [
+                      { "name": "new-board", "expr": { "kind": "app", "fn": "set-cell", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "idx" }, { "kind": "var", "name": "turn" }] } },
+                      { "name": "next-turn", "expr": { "kind": "app", "fn": "next-player", "args": [{ "kind": "var", "name": "turn" }] } },
+                      { "name": "new-state", "expr": { "kind": "app", "fn": "make-state", "args": [{ "kind": "var", "name": "new-board" }, { "kind": "var", "name": "next-turn" }] } },
+                      { "name": "board-str", "expr": { "kind": "app", "fn": "render-board", "args": [{ "kind": "var", "name": "new-board" }] } },
+                      { "name": "won-now", "expr": { "kind": "app", "fn": "winner?", "args": [{ "kind": "var", "name": "new-board" }] } },
+                      { "name": "full-now", "expr": { "kind": "app", "fn": "board-full?", "args": [{ "kind": "var", "name": "new-board" }] } },
+                      { "name": "prompt", "expr": {
+                        "kind": "if",
+                        "cond": { "kind": "var", "name": "won-now" },
+                        "then_branch": { "kind": "lit-string", "value": "" },
+                        "else_branch": {
+                          "kind": "if",
+                          "cond": { "kind": "var", "name": "full-now" },
+                          "then_branch": { "kind": "lit-string", "value": "" },
+                          "else_branch": {
+                            "kind": "app", "fn": "string-concat-many",
+                            "args": [{ "kind": "lit-list", "items": [
+                              { "kind": "lit-string", "value": "Player " },
+                              { "kind": "var", "name": "next-turn" },
+                              { "kind": "lit-string", "value": "'s turn. Enter position: " }
+                            ]}]
+                          }
+                        }
+                      }},
+                      { "name": "out", "expr": {
+                        "kind": "app", "fn": "string-concat-many",
+                        "args": [{ "kind": "lit-list", "items": [
+                          { "kind": "var", "name": "board-str" },
+                          { "kind": "lit-string", "value": "\n" },
+                          { "kind": "var", "name": "prompt" }
+                        ]}]
+                      }}
+                    ],
+                    "body": {
+                      "kind": "pair",
+                      "fst": { "kind": "var", "name": "new-state" },
+                      "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "out" }] }
+                    }
+                  },
+                  "else_branch": {
+                    "kind": "if",
+                    "cond": { "kind": "var", "name": "in-range" },
+                    "then_branch": {
+                      "kind": "pair",
+                      "fst": { "kind": "var", "name": "s" },
+                      "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Cell already taken. Enter another position: " }] }
+                    },
+                    "else_branch": {
+                      "kind": "pair",
+                      "fst": { "kind": "var", "name": "s" },
+                      "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Position out of range. Enter 1-9: " }] }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "show-result",
+      "params": [{ "name": "s" }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "board", "expr": { "kind": "app", "fn": "state-board", "args": [{ "kind": "var", "name": "s" }] } },
+          { "name": "turn", "expr": { "kind": "app", "fn": "state-turn", "args": [{ "kind": "var", "name": "s" }] } },
+          { "name": "won", "expr": { "kind": "app", "fn": "winner?", "args": [{ "kind": "var", "name": "board" }] } },
+          { "name": "prev-player", "expr": { "kind": "app", "fn": "next-player", "args": [{ "kind": "var", "name": "turn" }] } },
+          { "name": "msg", "expr": {
+            "kind": "if",
+            "cond": { "kind": "var", "name": "won" },
+            "then_branch": {
+              "kind": "app", "fn": "string-concat-many",
+              "args": [{ "kind": "lit-list", "items": [
+                { "kind": "lit-string", "value": "Player " },
+                { "kind": "var", "name": "prev-player" },
+                { "kind": "lit-string", "value": " wins! Congratulations!\n" }
+              ]}]
+            },
+            "else_branch": { "kind": "lit-string", "value": "It's a draw! Well played!\n" }
+          }}
+        ],
+        "body": {
+          "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+          "args": [{ "kind": "var", "name": "msg" }]
+        }
+      }
+    },
+
+    {
+      "kind": "def-main",
+      "mode": "console",
+      "init": { "kind": "app", "fn": "start-game", "args": [] },
+      "step": { "kind": "var", "name": "game-loop" },
+      "done?": { "kind": "var", "name": "is-game-over?" },
+      "on-done": { "kind": "var", "name": "show-result" }
+    }
+
+  ]
+}
