@@ -11,6 +11,11 @@ import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (reportSuccess)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs)
+import LLMLL.ParserJSON (parseJSONAST)
+import LLMLL.AstEmit (stmtToJson)
+import qualified Data.ByteString.Lazy.Char8 as BLC
+import Data.Aeson (encode, decode, Value(..))
+import qualified Data.Map.Strict as DM
 
 main :: IO ()
 main = hspec $ do
@@ -294,3 +299,64 @@ main = hspec $ do
         Just src -> do
           src `shouldSatisfy` T.isInfixOf "then finish s else do"
           src `shouldSatisfy` T.isInfixOf "        eof <- hIsEOF stdin"
+
+  -- -----------------------------------------------------------------------
+  -- ParserJSON regression: def-main done? / on-done key names (tictactoe bug)
+  -- -----------------------------------------------------------------------
+  describe "ParserJSON (def-main done? / on-done keys)" $ do
+    it "parses 'done?' key and wires it into generated harness" $ do
+      -- JSON-AST with done? and on-done fields
+      let src = BLC.pack $ unlines
+            [ "{"
+            , "  \"schemaVersion\": \"0.1.3\","
+            , "  \"statements\": ["
+            , "    {"
+            , "      \"kind\": \"def-main\","
+            , "      \"mode\": \"console\","
+            , "      \"step\":    { \"kind\": \"var\", \"name\": \"game-loop\" },"
+            , "      \"done?\":   { \"kind\": \"var\", \"name\": \"is-game-over?\" },"
+            , "      \"on-done\": { \"kind\": \"var\", \"name\": \"show-result\" }"
+            , "    }"
+            , "  ]"
+            , "}"
+            ]
+      case parseJSONAST "<test>" src of
+        Left err  -> expectationFailure (show err)
+        Right stmts -> do
+          -- Check the SDefMain node carries non-Nothing done and on-done
+          let mains = [s | s@SDefMain{} <- stmts]
+          length mains `shouldBe` 1
+          case head mains of
+            SDefMain _ _ _ _ mDone mOnDone -> do
+              mDone   `shouldSatisfy` (/= Nothing)
+              mOnDone `shouldSatisfy` (/= Nothing)
+            _ -> expectationFailure "expected SDefMain"
+
+    it "parsed done? wires into generated Main.hs (harness terminates)" $ do
+      let src = BLC.pack $ unlines
+            [ "{"
+            , "  \"schemaVersion\": \"0.1.3\","
+            , "  \"statements\": ["
+            , "    {"
+            , "      \"kind\": \"def-main\","
+            , "      \"mode\": \"console\","
+            , "      \"step\":    { \"kind\": \"var\", \"name\": \"game-loop\" },"
+            , "      \"done?\":   { \"kind\": \"var\", \"name\": \"is-game-over?\" },"
+            , "      \"on-done\": { \"kind\": \"var\", \"name\": \"show-result\" }"
+            , "    }"
+            , "  ]"
+            , "}"
+            ]
+      case parseJSONAST "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = generateHaskell "test" stmts
+          case cgMainHs result of
+            Nothing  -> expectationFailure "expected Main.hs"
+            Just hs  -> do
+              -- Guard must reference is_game_over' not hardcode False
+              hs `shouldSatisfy` T.isInfixOf "is_game_over'"
+              -- on-done show-result must appear
+              hs `shouldSatisfy` T.isInfixOf "show_result"
+              -- The broken hardcoded pattern must NOT appear
+              hs `shouldSatisfy` (not . T.isInfixOf "let _done = False")

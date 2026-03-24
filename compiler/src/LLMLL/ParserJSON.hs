@@ -214,8 +214,8 @@ parseDefMain o = do
   step    <- o .: "step"    >>= parseExpr
   mInit   <- o .:? "init"    >>= mapM parseExpr
   mRead   <- o .:? "read"    >>= mapM parseExpr
-  mDone   <- o .:? "done"    >>= mapM parseExpr
-  mOnDone <- o .:? "on_done" >>= mapM parseExpr
+  mDone   <- o .:? "done?"   >>= mapM parseExpr
+  mOnDone <- o .:? "on-done" >>= mapM parseExpr
   let entryMode = case mode of
         "console" -> ModeConsole
         "cli"     -> ModeCli

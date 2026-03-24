@@ -114,8 +114,8 @@ stmtToJson (SDefMain mode mInit step mRead mDone mOnDone) =
     ] ++
     maybe [] (\e -> ["init"    .= exprToJson e]) mInit    ++
     maybe [] (\e -> ["read"    .= exprToJson e]) mRead    ++
-    maybe [] (\e -> ["done"    .= exprToJson e]) mDone    ++
-    maybe [] (\e -> ["on_done" .= exprToJson e]) mOnDone
+    maybe [] (\e -> ["done?"   .= exprToJson e]) mDone    ++
+    maybe [] (\e -> ["on-done" .= exprToJson e]) mOnDone
   where
     entryModeLabel ModeConsole  = "console" :: Text
     entryModeLabel ModeCli      = "cli"
