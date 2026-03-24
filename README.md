@@ -63,6 +63,8 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 |---------|--------|-------------|
 | `examples/hangman_sexp/` | S-expression | Full Hangman game with ASCII gallows art; uses `def-main :mode console` |
 | `examples/hangman_json/` | JSON-AST | Same program, JSON-AST schema-constrained version |
+| `examples/tictactoe_sexp/` | S-expression | Two-player Tic-Tac-Toe; demonstrates `:done?` + `:on-done` |
+| `examples/tictactoe_json/` | JSON-AST | Same Tic-Tac-Toe program in JSON-AST format |
 | `examples/withdraw.llmll` | S-expression | Simple withdraw with `pre`/`post` contracts; acceptance gate |
 
 ---
@@ -125,7 +127,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.1.2)
+LLMLL.md                    ← canonical language specification (v0.1.3.1)
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
     Parser.hs               ← S-expression parser (Megaparsec)
@@ -140,6 +142,8 @@ compiler/                   ← Haskell compiler (stack project)
 examples/
   hangman_sexp/             ← Full Hangman (S-expression)
   hangman_json/             ← Full Hangman (JSON-AST)
+  tictactoe_sexp/           ← Tic-Tac-Toe (S-expression)
+  tictactoe_json/           ← Tic-Tac-Toe (JSON-AST)
   withdraw.llmll            ← Contract demo
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning

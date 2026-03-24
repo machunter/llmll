@@ -13,12 +13,12 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.1.2'. The compiler rejects files with an unrecognised version. See docs/json-ast-versioning.md.",
+          "description": "Must be '0.1.3'. The compiler rejects files with an unrecognised version. See docs/json-ast-versioning.md.",
           "type": "string",
           "const": "0.1.3"
         },
         "llmll_version": {
-          "description": "Must be '0.1.2'.",
+          "description": "Must be '0.1.3'.",
           "type": "string",
           "const": "0.1.3"
         },

@@ -75,6 +75,14 @@ stack exec llmll -- test ../examples/hangman_json/hangman.ast.json
 Properties are skipped when they contain `Command`-producing expressions that cannot be statically evaluated.
 The skip message names which case applies.
 
+> [!IMPORTANT]
+> **Stack lock deadlock** — same lock issue as `build`. Use `--emit-only` to generate the QuickCheck Haskell without running `stack test`:
+> ```bash
+> stack exec llmll -- test hangman.ast.json --emit-only
+> #    src/Lib.hs -- 8803 chars
+> #    (stack test skipped — --emit-only)
+> ```
+
 ### `build` — generate Haskell
 
 ```bash
@@ -195,16 +203,21 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `string-concat-many` | `list[string] → string` | Concat list of strings |
 | `list-nth` | `list[a] int → Result[a, string]` | Safe indexed access |
 
-### 4.6 `def-main` Initialisation
+### 4.6 `def-main` Initialisation and Termination
 
 ```json
 { "kind": "def-main", "mode": "console",
-  "init": { "kind": "app", "fn": "start-game", "args": [] },
-  "step": { "kind": "var", "name": "game-loop" } }
+  "init":    { "kind": "app", "fn": "start-game", "args": [] },
+  "step":    { "kind": "var", "name": "game-loop" },
+  "done?":   { "kind": "var", "name": "is-game-over?" },
+  "on-done": { "kind": "var", "name": "show-result" } }
 ```
 
 > [!IMPORTANT]
 > `:init` must be a **zero-arg function call** `{ "kind": "app", "fn": "start-game", "args": [] }`, not `{ "kind": "var", "name": "start-game" }`.
+
+> [!IMPORTANT]
+> **`:on-done` is the canonical hook for end-of-game output.** If `game-loop` prints a win/loss message on the same turn the game ends, the board can render twice. Move all terminal output for the final state into a dedicated `show-result` function and declare it via `:on-done`. See `LLMLL.md §9.5` for the full before/after pattern.
 
 ### 4.7 Still Restricted in v0.1.x
 
