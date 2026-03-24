@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.1.2)
+# LLMLL: Large Language Model Logical Language (v0.1.3.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **v0.1.2 Scope:** The Haskell codegen backend is now the default target. This version closes specification gaps from the Hangman implementation exercise and documents the JSON-AST build path. Every construct in this document has fully defined syntax, grammar, and runtime semantics. Compile-time verification via LiquidHaskell arrives in v0.2; interactive theorem proving via Leanstral in v0.3. See the [Version Roadmap](#14-version-roadmap) at the end of this document. For the compiler team's implementation schedule and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
+> **Current scope (v0.1.3.1):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Compile-time verification via LiquidHaskell arrives in v0.2; interactive theorem proving via Leanstral in v0.3. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -110,43 +110,28 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > **`Command` from v0.1.2:** In generated Haskell, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library). A function's required capabilities are visible in its type signature. Missing capability declarations become type errors rather than silent runtime failures. The LLMLL surface syntax is unchanged — the effect row is a codegen detail, not a language syntax change.
 
 > [!IMPORTANT]
-> **v0.1.x Limitation — `pair-type` not accepted in `typed-param` position**
-> **Status: Partially resolved — see details below.**
+> **v0.1.x restriction — `pair-type` not accepted in `typed-param` position (Fixed in v0.2)**
 >
-> The grammar rule `typed-param = IDENT ":" type` syntactically allows `pair-type = "(" type "," type ")"`.
-> **However two separate issues affect pair types — they have different fix statuses:**
+> Writing `[acc: (int, string)]` anywhere a `typed-param` is expected is **rejected by the parser** with a parse error.
+> This applies to `def-logic` parameter lists, lambda parameters in `list-fold`/`list-map`, and `for-all` bindings.
 >
-> ---
->
-> **Issue A — Declaring a pair-type parameter** *(still restricted in v0.1.x, Fixed in v0.2)*
->
-> Writing `[acc: (int, string)]` in a `def-logic`, lambda, or `for-all` is **rejected by the parser** with a parse error.
-> This applies everywhere `typed-param` is used:
-> - `def-logic` parameter lists (`[s: (a, b)]` → use bare `[s]`)
-> - Lambda parameters inside `list-fold`, `list-map`, etc. (`(fn [acc: (int, string)] ...)` → use `(fn [acc] ...)`)
-> - `for-all` bindings in `check` blocks
->
-> **Workaround (v0.1.x):** Use an untyped parameter with a comment:
+> **Workaround (v0.1.x):** Use an untyped parameter:
 > ```lisp
 > ;; OK in v0.1.x — use untyped lambda params:
 > (list-fold board init (fn [acc cell] ...))
 > ```
-> **Fixed in v0.2** as an explicit type system deliverable (see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) §Phase 2c).
+> **Scheduled fix:** v0.2 — see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) §Phase 2c.
+
+> [!NOTE]
+> **`first`/`second` with annotated parameters — resolved in v0.1.3.1**
 >
-> ---
->
-> **Issue B — Passing an explicitly-typed variable to `first` / `second`** *(Fixed in v0.1.3.1, commit `ef6f41c`)*
->
-> In v0.1.1–v0.1.3, a state accessor parameter with an explicit type annotation (e.g. `[s: string]`) would be rejected
-> by the type checker when passed to `first` or `second` with `expected Result[a,b], got string`.
->
-> **This is no longer an issue.** Since v0.1.3.1 `first` / `second` accept any pair-like value regardless of
-> how the parameter was annotated. **Remove any `"untyped": true` workarounds** from state accessor functions:
+> `first` and `second` now accept any pair-like value regardless of how the parameter is annotated.
+> Explicit type annotations such as `[s: string]` on state accessor parameters work correctly:
 > ```lisp
-> ;; v0.1.3.1+ — explicit type annotation is fine:
 > (def-logic state-word  [s: string] (first s))
 > (def-logic state-score [s: string] (first (second s)))
 > ```
+> Remove any `"untyped": true` fields from state accessor functions — they are no longer needed.
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -376,16 +361,7 @@ In LLMLL, FFI imports are resolved through a **two-tier lookup** (v0.1.2+). The 
 | **1 — Hackage** | `haskell.*` | Regular GHC `import`; package added to `package.yaml`. No stub generated. | No |
 | **2 — C libraries** | `c.*` | GHC `foreign import ccall`; compiler generates `src/FFI/<lib>.hs` with typed stub. | Yes |
 
-> **What happened to the Rust FFI tier?** Prior to v0.1.2 the compiler targeted Rust. The legacy `rust.*` namespace and the FFI standard library (`serde_json`, `clap`, `atomic_fs`, etc.) are retired. Their Haskell equivalents are Tier 1 Hackage imports requiring no stub at all:
->
-> | Legacy (`rust.*`) | Hackage replacement (`haskell.*`) |
-> |-------------------|-----------------------------------|
-> | `rust.serde_json` | `haskell.aeson` (`Data.Aeson`) |
-> | `rust.clap` | `haskell.optparse-applicative` |
-> | `rust.atomic_fs` | `haskell.unix` (`System.Posix.Files`) |
-> | `rust.env` | `haskell.base` (`System.Environment`) |
-> | `rust.timer` | `haskell.base` (`Control.Concurrent`) |
-> | `rust.http_server` | `haskell.warp` (`Network.Wai`) |
+> The `rust.*` namespace is retired. The Haskell backend uses Tier 1 Hackage imports (e.g. `haskell.aeson`, `haskell.warp`) as direct replacements with no stub required.
 
 **Tier 1 example — zero developer action:**
 
@@ -422,18 +398,16 @@ In LLMLL, FFI imports are resolved through a **two-tier lookup** (v0.1.2+). The 
 ## 8. Module System
 
 > [!IMPORTANT]
-> **v0.1.1 Single-File Model — Known Limitations**
+> **Single-File Model — current v0.1.x constraint**
 >
-> The v0.1.1 compiler uses a **single-file model**: one `.llmll` source file is compiled into one self-contained Rust crate. Multi-file module resolution (loading a separate `.llmll` file when `(import my.module ...)` is seen) is **deferred to v0.2**.
+> The current compiler uses a **single-file model**: one `.llmll` source file is compiled into one self-contained Haskell package. Multi-file module resolution is **deferred to v0.2**.
 >
 > Concretely:
-> - **`(module Name ...)` at the top of a file is accepted and parsed.** The compiler flattens its body into top-level statements; the module name is ignored for codegen purposes (the crate name comes from the filename).
-> - **`(import path ...)` is parsed** and produces an `SImport` AST node. The path is recorded but no file is loaded. Capability enforcement is also deferred (see §9.2 note).
-> - **`wasi.io.stdout` and all other standard command constructors are unconditionally available** in the generated stdlib preamble — you do not need a matching `import` for them to work in v0.1.1. In v0.1.2+ (Haskell codegen) they are provided as top-level Haskell bindings in the generated `Lib.hs`.
-> - **Qualified identifiers** (dot notation) in function-call position are normalised by the compiler: `wasi.io.stdout` → `wasi_io_stdout` in v0.1.1 Rust output, and `wasiIoStdout` in v0.1.2+ Haskell output. As long as the built-in exists in the stdlib layer, calls resolve correctly in both targets.
+> - **`(module Name ...)` at the top of a file is accepted and parsed.** The compiler flattens its body into top-level statements; the module name is ignored for codegen.
+> - **`(import path ...)` is parsed** and produces an `SImport` AST node. The path is recorded but no file is loaded. Capability enforcement is deferred to v0.2.
+> - **All standard command constructors (`wasi.io.stdout`, etc.) are unconditionally available** as top-level Haskell bindings in the generated `Lib.hs` — no matching `import` is required in v0.1.x.
 >
-> **Recommended practice for v0.1.1:**
-> Write all code using `def-logic`, `type`, `check`, and `gen` at file scope. You may optionally wrap everything in a single `(module Name ...)` block for documentation purposes — the compiler will strip the wrapper. Keep all capability declarations as `(import ...)` for forward compatibility with v0.2, but do not depend on them being enforced.
+> **Recommended practice:** Write all code using `def-logic`, `type`, `check`, and `gen` at file scope. You may optionally wrap everything in a single `(module Name ...)` block for documentation purposes. Keep `(import ...)` declarations for forward compatibility with v0.2.
 
 ```lisp
 (module hangman

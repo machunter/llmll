@@ -106,7 +106,7 @@
     },
 
     "DefInvariant": {
-      "description": "A module-level invariant (verification deferred to v0.2). Stored but not checked at compile time in v0.1.1.",
+      "description": "A module-level invariant (verification deferred to v0.2). Stored but not checked at compile time in v0.1.x.",
       "type": "object",
       "required": ["kind", "name", "param", "body"],
       "additionalProperties": false,
@@ -222,7 +222,7 @@
     },
 
     "ImportDecl": {
-      "description": "Capability or FFI import. In v0.1.1 these are parsed and stored but not enforced.",
+      "description": "Capability or FFI import. Parsed and stored in v0.1.x; enforcement deferred to v0.2.",
       "type": "object",
       "required": ["kind", "path"],
       "additionalProperties": false,
@@ -250,7 +250,7 @@
     },
 
     "ModuleDecl": {
-      "description": "An optional namespace wrapper. In v0.1.1 the module name is ignored for codegen; its body is flattened.",
+      "description": "An optional namespace wrapper. The module name is ignored for codegen in v0.1.x; its body is flattened.",
       "type": "object",
       "required": ["kind", "name", "imports", "statements"],
       "additionalProperties": false,
@@ -263,14 +263,14 @@
     },
 
     "TypedParam": {
-      "description": "A named, typed parameter. Note: (1) pair-type in 'param_type' is rejected by the parser in v0.1.x — use 'untyped': true for pair-typed params (Fixed in v0.2). (2) Since v0.1.3.1, passing an explicitly-typed param to first/second no longer requires untyped.",
+      "description": "A named, typed parameter. Note: pair-type in 'param_type' is rejected by the parser in v0.1.x — use 'untyped': true for pair-typed params (fixed in v0.2).",
       "type": "object",
       "required": ["name"],
       "additionalProperties": false,
       "properties": {
         "name":       { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
         "param_type": { "$ref": "#/$defs/Type" },
-        "untyped":    { "type": "boolean", "default": false, "description": "Set true when param_type is a pair-type (v0.1.x limitation — pair-type in typed-param position is a parse error; Fixed in v0.2). NOT required for passing a var to first/second — that was fixed in v0.1.3.1 (commit ef6f41c)." },
+        "untyped":    { "type": "boolean", "default": false, "description": "Set true when param_type is a pair-type (v0.1.x limitation — pair-type in typed-param position is a parse error; fixed in v0.2)." },
         "comment":    { "type": "string", "description": "When untyped=true, document the expected type here." }
       }
     },

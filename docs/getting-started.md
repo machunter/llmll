@@ -157,8 +157,6 @@ These patterns work in the **current compiler**. Each shows what works today and
 
 ✅ **Works.** `first`/`second` accept any pair-like value regardless of annotation.
 
-> **Old workaround (remove it):** `"untyped": true` on state params. Fixed in v0.1.3.1 (`ef6f41c`).
-
 ### 4.2 Type Aliases at Call Sites
 
 ```lisp
@@ -167,8 +165,6 @@ These patterns work in the **current compiler**. Each shows what works today and
 ```
 
 Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to its base `int` before unification.
-
-> **Old workaround:** Remove the `where` clause or use raw `int`. Fixed in v0.1.3 (`9931a77`).
 
 ### 4.3 List Literals in JSON-AST
 
@@ -182,8 +178,6 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 
 ✅ Desugared by the parser to `foldr list-prepend (list-empty)`. Works for any length including `[]`.
 
-> **Old workaround:** 9 chained `list-append` calls for a 9-element board. Added in `7a190a9`.
-
 ### 4.4 Multi-Segment String Construction
 
 ```json
@@ -192,8 +186,6 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 ```
 
 ✅ `string-concat-many :: list[string] -> string` — concatenates without separator.
-
-> **Old workaround:** Five nested `string-concat` calls. Added in `7a190a9`.
 
 ### 4.5 New Built-ins (since v0.1.3.1)
 
@@ -215,9 +207,6 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 
 > [!IMPORTANT]
 > `:init` must be a **zero-arg function call** `{ "kind": "app", "fn": "start-game", "args": [] }`, not `{ "kind": "var", "name": "start-game" }`.
-
-> [!IMPORTANT]
-> **`def-main` JSON field names are exact.** The fields `"done?"` (with `?`) and `"on-done"` (with hyphen) must match the schema exactly. Common agent mistakes: `"done"`, `"isDone"`, `"onDone"`, `"on_done"` — all silently ignored by JSON parsers that don't validate against the schema.
 
 > [!IMPORTANT]
 > **`:on-done` is the canonical hook for end-of-game output.** If `game-loop` prints a win/loss message on the same turn the game ends, the board can render twice. Move all terminal output for the final state into a dedicated `show-result` function and declare it via `:on-done`. See `LLMLL.md §9.5` for the full before/after pattern.
@@ -245,6 +234,19 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 >   (if won (wasi.io.stdout msg) ...))
 > ```
 > This restriction does not apply to JSON-AST (`{"kind": "lit-list", ...}` is always unambiguous). Bug tracked as **B3** in `compiler-team-roadmap.md`.
+
+---
+
+### 4.8 Common Agent Mistakes
+
+| Mistake | Effect | Correct form |
+|---------|--------|--------------|
+| `def-main` field `"done"` instead of `"done?"` | Silently ignored by JSON parsers; game never terminates | `"done?"` (with `?`) |
+| `def-main` field `"onDone"` or `"on_done"` | Silently ignored | `"on-done"` (with hyphen) |
+| `"isDone"` instead of `"done?"` | Silently ignored | `"done?"` |
+| `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
+| `[...]` list literal as direct argument inside S-expression `if` branch | Parse error: `unexpected ]` | Hoist into a `let` binding before the `if` (see §4.7) |
+| `import` after `def-logic` inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def-logic` |
 
 > [!IMPORTANT]
 > **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site.
