@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.2)
+# LLMLL: Large Language Model Logical Language (v0.1.3.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). Compile-time verification via LiquidHaskell arrives in v0.2 Phase 2b; interactive theorem proving via Leanstral in v0.3. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.1.3.1):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Compile-time verification via LiquidHaskell arrives in v0.2; interactive theorem proving via Leanstral in v0.3. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -397,11 +397,17 @@ In LLMLL, FFI imports are resolved through a **two-tier lookup** (v0.1.2+). The 
 
 ## 8. Module System
 
-The module system provides **multi-file compilation**, namespace isolation, export control, and the `llmll-hub` package registry.
-
-### 8.1 Module Name and File Path
-
-A `(module Name ...)` declaration is accepted at the top of any file. The module name is a single `IDENT` and is used for documentation and tooling display only — the **canonical module path** is derived from the file's location relative to the source root. This avoids mismatches between declared names and import paths; agents do not need to know the path.
+> [!IMPORTANT]
+> **Single-File Model — current v0.1.x constraint**
+>
+> The current compiler uses a **single-file model**: one `.llmll` source file is compiled into one self-contained Haskell package. Multi-file module resolution is **deferred to v0.2**.
+>
+> Concretely:
+> - **`(module Name ...)` at the top of a file is accepted and parsed.** The compiler flattens its body into top-level statements; the module name is ignored for codegen.
+> - **`(import path ...)` is parsed** and produces an `SImport` AST node. The path is recorded but no file is loaded. Capability enforcement is deferred to v0.2.
+> - **All standard command constructors (`wasi.io.stdout`, etc.) are unconditionally available** as top-level Haskell bindings in the generated `Lib.hs` — no matching `import` is required in v0.1.x.
+>
+> **Recommended practice:** Write all code using `def-logic`, `type`, `check`, and `gen` at file scope. You may optionally wrap everything in a single `(module Name ...)` block for documentation purposes. Keep `(import ...)` declarations for forward compatibility with v0.2.
 
 ```lisp
 (module hangman
@@ -415,111 +421,7 @@ A `(module Name ...)` declaration is accepted at the top of any file. The module
     (all-guessed? (state-word state) (state-guessed state))))
 ```
 
-### 8.2 File-System Module Resolution
-
-`(import foo.bar.baz ...)` is resolved using a configurable **module root list** (default: directory of the entry-point source file, then `~/.llmll/modules/`):
-
-```
-foo/bar/baz.llmll        (S-expression — tried first)
-foo/bar/baz.ast.json     (JSON-AST      — tried second)
-~/.llmll/modules/foo/bar/baz.llmll   (hub cache — tried last)
-```
-
-If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precedence.
-
-### 8.3 Import Ordering Rule
-
-All `import`, `open`, and `export` declarations must appear **before** any `def-logic`, `type`, or `def-interface` statements — both inside a `(module ...)` block and at file scope. The parser reads imports in a first pass; declarations placed after logic definitions are silently ignored.
-
-### 8.4 Cycle Detection
-
-Circular imports are a **compile error**. The compiler performs a DFS-based cycle check before loading any module. The diagnostic names the full import cycle:
-
-```json
-{
-  "kind":    "circular-import",
-  "cycle":   ["foo.bar", "foo.baz", "foo.bar"],
-  "message": "Circular import detected: foo.bar → foo.baz → foo.bar"
-}
-```
-
-### 8.5 Namespace Isolation — Prefixed Access
-
-By default, all names exported by an imported module are accessible via the fully qualified path:
-
-```lisp
-(module app.main
-  (import app.auth))
-
-;; Use the qualified name:
-(app.auth.hash-password raw-str)
-```
-
-This reuses the existing `QualIdent` / dot-notation infrastructure — no new runtime concept.
-
-### 8.6 `open` — Selective Unprefixing
-
-`(open path)` pulls a module's exports into the current scope without a prefix. An optional name list restricts which names are unprefixed:
-
-```lisp
-(open app.auth)                  ;; all exports at bare names
-(open app.auth (hash-password))  ;; only hash-password unprefixed
-```
-
-`open` is a compile-time name-alias injection — it has no effect on codegen output.
-
-> **Collision policy:** If two `(open ...)` declarations export the same bare name, the second `open` wins (last wins). The compiler emits a WARNING diagnostic. An agent that needs both must use prefixed access for at least one.
-
-### 8.7 `export` — Visibility Control
-
-```lisp
-(export hash-password verify-token)   ;; only these two names visible externally
-```
-
-If no `export` declaration is present, **all** top-level `def-logic`, `type`, `def-interface`, and `gen` declarations are exported (open default). `check` and `def-invariant` blocks are **never exported**.
-
-The `export` declaration must appear before the first `def-logic`.
-
-### 8.8 Cross-Module `def-interface` Enforcement
-
-When module B imports module A and calls a function declared in A's `def-interface`, the compiler:
-
-1. Looks up the interface shape in A's exported `ModuleEnv`.
-2. Checks structural compatibility for every method.
-3. Expands type aliases from A's scope before comparison.
-4. Emits a compile error if any method is missing or type-incompatible:
-
-```json
-{
-  "kind":      "interface-mismatch",
-  "module":    "app.auth",
-  "interface": "AuthSystem",
-  "method":    "hash-password",
-  "expected":  "(fn [string] -> bytes[64])",
-  "got":       "(fn [string] -> string)",
-  "pointer":   "/statements/2/body"
-}
-```
-
-### 8.9 `llmll-hub` Registry
-
-The `hub.` import prefix resolves modules from the local `llmll-hub` cache (`~/.llmll/modules/`). Fetch packages with:
-
-```bash
-llmll hub fetch llmll-crypto@0.1.0
-```
-
-Import syntax:
-
-```lisp
-(import hub.llmll-crypto.hash.bcrypt (interface [
-  [bcrypt-hash (fn [raw: string] -> bytes[64])]
-]))
-```
-
-The `hub.` prefix prevents local files from accidentally shadowing registry packages. Publishing, semantic versioning beyond `major.minor.patch`, and a web registry API are deferred to v0.3.
-
-Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7). _(Full hub write-path including publishing is introduced in v0.3.)_
+Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7). _(Full module resolution is introduced in v0.2.)_
 
 ---
 
@@ -863,9 +765,7 @@ The grammar is given in EBNF. `{ x }` means zero or more `x`. `[ x ]` means opti
 (* ============================================================ *)
 program     = { statement } ;
 statement   = type-decl | gen-decl | def-logic | def-interface
-            | def-invariant | def-main | module-decl | import
-            | open-decl | export-decl              (* NEW in v0.2 *)
-            | check | expr ;
+            | def-invariant | def-main | module-decl | import | check | expr ;
 
 (* ============================================================ *)
 (* Module                                                        *)
@@ -880,19 +780,6 @@ import      = "(" "import" qual-ident
                 [ "(" "interface" { iface-fn } ")" ]
               ")" ;
 kv          = ":" IDENT ( STRING | INT | "true" | "false" | IDENT ) ;
-
-(* ============================================================ *)
-(* Open and Export — NEW in v0.2                                 *)
-(* ============================================================ *)
-open-decl   = "(" "open" qual-ident [ "(" { IDENT } ")" ] ")" ;
-              (* (open foo.bar)           — all exports into scope unprefixed  *)
-              (* (open foo.bar (f g))     — only f and g unprefixed            *)
-              (* Must appear before any def-logic in the same scope.           *)
-
-export-decl = "(" "export" { IDENT } ")" ;
-              (* Names listed here are the only ones visible to importers.     *)
-              (* Absent: all top-level defs exported (open default).           *)
-              (* Must appear before the first def-logic in the file.           *)
 
 (* ============================================================ *)
 (* Types                                                         *)
@@ -1304,19 +1191,17 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 
 ### v0.2 — Module System + Compile-Time Verification
 
-The module system shipped **first within v0.2** (Phase 2a) because cross-module invariant verification (`def-invariant` + LiquidHaskell) requires multi-file resolution as substrate.
+The module system ships **first within v0.2** because cross-module invariant verification (`def-invariant` + LiquidHaskell) requires multi-file resolution as substrate.
 
 | Area | Feature |
 |------|---------|
-| **Module system (Phase 2a)** | Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent |
-| **Module system (Phase 2a)** | Namespace isolation: each source file has its own top-level scope; imported names accessible as `module.name` |
-| **Module system (Phase 2a)** | `open` / `export` — selective unprefixing and visibility control (see §8.6, §8.7) |
-| **Module system (Phase 2a)** | Cross-module `def-interface` enforcement — structural compatibility checked at import time (see §8.8) |
-| **Module system (Phase 2a)** | `llmll-hub` read-only registry: `llmll hub fetch <pkg>@<ver>` + `hub.` import prefix (see §8.9) |
+| **Module system** | Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent |
+| **Module system** | Namespace isolation: each source file has its own top-level scope |
+| **Module system** | `llmll-hub` read-only module registry (prerequisite for `?scaffold` in v0.3) |
 | **Capability enforcement** | Capability declarations fully enforced by the typed effect row — missing imports are type errors at compile time |
-| **Compile-time contracts (Phase 2b)** | `pre`/`post` and `where`-type constraints translated to LiquidHaskell `{-@ ... @-}` refinement annotations. Violations are compile-time errors, not runtime surprises. Constraint language: quantifier-free linear arithmetic + regex (decidable, Z3-backed via LiquidHaskell's GHC plugin) |
-| **`?proof-required` holes (Phase 2b)** | Predicates outside the decidable QF fragment are emitted as `?proof-required` holes with a compiler-assigned complexity hint: `:simple` (LiquidHaskell track), `:inductive` (Leanstral track, v0.3), `:unknown`. Holes are non-blocking in v0.2. |
-| **Type system fix (Phase 2c)** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.x workaround (untyped parameters) is no longer needed |
+| **Compile-time contracts** | `pre`/`post` and `where`-type constraints translated to LiquidHaskell `{-@ ... @-}` refinement annotations. Violations are compile-time errors, not runtime surprises. Constraint language: quantifier-free linear arithmetic + regex (decidable, Z3-backed via LiquidHaskell's GHC plugin) |
+| **`?proof-required` holes** | Predicates outside the decidable QF fragment are emitted as `?proof-required` holes with a compiler-assigned complexity hint: `:simple` (LiquidHaskell track), `:inductive` (Leanstral track, v0.3), `:unknown`. Holes are non-blocking in v0.2. |
+| **Type system fix** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.1 workaround (untyped parameters) is no longer needed |
 | `letrec` | Bounded recursion with mandatory `:decreases` termination annotation (LiquidHaskell-verified) |
 | `match` | Static exhaustiveness checking for ADT types — `match` without `_` covering all constructors is a compile error |
 | `def-invariant` | LiquidHaskell-backed module invariant verification after every AST merge |
