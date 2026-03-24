@@ -16,19 +16,22 @@ import System.Exit (exitFailure, exitSuccess, ExitCode(..))
 import System.FilePath (takeBaseName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
 import System.Process (readProcessWithExitCode)
-import Control.Monad (unless, forM_, when)
+import Control.Monad (unless, forM_, when, foldM)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Options.Applicative
+import qualified Data.Set as Set
 
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement, Span(..))
-import LLMLL.TypeCheck (typeCheck, emptyEnv)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, Import(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv)
+import LLMLL.Module (loadModule)
+import LLMLL.Hub (hubFetchLocal)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
   , totalHoles, blockingHoles, holeEntries
@@ -56,6 +59,7 @@ data Command
   | CmdBuildFromJson FilePath (Maybe FilePath) Bool     -- file, outdir, --emit-only
   | CmdRun    FilePath [String]                         -- file, extra args
   | CmdRepl
+  | CmdHub    FilePath                                  -- Phase 2a: hub fetch --from-file <tarball>
   deriving (Show)
 
 data Options = Options
@@ -88,6 +92,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Compile and immediately run an LLMLL program (requires def-main)"))
       <> command "repl"  (info (pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
+      <> command "hub"   (info hubCmd
+          (progDesc "Manage llmll-hub local package cache"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -116,6 +122,12 @@ optionsParser = info (helper <*> opts) $
       <$> fileArg
       <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
 
+    hubCmd = CmdHub
+      <$> strOption
+            (long "from-file" <> metavar "TARBALL"
+            <> help "Install a .tar.gz package into the local hub cache (~/.llmll/modules/)")
+
+
 -- ---------------------------------------------------------------------------
 -- Main
 -- ---------------------------------------------------------------------------
@@ -134,6 +146,7 @@ main = do
     CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
+    CmdHub   tarball          -> doHubFetch json tarball
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -186,16 +199,56 @@ emitParseDiag json fp d
     quote t = "\"" <> T.replace "\"" "\\\"" t <> "\""
 
 -- ---------------------------------------------------------------------------
+-- Multi-file loader (Phase 2a)
+-- ---------------------------------------------------------------------------
+
+-- | Load an entry-point file and recursively load all its transitive imports.
+-- Returns the flat statement list for the entry file AND a populated ModuleCache
+-- containing all imported modules (topologically resolved).
+-- Falls back to single-file (empty cache) when no filesystem imports are found.
+loadStatementsMulti :: Bool -> FilePath -> IO (Either () ([Statement], ModuleCache))
+loadStatementsMulti json fp = do
+  mStmts <- loadStatements json fp
+  case mStmts of
+    Left ()     -> pure (Left ())
+    Right stmts -> do
+      -- Collect file-system imports from the entry file
+      let imports = [imp | SImport imp <- stmts]
+          srcRoot = takeDirectory fp
+      -- Build ModuleCache by loading all imports (post-order DFS)
+      result <- foldM (loadOneImp json srcRoot) (Right Map.empty) imports
+      case result of
+        Left diags -> do
+          mapM_ (emitDiag json fp) diags
+          pure (Left ())
+        Right cache -> pure (Right (stmts, cache))
+  where
+    loadOneImp j srcRoot (Left e) _   = pure (Left e)
+    loadOneImp j srcRoot (Right c) imp = do
+      let path = T.splitOn "." (importPath imp)
+      res <- loadModule j srcRoot [] c Set.empty path
+      case res of
+        Left diags -> pure (Left diags)
+        Right (c', _) -> pure (Right c')
+
+    emitDiag j fp_ d
+      | j         = TIO.putStrLn (formatDiagnosticJson d)
+      | otherwise = TIO.putStrLn (formatDiagnostic d)
+
+takeDirectory :: FilePath -> FilePath
+takeDirectory = reverse . dropWhile (\c -> c /= '/' && c /= '\\') . drop 1 . reverse
+
+-- ---------------------------------------------------------------------------
 -- check
 -- ---------------------------------------------------------------------------
 
 doCheck :: Bool -> FilePath -> IO ()
 doCheck json fp = do
-  stmts <- loadStatements json fp
-  case stmts of
-    Left ()    -> pure ()     -- error already emitted
-    Right ss   -> do
-      let report = typeCheck emptyEnv ss
+  mResult <- loadStatementsMulti json fp
+  case mResult of
+    Left ()            -> pure ()
+    Right (ss, cache)  -> do
+      let report = typeCheckWithCache cache emptyEnv ss
       if json
         then TIO.putStrLn (formatReportJson report)
         else if reportSuccess report
@@ -626,3 +679,24 @@ replLoop _env = do
 
 tshow :: Show a => a -> T.Text
 tshow = T.pack . show
+
+-- ---------------------------------------------------------------------------
+-- hub (Phase 2a: local tarball install)
+-- ---------------------------------------------------------------------------
+
+doHubFetch :: Bool -> FilePath -> IO ()
+doHubFetch json tarball = do
+  result <- hubFetchLocal tarball
+  case result of
+    Left err -> do
+      if json
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+               object ["success" .= False, "error" .= err]
+        else TIO.putStrLn $ "ERROR: " <> T.pack err
+      exitFailure
+    Right () -> do
+      if json
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+               object ["success" .= True, "tarball" .= tarball]
+        else TIO.putStrLn $ "\x2705 Hub package installed from: " <> T.pack tarball
+      exitSuccess

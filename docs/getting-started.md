@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.1.3.1
+# LLMLL Getting Started — v0.2
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -33,6 +33,7 @@ Available commands:
   holes   List and classify all holes in a file
   test    Run property-based tests (check blocks)
   build   Compile source to a Haskell application
+  hub     llmll-hub package registry (fetch, cache)
   repl    Start an interactive LLMLL REPL
 ```
 
@@ -116,6 +117,20 @@ generated/hangman_json/
 cd generated/hangman_json && stack build && stack exec hangman
 ```
 
+### `hub` — package registry
+
+```bash
+# Download a package into the local cache (~/.llmll/modules/)
+llmll hub fetch llmll-crypto@0.1.0
+
+# Cache layout after fetch:
+# ~/.llmll/modules/llmll-crypto/0.1.0/
+#   hash/bcrypt.ast.json
+#   hash/bcrypt.llmll
+```
+
+Import fetched packages using the `hub.` prefix (see §4.8).
+
 ---
 
 ## Part 3 — JSON-AST Schema Versioning
@@ -124,13 +139,16 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.1.3",
-  "llmll_version": "0.1.3",
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
   "statements": [ ... ]
 }
 ```
 
-The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted in v0.1.x.
+The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted.
+
+> [!IMPORTANT]
+> **Migrating from v0.1.3:** Files with `"schemaVersion": "0.1.3"` are **rejected** by the v0.2 compiler. The fix is a one-line update: change both `schemaVersion` and `llmll_version` from `"0.1.3"` to `"0.2.0"`. No other structural changes are required for files that do not use the new `open`/`export` nodes.
 
 | Field | Meaning |
 |-------|---------|
@@ -211,14 +229,13 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > [!IMPORTANT]
 > **`:on-done` is the canonical hook for end-of-game output.** If `game-loop` prints a win/loss message on the same turn the game ends, the board can render twice. Move all terminal output for the final state into a dedicated `show-result` function and declare it via `:on-done`. See `LLMLL.md §9.5` for the full before/after pattern.
 
-### 4.7 Still Restricted in v0.1.x
+### 4.7 Still Restricted in v0.2
 
 | Feature | Status | Workaround |
 |---------|--------|------------|
-| `[acc: (int, string)]` in `typed-param` | ❌ Parse error | Use bare `[acc]` — Fixed in v0.2 |
+| `[acc: (int, string)]` in `typed-param` | ❌ Parse error | Use bare `[acc]` — scheduled for Phase 2c |
 | `[...]` list literal as direct argument to a call inside an `if` branch (S-expression only) | ❌ Parse error | Extract to a `let` binding before the `if` (see note below) |
-| Multi-file imports | ❌ Not yet | Single file only |
-| `pre`/`post` compile-time verification | ⚠️ Runtime assert only | Correct at runtime; SMT proof in v0.2 |
+| `pre`/`post` compile-time verification | ⚠️ Runtime assert only | Correct at runtime; SMT proof in Phase 2b |
 
 > [!WARNING]
 > **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
@@ -249,7 +266,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `import` after `def-logic` inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def-logic` |
 
 > [!IMPORTANT]
-> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site.
+> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
 >
 > ```lisp
 > ;; CORRECT — imports first:
@@ -263,6 +280,72 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 >   (def-logic greet [name: string] (wasi.io.stdout name))
 >   (import wasi.io stdout))   ;; ← ignored, wasi.io.stdout unknown
 > ```
+
+---
+
+### 4.8 Multi-File Modules: `open`, `export`, and `hub` (v0.2)
+
+Phase 2a ships real multi-file compilation. Use these patterns when authoring or consuming multi-module programs.
+
+#### Prefixed access (default)
+
+When `app.main` imports `app.auth`, all exported names from `app.auth` are accessible with the full qualified path — no extra declaration needed:
+
+```lisp
+(module app.main
+  (import app.auth))
+
+;; Call the qualified name:
+(app.auth.hash-password raw-str)
+```
+
+#### `open` — pull names into local scope
+
+```lisp
+;; Bring ALL exports from app.auth into scope as bare names:
+(open app.auth)
+(hash-password raw-str)   ;; no prefix needed
+
+;; Selective — only hash-password is unprefixed; others still need prefix:
+(open app.auth (hash-password))
+```
+
+> [!WARNING]
+> **Open shadowing.** If two `(open ...)` declarations export the same name, the second wins (last wins, LISP-style). The compiler emits a `WARNING` diagnostic. Use prefixed access when two modules share a function name.
+
+#### `export` — restrict what a module exposes
+
+```lisp
+;; Only hash-password and verify-token are visible to importers:
+(export hash-password verify-token)
+
+;; Omitting export entirely: all top-level defs are exported by default.
+```
+
+The `export` declaration must appear before the first `def-logic` — consistent with the "imports before defs" rule.
+
+#### Hub imports
+
+After fetching a package with `llmll hub fetch`, import it with the `hub.` prefix:
+
+```lisp
+(import hub.llmll-crypto.hash.bcrypt (interface [
+  [bcrypt-hash   (fn [raw: string] -> bytes[64])]
+  [bcrypt-verify (fn [raw: string hash: bytes[64]] -> bool)]
+]))
+```
+
+The `hub.` prefix tells the resolver to search only `~/.llmll/modules/`, never the local source tree.
+
+#### JSON-AST nodes for `open` and `export`
+
+```json
+{ "kind": "open",   "path": "app.auth", "names": ["hash-password"] }
+{ "kind": "open",   "path": "app.auth" }
+{ "kind": "export", "names": ["hash-password", "verify-token"] }
+```
+
+Omit `"names"` in an `open` node to bring all exports into scope.
 
 ---
 

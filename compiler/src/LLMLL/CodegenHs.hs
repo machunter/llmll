@@ -315,6 +315,8 @@ emitStmt (SCheck prop)                    = emitCheck prop
 emitStmt (SImport _)                      = ""  -- handled in header
 emitStmt (SExpr _)                        = ""  -- top-level exprs not representable
 emitStmt SDefMain{}                       = ""  -- goes to Main.hs
+emitStmt (SOpen _ _)                      = ""  -- compile-time namespace annotation
+emitStmt (SExport _)                      = ""  -- compile-time export annotation
 
 -- | Emit a type declaration as newtype / data / type alias.
 emitTypeDef :: Name -> Type -> Text

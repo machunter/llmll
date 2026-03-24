@@ -17,6 +17,14 @@ module LLMLL.Diagnostic
   , formatDiagnosticJson
   , formatReportJson
   , megaparsecToDiagnostic
+  -- * Phase 2a: Module System Diagnostics
+  , mkCircularImport
+  , mkModuleNotFound
+  , mkInterfaceMismatch
+  , mkExportConflict
+  , mkOpenShadowWarning
+  , reportDiagnostics
+  , reportSuccess
   ) where
 
 import Data.Text (Text)
@@ -83,6 +91,49 @@ mkErrorAt kind ptr msg = (mkError Nothing msg)
   { diagKind    = Just kind
   , diagPointer = Just ptr
   }
+
+-- ---------------------------------------------------------------------------
+-- Phase 2a: Module System Diagnostics
+-- ---------------------------------------------------------------------------
+
+-- | Circular import detected by DFS. The cycle list starts and ends with the
+-- same module path so the cycle is visually clear.
+-- e.g. ["foo.bar", "foo.baz", "foo.bar"]
+mkCircularImport :: [Text] -> Diagnostic
+mkCircularImport cycle_ =
+  let msg = "Circular import detected: " <> T.intercalate " \x2192 " cycle_
+  in (mkError Nothing msg) { diagKind = Just "circular-import" }
+
+-- | A required module file was not found in any search root.
+mkModuleNotFound :: Text -> [FilePath] -> Diagnostic
+mkModuleNotFound path roots =
+  let msg = "Module not found: " <> path
+           <> " (searched: " <> T.intercalate ", " (map T.pack roots) <> ")"
+  in (mkError Nothing msg) { diagKind = Just "module-not-found" }
+
+-- | Structural incompatibility between a def-interface and its implementation.
+mkInterfaceMismatch :: Text -> Text -> Text -> Text -> Text -> Text -> Diagnostic
+mkInterfaceMismatch modPath iface method expected got pointer =
+  let msg = "interface-mismatch in " <> modPath <> " / " <> iface
+            <> ": method '" <> method <> "' expected " <> expected
+            <> ", got " <> got
+  in (mkError Nothing msg)
+       { diagKind    = Just "interface-mismatch"
+       , diagPointer = Just pointer
+       }
+
+-- | An (export f) declaration names f but f is not defined in this module.
+mkExportConflict :: Text -> Text -> Diagnostic
+mkExportConflict name modPath =
+  let msg = "export-conflict: '" <> name <> "' is not defined in " <> modPath
+  in (mkError Nothing msg) { diagKind = Just "export-conflict" }
+
+-- | Two (open ...) declarations both export the same bare name; second wins.
+mkOpenShadowWarning :: Text -> Text -> Text -> Diagnostic
+mkOpenShadowWarning name shadowedBy prevFrom =
+  let msg = "open-shadow-warning: '" <> name <> "' from " <> prevFrom
+            <> " is shadowed by " <> shadowedBy
+  in (mkWarning Nothing msg) { diagKind = Just "open-shadow-warning" }
 
 -- ---------------------------------------------------------------------------
 -- Formatting

@@ -95,17 +95,19 @@ parseExpr fp = parse (sc *> pExpr <* eof) fp
 pTopLevelItem :: Parser [Statement]
 pTopLevelItem = pModuleFlattened <|> (pure <$> pStatement)
 
--- | Parse @(module Name [imports...] [statements...])@ and return
+-- | Parse @(module Name [imports...] [open/export...] [statements...])@ and return
 -- its contents as a flat list of statements.  The module name is
 -- ignored (single-file model).  Imports become 'SImport' nodes.
+-- v0.2: open/export declarations are also accepted before body statements.
 pModuleFlattened :: Parser [Statement]
 pModuleFlattened = do
   _ <- try (symbol "(" *> symbol "module")
   _ <- pIdent          -- module name: recorded but not used in single-file model
   imports <- many (try pImportStmt)
+  opens   <- many (try pOpenDecl <|> try pExportDecl)
   body    <- many pStatement
   _ <- symbol ")"
-  pure (imports ++ body)
+  pure (imports ++ opens ++ body)
 
 -- ---------------------------------------------------------------------------
 -- Module (full module form, used by parseModule)
@@ -135,6 +137,8 @@ pStatement = choice
   , pCheckBlock
   , pGenDecl
   , pImportStmt
+  , pOpenDecl
+  , pExportDecl
   , SExpr <$> pExpr
   ]
 
@@ -269,7 +273,10 @@ pForAll = parens $ do
   body <- pExpr
   pure $ Property "" bindings body
 
--- | Parse (import path (interface [...]) (capability ...))
+-- | Parse an import statement.
+-- (import foo.bar.baz)
+-- (import foo.bar.baz (interface [...]))
+-- (import foo.bar.baz (capability ...))
 pImportStmt :: Parser Statement
 pImportStmt = do
   _ <- try (symbol "(" *> symbol "import")
@@ -278,6 +285,29 @@ pImportStmt = do
   cap <- optional (try pCapabilitySpec)
   _ <- symbol ")"
   pure $ SImport (Import path iface cap)
+
+-- | Parse (open foo.bar) or (open foo.bar (f g h)) — v0.2.
+-- Pulls all or named exports of a module into the current bare scope.
+pOpenDecl :: Parser Statement
+pOpenDecl = do
+  _ <- try (symbol "(" *> symbol "open")
+  path <- splitDotted <$> pDottedIdent
+  names <- optional (parens (many pIdent))
+  _ <- symbol ")"
+  pure $ SOpen path names
+
+-- | Parse (export f g h) — v0.2.
+-- Restricts which top-level names are visible to importers.
+pExportDecl :: Parser Statement
+pExportDecl = do
+  _ <- try (symbol "(" *> symbol "export")
+  names <- many pIdent
+  _ <- symbol ")"
+  pure $ SExport names
+
+-- | Split a dotted Text identifier into a module path.
+splitDotted :: Text -> [Text]
+splitDotted = T.splitOn "."
 
 -- | Parse (def-main :mode console|cli|http [:port n] :init expr :step expr ...)
 pDefMain :: Parser Statement
@@ -725,4 +755,6 @@ reservedWords =
   , "match", "check", "pre", "post", "for-all", "type", "where"
   , "pair", "await", "do", "on-failure", "fn", "true", "false"
   , "capability"
+  -- v0.2 module system
+  , "open", "export"
   ]
