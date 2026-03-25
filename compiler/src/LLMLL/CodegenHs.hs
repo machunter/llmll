@@ -556,7 +556,7 @@ rewriteCtor other     = toHsIdent other
 -- ---------------------------------------------------------------------------
 
 emitLit :: Literal -> Text
-emitLit (LitInt n)    = T.pack (show n)
+emitLit (LitInt n)    = "(" <> T.pack (show n) <> " :: Int)"  -- B2: monomorphise to Int (LLMLL int = Haskell Int)
 emitLit (LitFloat d)  = T.pack (show d)
 emitLit (LitString s) = T.pack (show (T.unpack s))  -- uses Haskell show for quoting
 emitLit (LitBool b)   = if b then "True" else "False"

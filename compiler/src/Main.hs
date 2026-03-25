@@ -369,14 +369,12 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
   if takeExtension fp == ".json"
     then doBuildFromJson json fp mOutDir emitOnly
     else do
-      src <- TIO.readFile fp
-      case parseSrc fp src of
-        Left diag -> do
-          emitParseDiag json fp diag
-          exitFailure
-        Right stmts -> do
-          -- --emit json-ast: write JSON-AST and stop; no Rust codegen
-          when emitJson $ do
+      -- --emit json-ast: parse the file directly to round-trip to JSON (no module merge needed)
+      when emitJson $ do
+        src <- TIO.readFile fp
+        case parseSrc fp src of
+          Left diag -> do { emitParseDiag json fp diag; exitFailure }
+          Right stmts -> do
             let modName = T.pack $ takeBaseName fp
                 outDir  = case mOutDir of
                             Just d  -> d
@@ -390,11 +388,18 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
               else TIO.putStrLn $ "✅ JSON-AST written to " <> T.pack astFile
             exitSuccess
 
-          let modName = T.pack $ takeBaseName fp
-              result  = generateHaskell modName stmts
-              outDir  = case mOutDir of
-                          Just d  -> d
-                          Nothing -> "generated/" <> T.unpack modName
+      -- B3: use loadStatementsMulti so imported modules' definitions are
+      -- inlined into Lib.hs (mirrors the doBuildFromJson path).
+      mResult <- loadStatementsMulti json fp
+      case mResult of
+        Left () -> exitFailure
+        Right (stmts, cache, loadOrder) -> do
+          let modName      = T.pack $ takeBaseName fp
+              importedEnvs = topoSortedEnvs cache loadOrder
+              result       = generateHaskellMulti modName importedEnvs stmts
+              outDir       = case mOutDir of
+                               Just d  -> d
+                               Nothing -> "generated/" <> T.unpack modName
           -- Write Haskell source + optional Main.hs
           createDirectoryIfMissing True (outDir <> "/src")
           TIO.writeFile (outDir <> "/src/Lib.hs")     (cgHsSource result)
@@ -404,9 +409,7 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
             Nothing   -> pure ()
             Just mainSrc -> do
               TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
-              if not json
-                then TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
-                else pure ()
+              unless json $ TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
 
           -- Write FFI hub module
           case cgFfiModHs result of
@@ -414,36 +417,26 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
             Just ffiModSrc -> do
               createDirectoryIfMissing True (outDir <> "/src/FFI")
               TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
-              if not json
-                then TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
-                else pure ()
+              unless json $ TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
 
           -- Write per-library FFI stubs (generated ONCE, do not overwrite)
           forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
               let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
               exists <- doesFileExist stubPath
               if exists
-                then if not json
-                       then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
-                       else pure ()
+                then unless json $ TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
                 else do
                   TIO.writeFile stubPath stubsSrc
-                  if not json
-                    then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
-                    else pure ()
+                  unless json $ TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
 
-          if not json
-            then do
-              TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length (cgHsSource result)) <> " chars"
-              mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
-            else pure ()
+          unless json $ do
+            TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length (cgHsSource result)) <> " chars"
+            mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
 
           -- Validate generated Haskell with GHC (skip when --emit-only)
           ghcOk <- if emitOnly
             then do
-              if not json
-                then TIO.putStrLn "   (stack build skipped — --emit-only)"
-                else pure ()
+              unless json $ TIO.putStrLn "   (stack build skipped — --emit-only)"
               pure True
             else runGhcCheck json outDir
 
@@ -457,9 +450,7 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
           -- Optionally run wasm-pack (WASM PoC deferred to v0.4)
           if doWasm
             then TIO.putStrLn "   INFO: --wasm targets Haskell WASM backend (ghc --target=wasm32-wasi). See docs/wasm-compat-report.md"
-            else if json
-              then pure ()
-              else TIO.putStrLn "   INFO: pass --wasm for WASM PoC output (requires GHC WASM backend)"
+            else unless json $ TIO.putStrLn "   INFO: pass --wasm for WASM PoC output (requires GHC WASM backend)"
 
           exitSuccess
 

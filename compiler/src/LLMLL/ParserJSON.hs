@@ -41,11 +41,21 @@ parseJSONAST :: FilePath -> BL.ByteString -> Either Diagnostic [Statement]
 parseJSONAST fp bs =
   case eitherDecode bs of
     Left err ->
-      Left $ (mkError Nothing (T.pack err))
-        { diagKind    = Just "json-parse-error"
-        , diagPointer = Just "/"
-        , diagCode    = Just "E010"
-        }
+      -- B1: aeson surfaces \x1b and other invalid JSON escapes as a UTF-8 decode
+      -- error pointing at an unrelated location. Detect the pattern and add a
+      -- targeted hint so agents know immediately what to fix.
+      let isEscapeError = any (`T.isInfixOf` T.pack err)
+                            ["Invalid UTF-8", "Cannot decode", "Failed reading"]
+          hint = if isEscapeError
+                   then Just "JSON strings must use \\uXXXX for control/non-ASCII chars (e.g. \\u001b not \\x1b)"
+                   else Nothing
+          diag = (mkError Nothing (T.pack err))
+                   { diagKind       = Just "json-parse-error"
+                   , diagPointer    = Just "/"
+                   , diagCode       = Just "E010"
+                   , diagSuggestion = hint
+                   }
+      in Left diag
     Right val ->
       case parseEither (parseProgram fp) val of
         Left msg -> Left $ (mkError Nothing (T.pack msg))

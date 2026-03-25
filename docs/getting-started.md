@@ -381,6 +381,21 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 >
 > A `--lib <dir>` flag that adds extra search roots is planned for Phase 2b.
 
+### §4.9 JSON-AST String Escape Sequences
+
+When embedding control characters or non-ASCII bytes in a `lit-string` value, you **must** use JSON Unicode escapes (`\uXXXX`). C-style hex escapes (`\xNN`) are **not** valid JSON and trigger a misleading UTF-8 decode error.
+
+```json
+✅  { "kind": "lit-string", "value": "\u001b[2J\u001b[H" }
+
+❌  { "kind": "lit-string", "value": "\x1b[2J\x1b[H" }   // \x1b is NOT valid JSON
+```
+
+The compiler now emits a hint when it detects this pattern:
+```
+:hint "JSON strings must use \\uXXXX for control/non-ASCII chars (e.g. \\u001b not \\x1b)"
+```
+
 ---
 
 ## Part 5 — Core Language Quick Reference

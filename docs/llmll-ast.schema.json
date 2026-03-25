@@ -467,7 +467,10 @@
       "additionalProperties": false,
       "properties": {
         "kind":  { "type": "string", "const": "lit-string" },
-        "value": { "type": "string" }
+        "value": {
+          "type": "string",
+          "description": "String content. RFC 8259 JSON escaping applies: use \\uXXXX for non-ASCII and control characters (e.g. \\u001b for ESC, \\n for newline). C-style \\xNN is not valid JSON and will cause a parse error."
+        }
       }
     },
 

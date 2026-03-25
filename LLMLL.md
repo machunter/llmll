@@ -29,7 +29,7 @@
 - **Primitive types:** `int`, `float`, `string`, `bool`, `unit`.
 - **Holes:** Always start with `?` (e.g., `?logic_name`, `?choose(option1, option2)`).
 - **Comments:** `;; text` — from `;;` to end of line. Ignored by the compiler.
-- **Source encoding:** Source files are **UTF-8**. **Identifiers must be ASCII** (letters, digits, `-`, `_`). A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators — see §2.4. All other non-ASCII characters are a lexer error.
+- **Source encoding:** Source files are **UTF-8**. **Identifiers must be ASCII** (letters, digits, `-`, `_`). A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators — see §2.4. All other non-ASCII characters are a lexer error. **JSON-AST string values** follow RFC 8259 — non-ASCII and control characters must be encoded as `\uXXXX` (e.g. `\u001b` for ESC); the C-style `\xNN` form is not valid JSON and causes a parse error.
 
 ### 2.2 Qualified Identifiers
 
