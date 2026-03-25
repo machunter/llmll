@@ -16,7 +16,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
-| `llmll hub fetch <pkg>@<ver>` | Download a package from the `llmll-hub` registry into the local cache (`~/.llmll/modules/`). |
+| `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). Remote `hub fetch` is Phase 2b. |
 
 ### Input formats
 

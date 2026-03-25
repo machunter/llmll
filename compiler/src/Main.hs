@@ -28,9 +28,9 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, Import(..))
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..))
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv)
-import LLMLL.Module (loadModule)
+import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
@@ -39,7 +39,7 @@ import LLMLL.HoleAnalysis
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
-import LLMLL.CodegenHs (generateHaskell, CodegenResult(..))
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..))
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
@@ -203,33 +203,37 @@ emitParseDiag json fp d
 -- ---------------------------------------------------------------------------
 
 -- | Load an entry-point file and recursively load all its transitive imports.
--- Returns the flat statement list for the entry file AND a populated ModuleCache
--- containing all imported modules (topologically resolved).
--- Falls back to single-file (empty cache) when no filesystem imports are found.
-loadStatementsMulti :: Bool -> FilePath -> IO (Either () ([Statement], ModuleCache))
+-- Returns (entryStmts, moduleCache, loadOrder) where loadOrder is a
+-- topologically-sorted list of module paths (dependencies first) for codegen.
+-- Falls back gracefully when no filesystem imports are found (single-file path).
+loadStatementsMulti :: Bool -> FilePath -> IO (Either () ([Statement], ModuleCache, [ModulePath]))
 loadStatementsMulti json fp = do
   mStmts <- loadStatements json fp
   case mStmts of
     Left ()     -> pure (Left ())
     Right stmts -> do
-      -- Collect file-system imports from the entry file
       let imports = [imp | SImport imp <- stmts]
           srcRoot = takeDirectory fp
-      -- Build ModuleCache by loading all imports (post-order DFS)
-      result <- foldM (loadOneImp json srcRoot) (Right Map.empty) imports
+      -- Build ModuleCache + load-order by post-order DFS over all imports
+      result <- foldM (loadOneImp json srcRoot) (Right (Map.empty, [])) imports
       case result of
         Left diags -> do
           mapM_ (emitDiag json fp) diags
           pure (Left ())
-        Right cache -> pure (Right (stmts, cache))
+        Right (cache, loadOrder) -> pure (Right (stmts, cache, loadOrder))
   where
+    -- P1 fix: skip built-in capability namespace imports (wasi.*, haskell.*, c.*).
+    -- These are resolved by the codegen preamble, not by file-system lookup.
     loadOneImp j srcRoot (Left e) _   = pure (Left e)
-    loadOneImp j srcRoot (Right c) imp = do
+    loadOneImp j srcRoot (Right (c, ord)) imp = do
       let path = T.splitOn "." (importPath imp)
-      res <- loadModule j srcRoot [] c Set.empty path
-      case res of
-        Left diags -> pure (Left diags)
-        Right (c', _) -> pure (Right c')
+      if isBuiltinImport path
+        then pure (Right (c, ord))
+        else do
+          res <- loadModule j srcRoot [] c Set.empty path
+          case res of
+            Left diags         -> pure (Left diags)
+            Right (c', o', _)  -> pure (Right (c', ord ++ o'))
 
     emitDiag j fp_ d
       | j         = TIO.putStrLn (formatDiagnosticJson d)
@@ -246,8 +250,8 @@ doCheck :: Bool -> FilePath -> IO ()
 doCheck json fp = do
   mResult <- loadStatementsMulti json fp
   case mResult of
-    Left ()            -> pure ()
-    Right (ss, cache)  -> do
+    Left ()                      -> pure ()
+    Right (ss, cache, _loadOrder) -> do
       let report = typeCheckWithCache cache emptyEnv ss
       if json
         then TIO.putStrLn (formatReportJson report)
@@ -463,16 +467,16 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
 
 doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> Bool -> IO ()
 doBuildFromJson json fp mOutDir emitOnly = do
-  bs <- BL.readFile fp
-  case parseSrcBS fp bs of
-    Left diag -> do
-      emitParseDiag json fp diag
-      exitFailure
-    Right stmts -> do
-      -- P1 fix: strip .ast suffix BEFORE passing to generateHaskell (crate names must not contain dots)
+  -- P3: use loadStatementsMulti to resolve imports and get load-order
+  mResult <- loadStatementsMulti json fp
+  case mResult of
+    Left () -> exitFailure
+    Right (stmts, cache, loadOrder) -> do
       let rawName = T.pack $ takeBaseName fp
           modName = T.replace ".ast" "" rawName
-          result  = generateHaskell modName stmts
+          -- P3: collect imported envs in topo order and call generateHaskellMulti
+          importedEnvs = topoSortedEnvs cache loadOrder
+          result  = generateHaskellMulti modName importedEnvs stmts
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
@@ -490,9 +494,7 @@ doBuildFromJson json fp mOutDir emitOnly = do
       -- Validate generated Haskell with GHC (skip when --emit-only)
       ghcOk <- if emitOnly
         then do
-          if not json
-            then TIO.putStrLn "   (stack build skipped — --emit-only)"
-            else pure ()
+          unless json $ TIO.putStrLn "   (stack build skipped — --emit-only)"
           pure True
         else runGhcCheck json outDir
       if ghcOk

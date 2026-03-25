@@ -120,7 +120,7 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > ;; OK in v0.1.x — use untyped lambda params:
 > (list-fold board init (fn [acc cell] ...))
 > ```
-> **Scheduled fix:** v0.2 — see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) §Phase 2c.
+> **Scheduled fix:** Phase 2c — see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 > [!NOTE]
 > **`first`/`second` with annotated parameters — resolved in v0.1.3.1**
@@ -1017,7 +1017,7 @@ hole        = "?" IDENT                                        (* named *)
 (* Operators (all built-in; see Section 13)                      *)
 (* ============================================================ *)
 OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
-   | "and" | "or" | "not" ;
+   | "and" | "or" | "not" | "mod" ;
 ```
 
 ### Grammar Key Rules
@@ -1051,7 +1051,7 @@ These functions and operators are **always in scope**. They are provided by the 
 | `+` | `int int -> int` | Addition |
 | `-` | `int int -> int` | Subtraction |
 | `*` | `int int -> int` | Multiplication |
-| `/` | `int int -> int` | Integer division; raises `DivisionByZero` if right operand is `0` |
+| `/` | `int int -> int` | Integer division; raises `DivisionByZero` if right operand is `0`. **Codegen:** compiles to Haskell `` `div` `` (not `/`, which requires `Fractional`). |
 | `mod` | `int int -> int` | Modulo |
 
 ### 13.2 Comparison & Equality Operators

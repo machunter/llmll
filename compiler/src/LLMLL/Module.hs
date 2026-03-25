@@ -17,6 +17,8 @@ module LLMLL.Module
   , buildModuleEnv
   , mergeModuleEnvs
   , checkInterfaceMismatch
+  , isBuiltinImport   -- ^ P1: exported so Main.hs can apply the same bypass
+  , topoSortedEnvs   -- ^ P3: return ModuleEnvs in dependency order for codegen
   ) where
 
 -- All imports must be at the top in Haskell (no inline imports).
@@ -53,6 +55,15 @@ pathToRelFile (x:xs) = T.unpack x </> pathToRelFile xs
 -- | Convert a ModulePath to a dotted Text for diagnostics.
 pathToText :: ModulePath -> Text
 pathToText = T.intercalate "."
+
+-- | True for import paths that refer to built-in namespaces,
+-- not to user files or hub packages.
+-- These carry capability declarations; they have no file on disk.
+isBuiltinImport :: ModulePath -> Bool
+isBuiltinImport ("wasi":_)    = True   -- WASI host capabilities
+isBuiltinImport ("haskell":_) = True   -- Haskell library bindings
+isBuiltinImport ("c":_)       = True   -- C FFI bindings
+isBuiltinImport _             = False
 
 -- | Split a dotted Text into a ModulePath.
 splitDotted :: Text -> ModulePath
@@ -109,7 +120,10 @@ resolveModulePath srcRoot extraRoots modPath = do
 -- Module loading (post-order DFS with cycle detection)
 -- ---------------------------------------------------------------------------
 
-type LoadResult = Either [Diagnostic] (ModuleCache, ModuleEnv)
+-- | P3: Result type now includes an ordered list of loaded module paths
+-- (post-order DFS, i.e. dependencies come before the modules that depend on them).
+-- This is the correct order for emitting definitions into a single Lib.hs.
+type LoadResult = Either [Diagnostic] (ModuleCache, [ModulePath], ModuleEnv)
 
 -- | Load a module and all its transitive imports.
 --
@@ -133,7 +147,8 @@ loadModule jsonMode srcRoot extraRoots cache0 visitedStack modPath
       let cycleList = map pathToText (Set.toList visitedStack) ++ [pathToText modPath]
       in pure $ Left [mkCircularImport cycleList]
   | Just env <- Map.lookup modPath cache0 =
-      pure $ Right (cache0, env)
+      -- Already loaded — return empty order extension (already counted)
+      pure $ Right (cache0, [], env)
   | otherwise = do
       mFp <- resolveModulePath srcRoot extraRoots modPath
       case mFp of
@@ -150,32 +165,38 @@ loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
     Right stmts -> do
       let imports  = [imp | SImport imp <- stmts]
           newStack = Set.insert modPath visitedStack
-      result <- foldM (loadOneImport srcRoot extraRoots newStack) (Right cache0) imports
+      result <- foldM (loadOneImport srcRoot extraRoots newStack) (Right (cache0, [])) imports
       case result of
         Left diags -> pure $ Left diags
-        Right cache1 -> do
+        Right (cache1, depOrder) -> do
           let importedEnvs = mapMaybe
                 (\imp -> Map.lookup (splitDotted (importPath imp)) cache1) imports
               baseEnv = mergeModuleEnvs importedEnvs emptyEnv
               report  = typeCheck baseEnv stmts
               env     = buildModuleEnv modPath stmts baseEnv
               cache2  = Map.insert modPath env cache1
+              -- Post-order: append THIS module after all its dependencies
+              order2  = depOrder ++ [modPath]
               hardErrors = filter ((== SevError) . diagSeverity) (reportDiagnostics report)
           if null hardErrors
-            then pure $ Right (cache2, env)
+            then pure $ Right (cache2, order2, env)
             else pure $ Left hardErrors
 
 loadOneImport :: FilePath -> [FilePath] -> Set ModulePath
-              -> Either [Diagnostic] ModuleCache
+              -> Either [Diagnostic] (ModuleCache, [ModulePath])
               -> Import
-              -> IO (Either [Diagnostic] ModuleCache)
+              -> IO (Either [Diagnostic] (ModuleCache, [ModulePath]))
 loadOneImport _       _          _     (Left diags) _   = pure (Left diags)
-loadOneImport srcRoot extraRoots stack (Right cache) imp = do
+loadOneImport srcRoot extraRoots stack (Right (cache, ord)) imp = do
   let path = splitDotted (importPath imp)
-  result <- loadModule False srcRoot extraRoots cache stack path
-  case result of
-    Left diags     -> pure (Left diags)
-    Right (c', _)  -> pure (Right c')
+  -- P1 fix: skip file resolution for built-in capability namespaces.
+  if isBuiltinImport path
+    then pure (Right (cache, ord))
+    else do
+      result <- loadModule False srcRoot extraRoots cache stack path
+      case result of
+        Left diags         -> pure (Left diags)
+        Right (c', o', _)  -> pure (Right (c', ord ++ o'))
 
 -- | Parse a file dispatching on extension (.llmll vs. .ast.json / .json).
 parseFile :: FilePath -> IO (Either Diagnostic [Statement])
@@ -241,6 +262,12 @@ mergeModuleEnvs envs base = foldl insertEnv base envs
       let prefix    = pathToText (mePath menv) <> "."
           qualified = Map.mapKeys (prefix <>) (meExports menv)
       in Map.union qualified acc
+
+-- | P3: Return ModuleEnvs from the cache in the given topological order.
+-- The loadOrder list comes from the DFS accumulator — it is guaranteed to
+-- have dependencies before dependents (post-order).
+topoSortedEnvs :: ModuleCache -> [ModulePath] -> [ModuleEnv]
+topoSortedEnvs cache loadOrder = mapMaybe (`Map.lookup` cache) loadOrder
 
 -- ---------------------------------------------------------------------------
 -- Cross-module def-interface enforcement

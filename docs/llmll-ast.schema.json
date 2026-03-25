@@ -224,7 +224,7 @@
     },
 
     "ImportDecl": {
-      "description": "Capability or FFI import. The compiler resolves the path to a source file in v0.2+. Use the 'hub.' prefix for registry packages.",
+      "description": "Capability or FFI import. In v0.2+, the compiler resolves user-module paths to source files. Built-in prefixes (wasi.*, haskell.*, c.*) are handled by the codegen preamble — no file lookup occurs. Use the 'hub.' prefix for registry packages.",
       "type": "object",
       "required": ["kind", "path"],
       "additionalProperties": false,
@@ -252,7 +252,7 @@
     },
 
     "ModuleDecl": {
-      "description": "An optional namespace wrapper. The module name is ignored for codegen in v0.1.x; its body is flattened.",
+      "description": "An optional namespace wrapper. The module name is for documentation and tooling display only; the canonical module path is derived from the file's location relative to the source root (see LLMLL.md §8.1). Body is flattened during compilation.",
       "type": "object",
       "required": ["kind", "name", "imports", "statements"],
       "additionalProperties": false,

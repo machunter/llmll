@@ -347,6 +347,40 @@ The `hub.` prefix tells the resolver to search only `~/.llmll/modules/`, never t
 
 Omit `"names"` in an `open` node to bring all exports into scope.
 
+#### ⚠️ Phase 2a Limitation: module search root is anchored to the **entry-point** file
+
+> [!WARNING]
+> **All `import` paths are resolved relative to the directory of the file you pass to `llmll check` / `llmll build` (the entry-point), not relative to the file that contains the `import` statement.**
+>
+> This means sub-modules can import sibling sub-modules correctly only when they all live **in the same directory as the entry-point**, or in a flat peer layout.
+>
+> **What works:**
+> ```
+> examples/life_json/
+>   main.ast.json       ← entry-point: llmll check main.ast.json
+>   world.ast.json      ← (import world)   → resolved to ./world.ast.json ✅
+>   core.ast.json       ← (import core)    → resolved to ./core.ast.json  ✅
+> ```
+>
+> **What does NOT work in Phase 2a:**
+> ```
+> examples/life_json/
+>   main.ast.json       ← entry-point
+>   life/
+>     world.ast.json    ← (import life.core) → searched in examples/life_json/
+>     core.ast.json     ← found ✅, but world.ast.json's own imports...
+>       ↑   world.ast.json then tries (import life.core)
+>           → resolved to examples/life_json/life/core.ast.json ✅ first time,
+>             but if world.ast.json's dir ≠ srcRoot, a second-level import
+>             from world.ast.json resolves against the entry-point root,
+>             not world's directory — so relative sibling imports inside
+>             life/ break unless life/ = the entry-point directory.
+> ```
+>
+> **Recommended layout for Phase 2a:** keep all module files at the **same directory level** as the entry-point. Use single-segment import names (`import core`, `import world`).
+>
+> A `--lib <dir>` flag that adds extra search roots is planned for Phase 2b.
+
 ---
 
 ## Part 5 — Core Language Quick Reference
