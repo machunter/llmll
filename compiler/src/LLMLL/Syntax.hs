@@ -110,7 +110,8 @@ data Type
   | TDependent Name Type Expr     -- ^ Dependent type: binding name + base type + constraint expr
   | TDelegationError              -- ^ Built-in DelegationError sum type
   | TVar Name                     -- ^ Type variable (for generics / interfaces)
-  | TCustom Name                  -- ^ User-defined type name
+  | TCustom Name                  -- ^ User-defined type name (alias or opaque ref)
+  | TSumType [(Name, Maybe Type)] -- ^ Structured sum type: [(ConstructorName, Maybe PayloadType)]
   deriving (Show, Eq, Generic)
 
 -- | Human-readable label for a type (for error messages).
@@ -130,6 +131,7 @@ typeLabel (TDependent _ b _)= typeLabel b <> " (constrained)"
 typeLabel TDelegationError = "DelegationError"
 typeLabel (TVar n)        = n
 typeLabel (TCustom n)     = n
+typeLabel (TSumType ctors) = T.intercalate " | " (map fst ctors)
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show

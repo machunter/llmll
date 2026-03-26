@@ -336,8 +336,15 @@ emitStmt (SExport _)                      = ""  -- compile-time export annotatio
 
 -- | Emit a type declaration as newtype / data / type alias.
 emitTypeDef :: Name -> Type -> Text
+emitTypeDef name (TSumType ctors) =
+  let fmtCtor (c, Nothing) = toHsIdent c
+      fmtCtor (c, Just t)  = toHsIdent c <> " " <> toHsType t
+      ctorStr = T.intercalate "\n  | " (map fmtCtor ctors)
+  in "data " <> toHsIdent name <> "\n  = " <> ctorStr
+     <> "\n  deriving (Eq, Show)\n"
 emitTypeDef name (TCustom body)
-  -- Sum type from ParserJSON: variants encoded as "CtorName:PayloadType | CtorName2"
+  -- Sum type from ParserJSON (legacy path — should not reach here after refactor,
+  -- kept as fallback for any TCustom that still contains a pipe-separated list).
   | " | " `T.isInfixOf` body =
       let parts = map T.strip (T.splitOn " | " body)
           ctors  = T.intercalate "\n  | " (map emitCtorDecl parts)
@@ -591,6 +598,10 @@ toHsType (TVar n)          = T.toLower n
 toHsType (TCustom "Command") = "IO ()"
 toHsType (TCustom "_")     = "a"
 toHsType (TCustom n)       = toHsIdent n
+-- TSumType is only valid in STypeDef body position; if it appears inline
+-- (e.g. as a constructor payload referencing an anonymous sum) emit the
+-- constructor names joined as a type variable (should not arise in practice).
+toHsType (TSumType ctors)  = T.intercalate "_or_" (map (toHsIdent . fst) ctors)
 
 -- ---------------------------------------------------------------------------
 -- src/Main.hs harness

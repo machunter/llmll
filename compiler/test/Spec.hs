@@ -10,7 +10,7 @@ import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (reportSuccess)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -360,3 +360,43 @@ main = hspec $ do
               hs `shouldSatisfy` T.isInfixOf "show_result"
               -- The broken hardcoded pattern must NOT appear
               hs `shouldSatisfy` (not . T.isInfixOf "let _done = False")
+
+  -- -----------------------------------------------------------------------
+  -- TSumType structural representation
+  -- -----------------------------------------------------------------------
+  describe "TSumType (structured sum type)" $ do
+    it "S-expression: (type Color (| Red) (| Green) (| Blue)) parses to TSumType" $ do
+      let src = "(type Color (| Red) (| Green) (| Blue))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          length stmts `shouldBe` 1
+          case head stmts of
+            STypeDef name (TSumType ctors) -> do
+              name `shouldBe` "Color"
+              map fst ctors `shouldBe` ["Red", "Green", "Blue"]
+              all ((== Nothing) . snd) ctors `shouldBe` True
+            STypeDef _ other -> expectationFailure $
+              "Expected TSumType, got: " ++ show other
+            _ -> expectationFailure "Expected STypeDef"
+
+    it "S-expression: sum type with payload parses payload type" $ do
+      let src = "(type Shape (| Circle int) (| Rect))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case stmts of
+            [STypeDef _ (TSumType ctors)] -> do
+              map fst ctors `shouldBe` ["Circle", "Rect"]
+              snd (ctors !! 0) `shouldBe` Just TInt
+              snd (ctors !! 1) `shouldBe` Nothing
+            _ -> expectationFailure "Expected STypeDef with TSumType"
+
+    it "TSumType: codegen emits correct 'data' declaration" $ do
+      let stmts = [STypeDef "Color" (TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)])]
+      let result = generateHaskell "test" stmts
+      cgHsSource result `shouldSatisfy` T.isInfixOf "data Color"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "= Red"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "| Green"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "| Blue"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "deriving (Eq, Show)"

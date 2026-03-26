@@ -516,6 +516,19 @@ checkPattern (PConstructor ctor subPats) scrutTy = do
       case subPats of
         [p] -> checkPattern p e
         _   -> do { tcError "Error takes one argument"; pure [] }
+    -- TSumType: look up the constructor in the known-good constructor list
+    (_, TSumType ctorList) ->
+      case lookup ctor ctorList of
+        Nothing ->
+          do { tcWarn $ "unknown constructor '" <> ctor <> "' for sum type"; pure [] }
+        Just Nothing ->
+          -- Nullary constructor
+          if null subPats then pure []
+          else do { tcWarn $ "constructor '" <> ctor <> "' takes no arguments"; pure [] }
+        Just (Just payload) ->
+          case subPats of
+            [p] -> checkPattern p payload
+            _   -> do { tcWarn $ "constructor '" <> ctor <> "' takes one argument"; pure [] }
     _ -> do
       -- Unknown constructor — bind sub patterns as type vars
       bindings <- forM (zip [0..] subPats) $ \(i, p) ->
@@ -551,6 +564,10 @@ compatibleWith (TPromise a) (TPromise b) = compatibleWith a b
 compatibleWith (TFn as r) (TFn bs s) =
   length as == length bs && all (uncurry compatibleWith) (zip as bs) && compatibleWith r s
 compatibleWith (TBytes m) (TBytes n) = m == n
+-- TSumType: compatible with itself and with TCustom of the same registered name
+compatibleWith (TSumType _) (TSumType _) = True
+compatibleWith (TCustom _)  (TSumType _) = True
+compatibleWith (TSumType _)  (TCustom _) = True
 compatibleWith a b = a == b
 
 -- | Unify two types, emitting an error if they are incompatible.

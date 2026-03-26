@@ -178,6 +178,8 @@ collectHolesType ctx (TResult a b) =
   collectHolesType ctx a ++ collectHolesType ctx b
 collectHolesType ctx (TPromise a) =
   collectHolesType ctx a
+collectHolesType ctx (TSumType ctors) =
+  concatMap (\(_, mTy) -> maybe [] (collectHolesType ctx) mTy) ctors
 collectHolesType _ _ = []
 
 -- ---------------------------------------------------------------------------

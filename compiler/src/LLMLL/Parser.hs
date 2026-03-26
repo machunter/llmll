@@ -242,8 +242,7 @@ pSumArm = parens $ do
 pSumTypeMultiArm :: Parser Type
 pSumTypeMultiArm = do
   arms <- some (try pSumArm)
-  let label = T.intercalate " | " (map fst arms)
-  pure $ TCustom label
+  pure $ TSumType arms
 
 -- | Parse (check "description" (for-all [...] body))
 pCheckBlock :: Parser Statement
