@@ -29,7 +29,9 @@
 - **Primitive types:** `int`, `float`, `string`, `bool`, `unit`.
 - **Holes:** Always start with `?` (e.g., `?logic_name`, `?choose(option1, option2)`).
 - **Comments:** `;; text` — from `;;` to end of line. Ignored by the compiler.
-- **Source encoding:** Source files are **UTF-8**. **Identifiers must be ASCII** (letters, digits, `-`, `_`). A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators — see §2.4. All other non-ASCII characters are a lexer error. **JSON-AST string values** follow RFC 8259 — non-ASCII and control characters must be encoded as `\uXXXX` (e.g. `\u001b` for ESC); the C-style `\xNN` form is not valid JSON and causes a parse error.
+- **Source encoding:** Source files are **UTF-8**. **Identifiers must be ASCII** (letters, digits, `-`, `_`). A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators — see §2.4. All other non-ASCII characters are a lexer error.
+- **S-expression string escapes:** `\n`, `\t`, `\r`, `\\`, `\"`, and `\uXXXX` (added v0.2). Standard Haskell-style character escapes.
+- **JSON-AST string values** follow RFC 8259 — non-ASCII and control characters must be encoded as `\uXXXX` (e.g. `\u001b` for ESC). The C-style `\xNN` form is not valid JSON.
 
 ### 2.2 Qualified Identifiers
 
@@ -454,6 +456,14 @@ All names exported by an imported module are accessible via the fully qualified 
 ;; Call the exported function with its qualified name:
 (app.auth.hash-password raw-str)
 ```
+
+> [!NOTE]
+> **Phase 2a codegen:** All imported modules are merged into a single flat `Lib.hs`.
+> Qualified references (`module.fn`) are accepted by the type-checker and resolver,
+> but codegen flattens them — `world.make-world` becomes `world_make_world` in Haskell,
+> which does not exist. **Call sites must use bare function names.** The `(import world)`
+> statement is still required to trigger module loading and merging. Per-module Haskell
+> output (so qualified names survive to GHC) is planned for Phase 2b.
 
 This reuses the existing `QualIdent` / dot-notation infrastructure — no new runtime concept.
 
@@ -975,7 +985,8 @@ gen-decl    = "(" "gen" IDENT expr ")" ;
 expr        = literal | var | let | if | match | app | qual-app
             | op | pair | await | do | lambda | hole ;
 
-literal     = INT | FLOAT | STRING | "true" | "false" ;
+literal     = INT | "-" INT | FLOAT | STRING | "true" | "false" ;
+              (* Negative integers: '-' immediately precedes digits with no whitespace *)
 var         = IDENT ;
 
 (* let is SEQUENTIAL: each binding is in scope for all subsequent bindings *)

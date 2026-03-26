@@ -700,12 +700,21 @@ pAtom = choice
 pLiteral :: Parser Literal
 pLiteral = choice
   [ try $ LitFloat <$> lexeme' L.float
+  , try $ LitInt   <$> pSignedDecimal   -- P3: negative literals e.g. -1, -42
   , LitInt <$> lexeme' L.decimal
   , LitString <$> pStringLiteral
   , LitBool True  <$ symbol "true"
   , LitBool False <$ symbol "false"
   , LitUnit       <$ symbol "()"
   ]
+
+-- | Signed decimal: matches '-' immediately followed by digits (no space).
+-- 'try' in pLiteral ensures we backtrack if '-' appears as the subtraction OP.
+pSignedDecimal :: Parser Integer
+pSignedDecimal = lexeme' $ do
+  _ <- char '-'
+  n <- L.decimal
+  pure (negate n)
 
 -- ---------------------------------------------------------------------------
 -- Primitive Parsers
@@ -714,8 +723,37 @@ pLiteral = choice
 pStringLiteral :: Parser Text
 pStringLiteral = lexeme' $ do
   _ <- char '"'
-  content <- T.pack <$> manyTill L.charLiteral (char '"')
+  content <- T.pack <$> manyTill pStringChar (char '"')
   pure content
+  where
+    -- P2: handle \uXXXX before Megaparsec's L.charLiteral (which doesn't recognise \u).
+    pStringChar :: Parser Char
+    pStringChar = (char '\\' *> pEscape) <|> anySingleBut '"'
+
+    pEscape :: Parser Char
+    pEscape =
+          (char 'u' *> pUnicodeEscape)   -- \uXXXX
+      <|> (char 'n' *> pure '\n')        -- standard Haskell-style escapes
+      <|> (char 't' *> pure '\t')
+      <|> (char 'r' *> pure '\r')
+      <|> (char '\\' *> pure '\\')
+      <|> (char '"' *> pure '"')
+      <|> (char '0' *> pure '\0')
+      <|> anySingle  -- pass through anything else (best-effort)
+
+    pUnicodeEscape :: Parser Char
+    pUnicodeEscape = do
+      h1 <- hexDigitChar; h2 <- hexDigitChar
+      h3 <- hexDigitChar; h4 <- hexDigitChar
+      let code = foldl (\acc c -> acc * 16 + fromEnum (hexVal c)) 0 [h1,h2,h3,h4]
+      pure (toEnum code)
+
+    hexVal :: Char -> Int
+    hexVal c
+      | c >= '0' && c <= '9' = fromEnum c - fromEnum '0'
+      | c >= 'a' && c <= 'f' = fromEnum c - fromEnum 'a' + 10
+      | c >= 'A' && c <= 'F' = fromEnum c - fromEnum 'A' + 10
+      | otherwise             = 0
 
 pIntLit :: Parser Integer
 pIntLit = lexeme' L.decimal

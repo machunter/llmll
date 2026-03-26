@@ -295,9 +295,32 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 (module app.main
   (import app.auth))
 
-;; Call the qualified name:
+;; Call the exported function with its qualified name:
 (app.auth.hash-password raw-str)
 ```
+
+> [!IMPORTANT]
+> **Phase 2a codegen limitation — use bare names at call sites.**
+> Qualified access (`module.fn`) is *accepted by the type-checker and resolver*, but
+> Phase 2a codegen merges all modules into a single flat `Lib.hs` with bare Haskell
+> identifiers. A call written as `(world.make-world ...)` becomes `world_make_world`
+> in the generated Haskell, which **does not exist** — GHC will error with
+> `Variable not in scope: world_make_world`.
+>
+> **Rule for Phase 2a:** always use **bare function names** at call sites, even for
+> functions imported from other modules. The `(import world)` statement is still
+> required (it triggers module loading and merging); only call sites must be bare.
+>
+> ```lisp
+> ;; ✅ correct in Phase 2a:
+> (import world)
+> (make-world 20 10)
+>
+> ;; ❌ wrong — produces undefined Haskell identifier:
+> (world.make-world 20 10)
+> ```
+>
+> Per-module Haskell output (so `world.make-world` compiles correctly) is planned for Phase 2b.
 
 #### `open` — pull names into local scope
 
@@ -381,19 +404,34 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 >
 > A `--lib <dir>` flag that adds extra search roots is planned for Phase 2b.
 
-### §4.9 JSON-AST String Escape Sequences
+### §4.9 String Escape Sequences by Format
 
-When embedding control characters or non-ASCII bytes in a `lit-string` value, you **must** use JSON Unicode escapes (`\uXXXX`). C-style hex escapes (`\xNN`) are **not** valid JSON and trigger a misleading UTF-8 decode error.
+S-expression (`.llmll`) and JSON-AST (`.ast.json`) files use different string escape rules. Mixing them up is a common source of parse errors.
 
+| Escape | JSON-AST | S-expression (v0.2+) |
+|--------|----------|----------------------|
+| `\n` newline | ✅ | ✅ |
+| `\t` tab | ✅ | ✅ |
+| `\r` CR | ✅ | ✅ |
+| `\\` backslash | ✅ | ✅ |
+| `\"` quote | ✅ | ✅ |
+| `\uXXXX` Unicode | ✅ | ✅ added v0.2 |
+| `\xNN` hex | ❌ not valid JSON | ❌ not supported |
+
+**JSON-AST:** follows RFC 8259. Use `\uXXXX` for control characters:
 ```json
-✅  { "kind": "lit-string", "value": "\u001b[2J\u001b[H" }
-
-❌  { "kind": "lit-string", "value": "\x1b[2J\x1b[H" }   // \x1b is NOT valid JSON
+{ "kind": "lit-string", "value": "\u001b[2J\u001b[H" }  // ✅ VT100 clear-screen
+{ "kind": "lit-string", "value": "\x1b[2J\x1b[H" }    // ❌ \x1b not valid JSON
 ```
 
-The compiler now emits a hint when it detects this pattern:
+The compiler emits a hint when it detects the `\x1b` pattern:
 ```
 :hint "JSON strings must use \\uXXXX for control/non-ASCII chars (e.g. \\u001b not \\x1b)"
+```
+
+**S-expression:** uses Haskell-style escapes. `\uXXXX` is now also supported (v0.2):
+```lisp
+(def-logic clear-screen [] "\u001b[2J\u001b[H")  ;; ✅ works in v0.2
 ```
 
 ---
