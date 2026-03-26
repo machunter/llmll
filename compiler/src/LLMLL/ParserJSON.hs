@@ -95,6 +95,7 @@ parseStatement = withObject "Statement" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
     "def-logic"    -> parseDefLogic o
+    "letrec"       -> parseLetrec o
     "def-interface"-> parseDefInterface o
     "def-invariant"-> parseDefInvariant o
     "type-decl"    -> parseTypeDecl o
@@ -142,6 +143,16 @@ parseTypeDecl o = do
   name <- o .: "name"
   body <- o .: "body" >>= parseTypeBody
   pure $ STypeDef name body
+
+parseLetrec :: Object -> Parser Statement
+parseLetrec o = do
+  name     <- o .: "name"
+  params   <- o .: "params" >>= mapM parseTypedParam
+  mPre     <- o .:? "pre"      >>= mapM parseExpr
+  mPost    <- o .:? "post"     >>= mapM parseExpr
+  dec      <- o .: "decreases" >>= parseExpr
+  body     <- o .: "body"      >>= parseExpr
+  pure $ SLetrec name params Nothing (Contract mPre mPost) dec body
 
 parseTypeBody :: Value -> Parser Type
 parseTypeBody = withObject "TypeBody" $ \o -> do

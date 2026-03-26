@@ -250,6 +250,19 @@ data Statement
     , defLogicContract :: Contract
     , defLogicBody   :: Expr
     }
+  -- | Explicitly recursive function with a termination measure.
+  -- D2: `:decreases expr` must be an integer-valued expression that strictly
+  -- decreases in each recursive call (restricted to QF linear arithmetic for LH).
+  -- Codegen treats this identically to SDefLogic; the decreases expr is stored
+  -- for the LH annotation layer (Deliverable 4).
+  | SLetrec
+    { letrecName      :: Name
+    , letrecParams    :: [(Name, Type)]
+    , letrecReturn    :: Maybe Type
+    , letrecContract  :: Contract
+    , letrecDecreases :: Expr    -- ^ termination measure (must be int-typed)
+    , letrecBody      :: Expr
+    }
   | SDefInterface
     { defInterfaceName :: Name
     , defInterfaceFns  :: [(Name, Type)]  -- ^ Function signatures

@@ -9,7 +9,7 @@ import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
-import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage)
+import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
@@ -471,3 +471,52 @@ main = hspec $ do
           length nonExh `shouldBe` 1
           diagMessage (head nonExh) `shouldSatisfy` T.isInfixOf "Error"
 
+  -- -----------------------------------------------------------------------
+  -- D2: letrec + :decreases
+  -- -----------------------------------------------------------------------
+  describe "D2 letrec :decreases" $ do
+    it "S-expression: letrec with :decreases parses to SLetrec" $ do
+      let src = "(letrec count-down [n: int] :decreases n (if (= n 0) 0 (count-down (- n 1))))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          length stmts `shouldBe` 1
+          case head stmts of
+            SLetrec name params _ _ dec _ -> do
+              name `shouldBe` "count-down"
+              length params `shouldBe` 1
+              dec `shouldBe` EVar "n"
+            _ -> expectationFailure "Expected SLetrec"
+
+    it "self-recursive def-logic emits self-recursion warning" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic count-down [n: int]"
+            , "  (if (= n 0) 0 (count-down (- n 1))))"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> diagSeverity d == SevWarning
+                                 && T.isInfixOf "self-recursive" (diagMessage d))
+                             (reportDiagnostics report)
+          length warns `shouldSatisfy` (>= 1)
+
+    it "letrec self-call does NOT emit self-recursion warning" $ do
+      let src = "(letrec count-down [n: int] :decreases n (if (= n 0) 0 (count-down (- n 1))))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> diagSeverity d == SevWarning
+                                 && T.isInfixOf "self-recursive" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+
+    it "letrec codegen emits :decreases comment marker" $ do
+      let stmts = [SLetrec "countdown" [("n", TInt)] Nothing
+                     (Contract Nothing Nothing) (EVar "n")
+                     (EVar "n")]
+      let result = generateHaskell "test" stmts
+      cgHsSource result `shouldSatisfy` T.isInfixOf "letrec :decreases"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "countdown"

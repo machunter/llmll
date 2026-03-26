@@ -59,6 +59,17 @@ stmtToJson (SDefLogic name params _ret (Contract mPre mPost) body) =
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
     maybe [] (\e -> ["post" .= exprToJson e]) mPost
 
+stmtToJson (SLetrec name params _ret (Contract mPre mPost) dec body) =
+  object $
+    [ "kind"      .= ("letrec" :: Text)
+    , "name"      .= name
+    , "params"    .= map typedParamToJson params
+    , "decreases" .= exprToJson dec
+    , "body"      .= exprToJson body
+    ] ++
+    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
+    maybe [] (\e -> ["post" .= exprToJson e]) mPost
+
 stmtToJson (SDefInterface name fns) =
   object
     [ "kind"    .= ("def-interface" :: Text)

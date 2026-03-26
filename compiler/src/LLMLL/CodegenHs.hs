@@ -327,6 +327,11 @@ emitStmt :: Statement -> Text
 emitStmt (STypeDef name body)             = emitTypeDef name body
 emitStmt (SDefInterface name fns)         = emitInterface name fns
 emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
+-- D2: SLetrec emits as a regular Haskell function.
+-- The {- letrec :decreases ... -} marker is a breadcrumb for the D4 LH annotation pass.
+emitStmt (SLetrec name params mRet c dec b) =
+  "{- letrec :decreases " <> emitExpr dec <> " -}\n"
+  <> emitDefLogic name params mRet c b
 emitStmt (SCheck prop)                    = emitCheck prop
 emitStmt (SImport _)                      = ""  -- handled in header
 emitStmt (SExpr _)                        = ""  -- top-level exprs not representable

@@ -133,7 +133,8 @@ data TCState = TCState
   { tcEnv        :: TypeEnv
   , tcErrors     :: [Diagnostic]
   , tcAliasMap   :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
-  , tcCurrentFn  :: Maybe Name      -- ^ enclosing def-logic name (for exhaustiveness diagnostics)
+  , tcCurrentFn  :: Maybe Name      -- ^ enclosing def-logic/letrec name
+  , tcIsLetrec   :: Bool            -- ^ True when inside a letrec (has explicit :decreases)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -175,7 +176,7 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False)
   in (result, tcErrors st)
 
 -- ---------------------------------------------------------------------------
@@ -232,7 +233,11 @@ checkStatements stmts = do
 collectTopLevel :: Statement -> Maybe (Name, Type)
 collectTopLevel (SDefLogic name params mRet _contract _body) =
   let argTypes = map snd params
-      retType  = fromMaybe (TVar "?") mRet  -- no annotation => polymorphic wildcard
+      retType  = fromMaybe (TVar "?") mRet
+  in Just (name, TFn argTypes retType)
+collectTopLevel (SLetrec name params mRet _contract _dec _body) =
+  let argTypes = map snd params
+      retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
 collectTopLevel (SDefInterface name fns) =
   Just (name, TCustom name)  -- interfaces register as custom types
@@ -242,8 +247,8 @@ collectTopLevel _ = Nothing
 
 checkStatement :: Statement -> TC ()
 checkStatement (SDefLogic name params mRet contract body) = do
-  -- Track current function name for exhaustiveness diagnostics (D1)
-  modify $ \s -> s { tcCurrentFn = Just name }
+  -- Track enclosing function for exhaustiveness (D1) and self-recursion (D2)
+  modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = False }
   let paramBindings = params
   withEnv paramBindings $ do
     -- Infer body type
@@ -260,6 +265,36 @@ checkStatement (SDefLogic name params mRet contract body) = do
         unless (compatibleWith preType TBool) $
           tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
     -- Check post-condition is boolean (has access to 'result')
+    case contractPost contract of
+      Nothing -> pure ()
+      Just post -> do
+        let resultType = fromMaybe bodyType mRet
+        postType <- withEnv [("result", resultType)] (inferExpr post)
+        unless (compatibleWith postType TBool) $
+          tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
+
+checkStatement (SLetrec name params mRet contract dec body) = do
+  -- letrec: like def-logic but tcIsLetrec=True supresses the self-recursion warning
+  modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = True }
+  let paramBindings = params
+  withEnv paramBindings $ do
+    -- Validate :decreases is integer-typed (QF linear arithmetic restriction)
+    decType <- inferExpr dec
+    unless (compatibleWith decType TInt) $
+      tcWarn $ "letrec '" <> name <> "': :decreases must be int-typed, got " <> typeLabel decType
+    -- Infer body type
+    bodyType <- inferExpr body
+    case mRet of
+      Nothing -> pure ()
+      Just retTy -> unify name retTy bodyType
+    -- Check pre-condition
+    case contractPre contract of
+      Nothing -> pure ()
+      Just pre -> do
+        preType <- withEnv [("result", fromMaybe bodyType mRet)] (inferExpr pre)
+        unless (compatibleWith preType TBool) $
+          tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
+    -- Check post-condition
     case contractPost contract of
       Nothing -> pure ()
       Just post -> do
@@ -409,6 +444,12 @@ inferExpr (EMatch expr cases) = do
 inferExpr (EApp func args) = do
   mFuncTy <- tcLookup func
   argTypes <- mapM inferExpr args
+  -- D2: warn when a plain def-logic calls itself recursively without :decreases
+  isLetrec <- gets tcIsLetrec
+  mCurrent <- gets tcCurrentFn
+  when (mCurrent == Just func && not isLetrec) $
+    tcWarn $ "self-recursive call to '" <> func <> "' inside def-logic; "
+              <> "use (letrec " <> func <> " [...] :decreases ...) to provide a termination measure"
   case mFuncTy of
     Nothing -> do
       tcWarn $ "call to unknown function '" <> func <> "'"

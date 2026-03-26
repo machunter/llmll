@@ -98,6 +98,14 @@ collectHolesStmt _ctx (SDefLogic name params _ret contract body) =
 
 collectHolesStmt _ctx (SDefInterface _ _) = []
 
+collectHolesStmt _ctx (SLetrec name _params _ret contract dec body) =
+  let ctx = "letrec " <> name
+      bodyHoles = collectHolesExpr ctx body
+      decHoles  = collectHolesExpr (ctx <> " [decreases]") dec
+      preHoles  = maybe [] (collectHolesExpr (ctx <> " [pre]"))  (contractPre contract)
+      postHoles = maybe [] (collectHolesExpr (ctx <> " [post]")) (contractPost contract)
+  in bodyHoles ++ decHoles ++ preHoles ++ postHoles
+
 collectHolesStmt _ctx (STypeDef name body) =
   collectHolesType ("type " <> name) body
 

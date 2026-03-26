@@ -131,6 +131,7 @@ pModule = parens $ do
 pStatement :: Parser Statement
 pStatement = choice
   [ pDefLogic
+  , pLetrec
   , pDefMain
   , pDefInterface
   , pTypeDef
@@ -158,6 +159,26 @@ pDefLogic = do
                [p] -> Just p
                ps  -> Just (foldl1 (\a b -> EApp "and" [a, b]) ps)
   pure $ SDefLogic name params Nothing (Contract mPre mPost) body
+
+-- | Parse (letrec name [params] :decreases measure body)
+-- Introduces an explicitly recursive function with a termination measure.
+-- The :decreases expression must be integer-valued and must strictly decrease
+-- in each recursive call (QF linear arithmetic, for LH verification in D4).
+pLetrec :: Parser Statement
+pLetrec = do
+  _ <- try (symbol "(" *> symbol "letrec")
+  name    <- pIdent
+  params  <- brackets (many pDefParam)
+  preClauses <- many (try pPreClause)
+  mPost   <- optional (try pPostClause)
+  dec     <- symbol ":decreases" *> pExpr
+  body    <- pExpr
+  _       <- symbol ")"
+  let mPre = case preClauses of
+               []  -> Nothing
+               [p] -> Just p
+               ps  -> Just (foldl1 (\a b -> EApp "and" [a, b]) ps)
+  pure $ SLetrec name params Nothing (Contract mPre mPost) dec body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -791,7 +812,7 @@ reservedWords =
   [ "module", "import", "def-logic", "def-interface", "let", "if"
   , "match", "check", "pre", "post", "for-all", "type", "where"
   , "pair", "await", "do", "on-failure", "fn", "true", "false"
-  , "capability"
+  , "capability", "letrec"
   -- v0.2 module system
   , "open", "export"
   ]
