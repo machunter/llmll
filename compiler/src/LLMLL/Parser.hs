@@ -95,17 +95,19 @@ parseExpr fp = parse (sc *> pExpr <* eof) fp
 pTopLevelItem :: Parser [Statement]
 pTopLevelItem = pModuleFlattened <|> (pure <$> pStatement)
 
--- | Parse @(module Name [imports...] [statements...])@ and return
+-- | Parse @(module Name [imports...] [open/export...] [statements...])@ and return
 -- its contents as a flat list of statements.  The module name is
 -- ignored (single-file model).  Imports become 'SImport' nodes.
+-- v0.2: open/export declarations are also accepted before body statements.
 pModuleFlattened :: Parser [Statement]
 pModuleFlattened = do
   _ <- try (symbol "(" *> symbol "module")
   _ <- pIdent          -- module name: recorded but not used in single-file model
   imports <- many (try pImportStmt)
+  opens   <- many (try pOpenDecl <|> try pExportDecl)
   body    <- many pStatement
   _ <- symbol ")"
-  pure (imports ++ body)
+  pure (imports ++ opens ++ body)
 
 -- ---------------------------------------------------------------------------
 -- Module (full module form, used by parseModule)
@@ -135,6 +137,8 @@ pStatement = choice
   , pCheckBlock
   , pGenDecl
   , pImportStmt
+  , pOpenDecl
+  , pExportDecl
   , SExpr <$> pExpr
   ]
 
@@ -269,7 +273,10 @@ pForAll = parens $ do
   body <- pExpr
   pure $ Property "" bindings body
 
--- | Parse (import path (interface [...]) (capability ...))
+-- | Parse an import statement.
+-- (import foo.bar.baz)
+-- (import foo.bar.baz (interface [...]))
+-- (import foo.bar.baz (capability ...))
 pImportStmt :: Parser Statement
 pImportStmt = do
   _ <- try (symbol "(" *> symbol "import")
@@ -278,6 +285,29 @@ pImportStmt = do
   cap <- optional (try pCapabilitySpec)
   _ <- symbol ")"
   pure $ SImport (Import path iface cap)
+
+-- | Parse (open foo.bar) or (open foo.bar (f g h)) — v0.2.
+-- Pulls all or named exports of a module into the current bare scope.
+pOpenDecl :: Parser Statement
+pOpenDecl = do
+  _ <- try (symbol "(" *> symbol "open")
+  path <- splitDotted <$> pDottedIdent
+  names <- optional (parens (many pIdent))
+  _ <- symbol ")"
+  pure $ SOpen path names
+
+-- | Parse (export f g h) — v0.2.
+-- Restricts which top-level names are visible to importers.
+pExportDecl :: Parser Statement
+pExportDecl = do
+  _ <- try (symbol "(" *> symbol "export")
+  names <- many pIdent
+  _ <- symbol ")"
+  pure $ SExport names
+
+-- | Split a dotted Text identifier into a module path.
+splitDotted :: Text -> [Text]
+splitDotted = T.splitOn "."
 
 -- | Parse (def-main :mode console|cli|http [:port n] :init expr :step expr ...)
 pDefMain :: Parser Statement
@@ -670,12 +700,21 @@ pAtom = choice
 pLiteral :: Parser Literal
 pLiteral = choice
   [ try $ LitFloat <$> lexeme' L.float
+  , try $ LitInt   <$> pSignedDecimal   -- P3: negative literals e.g. -1, -42
   , LitInt <$> lexeme' L.decimal
   , LitString <$> pStringLiteral
   , LitBool True  <$ symbol "true"
   , LitBool False <$ symbol "false"
   , LitUnit       <$ symbol "()"
   ]
+
+-- | Signed decimal: matches '-' immediately followed by digits (no space).
+-- 'try' in pLiteral ensures we backtrack if '-' appears as the subtraction OP.
+pSignedDecimal :: Parser Integer
+pSignedDecimal = lexeme' $ do
+  _ <- char '-'
+  n <- L.decimal
+  pure (negate n)
 
 -- ---------------------------------------------------------------------------
 -- Primitive Parsers
@@ -684,8 +723,37 @@ pLiteral = choice
 pStringLiteral :: Parser Text
 pStringLiteral = lexeme' $ do
   _ <- char '"'
-  content <- T.pack <$> manyTill L.charLiteral (char '"')
+  content <- T.pack <$> manyTill pStringChar (char '"')
   pure content
+  where
+    -- P2: handle \uXXXX before Megaparsec's L.charLiteral (which doesn't recognise \u).
+    pStringChar :: Parser Char
+    pStringChar = (char '\\' *> pEscape) <|> anySingleBut '"'
+
+    pEscape :: Parser Char
+    pEscape =
+          (char 'u' *> pUnicodeEscape)   -- \uXXXX
+      <|> (char 'n' *> pure '\n')        -- standard Haskell-style escapes
+      <|> (char 't' *> pure '\t')
+      <|> (char 'r' *> pure '\r')
+      <|> (char '\\' *> pure '\\')
+      <|> (char '"' *> pure '"')
+      <|> (char '0' *> pure '\0')
+      <|> anySingle  -- pass through anything else (best-effort)
+
+    pUnicodeEscape :: Parser Char
+    pUnicodeEscape = do
+      h1 <- hexDigitChar; h2 <- hexDigitChar
+      h3 <- hexDigitChar; h4 <- hexDigitChar
+      let code = foldl (\acc c -> acc * 16 + fromEnum (hexVal c)) 0 [h1,h2,h3,h4]
+      pure (toEnum code)
+
+    hexVal :: Char -> Int
+    hexVal c
+      | c >= '0' && c <= '9' = fromEnum c - fromEnum '0'
+      | c >= 'a' && c <= 'f' = fromEnum c - fromEnum 'a' + 10
+      | c >= 'A' && c <= 'F' = fromEnum c - fromEnum 'A' + 10
+      | otherwise             = 0
 
 pIntLit :: Parser Integer
 pIntLit = lexeme' L.decimal
@@ -725,4 +793,6 @@ reservedWords =
   , "match", "check", "pre", "post", "for-all", "type", "where"
   , "pair", "await", "do", "on-failure", "fn", "true", "false"
   , "capability"
+  -- v0.2 module system
+  , "open", "export"
   ]

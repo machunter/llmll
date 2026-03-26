@@ -1,0 +1,37 @@
+;; LifeMain — Entry point and CLI rendering
+;; Module: main
+;; Imports: world (for evolve, render-world, make-world, glider-grid)
+;;
+;; NOTE on qualified names: the LLMLL codegen merges all modules into a single
+;; flat Haskell namespace (Lib.hs). Use bare function names even for imported
+;; module functions — do NOT use world.evolve, use just evolve.
+
+(import wasi.io (capability stdout :deterministic false))
+(import world)
+
+(def-logic start-game []
+  (let [(w      20)
+        (h      10)
+        (grid   (glider-grid w h))
+        (world0 (make-world grid w h))
+        (banner "Conway's Game of Life -- LLMLL v0.2 (press Ctrl-C to quit)\n\n")
+        (board  (render-world world0))
+        (msg    (string-concat banner board))]
+    (pair world0 (wasi.io.stdout msg))))
+
+(def-logic game-step [world _input: string]
+  (let [(next-world (evolve world))
+        (board      (render-world next-world))
+        (sep        "----------------------------------------\n")
+        (header     "Conway's Game of Life -- LLMLL v0.2\n\n")
+        (output     (string-concat sep (string-concat header board)))]
+    (pair next-world (wasi.io.stdout output))))
+
+(def-logic never-done [_world]
+  false)
+
+(def-main
+  :mode   console
+  :init   (start-game)
+  :step   game-step
+  :done?  never-done)

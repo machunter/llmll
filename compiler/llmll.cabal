@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           llmll
-version:        0.1.2
+version:        0.2.0
 synopsis:       LLMLL compiler - AI-to-AI programming language
 description:    Compiler for the Large Language Model Logical Language
 author:         LLMLL Team
@@ -27,6 +27,8 @@ library
       LLMLL.CodegenHs
       LLMLL.Codegen
       LLMLL.Diagnostic
+      LLMLL.Module
+      LLMLL.Hub
   other-modules:
       Main
       Paths_llmll
@@ -56,8 +58,11 @@ library
     , parser-combinators >=1.3
     , pretty-simple >=4.1
     , process >=1.6
+    , tar >=0.5
     , text >=2.0
+    , unix >=2.7
     , vector >=0.13
+    , zlib >=0.6
   default-language: Haskell2010
 
 executable llmll
@@ -69,7 +74,9 @@ executable llmll
       LLMLL.Contracts
       LLMLL.Diagnostic
       LLMLL.HoleAnalysis
+      LLMLL.Hub
       LLMLL.Lexer
+      LLMLL.Module
       LLMLL.Parser
       LLMLL.ParserJSON
       LLMLL.PBT
@@ -103,8 +110,11 @@ executable llmll
     , parser-combinators >=1.3
     , pretty-simple >=4.1
     , process >=1.6
+    , tar >=0.5
     , text >=2.0
+    , unix >=2.7
     , vector >=0.13
+    , zlib >=0.6
   default-language: Haskell2010
 
 test-suite llmll-test
@@ -141,6 +151,9 @@ test-suite llmll-test
     , parser-combinators >=1.3
     , pretty-simple >=4.1
     , process >=1.6
+    , tar >=0.5
     , text >=2.0
+    , unix >=2.7
     , vector >=0.13
+    , zlib >=0.6
   default-language: Haskell2010

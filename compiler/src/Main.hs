@@ -16,19 +16,22 @@ import System.Exit (exitFailure, exitSuccess, ExitCode(..))
 import System.FilePath (takeBaseName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
 import System.Process (readProcessWithExitCode)
-import Control.Monad (unless, forM_, when)
+import Control.Monad (unless, forM_, when, foldM)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Options.Applicative
+import qualified Data.Set as Set
 
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement, Span(..))
-import LLMLL.TypeCheck (typeCheck, emptyEnv)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv)
+import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
+import LLMLL.Hub (hubFetchLocal)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
   , totalHoles, blockingHoles, holeEntries
@@ -36,7 +39,7 @@ import LLMLL.HoleAnalysis
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
-import LLMLL.CodegenHs (generateHaskell, CodegenResult(..))
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..))
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
@@ -56,6 +59,7 @@ data Command
   | CmdBuildFromJson FilePath (Maybe FilePath) Bool     -- file, outdir, --emit-only
   | CmdRun    FilePath [String]                         -- file, extra args
   | CmdRepl
+  | CmdHub    FilePath                                  -- Phase 2a: hub fetch --from-file <tarball>
   deriving (Show)
 
 data Options = Options
@@ -88,6 +92,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Compile and immediately run an LLMLL program (requires def-main)"))
       <> command "repl"  (info (pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
+      <> command "hub"   (info hubCmd
+          (progDesc "Manage llmll-hub local package cache"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -116,6 +122,12 @@ optionsParser = info (helper <*> opts) $
       <$> fileArg
       <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
 
+    hubCmd = CmdHub
+      <$> strOption
+            (long "from-file" <> metavar "TARBALL"
+            <> help "Install a .tar.gz package into the local hub cache (~/.llmll/modules/)")
+
+
 -- ---------------------------------------------------------------------------
 -- Main
 -- ---------------------------------------------------------------------------
@@ -134,6 +146,7 @@ main = do
     CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
+    CmdHub   tarball          -> doHubFetch json tarball
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -186,16 +199,60 @@ emitParseDiag json fp d
     quote t = "\"" <> T.replace "\"" "\\\"" t <> "\""
 
 -- ---------------------------------------------------------------------------
+-- Multi-file loader (Phase 2a)
+-- ---------------------------------------------------------------------------
+
+-- | Load an entry-point file and recursively load all its transitive imports.
+-- Returns (entryStmts, moduleCache, loadOrder) where loadOrder is a
+-- topologically-sorted list of module paths (dependencies first) for codegen.
+-- Falls back gracefully when no filesystem imports are found (single-file path).
+loadStatementsMulti :: Bool -> FilePath -> IO (Either () ([Statement], ModuleCache, [ModulePath]))
+loadStatementsMulti json fp = do
+  mStmts <- loadStatements json fp
+  case mStmts of
+    Left ()     -> pure (Left ())
+    Right stmts -> do
+      let imports = [imp | SImport imp <- stmts]
+          srcRoot = takeDirectory fp
+      -- Build ModuleCache + load-order by post-order DFS over all imports
+      result <- foldM (loadOneImp json srcRoot) (Right (Map.empty, [])) imports
+      case result of
+        Left diags -> do
+          mapM_ (emitDiag json fp) diags
+          pure (Left ())
+        Right (cache, loadOrder) -> pure (Right (stmts, cache, loadOrder))
+  where
+    -- P1 fix: skip built-in capability namespace imports (wasi.*, haskell.*, c.*).
+    -- These are resolved by the codegen preamble, not by file-system lookup.
+    loadOneImp j srcRoot (Left e) _   = pure (Left e)
+    loadOneImp j srcRoot (Right (c, ord)) imp = do
+      let path = T.splitOn "." (importPath imp)
+      if isBuiltinImport path
+        then pure (Right (c, ord))
+        else do
+          res <- loadModule j srcRoot [] c Set.empty path
+          case res of
+            Left diags         -> pure (Left diags)
+            Right (c', o', _)  -> pure (Right (c', ord ++ o'))
+
+    emitDiag j fp_ d
+      | j         = TIO.putStrLn (formatDiagnosticJson d)
+      | otherwise = TIO.putStrLn (formatDiagnostic d)
+
+takeDirectory :: FilePath -> FilePath
+takeDirectory = reverse . dropWhile (\c -> c /= '/' && c /= '\\') . drop 1 . reverse
+
+-- ---------------------------------------------------------------------------
 -- check
 -- ---------------------------------------------------------------------------
 
 doCheck :: Bool -> FilePath -> IO ()
 doCheck json fp = do
-  stmts <- loadStatements json fp
-  case stmts of
-    Left ()    -> pure ()     -- error already emitted
-    Right ss   -> do
-      let report = typeCheck emptyEnv ss
+  mResult <- loadStatementsMulti json fp
+  case mResult of
+    Left ()                      -> pure ()
+    Right (ss, cache, _loadOrder) -> do
+      let report = typeCheckWithCache cache emptyEnv ss
       if json
         then TIO.putStrLn (formatReportJson report)
         else if reportSuccess report
@@ -312,14 +369,12 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
   if takeExtension fp == ".json"
     then doBuildFromJson json fp mOutDir emitOnly
     else do
-      src <- TIO.readFile fp
-      case parseSrc fp src of
-        Left diag -> do
-          emitParseDiag json fp diag
-          exitFailure
-        Right stmts -> do
-          -- --emit json-ast: write JSON-AST and stop; no Rust codegen
-          when emitJson $ do
+      -- --emit json-ast: parse the file directly to round-trip to JSON (no module merge needed)
+      when emitJson $ do
+        src <- TIO.readFile fp
+        case parseSrc fp src of
+          Left diag -> do { emitParseDiag json fp diag; exitFailure }
+          Right stmts -> do
             let modName = T.pack $ takeBaseName fp
                 outDir  = case mOutDir of
                             Just d  -> d
@@ -333,11 +388,18 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
               else TIO.putStrLn $ "✅ JSON-AST written to " <> T.pack astFile
             exitSuccess
 
-          let modName = T.pack $ takeBaseName fp
-              result  = generateHaskell modName stmts
-              outDir  = case mOutDir of
-                          Just d  -> d
-                          Nothing -> "generated/" <> T.unpack modName
+      -- B3: use loadStatementsMulti so imported modules' definitions are
+      -- inlined into Lib.hs (mirrors the doBuildFromJson path).
+      mResult <- loadStatementsMulti json fp
+      case mResult of
+        Left () -> exitFailure
+        Right (stmts, cache, loadOrder) -> do
+          let modName      = T.pack $ takeBaseName fp
+              importedEnvs = topoSortedEnvs cache loadOrder
+              result       = generateHaskellMulti modName importedEnvs stmts
+              outDir       = case mOutDir of
+                               Just d  -> d
+                               Nothing -> "generated/" <> T.unpack modName
           -- Write Haskell source + optional Main.hs
           createDirectoryIfMissing True (outDir <> "/src")
           TIO.writeFile (outDir <> "/src/Lib.hs")     (cgHsSource result)
@@ -347,9 +409,7 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
             Nothing   -> pure ()
             Just mainSrc -> do
               TIO.writeFile (outDir <> "/src/Main.hs") mainSrc
-              if not json
-                then TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
-                else pure ()
+              unless json $ TIO.putStrLn $ "   src/Main.hs -- " <> tshow (T.length mainSrc) <> " chars"
 
           -- Write FFI hub module
           case cgFfiModHs result of
@@ -357,36 +417,26 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
             Just ffiModSrc -> do
               createDirectoryIfMissing True (outDir <> "/src/FFI")
               TIO.writeFile (outDir <> "/src/FFI.hs") ffiModSrc
-              if not json
-                then TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
-                else pure ()
+              unless json $ TIO.putStrLn $ "   src/FFI.hs -- " <> tshow (T.length ffiModSrc) <> " chars"
 
           -- Write per-library FFI stubs (generated ONCE, do not overwrite)
           forM_ (cgFfiFiles result) $ \(modN, stubsSrc) -> do
               let stubPath = outDir <> "/src/FFI/" <> T.unpack modN <> ".hs"
               exists <- doesFileExist stubPath
               if exists
-                then if not json
-                       then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
-                       else pure ()
+                then unless json $ TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- KEEPING existing developer file"
                 else do
                   TIO.writeFile stubPath stubsSrc
-                  if not json
-                    then TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
-                    else pure ()
+                  unless json $ TIO.putStrLn $ "   src/FFI/" <> modN <> ".hs -- generated " <> tshow (T.length stubsSrc) <> " chars"
 
-          if not json
-            then do
-              TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length (cgHsSource result)) <> " chars"
-              mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
-            else pure ()
+          unless json $ do
+            TIO.putStrLn $ "   src/Lib.hs -- " <> tshow (T.length (cgHsSource result)) <> " chars"
+            mapM_ (\w -> TIO.putStrLn $ "   WARNING: " <> w) (cgWarnings result)
 
           -- Validate generated Haskell with GHC (skip when --emit-only)
           ghcOk <- if emitOnly
             then do
-              if not json
-                then TIO.putStrLn "   (stack build skipped — --emit-only)"
-                else pure ()
+              unless json $ TIO.putStrLn "   (stack build skipped — --emit-only)"
               pure True
             else runGhcCheck json outDir
 
@@ -400,9 +450,7 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
           -- Optionally run wasm-pack (WASM PoC deferred to v0.4)
           if doWasm
             then TIO.putStrLn "   INFO: --wasm targets Haskell WASM backend (ghc --target=wasm32-wasi). See docs/wasm-compat-report.md"
-            else if json
-              then pure ()
-              else TIO.putStrLn "   INFO: pass --wasm for WASM PoC output (requires GHC WASM backend)"
+            else unless json $ TIO.putStrLn "   INFO: pass --wasm for WASM PoC output (requires GHC WASM backend)"
 
           exitSuccess
 
@@ -410,16 +458,16 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
 
 doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> Bool -> IO ()
 doBuildFromJson json fp mOutDir emitOnly = do
-  bs <- BL.readFile fp
-  case parseSrcBS fp bs of
-    Left diag -> do
-      emitParseDiag json fp diag
-      exitFailure
-    Right stmts -> do
-      -- P1 fix: strip .ast suffix BEFORE passing to generateHaskell (crate names must not contain dots)
+  -- P3: use loadStatementsMulti to resolve imports and get load-order
+  mResult <- loadStatementsMulti json fp
+  case mResult of
+    Left () -> exitFailure
+    Right (stmts, cache, loadOrder) -> do
       let rawName = T.pack $ takeBaseName fp
           modName = T.replace ".ast" "" rawName
-          result  = generateHaskell modName stmts
+          -- P3: collect imported envs in topo order and call generateHaskellMulti
+          importedEnvs = topoSortedEnvs cache loadOrder
+          result  = generateHaskellMulti modName importedEnvs stmts
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
@@ -437,9 +485,7 @@ doBuildFromJson json fp mOutDir emitOnly = do
       -- Validate generated Haskell with GHC (skip when --emit-only)
       ghcOk <- if emitOnly
         then do
-          if not json
-            then TIO.putStrLn "   (stack build skipped — --emit-only)"
-            else pure ()
+          unless json $ TIO.putStrLn "   (stack build skipped — --emit-only)"
           pure True
         else runGhcCheck json outDir
       if ghcOk
@@ -626,3 +672,24 @@ replLoop _env = do
 
 tshow :: Show a => a -> T.Text
 tshow = T.pack . show
+
+-- ---------------------------------------------------------------------------
+-- hub (Phase 2a: local tarball install)
+-- ---------------------------------------------------------------------------
+
+doHubFetch :: Bool -> FilePath -> IO ()
+doHubFetch json tarball = do
+  result <- hubFetchLocal tarball
+  case result of
+    Left err -> do
+      if json
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+               object ["success" .= False, "error" .= err]
+        else TIO.putStrLn $ "ERROR: " <> T.pack err
+      exitFailure
+    Right () -> do
+      if json
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+               object ["success" .= True, "tarball" .= tarball]
+        else TIO.putStrLn $ "\x2705 Hub package installed from: " <> T.pack tarball
+      exitSuccess

@@ -1,5 +1,5 @@
 name:                llmll
-version:             0.1.2
+version:             0.2.0
 synopsis:            LLMLL compiler - AI-to-AI programming language
 description:         Compiler for the Large Language Model Logical Language
 license:             MIT
@@ -41,6 +41,9 @@ dependencies:
   - directory >= 1.3
   - process >= 1.6
   - vector >= 0.13
+  - tar >= 0.5
+  - zlib >= 0.6
+  - unix >= 2.7
 
 library:
   source-dirs: src
@@ -57,6 +60,8 @@ library:
     - LLMLL.CodegenHs
     - LLMLL.Codegen
     - LLMLL.Diagnostic
+    - LLMLL.Module
+    - LLMLL.Hub
 
 executables:
   llmll:

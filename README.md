@@ -1,4 +1,4 @@
-# LLMLL — v0.1.3.1
+# LLMLL — v0.2
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
@@ -8,7 +8,7 @@
 
 ## Compiler
 
-The active compiler is a **Haskell stack project** in `compiler/`. It is the only supported backend as of v0.1.3.
+The active compiler is a **Haskell stack project** in `compiler/`. It is the only supported backend as of v0.2.
 
 | Command | What it does |
 |---------|--------------|
@@ -16,6 +16,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
+| `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). Remote `hub fetch` is Phase 2b. |
 
 ### Input formats
 
@@ -77,18 +78,20 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.1.3.1)
+LLMLL.md                    ← canonical language specification (v0.2)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
     Parser.hs               ← S-expression parser (Megaparsec)
     ParserJSON.hs           ← JSON-AST parser
-    Syntax.hs               ← AST types
+    Syntax.hs               ← AST types (incl. ModulePath, ModuleEnv, ModuleCache)
     TypeCheck.hs            ← Bidirectional type checker
     HoleAnalysis.hs         ← Hole collector (?hole expressions)
     CodegenHs.hs            ← Haskell code emitter
     PBT.hs                  ← QuickCheck property runner
     Diagnostic.hs           ← Structured error/warning types
+    Module.hs               ← Multi-file module resolver, cycle detection, ModuleCache
+    Hub.hs                  ← llmll-hub registry fetch and local cache
   package.yaml / stack.yaml
 examples/
   hangman_sexp/             ← Full Hangman (S-expression)
@@ -99,7 +102,7 @@ examples/
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog
-  llmll-ast.schema.json     ← JSON-AST schema (use with AI agents)
+  llmll-ast.schema.json     ← JSON-AST schema v0.2.0 (use with AI agents)
   archive/analysis/         ← Historical analysis docs
 ```
 

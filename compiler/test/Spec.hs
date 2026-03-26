@@ -308,7 +308,7 @@ main = hspec $ do
       -- JSON-AST with done? and on-done fields
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.1.3\","
+            , "  \"schemaVersion\": \"0.2.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","
@@ -335,7 +335,7 @@ main = hspec $ do
     it "parsed done? wires into generated Main.hs (harness terminates)" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.1.3\","
+            , "  \"schemaVersion\": \"0.2.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","

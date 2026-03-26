@@ -121,6 +121,20 @@ stmtToJson (SDefMain mode mInit step mRead mDone mOnDone) =
     entryModeLabel ModeCli      = "cli"
     entryModeLabel (ModeHttp p) = "http:" <> T.pack (show p)
 
+-- v0.2 module system nodes
+stmtToJson (SOpen path mNames) =
+  object $
+    [ "kind" .= ("open" :: Text)
+    , "path" .= T.intercalate "." path
+    ] ++
+    maybe [] (\ns -> ["names" .= ns]) mNames
+
+stmtToJson (SExport names) =
+  object
+    [ "kind"  .= ("export" :: Text)
+    , "names" .= names
+    ]
+
 -- ---------------------------------------------------------------------------
 -- Type serialiser
 -- ---------------------------------------------------------------------------

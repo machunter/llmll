@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.1.3.1
+# LLMLL Getting Started — v0.2
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -33,6 +33,7 @@ Available commands:
   holes   List and classify all holes in a file
   test    Run property-based tests (check blocks)
   build   Compile source to a Haskell application
+  hub     llmll-hub package registry (fetch, cache)
   repl    Start an interactive LLMLL REPL
 ```
 
@@ -116,6 +117,20 @@ generated/hangman_json/
 cd generated/hangman_json && stack build && stack exec hangman
 ```
 
+### `hub` — package registry
+
+```bash
+# Download a package into the local cache (~/.llmll/modules/)
+llmll hub fetch llmll-crypto@0.1.0
+
+# Cache layout after fetch:
+# ~/.llmll/modules/llmll-crypto/0.1.0/
+#   hash/bcrypt.ast.json
+#   hash/bcrypt.llmll
+```
+
+Import fetched packages using the `hub.` prefix (see §4.8).
+
 ---
 
 ## Part 3 — JSON-AST Schema Versioning
@@ -124,13 +139,16 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.1.3",
-  "llmll_version": "0.1.3",
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
   "statements": [ ... ]
 }
 ```
 
-The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted in v0.1.x.
+The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted.
+
+> [!IMPORTANT]
+> **Migrating from v0.1.3:** Files with `"schemaVersion": "0.1.3"` are **rejected** by the v0.2 compiler. The fix is a one-line update: change both `schemaVersion` and `llmll_version` from `"0.1.3"` to `"0.2.0"`. No other structural changes are required for files that do not use the new `open`/`export` nodes.
 
 | Field | Meaning |
 |-------|---------|
@@ -211,14 +229,13 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > [!IMPORTANT]
 > **`:on-done` is the canonical hook for end-of-game output.** If `game-loop` prints a win/loss message on the same turn the game ends, the board can render twice. Move all terminal output for the final state into a dedicated `show-result` function and declare it via `:on-done`. See `LLMLL.md §9.5` for the full before/after pattern.
 
-### 4.7 Still Restricted in v0.1.x
+### 4.7 Still Restricted in v0.2
 
 | Feature | Status | Workaround |
 |---------|--------|------------|
-| `[acc: (int, string)]` in `typed-param` | ❌ Parse error | Use bare `[acc]` — Fixed in v0.2 |
+| `[acc: (int, string)]` in `typed-param` | ❌ Parse error | Use bare `[acc]` — scheduled for Phase 2c |
 | `[...]` list literal as direct argument to a call inside an `if` branch (S-expression only) | ❌ Parse error | Extract to a `let` binding before the `if` (see note below) |
-| Multi-file imports | ❌ Not yet | Single file only |
-| `pre`/`post` compile-time verification | ⚠️ Runtime assert only | Correct at runtime; SMT proof in v0.2 |
+| `pre`/`post` compile-time verification | ⚠️ Runtime assert only | Correct at runtime; SMT proof in Phase 2b |
 
 > [!WARNING]
 > **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
@@ -249,7 +266,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `import` after `def-logic` inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def-logic` |
 
 > [!IMPORTANT]
-> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site.
+> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
 >
 > ```lisp
 > ;; CORRECT — imports first:
@@ -263,6 +280,159 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 >   (def-logic greet [name: string] (wasi.io.stdout name))
 >   (import wasi.io stdout))   ;; ← ignored, wasi.io.stdout unknown
 > ```
+
+---
+
+### 4.8 Multi-File Modules: `open`, `export`, and `hub` (v0.2)
+
+Phase 2a ships real multi-file compilation. Use these patterns when authoring or consuming multi-module programs.
+
+#### Prefixed access (default)
+
+When `app.main` imports `app.auth`, all exported names from `app.auth` are accessible with the full qualified path — no extra declaration needed:
+
+```lisp
+(module app.main
+  (import app.auth))
+
+;; Call the exported function with its qualified name:
+(app.auth.hash-password raw-str)
+```
+
+> [!IMPORTANT]
+> **Phase 2a codegen limitation — use bare names at call sites.**
+> Qualified access (`module.fn`) is *accepted by the type-checker and resolver*, but
+> Phase 2a codegen merges all modules into a single flat `Lib.hs` with bare Haskell
+> identifiers. A call written as `(world.make-world ...)` becomes `world_make_world`
+> in the generated Haskell, which **does not exist** — GHC will error with
+> `Variable not in scope: world_make_world`.
+>
+> **Rule for Phase 2a:** always use **bare function names** at call sites, even for
+> functions imported from other modules. The `(import world)` statement is still
+> required (it triggers module loading and merging); only call sites must be bare.
+>
+> ```lisp
+> ;; ✅ correct in Phase 2a:
+> (import world)
+> (make-world 20 10)
+>
+> ;; ❌ wrong — produces undefined Haskell identifier:
+> (world.make-world 20 10)
+> ```
+>
+> Per-module Haskell output (so `world.make-world` compiles correctly) is planned for Phase 2b.
+
+#### `open` — pull names into local scope
+
+```lisp
+;; Bring ALL exports from app.auth into scope as bare names:
+(open app.auth)
+(hash-password raw-str)   ;; no prefix needed
+
+;; Selective — only hash-password is unprefixed; others still need prefix:
+(open app.auth (hash-password))
+```
+
+> [!WARNING]
+> **Open shadowing.** If two `(open ...)` declarations export the same name, the second wins (last wins, LISP-style). The compiler emits a `WARNING` diagnostic. Use prefixed access when two modules share a function name.
+
+#### `export` — restrict what a module exposes
+
+```lisp
+;; Only hash-password and verify-token are visible to importers:
+(export hash-password verify-token)
+
+;; Omitting export entirely: all top-level defs are exported by default.
+```
+
+The `export` declaration must appear before the first `def-logic` — consistent with the "imports before defs" rule.
+
+#### Hub imports
+
+After fetching a package with `llmll hub fetch`, import it with the `hub.` prefix:
+
+```lisp
+(import hub.llmll-crypto.hash.bcrypt (interface [
+  [bcrypt-hash   (fn [raw: string] -> bytes[64])]
+  [bcrypt-verify (fn [raw: string hash: bytes[64]] -> bool)]
+]))
+```
+
+The `hub.` prefix tells the resolver to search only `~/.llmll/modules/`, never the local source tree.
+
+#### JSON-AST nodes for `open` and `export`
+
+```json
+{ "kind": "open",   "path": "app.auth", "names": ["hash-password"] }
+{ "kind": "open",   "path": "app.auth" }
+{ "kind": "export", "names": ["hash-password", "verify-token"] }
+```
+
+Omit `"names"` in an `open` node to bring all exports into scope.
+
+#### ⚠️ Phase 2a Limitation: module search root is anchored to the **entry-point** file
+
+> [!WARNING]
+> **All `import` paths are resolved relative to the directory of the file you pass to `llmll check` / `llmll build` (the entry-point), not relative to the file that contains the `import` statement.**
+>
+> This means sub-modules can import sibling sub-modules correctly only when they all live **in the same directory as the entry-point**, or in a flat peer layout.
+>
+> **What works:**
+> ```
+> examples/life_json/
+>   main.ast.json       ← entry-point: llmll check main.ast.json
+>   world.ast.json      ← (import world)   → resolved to ./world.ast.json ✅
+>   core.ast.json       ← (import core)    → resolved to ./core.ast.json  ✅
+> ```
+>
+> **What does NOT work in Phase 2a:**
+> ```
+> examples/life_json/
+>   main.ast.json       ← entry-point
+>   life/
+>     world.ast.json    ← (import life.core) → searched in examples/life_json/
+>     core.ast.json     ← found ✅, but world.ast.json's own imports...
+>       ↑   world.ast.json then tries (import life.core)
+>           → resolved to examples/life_json/life/core.ast.json ✅ first time,
+>             but if world.ast.json's dir ≠ srcRoot, a second-level import
+>             from world.ast.json resolves against the entry-point root,
+>             not world's directory — so relative sibling imports inside
+>             life/ break unless life/ = the entry-point directory.
+> ```
+>
+> **Recommended layout for Phase 2a:** keep all module files at the **same directory level** as the entry-point. Use single-segment import names (`import core`, `import world`).
+>
+> A `--lib <dir>` flag that adds extra search roots is planned for Phase 2b.
+
+### §4.9 String Escape Sequences by Format
+
+S-expression (`.llmll`) and JSON-AST (`.ast.json`) files use different string escape rules. Mixing them up is a common source of parse errors.
+
+| Escape | JSON-AST | S-expression (v0.2+) |
+|--------|----------|----------------------|
+| `\n` newline | ✅ | ✅ |
+| `\t` tab | ✅ | ✅ |
+| `\r` CR | ✅ | ✅ |
+| `\\` backslash | ✅ | ✅ |
+| `\"` quote | ✅ | ✅ |
+| `\uXXXX` Unicode | ✅ | ✅ added v0.2 |
+| `\xNN` hex | ❌ not valid JSON | ❌ not supported |
+
+**JSON-AST:** follows RFC 8259. Use `\uXXXX` for control characters:
+```json
+{ "kind": "lit-string", "value": "\u001b[2J\u001b[H" }  // ✅ VT100 clear-screen
+{ "kind": "lit-string", "value": "\x1b[2J\x1b[H" }    // ❌ \x1b not valid JSON
+```
+
+The compiler emits a hint when it detects the `\x1b` pattern:
+```
+:hint "JSON strings must use \\uXXXX for control/non-ASCII chars (e.g. \\u001b not \\x1b)"
+```
+
+**S-expression:** uses Haskell-style escapes. `\uXXXX` is now also supported (v0.2):
+```lisp
+(def-logic clear-screen [] "\u001b[2J\u001b[H")  ;; ✅ works in v0.2
+```
 
 ---
 

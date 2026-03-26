@@ -6,7 +6,7 @@
 --
 -- The two parsers MUST agree on every construct. Any divergence is a bug.
 --
--- JSON schema: docs/llmll-ast.schema.json (v0.1.2)
+-- JSON schema: docs/llmll-ast.schema.json (v0.2.0)
 -- Versioning policy: docs/json-ast-versioning.md
 module LLMLL.ParserJSON
   ( parseJSONAST
@@ -33,7 +33,7 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 
 -- | The schema version this parser accepts. Compiler rejects any other value.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.1.3"
+expectedSchemaVersion = "0.2.0"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -41,11 +41,21 @@ parseJSONAST :: FilePath -> BL.ByteString -> Either Diagnostic [Statement]
 parseJSONAST fp bs =
   case eitherDecode bs of
     Left err ->
-      Left $ (mkError Nothing (T.pack err))
-        { diagKind    = Just "json-parse-error"
-        , diagPointer = Just "/"
-        , diagCode    = Just "E010"
-        }
+      -- B1: aeson surfaces \x1b and other invalid JSON escapes as a UTF-8 decode
+      -- error pointing at an unrelated location. Detect the pattern and add a
+      -- targeted hint so agents know immediately what to fix.
+      let isEscapeError = any (`T.isInfixOf` T.pack err)
+                            ["Invalid UTF-8", "Cannot decode", "Failed reading"]
+          hint = if isEscapeError
+                   then Just "JSON strings must use \\uXXXX for control/non-ASCII chars (e.g. \\u001b not \\x1b)"
+                   else Nothing
+          diag = (mkError Nothing (T.pack err))
+                   { diagKind       = Just "json-parse-error"
+                   , diagPointer    = Just "/"
+                   , diagCode       = Just "E010"
+                   , diagSuggestion = hint
+                   }
+      in Left diag
     Right val ->
       case parseEither (parseProgram fp) val of
         Left msg -> Left $ (mkError Nothing (T.pack msg))
@@ -93,6 +103,9 @@ parseStatement = withObject "Statement" $ \o -> do
     "import"       -> parseImportDecl o
     "module"       -> parseModuleDecl o
     "def-main"     -> parseDefMain o
+    -- v0.2 module system
+    "open"         -> parseOpenDecl o
+    "export"       -> parseExportDecl o
     _              -> fail $ "unknown Statement kind: " ++ T.unpack kind
 
 parseDefLogic :: Object -> Parser Statement
@@ -201,12 +214,26 @@ parseCapKind other            = CapCustom other
 parseModuleDecl :: Object -> Parser Statement
 parseModuleDecl o = do
   -- v0.1.2 single-file model: flatten module into its body.
-  -- We represent flattened modules as a single SExpr sentinel,
-  -- since parseStatement returns one Statement. The caller (parseProgram)
-  -- could collect imports+stmts; for now we return a no-op SExpr.
   _imports <- o .: "imports"    :: Parser [Value]
   _stmts   <- o .: "statements" :: Parser [Value]
   pure $ SExpr (ELit LitUnit)
+
+-- | Parse {"kind":"open","path":"foo.bar","names":["f","g"]}  -- v0.2
+parseopenDecl :: Object -> Parser Statement
+parseopenDecl o = do
+  pathStr <- o .:  "path"  :: Parser Text
+  mNames  <- o .:? "names" :: Parser (Maybe [Name])
+  let path = T.splitOn "." pathStr
+  pure $ SOpen path mNames
+
+parseOpenDecl :: Object -> Parser Statement
+parseOpenDecl = parseopenDecl
+
+-- | Parse {"kind":"export","names":["f","g"]}  -- v0.2
+parseExportDecl :: Object -> Parser Statement
+parseExportDecl o = do
+  names <- o .: "names" :: Parser [Name]
+  pure $ SExport names
 
 parseDefMain :: Object -> Parser Statement
 parseDefMain o = do

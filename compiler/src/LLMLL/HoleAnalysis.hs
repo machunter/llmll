@@ -107,6 +107,8 @@ collectHolesStmt _ctx (SCheck prop) =
 
 collectHolesStmt _ctx (SImport _)  = []
 collectHolesStmt ctx  (SExpr expr) = collectHolesExpr ctx expr
+collectHolesStmt _ctx (SOpen _ _)  = []   -- v0.2 module declarations: no holes
+collectHolesStmt _ctx (SExport _)  = []
 
 collectHolesStmt _ctx (SDefMain _ mInit step _mRead mDone mOnDone) =
   let ctx' = "def-main"

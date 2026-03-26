@@ -15,6 +15,7 @@ module LLMLL.TypeCheck
   ( -- * Entry Points
     typeCheck
   , typeCheckModule
+  , typeCheckWithCache
     -- * Environment
   , TypeEnv
   , emptyEnv
@@ -188,6 +189,21 @@ typeCheck env stmts =
 typeCheckModule :: TypeEnv -> Module -> DiagnosticReport
 typeCheckModule env m = typeCheck env (moduleBody m)
 
+-- | Type-check with an existing ModuleCache.
+-- Seeds the TypeEnv with all qualified names from imported modules before
+-- running the standard single-file check. Empty cache = single-file path.
+-- This is the Phase 2a cross-module entry point.
+typeCheckWithCache :: ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckWithCache cache baseEnv stmts =
+  let -- Inject qualified names from all cached modules
+      seededEnv = Map.foldlWithKey' seedModule baseEnv cache
+  in typeCheck seededEnv stmts
+  where
+    seedModule acc path menv =
+      let prefix = T.intercalate "." path <> "."
+          qualified = Map.mapKeys (prefix <>) (meExports menv)
+      in Map.union qualified acc
+
 -- ---------------------------------------------------------------------------
 -- Statement Checking
 -- ---------------------------------------------------------------------------
@@ -275,6 +291,33 @@ checkStatement (SImport imp) = do
     Nothing -> pure ()
     Just fns -> forM_ fns $ \(fname, ftype) ->
       modify $ \s -> s { tcEnv = Map.insert fname ftype (tcEnv s) }
+
+-- | SOpen: inject exported names from the referenced module as bare names.
+-- Qualified names (module.path.f) must already be in the env via typeCheckWithCache.
+-- We look for any key of the form "<dotted-path>.<name>" and add bare aliases.
+-- Emits open-shadow-warning when a name collision occurs.
+checkStatement (SOpen openPath_ mNames) = do
+  let prefix = T.intercalate "." openPath_ <> "."
+  env <- gets tcEnv
+  let qualifying = Map.filterWithKey (\k _ -> prefix `T.isPrefixOf` k) env
+      -- Strip prefix to get bare name
+      bareExports = Map.mapKeys (T.drop (T.length prefix)) qualifying
+      -- Apply selective open filter if present
+      filtered = case mNames of
+        Nothing -> bareExports
+        Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) bareExports
+  -- Detect collisions and emit warnings
+  forM_ (Map.toList filtered) $ \(bareName, ty) -> do
+    mExisting <- tcLookup bareName
+    case mExisting of
+      Just _ -> tcWarn $
+        "open-shadow-warning: '" <> bareName <> "' from " <> T.intercalate "." openPath_
+        <> " shadows an existing binding"
+      Nothing -> pure ()
+    tcInsert bareName ty
+
+-- | SExport is a compile-time annotation only; no type-checking action needed.
+checkStatement (SExport _) = pure ()
 
 checkStatement (SExpr expr) = do
   _ <- inferExpr expr

@@ -21,6 +21,7 @@
 module LLMLL.CodegenHs
   ( -- * Entry point
     generateHaskell
+  , generateHaskellMulti   -- ^ P3: multi-file entry point
     -- * Result
   , CodegenResult(..)
     -- * Import classification (re-exported for Main.hs)
@@ -96,6 +97,21 @@ generateHaskell modName stmts =
        , cgModuleName  = modName
        , cgWarnings    = warnings
        }
+
+-- | P3: Multi-file entry point.
+-- Takes the topologically-ordered list of imported ModuleEnvs (dependencies first,
+-- produced by topoSortedEnvs in Module.hs) and the entry-point statement list.
+-- Concatenates all imported module statements before the entry-point statements
+-- so the generated Lib.hs contains the full transitive closure of definitions.
+generateHaskellMulti :: Text -> [ModuleEnv] -> [Statement] -> CodegenResult
+generateHaskellMulti modName importedEnvs entryStmts =
+  -- importedEnvs are already in post-order (deps before dependents).
+  -- De-duplicate SImport nodes: the consolidated stmts list needs imports
+  -- from all modules for hackage/c-lib header generation, but duplicate
+  -- SImport nodes are harmless since emitStmt produces "" for them.
+  let allStmts = concatMap meStatements importedEnvs ++ entryStmts
+  in generateHaskell modName allStmts
+
 
 isDefMain :: Statement -> Bool
 isDefMain SDefMain{} = True
@@ -315,6 +331,8 @@ emitStmt (SCheck prop)                    = emitCheck prop
 emitStmt (SImport _)                      = ""  -- handled in header
 emitStmt (SExpr _)                        = ""  -- top-level exprs not representable
 emitStmt SDefMain{}                       = ""  -- goes to Main.hs
+emitStmt (SOpen _ _)                      = ""  -- compile-time namespace annotation
+emitStmt (SExport _)                      = ""  -- compile-time export annotation
 
 -- | Emit a type declaration as newtype / data / type alias.
 emitTypeDef :: Name -> Type -> Text
@@ -461,11 +479,16 @@ emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map (\a -> "(" <> emitExpr a <> ")") args) <> ")"
 
 emitOp :: Name -> [Expr] -> Text
-emitOp "="  [a,b] = "(" <> emitExpr a <> " == " <> emitExpr b <> ")"
-emitOp "!=" [a,b] = "(" <> emitExpr a <> " /= " <> emitExpr b <> ")"
+emitOp "="   [a,b] = "(" <> emitExpr a <> " == " <> emitExpr b <> ")"
+emitOp "!="  [a,b] = "(" <> emitExpr a <> " /= " <> emitExpr b <> ")"
 emitOp "and" [a,b] = "(" <> emitExpr a <> " && " <> emitExpr b <> ")"
 emitOp "or"  [a,b] = "(" <> emitExpr a <> " || " <> emitExpr b <> ")"
 emitOp "not" [a]   = "(not " <> emitExpr a <> ")"
+-- P4 fix: LLMLL `/` is integer division (spec §13.1); emit `div`, not `/`.
+-- `/` as a bare Haskell infix requires Fractional, which Int does not satisfy.
+emitOp "/"   [a,b] = "(" <> emitExpr a <> " `div` " <> emitExpr b <> ")"
+-- `mod` already correct; `%` is not valid Haskell infix — guard both spellings.
+emitOp "%"   [a,b] = "(" <> emitExpr a <> " `mod` " <> emitExpr b <> ")"
 emitOp "mod" [a,b] = "(" <> emitExpr a <> " `mod` " <> emitExpr b <> ")"
 emitOp op    args  =
   "(" <> T.intercalate (" " <> op <> " ") (map emitExpr args) <> ")"
@@ -533,7 +556,7 @@ rewriteCtor other     = toHsIdent other
 -- ---------------------------------------------------------------------------
 
 emitLit :: Literal -> Text
-emitLit (LitInt n)    = T.pack (show n)
+emitLit (LitInt n)    = "(" <> T.pack (show n) <> " :: Int)"  -- B2: monomorphise to Int (LLMLL int = Haskell Int)
 emitLit (LitFloat d)  = T.pack (show d)
 emitLit (LitString s) = T.pack (show (T.unpack s))  -- uses Haskell show for quoting
 emitLit (LitBool b)   = if b then "True" else "False"

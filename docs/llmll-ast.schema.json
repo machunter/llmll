@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.1.3/ast.schema.json",
-  "title": "LLMLL v0.1.3 JSON-AST Schema",
+  "$id": "https://llmll.dev/schemas/v0.2/ast.schema.json",
+  "title": "LLMLL v0.2 JSON-AST Schema",
   "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline.",
 
   "$defs": {
@@ -13,14 +13,14 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.1.3'. The compiler rejects files with an unrecognised version. See docs/json-ast-versioning.md.",
+          "description": "Must be '0.2.0'. The compiler rejects files with an unrecognised version. Files pinned to '0.1.3' must update this field to compile with the v0.2 compiler.",
           "type": "string",
-          "const": "0.1.3"
+          "const": "0.2.0"
         },
         "llmll_version": {
-          "description": "Must be '0.1.3'.",
+          "description": "Must be '0.2.0'.",
           "type": "string",
-          "const": "0.1.3"
+          "const": "0.2.0"
         },
         "source_file": {
           "description": "Optional: original .llmll filename for diagnostics.",
@@ -44,6 +44,8 @@
         { "$ref": "#/$defs/CheckDecl" },
         { "$ref": "#/$defs/ImportDecl" },
         { "$ref": "#/$defs/ModuleDecl" },
+        { "$ref": "#/$defs/OpenDecl" },
+        { "$ref": "#/$defs/ExportDecl" },
         { "$ref": "#/$defs/DefMain" }
       ]
     },
@@ -106,7 +108,7 @@
     },
 
     "DefInvariant": {
-      "description": "A module-level invariant (verification deferred to v0.2). Stored but not checked at compile time in v0.1.x.",
+      "description": "A module-level invariant. Stored and type-checked in v0.2; LiquidHaskell verification is Phase 2b.",
       "type": "object",
       "required": ["kind", "name", "param", "body"],
       "additionalProperties": false,
@@ -222,13 +224,13 @@
     },
 
     "ImportDecl": {
-      "description": "Capability or FFI import. Parsed and stored in v0.1.x; enforcement deferred to v0.2.",
+      "description": "Capability or FFI import. In v0.2+, the compiler resolves user-module paths to source files. Built-in prefixes (wasi.*, haskell.*, c.*) are handled by the codegen preamble — no file lookup occurs. Use the 'hub.' prefix for registry packages.",
       "type": "object",
       "required": ["kind", "path"],
       "additionalProperties": false,
       "properties": {
         "kind":       { "type": "string", "const": "import" },
-        "path":       { "type": "string", "description": "Dot-separated qualified path, e.g. 'wasi.io' or 'rust.serde_json'." },
+        "path":       { "type": "string", "description": "Dot-separated qualified path, e.g. 'wasi.io', 'haskell.aeson', or 'hub.llmll-crypto.hash.bcrypt'." },
         "capability": { "$ref": "#/$defs/CapabilitySpec" },
         "interface":  {
           "type": "array",
@@ -250,7 +252,7 @@
     },
 
     "ModuleDecl": {
-      "description": "An optional namespace wrapper. The module name is ignored for codegen in v0.1.x; its body is flattened.",
+      "description": "An optional namespace wrapper. The module name is for documentation and tooling display only; the canonical module path is derived from the file's location relative to the source root (see LLMLL.md §8.1). Body is flattened during compilation.",
       "type": "object",
       "required": ["kind", "name", "imports", "statements"],
       "additionalProperties": false,
@@ -465,7 +467,10 @@
       "additionalProperties": false,
       "properties": {
         "kind":  { "type": "string", "const": "lit-string" },
-        "value": { "type": "string" }
+        "value": {
+          "type": "string",
+          "description": "String content. RFC 8259 JSON escaping applies: use \\uXXXX for non-ASCII and control characters (e.g. \\u001b for ESC, \\n for newline). C-style \\xNN is not valid JSON and will cause a parse error."
+        }
       }
     },
 
@@ -816,6 +821,45 @@
             "return_type": { "$ref": "#/$defs/Type" }
           }
         }
+      ]
+    },
+
+    "OpenDecl": {
+      "description": "Pull a module's exports into the current scope without a prefix. NEW in v0.2. Corresponds to EBNF 'open-decl' (LLMLL.md §8.6).",
+      "type": "object",
+      "required": ["kind", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "open" },
+        "path":  { "type": "string", "description": "Dot-separated module path to open, e.g. 'app.auth'." },
+        "names": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Selective open: only these names are brought into scope. Omit to open all exports."
+        }
+      },
+      "examples": [
+        { "kind": "open", "path": "app.auth" },
+        { "kind": "open", "path": "app.auth", "names": ["hash-password", "verify-token"] }
+      ]
+    },
+
+    "ExportDecl": {
+      "description": "Restrict the names exported by this module to those listed. NEW in v0.2. If absent, all top-level defs are exported. Corresponds to EBNF 'export-decl' (LLMLL.md §8.7).",
+      "type": "object",
+      "required": ["kind", "names"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":  { "type": "string", "const": "export" },
+        "names": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Names of def-logic, type, def-interface, or gen declarations to export. check and def-invariant are never exported."
+        }
+      },
+      "examples": [
+        { "kind": "export", "names": ["hash-password", "verify-token"] }
       ]
     },
 
