@@ -9,7 +9,7 @@ import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
-import LLMLL.Diagnostic (reportSuccess)
+import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
@@ -400,3 +400,74 @@ main = hspec $ do
       cgHsSource result `shouldSatisfy` T.isInfixOf "| Green"
       cgHsSource result `shouldSatisfy` T.isInfixOf "| Blue"
       cgHsSource result `shouldSatisfy` T.isInfixOf "deriving (Eq, Show)"
+
+  -- -----------------------------------------------------------------------
+  -- D1: Static match exhaustiveness check
+  -- -----------------------------------------------------------------------
+  describe "D1 match exhaustiveness" $ do
+    it "exhaustive TSumType match (all ctors covered) passes type-check" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) \"green\")"
+            , "    ((Blue) \"blue\")))"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          -- Must have no non-exhaustive-match errors
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          nonExh `shouldBe` []
+
+    it "non-exhaustive TSumType match (missing ctor) emits non-exhaustive-match error" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) \"green\")))"   -- Blue is missing
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          length nonExh `shouldBe` 1
+          diagMessage (head nonExh) `shouldSatisfy` T.isInfixOf "Blue"
+
+    it "wildcard arm satisfies exhaustiveness for TSumType" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    (_ \"other\")))"   -- wildcard covers rest
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          nonExh `shouldBe` []
+
+    it "non-exhaustive TResult match (missing Error) emits error" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic extract [r: Result[int, string]]"
+            , "  (match r"
+            , "    ((Success v) v)))"   -- Error arm missing
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          length nonExh `shouldBe` 1
+          diagMessage (head nonExh) `shouldSatisfy` T.isInfixOf "Error"
+

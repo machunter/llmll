@@ -23,6 +23,8 @@ module LLMLL.Diagnostic
   , mkInterfaceMismatch
   , mkExportConflict
   , mkOpenShadowWarning
+  -- * Phase 2b: Static Analysis Diagnostics
+  , mkNonExhaustiveMatch
   , reportDiagnostics
   , reportSuccess
   ) where
@@ -134,6 +136,32 @@ mkOpenShadowWarning name shadowedBy prevFrom =
   let msg = "open-shadow-warning: '" <> name <> "' from " <> prevFrom
             <> " is shadowed by " <> shadowedBy
   in (mkWarning Nothing msg) { diagKind = Just "open-shadow-warning" }
+
+-- ---------------------------------------------------------------------------
+-- Phase 2b: Static Analysis Diagnostics
+-- ---------------------------------------------------------------------------
+
+-- | Non-exhaustive match over a known ADT sum type.
+-- Emitted when the match arms cover a strict subset of the ADT's constructors
+-- and no wildcard/variable arm is present.
+--
+-- Parameters:
+--   fnName    — enclosing function name (for context in the error)
+--   typeName  — name of the ADT being matched
+--   missing   — constructor names not covered by any arm
+--   covered   — constructor names that were covered
+mkNonExhaustiveMatch :: Text -> Text -> [Text] -> [Text] -> Diagnostic
+mkNonExhaustiveMatch fnName typeName missing covered =
+  let missingStr = T.intercalate ", " missing
+      coveredStr = T.intercalate ", " covered
+      msg = "non-exhaustive match in '" <> fnName <> "': "
+            <> "type '" <> typeName <> "' has unmatched constructors: "
+            <> missingStr
+            <> " (covered: " <> coveredStr <> ")"
+  in (mkError Nothing msg)
+       { diagKind    = Just "non-exhaustive-match"
+       , diagPointer = Just ("/def-logic/" <> fnName <> "/body")
+       }
 
 -- ---------------------------------------------------------------------------
 -- Formatting

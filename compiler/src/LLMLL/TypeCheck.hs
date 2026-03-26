@@ -130,9 +130,10 @@ extendEnv = Map.insert
 -- ---------------------------------------------------------------------------
 
 data TCState = TCState
-  { tcEnv      :: TypeEnv
-  , tcErrors   :: [Diagnostic]
-  , tcAliasMap :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
+  { tcEnv        :: TypeEnv
+  , tcErrors     :: [Diagnostic]
+  , tcAliasMap   :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
+  , tcCurrentFn  :: Maybe Name      -- ^ enclosing def-logic name (for exhaustiveness diagnostics)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -164,10 +165,17 @@ withEnv bindings action = do
   modify $ \s -> s { tcEnv = old }
   pure result
 
+-- | Emit a structured non-exhaustive-match error using the registered diagnostic.
+tcEmitNonExhaustive :: Name -> [Name] -> [Name] -> TC ()
+tcEmitNonExhaustive typeName missing covered = do
+  fn <- gets (maybe "<top>" id . tcCurrentFn)
+  modify $ \s -> s
+    { tcErrors = tcErrors s ++ [mkNonExhaustiveMatch fn typeName missing covered] }
+
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing)
   in (result, tcErrors st)
 
 -- ---------------------------------------------------------------------------
@@ -234,6 +242,8 @@ collectTopLevel _ = Nothing
 
 checkStatement :: Statement -> TC ()
 checkStatement (SDefLogic name params mRet contract body) = do
+  -- Track current function name for exhaustiveness diagnostics (D1)
+  modify $ \s -> s { tcCurrentFn = Just name }
   let paramBindings = params
   withEnv paramBindings $ do
     -- Infer body type
@@ -381,9 +391,13 @@ inferExpr (EIf cond thenE elseE) = do
 
 inferExpr (EMatch expr cases) = do
   scrutType <- inferExpr expr
+  -- Resolve through type aliases so we can see the structural TSumType body
+  resolvedScrutType <- expandAlias scrutType
   caseTypes <- forM cases $ \(pat, body) -> do
-    patBindings <- checkPattern pat scrutType
+    patBindings <- checkPattern pat resolvedScrutType
     withEnv patBindings (inferExpr body)
+  -- Exhaustiveness check: only for TSumType where the full constructor set is known
+  checkExhaustive resolvedScrutType cases
   case caseTypes of
     []     -> pure TUnit
     (t:ts) -> do
@@ -490,6 +504,45 @@ inferDoSteps (DoBind name e : rest) = do
   -- Unwrap Promise if needed
   let innerTy = case ty of { TPromise t -> t; t -> t }
   withEnv [(name, innerTy)] (inferDoSteps rest)
+
+-- ---------------------------------------------------------------------------
+-- Pattern Checking
+-- ---------------------------------------------------------------------------
+-- Exhaustiveness Checking (D1)
+-- ---------------------------------------------------------------------------
+
+-- | Check that a match expression is exhaustive for known sum types.
+-- Only fires for TSumType, TResult, and TBool — all other types pass silently.
+-- A wildcard (PWildcard) or variable (PVar) arm satisfies coverage for any type.
+checkExhaustive :: Type -> [(Pattern, Expr)] -> TC ()
+checkExhaustive scrutTy arms = do
+  -- If any arm is a wildcard or variable, it catches everything
+  let hasWildcard = any (isWild . fst) arms
+  unless hasWildcard $ do
+    let covered = [c | (PConstructor c _, _) <- arms]
+    case scrutTy of
+      TSumType ctors -> do
+        let allCtors  = map fst ctors
+            missing   = filter (`notElem` covered) allCtors
+        unless (null missing) $
+          tcEmitNonExhaustive (typeLabel scrutTy) missing covered
+      TResult _ _ -> do
+        -- Built-in: Success / Error must both be present
+        let missing = filter (`notElem` covered) ["Success", "Error"]
+        unless (null missing) $
+          tcEmitNonExhaustive "Result" missing covered
+      TBool -> do
+        -- Built-in: True / False must both be present (if using ctor patterns)
+        let boolCtors = filter (`elem` ["True", "False"]) covered
+        unless (null boolCtors) $ do  -- only fire if they're using ctor patterns
+          let missing = filter (`notElem` covered) ["True", "False"]
+          unless (null missing) $
+            tcEmitNonExhaustive "Bool" missing covered
+      _ -> pure ()   -- unknown type — no false positives
+  where
+    isWild PWildcard = True
+    isWild (PVar _)  = True
+    isWild _         = False
 
 -- ---------------------------------------------------------------------------
 -- Pattern Checking

@@ -522,7 +522,14 @@ emitMatch scrut cs =
     isEitherExhaustive = "Left" `elem` ctorNames && "Right" `elem` ctorNames
     -- Suppress if True+False both appear (exhaustive Bool match)
     isBoolExhaustive   = "True" `elem` ctorNames && "False" `elem` ctorNames
-    catchAll = if lastIsWild || anyArmIsExhaustive || isEitherExhaustive || isBoolExhaustive
+    -- Suppress if Success+Error both appear (exhaustive Result match)
+    isResultExhaustive = "Success" `elem` ctorNames && "Error" `elem` ctorNames
+    -- Suppress for TSumType: type-checker already verified exhaustiveness statically;
+    -- if running, all constructors are covered (or there's a wildcard — also caught above).
+    isAdtExhaustive = not (null ctorNames)  -- any ctor patterns = ADT match, trust type-checker
+    catchAll = if lastIsWild || anyArmIsExhaustive || isEitherExhaustive
+                             || isBoolExhaustive || isResultExhaustive
+                             || isAdtExhaustive
                then " "
                else "; _ -> error \"non-exhaustive match\" "
 
