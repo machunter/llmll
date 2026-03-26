@@ -89,12 +89,19 @@ analyzeHolesModule m = analyzeHoles (moduleBody m)
 -- ---------------------------------------------------------------------------
 
 collectHolesStmt :: Text -> Statement -> [HoleEntry]
-collectHolesStmt _ctx (SDefLogic name params _ret contract body) =
+collectHolesStmt _ctx (SDefLogic name _params _ret contract body) =
   let ctx = "def-logic " <> name
       bodyHoles = collectHolesExpr ctx body
       preHoles  = maybe [] (collectHolesExpr (ctx <> " [pre]"))  (contractPre contract)
       postHoles = maybe [] (collectHolesExpr (ctx <> " [post]")) (contractPost contract)
-  in bodyHoles ++ preHoles ++ postHoles
+      -- D3: auto-emit proof-required for non-linear pre/post constraints
+      nlPreH  = maybe [] (\e -> if isNonLinear e
+                  then [classifyHole (ctx <> " [pre]") Nothing (HProofRequired "non-linear-contract")]
+                  else []) (contractPre contract)
+      nlPostH = maybe [] (\e -> if isNonLinear e
+                  then [classifyHole (ctx <> " [post]") Nothing (HProofRequired "non-linear-contract")]
+                  else []) (contractPost contract)
+  in bodyHoles ++ preHoles ++ postHoles ++ nlPreH ++ nlPostH
 
 collectHolesStmt _ctx (SDefInterface _ _) = []
 
@@ -104,7 +111,19 @@ collectHolesStmt _ctx (SLetrec name _params _ret contract dec body) =
       decHoles  = collectHolesExpr (ctx <> " [decreases]") dec
       preHoles  = maybe [] (collectHolesExpr (ctx <> " [pre]"))  (contractPre contract)
       postHoles = maybe [] (collectHolesExpr (ctx <> " [post]")) (contractPost contract)
+      -- D3: complex :decreases (not a simple variable or literal) needs LH witness
+      complexDecH = if not (isSimpleDecreases dec)
+                    then [classifyHole (ctx <> " [decreases]") Nothing (HProofRequired "complex-decreases")]
+                    else []
+      -- D3: non-linear contract constraints
+      nlPreH  = maybe [] (\e -> if isNonLinear e
+                  then [classifyHole (ctx <> " [pre]") Nothing (HProofRequired "non-linear-contract")]
+                  else []) (contractPre contract)
+      nlPostH = maybe [] (\e -> if isNonLinear e
+                  then [classifyHole (ctx <> " [post]") Nothing (HProofRequired "non-linear-contract")]
+                  else []) (contractPost contract)
   in bodyHoles ++ decHoles ++ preHoles ++ postHoles
+      ++ complexDecH ++ nlPreH ++ nlPostH
 
 collectHolesStmt _ctx (STypeDef name body) =
   collectHolesType ("type " <> name) body
@@ -191,6 +210,34 @@ collectHolesType ctx (TSumType ctors) =
 collectHolesType _ _ = []
 
 -- ---------------------------------------------------------------------------
+-- D3: Proof-Required Auto-Detection Helpers
+-- ---------------------------------------------------------------------------
+
+-- | Returns True if the expression has a 'simple' termination measure
+-- (a variable or literal). Simple decreases are trivially handled by LH.
+-- Complex expressions need a manual proof witness.
+isSimpleDecreases :: Expr -> Bool
+isSimpleDecreases (EVar _)  = True
+isSimpleDecreases (ELit _)  = True
+isSimpleDecreases _         = False
+
+-- | Returns True if the expression contains non-linear arithmetic.
+-- Heuristic: any EApp of (* / mod) applied to two non-literal sub-expressions.
+-- This is a sufficient (not necessary) condition — false negatives are safe;
+-- the worst outcome is a missing proof-required hole (user can add manually).
+isNonLinear :: Expr -> Bool
+isNonLinear (EApp op args)
+  | op `elem` ["*", "/", "mod", "rem", "^", "**"]
+  , length args == 2
+  , not (all isLit args) = True  -- e.g. (* n m) where n, m are not both literals
+  | otherwise            = any isNonLinear args
+  where isLit (ELit _) = True; isLit _ = False
+isNonLinear (ELet _ body)   = isNonLinear body
+isNonLinear (EIf c t f)     = isNonLinear c || isNonLinear t || isNonLinear f
+isNonLinear (EMatch s arms) = isNonLinear s || any (isNonLinear . snd) arms
+isNonLinear _               = False
+
+-- ---------------------------------------------------------------------------
 -- Hole Classification
 -- ---------------------------------------------------------------------------
 
@@ -215,6 +262,7 @@ holeStatus' HDelegatePending{}    = Blocking
 holeStatus' HConflictResolution{} = Blocking
 holeStatus' HDelegate{}           = AgentTask
 holeStatus' HDelegateAsync{}      = AgentTask
+holeStatus' HProofRequired{}      = NonBlocking  -- non-blocking: code runs; LH verifies statically
 holeStatus' _                     = NonBlocking
 
 holeKindLabel :: HoleKind -> Text
@@ -226,6 +274,7 @@ holeKindLabel (HDelegate spec)    = "?delegate @" <> delegateAgent spec
 holeKindLabel (HDelegateAsync s)  = "?delegate-async @" <> delegateAgent s
 holeKindLabel (HDelegatePending t) = "?pending(" <> typeLabel t <> ")"
 holeKindLabel HConflictResolution = "?conflict"
+holeKindLabel (HProofRequired r)  = "?proof-required(" <> r <> ")"
 
 holeDesc :: HoleKind -> Text
 holeDesc (HNamed n)           = "Named implementation hole: " <> n
@@ -236,6 +285,7 @@ holeDesc (HDelegate spec)     = delegateDescription spec
 holeDesc (HDelegateAsync spec) = delegateDescription spec <> " (async)"
 holeDesc (HDelegatePending t) = "Pending delegate returning " <> typeLabel t
 holeDesc HConflictResolution  = "Unresolved merge conflict — manual resolution required"
+holeDesc (HProofRequired r)   = "LiquidHaskell proof required [" <> r <> "]: this site cannot be statically verified without LH"
 
 -- ---------------------------------------------------------------------------
 -- Report Builder
@@ -333,6 +383,7 @@ formatHoleReportJson _fp report =
     holeKindTag (HDelegateAsync _)  = "delegate-async"
     holeKindTag (HDelegatePending _)= "delegate-pending"
     holeKindTag HConflictResolution = "conflict"
+    holeKindTag (HProofRequired _)  = "proof-required"
 
     statusStr Blocking    = "blocking"      :: Text
     statusStr AgentTask   = "agent-task"

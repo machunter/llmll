@@ -391,6 +391,10 @@ parseExpr = withObject "Expr" $ \o -> do
     "hole-scaffold"       -> EHole . HScaffold      <$> parseScaffoldSpec o
     "hole-delegate"       -> EHole . HDelegate      <$> parseDelegateSpec o
     "hole-delegate-async" -> EHole . HDelegateAsync <$> parseDelegateSpec o
+    -- D3: ?proof-required hole
+    "hole-proof-required" -> do
+      reason <- o .:? "reason" .!= "manual"
+      pure $ EHole (HProofRequired reason)
 
     _ -> fail $ "unknown Expr kind: " ++ T.unpack kind
 

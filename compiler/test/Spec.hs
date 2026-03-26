@@ -11,6 +11,7 @@ import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
+import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -520,3 +521,47 @@ main = hspec $ do
       let result = generateHaskell "test" stmts
       cgHsSource result `shouldSatisfy` T.isInfixOf "letrec :decreases"
       cgHsSource result `shouldSatisfy` T.isInfixOf "countdown"
+
+  -- -----------------------------------------------------------------------
+  -- D3: ?proof-required hole kind
+  -- -----------------------------------------------------------------------
+  describe "D3 ?proof-required hole" $ do
+    it "?proof-required parses as HProofRequired manual in S-expression" $ do
+      let src = "(def-logic dummy [] ?proof-required)"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case head stmts of
+            SDefLogic _ _ _ _ (EHole (HProofRequired r)) ->
+              r `shouldBe` "manual"
+            _ -> expectationFailure "Expected EHole (HProofRequired \"manual\")"
+
+    it "letrec with simple variable decreases has no complex-decreases hole" $ do
+      let stmts = [SLetrec "f" [("n", TInt)] Nothing
+                     (Contract Nothing Nothing) (EVar "n") (EVar "n")]
+      let report = analyzeHoles stmts
+      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases")
+                           (holeEntries report)
+      prHoles `shouldBe` []
+
+    it "letrec with complex decreases auto-emits complex-decreases hole" $ do
+      -- :decreases (- n 1) is not a simple variable — needs LH witness
+      let stmts = [SLetrec "f" [("n", TInt)] Nothing
+                     (Contract Nothing Nothing)
+                     (EApp "-" [EVar "n", ELit (LitInt 1)])
+                     (EVar "n")]
+      let report = analyzeHoles stmts
+      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases")
+                           (holeEntries report)
+      length prHoles `shouldBe` 1
+
+    it "non-linear contract auto-emits non-linear-contract hole" $ do
+      -- pre: (* n n) > 0 — multiplication of two variables is non-linear
+      let nlExpr = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
+      let stmts = [SDefLogic "f" [("n", TInt)] Nothing
+                     (Contract (Just nlExpr) Nothing) (EVar "n")]
+      let report = analyzeHoles stmts
+      let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract")
+                           (holeEntries report)
+      length prHoles `shouldBe` 1
+

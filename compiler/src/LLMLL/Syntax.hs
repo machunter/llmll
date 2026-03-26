@@ -198,6 +198,8 @@ data HoleKind
   | HDelegateAsync DelegateSpec   -- ^ ?delegate-async @agent "desc" -> type
   | HDelegatePending Type         -- ^ Unresolved delegate (blocks execution)
   | HConflictResolution           -- ^ Merge conflict marker
+  -- D3: LiquidHaskell proof obligations
+  | HProofRequired Text           -- ^ ?proof-required, reason tag e.g. "complex-decreases", "non-linear-contract", "manual"
   deriving (Show, Eq, Generic)
 
 -- | Specification for a scaffold hole.

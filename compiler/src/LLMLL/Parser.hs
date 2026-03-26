@@ -613,8 +613,16 @@ pHoleExpr = choice
   , try pScaffoldHole
   , try pChooseHole
   , try pRequestCapHole
+  , try pProofRequiredHole  -- D3: must come before pNamedHole
   , pNamedHole
   ]
+
+-- | Parse ?proof-required (D3 manual proof obligation marker).
+pProofRequiredHole :: Parser Expr
+pProofRequiredHole = do
+  _ <- string "?proof-required"
+  sc
+  pure $ EHole (HProofRequired "manual")
 
 pNamedHole :: Parser Expr
 pNamedHole = do

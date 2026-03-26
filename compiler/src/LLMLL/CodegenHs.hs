@@ -550,6 +550,8 @@ emitHole (HNamed n)        = "( error (\"hole: \" ++ " <> T.pack (show (T.unpack
 emitHole (HDelegate spec)  = "( error (\"delegate: \" ++ " <> T.pack (show (T.unpack (delegateAgent spec))) <> ") )"
 emitHole (HDelegateAsync s)= "( error (\"delegate-async: \" ++ " <> T.pack (show (T.unpack (delegateAgent s))) <> ") )"
 emitHole (HDelegatePending _) = "( error \"delegate-pending: blocking hole\" )"
+-- D3: proof-required holes compile to an explicit error stub — the LH pipeline validates this site
+emitHole (HProofRequired r) = "( error \"PROOF REQUIRED [" <> r <> "]: add LiquidHaskell annotation\" )"
 emitHole _                 = "( error \"unresolved hole\" )"
 
 -- ---------------------------------------------------------------------------
