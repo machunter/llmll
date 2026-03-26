@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "main.ast.json",
+  "statements": [
+
+    {
+      "kind": "import",
+      "path": "wasi.io",
+      "capability": { "name": "stdout", "deterministic": false }
+    },
+
+    {
+      "kind": "import",
+      "path": "world"
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "start-game",
+      "params": [],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "w",     "expr": { "kind": "lit-int", "value": 20 } },
+          { "name": "h",     "expr": { "kind": "lit-int", "value": 10 } },
+          { "name": "grid",  "expr": { "kind": "app", "fn": "glider-grid",  "args": [ { "kind": "var", "name": "w" }, { "kind": "var", "name": "h" } ] } },
+          { "name": "world0","expr": { "kind": "app", "fn": "make-world", "args": [ { "kind": "var", "name": "grid" }, { "kind": "var", "name": "w" }, { "kind": "var", "name": "h" } ] } },
+          { "name": "banner", "expr": { "kind": "lit-string", "value": "Conway's Game of Life — LLMLL v0.2 (press Ctrl-C to quit)\n\n" } },
+          { "name": "board",  "expr": { "kind": "app", "fn": "render-world", "args": [ { "kind": "var", "name": "world0" } ] } },
+          { "name": "msg",    "expr": { "kind": "app", "fn": "string-concat", "args": [ { "kind": "var", "name": "banner" }, { "kind": "var", "name": "board" } ] } }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "world0" },
+          "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [ { "kind": "var", "name": "msg" } ] }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-step",
+      "params": [
+        { "name": "world" },
+        { "name": "_input", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "next-world", "expr": { "kind": "app", "fn": "evolve", "args": [ { "kind": "var", "name": "world" } ] } },
+          { "name": "board",     "expr": { "kind": "app", "fn": "render-world", "args": [ { "kind": "var", "name": "next-world" } ] } },
+          {
+            "name": "output",
+            "expr": {
+              "kind": "app", "fn": "string-concat",
+              "args": [
+                { "kind": "lit-string", "value": "\u001b[2J\u001b[H" },
+                { "kind": "app", "fn": "string-concat",
+                  "args": [
+                    { "kind": "lit-string", "value": "Conway's Game of Life — LLMLL v0.2 (press Ctrl-C to quit)\n\n" },
+                    { "kind": "var", "name": "board" }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "next-world" },
+          "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [ { "kind": "var", "name": "output" } ] }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "never-done",
+      "params": [ { "name": "_world" } ],
+      "body": { "kind": "lit-bool", "value": false }
+    },
+
+    {
+      "kind": "def-main",
+      "mode": "console",
+      "init":  { "kind": "app",  "fn": "start-game", "args": [] },
+      "step":  { "kind": "var",  "name": "game-step" },
+      "done?": { "kind": "var",  "name": "never-done" }
+    }
+
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "core.ast.json",
+  "statements": [
+
+    {
+      "kind": "export",
+      "names": ["next-cell-state"]
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "is-underpopulated",
+      "params": [
+        { "name": "neighbors", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "op", "op": "<",
+        "args": [
+          { "kind": "var", "name": "neighbors" },
+          { "kind": "lit-int", "value": 2 }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "is-overpopulated",
+      "params": [
+        { "name": "neighbors", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "op", "op": ">",
+        "args": [
+          { "kind": "var", "name": "neighbors" },
+          { "kind": "lit-int", "value": 3 }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "is-stable",
+      "params": [
+        { "name": "neighbors", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "op", "op": "or",
+        "args": [
+          {
+            "kind": "op", "op": "=",
+            "args": [
+              { "kind": "var", "name": "neighbors" },
+              { "kind": "lit-int", "value": 2 }
+            ]
+          },
+          {
+            "kind": "op", "op": "=",
+            "args": [
+              { "kind": "var", "name": "neighbors" },
+              { "kind": "lit-int", "value": 3 }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "next-cell-state",
+      "params": [
+        { "name": "alive",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "neighbors", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "if",
+        "cond": {
+          "kind": "op", "op": "=",
+          "args": [ { "kind": "var", "name": "alive" }, { "kind": "lit-int", "value": 1 } ]
+        },
+        "then_branch": {
+          "kind": "if",
+          "cond": {
+            "kind": "op", "op": "or",
+            "args": [
+              { "kind": "app", "fn": "is-underpopulated", "args": [ { "kind": "var", "name": "neighbors" } ] },
+              { "kind": "app", "fn": "is-overpopulated",  "args": [ { "kind": "var", "name": "neighbors" } ] }
+            ]
+          },
+          "then_branch": { "kind": "lit-int", "value": 0 },
+          "else_branch":  { "kind": "lit-int", "value": 1 }
+        },
+        "else_branch": {
+          "kind": "if",
+          "cond": {
+            "kind": "op", "op": "=",
+            "args": [ { "kind": "var", "name": "neighbors" }, { "kind": "lit-int", "value": 3 } ]
+          },
+          "then_branch": { "kind": "lit-int", "value": 1 },
+          "else_branch":  { "kind": "lit-int", "value": 0 }
+        }
+      }
+    }
+
+  ]
+}

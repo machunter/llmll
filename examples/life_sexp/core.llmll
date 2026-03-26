@@ -1,0 +1,26 @@
+;; LifeCore — Conway's Game of Life rule engine
+;; Module: core
+;; Exports: next-cell-state only (encapsulation test)
+
+(export next-cell-state)
+
+;; Private helpers — not exported
+
+(def-logic is-underpopulated [neighbors: int]
+  (< neighbors 2))
+
+(def-logic is-overpopulated [neighbors: int]
+  (> neighbors 3))
+
+(def-logic is-stable [neighbors: int]
+  (or (= neighbors 2) (= neighbors 3)))
+
+;; Public export — transitions a single cell
+(def-logic next-cell-state [alive: int neighbors: int]
+  (if (= alive 1)
+      (if (or (is-underpopulated neighbors) (is-overpopulated neighbors))
+          0
+          1)
+      (if (= neighbors 3)
+          1
+          0)))

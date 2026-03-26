@@ -1,0 +1,114 @@
+;; LifeWorld — Grid state, neighbor counting, evolution, rendering
+;; Module: world
+;; Imports: core (for next-cell-state)
+
+(import core)
+
+(export make-world world-grid world-width world-height evolve render-world glider-grid)
+
+(def-logic make-world [grid: list[list[int]] width: int height: int]
+  (pair grid (pair width height)))
+
+(def-logic world-grid [w]
+  (first w))
+
+(def-logic world-width [w]
+  (first (second w)))
+
+(def-logic world-height [w]
+  (second (second w)))
+
+(def-logic get-cell [grid: list[list[int]] row: int col: int width: int height: int]
+  (if (or (or (< row 0) (>= row height))
+          (or (< col 0) (>= col width)))
+      0
+      (let [(row-result  (list-nth grid row))
+            (the-row     (unwrap-or row-result (list-empty)))
+            (cell-result (list-nth the-row col))]
+        (unwrap-or cell-result 0))))
+
+(def-logic count-neighbors [grid: list[list[int]] row: int col: int width: int height: int]
+  (let [(neg1 (- 0 1))
+        (zero 0)
+        (pos1 1)
+        (deltas (list-prepend (pair neg1 neg1)
+                  (list-prepend (pair neg1 zero)
+                    (list-prepend (pair neg1 pos1)
+                      (list-prepend (pair zero neg1)
+                        (list-prepend (pair zero pos1)
+                          (list-prepend (pair pos1 neg1)
+                            (list-prepend (pair pos1 zero)
+                              (list-prepend (pair pos1 pos1) (list-empty))))))))))]
+    (list-fold deltas 0
+      (fn [acc delta]
+        (let [(dr   (first delta))
+              (dc   (second delta))
+              (nr   (+ row dr))
+              (nc   (+ col dc))
+              (cell (get-cell grid nr nc width height))]
+          (+ acc cell))))))
+
+(def-logic evolve-row [grid: list[list[int]] row-idx: int width: int height: int]
+  (let [(col-indices (range 0 width))]
+    (list-map col-indices
+      (fn [c: int]
+        (let [(alive     (get-cell grid row-idx c width height))
+              (neighbors (count-neighbors grid row-idx c width height))]
+          (next-cell-state alive neighbors))))))
+
+(def-logic evolve [world]
+  (let [(grid        (world-grid world))
+        (width       (world-width world))
+        (height      (world-height world))
+        (row-indices (range 0 height))
+        (new-grid    (list-map row-indices
+                       (fn [r: int]
+                         (evolve-row grid r width height))))]
+    (make-world new-grid width height)))
+
+(def-logic cell-to-char [cell: int]
+  (if (= cell 1) "#" "."))
+
+(def-logic render-row [row: list[int]]
+  (let [(chars (list-map row (fn [cell: int] (cell-to-char cell))))]
+    (string-concat (string-concat-many chars) "\n")))
+
+(def-logic render-world [world]
+  (let [(grid        (world-grid world))
+        (row-strings (list-map grid (fn [row] (render-row row))))]
+    (string-concat-many row-strings)))
+
+(def-logic make-empty-row [width: int]
+  (list-map (range 0 width) (fn [_i: int] 0)))
+
+(def-logic set-cell-in-row [row: list[int] target: int val: int]
+  (let [(indices (range 0 (list-length row)))]
+    (list-map indices
+      (fn [i: int]
+        (if (= i target)
+            val
+            (unwrap-or (list-nth row i) 0))))))
+
+(def-logic set-cell-in-grid [grid: list[list[int]] target-row: int target-col: int val: int]
+  (let [(row-indices (range 0 (list-length grid)))]
+    (list-map row-indices
+      (fn [r: int]
+        (let [(the-row (unwrap-or (list-nth grid r) (list-empty)))]
+          (if (= r target-row)
+              (set-cell-in-row the-row target-col val)
+              the-row))))))
+
+;; Glider seed: 5 alive cells forming the classic glider pattern
+;;   row 1 col 2: #
+;;   row 2 col 3: #
+;;   row 3 cols 1,2,3: ###
+(def-logic glider-grid [width: int height: int]
+  (let [(empty-row  (make-empty-row width))
+        (row-indices (range 0 height))
+        (empty-grid (list-map row-indices (fn [_r: int] empty-row)))
+        (g0 (set-cell-in-grid empty-grid 1 2 1))
+        (g1 (set-cell-in-grid g0 2 3 1))
+        (g2 (set-cell-in-grid g1 3 1 1))
+        (g3 (set-cell-in-grid g2 3 2 1))
+        (g4 (set-cell-in-grid g3 3 3 1))]
+    g4))
