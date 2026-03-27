@@ -328,6 +328,22 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 
 **[CT]** HTTP interface for agent use: `POST localhost:7777/sketch` with a `.ast.json` body. Agents call this incrementally during generation, filling holes consistent with inferred types before final submission. Target latency: < 200ms for programs up to 500 nodes.
 
+**[CT]** `--sketch` hole-constraint propagation (*language team design, 2026-03-27*) — `--sketch` must propagate checking types to hole expressions at all three sites where a peer expression provides the constraint:
+
+| Site | Constraint source | Implementation |
+|------|-------------------|----------------|
+| `EIf` then/else | sibling branch synthesises type `T`; hole branch checked against `T` | `inferExpr (EIf ...)` — try-and-fallback |
+| `EMatch` arms | non-hole arms unified to `T`; hole arms checked against `T` | two-pass arm loop (see below) |
+| `EApp` arguments | function signature via `unify` | ✅ already handled |
+| `ELet` binding RHS | explicit annotation | ✅ already handled |
+| `fn` / lambda body | outer checking context propagates inward | ✅ already handled |
+
+`EMatch` requires a **two-pass arm loop** in `inferExpr (EMatch ...)`:
+- Pass 1 — synthesise all non-hole arm bodies → unify to `T` (or emit type-mismatch error as today)
+- Pass 2 — check all hole arm bodies against `T`; record `T` as `inferredType` in sketch output
+
+If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch` still reports the conflict as an `errors` entry and records `inferredType: "<conflict>"` for hole arms — it does not fall silent.
+
 **[CT]** N2 — `string-concat` arity hint. When an arity mismatch occurs on `string-concat` and actual arg count > expected (2), append a hint to the diagnostic: `— consider string-concat-many for joining more than 2 strings`. Implementation: `TypeCheck.hs` arity error path. **Language team sign-off (2026-03-27):** Options to make `string-concat` variadic (type checker special-case) or deprecate the binary form were both rejected. Variadic typing breaks the fixed-arity invariant; deprecation breaks partial application. Hint only for Phase 2c; parse-level sugar deferred to v0.3 (see below).
 
 **[CT]** N3 — Strict key validation for JSON-AST `let` binding objects. `parseLet1Binding` in `ParserJSON.hs` currently accepts extra keys (e.g. `kind`, `op`) alongside `name`/`expr`, producing silent corrupt AST nodes. Fix: explicitly fail on unexpected keys, emitting a clear error with the offending key name. The schema already declares `additionalProperties: false`; this brings the parser into conformance.
@@ -336,6 +352,9 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 - `[acc: (int, string)]` in a lambda parameter list parses and type-checks without a workaround.
 - Given a partial program with three holes, `llmll typecheck --sketch` returns each hole's inferred type.
 - A type conflict in a partial program is reported even when the surrounding program is incomplete.
+- A hole in the `then` (or `else`) branch of an `if`, where the sibling branch synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
+- A hole in a `match` arm body, where at least one other arm synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
+- A `match` where non-hole arms have conflicting types reports the conflict as an `errors` entry; hole arms in that `match` report `inferredType: "<conflict>"` rather than being omitted.
 - `(string-concat a b c)` arity error includes the `string-concat-many` hint.
 - A JSON-AST `let` binding object with an extra key produces a clear parse error naming the offending key.
 

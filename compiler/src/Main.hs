@@ -29,8 +29,8 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..))
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal)
 import LLMLL.HoleAnalysis
@@ -56,15 +56,16 @@ import qualified Data.Map.Strict as Map
 -- ---------------------------------------------------------------------------
 
 data Command
-  = CmdCheck  FilePath
-  | CmdHoles  FilePath
-  | CmdTest   FilePath Bool                         -- file, --emit-only
-  | CmdBuild  FilePath (Maybe FilePath) Bool Bool Bool  -- file, outdir, --wasm, --emit-json-ast, --emit-only
-  | CmdBuildFromJson FilePath (Maybe FilePath) Bool     -- file, outdir, --emit-only
-  | CmdRun    FilePath [String]                         -- file, extra args
+  = CmdCheck    FilePath
+  | CmdHoles    FilePath
+  | CmdTest     FilePath Bool                               -- file, --emit-only
+  | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool    -- file, outdir, --wasm, --emit-json-ast, --emit-only
+  | CmdBuildFromJson FilePath (Maybe FilePath) Bool         -- file, outdir, --emit-only
+  | CmdRun      FilePath [String]                           -- file, extra args
   | CmdRepl
-  | CmdHub    FilePath                                  -- Phase 2a: hub fetch --from-file <tarball>
-  | CmdVerify FilePath (Maybe FilePath)                 -- D4: file, optional .fq output path
+  | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
+  | CmdVerify   FilePath (Maybe FilePath)                   -- D4: file, optional .fq output path
+  | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   deriving (Show)
 
 data Options = Options
@@ -101,6 +102,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Manage llmll-hub local package cache"))
       <> command "verify" (info verifyCmd
           (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
+      <> command "typecheck" (info typecheckCmd
+          (progDesc "Parse and type-check; with --sketch infer hole types from context (Phase 2c)"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -140,6 +143,10 @@ optionsParser = info (helper <*> opts) $
             (short 'o' <> long "fq-out" <> metavar "FILE"
             <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
 
+    typecheckCmd = CmdTypecheck
+      <$> fileArg
+      <*> switch (long "sketch" <> help "Run bidirectional sketch inference — report inferred hole types")
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -161,6 +168,7 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdVerify fp mFqOut       -> doVerify json fp mFqOut
+    CmdTypecheck fp sketch    -> doTypecheck json fp sketch
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -776,3 +784,39 @@ doVerify json fp mFqOut = do
 
           if reportSuccess report then exitSuccess else exitFailure
 
+-- ---------------------------------------------------------------------------
+-- Phase 2c: typecheck [--sketch]
+-- ---------------------------------------------------------------------------
+
+doTypecheck :: Bool -> FilePath -> Bool -> IO ()
+doTypecheck json fp False = doCheck json fp   -- non-sketch: identical to check
+doTypecheck json fp True  = do
+  -- Sketch mode: propagate types into holes
+  mResult <- loadStatementsMulti json fp
+  case mResult of
+    Left () -> exitFailure
+    Right (ss, cache, _) -> do
+      -- Seed env with cross-module names then run sketch inference
+      let seededEnv = Map.foldlWithKey' seedModule emptyEnv cache
+          result    = runSketch seededEnv ss
+          holesJson = map holeObj (sketchHoles result)
+          errsJson  = map errObj  (sketchErrors result)
+      TIO.putStrLn . T.pack . BLC.unpack . encode $
+        object [ "holes"  .= holesJson
+               , "errors" .= errsJson ]
+      exitSuccess
+  where
+    -- Qualify exported names from a cached module (mirrors typeCheckWithCache)
+    seedModule acc path menv =
+      let prefix    = T.intercalate "." path <> "."
+          qualified = Map.mapKeys (prefix <>) (meExports menv)
+      in Map.union qualified acc
+    holeObj (name, ty) =
+      object [ "name"         .= name
+             , "inferredType" .= sketchTypeLabel ty ]
+    errObj d =
+      object [ "kind"    .= diagKind d
+             , "message" .= diagMessage d ]
+    -- Map the __conflict__ sentinel to the spec's canonical output string
+    sketchTypeLabel (TVar "__conflict__") = "<conflict>" :: T.Text
+    sketchTypeLabel t                     = typeLabel t

@@ -16,12 +16,14 @@ module LLMLL.TypeCheck
     typeCheck
   , typeCheckModule
   , typeCheckWithCache
+  , runSketch
     -- * Environment
   , TypeEnv
   , emptyEnv
   , extendEnv
     -- * Results
   , TypeCheckResult(..)
+  , SketchResult(..)
   ) where
 
 import Data.Map.Strict (Map)
@@ -29,7 +31,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe)
-import Control.Monad (forM_, forM, foldM, when, unless)
+import Control.Monad (forM_, forM, foldM, when, unless, void)
 import Control.Monad.State.Strict
 
 import LLMLL.Syntax
@@ -130,11 +132,14 @@ extendEnv = Map.insert
 -- ---------------------------------------------------------------------------
 
 data TCState = TCState
-  { tcEnv        :: TypeEnv
-  , tcErrors     :: [Diagnostic]
-  , tcAliasMap   :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
-  , tcCurrentFn  :: Maybe Name      -- ^ enclosing def-logic/letrec name
-  , tcIsLetrec   :: Bool            -- ^ True when inside a letrec (has explicit :decreases)
+  { tcEnv         :: TypeEnv
+  , tcErrors      :: [Diagnostic]
+  , tcAliasMap    :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
+  , tcCurrentFn   :: Maybe Name      -- ^ enclosing def-logic/letrec name
+  , tcIsLetrec    :: Bool            -- ^ True when inside a letrec (has explicit :decreases)
+  -- Sketch mode (Phase 2c --sketch)
+  , tcSketchMode  :: Bool            -- ^ True when called from runSketch
+  , tcSketchHoles :: [(Name, Type)]  -- ^ (holeName, inferredType) accumulator
   } deriving (Show)
 
 type TC a = State TCState a
@@ -176,8 +181,18 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [])
   in (result, tcErrors st)
+
+-- | Run the type checker in sketch mode — collects hole types.
+runTCSketch :: TypeEnv -> TC a -> (a, TCState)
+runTCSketch env action =
+  runState action (TCState env [] Map.empty Nothing False True [])
+
+-- | Record a hole name → inferred type pair (sketch mode only).
+recordSketchHole :: Name -> Type -> TC ()
+recordSketchHole name ty = modify $ \s ->
+  s { tcSketchHoles = tcSketchHoles s ++ [(name, ty)] }
 
 -- ---------------------------------------------------------------------------
 -- Entry Points
@@ -382,6 +397,21 @@ checkStatement (SDefMain { defMainStep = stepE, defMainDone = doneE }) = do
 -- Expression Type Inference
 -- ---------------------------------------------------------------------------
 
+-- | True when an expression is a hole of any kind.
+isHole :: Expr -> Bool
+isHole (EHole _) = True
+isHole _         = False
+
+-- | Checking mode entry point.
+-- At EHole: record the expected type (sketch mode) instead of synthesising TVar "?".
+-- At any other expr: infer, then unify against expected — identical to existing behaviour.
+checkExpr :: Expr -> Type -> TC ()
+checkExpr (EHole (HNamed name)) expected = do
+  sketch <- gets tcSketchMode
+  when sketch $ recordSketchHole name expected
+checkExpr (EHole hk) _ = void (inferHole hk)
+checkExpr e expected   = inferExpr e >>= \actual -> unify "<check>" expected actual
+
 -- | Infer the type of an expression.
 inferExpr :: Expr -> TC Type
 inferExpr (ELit lit) = pure (inferLiteral lit)
@@ -414,36 +444,71 @@ inferExpr (EIf cond thenE elseE) = do
   condType <- inferExpr cond
   unless (compatibleWith condType TBool) $
     tcError $ "if condition must be bool, got " <> typeLabel condType
-  thenType <- inferExpr thenE
-  elseType <- inferExpr elseE
-  -- Both branches should have compatible types
-  if compatibleWith thenType elseType
-    then pure thenType
-    else do
-      tcWarn $ "if branches have different types: " <> typeLabel thenType
-                <> " vs " <> typeLabel elseType
+  -- Sketch propagation: if one branch is a hole, constrain it from the other.
+  case (isHole thenE, isHole elseE) of
+    (False, False) -> do
+      -- Standard path (both concrete)
+      thenType <- inferExpr thenE
+      elseType <- inferExpr elseE
+      if compatibleWith thenType elseType
+        then pure thenType
+        else do
+          tcWarn $ "if branches have different types: " <> typeLabel thenType
+                    <> " vs " <> typeLabel elseType
+          pure thenType
+    (False, True) -> do
+      -- else is a hole: infer then, propagate into else
+      thenType <- inferExpr thenE
+      checkExpr elseE thenType
       pure thenType
+    (True, False) -> do
+      -- then is a hole: infer else, propagate into then
+      elseType <- inferExpr elseE
+      checkExpr thenE elseType
+      pure elseType
+    (True, True) -> do
+      -- both holes: synthesise TVar "?" for each
+      void $ inferExpr thenE
+      void $ inferExpr elseE
+      pure (TVar "?")
 
 inferExpr (EMatch expr cases) = do
   scrutType <- inferExpr expr
   -- Resolve through type aliases so we can see the structural TSumType body
   resolvedScrutType <- expandAlias scrutType
-  caseTypes <- forM cases $ \(pat, body) -> do
-    patBindings <- checkPattern pat resolvedScrutType
-    withEnv patBindings (inferExpr body)
   -- Exhaustiveness check: only for TSumType where the full constructor set is known
   checkExhaustive resolvedScrutType cases
-  case caseTypes of
-    []     -> pure TUnit
+  -- Two-pass arm loop for sketch constraint propagation.
+  -- Pass 1: synthesise non-hole arm bodies; unify to T.
+  let nonHoleArms = [(pat, body) | (pat, body) <- cases, not (isHole body)]
+      holeArms    = [(pat, body) | (pat, body) <- cases, isHole body]
+  nonHoleTypes <- forM nonHoleArms $ \(pat, body) -> do
+    patBindings <- checkPattern pat resolvedScrutType
+    withEnv patBindings (inferExpr body)
+  armT <- case nonHoleTypes of
+    [] -> pure (TVar "?")   -- all arms are holes
     (t:ts) -> do
-      forM_ ts $ \t' ->
-        unless (compatibleWith t t') $
-          tcWarn $ "match arms have different types: " <> typeLabel t <> " vs " <> typeLabel t'
-      pure t
+      -- Unify arm types; use sentinel on conflict
+      foldM (\acc t' ->
+        if acc == TVar "__conflict__" then pure acc
+        else if compatibleWith acc t' then pure acc
+             else do
+               tcWarn $ "match arms have different types: "
+                         <> typeLabel acc <> " vs " <> typeLabel t'
+               pure (TVar "__conflict__")
+        ) t ts
+  -- Also infer hole arm pattern-bindings (for exhaustiveness accuracy), ignoring body
+  forM_ holeArms $ \(pat, _) -> do
+    patBindings <- checkPattern pat resolvedScrutType
+    -- Pass 2: check each hole arm body against the unified arm type
+    -- (checkExpr records the type in sketch mode via recordSketchHole)
+    forM_ [(pat, body) | (p2, body) <- cases, isHole body, p2 == pat] $ \(_, body) ->
+      withEnv patBindings (checkExpr body armT)
+  pure $ if armT == TVar "__conflict__" then TVar "?" else armT
 
 inferExpr (EApp func args) = do
   mFuncTy <- tcLookup func
-  argTypes <- mapM inferExpr args
+  let nArgs = length args
   -- D2: warn when a plain def-logic calls itself recursively without :decreases
   isLetrec <- gets tcIsLetrec
   mCurrent <- gets tcCurrentFn
@@ -455,13 +520,14 @@ inferExpr (EApp func args) = do
       tcWarn $ "call to unknown function '" <> func <> "'"
       pure (TVar "?")  -- wildcard: don't inject false type mismatch downstream
     Just (TFn paramTypes retType) -> do
-      when (length argTypes /= length paramTypes) $ do
-        let hint = if func == "string-concat" && length argTypes > length paramTypes
+      when (nArgs /= length paramTypes) $ do
+        let hint = if func == "string-concat" && nArgs > length paramTypes
                      then " \x2014 use string-concat-many for joining more than 2 strings"
                      else ""
         tcError $ "function '" <> func <> "' expects " <> tshow (length paramTypes)
-                  <> " args, got " <> tshow (length argTypes) <> hint
-      zipWithM_ (\expected actual -> unify func expected actual) paramTypes argTypes
+                  <> " args, got " <> tshow nArgs <> hint
+      -- Use checkExpr so hole arguments get their inferredType recorded in sketch mode.
+      zipWithM_ (\expected arg -> checkExpr arg expected) paramTypes args
       pure retType
     Just (TCustom _) ->
       -- Might be a constructor call
@@ -470,8 +536,7 @@ inferExpr (EApp func args) = do
       tcError $ "'" <> func <> "' is not a function, it has type " <> typeLabel other
       pure TUnit
 
-inferExpr (EOp op args) = do
-  argTypes <- mapM inferExpr args
+inferExpr (EOp op _args) = do
   case Map.lookup op builtinEnv of
     Just (TFn _paramTypes retType) -> do
       -- Relax checking for polymorphic operators — just return their result type
@@ -700,3 +765,25 @@ data TypeCheckResult = TypeCheckResult
   { tcrReport :: DiagnosticReport
   , tcrEnv    :: TypeEnv   -- ^ Environment after processing (with top-level defs)
   } deriving (Show)
+
+-- ---------------------------------------------------------------------------
+-- Sketch Mode (Phase 2c: --sketch)
+-- ---------------------------------------------------------------------------
+
+-- | Result of running the type checker in sketch mode.
+data SketchResult = SketchResult
+  { sketchHoles  :: [(Name, Type)]  -- ^ (hole name, inferred type) pairs
+  , sketchErrors :: [Diagnostic]    -- ^ type errors present in partial program
+  } deriving (Show)
+
+-- | Run the type checker in sketch mode.
+-- Accepts partial programs with holes everywhere. Returns each named hole's
+-- inferred type plus any type errors that exist independently of the holes.
+runSketch :: TypeEnv -> [Statement] -> SketchResult
+runSketch env stmts =
+  let action          = checkStatements stmts
+      (_, finalState) = runTCSketch env action
+  in SketchResult
+       { sketchHoles  = tcSketchHoles finalState
+       , sketchErrors = tcErrors finalState
+       }

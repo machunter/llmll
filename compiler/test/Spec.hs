@@ -8,7 +8,7 @@ import qualified Data.Text.IO as TIO
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, emptyEnv)
+import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch, SketchResult(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
@@ -706,3 +706,94 @@ main = hspec $ do
       case parseJSONAST "<test>" src of
         Left err -> expectationFailure (show err)
         Right _  -> pure ()
+
+  -- -----------------------------------------------------------------------
+  -- Phase 2c: --sketch bidirectional hole-type inference (runSketch)
+  -- -----------------------------------------------------------------------
+  describe "Phase 2c --sketch bidirectional inference" $ do
+    it "EIf: hole in else gets inferredType = string from concrete then" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic greet [formal: bool]"
+            , "  (if formal \"Good day.\" ?informal))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case lookup "informal" (sketchHoles result) of
+            Nothing -> expectationFailure "informal hole not recorded"
+            Just ty -> ty `shouldBe` TString
+
+    it "EIf: hole in then gets inferredType = int from concrete else" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic safe-div [n: int]"
+            , "  (if (= n 0) ?zero_case 42))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case lookup "zero_case" (sketchHoles result) of
+            Nothing -> expectationFailure "zero_case hole not recorded"
+            Just ty -> ty `shouldBe` TInt
+
+    it "EMatch: hole arm gets inferredType = string from concrete sibling arms" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) \"green\")"
+            , "    ((Blue) ?blue_label)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case lookup "blue_label" (sketchHoles result) of
+            Nothing -> expectationFailure "blue_label hole not recorded"
+            Just ty -> ty `shouldBe` TString
+
+    it "EMatch: hole arm gets __conflict__ sentinel when concrete arms disagree" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic bad-describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) 42)"
+            , "    ((Blue) ?conflict_arm)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case lookup "conflict_arm" (sketchHoles result) of
+            Nothing -> expectationFailure "conflict_arm hole not recorded"
+            Just ty -> ty `shouldBe` TVar "__conflict__"
+
+    it "EApp: hole argument gets inferredType from function parameter position" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic f [x: int] x)"
+            , "(def-logic caller [] (f ?arg))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case lookup "arg" (sketchHoles result) of
+            Nothing -> expectationFailure "arg hole not recorded"
+            Just ty -> ty `shouldBe` TInt
+
+    it "non-sketch check path unaffected: no holes recorded for concrete program" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic id-str [s: string]"
+            , "  (if (= (string-length s) 0) \"empty\" s))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+          let skRes = runSketch emptyEnv stmts
+          sketchHoles skRes `shouldBe` []
+
