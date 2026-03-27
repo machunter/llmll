@@ -1,0 +1,554 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "hangman.ast.json",
+  "statements": [
+
+    { "kind": "import", "path": "wasi.io",
+      "capability": { "name": "stdout", "deterministic": false } },
+
+    {
+      "kind": "type-decl", "name": "MaxWrong",
+      "body": { "kind": "where", "binding": "n", "base_type": { "kind": "primitive", "name": "int" },
+        "predicate": { "kind": "op", "op": ">", "args": [{ "kind": "var", "name": "n" }, { "kind": "lit-int", "value": 0 }] }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "make-state",
+      "params": [
+        { "name": "word",      "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "max-wrong", "param_type": { "kind": "named", "name": "MaxWrong" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">", "args": [{ "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "word" }] }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": ">", "args": [{ "kind": "var", "name": "max-wrong" }, { "kind": "lit-int", "value": 0 }] }
+        ]
+      },
+      "post": {
+        "kind": "op", "op": "=",
+        "args": [
+          { "kind": "app", "fn": "first", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "result" }] }] }] },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "body": {
+        "kind": "pair",
+        "fst": { "kind": "var", "name": "word" },
+        "snd": { "kind": "pair",
+          "fst": { "kind": "lit-list", "items": [] },
+          "snd": { "kind": "pair",
+            "fst": { "kind": "lit-int", "value": 0 },
+            "snd": { "kind": "var", "name": "max-wrong" }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic", "name": "state-word",
+      "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "s" }] }
+    },
+
+    {
+      "kind": "def-logic", "name": "state-guessed",
+      "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first",
+        "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "s" }] }]
+      }
+    },
+
+    {
+      "kind": "def-logic", "name": "state-wrong-count",
+      "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first",
+        "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "s" }] }] }]
+      }
+    },
+
+    {
+      "kind": "def-logic", "name": "state-max-wrong",
+      "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "second",
+        "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "s" }] }] }]
+      }
+    },
+
+    {
+      "kind": "letrec",
+      "name": "all-guessed?",
+      "params": [
+        { "name": "word",    "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "guessed", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "i",       "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "decreases": { "kind": "op", "op": "-",
+        "args": [
+          { "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "word" }] },
+          { "kind": "var", "name": "i" }
+        ]
+      },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": ">=",
+          "args": [{ "kind": "var", "name": "i" }, { "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "word" }] }]
+        },
+        "then_branch": { "kind": "lit-bool", "value": true },
+        "else_branch": {
+          "kind": "let",
+          "bindings": [
+            { "name": "ch", "expr": { "kind": "app", "fn": "string-char-at", "args": [{ "kind": "var", "name": "word" }, { "kind": "var", "name": "i" }] } }
+          ],
+          "body": {
+            "kind": "if",
+            "cond": { "kind": "app", "fn": "list-contains", "args": [{ "kind": "var", "name": "guessed" }, { "kind": "var", "name": "ch" }] },
+            "then_branch": { "kind": "app", "fn": "all-guessed?",
+              "args": [
+                { "kind": "var", "name": "word" },
+                { "kind": "var", "name": "guessed" },
+                { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "i" }, { "kind": "lit-int", "value": 1 }] }
+              ]
+            },
+            "else_branch": { "kind": "lit-bool", "value": false }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-won?",
+      "params": [{ "name": "state", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "app", "fn": "all-guessed?",
+        "args": [
+          { "kind": "app", "fn": "state-word",    "args": [{ "kind": "var", "name": "state" }] },
+          { "kind": "app", "fn": "state-guessed", "args": [{ "kind": "var", "name": "state" }] },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-lost?",
+      "params": [{ "name": "state", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "op", "op": ">=",
+        "args": [
+          { "kind": "app", "fn": "state-wrong-count", "args": [{ "kind": "var", "name": "state" }] },
+          { "kind": "app", "fn": "state-max-wrong",   "args": [{ "kind": "var", "name": "state" }] }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-over?",
+      "params": [{ "name": "state", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "op", "op": "or",
+        "args": [
+          { "kind": "app", "fn": "game-won?",  "args": [{ "kind": "var", "name": "state" }] },
+          { "kind": "app", "fn": "game-lost?", "args": [{ "kind": "var", "name": "state" }] }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "apply-guess",
+      "params": [
+        { "name": "state",  "param_type": { "kind": "primitive", "name": "unit" } },
+        { "name": "letter", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "<=",
+        "args": [
+          { "kind": "app", "fn": "state-wrong-count", "args": [{ "kind": "var", "name": "state" }] },
+          { "kind": "app", "fn": "state-max-wrong",   "args": [{ "kind": "var", "name": "state" }] }
+        ]
+      },
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "word",        "expr": { "kind": "app", "fn": "state-word",        "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "guessed",     "expr": { "kind": "app", "fn": "state-guessed",     "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "wrong-count", "expr": { "kind": "app", "fn": "state-wrong-count", "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "max-wrong",   "expr": { "kind": "app", "fn": "state-max-wrong",   "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "new-guessed", "expr": { "kind": "app", "fn": "list-append", "args": [{ "kind": "var", "name": "guessed" }, { "kind": "var", "name": "letter" }] } },
+          { "name": "in-word?",    "expr": { "kind": "app", "fn": "string-contains", "args": [{ "kind": "var", "name": "word" }, { "kind": "var", "name": "letter" }] } },
+          { "name": "new-wrong",   "expr": {
+            "kind": "if",
+            "cond": { "kind": "var", "name": "in-word?" },
+            "then_branch": { "kind": "var", "name": "wrong-count" },
+            "else_branch":  { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "wrong-count" }, { "kind": "lit-int", "value": 1 }] }
+          }}
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "word" },
+          "snd": { "kind": "pair",
+            "fst": { "kind": "var", "name": "new-guessed" },
+            "snd": { "kind": "pair",
+              "fst": { "kind": "var", "name": "new-wrong" },
+              "snd": { "kind": "var", "name": "max-wrong" }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "letrec",
+      "name": "display-word",
+      "params": [
+        { "name": "word",    "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "guessed", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "i",       "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "acc",     "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "decreases": { "kind": "op", "op": "-",
+        "args": [
+          { "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "word" }] },
+          { "kind": "var", "name": "i" }
+        ]
+      },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": ">=",
+          "args": [{ "kind": "var", "name": "i" }, { "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "word" }] }]
+        },
+        "then_branch": { "kind": "var", "name": "acc" },
+        "else_branch": {
+          "kind": "let",
+          "bindings": [
+            { "name": "ch",      "expr": { "kind": "app", "fn": "string-char-at", "args": [{ "kind": "var", "name": "word" }, { "kind": "var", "name": "i" }] } },
+            { "name": "show",    "expr": {
+              "kind": "if",
+              "cond": { "kind": "app", "fn": "list-contains", "args": [{ "kind": "var", "name": "guessed" }, { "kind": "var", "name": "ch" }] },
+              "then_branch": { "kind": "app", "fn": "string-concat", "args": [{ "kind": "var", "name": "ch" }, { "kind": "lit-string", "value": " " }] },
+              "else_branch":  { "kind": "lit-string", "value": "_ " }
+            }},
+            { "name": "new-acc", "expr": { "kind": "app", "fn": "string-concat", "args": [{ "kind": "var", "name": "acc" }, { "kind": "var", "name": "show" }] } }
+          ],
+          "body": {
+            "kind": "app", "fn": "display-word",
+            "args": [
+              { "kind": "var", "name": "word" },
+              { "kind": "var", "name": "guessed" },
+              { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "i" }, { "kind": "lit-int", "value": 1 }] },
+              { "kind": "var", "name": "new-acc" }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "gallows",
+      "params": [{ "name": "wrong", "param_type": { "kind": "primitive", "name": "int" } }],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 6 }] }
+        ]
+      },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 0 }] },
+        "then_branch": { "kind": "lit-string", "value": " -----\n |   |\n |\n |\n |\n |\n========\n" },
+        "else_branch": {
+          "kind": "if",
+          "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 1 }] },
+          "then_branch": { "kind": "lit-string", "value": " -----\n |   |\n |   O\n |\n |\n |\n========\n" },
+          "else_branch": {
+            "kind": "if",
+            "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 2 }] },
+            "then_branch": { "kind": "lit-string", "value": " -----\n |   |\n |   O\n |   |\n |\n |\n========\n" },
+            "else_branch": {
+              "kind": "if",
+              "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 3 }] },
+              "then_branch": { "kind": "lit-string", "value": " -----\n |   |\n |   O\n |  /|\n |\n |\n========\n" },
+              "else_branch": {
+                "kind": "if",
+                "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 4 }] },
+                "then_branch": { "kind": "lit-string", "value": " -----\n |   |\n |   O\n |  /|\\\n |\n |\n========\n" },
+                "else_branch": {
+                  "kind": "if",
+                  "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "wrong" }, { "kind": "lit-int", "value": 5 }] },
+                  "then_branch": { "kind": "lit-string", "value": " -----\n |   |\n |   O\n |  /|\\\n |  /\n |\n========\n" },
+                  "else_branch": { "kind": "lit-string", "value": " -----\n |   |\n |   O\n |  /|\\\n |  / \\\n |\n========\n" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "render-state",
+      "params": [{ "name": "state", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "word",        "expr": { "kind": "app", "fn": "state-word",        "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "guessed",     "expr": { "kind": "app", "fn": "state-guessed",     "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "wrong-count", "expr": { "kind": "app", "fn": "state-wrong-count", "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "max-wrong",   "expr": { "kind": "app", "fn": "state-max-wrong",   "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "safe-wrong",  "expr": {
+            "kind": "if",
+            "cond": { "kind": "op", "op": ">", "args": [{ "kind": "var", "name": "wrong-count" }, { "kind": "lit-int", "value": 6 }] },
+            "then_branch": { "kind": "lit-int", "value": 6 },
+            "else_branch": { "kind": "var", "name": "wrong-count" }
+          }},
+          { "name": "art",         "expr": { "kind": "app", "fn": "gallows",      "args": [{ "kind": "var", "name": "safe-wrong" }] } },
+          { "name": "word-disp",   "expr": { "kind": "app", "fn": "display-word", "args": [{ "kind": "var", "name": "word" }, { "kind": "var", "name": "guessed" }, { "kind": "lit-int", "value": 0 }, { "kind": "lit-string", "value": "" }] } },
+          { "name": "rem",         "expr": { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "max-wrong" }, { "kind": "var", "name": "wrong-count" }] } }
+        ],
+        "body": {
+          "kind": "app", "fn": "string-concat-many",
+          "args": [{ "kind": "lit-list", "items": [
+            { "kind": "var", "name": "art" },
+            { "kind": "lit-string", "value": "Word: " },
+            { "kind": "var", "name": "word-disp" },
+            { "kind": "lit-string", "value": "\nWrong guesses left: " },
+            { "kind": "app", "fn": "int-to-string", "args": [{ "kind": "var", "name": "rem" }] },
+            { "kind": "lit-string", "value": "\n" }
+          ]}]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "start-game",
+      "params": [],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "state", "expr": { "kind": "app", "fn": "make-state", "args": [{ "kind": "lit-string", "value": "hangman" }, { "kind": "lit-int", "value": 6 }] } },
+          { "name": "disp",  "expr": { "kind": "app", "fn": "render-state", "args": [{ "kind": "var", "name": "state" }] } }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "state" },
+          "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+            "args": [{ "kind": "app", "fn": "string-concat",
+              "args": [{ "kind": "lit-string", "value": "Hangman\nGuess the word one letter at a time.\n" }, { "kind": "var", "name": "disp" }]
+            }]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-loop",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "unit" } },
+        { "name": "input", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "trimmed", "expr": { "kind": "app", "fn": "string-trim", "args": [{ "kind": "var", "name": "input" }] } }
+        ],
+        "body": {
+          "kind": "if",
+          "cond": { "kind": "op", "op": "!=", "args": [{ "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "trimmed" }] }, { "kind": "lit-int", "value": 1 }] },
+          "then_branch": {
+            "kind": "pair",
+            "fst": { "kind": "var", "name": "state" },
+            "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Please enter exactly one letter.\n> " }] }
+          },
+          "else_branch": {
+            "kind": "let",
+            "bindings": [
+              { "name": "guessed",   "expr": { "kind": "app", "fn": "state-guessed", "args": [{ "kind": "var", "name": "state" }] } }
+            ],
+            "body": {
+              "kind": "if",
+              "cond": { "kind": "app", "fn": "list-contains", "args": [{ "kind": "var", "name": "guessed" }, { "kind": "var", "name": "trimmed" }] },
+              "then_branch": {
+                "kind": "pair",
+                "fst": { "kind": "var", "name": "state" },
+                "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+                  "args": [{ "kind": "app", "fn": "string-concat-many",
+                    "args": [{ "kind": "lit-list", "items": [
+                      { "kind": "lit-string", "value": "You already guessed '" },
+                      { "kind": "var", "name": "trimmed" },
+                      { "kind": "lit-string", "value": "'. Try another letter.\n> " }
+                    ]}]
+                  }]
+                }
+              },
+              "else_branch": {
+                "kind": "let",
+                "bindings": [
+                  { "name": "new-state", "expr": { "kind": "app", "fn": "apply-guess", "args": [{ "kind": "var", "name": "state" }, { "kind": "var", "name": "trimmed" }] } },
+                  { "name": "disp",      "expr": { "kind": "app", "fn": "render-state", "args": [{ "kind": "var", "name": "new-state" }] } },
+                  { "name": "in-word?",  "expr": { "kind": "app", "fn": "string-contains",
+                      "args": [
+                        { "kind": "app", "fn": "state-word", "args": [{ "kind": "var", "name": "state" }] },
+                        { "kind": "var", "name": "trimmed" }
+                      ]
+                    }
+                  },
+                  { "name": "feedback",  "expr": {
+                    "kind": "if",
+                    "cond": { "kind": "var", "name": "in-word?" },
+                    "then_branch": { "kind": "app", "fn": "string-concat-many",
+                      "args": [{ "kind": "lit-list", "items": [
+                        { "kind": "lit-string", "value": "Good guess: '" },
+                        { "kind": "var", "name": "trimmed" },
+                        { "kind": "lit-string", "value": "' is in the word!\n" }
+                      ]}]
+                    },
+                    "else_branch": { "kind": "app", "fn": "string-concat-many",
+                      "args": [{ "kind": "lit-list", "items": [
+                        { "kind": "lit-string", "value": "Wrong: '" },
+                        { "kind": "var", "name": "trimmed" },
+                        { "kind": "lit-string", "value": "' is not in the word.\n" }
+                      ]}]
+                    }
+                  }},
+                  { "name": "over?", "expr": { "kind": "app", "fn": "game-over?", "args": [{ "kind": "var", "name": "new-state" }] } },
+                  { "name": "prompt","expr": {
+                    "kind": "if",
+                    "cond": { "kind": "var", "name": "over?" },
+                    "then_branch": { "kind": "lit-string", "value": "" },
+                    "else_branch": { "kind": "lit-string", "value": "Guess a letter: " }
+                  }},
+                  { "name": "output", "expr": { "kind": "app", "fn": "string-concat-many",
+                      "args": [{ "kind": "lit-list", "items": [
+                        { "kind": "var", "name": "feedback" },
+                        { "kind": "var", "name": "disp" },
+                        { "kind": "var", "name": "prompt" }
+                      ]}]
+                    }
+                  }
+                ],
+                "body": {
+                  "kind": "pair",
+                  "fst": { "kind": "var", "name": "new-state" },
+                  "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "output" }] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "show-result",
+      "params": [{ "name": "state", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "won?",  "expr": { "kind": "app", "fn": "game-won?",  "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "word",  "expr": { "kind": "app", "fn": "state-word", "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "msg",   "expr": {
+            "kind": "if",
+            "cond": { "kind": "var", "name": "won?" },
+            "then_branch": { "kind": "lit-string", "value": "You won! Congratulations!\n" },
+            "else_branch": { "kind": "app", "fn": "string-concat-many",
+              "args": [{ "kind": "lit-list", "items": [
+                { "kind": "lit-string", "value": "Game over! The word was: " },
+                { "kind": "var", "name": "word" },
+                { "kind": "lit-string", "value": "\n" }
+              ]}]
+            }
+          }}
+        ],
+        "body": {
+          "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+          "args": [{ "kind": "var", "name": "msg" }]
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "initial-wrong-count-is-0",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "state-wrong-count",
+              "args": [{ "kind": "app", "fn": "make-state", "args": [{ "kind": "lit-string", "value": "test" }, { "kind": "lit-int", "value": 6 }] }]
+            },
+            { "kind": "lit-int", "value": 0 }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "wrong-guess-increments-count",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "let",
+          "bindings": [
+            { "name": "s0", "expr": { "kind": "app", "fn": "make-state", "args": [{ "kind": "lit-string", "value": "cat" }, { "kind": "lit-int", "value": 6 }] } },
+            { "name": "s1", "expr": { "kind": "app", "fn": "apply-guess", "args": [{ "kind": "var", "name": "s0" }, { "kind": "lit-string", "value": "z" }] } }
+          ],
+          "body": {
+            "kind": "op", "op": "=",
+            "args": [
+              { "kind": "app", "fn": "state-wrong-count", "args": [{ "kind": "var", "name": "s1" }] },
+              { "kind": "lit-int", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "correct-guess-no-increment",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "let",
+          "bindings": [
+            { "name": "s0", "expr": { "kind": "app", "fn": "make-state", "args": [{ "kind": "lit-string", "value": "cat" }, { "kind": "lit-int", "value": 6 }] } },
+            { "name": "s1", "expr": { "kind": "app", "fn": "apply-guess", "args": [{ "kind": "var", "name": "s0" }, { "kind": "lit-string", "value": "c" }] } }
+          ],
+          "body": {
+            "kind": "op", "op": "=",
+            "args": [
+              { "kind": "app", "fn": "state-wrong-count", "args": [{ "kind": "var", "name": "s1" }] },
+              { "kind": "lit-int", "value": 0 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-main",
+      "mode": "console",
+      "init":     { "kind": "app", "fn": "start-game", "args": [] },
+      "step":     { "kind": "var", "name": "game-loop" },
+      "done?":    { "kind": "var", "name": "game-over?" },
+      "on-done":  { "kind": "var", "name": "show-result" }
+    }
+  ]
+}

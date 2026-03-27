@@ -62,6 +62,10 @@ library:
     - LLMLL.Diagnostic
     - LLMLL.Module
     - LLMLL.Hub
+    # D4: liquid-fixpoint decoupled verification backend
+    - LLMLL.FixpointIR
+    - LLMLL.FixpointEmit
+    - LLMLL.DiagnosticFQ
 
 executables:
   llmll:

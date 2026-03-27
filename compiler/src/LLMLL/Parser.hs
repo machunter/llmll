@@ -131,6 +131,7 @@ pModule = parens $ do
 pStatement :: Parser Statement
 pStatement = choice
   [ pDefLogic
+  , pLetrec
   , pDefMain
   , pDefInterface
   , pTypeDef
@@ -158,6 +159,26 @@ pDefLogic = do
                [p] -> Just p
                ps  -> Just (foldl1 (\a b -> EApp "and" [a, b]) ps)
   pure $ SDefLogic name params Nothing (Contract mPre mPost) body
+
+-- | Parse (letrec name [params] :decreases measure body)
+-- Introduces an explicitly recursive function with a termination measure.
+-- The :decreases expression must be integer-valued and must strictly decrease
+-- in each recursive call (QF linear arithmetic, for LH verification in D4).
+pLetrec :: Parser Statement
+pLetrec = do
+  _ <- try (symbol "(" *> symbol "letrec")
+  name    <- pIdent
+  params  <- brackets (many pDefParam)
+  preClauses <- many (try pPreClause)
+  mPost   <- optional (try pPostClause)
+  dec     <- symbol ":decreases" *> pExpr
+  body    <- pExpr
+  _       <- symbol ")"
+  let mPre = case preClauses of
+               []  -> Nothing
+               [p] -> Just p
+               ps  -> Just (foldl1 (\a b -> EApp "and" [a, b]) ps)
+  pure $ SLetrec name params Nothing (Contract mPre mPost) dec body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -242,8 +263,7 @@ pSumArm = parens $ do
 pSumTypeMultiArm :: Parser Type
 pSumTypeMultiArm = do
   arms <- some (try pSumArm)
-  let label = T.intercalate " | " (map fst arms)
-  pure $ TCustom label
+  pure $ TSumType arms
 
 -- | Parse (check "description" (for-all [...] body))
 pCheckBlock :: Parser Statement
@@ -593,8 +613,16 @@ pHoleExpr = choice
   , try pScaffoldHole
   , try pChooseHole
   , try pRequestCapHole
+  , try pProofRequiredHole  -- D3: must come before pNamedHole
   , pNamedHole
   ]
+
+-- | Parse ?proof-required (D3 manual proof obligation marker).
+pProofRequiredHole :: Parser Expr
+pProofRequiredHole = do
+  _ <- string "?proof-required"
+  sc
+  pure $ EHole (HProofRequired "manual")
 
 pNamedHole :: Parser Expr
 pNamedHole = do
@@ -792,7 +820,7 @@ reservedWords =
   [ "module", "import", "def-logic", "def-interface", "let", "if"
   , "match", "check", "pre", "post", "for-all", "type", "where"
   , "pair", "await", "do", "on-failure", "fn", "true", "false"
-  , "capability"
+  , "capability", "letrec"
   -- v0.2 module system
   , "open", "export"
   ]

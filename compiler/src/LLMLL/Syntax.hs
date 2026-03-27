@@ -110,7 +110,8 @@ data Type
   | TDependent Name Type Expr     -- ^ Dependent type: binding name + base type + constraint expr
   | TDelegationError              -- ^ Built-in DelegationError sum type
   | TVar Name                     -- ^ Type variable (for generics / interfaces)
-  | TCustom Name                  -- ^ User-defined type name
+  | TCustom Name                  -- ^ User-defined type name (alias or opaque ref)
+  | TSumType [(Name, Maybe Type)] -- ^ Structured sum type: [(ConstructorName, Maybe PayloadType)]
   deriving (Show, Eq, Generic)
 
 -- | Human-readable label for a type (for error messages).
@@ -130,6 +131,7 @@ typeLabel (TDependent _ b _)= typeLabel b <> " (constrained)"
 typeLabel TDelegationError = "DelegationError"
 typeLabel (TVar n)        = n
 typeLabel (TCustom n)     = n
+typeLabel (TSumType ctors) = T.intercalate " | " (map fst ctors)
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
@@ -196,6 +198,8 @@ data HoleKind
   | HDelegateAsync DelegateSpec   -- ^ ?delegate-async @agent "desc" -> type
   | HDelegatePending Type         -- ^ Unresolved delegate (blocks execution)
   | HConflictResolution           -- ^ Merge conflict marker
+  -- D3: LiquidHaskell proof obligations
+  | HProofRequired Text           -- ^ ?proof-required, reason tag e.g. "complex-decreases", "non-linear-contract", "manual"
   deriving (Show, Eq, Generic)
 
 -- | Specification for a scaffold hole.
@@ -247,6 +251,19 @@ data Statement
     , defLogicReturn :: Maybe Type
     , defLogicContract :: Contract
     , defLogicBody   :: Expr
+    }
+  -- | Explicitly recursive function with a termination measure.
+  -- D2: `:decreases expr` must be an integer-valued expression that strictly
+  -- decreases in each recursive call (restricted to QF linear arithmetic for LH).
+  -- Codegen treats this identically to SDefLogic; the decreases expr is stored
+  -- for the LH annotation layer (Deliverable 4).
+  | SLetrec
+    { letrecName      :: Name
+    , letrecParams    :: [(Name, Type)]
+    , letrecReturn    :: Maybe Type
+    , letrecContract  :: Contract
+    , letrecDecreases :: Expr    -- ^ termination measure (must be int-typed)
+    , letrecBody      :: Expr
     }
   | SDefInterface
     { defInterfaceName :: Name

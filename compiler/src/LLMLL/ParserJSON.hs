@@ -95,6 +95,7 @@ parseStatement = withObject "Statement" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
     "def-logic"    -> parseDefLogic o
+    "letrec"       -> parseLetrec o
     "def-interface"-> parseDefInterface o
     "def-invariant"-> parseDefInvariant o
     "type-decl"    -> parseTypeDecl o
@@ -143,6 +144,16 @@ parseTypeDecl o = do
   body <- o .: "body" >>= parseTypeBody
   pure $ STypeDef name body
 
+parseLetrec :: Object -> Parser Statement
+parseLetrec o = do
+  name     <- o .: "name"
+  params   <- o .: "params" >>= mapM parseTypedParam
+  mPre     <- o .:? "pre"      >>= mapM parseExpr
+  mPost    <- o .:? "post"     >>= mapM parseExpr
+  dec      <- o .: "decreases" >>= parseExpr
+  body     <- o .: "body"      >>= parseExpr
+  pure $ SLetrec name params Nothing (Contract mPre mPost) dec body
+
 parseTypeBody :: Value -> Parser Type
 parseTypeBody = withObject "TypeBody" $ \o -> do
   kind <- o .: "kind" :: Parser Text
@@ -154,11 +165,7 @@ parseTypeBody = withObject "TypeBody" $ \o -> do
       pure $ TDependent binding baseType predicate
     "sum" -> do
       variants <- o .: "variants" >>= mapM parseVariant
-      -- Encode variant payloads as "CtorName:TypeName | CtorName2" for emitTypeDef.
-      let encodeVar (ctor, Nothing)  = ctor
-          encodeVar (ctor, Just pt)  = ctor <> ":" <> typeLabel pt
-          label = T.intercalate " | " (map encodeVar variants)
-      pure $ TCustom label
+      pure $ TSumType variants
     _ -> fail $ "unknown TypeBody kind: " ++ T.unpack kind
 
 parseVariant :: Value -> Parser (Name, Maybe Type)
@@ -384,6 +391,10 @@ parseExpr = withObject "Expr" $ \o -> do
     "hole-scaffold"       -> EHole . HScaffold      <$> parseScaffoldSpec o
     "hole-delegate"       -> EHole . HDelegate      <$> parseDelegateSpec o
     "hole-delegate-async" -> EHole . HDelegateAsync <$> parseDelegateSpec o
+    -- D3: ?proof-required hole
+    "hole-proof-required" -> do
+      reason <- o .:? "reason" .!= "manual"
+      pure $ EHole (HProofRequired reason)
 
     _ -> fail $ "unknown Expr kind: " ++ T.unpack kind
 

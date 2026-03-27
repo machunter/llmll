@@ -130,9 +130,11 @@ extendEnv = Map.insert
 -- ---------------------------------------------------------------------------
 
 data TCState = TCState
-  { tcEnv      :: TypeEnv
-  , tcErrors   :: [Diagnostic]
-  , tcAliasMap :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
+  { tcEnv        :: TypeEnv
+  , tcErrors     :: [Diagnostic]
+  , tcAliasMap   :: Map Name Type   -- ^ alias name → structural body (from STypeDef)
+  , tcCurrentFn  :: Maybe Name      -- ^ enclosing def-logic/letrec name
+  , tcIsLetrec   :: Bool            -- ^ True when inside a letrec (has explicit :decreases)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -164,10 +166,17 @@ withEnv bindings action = do
   modify $ \s -> s { tcEnv = old }
   pure result
 
+-- | Emit a structured non-exhaustive-match error using the registered diagnostic.
+tcEmitNonExhaustive :: Name -> [Name] -> [Name] -> TC ()
+tcEmitNonExhaustive typeName missing covered = do
+  fn <- gets (maybe "<top>" id . tcCurrentFn)
+  modify $ \s -> s
+    { tcErrors = tcErrors s ++ [mkNonExhaustiveMatch fn typeName missing covered] }
+
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False)
   in (result, tcErrors st)
 
 -- ---------------------------------------------------------------------------
@@ -224,7 +233,11 @@ checkStatements stmts = do
 collectTopLevel :: Statement -> Maybe (Name, Type)
 collectTopLevel (SDefLogic name params mRet _contract _body) =
   let argTypes = map snd params
-      retType  = fromMaybe (TVar "?") mRet  -- no annotation => polymorphic wildcard
+      retType  = fromMaybe (TVar "?") mRet
+  in Just (name, TFn argTypes retType)
+collectTopLevel (SLetrec name params mRet _contract _dec _body) =
+  let argTypes = map snd params
+      retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
 collectTopLevel (SDefInterface name fns) =
   Just (name, TCustom name)  -- interfaces register as custom types
@@ -234,6 +247,8 @@ collectTopLevel _ = Nothing
 
 checkStatement :: Statement -> TC ()
 checkStatement (SDefLogic name params mRet contract body) = do
+  -- Track enclosing function for exhaustiveness (D1) and self-recursion (D2)
+  modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = False }
   let paramBindings = params
   withEnv paramBindings $ do
     -- Infer body type
@@ -250,6 +265,36 @@ checkStatement (SDefLogic name params mRet contract body) = do
         unless (compatibleWith preType TBool) $
           tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
     -- Check post-condition is boolean (has access to 'result')
+    case contractPost contract of
+      Nothing -> pure ()
+      Just post -> do
+        let resultType = fromMaybe bodyType mRet
+        postType <- withEnv [("result", resultType)] (inferExpr post)
+        unless (compatibleWith postType TBool) $
+          tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
+
+checkStatement (SLetrec name params mRet contract dec body) = do
+  -- letrec: like def-logic but tcIsLetrec=True supresses the self-recursion warning
+  modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = True }
+  let paramBindings = params
+  withEnv paramBindings $ do
+    -- Validate :decreases is integer-typed (QF linear arithmetic restriction)
+    decType <- inferExpr dec
+    unless (compatibleWith decType TInt) $
+      tcWarn $ "letrec '" <> name <> "': :decreases must be int-typed, got " <> typeLabel decType
+    -- Infer body type
+    bodyType <- inferExpr body
+    case mRet of
+      Nothing -> pure ()
+      Just retTy -> unify name retTy bodyType
+    -- Check pre-condition
+    case contractPre contract of
+      Nothing -> pure ()
+      Just pre -> do
+        preType <- withEnv [("result", fromMaybe bodyType mRet)] (inferExpr pre)
+        unless (compatibleWith preType TBool) $
+          tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
+    -- Check post-condition
     case contractPost contract of
       Nothing -> pure ()
       Just post -> do
@@ -381,9 +426,13 @@ inferExpr (EIf cond thenE elseE) = do
 
 inferExpr (EMatch expr cases) = do
   scrutType <- inferExpr expr
+  -- Resolve through type aliases so we can see the structural TSumType body
+  resolvedScrutType <- expandAlias scrutType
   caseTypes <- forM cases $ \(pat, body) -> do
-    patBindings <- checkPattern pat scrutType
+    patBindings <- checkPattern pat resolvedScrutType
     withEnv patBindings (inferExpr body)
+  -- Exhaustiveness check: only for TSumType where the full constructor set is known
+  checkExhaustive resolvedScrutType cases
   case caseTypes of
     []     -> pure TUnit
     (t:ts) -> do
@@ -395,6 +444,12 @@ inferExpr (EMatch expr cases) = do
 inferExpr (EApp func args) = do
   mFuncTy <- tcLookup func
   argTypes <- mapM inferExpr args
+  -- D2: warn when a plain def-logic calls itself recursively without :decreases
+  isLetrec <- gets tcIsLetrec
+  mCurrent <- gets tcCurrentFn
+  when (mCurrent == Just func && not isLetrec) $
+    tcWarn $ "self-recursive call to '" <> func <> "' inside def-logic; "
+              <> "use (letrec " <> func <> " [...] :decreases ...) to provide a termination measure"
   case mFuncTy of
     Nothing -> do
       tcWarn $ "call to unknown function '" <> func <> "'"
@@ -494,6 +549,45 @@ inferDoSteps (DoBind name e : rest) = do
 -- ---------------------------------------------------------------------------
 -- Pattern Checking
 -- ---------------------------------------------------------------------------
+-- Exhaustiveness Checking (D1)
+-- ---------------------------------------------------------------------------
+
+-- | Check that a match expression is exhaustive for known sum types.
+-- Only fires for TSumType, TResult, and TBool — all other types pass silently.
+-- A wildcard (PWildcard) or variable (PVar) arm satisfies coverage for any type.
+checkExhaustive :: Type -> [(Pattern, Expr)] -> TC ()
+checkExhaustive scrutTy arms = do
+  -- If any arm is a wildcard or variable, it catches everything
+  let hasWildcard = any (isWild . fst) arms
+  unless hasWildcard $ do
+    let covered = [c | (PConstructor c _, _) <- arms]
+    case scrutTy of
+      TSumType ctors -> do
+        let allCtors  = map fst ctors
+            missing   = filter (`notElem` covered) allCtors
+        unless (null missing) $
+          tcEmitNonExhaustive (typeLabel scrutTy) missing covered
+      TResult _ _ -> do
+        -- Built-in: Success / Error must both be present
+        let missing = filter (`notElem` covered) ["Success", "Error"]
+        unless (null missing) $
+          tcEmitNonExhaustive "Result" missing covered
+      TBool -> do
+        -- Built-in: True / False must both be present (if using ctor patterns)
+        let boolCtors = filter (`elem` ["True", "False"]) covered
+        unless (null boolCtors) $ do  -- only fire if they're using ctor patterns
+          let missing = filter (`notElem` covered) ["True", "False"]
+          unless (null missing) $
+            tcEmitNonExhaustive "Bool" missing covered
+      _ -> pure ()   -- unknown type — no false positives
+  where
+    isWild PWildcard = True
+    isWild (PVar _)  = True
+    isWild _         = False
+
+-- ---------------------------------------------------------------------------
+-- Pattern Checking
+-- ---------------------------------------------------------------------------
 
 -- | Type-check a pattern against a scrutinee type, returning new bindings.
 checkPattern :: Pattern -> Type -> TC [(Name, Type)]
@@ -516,6 +610,19 @@ checkPattern (PConstructor ctor subPats) scrutTy = do
       case subPats of
         [p] -> checkPattern p e
         _   -> do { tcError "Error takes one argument"; pure [] }
+    -- TSumType: look up the constructor in the known-good constructor list
+    (_, TSumType ctorList) ->
+      case lookup ctor ctorList of
+        Nothing ->
+          do { tcWarn $ "unknown constructor '" <> ctor <> "' for sum type"; pure [] }
+        Just Nothing ->
+          -- Nullary constructor
+          if null subPats then pure []
+          else do { tcWarn $ "constructor '" <> ctor <> "' takes no arguments"; pure [] }
+        Just (Just payload) ->
+          case subPats of
+            [p] -> checkPattern p payload
+            _   -> do { tcWarn $ "constructor '" <> ctor <> "' takes one argument"; pure [] }
     _ -> do
       -- Unknown constructor — bind sub patterns as type vars
       bindings <- forM (zip [0..] subPats) $ \(i, p) ->
@@ -551,6 +658,10 @@ compatibleWith (TPromise a) (TPromise b) = compatibleWith a b
 compatibleWith (TFn as r) (TFn bs s) =
   length as == length bs && all (uncurry compatibleWith) (zip as bs) && compatibleWith r s
 compatibleWith (TBytes m) (TBytes n) = m == n
+-- TSumType: compatible with itself and with TCustom of the same registered name
+compatibleWith (TSumType _) (TSumType _) = True
+compatibleWith (TCustom _)  (TSumType _) = True
+compatibleWith (TSumType _)  (TCustom _) = True
 compatibleWith a b = a == b
 
 -- | Unify two types, emitting an error if they are incompatible.

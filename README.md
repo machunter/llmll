@@ -16,6 +16,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
+| `llmll verify <file> [--fq-out FILE]` | **Phase 2b** — emit `.fq` constraint file and run `liquid-fixpoint` (if installed). Reports SAFE or contract-violation diagnostics with JSON Pointers. |
 | `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). Remote `hub fetch` is Phase 2b. |
 
 ### Input formats
@@ -92,6 +93,9 @@ compiler/                   ← Haskell compiler (stack project)
     Diagnostic.hs           ← Structured error/warning types
     Module.hs               ← Multi-file module resolver, cycle detection, ModuleCache
     Hub.hs                  ← llmll-hub registry fetch and local cache
+    FixpointIR.hs           ← D4: .fq constraint IR + text emitter
+    FixpointEmit.hs         ← D4: typed AST → .fq + ConstraintTable builder
+    DiagnosticFQ.hs         ← D4: liquid-fixpoint output → [Diagnostic] with JSON Pointers
   package.yaml / stack.yaml
 examples/
   hangman_sexp/             ← Full Hangman (S-expression)

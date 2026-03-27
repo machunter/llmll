@@ -1,0 +1,551 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "tictactoe.ast.json",
+  "statements": [
+
+    { "kind": "import", "path": "wasi.io",
+      "capability": { "name": "stdout", "deterministic": false } },
+
+    {
+      "kind": "def-logic",
+      "name": "make-board",
+      "params": [],
+      "post": {
+        "kind": "op", "op": "=",
+        "args": [
+          { "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "result" }] },
+          { "kind": "lit-int", "value": 9 }
+        ]
+      },
+      "body": {
+        "kind": "lit-list",
+        "items": [
+          { "kind": "lit-string", "value": " " }, { "kind": "lit-string", "value": " " },
+          { "kind": "lit-string", "value": " " }, { "kind": "lit-string", "value": " " },
+          { "kind": "lit-string", "value": " " }, { "kind": "lit-string", "value": " " },
+          { "kind": "lit-string", "value": " " }, { "kind": "lit-string", "value": " " },
+          { "kind": "lit-string", "value": " " }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "make-state",
+      "params": [],
+      "body": {
+        "kind": "pair",
+        "fst": { "kind": "app", "fn": "make-board", "args": [] },
+        "snd": {
+          "kind": "pair",
+          "fst": { "kind": "lit-string", "value": "X" },
+          "snd": { "kind": "lit-string", "value": "playing" }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic", "name": "state-board",
+      "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "s" }] }
+    },
+
+    {
+      "kind": "def-logic", "name": "state-player",
+      "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "s" }] }] }
+    },
+
+    {
+      "kind": "def-logic", "name": "state-status",
+      "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "second", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "s" }] }] }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "other-player",
+      "params": [{ "name": "p", "param_type": { "kind": "primitive", "name": "string" } }],
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "p" }, { "kind": "lit-string", "value": "X" }] },
+        "then_branch": { "kind": "lit-string", "value": "O" },
+        "else_branch": { "kind": "lit-string", "value": "X" }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "board-get",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "idx",   "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<",  "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 9 }] }
+        ]
+      },
+      "body": {
+        "kind": "app", "fn": "unwrap-or",
+        "args": [
+          { "kind": "app", "fn": "list-nth", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "idx" }] },
+          { "kind": "lit-string", "value": " " }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "cell-empty?",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "idx",   "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<",  "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 9 }] }
+        ]
+      },
+      "body": {
+        "kind": "op", "op": "=",
+        "args": [
+          { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "idx" }] },
+          { "kind": "lit-string", "value": " " }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "set-cell",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "idx",   "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "mark",  "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<",  "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 9 }] }
+        ]
+      },
+      "post": {
+        "kind": "op", "op": "=",
+        "args": [
+          { "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "result" }] },
+          { "kind": "lit-int", "value": 9 }
+        ]
+      },
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "n", "expr": { "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "board" }] } }
+        ],
+        "body": {
+          "kind": "app", "fn": "list-map",
+          "args": [
+            { "kind": "app", "fn": "range", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "var", "name": "n" }] },
+            { "kind": "lambda",
+              "params": [{ "name": "i", "param_type": { "kind": "primitive", "name": "int" } }],
+              "body": {
+                "kind": "if",
+                "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "i" }, { "kind": "var", "name": "idx" }] },
+                "then_branch": { "kind": "var", "name": "mark" },
+                "else_branch": { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "i" }] }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "check-triple",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "a",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "b",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "c",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "mark",  "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": "=", "args": [
+              { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "a" }] },
+              { "kind": "var", "name": "mark" }
+          ]},
+          { "kind": "op", "op": "and", "args": [
+            { "kind": "op", "op": "=", "args": [
+                { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "b" }] },
+                { "kind": "var", "name": "mark" }
+            ]},
+            { "kind": "op", "op": "=", "args": [
+                { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "c" }] },
+                { "kind": "var", "name": "mark" }
+            ]}
+          ]}
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "has-won?",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "mark",  "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "op", "op": "or", "args": [
+          { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 1 }, { "kind": "lit-int", "value": 2 }, { "kind": "var", "name": "mark" }] },
+          { "kind": "op", "op": "or", "args": [
+            { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 3 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 5 }, { "kind": "var", "name": "mark" }] },
+            { "kind": "op", "op": "or", "args": [
+              { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 6 }, { "kind": "lit-int", "value": 7 }, { "kind": "lit-int", "value": 8 }, { "kind": "var", "name": "mark" }] },
+              { "kind": "op", "op": "or", "args": [
+                { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 3 }, { "kind": "lit-int", "value": 6 }, { "kind": "var", "name": "mark" }] },
+                { "kind": "op", "op": "or", "args": [
+                  { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 1 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 7 }, { "kind": "var", "name": "mark" }] },
+                  { "kind": "op", "op": "or", "args": [
+                    { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 2 }, { "kind": "lit-int", "value": 5 }, { "kind": "lit-int", "value": 8 }, { "kind": "var", "name": "mark" }] },
+                    { "kind": "op", "op": "or", "args": [
+                      { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 8 }, { "kind": "var", "name": "mark" }] },
+                      { "kind": "app", "fn": "check-triple", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 2 }, { "kind": "lit-int", "value": 4 }, { "kind": "lit-int", "value": 6 }, { "kind": "var", "name": "mark" }] }
+                    ]}
+                  ]}
+                ]}
+              ]}
+            ]}
+          ]}
+        ]
+      }
+    },
+
+    {
+      "kind": "letrec",
+      "name": "board-full?",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } }
+      ],
+      "decreases": { "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "board" }] },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": "=", "args": [{ "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "board" }] }, { "kind": "lit-int", "value": 0 }] },
+        "then_branch": { "kind": "lit-bool", "value": true },
+        "else_branch": {
+          "kind": "let",
+          "bindings": [
+            { "name": "h",    "expr": { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "app", "fn": "list-head", "args": [{ "kind": "var", "name": "board" }] }, { "kind": "lit-string", "value": " " }] } },
+            { "name": "rest", "expr": { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "app", "fn": "list-tail", "args": [{ "kind": "var", "name": "board" }] }, { "kind": "lit-list", "items": [] }] } }
+          ],
+          "body": {
+            "kind": "if",
+            "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "h" }, { "kind": "lit-string", "value": " " }] },
+            "then_branch": { "kind": "lit-bool", "value": false },
+            "else_branch": { "kind": "app", "fn": "board-full?", "args": [{ "kind": "var", "name": "rest" }] }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "compute-status",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } }
+      ],
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "app", "fn": "has-won?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-string", "value": "X" }] },
+        "then_branch": { "kind": "lit-string", "value": "x-wins" },
+        "else_branch": {
+          "kind": "if",
+          "cond": { "kind": "app", "fn": "has-won?", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-string", "value": "O" }] },
+          "then_branch": { "kind": "lit-string", "value": "o-wins" },
+          "else_branch": {
+            "kind": "if",
+            "cond": { "kind": "app", "fn": "board-full?", "args": [{ "kind": "var", "name": "board" }] },
+            "then_branch": { "kind": "lit-string", "value": "draw" },
+            "else_branch": { "kind": "lit-string", "value": "playing" }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "render-row",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } },
+        { "name": "base",  "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "base" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<=", "args": [{ "kind": "var", "name": "base" }, { "kind": "lit-int", "value": 6 }] }
+        ]
+      },
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "c0", "expr": { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "base" }] } },
+          { "name": "c1", "expr": { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "base" }, { "kind": "lit-int", "value": 1 }] }] } },
+          { "name": "c2", "expr": { "kind": "app", "fn": "board-get", "args": [{ "kind": "var", "name": "board" }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "base" }, { "kind": "lit-int", "value": 2 }] }] } }
+        ],
+        "body": {
+          "kind": "app", "fn": "string-concat-many",
+          "args": [{ "kind": "lit-list", "items": [
+            { "kind": "lit-string", "value": " " },
+            { "kind": "var", "name": "c0" },
+            { "kind": "lit-string", "value": " | " },
+            { "kind": "var", "name": "c1" },
+            { "kind": "lit-string", "value": " | " },
+            { "kind": "var", "name": "c2" },
+            { "kind": "lit-string", "value": "\n" }
+          ]}]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "render-board",
+      "params": [
+        { "name": "board", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "string" } } }
+      ],
+      "body": {
+        "kind": "app", "fn": "string-concat-many",
+        "args": [{ "kind": "lit-list", "items": [
+          { "kind": "app", "fn": "render-row", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "lit-string", "value": "---+---+---\n" },
+          { "kind": "app", "fn": "render-row", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 3 }] },
+          { "kind": "lit-string", "value": "---+---+---\n" },
+          { "kind": "app", "fn": "render-row", "args": [{ "kind": "var", "name": "board" }, { "kind": "lit-int", "value": 6 }] }
+        ]}]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "start-game",
+      "params": [],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "s", "expr": { "kind": "app", "fn": "make-state", "args": [] } }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "s" },
+          "snd": {
+            "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+            "args": [{ "kind": "lit-string", "value": "Tic-Tac-Toe\nEnter a cell number (0-8), row by row:\n 0 | 1 | 2\n---+---+---\n 3 | 4 | 5\n---+---+---\n 6 | 7 | 8\nPlayer X goes first.\n> " }]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-loop",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "unit" } },
+        { "name": "input", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "board",        "expr": { "kind": "app", "fn": "state-board",  "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "player",       "expr": { "kind": "app", "fn": "state-player", "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "trimmed",      "expr": { "kind": "app", "fn": "string-trim",  "args": [{ "kind": "var", "name": "input" }] } },
+          { "name": "parse-result", "expr": { "kind": "app", "fn": "string-to-int","args": [{ "kind": "var", "name": "trimmed" }] } }
+        ],
+        "body": {
+          "kind": "if",
+          "cond": { "kind": "op", "op": "not", "args": [{ "kind": "app", "fn": "is-ok", "args": [{ "kind": "var", "name": "parse-result" }] }] },
+          "then_branch": {
+            "kind": "pair",
+            "fst": { "kind": "var", "name": "state" },
+            "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Invalid input. Enter a number 0-8.\n> " }] }
+          },
+          "else_branch": {
+            "kind": "let",
+            "bindings": [
+              { "name": "idx", "expr": { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "var", "name": "parse-result" }, { "kind": "lit-int", "value": -1 }] } }
+            ],
+            "body": {
+              "kind": "if",
+              "cond": { "kind": "op", "op": "or", "args": [
+                { "kind": "op", "op": "<",  "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 0 }] },
+                { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 9 }] }
+              ]},
+              "then_branch": {
+                "kind": "pair",
+                "fst": { "kind": "var", "name": "state" },
+                "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Cell must be 0-8.\n> " }] }
+              },
+              "else_branch": {
+                "kind": "if",
+                "cond": { "kind": "op", "op": "not", "args": [{ "kind": "app", "fn": "cell-empty?", "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "idx" }] }] },
+                "then_branch": {
+                  "kind": "pair",
+                  "fst": { "kind": "var", "name": "state" },
+                  "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Cell taken. Try again.\n> " }] }
+                },
+                "else_branch": {
+                  "kind": "let",
+                  "bindings": [
+                    { "name": "new-board",  "expr": { "kind": "app", "fn": "set-cell",       "args": [{ "kind": "var", "name": "board" }, { "kind": "var", "name": "idx" }, { "kind": "var", "name": "player" }] } },
+                    { "name": "new-status", "expr": { "kind": "app", "fn": "compute-status", "args": [{ "kind": "var", "name": "new-board" }] } },
+                    { "name": "next-p",     "expr": { "kind": "app", "fn": "other-player",   "args": [{ "kind": "var", "name": "player" }] } },
+                    { "name": "new-state",  "expr": { "kind": "pair",
+                        "fst": { "kind": "var", "name": "new-board" },
+                        "snd": { "kind": "pair", "fst": { "kind": "var", "name": "next-p" }, "snd": { "kind": "var", "name": "new-status" } }
+                    }},
+                    { "name": "board-str",  "expr": { "kind": "app", "fn": "render-board", "args": [{ "kind": "var", "name": "new-board" }] } },
+                    { "name": "playing?",   "expr": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "new-status" }, { "kind": "lit-string", "value": "playing" }] } },
+                    { "name": "prompt",     "expr": {
+                      "kind": "if",
+                      "cond": { "kind": "var", "name": "playing?" },
+                      "then_branch": { "kind": "app", "fn": "string-concat-many", "args": [{ "kind": "lit-list", "items": [
+                        { "kind": "lit-string", "value": "Player " }, { "kind": "var", "name": "next-p" }, { "kind": "lit-string", "value": "'s turn.\n> " }
+                      ]}]},
+                      "else_branch": { "kind": "lit-string", "value": "" }
+                    }},
+                    { "name": "output", "expr": { "kind": "app", "fn": "string-concat", "args": [{ "kind": "var", "name": "board-str" }, { "kind": "var", "name": "prompt" }] } }
+                  ],
+                  "body": {
+                    "kind": "pair",
+                    "fst": { "kind": "var", "name": "new-state" },
+                    "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "output" }] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "game-over?",
+      "params": [{ "name": "state", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "op", "op": "!=",
+        "args": [
+          { "kind": "app", "fn": "state-status", "args": [{ "kind": "var", "name": "state" }] },
+          { "kind": "lit-string", "value": "playing" }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "show-result",
+      "params": [{ "name": "state", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "st", "expr": { "kind": "app", "fn": "state-status", "args": [{ "kind": "var", "name": "state" }] } },
+          { "name": "msg", "expr": {
+            "kind": "if",
+            "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "st" }, { "kind": "lit-string", "value": "x-wins" }] },
+            "then_branch": { "kind": "lit-string", "value": "X wins!\n" },
+            "else_branch": {
+              "kind": "if",
+              "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "st" }, { "kind": "lit-string", "value": "o-wins" }] },
+              "then_branch": { "kind": "lit-string", "value": "O wins!\n" },
+              "else_branch": { "kind": "lit-string", "value": "It's a draw!\n" }
+            }
+          }}
+        ],
+        "body": {
+          "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+          "args": [{ "kind": "var", "name": "msg" }]
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "make-board-has-9-cells",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "list-length", "args": [{ "kind": "app", "fn": "make-board", "args": [] }] },
+            { "kind": "lit-int", "value": 9 }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "set-cell-preserves-length",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [
+          { "name": "idx", "param_type": { "kind": "primitive", "name": "int" } }
+        ],
+        "body": {
+          "kind": "if",
+          "cond": { "kind": "op", "op": "and", "args": [
+            { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 0 }] },
+            { "kind": "op", "op": "<",  "args": [{ "kind": "var", "name": "idx" }, { "kind": "lit-int", "value": 9 }] }
+          ]},
+          "then_branch": {
+            "kind": "op", "op": "=",
+            "args": [
+              { "kind": "app", "fn": "list-length",
+                "args": [{ "kind": "app", "fn": "set-cell",
+                  "args": [{ "kind": "app", "fn": "make-board", "args": [] }, { "kind": "var", "name": "idx" }, { "kind": "lit-string", "value": "X" }]
+                }]
+              },
+              { "kind": "lit-int", "value": 9 }
+            ]
+          },
+          "else_branch": { "kind": "lit-bool", "value": true }
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "fresh-board-status-is-playing",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "compute-status", "args": [{ "kind": "app", "fn": "make-board", "args": [] }] },
+            { "kind": "lit-string", "value": "playing" }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-main",
+      "mode": "console",
+      "init":     { "kind": "app", "fn": "start-game", "args": [] },
+      "step":     { "kind": "var", "name": "game-loop" },
+      "done?":    { "kind": "var", "name": "game-over?" },
+      "on-done":  { "kind": "var", "name": "show-result" }
+    }
+  ]
+}

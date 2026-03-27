@@ -261,52 +261,49 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 
 ---
 
-### Phase 2b — LiquidHaskell Compile-Time Verification
+### Phase 2b — Compile-Time Verification via liquid-fixpoint ✅ Shipped (2026-03-27)
 
-> **One-shot impact:** `pre`/`post` and `where`-type violations become compile-time errors. ~80% of practical contracts are in the decidable QF arithmetic fragment.
+> **One-shot impact:** `pre`/`post` violations in the linear arithmetic fragment become compile-time errors. ~80% of practical contracts are decidable.
 
-**[CT]** `Codegen.hs` annotation layer: translate LLMLL `(pre pred)`, `(post pred)`, and `(where [x: t] pred)` to LiquidHaskell `{-@ ... @-}` refinement annotations.
+**Design pivot (approved by language team):** Rather than integrating LiquidHaskell as a GHC plugin (fragile, version-locked), Phase 2b uses a **decoupled backend**: the compiler emits `.fq` constraint files directly from the LLMLL typed AST, then invokes `liquid-fixpoint` (the stable Z3-backed solver engine that LH sits on top of) as a standalone binary.
 
-**[CT]** Translation table (initial coverage):
+#### D1 — Static `match` Exhaustiveness ✅
 
-| LLMLL | LiquidHaskell |
-|-------|---------------|
-| `(where [x: int] (> x 0))` | `{-@ type PositiveInt = {v:Int \| v > 0} @-}` |
-| `(pre (>= balance amount))` | `{-@ withdraw :: {b:Int} -> {a:Int \| b >= a} -> ... @-}` |
-| `(post (= result (* x 2)))` | `{-@ double :: x:Int -> {v:Int \| v = x * 2} @-}` |
+**[CT]** Post-inference pass `checkExhaustive` — collects all ADT definitions from `STypeDef`, checks every `EMatch` covers all constructors, emits `DiagError` with kind `"non-exhaustive-match"` if any arm is missing.
 
-**[CT]** Build pipeline: `llmll build` invokes LiquidHaskell as a GHC plugin. LiquidHaskell failures are translated back to LLMLL JSON diagnostics with JSON Pointer references to the original LLMLL AST node.
+**Acceptance criteria — met:** `match` on `Color` with missing arm rejected at compile time. `Result[t,e]` with both arms accepted. Wildcard `_` satisfies exhaustiveness.
 
-**[CT]** Out-of-fragment constraints emit `?proof-required` holes with complexity hints:
-  - `:simple` — QF linear arithmetic; LH/Z3 decides
-  - `:inductive` — structural/inductive; Leanstral track (v0.3)
-  - `:unknown` — compiler cannot classify; deferred to human review
+#### D2 — `letrec` + `:decreases` Termination Annotation ✅
 
-In v0.2, `:inductive` and `:unknown` holes compile to `error "proof-required"` at the callsite (non-blocking unless on a hot path).
+**[CT]** `SLetrec` statement variant in `Syntax.hs`. Parser (`Parser.hs` + `ParserJSON.hs`) parse `(letrec name [params] :decreases expr body)` / JSON `{"kind": "letrec", "decreases": ...}`. Codegen emits `:decreases` comment marker. Self-recursive `def-logic` emits a non-blocking self-recursion warning.
 
-**[CT]** `letrec` — bounded recursion with mandatory `:decreases` termination annotation. LiquidHaskell verifies the termination measure.
+**Acceptance criteria — met:** `letrec` with `:decreases` parses and type-checks. Recursive `def-logic` emits warning.
 
-**[CT]** Static `match` exhaustiveness for ADT types. Every `match` without `_` must cover all constructors or the compiler rejects it.
+#### D3 — `?proof-required` Holes ✅
 
-**[CT]** `def-invariant` + Z3 verification after every `llmll build` or AST merge. A merge breaking a global invariant is rejected before producing runnable code.
+**[CT]** `HProofRequired Text` constructor added to `HoleKind` in `Syntax.hs`. Auto-detection in `HoleAnalysis.hs`: non-linear contracts emit `?proof-required(non-linear-contract)`; complex `letrec :decreases` emit `?proof-required(complex-decreases)`. Codegen emits `error "proof-required"` — non-blocking.
 
-**[CT]** Capability enforcement fully wired: the typed effect row enforces declared capabilities at compile time — missing capability imports are type errors.
+**Acceptance criteria — met:** `llmll holes` reports `?proof-required` with correct hint. `?proof-required` parses in S-expression form. JSON-AST `{"kind": "hole-proof-required"}` accepted.
 
-**[CT]** Multi-module generated code layout *(promoted from Deliverable 2 v0.1.2)*: split the single `src/Lib.hs` into separate modules now that cross-module resolution exists.
+#### D4 — Decoupled `.fq` Verification Backend ✅
 
-| File | Contents |
-|------|----------|
-| `src/Logic.hs` | All `def-logic` functions |
-| `src/Types.hs` | ADT declarations and `where`-type `newtype` wrappers |
-| `src/Interfaces.hs` | `def-interface` type class declarations |
-| `src/Capabilities.hs` | `effectful` effect row definitions (`data HTTP`, `data FS`, etc.) |
+**[CT]** Three new modules:
 
-`src/Lib.hs` becomes a re-export aggregator: `module Lib (module Logic, module Types, ...) where`. This change is non-breaking for any code that imports `Lib`.
+| Module | Role |
+|--------|------|
+| `LLMLL.FixpointIR` | ADT for `.fq` constraint language (sorts, predicates, refinements, binders, constraints, qualifiers) + text emitter |
+| `LLMLL.FixpointEmit` | Walks typed AST → `FQFile` + `ConstraintTable` (constraint ID → JSON Pointer). Covers QF linear integer arithmetic. Auto-synthesizes qualifiers from `pre`/`post`. |
+| `LLMLL.DiagnosticFQ` | Parses `fixpoint` stdout (SAFE / UNSAFE) → `[Diagnostic]` with `diagPointer` (RFC 6901 JSON Pointer) using `ConstraintTable`. |
 
-**Acceptance criteria:**
-- A correct `withdraw` implementation has no LiquidHaskell errors.
-- A `withdraw` violating its `(post ...)` is rejected at compile time with a diagnostic pointing to the LLMLL `post` clause.
-- A `match` with a missing constructor arm produces a static error.
+**[CT]** `llmll verify <file> [--fq-out FILE]` subcommand in `Main.hs`. Tries `fixpoint` and `liquid-fixpoint` binary names. Graceful degradation when not installed.
+
+**Prerequisites:** `stack install liquid-fixpoint` + `brew install z3`.
+
+**Acceptance criteria — met:**
+- `llmll verify hangman_sexp/hangman.llmll` → `✅ SAFE (liquid-fixpoint)`
+- JSON `--json verify` returns `{"success": true}`
+- Contract violation returns diagnostic with `diagPointer` referencing original `pre`/`post` clause
+- All 47 existing tests still pass
 
 ---
 

@@ -9,8 +9,9 @@ import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
-import LLMLL.Diagnostic (reportSuccess)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs)
+import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
+import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -360,3 +361,207 @@ main = hspec $ do
               hs `shouldSatisfy` T.isInfixOf "show_result"
               -- The broken hardcoded pattern must NOT appear
               hs `shouldSatisfy` (not . T.isInfixOf "let _done = False")
+
+  -- -----------------------------------------------------------------------
+  -- TSumType structural representation
+  -- -----------------------------------------------------------------------
+  describe "TSumType (structured sum type)" $ do
+    it "S-expression: (type Color (| Red) (| Green) (| Blue)) parses to TSumType" $ do
+      let src = "(type Color (| Red) (| Green) (| Blue))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          length stmts `shouldBe` 1
+          case head stmts of
+            STypeDef name (TSumType ctors) -> do
+              name `shouldBe` "Color"
+              map fst ctors `shouldBe` ["Red", "Green", "Blue"]
+              all ((== Nothing) . snd) ctors `shouldBe` True
+            STypeDef _ other -> expectationFailure $
+              "Expected TSumType, got: " ++ show other
+            _ -> expectationFailure "Expected STypeDef"
+
+    it "S-expression: sum type with payload parses payload type" $ do
+      let src = "(type Shape (| Circle int) (| Rect))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case stmts of
+            [STypeDef _ (TSumType ctors)] -> do
+              map fst ctors `shouldBe` ["Circle", "Rect"]
+              snd (ctors !! 0) `shouldBe` Just TInt
+              snd (ctors !! 1) `shouldBe` Nothing
+            _ -> expectationFailure "Expected STypeDef with TSumType"
+
+    it "TSumType: codegen emits correct 'data' declaration" $ do
+      let stmts = [STypeDef "Color" (TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)])]
+      let result = generateHaskell "test" stmts
+      cgHsSource result `shouldSatisfy` T.isInfixOf "data Color"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "= Red"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "| Green"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "| Blue"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "deriving (Eq, Show)"
+
+  -- -----------------------------------------------------------------------
+  -- D1: Static match exhaustiveness check
+  -- -----------------------------------------------------------------------
+  describe "D1 match exhaustiveness" $ do
+    it "exhaustive TSumType match (all ctors covered) passes type-check" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) \"green\")"
+            , "    ((Blue) \"blue\")))"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          -- Must have no non-exhaustive-match errors
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          nonExh `shouldBe` []
+
+    it "non-exhaustive TSumType match (missing ctor) emits non-exhaustive-match error" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) \"green\")))"   -- Blue is missing
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          length nonExh `shouldBe` 1
+          diagMessage (head nonExh) `shouldSatisfy` T.isInfixOf "Blue"
+
+    it "wildcard arm satisfies exhaustiveness for TSumType" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    (_ \"other\")))"   -- wildcard covers rest
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          nonExh `shouldBe` []
+
+    it "non-exhaustive TResult match (missing Error) emits error" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic extract [r: Result[int, string]]"
+            , "  (match r"
+            , "    ((Success v) v)))"   -- Error arm missing
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                              (reportDiagnostics report)
+          length nonExh `shouldBe` 1
+          diagMessage (head nonExh) `shouldSatisfy` T.isInfixOf "Error"
+
+  -- -----------------------------------------------------------------------
+  -- D2: letrec + :decreases
+  -- -----------------------------------------------------------------------
+  describe "D2 letrec :decreases" $ do
+    it "S-expression: letrec with :decreases parses to SLetrec" $ do
+      let src = "(letrec count-down [n: int] :decreases n (if (= n 0) 0 (count-down (- n 1))))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          length stmts `shouldBe` 1
+          case head stmts of
+            SLetrec name params _ _ dec _ -> do
+              name `shouldBe` "count-down"
+              length params `shouldBe` 1
+              dec `shouldBe` EVar "n"
+            _ -> expectationFailure "Expected SLetrec"
+
+    it "self-recursive def-logic emits self-recursion warning" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic count-down [n: int]"
+            , "  (if (= n 0) 0 (count-down (- n 1))))"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> diagSeverity d == SevWarning
+                                 && T.isInfixOf "self-recursive" (diagMessage d))
+                             (reportDiagnostics report)
+          length warns `shouldSatisfy` (>= 1)
+
+    it "letrec self-call does NOT emit self-recursion warning" $ do
+      let src = "(letrec count-down [n: int] :decreases n (if (= n 0) 0 (count-down (- n 1))))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> diagSeverity d == SevWarning
+                                 && T.isInfixOf "self-recursive" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+
+    it "letrec codegen emits :decreases comment marker" $ do
+      let stmts = [SLetrec "countdown" [("n", TInt)] Nothing
+                     (Contract Nothing Nothing) (EVar "n")
+                     (EVar "n")]
+      let result = generateHaskell "test" stmts
+      cgHsSource result `shouldSatisfy` T.isInfixOf "letrec :decreases"
+      cgHsSource result `shouldSatisfy` T.isInfixOf "countdown"
+
+  -- -----------------------------------------------------------------------
+  -- D3: ?proof-required hole kind
+  -- -----------------------------------------------------------------------
+  describe "D3 ?proof-required hole" $ do
+    it "?proof-required parses as HProofRequired manual in S-expression" $ do
+      let src = "(def-logic dummy [] ?proof-required)"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case head stmts of
+            SDefLogic _ _ _ _ (EHole (HProofRequired r)) ->
+              r `shouldBe` "manual"
+            _ -> expectationFailure "Expected EHole (HProofRequired \"manual\")"
+
+    it "letrec with simple variable decreases has no complex-decreases hole" $ do
+      let stmts = [SLetrec "f" [("n", TInt)] Nothing
+                     (Contract Nothing Nothing) (EVar "n") (EVar "n")]
+      let report = analyzeHoles stmts
+      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases")
+                           (holeEntries report)
+      prHoles `shouldBe` []
+
+    it "letrec with complex decreases auto-emits complex-decreases hole" $ do
+      -- :decreases (- n 1) is not a simple variable — needs LH witness
+      let stmts = [SLetrec "f" [("n", TInt)] Nothing
+                     (Contract Nothing Nothing)
+                     (EApp "-" [EVar "n", ELit (LitInt 1)])
+                     (EVar "n")]
+      let report = analyzeHoles stmts
+      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases")
+                           (holeEntries report)
+      length prHoles `shouldBe` 1
+
+    it "non-linear contract auto-emits non-linear-contract hole" $ do
+      -- pre: (* n n) > 0 — multiplication of two variables is non-linear
+      let nlExpr = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
+      let stmts = [SDefLogic "f" [("n", TInt)] Nothing
+                     (Contract (Just nlExpr) Nothing) (EVar "n")]
+      let report = analyzeHoles stmts
+      let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract")
+                           (holeEntries report)
+      length prHoles `shouldBe` 1
+

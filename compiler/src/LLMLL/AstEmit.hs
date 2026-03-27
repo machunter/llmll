@@ -59,6 +59,17 @@ stmtToJson (SDefLogic name params _ret (Contract mPre mPost) body) =
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
     maybe [] (\e -> ["post" .= exprToJson e]) mPost
 
+stmtToJson (SLetrec name params _ret (Contract mPre mPost) dec body) =
+  object $
+    [ "kind"      .= ("letrec" :: Text)
+    , "name"      .= name
+    , "params"    .= map typedParamToJson params
+    , "decreases" .= exprToJson dec
+    , "body"      .= exprToJson body
+    ] ++
+    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
+    maybe [] (\e -> ["post" .= exprToJson e]) mPost
+
 stmtToJson (SDefInterface name fns) =
   object
     [ "kind"    .= ("def-interface" :: Text)
@@ -165,16 +176,26 @@ typeToJson TDelegationError  = object ["kind" .= ("named" :: Text), "name" .= ("
 typeToJson (TVar n)          = object ["kind" .= ("named" :: Text), "name" .= n]
 typeToJson (TCustom "Command") = object ["kind" .= ("command" :: Text)]
 typeToJson (TCustom n)       = object ["kind" .= ("named" :: Text), "name" .= n]
+-- TSumType in inline type position (rare) — emit as named for round-trip safety.
+typeToJson (TSumType ctors)  = object ["kind" .= ("named" :: Text), "name" .= T.intercalate " | " (map fst ctors)]
 
 -- | Serialise a type in type-decl body position (handles sum types).
 typeBodyToJson :: Type -> Value
+typeBodyToJson (TSumType ctors) =
+  object
+    [ "kind"     .= ("sum" :: Text)
+    , "variants" .= map variantToJson ctors
+    ]
+  where
+    variantToJson (c, Nothing) = object ["constructor" .= c]
+    variantToJson (c, Just t)  = object ["constructor" .= c, "payload" .= typeToJson t]
+-- Legacy fallback: TCustom with pipe-encoded sum (should not occur after refactor)
 typeBodyToJson (TCustom label) =
-  -- Reconstruct sum type if it looks like "A | B | C"
   let parts = T.splitOn " | " label
   in if length parts > 1
        then object
               [ "kind"     .= ("sum" :: Text)
-              , "variants" .= map (\c -> object ["constructor" .= c, "payload" .= typeToJson TUnit]) parts
+              , "variants" .= map (\c -> object ["constructor" .= c]) parts
               ]
        else object ["kind" .= ("named" :: Text), "name" .= label]
 typeBodyToJson t = typeToJson t

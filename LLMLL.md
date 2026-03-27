@@ -2,7 +2,7 @@
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). Compile-time verification via LiquidHaskell arrives in Phase 2b; interactive theorem proving via Leanstral in v0.3. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -212,7 +212,33 @@ All logic is contained in pure functions declared with `def-logic`. Functions ar
   (- balance amount))
 ```
 
-### 4.2 The `result` Keyword in `post` Clauses
+### 4.2 `letrec` (Recursive Functions with Termination Measures)
+
+Self-recursive functions must be declared with `letrec`, not `def-logic`. The `:decreases` measure is **required** — the compiler uses it to verify termination via `llmll verify`.
+
+```lisp
+(letrec function-name [param1: Type1 ...]
+  :decreases decrease-expr   ;; required: must strictly decrease each recursive call
+  (pre  boolean-expression)  ;; optional
+  (post boolean-expression)  ;; optional
+  body-expression)
+```
+
+**Example:**
+
+```lisp
+(letrec countdown [n: int]
+  :decreases n
+  (if (= n 0) 0 (countdown (- n 1))))
+```
+
+- A **simple variable** measure (`:decreases n`) is verified automatically by `llmll verify`.
+- A **complex expression** (`:decreases (- n 1)`) emits a `?proof-required(complex-decreases)` hole — non-blocking, but the solver skips that function.
+- Using `def-logic` for a self-recursive function emits a **self-recursion warning**. `letrec` is the correct verified form.
+
+`pre`/`post` contracts on `letrec` behave identically to `def-logic` (see §4.3–4.4).
+
+### 4.3 The `result` Keyword in `post` Clauses
 
 Inside a `post` clause, the identifier `result` is **automatically bound to the return value of the function body**. It is a compile error to use `result` anywhere else (including `pre` clauses, `let` bindings, or as a parameter name).
 
@@ -231,7 +257,7 @@ Inside a `post` clause, the identifier `result` is **automatically bound to the 
   result)
 ```
 
-### 4.3 Contract Semantics
+### 4.4 Contract Semantics
 
 | Context | What happens on violation |
 |---------|--------------------------|
@@ -239,7 +265,11 @@ Inside a `post` clause, the identifier `result` is **automatically bound to the 
 | `post` violation | `AssertionError` raised before result is returned. The implementation is buggy. |
 | Both satisfied | Result is returned normally. |
 
-Contracts in v0.1.1 are **runtime assertions**. They run during `llmll test` and remain active in production execution. Compile-time proof of contracts is introduced in v0.2.
+**Runtime:** Contracts always run during `llmll test` and remain active in production as a belt-and-suspenders check.
+
+**Compile-time (Phase 2b):** `llmll verify` translates `pre`/`post` constraints in the **quantifier-free linear arithmetic fragment** (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`) to `.fq` constraints and solves them via `liquid-fixpoint` + Z3. Violations are reported as diagnostics with JSON Pointers before any binary is produced.
+
+Predicates outside the decidable fragment (`*`, `/`, `mod`, non-linear) are emitted as `?proof-required(non-linear-contract)` holes (see §6). The runtime assertion remains active for those sites.
 
 ---
 
@@ -282,11 +312,24 @@ For types where rejection sampling is inefficient (e.g., a 64-hex-digit string),
 
 A `gen` declaration applies to all `for-all` blocks in the same module that use the named type. If no `gen` is declared for a dependent type, rejection sampling is used automatically.
 
-### 5.3 Verification Roadmap
+### 5.3 Verification (Phase 2b — Shipped)
 
-> **v0.2 — Compile-Time SMT Verification:** A `smt-verify` block will send `pre`/`post` constraints (restricted to quantifier-free linear arithmetic) to a Z3 solver at compile time. Verified contracts are elided from the generated Rust code.
->
-> **v0.3 — Interactive Proof Holes:** A `?proof-required` hole type will scaffold Lean 4 proof obligations for inductive invariants, routed to a specialist proof-synthesis agent.
+**`llmll verify`** is the Phase 2b compile-time verification command. It:
+
+1. Walks the typed AST and emits a `.fq` constraint file for `liquid-fixpoint`.
+2. Runs `fixpoint` (+ Z3) as a standalone binary — no GHC plugin required.
+3. Reports SAFE or constraint-violation diagnostics with RFC 6901 JSON Pointers back to the original `pre`/`post` clause.
+
+**Coverage:** Quantifier-free linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear predicates and complex `letrec` termination measures are skipped (see `?proof-required` in §6).
+
+**Qualifier strategy:** Qualifiers are auto-synthesized from `pre`/`post` predicates and seeded with the built-in set `{True, GEZ, GTZ, EqZ, Eq, GE, GT}`. No manual qualifier declarations are needed.
+
+```bash
+stack exec llmll -- verify ../examples/withdraw.llmll
+# ✅ ../examples/withdraw.llmll — SAFE (liquid-fixpoint)
+```
+
+> **v0.3 — Interactive Proof Holes:** `?proof-required :inductive` and `:unknown` holes are routed to Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds.
 
 ---
 
@@ -1325,11 +1368,11 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 | **Module system (Phase 2a)** | Cross-module `def-interface` enforcement — structural compatibility checked at import time (see §8.8) |
 | **Module system (Phase 2a)** | `llmll-hub` read-only registry: `llmll hub fetch <pkg>@<ver>` + `hub.` import prefix (see §8.9) |
 | **Capability enforcement** | Capability declarations fully enforced by the typed effect row — missing imports are type errors at compile time |
-| **Compile-time contracts (Phase 2b)** | `pre`/`post` and `where`-type constraints translated to LiquidHaskell `{-@ ... @-}` refinement annotations. Violations are compile-time errors, not runtime surprises. Constraint language: quantifier-free linear arithmetic + regex (decidable, Z3-backed) |
-| **`?proof-required` holes (Phase 2b)** | Predicates outside the decidable QF fragment are emitted as `?proof-required` holes with a compiler-assigned complexity hint: `:simple`, `:inductive`, or `:unknown`. Non-blocking in v0.2. |
+| **Compile-time contracts (Phase 2b)** | `llmll verify` emits `.fq` constraints from the typed AST and runs `liquid-fixpoint` + Z3 as a standalone binary. Covers quantifier-free linear integer arithmetic. Reports SAFE or contract-violation diagnostics with JSON Pointers. No GHC plugin required. |
+| **`?proof-required` holes (Phase 2b)** | Auto-emitted for predicates outside the QF fragment or complex `letrec` `:decreases` measures. Complexity hints: `complex-decreases` or `non-linear-contract`. Non-blocking — runtime assertion remains active. |
+| **`letrec` (Phase 2b)** | Bounded recursion with mandatory `:decreases` termination annotation. Simple variable measures are verified by `llmll verify`. |
+| **`match` exhaustiveness (Phase 2b)** | Static exhaustiveness checking for ADT sum types — a `match` missing a constructor arm is a compile error. |
 | **Type system fix (Phase 2c)** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.x untyped-parameter workaround is no longer needed. |
-| `letrec` | Bounded recursion with mandatory `:decreases` termination annotation (LiquidHaskell-verified) |
-| `match` | Static exhaustiveness checking for ADT types — `match` without `_` covering all constructors is a compile error |
 | `def-invariant` | LiquidHaskell-backed module invariant verification after every AST merge |
 | **`llmll typecheck --sketch`** | Partial-program type inference API: accepts a program with holes, returns inferred type of each hole and any type errors present even in the incomplete program |
 

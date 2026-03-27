@@ -298,6 +298,10 @@ runtimePreamble =
   , "llmll_unwrap (Right v) = v"
   , "llmll_unwrap (Left e)  = error (\"unwrap: \" ++ e)"
   , ""
+  , "-- B2 fix: codegen emits bare 'unwrap'; provide alias for call-site compatibility."
+  , "unwrap :: Either String a -> a"
+  , "unwrap = llmll_unwrap"
+  , ""
   , "unwrap_or :: Either e a -> a -> a"
   , "unwrap_or (Right v) _ = v"
   , "unwrap_or _         d = d"
@@ -327,6 +331,11 @@ emitStmt :: Statement -> Text
 emitStmt (STypeDef name body)             = emitTypeDef name body
 emitStmt (SDefInterface name fns)         = emitInterface name fns
 emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
+-- D2: SLetrec emits as a regular Haskell function.
+-- The {- letrec :decreases ... -} marker is a breadcrumb for the D4 LH annotation pass.
+emitStmt (SLetrec name params mRet c dec b) =
+  "{- letrec :decreases " <> emitExpr dec <> " -}\n"
+  <> emitDefLogic name params mRet c b
 emitStmt (SCheck prop)                    = emitCheck prop
 emitStmt (SImport _)                      = ""  -- handled in header
 emitStmt (SExpr _)                        = ""  -- top-level exprs not representable
@@ -336,8 +345,15 @@ emitStmt (SExport _)                      = ""  -- compile-time export annotatio
 
 -- | Emit a type declaration as newtype / data / type alias.
 emitTypeDef :: Name -> Type -> Text
+emitTypeDef name (TSumType ctors) =
+  let fmtCtor (c, Nothing) = toHsIdent c
+      fmtCtor (c, Just t)  = toHsIdent c <> " " <> toHsType t
+      ctorStr = T.intercalate "\n  | " (map fmtCtor ctors)
+  in "data " <> toHsIdent name <> "\n  = " <> ctorStr
+     <> "\n  deriving (Eq, Show)\n"
 emitTypeDef name (TCustom body)
-  -- Sum type from ParserJSON: variants encoded as "CtorName:PayloadType | CtorName2"
+  -- Sum type from ParserJSON (legacy path — should not reach here after refactor,
+  -- kept as fallback for any TCustom that still contains a pipe-separated list).
   | " | " `T.isInfixOf` body =
       let parts = map T.strip (T.splitOn " | " body)
           ctors  = T.intercalate "\n  | " (map emitCtorDecl parts)
@@ -475,8 +491,15 @@ emitApp :: Name -> [Expr] -> Text
 emitApp "first"  [a] = "(fst " <> emitExpr a <> ")"
 emitApp "second" [a] = "(snd " <> emitExpr a <> ")"
 emitApp "pair"   [a,b] = "(" <> emitExpr a <> ", " <> emitExpr b <> ")"
+-- B3 fix: operators used as app fn names (kind:app, fn:"/") must be routed to
+-- emitOp, otherwise we emit `(/ (i) (width))` which GHC parses as a section.
+emitApp op args
+  | op `elem` ["/", "mod", "%", "+", "-", "*", "=", "!=",
+               "<", ">", "<=", ">=", "and", "or", "not"]
+  = emitOp op args
 emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map (\a -> "(" <> emitExpr a <> ")") args) <> ")"
+
 
 emitOp :: Name -> [Expr] -> Text
 emitOp "="   [a,b] = "(" <> emitExpr a <> " == " <> emitExpr b <> ")"
@@ -515,7 +538,14 @@ emitMatch scrut cs =
     isEitherExhaustive = "Left" `elem` ctorNames && "Right" `elem` ctorNames
     -- Suppress if True+False both appear (exhaustive Bool match)
     isBoolExhaustive   = "True" `elem` ctorNames && "False" `elem` ctorNames
-    catchAll = if lastIsWild || anyArmIsExhaustive || isEitherExhaustive || isBoolExhaustive
+    -- Suppress if Success+Error both appear (exhaustive Result match)
+    isResultExhaustive = "Success" `elem` ctorNames && "Error" `elem` ctorNames
+    -- Suppress for TSumType: type-checker already verified exhaustiveness statically;
+    -- if running, all constructors are covered (or there's a wildcard — also caught above).
+    isAdtExhaustive = not (null ctorNames)  -- any ctor patterns = ADT match, trust type-checker
+    catchAll = if lastIsWild || anyArmIsExhaustive || isEitherExhaustive
+                             || isBoolExhaustive || isResultExhaustive
+                             || isAdtExhaustive
                then " "
                else "; _ -> error \"non-exhaustive match\" "
 
@@ -531,6 +561,8 @@ emitHole (HNamed n)        = "( error (\"hole: \" ++ " <> T.pack (show (T.unpack
 emitHole (HDelegate spec)  = "( error (\"delegate: \" ++ " <> T.pack (show (T.unpack (delegateAgent spec))) <> ") )"
 emitHole (HDelegateAsync s)= "( error (\"delegate-async: \" ++ " <> T.pack (show (T.unpack (delegateAgent s))) <> ") )"
 emitHole (HDelegatePending _) = "( error \"delegate-pending: blocking hole\" )"
+-- D3: proof-required holes compile to an explicit error stub — the LH pipeline validates this site
+emitHole (HProofRequired r) = "( error \"PROOF REQUIRED [" <> r <> "]: add LiquidHaskell annotation\" )"
 emitHole _                 = "( error \"unresolved hole\" )"
 
 -- ---------------------------------------------------------------------------
@@ -591,6 +623,10 @@ toHsType (TVar n)          = T.toLower n
 toHsType (TCustom "Command") = "IO ()"
 toHsType (TCustom "_")     = "a"
 toHsType (TCustom n)       = toHsIdent n
+-- TSumType is only valid in STypeDef body position; if it appears inline
+-- (e.g. as a constructor payload referencing an anonymous sum) emit the
+-- constructor names joined as a type variable (should not arise in practice).
+toHsType (TSumType ctors)  = T.intercalate "_or_" (map (toHsIdent . fst) ctors)
 
 -- ---------------------------------------------------------------------------
 -- src/Main.hs harness

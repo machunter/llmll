@@ -1,0 +1,700 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "life.ast.json",
+  "statements": [
+
+    { "kind": "import", "path": "wasi.io",
+      "capability": { "name": "stdout", "deterministic": false } },
+
+    {
+      "kind": "def-logic",
+      "name": "make-world",
+      "params": [
+        { "name": "width",  "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "height", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">", "args": [{ "kind": "var", "name": "width" },  { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": ">", "args": [{ "kind": "var", "name": "height" }, { "kind": "lit-int", "value": 0 }] }
+        ]
+      },
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "size",  "expr": { "kind": "op", "op": "+", "args": [{ "kind": "op", "op": "*", "args": [{ "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }] }, { "kind": "lit-int", "value": 0 }] } },
+          { "name": "cells", "expr": { "kind": "app", "fn": "list-map",
+              "args": [
+                { "kind": "app", "fn": "range", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "var", "name": "size" }] },
+                { "kind": "lambda", "params": [{ "name": "i", "param_type": { "kind": "primitive", "name": "int" } }],
+                  "body": { "kind": "lit-int", "value": 0 } }
+              ]
+            }
+          }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "cells" },
+          "snd": { "kind": "pair",
+            "fst": { "kind": "var", "name": "width" },
+            "snd": { "kind": "pair",
+              "fst": { "kind": "var", "name": "height" },
+              "snd": { "kind": "lit-int", "value": 0 }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic", "name": "world-cells",
+      "params": [{ "name": "w", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "w" }] }
+    },
+
+    {
+      "kind": "def-logic", "name": "world-width",
+      "params": [{ "name": "w", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "w" }] }] }
+    },
+
+    {
+      "kind": "def-logic", "name": "world-height",
+      "params": [{ "name": "w", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "first", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "w" }] }] }] }
+    },
+
+    {
+      "kind": "def-logic", "name": "world-gen",
+      "params": [{ "name": "w", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": { "kind": "app", "fn": "second", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "w" }] }] }] }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "cell-at",
+      "params": [
+        { "name": "cells",  "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } },
+        { "name": "width",  "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "x",      "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "y",      "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "idx", "expr": { "kind": "op", "op": "+",
+              "args": [
+                { "kind": "op", "op": "*", "args": [{ "kind": "var", "name": "y" }, { "kind": "var", "name": "width" }] },
+                { "kind": "var", "name": "x" }
+              ]
+            }
+          }
+        ],
+        "body": {
+          "kind": "app", "fn": "unwrap-or",
+          "args": [
+            { "kind": "app", "fn": "list-nth", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "idx" }] },
+            { "kind": "lit-int", "value": 0 }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "in-bounds?",
+      "params": [
+        { "name": "x",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "y",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "width", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "height","param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "and",
+            "args": [
+              { "kind": "op", "op": "<", "args": [{ "kind": "var", "name": "x" }, { "kind": "var", "name": "width" }] },
+              { "kind": "op", "op": "and",
+                "args": [
+                  { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 0 }] },
+                  { "kind": "op", "op": "<",  "args": [{ "kind": "var", "name": "y" }, { "kind": "var", "name": "height" }] }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "neighbor-alive",
+      "params": [
+        { "name": "cells",  "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } },
+        { "name": "width",  "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "height", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "x",      "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "y",      "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "app", "fn": "in-bounds?", "args": [
+          { "kind": "var", "name": "x" }, { "kind": "var", "name": "y" },
+          { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }
+        ]},
+        "then_branch": { "kind": "app", "fn": "cell-at",
+          "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "x" }, { "kind": "var", "name": "y" }]
+        },
+        "else_branch": { "kind": "lit-int", "value": 0 }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "count-neighbors",
+      "params": [
+        { "name": "cells",  "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } },
+        { "name": "width",  "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "height", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "x",      "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "y",      "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "post": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<=", "args": [{ "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 8 }] }
+        ]
+      },
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "n0", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 1 }] }, { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 1 }] }] } },
+          { "name": "n1", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "var", "name": "x" }, { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 1 }] }] } },
+          { "name": "n2", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 1 }] }, { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 1 }] }] } },
+          { "name": "n3", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 1 }] }, { "kind": "var", "name": "y" }] } },
+          { "name": "n4", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 1 }] }, { "kind": "var", "name": "y" }] } },
+          { "name": "n5", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 1 }] }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 1 }] }] } },
+          { "name": "n6", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "var", "name": "x" }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 1 }] }] } },
+          { "name": "n7", "expr": { "kind": "app", "fn": "neighbor-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 1 }] }, { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 1 }] }] } }
+        ],
+        "body": {
+          "kind": "op", "op": "+",
+          "args": [
+            { "kind": "var", "name": "n0" },
+            { "kind": "op", "op": "+",
+              "args": [
+                { "kind": "var", "name": "n1" },
+                { "kind": "op", "op": "+",
+                  "args": [
+                    { "kind": "var", "name": "n2" },
+                    { "kind": "op", "op": "+",
+                      "args": [
+                        { "kind": "var", "name": "n3" },
+                        { "kind": "op", "op": "+",
+                          "args": [
+                            { "kind": "var", "name": "n4" },
+                            { "kind": "op", "op": "+",
+                              "args": [
+                                { "kind": "var", "name": "n5" },
+                                { "kind": "op", "op": "+",
+                                  "args": [
+                                    { "kind": "var", "name": "n6" },
+                                    { "kind": "var", "name": "n7" }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "next-cell",
+      "params": [
+        { "name": "alive",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "neighbors", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "neighbors" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<=", "args": [{ "kind": "var", "name": "neighbors" }, { "kind": "lit-int", "value": 8 }] }
+        ]
+      },
+      "post": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 0 }] },
+          { "kind": "op", "op": "<=", "args": [{ "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 1 }] }
+        ]
+      },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "alive" }, { "kind": "lit-int", "value": 1 }] },
+        "then_branch": {
+          "kind": "if",
+          "cond": {
+            "kind": "op", "op": "or",
+            "args": [
+              { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "neighbors" }, { "kind": "lit-int", "value": 2 }] },
+              { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "neighbors" }, { "kind": "lit-int", "value": 3 }] }
+            ]
+          },
+          "then_branch": { "kind": "lit-int", "value": 1 },
+          "else_branch":  { "kind": "lit-int", "value": 0 }
+        },
+        "else_branch": {
+          "kind": "if",
+          "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "neighbors" }, { "kind": "lit-int", "value": 3 }] },
+          "then_branch": { "kind": "lit-int", "value": 1 },
+          "else_branch":  { "kind": "lit-int", "value": 0 }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "step-world",
+      "params": [{ "name": "world", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "cells",  "expr": { "kind": "app", "fn": "world-cells",  "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "width",  "expr": { "kind": "app", "fn": "world-width",  "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "height", "expr": { "kind": "app", "fn": "world-height", "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "gen",    "expr": { "kind": "app", "fn": "world-gen",    "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "size",   "expr": { "kind": "app", "fn": "list-length",  "args": [{ "kind": "var", "name": "cells" }] } },
+          { "name": "indices","expr": { "kind": "app", "fn": "range", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "var", "name": "size" }] } },
+          { "name": "new-cells", "expr": {
+            "kind": "app", "fn": "list-map",
+            "args": [
+              { "kind": "var", "name": "indices" },
+              { "kind": "lambda",
+                "params": [{ "name": "i", "param_type": { "kind": "primitive", "name": "int" } }],
+                "body": {
+                  "kind": "let",
+                  "bindings": [
+                    { "name": "xi", "expr": { "kind": "app", "fn": "mod", "args": [{ "kind": "var", "name": "i" }, { "kind": "var", "name": "width" }] } },
+                    { "name": "yi", "expr": { "kind": "app", "fn": "/",   "args": [{ "kind": "var", "name": "i" }, { "kind": "var", "name": "width" }] } },
+                    { "name": "alive",     "expr": { "kind": "app", "fn": "cell-at",        "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "xi" }, { "kind": "var", "name": "yi" }] } },
+                    { "name": "neighbors", "expr": { "kind": "app", "fn": "count-neighbors", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "var", "name": "xi" }, { "kind": "var", "name": "yi" }] } }
+                  ],
+                  "body": { "kind": "app", "fn": "next-cell", "args": [{ "kind": "var", "name": "alive" }, { "kind": "var", "name": "neighbors" }] }
+                }
+              }
+            ]
+          }}
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "new-cells" },
+          "snd": { "kind": "pair",
+            "fst": { "kind": "var", "name": "width" },
+            "snd": { "kind": "pair",
+              "fst": { "kind": "var", "name": "height" },
+              "snd": { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "gen" }, { "kind": "lit-int", "value": 1 }] }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "letrec",
+      "name": "count-alive",
+      "params": [
+        { "name": "cells", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } }
+      ],
+      "decreases": { "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "cells" }] },
+      "post": {
+        "kind": "op", "op": ">=",
+        "args": [{ "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 0 }]
+      },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": "=", "args": [{ "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "cells" }] }, { "kind": "lit-int", "value": 0 }] },
+        "then_branch": { "kind": "lit-int", "value": 0 },
+        "else_branch": {
+          "kind": "let",
+          "bindings": [
+            { "name": "h",    "expr": { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "app", "fn": "list-head", "args": [{ "kind": "var", "name": "cells" }] }, { "kind": "lit-int", "value": 0 }] } },
+            { "name": "rest", "expr": { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "app", "fn": "list-tail", "args": [{ "kind": "var", "name": "cells" }] }, { "kind": "lit-list", "items": [] }] } }
+          ],
+          "body": {
+            "kind": "op", "op": "+",
+            "args": [
+              { "kind": "var", "name": "h" },
+              { "kind": "app", "fn": "count-alive", "args": [{ "kind": "var", "name": "rest" }] }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "render-cell",
+      "params": [{ "name": "v", "param_type": { "kind": "primitive", "name": "int" } }],
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "v" }, { "kind": "lit-int", "value": 1 }] },
+        "then_branch": { "kind": "lit-string", "value": "#" },
+        "else_branch":  { "kind": "lit-string", "value": "." }
+      }
+    },
+
+    {
+      "kind": "letrec",
+      "name": "render-row-life",
+      "params": [
+        { "name": "cells", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } },
+        { "name": "x",     "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "width", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "acc",   "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "decreases": { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "width" }, { "kind": "var", "name": "x" }] },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "x" }, { "kind": "var", "name": "width" }] },
+        "then_branch": { "kind": "var", "name": "acc" },
+        "else_branch": {
+          "kind": "let",
+          "bindings": [
+            { "name": "v",       "expr": { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "app", "fn": "list-head", "args": [{ "kind": "var", "name": "cells" }] }, { "kind": "lit-int", "value": 0 }] } },
+            { "name": "rest",    "expr": { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "app", "fn": "list-tail", "args": [{ "kind": "var", "name": "cells" }] }, { "kind": "lit-list", "items": [] }] } },
+            { "name": "new-acc", "expr": { "kind": "app", "fn": "string-concat", "args": [{ "kind": "var", "name": "acc" }, { "kind": "app", "fn": "render-cell", "args": [{ "kind": "var", "name": "v" }] }] } }
+          ],
+          "body": {
+            "kind": "app", "fn": "render-row-life",
+            "args": [
+              { "kind": "var", "name": "rest" },
+              { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "x" }, { "kind": "lit-int", "value": 1 }] },
+              { "kind": "var", "name": "width" },
+              { "kind": "var", "name": "new-acc" }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "letrec",
+      "name": "render-grid",
+      "params": [
+        { "name": "cells",  "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } },
+        { "name": "y",      "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "width",  "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "height", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "acc",    "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "decreases": { "kind": "op", "op": "-", "args": [{ "kind": "var", "name": "height" }, { "kind": "var", "name": "y" }] },
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "op", "op": ">=", "args": [{ "kind": "var", "name": "y" }, { "kind": "var", "name": "height" }] },
+        "then_branch": { "kind": "var", "name": "acc" },
+        "else_branch": {
+          "kind": "let",
+          "bindings": [
+            { "name": "row-cells", "expr": { "kind": "app", "fn": "list-map",
+                "args": [
+                  { "kind": "app", "fn": "range", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "var", "name": "width" }] },
+                  { "kind": "lambda", "params": [{ "name": "x", "param_type": { "kind": "primitive", "name": "int" } }],
+                    "body": { "kind": "app", "fn": "cell-at",
+                      "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "x" }, { "kind": "var", "name": "y" }]
+                    }
+                  }
+                ]
+              }
+            },
+            { "name": "row-str",  "expr": { "kind": "app", "fn": "render-row-life",
+                "args": [
+                  { "kind": "var", "name": "row-cells" },
+                  { "kind": "lit-int", "value": 0 },
+                  { "kind": "var", "name": "width" },
+                  { "kind": "lit-string", "value": "" }
+                ]
+              }
+            },
+            { "name": "new-acc",  "expr": { "kind": "app", "fn": "string-concat",
+                "args": [
+                  { "kind": "var", "name": "acc" },
+                  { "kind": "app", "fn": "string-concat", "args": [{ "kind": "var", "name": "row-str" }, { "kind": "lit-string", "value": "\n" }] }
+                ]
+              }
+            }
+          ],
+          "body": {
+            "kind": "app", "fn": "render-grid",
+            "args": [
+              { "kind": "var", "name": "cells" },
+              { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "y" }, { "kind": "lit-int", "value": 1 }] },
+              { "kind": "var", "name": "width" },
+              { "kind": "var", "name": "height" },
+              { "kind": "var", "name": "new-acc" }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "render-world",
+      "params": [{ "name": "world", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "cells",  "expr": { "kind": "app", "fn": "world-cells",  "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "width",  "expr": { "kind": "app", "fn": "world-width",  "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "height", "expr": { "kind": "app", "fn": "world-height", "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "gen",    "expr": { "kind": "app", "fn": "world-gen",    "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "alive",  "expr": { "kind": "app", "fn": "count-alive",  "args": [{ "kind": "var", "name": "cells" }] } },
+          { "name": "grid",   "expr": { "kind": "app", "fn": "render-grid",  "args": [{ "kind": "var", "name": "cells" }, { "kind": "lit-int", "value": 0 }, { "kind": "var", "name": "width" }, { "kind": "var", "name": "height" }, { "kind": "lit-string", "value": "" }] } },
+          { "name": "header", "expr": { "kind": "app", "fn": "string-concat-many",
+              "args": [{ "kind": "lit-list", "items": [
+                { "kind": "lit-string", "value": "Generation " },
+                { "kind": "app", "fn": "int-to-string", "args": [{ "kind": "var", "name": "gen" }] },
+                { "kind": "lit-string", "value": " | Alive: " },
+                { "kind": "app", "fn": "int-to-string", "args": [{ "kind": "var", "name": "alive" }] },
+                { "kind": "lit-string", "value": "\n" }
+              ]}]
+            }
+          }
+        ],
+        "body": {
+          "kind": "app", "fn": "string-concat",
+          "args": [{ "kind": "var", "name": "header" }, { "kind": "var", "name": "grid" }]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "set-alive",
+      "params": [
+        { "name": "cells", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } },
+        { "name": "idx",   "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "n", "expr": { "kind": "app", "fn": "list-length", "args": [{ "kind": "var", "name": "cells" }] } }
+        ],
+        "body": {
+          "kind": "app", "fn": "list-map",
+          "args": [
+            { "kind": "app", "fn": "range", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "var", "name": "n" }] },
+            { "kind": "lambda", "params": [{ "name": "i", "param_type": { "kind": "primitive", "name": "int" } }],
+              "body": {
+                "kind": "if",
+                "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "i" }, { "kind": "var", "name": "idx" }] },
+                "then_branch": { "kind": "lit-int", "value": 1 },
+                "else_branch":  { "kind": "app", "fn": "unwrap-or", "args": [{ "kind": "app", "fn": "list-nth", "args": [{ "kind": "var", "name": "cells" }, { "kind": "var", "name": "i" }] }, { "kind": "lit-int", "value": 0 }] }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "seed-glider",
+      "params": [{ "name": "world", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "cells",  "expr": { "kind": "app", "fn": "world-cells",  "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "width",  "expr": { "kind": "app", "fn": "world-width",  "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "height", "expr": { "kind": "app", "fn": "world-height", "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "gen",    "expr": { "kind": "app", "fn": "world-gen",    "args": [{ "kind": "var", "name": "world" }] } },
+          { "name": "c0", "expr": { "kind": "app", "fn": "set-alive", "args": [{ "kind": "var", "name": "cells" }, { "kind": "lit-int", "value": 1 }] } },
+          { "name": "c1", "expr": { "kind": "app", "fn": "set-alive", "args": [{ "kind": "var", "name": "c0" },    { "kind": "op", "op": "+", "args": [{ "kind": "var", "name": "width" }, { "kind": "lit-int", "value": 2 }] }] } },
+          { "name": "c2", "expr": { "kind": "app", "fn": "set-alive", "args": [{ "kind": "var", "name": "c1" },    { "kind": "op", "op": "+", "args": [{ "kind": "op", "op": "*", "args": [{ "kind": "lit-int", "value": 2 }, { "kind": "var", "name": "width" }] }, { "kind": "lit-int", "value": 0 }] }] } },
+          { "name": "c3", "expr": { "kind": "app", "fn": "set-alive", "args": [{ "kind": "var", "name": "c2" },    { "kind": "op", "op": "+", "args": [{ "kind": "op", "op": "*", "args": [{ "kind": "lit-int", "value": 2 }, { "kind": "var", "name": "width" }] }, { "kind": "lit-int", "value": 1 }] }] } },
+          { "name": "c4", "expr": { "kind": "app", "fn": "set-alive", "args": [{ "kind": "var", "name": "c3" },    { "kind": "op", "op": "+", "args": [{ "kind": "op", "op": "*", "args": [{ "kind": "lit-int", "value": 2 }, { "kind": "var", "name": "width" }] }, { "kind": "lit-int", "value": 2 }] }] } }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "c4" },
+          "snd": { "kind": "pair",
+            "fst": { "kind": "var", "name": "width" },
+            "snd": { "kind": "pair",
+              "fst": { "kind": "var", "name": "height" },
+              "snd": { "kind": "var", "name": "gen" }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "start-life",
+      "params": [],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "w0",     "expr": { "kind": "app", "fn": "make-world",   "args": [{ "kind": "lit-int", "value": 20 }, { "kind": "lit-int", "value": 10 }] } },
+          { "name": "world",  "expr": { "kind": "app", "fn": "seed-glider",  "args": [{ "kind": "var", "name": "w0" }] } },
+          { "name": "display","expr": { "kind": "app", "fn": "render-world",  "args": [{ "kind": "var", "name": "world" }] } }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "world" },
+          "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+            "args": [{ "kind": "app", "fn": "string-concat",
+              "args": [
+                { "kind": "lit-string", "value": "Conway's Game of Life — press Enter to advance, 'q' to quit.\n" },
+                { "kind": "var", "name": "display" }
+              ]
+            }]
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "life-loop",
+      "params": [
+        { "name": "world", "param_type": { "kind": "primitive", "name": "unit" } },
+        { "name": "input", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "trimmed", "expr": { "kind": "app", "fn": "string-trim", "args": [{ "kind": "var", "name": "input" }] } }
+        ],
+        "body": {
+          "kind": "if",
+          "cond": { "kind": "op", "op": "=", "args": [{ "kind": "var", "name": "trimmed" }, { "kind": "lit-string", "value": "q" }] },
+          "then_branch": {
+            "kind": "pair",
+            "fst": { "kind": "pair",
+              "fst": { "kind": "lit-list", "items": [] },
+              "snd": { "kind": "pair", "fst": { "kind": "lit-int", "value": -1 }, "snd": { "kind": "pair", "fst": { "kind": "lit-int", "value": -1 }, "snd": { "kind": "lit-int", "value": -1 } } }
+            },
+            "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "Goodbye.\n" }] }
+          },
+          "else_branch": {
+            "kind": "let",
+            "bindings": [
+              { "name": "new-world", "expr": { "kind": "app", "fn": "step-world",    "args": [{ "kind": "var", "name": "world" }] } },
+              { "name": "display",   "expr": { "kind": "app", "fn": "render-world",   "args": [{ "kind": "var", "name": "new-world" }] } }
+            ],
+            "body": {
+              "kind": "pair",
+              "fst": { "kind": "var", "name": "new-world" },
+              "snd": { "kind": "qual-app", "qual_fn": "wasi.io.stdout",
+                "args": [{ "kind": "app", "fn": "string-concat",
+                  "args": [{ "kind": "var", "name": "display" }, { "kind": "lit-string", "value": "(Enter=step, q=quit)\n> " }]
+                }]
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "life-over?",
+      "params": [{ "name": "world", "param_type": { "kind": "primitive", "name": "unit" } }],
+      "body": {
+        "kind": "op", "op": "=",
+        "args": [
+          { "kind": "app", "fn": "world-width", "args": [{ "kind": "var", "name": "world" }] },
+          { "kind": "lit-int", "value": -1 }
+        ]
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "next-cell-dead-with-0-neighbors",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "next-cell", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 0 }] },
+            { "kind": "lit-int", "value": 0 }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "next-cell-survives-with-2-neighbors",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "next-cell", "args": [{ "kind": "lit-int", "value": 1 }, { "kind": "lit-int", "value": 2 }] },
+            { "kind": "lit-int", "value": 1 }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "next-cell-born-with-3-neighbors",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "next-cell", "args": [{ "kind": "lit-int", "value": 0 }, { "kind": "lit-int", "value": 3 }] },
+            { "kind": "lit-int", "value": 1 }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "check",
+      "label": "next-cell-overpopulation-dies",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "next-cell", "args": [{ "kind": "lit-int", "value": 1 }, { "kind": "lit-int", "value": 4 }] },
+            { "kind": "lit-int", "value": 0 }
+          ]
+        }
+      }
+    },
+
+    {
+      "kind": "def-main",
+      "mode": "console",
+      "init":  { "kind": "app", "fn": "start-life", "args": [] },
+      "step":  { "kind": "var", "name": "life-loop" },
+      "done?": { "kind": "var", "name": "life-over?" }
+    }
+  ]
+}

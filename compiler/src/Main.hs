@@ -9,6 +9,7 @@
 --   build  — emit Haskell/JSON-AST, optional --emit json-ast / --from-json
 --   run    — build into temp dir and execute
 --   repl   — interactive read-eval-print loop
+--   verify — D4: emit .fq constraints + run liquid-fixpoint (if installed)
 module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
@@ -44,6 +45,9 @@ import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
   , formatReportJson, megaparsecToDiagnostic)
+-- D4: liquid-fixpoint verification backend
+import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
+import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 
 import qualified Data.Map.Strict as Map
 
@@ -60,6 +64,7 @@ data Command
   | CmdRun    FilePath [String]                         -- file, extra args
   | CmdRepl
   | CmdHub    FilePath                                  -- Phase 2a: hub fetch --from-file <tarball>
+  | CmdVerify FilePath (Maybe FilePath)                 -- D4: file, optional .fq output path
   deriving (Show)
 
 data Options = Options
@@ -94,6 +99,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Start an interactive LLMLL REPL"))
       <> command "hub"   (info hubCmd
           (progDesc "Manage llmll-hub local package cache"))
+      <> command "verify" (info verifyCmd
+          (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -127,6 +134,12 @@ optionsParser = info (helper <*> opts) $
             (long "from-file" <> metavar "TARBALL"
             <> help "Install a .tar.gz package into the local hub cache (~/.llmll/modules/)")
 
+    verifyCmd = CmdVerify
+      <$> fileArg
+      <*> optional (strOption
+            (short 'o' <> long "fq-out" <> metavar "FILE"
+            <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -147,6 +160,7 @@ main = do
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
+    CmdVerify fp mFqOut       -> doVerify json fp mFqOut
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -693,3 +707,72 @@ doHubFetch json tarball = do
                object ["success" .= True, "tarball" .= tarball]
         else TIO.putStrLn $ "\x2705 Hub package installed from: " <> T.pack tarball
       exitSuccess
+
+-- ---------------------------------------------------------------------------
+-- D4: verify (liquid-fixpoint)
+-- ---------------------------------------------------------------------------
+
+doVerify :: Bool -> FilePath -> Maybe FilePath -> IO ()
+doVerify json fp mFqOut = do
+  -- 1. Parse + type-check
+  mResult <- loadStatementsMulti json fp
+  case mResult of
+    Left () -> exitFailure
+    Right (stmts, _cache, _) -> do
+      -- 2. Emit .fq constraints + build ConstraintTable
+      emitR <- emitFixpoint fp stmts
+      let fqText = erFQText emitR
+          table  = erConstraintTable emitR
+          skipped = erSkipped emitR
+
+      -- 3. Write .fq file
+      let baseName = takeBaseName fp
+          fqPath   = case mFqOut of
+                       Just p  -> p
+                       Nothing -> "/tmp/" <> baseName <> ".fq"
+      TIO.writeFile fqPath fqText
+      unless json $ do
+        TIO.putStrLn $ "   .fq written to " <> T.pack fqPath
+        unless (null skipped) $
+          TIO.putStrLn $ "   skipped (non-linear): " <> T.intercalate ", " skipped
+
+      -- 4. Find liquid-fixpoint binary (installs as "fixpoint" or "liquid-fixpoint")
+      mLF <- do
+        a <- findExecutable "liquid-fixpoint"
+        case a of
+          Just _ -> return a
+          Nothing -> findExecutable "fixpoint"
+      case mLF of
+        Nothing -> do
+          -- Graceful degradation: emit the .fq and report it's available
+          let msg = "liquid-fixpoint not found in PATH. "
+                 <> ".fq file written to " <> T.pack fqPath <> ". "
+                 <> "Install with: stack install liquid-fixpoint"
+          if json
+            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                   object [ "file" .= fp, "fq_file" .= fqPath
+                           , "verified" .= False, "reason" .= msg ]
+            else TIO.putStrLn $ "⚠️  " <> msg
+          exitSuccess   -- non-fatal: user can run manually
+
+        Just lfBin -> do
+          -- 5. Run liquid-fixpoint
+          unless json $ TIO.putStrLn "   Running liquid-fixpoint ..."
+          (code, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+          let outT    = T.pack out
+              fqResult = parseFQResult (outT <> T.pack err)
+              report   = fqResultToReport fp table fqResult
+
+          -- 6. Report
+          if json
+            then TIO.putStrLn (formatReportJson report)
+            else case fqResult of
+              FQSafe ->
+                TIO.putStrLn $ "\x2705 " <> T.pack fp <> " \8212 SAFE (liquid-fixpoint)"
+              FQUnsafe _ ->
+                mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
+              FQError e ->
+                TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
+
+          if reportSuccess report then exitSuccess else exitFailure
+
