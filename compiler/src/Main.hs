@@ -736,8 +736,12 @@ doVerify json fp mFqOut = do
         unless (null skipped) $
           TIO.putStrLn $ "   skipped (non-linear): " <> T.intercalate ", " skipped
 
-      -- 4. Find liquid-fixpoint binary
-      mLF <- findExecutable "liquid-fixpoint"
+      -- 4. Find liquid-fixpoint binary (installs as "fixpoint" or "liquid-fixpoint")
+      mLF <- do
+        a <- findExecutable "liquid-fixpoint"
+        case a of
+          Just _ -> return a
+          Nothing -> findExecutable "fixpoint"
       case mLF of
         Nothing -> do
           -- Graceful degradation: emit the .fq and report it's available

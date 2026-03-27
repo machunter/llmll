@@ -63,15 +63,16 @@ data FQVerifyResult
 --   ...constraint id <N>...
 parseFQResult :: Text -> FQVerifyResult
 parseFQResult out
-  | "SAFE" `T.isInfixOf` out && not ("UNSAFE" `T.isInfixOf` out) = FQSafe
-  | "UNSAFE" `T.isInfixOf` out = FQUnsafe (extractIds out)
-  | otherwise = FQError out
+  | safeIn && not unsafeIn = FQSafe
+  | unsafeIn               = FQUnsafe (extractIds out)
+  | otherwise              = FQError out
   where
-    -- Extract constraint IDs from lines like:
-    --   id 47 ... or ... constraint id = 47 ...
+    outUp    = T.toUpper out
+    safeIn   = "SAFE"   `T.isInfixOf` outUp
+    unsafeIn = "UNSAFE" `T.isInfixOf` outUp
+    -- Extract constraint IDs from lines like: id 47 ...
     extractIds :: Text -> [FQConstraintId]
-    extractIds txt =
-      mapMaybe parseId (T.lines txt)
+    extractIds txt = mapMaybe parseId (T.lines txt)
       where
         parseId line =
           let ws = T.words line
@@ -79,7 +80,7 @@ parseFQResult out
                (_:nStr:_) -> case reads (T.unpack nStr) of
                                [(n,"")] -> Just n
                                _        -> Nothing
-               _           -> Nothing
+               _          -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- Convert to DiagnosticReport
