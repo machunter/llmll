@@ -29,6 +29,9 @@ library
       LLMLL.Diagnostic
       LLMLL.Module
       LLMLL.Hub
+      LLMLL.FixpointIR
+      LLMLL.FixpointEmit
+      LLMLL.DiagnosticFQ
   other-modules:
       Main
       Paths_llmll
@@ -73,6 +76,9 @@ executable llmll
       LLMLL.CodegenHs
       LLMLL.Contracts
       LLMLL.Diagnostic
+      LLMLL.DiagnosticFQ
+      LLMLL.FixpointEmit
+      LLMLL.FixpointIR
       LLMLL.HoleAnalysis
       LLMLL.Hub
       LLMLL.Lexer
