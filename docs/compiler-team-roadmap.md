@@ -226,8 +226,8 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 | Bug | Location | Fix | Status |
 |-----|----------|-----|--------|
 | **B3** — `[...]` list literal in S-expression fails with `unexpected ']'` when used as a function argument inside an `if` branch body. Top-level `let` bindings and direct expressions work fine; the failure is specific to the nested call-inside-if position. `pListLitExpr` was added in B2 for expression position but the `pExpr` grammar inside if-`then`/`else` branches does not correctly disambiguate `]` from a surrounding parameter-list close when nesting is deep. | `Parser.hs`, `pExpr` / `pIf` | Fix: ensure `pListLitExpr` is tried with the correct bracket-depth context inside `pIf`. Alternatively, disambiguate by requiring list literals to be wrapped in parens when nested: `([ a b c ])`. Workaround: hoist list literals into `let` bindings before the `if` (see `getting-started.md §4.7`). JSON-AST is unaffected. | ⚠️ Cannot reproduce — retested 2026-03-23 against all developer-reported patterns (`hangman.llmll`, `tictactoe.llmll`, `wasi.io.stdout (string-concat-many [...])` inside `if`, nested `let`+`if`) — all pass ✅. May have been fixed as part of B2. Workaround in §4.7 is still good practice; bug remains documented in case it resurfaces. |
-| **N2** — `string-concat` arity errors (2 args required, >2 given) should suggest `string-concat-many` in the error message. Currently the diagnostic reports only the arity mismatch with no hint. | `TypeCheck.hs`, arity error path | When arity mismatch occurs on `string-concat` and actual > expected, append ` — consider string-concat-many for joining more than 2 strings` to the message. | ❌ Open |
-| **N3** — JSON-AST `let` binding objects with extra keys (e.g. `kind`, `op` mixed in alongside `name`/`expr`) are silently accepted by `parseJSONAST` even though the schema declares `additionalProperties: false` on binding objects. Discovered in tictactoe JSON re-implementation: a malformed binding was accepted as-is, producing a corrupt AST node rather than a clear error. | `ParserJSON.hs`, `parseLet1Binding`; `parseJSONAST` entry point | Add an optional pre-parse JSON Schema validation step (e.g. via `aeson-schema` or `jsonschema-validator`) before `parseEither`. Alternatively, tighten `parseLet1Binding` to fail explicitly on unexpected keys. | ❌ Open |
+| **N2** — `string-concat` arity errors (2 args required, >2 given) now suggest `string-concat-many`. | `TypeCheck.hs`, arity error path | Appended ` — use string-concat-many for joining more than 2 strings` to the arity mismatch error when `func == "string-concat"` and `actual > expected`. | ✅ Fixed (2026-03-27) |
+| **N3** — JSON-AST `let` binding objects with extra keys silently accepted despite schema declaring `additionalProperties: false`. | `ParserJSON.hs`, `parseLet1Binding` | Added `Data.Aeson.KeyMap` key-whitelist check; fails with `let binding has unexpected keys: [...]` on any key outside `{"name", "expr"}`. | ✅ Fixed (2026-03-27) |
 
 ---
 
@@ -309,7 +309,7 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 
 ### Phase 2c — Type System Fixes + Sketch API
 
-**[SPEC]** and **[CT]** Lift `pair-type` in `typed-param` limitation *(escalated by design team from v0.1.1 documented limitation to v0.2 fix)*. Accept `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. Propagate the pair type normally through the type checker. Remove the workaround note from `LLMLL.md §3.2` and `§12`.
+**[SPEC]** and **[CT]** ~~Lift `pair-type` in `typed-param` limitation~~ ✅ **Shipped (2026-03-27)** — `[acc: (int, string)]` accepted in `def-logic` params, lambda params, and `for-all` bindings. Parsed as `TResult A B` (consistent with `EPair` runtime model). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
 
 **[CT]** `llmll typecheck --sketch <file>` *(new design team proposal)* — accepts a partial LLMLL program (holes allowed everywhere). Runs constraint-propagation type inference. Returns a JSON object mapping each hole's JSON Pointer to its inferred type, plus any type errors that exist even with holes present:
 
@@ -328,16 +328,33 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 
 **[CT]** HTTP interface for agent use: `POST localhost:7777/sketch` with a `.ast.json` body. Agents call this incrementally during generation, filling holes consistent with inferred types before final submission. Target latency: < 200ms for programs up to 500 nodes.
 
+**[CT]** N2 — `string-concat` arity hint. When an arity mismatch occurs on `string-concat` and actual arg count > expected (2), append a hint to the diagnostic: `— consider string-concat-many for joining more than 2 strings`. Implementation: `TypeCheck.hs` arity error path. **Language team sign-off (2026-03-27):** Options to make `string-concat` variadic (type checker special-case) or deprecate the binary form were both rejected. Variadic typing breaks the fixed-arity invariant; deprecation breaks partial application. Hint only for Phase 2c; parse-level sugar deferred to v0.3 (see below).
+
+**[CT]** N3 — Strict key validation for JSON-AST `let` binding objects. `parseLet1Binding` in `ParserJSON.hs` currently accepts extra keys (e.g. `kind`, `op`) alongside `name`/`expr`, producing silent corrupt AST nodes. Fix: explicitly fail on unexpected keys, emitting a clear error with the offending key name. The schema already declares `additionalProperties: false`; this brings the parser into conformance.
+
 **Acceptance criteria:**
 - `[acc: (int, string)]` in a lambda parameter list parses and type-checks without a workaround.
 - Given a partial program with three holes, `llmll typecheck --sketch` returns each hole's inferred type.
 - A type conflict in a partial program is reported even when the surrounding program is incomplete.
+- `(string-concat a b c)` arity error includes the `string-concat-many` hint.
+- A JSON-AST `let` binding object with an extra key produces a clear parse error naming the offending key.
 
 ---
 
 ## v0.3 — Agent Coordination + Interactive Proofs
 
 **Theme:** Make the swarm model operational end-to-end.
+
+**[SPEC]** and **[CT]** `string-concat` parse-level variadic sugar (S-expression only) *(language team proposal, 2026-03-27)*. In the S-expression parser, desugar `(string-concat e1 e2 e3 …)` with 3+ arguments into `(string-concat-many [e1 e2 e3 …])` at parse time. The type checker never sees a 3-arg `string-concat` — the fixed-arity invariant is fully preserved. The binary form `(string-concat a b)` remains unchanged and retains first-class partial-application semantics. JSON-AST is unaffected: agents already use `{"kind": "app", "fn": "string-concat-many", "args": [{"kind": "lit-list", ...}]}` naturally. Implementation: `Parser.hs` `pApp` / `pExpr` only — zero `TypeCheck.hs` impact.
+
+> **Decision record:** Type-checker variadic special-casing rejected (breaks fixed-arity invariant; JSON-AST complexity). Binary `string-concat` deprecation rejected (breaks partial application). Parse-level sugar is the minimal, correct resolution.
+
+**Acceptance criteria (v0.3):**
+- `(string-concat "a" "b" "c")` in S-expression compiles to the same Haskell as `(string-concat-many ["a" "b" "c"])`.
+- `(string-concat prefix)` partial application still type-checks as `string → string`.
+- JSON-AST `{"fn": "string-concat", "args": [a, b, c]}` produces a clear arity error (unchanged behavior — sugar is parse-time S-expression only).
+
+---
 
 **[CT]** `?delegate` JSON-Patch lifecycle:
 1. Lead AI checks out a hole: `llmll holes --checkout <pointer>`

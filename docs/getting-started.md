@@ -256,7 +256,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 
 | Feature | Status | Workaround |
 |---------|--------|------------|
-| `[acc: (int, string)]` in `typed-param` | ❌ Parse error | Use bare `[acc]` — scheduled for Phase 2c |
+| `[acc: (int, string)]` in `typed-param` | ✅ **Supported (Phase 2c)** | None needed — parsed as `TResult[int,string]` internally |
 | `[...]` list literal as direct argument to a call inside an `if` branch (S-expression only) | ❌ Parse error | Extract to a `let` binding before the `if` (see note below) |
 | `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
 | `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | Phase 2c / v0.3 |

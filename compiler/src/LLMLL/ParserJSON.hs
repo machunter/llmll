@@ -23,6 +23,8 @@ import Data.Aeson
 import Data.Aeson.Types
   ( Parser, parseEither
   , (.:), (.:?), (.!=) )
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Key    as Key
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic (Diagnostic(..), mkError)
@@ -289,10 +291,11 @@ parseType = withObject "Type" $ \o -> do
       baseType  <- o .: "base_type" >>= parseType
       predicate <- o .: "predicate" >>= parseExpr
       pure $ TDependent binding baseType predicate
+    -- Phase 2c: pair-type now produces a real TResult instead of a TCustom string
     "pair-type" -> do
       fst_ <- o .: "fst" >>= parseType
       snd_ <- o .: "snd" >>= parseType
-      pure $ TCustom ("(" <> typeLabel fst_ <> ", " <> typeLabel snd_ <> ")")
+      pure $ TResult fst_ snd_
     "command"   -> pure $ TCustom "Command"
     "named"     -> TCustom <$> o .: "name"
     _           -> fail $ "unknown Type kind: " ++ T.unpack kind
@@ -400,6 +403,15 @@ parseExpr = withObject "Expr" $ \o -> do
 
 parseLet1Binding :: Value -> Parser (Name, Maybe Type, Expr)
 parseLet1Binding = withObject "LetBinding" $ \o -> do
+  -- N3: reject unexpected keys — schema declares additionalProperties: false
+  let allowedKeys = ["name", "expr"]
+      allKeys     = map (Key.toText . fst) (KM.toList o)
+      extraKeys   = filter (`notElem` allowedKeys) allKeys
+  case extraKeys of
+    [] -> pure ()
+    ks -> fail $ "let binding has unexpected keys: "
+                 ++ show (map T.unpack ks)
+                 ++ " (allowed: \"name\", \"expr\")"
   name <- o .: "name"
   expr <- o .: "expr" >>= parseExpr
   pure (name, Nothing, expr)

@@ -565,3 +565,144 @@ main = hspec $ do
                            (holeEntries report)
       length prHoles `shouldBe` 1
 
+  -- -----------------------------------------------------------------------
+  -- Phase 2c: pair-type in typed-param positions
+  -- -----------------------------------------------------------------------
+  describe "Phase 2c pair-type in typed-param" $ do
+    it "S-expression: (int, string) in def-logic param parses without error" $ do
+      let src = "(def-logic f [acc: (int, string)] (first acc))"
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> length stmts `shouldBe` 1
+
+    it "S-expression: pair-type parameter parsed as TResult TInt TString" $ do
+      let src = "(def-logic f [acc: (int, string)] (first acc))"
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right [SDefLogic _ params _ _ _] ->
+          snd (head params) `shouldBe` TResult TInt TString
+        Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
+
+    it "S-expression: (int, string) typed param passes type-check" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic f [acc: (int, string)] (first acc))" ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          -- No errors (warnings OK — first is polymorphic anyway)
+          let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+          errs `shouldBe` []
+
+    it "JSON-AST: pair-type param_type decodes to TResult TInt TString" $ do
+      let src = BLC.pack $ unlines
+            [ "{"
+            , "  \"schemaVersion\": \"0.2.0\","
+            , "  \"statements\": ["
+            , "    {"
+            , "      \"kind\": \"def-logic\","
+            , "      \"name\": \"f\","
+            , "      \"params\": [{"
+            , "        \"name\": \"acc\","
+            , "        \"param_type\": {"
+            , "          \"kind\": \"pair-type\","
+            , "          \"fst\": {\"kind\": \"primitive\", \"name\": \"int\"},"
+            , "          \"snd\": {\"kind\": \"primitive\", \"name\": \"string\"}"
+            , "        }"
+            , "      }],"
+            , "      \"body\": {\"kind\": \"var\", \"name\": \"acc\"}"
+            , "    }"
+            , "  ]"
+            , "}"
+            ]
+      case parseJSONAST "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right [SDefLogic _ params _ _ _] ->
+          snd (head params) `shouldBe` TResult TInt TString
+        Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
+
+  -- -----------------------------------------------------------------------
+  -- N2: string-concat arity hint
+  -- -----------------------------------------------------------------------
+  describe "N2 string-concat arity hint" $ do
+    it "string-concat with 3 args emits error mentioning string-concat-many" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic f [a: string b: string c: string]"
+            , "  (string-concat a b c))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+          length errs `shouldBe` 1
+          diagMessage (head errs) `shouldSatisfy` T.isInfixOf "string-concat-many"
+
+    it "string-concat with correct 2 args has no arity error" $ do
+      let src = "(def-logic f [a: string b: string] (string-concat a b))"
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let arityErrs = filter (\d -> diagSeverity d == SevError
+                                     && T.isInfixOf "expects" (diagMessage d))
+                                 (reportDiagnostics report)
+          arityErrs `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- N3: extra-key rejection in JSON-AST let bindings
+  -- -----------------------------------------------------------------------
+  describe "N3 let binding extra-key rejection" $ do
+    it "let binding with extra 'kind' key is rejected with clear error" $ do
+      let src = BLC.pack $ unlines
+            [ "{"
+            , "  \"schemaVersion\": \"0.2.0\","
+            , "  \"statements\": ["
+            , "    {"
+            , "      \"kind\": \"def-logic\","
+            , "      \"name\": \"f\","
+            , "      \"params\": [],"
+            , "      \"body\": {"
+            , "        \"kind\": \"let\","
+            , "        \"bindings\": [{"
+            , "          \"kind\": \"spurious\","
+            , "          \"name\": \"x\","
+            , "          \"expr\": {\"kind\": \"lit-int\", \"value\": 1}"
+            , "        }],"
+            , "        \"body\": {\"kind\": \"var\", \"name\": \"x\"}"
+            , "      }"
+            , "    }"
+            , "  ]"
+            , "}"
+            ]
+      case parseJSONAST "<test>" src of
+        Left diag ->
+          -- The error message should mention unexpected keys
+          diagMessage diag `shouldSatisfy` T.isInfixOf "unexpected keys"
+        Right _ ->
+          expectationFailure "Expected parse failure for let binding with extra keys"
+
+    it "let binding with only 'name' and 'expr' keys accepts successfully" $ do
+      let src = BLC.pack $ unlines
+            [ "{"
+            , "  \"schemaVersion\": \"0.2.0\","
+            , "  \"statements\": ["
+            , "    {"
+            , "      \"kind\": \"def-logic\","
+            , "      \"name\": \"f\","
+            , "      \"params\": [],"
+            , "      \"body\": {"
+            , "        \"kind\": \"let\","
+            , "        \"bindings\": [{"
+            , "          \"name\": \"x\","
+            , "          \"expr\": {\"kind\": \"lit-int\", \"value\": 42}"
+            , "        }],"
+            , "        \"body\": {\"kind\": \"var\", \"name\": \"x\"}"
+            , "      }"
+            , "    }"
+            , "  ]"
+            , "}"
+            ]
+      case parseJSONAST "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right _  -> pure ()

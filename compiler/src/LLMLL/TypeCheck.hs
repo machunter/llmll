@@ -455,9 +455,12 @@ inferExpr (EApp func args) = do
       tcWarn $ "call to unknown function '" <> func <> "'"
       pure (TVar "?")  -- wildcard: don't inject false type mismatch downstream
     Just (TFn paramTypes retType) -> do
-      when (length argTypes /= length paramTypes) $
+      when (length argTypes /= length paramTypes) $ do
+        let hint = if func == "string-concat" && length argTypes > length paramTypes
+                     then " \x2014 use string-concat-many for joining more than 2 strings"
+                     else ""
         tcError $ "function '" <> func <> "' expects " <> tshow (length paramTypes)
-                  <> " args, got " <> tshow (length argTypes)
+                  <> " args, got " <> tshow (length argTypes) <> hint
       zipWithM_ (\expected actual -> unify func expected actual) paramTypes argTypes
       pure retType
     Just (TCustom _) ->
