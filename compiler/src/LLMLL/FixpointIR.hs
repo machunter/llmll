@@ -225,7 +225,10 @@ emitQualifier q =
 
 emitDataDecl :: FQDataDecl -> Text
 emitDataDecl d =
-  "data " <> ddName d <> " " <> T.pack (show (ddArity d))
+  "data " <> T.toLower (ddName d) <> " " <> T.pack (show (ddArity d))
   <> " = [" <> T.intercalate " | " (map emitCtor (ddCtors d)) <> "]"
   where
-    emitCtor (nm, ar) = nm <> " " <> T.pack (show ar)
+    -- liquid-fixpoint requires lowercase identifiers in constructor position.
+    -- We lowercase both the type name and each constructor name to satisfy
+    -- the .fq parser (bug B1 discovered in Phase 2b walkthrough).
+    emitCtor (nm, ar) = T.toLower nm <> " " <> T.pack (show ar)
