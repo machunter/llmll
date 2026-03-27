@@ -820,9 +820,30 @@
             "description": { "type": "string" },
             "return_type": { "$ref": "#/$defs/Type" }
           }
+        },
+        {
+          "description": "?proof-required — Phase 2b. Emitted by the compiler for pre/post constraints outside the QF linear arithmetic fragment, or for letrec :decreases measures that are not simple variables. Also valid as a manual annotation. Non-blocking: code compiles with a runtime assertion fallback. See LLMLL.md §6 and getting-started.md §4.11.",
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":   { "type": "string", "const": "hole-proof-required" },
+            "reason": {
+              "type": "string",
+              "enum": ["manual", "non-linear-contract", "complex-decreases"],
+              "default": "manual",
+              "description": "Why this hole was emitted. 'manual' = authored by agent; others = compiler-emitted."
+            }
+          },
+          "examples": [
+            { "kind": "hole-proof-required", "reason": "non-linear-contract" },
+            { "kind": "hole-proof-required", "reason": "complex-decreases" },
+            { "kind": "hole-proof-required" }
+          ]
         }
       ]
     },
+
 
     "OpenDecl": {
       "description": "Pull a module's exports into the current scope without a prefix. NEW in v0.2. Corresponds to EBNF 'open-decl' (LLMLL.md §8.6).",

@@ -13,6 +13,7 @@
 | Tool | Version | Purpose |
 |------|---------|---------| 
 | GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
+| `fixpoint` + `z3` | any stable | **Optional** (Phase 2b `verify` command only): `stack install liquid-fixpoint` then `brew install z3` |
 
 **Install Stack:** https://docs.haskellstack.org/en/stable/install_and_upgrade/
 
@@ -33,6 +34,7 @@ Available commands:
   holes   List and classify all holes in a file
   test    Run property-based tests (check blocks)
   build   Compile source to a Haskell application
+  verify  Emit .fq constraints and run liquid-fixpoint (Phase 2b)
   hub     llmll-hub package registry (fetch, cache)
   repl    Start an interactive LLMLL REPL
 ```
@@ -130,6 +132,27 @@ llmll hub fetch llmll-crypto@0.1.0
 ```
 
 Import fetched packages using the `hub.` prefix (see §4.8).
+
+### `verify` — liquid-fixpoint contract verification (Phase 2b)
+
+```bash
+# Verify linear arithmetic pre/post contracts at compile time:
+stack exec llmll -- verify ../examples/hangman_sexp/hangman.llmll
+#    .fq written to /tmp/hangman.fq
+#    Running liquid-fixpoint ...
+# ✅ hangman.llmll — SAFE (liquid-fixpoint)
+
+# Emit .fq only, specify output path:
+stack exec llmll -- verify file.llmll --fq-out out.fq
+
+# JSON output:
+stack exec llmll -- --json verify file.llmll
+```
+
+`verify` is **gracefully degrading**: if `fixpoint` or `z3` is not in `PATH`, it writes the `.fq` file and exits 0 with an install hint. The file can be checked manually or in CI once the tools are installed.
+
+> [!IMPORTANT]
+> `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error.
 
 ---
 
@@ -235,7 +258,8 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 |---------|--------|------------|
 | `[acc: (int, string)]` in `typed-param` | ❌ Parse error | Use bare `[acc]` — scheduled for Phase 2c |
 | `[...]` list literal as direct argument to a call inside an `if` branch (S-expression only) | ❌ Parse error | Extract to a `let` binding before the `if` (see note below) |
-| `pre`/`post` compile-time verification | ⚠️ Runtime assert only | Correct at runtime; SMT proof in Phase 2b |
+| `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
+| `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | Phase 2c / v0.3 |
 
 > [!WARNING]
 > **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
@@ -404,7 +428,65 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 >
 > A `--lib <dir>` flag that adds extra search roots is planned for Phase 2b.
 
+---
+
+### §4.10 `letrec` — Recursive Functions with Termination Measures
+
+Use `letrec` (not `def-logic`) for any self-recursive function. The `:decreases` measure is required — the compiler uses it to verify termination.
+
+```lisp
+;; Simple variable measure — verified automatically by llmll verify:
+(letrec countdown [n: int] :decreases n
+  (if (= n 0) 0 (countdown (- n 1))))
+
+;; With pre/post contracts:
+(letrec list-sum [xs: list[int]] :decreases (list-length xs)
+  (pre  (>= (list-length xs) 0))
+  (post (>= result 0))\n  (if (list-empty? xs) 0 (+ (list-head xs) (list-sum (list-tail xs)))))
+```
+
+JSON-AST:
+```json
+{ "kind": "letrec",
+  "name": "countdown",
+  "params": [{ "name": "n", "param_type": { "kind": "primitive", "name": "int" } }],
+  "decreases": { "kind": "var", "name": "n" },
+  "body": { "kind": "if", "..." : "..." } }
+```
+
+> [!IMPORTANT]
+> A **simple variable** measure (`:decreases n`) is verified by `llmll verify`. A **complex expression** (`:decreases (- n 1)`) emits a `?proof-required(complex-decreases)` hole — non-blocking, but the solver skips that function.
+
+> [!WARNING]
+> Using `def-logic` for a self-recursive function emits a self-recursion warning. `letrec` is the correct verified form.
+
+---
+
+### §4.11 `?proof-required` Holes
+
+The compiler auto-emits `?proof-required` holes for constraints outside the decidable linear arithmetic fragment. These holes are **non-blocking**: code compiles with a runtime assertion fallback.
+
+| Hole | Emitted when | Blocking? |
+|------|-------------|-----------|
+| `?proof-required(complex-decreases)` | `letrec :decreases` is a non-variable expression | No |
+| `?proof-required(non-linear-contract)` | `pre`/`post` contains `*`, `/`, `mod`, `^` | No |
+
+**Manual annotation** (S-expression):
+```lisp
+?proof-required    ;; skip this expression in the verifier
+```
+
+**JSON-AST node:**
+```json
+{ "kind": "hole-proof-required", "reason": "non-linear-contract" }
+```
+
+`llmll holes --json` reports all `?proof-required` holes. `llmll verify` skips them without error and lists skipped function names.
+
+---
+
 ### §4.9 String Escape Sequences by Format
+
 
 S-expression (`.llmll`) and JSON-AST (`.ast.json`) files use different string escape rules. Mixing them up is a common source of parse errors.
 
