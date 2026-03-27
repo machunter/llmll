@@ -491,8 +491,15 @@ emitApp :: Name -> [Expr] -> Text
 emitApp "first"  [a] = "(fst " <> emitExpr a <> ")"
 emitApp "second" [a] = "(snd " <> emitExpr a <> ")"
 emitApp "pair"   [a,b] = "(" <> emitExpr a <> ", " <> emitExpr b <> ")"
+-- B3 fix: operators used as app fn names (kind:app, fn:"/") must be routed to
+-- emitOp, otherwise we emit `(/ (i) (width))` which GHC parses as a section.
+emitApp op args
+  | op `elem` ["/", "mod", "%", "+", "-", "*", "=", "!=",
+               "<", ">", "<=", ">=", "and", "or", "not"]
+  = emitOp op args
 emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map (\a -> "(" <> emitExpr a <> ")") args) <> ")"
+
 
 emitOp :: Name -> [Expr] -> Text
 emitOp "="   [a,b] = "(" <> emitExpr a <> " == " <> emitExpr b <> ")"
