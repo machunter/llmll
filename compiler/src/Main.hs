@@ -30,7 +30,7 @@ import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..))
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal)
 import LLMLL.HoleAnalysis
@@ -811,12 +811,15 @@ doTypecheck json fp True  = do
       let prefix    = T.intercalate "." path <> "."
           qualified = Map.mapKeys (prefix <>) (meExports menv)
       in Map.union qualified acc
-    holeObj (name, ty) =
-      object [ "name"         .= name
-             , "inferredType" .= sketchTypeLabel ty ]
+    -- inferredType: a valid LLMLL type string, or null for Ambiguous/Unknown
+    inferredTypeJson (HoleTyped t)      = Just (typeLabel t)
+    inferredTypeJson (HoleAmbiguous {}) = Nothing
+    inferredTypeJson HoleUnknown        = Nothing
+    holeObj sh =
+      object [ "name"         .= shName sh
+             , "inferredType" .= inferredTypeJson (shStatus sh)
+             , "pointer"      .= shPointer sh ]
     errObj d =
       object [ "kind"    .= diagKind d
              , "message" .= diagMessage d ]
-    -- Map the __conflict__ sentinel to the spec's canonical output string
-    sketchTypeLabel (TVar "__conflict__") = "<conflict>" :: T.Text
-    sketchTypeLabel t                     = typeLabel t
+

@@ -8,7 +8,7 @@ import qualified Data.Text.IO as TIO
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch, SketchResult(..))
+import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
@@ -708,10 +708,15 @@ main = hspec $ do
         Right _  -> pure ()
 
   -- -----------------------------------------------------------------------
-  -- Phase 2c: --sketch bidirectional hole-type inference (runSketch)
+  -- Phase 2c --sketch D2 output contract (HoleStatus, SketchHole, pointers)
   -- -----------------------------------------------------------------------
-  describe "Phase 2c --sketch bidirectional inference" $ do
-    it "EIf: hole in else gets inferredType = string from concrete then" $ do
+  describe "Phase 2c --sketch D2 output contract" $ do
+
+    let findHole name result =
+          let matches = filter ((== name) . shName) (sketchHoles result)
+          in case matches of { (h:_) -> Just h; [] -> Nothing }
+
+    it "EIf: hole in else gets HoleTyped TString from concrete then" $ do
       let src = T.pack $ unlines
             [ "(def-logic greet [formal: bool]"
             , "  (if formal \"Good day.\" ?informal))"
@@ -720,11 +725,13 @@ main = hspec $ do
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts
-          case lookup "informal" (sketchHoles result) of
-            Nothing -> expectationFailure "informal hole not recorded"
-            Just ty -> ty `shouldBe` TString
+          case findHole "?informal" result of
+            Nothing -> expectationFailure "?informal hole not recorded"
+            Just h  -> do
+              shStatus h `shouldBe` HoleTyped TString
+              shPointer h `shouldSatisfy` (not . T.null)
 
-    it "EIf: hole in then gets inferredType = int from concrete else" $ do
+    it "EIf: hole in then gets HoleTyped TInt from concrete else" $ do
       let src = T.pack $ unlines
             [ "(def-logic safe-div [n: int]"
             , "  (if (= n 0) ?zero_case 42))"
@@ -733,11 +740,11 @@ main = hspec $ do
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts
-          case lookup "zero_case" (sketchHoles result) of
-            Nothing -> expectationFailure "zero_case hole not recorded"
-            Just ty -> ty `shouldBe` TInt
+          case findHole "?zero_case" result of
+            Nothing -> expectationFailure "?zero_case hole not recorded"
+            Just h  -> shStatus h `shouldBe` HoleTyped TInt
 
-    it "EMatch: hole arm gets inferredType = string from concrete sibling arms" $ do
+    it "EMatch: hole arm gets HoleTyped TString from concrete sibling arms" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
             , "(def-logic describe [c: Color]"
@@ -750,11 +757,11 @@ main = hspec $ do
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts
-          case lookup "blue_label" (sketchHoles result) of
-            Nothing -> expectationFailure "blue_label hole not recorded"
-            Just ty -> ty `shouldBe` TString
+          case findHole "?blue_label" result of
+            Nothing -> expectationFailure "?blue_label hole not recorded"
+            Just h  -> shStatus h `shouldBe` HoleTyped TString
 
-    it "EMatch: hole arm gets __conflict__ sentinel when concrete arms disagree" $ do
+    it "EMatch: hole arm gets HoleAmbiguous when concrete arms disagree" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
             , "(def-logic bad-describe [c: Color]"
@@ -767,11 +774,29 @@ main = hspec $ do
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts
-          case lookup "conflict_arm" (sketchHoles result) of
-            Nothing -> expectationFailure "conflict_arm hole not recorded"
-            Just ty -> ty `shouldBe` TVar "__conflict__"
+          case findHole "?conflict_arm" result of
+            Nothing -> expectationFailure "?conflict_arm hole not recorded"
+            Just h  -> case shStatus h of
+              HoleAmbiguous _ _ -> pure ()  -- correct
+              other -> expectationFailure $ "expected HoleAmbiguous, got: " ++ show other
 
-    it "EApp: hole argument gets inferredType from function parameter position" $ do
+    it "EMatch: conflicting arms emit an ambiguous-hole error" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic bad-describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) 42)"
+            , "    ((Blue) ?conflict_arm)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          let ambigErrs = filter (T.isInfixOf "ambiguous-hole" . diagMessage) (sketchErrors result)
+          ambigErrs `shouldSatisfy` (not . null)
+
+    it "EApp: hole argument gets HoleTyped TInt from function parameter position" $ do
       let src = T.pack $ unlines
             [ "(def-logic f [x: int] x)"
             , "(def-logic caller [] (f ?arg))"
@@ -780,9 +805,20 @@ main = hspec $ do
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts
-          case lookup "arg" (sketchHoles result) of
-            Nothing -> expectationFailure "arg hole not recorded"
-            Just ty -> ty `shouldBe` TInt
+          case findHole "?arg" result of
+            Nothing -> expectationFailure "?arg hole not recorded"
+            Just h  -> shStatus h `shouldBe` HoleTyped TInt
+
+    it "isolated hole with no context gets HoleUnknown" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic mystery [] ?isolated)" ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case findHole "?isolated" result of
+            Nothing -> expectationFailure "?isolated hole not recorded"
+            Just h  -> shStatus h `shouldBe` HoleUnknown
 
     it "non-sketch check path unaffected: no holes recorded for concrete program" $ do
       let src = T.pack $ unlines
@@ -796,4 +832,5 @@ main = hspec $ do
           reportSuccess report `shouldBe` True
           let skRes = runSketch emptyEnv stmts
           sketchHoles skRes `shouldBe` []
+
 

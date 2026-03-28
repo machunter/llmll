@@ -1,7 +1,35 @@
 # `--sketch` Inference Algorithm Architecture
 
-> **Phase:** 2c — for discussion with language team before full implementation guide  
-> **Date:** 2026-03-27
+> **Phase:** 2c  
+> **Date:** 2026-03-27  
+> **Decision (Professor, 2026-03-27):** `inferredType` is a pure type field. `null` for all indeterminate cases. Conflicts go in `errors` only.
+
+---
+
+## `HoleStatus` ADT and Output Contract
+
+```haskell
+data HoleStatus
+  = HoleTyped    Type        -- constraint resolved from context
+  | HoleAmbiguous Type Type  -- conflicting constraints from two peers
+  | HoleUnknown              -- no constraint reached this hole
+
+data SketchHole = SketchHole
+  { shName    :: Name       -- "?my_hole"
+  , shStatus  :: HoleStatus
+  , shPointer :: Text       -- RFC 6901 JSON Pointer
+  }
+```
+
+**Output contract:**
+
+| `HoleStatus` | `inferredType` in JSON | `errors` entry? |
+|---|---|---|
+| `HoleTyped t` | valid LLMLL type string | No |
+| `HoleUnknown` | `null` | No |
+| `HoleAmbiguous t1 t2` | `null` | Yes — `"kind": "ambiguous-hole"` with both types |
+
+`inferredType` is **never** a diagnostic string. Conflicts surface in `errors` only.
 
 ---
 
@@ -13,21 +41,21 @@ The current type checker runs in **synthesis mode** only:
 inferExpr :: Expr -> TC Type
 ```
 
-`--sketch` needs a parallel **checking mode** entry point. When the expected type is
-known from context, use it to constrain holes instead of synthesising an unknown:
+`--sketch` needs a parallel **checking mode** entry point:
 
 ```haskell
 checkExpr :: Expr -> Type -> TC ()
-checkExpr (EHole name kind) expected = recordHole name kind expected
+checkExpr (EHole name kind) expected = recordHole name kind (HoleTyped expected)
 checkExpr e                 expected = inferExpr e >>= unify expected
 ```
 
-`checkExpr` on a non-hole is identical to the existing behaviour (infer, then unify).
-The only new behaviour is at `EHole`: instead of synthesising `TVar "_hole"`, it
-records the expected type directly.
+For unconstrained holes (no peer provides a type), record `HoleUnknown`:
+```haskell
+recordHoleUnknown name kind = recordHole name kind HoleUnknown
+```
 
-`inferExpr` is **unchanged for non-sketch runs**. `checkExpr` is called only at the
-three propagation sites below.
+`inferExpr` is **unchanged for non-sketch runs**. Both functions are no-ops when
+`tcSketch = False`.
 
 ---
 
@@ -48,7 +76,7 @@ inferExpr (EIf cond thenE elseE):
      thenE is itself a hole (no inferred type from context):
        Attempt inferExpr elseE → elseT
          Success → checkExpr thenE elseT               ← NEW
-         elseE also a hole → both recorded as TVar "_hole"
+         elseE also a hole → recordHoleUnknown for both  ← HoleUnknown
 
 3. Return unified type
 ```
@@ -63,20 +91,23 @@ All arm bodies must return the same type. A hole arm should receive that type.
 inferExpr (EMatch scrutinee arms):
 
 Pass 1 — synthesise non-hole arm bodies only:
-  armTypes ← [ inferExpr body | (pat, body) ← arms, not (isHole body) ]
-  T ← foldM unify (head armTypes) (tail armTypes)
-        -- type-mismatch errors emitted here as today
-        -- all arms are holes → T = TVar "_hole"
-        -- unification fails  → T = TConflict           ← NEW sentinel
+  armTypes ← [ (inferExpr body, body) | (pat, body) ← arms, not (isHole body) ]
+  unification result:
+    Success → T (all arm types agree)
+    Failure → record (t1, t2) for Pass 2           ← HoleAmbiguous, not a sentinel type
+    All arms are holes → T = Nothing
 
-Pass 2 — check hole arm bodies against T:
-  for each (pat, EHole name kind) in arms:
-    checkExpr (EHole name kind) T
-    -- records T in sketch output; "<conflict>" if T = TConflict
+Pass 2 — record hole arm statuses:
+  Unification succeeded (T = Just t):
+    for each hole arm → recordHole name kind (HoleTyped t)
+  Unification failed (t1, t2 conflict):
+    for each hole arm → recordHole name kind (HoleAmbiguous t1 t2)
+                     → also emit "ambiguous-hole" error entry
+  No non-hole arms (T = Nothing):
+    for each hole arm → recordHoleUnknown name kind
 ```
 
-`TConflict` is an internal sentinel used only during sketch inference. It never
-appears in `llmll check` output and is not exposed in the surface language.
+The conflict is carried in `HoleAmbiguous` — no `TConflict` type sentinel needed.
 
 ---
 

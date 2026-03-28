@@ -24,6 +24,8 @@ module LLMLL.TypeCheck
     -- * Results
   , TypeCheckResult(..)
   , SketchResult(..)
+  , SketchHole(..)
+  , HoleStatus(..)
   ) where
 
 import Data.Map.Strict (Map)
@@ -128,6 +130,24 @@ extendEnv :: Name -> Type -> TypeEnv -> TypeEnv
 extendEnv = Map.insert
 
 -- ---------------------------------------------------------------------------
+-- Sketch Mode Types (Phase 2c)
+-- ---------------------------------------------------------------------------
+
+-- | Status of a named hole after sketch inference.
+data HoleStatus
+  = HoleTyped Type          -- ^ constraint successfully resolved to a concrete type
+  | HoleAmbiguous Type Type -- ^ conflicting constraints (first vs second observed)
+  | HoleUnknown             -- ^ no constraint reached this hole
+  deriving (Show, Eq)
+
+-- | A named hole with its inferred status and RFC 6901 JSON Pointer location.
+data SketchHole = SketchHole
+  { shName    :: Name       -- ^ hole name with \"?\" prefix (e.g. \"?win_message\")
+  , shStatus  :: HoleStatus
+  , shPointer :: Text       -- ^ RFC 6901 JSON Pointer (e.g. \"/statements/3/body/else\")
+  } deriving (Show, Eq)
+
+-- ---------------------------------------------------------------------------
 -- Type Checker Monad
 -- ---------------------------------------------------------------------------
 
@@ -139,7 +159,8 @@ data TCState = TCState
   , tcIsLetrec    :: Bool            -- ^ True when inside a letrec (has explicit :decreases)
   -- Sketch mode (Phase 2c --sketch)
   , tcSketchMode  :: Bool            -- ^ True when called from runSketch
-  , tcSketchHoles :: [(Name, Type)]  -- ^ (holeName, inferredType) accumulator
+  , tcCurrentPtr  :: Text            -- ^ current RFC 6901 JSON Pointer position
+  , tcHoles       :: [SketchHole]    -- ^ accumulator (prepend; reversed at runSketch exit)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -181,18 +202,38 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [])
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False "" [])
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode — collects hole types.
 runTCSketch :: TypeEnv -> TC a -> (a, TCState)
 runTCSketch env action =
-  runState action (TCState env [] Map.empty Nothing False True [])
+  runState action (TCState env [] Map.empty Nothing False True "" [])
 
--- | Record a hole name → inferred type pair (sketch mode only).
-recordSketchHole :: Name -> Type -> TC ()
-recordSketchHole name ty = modify $ \s ->
-  s { tcSketchHoles = tcSketchHoles s ++ [(name, ty)] }
+-- | Run an action with a specific RFC 6901 JSON Pointer as the current position.
+-- Restores the previous pointer when done.
+withPtr :: Text -> TC a -> TC a
+withPtr ptr action = do
+  old <- gets tcCurrentPtr
+  modify $ \s -> s { tcCurrentPtr = ptr }
+  result <- action
+  modify $ \s -> s { tcCurrentPtr = old }
+  pure result
+
+-- | Record a named hole with its status (sketch mode only). Prepends for O(1) append.
+recordHole :: Name -> HoleStatus -> TC ()
+recordHole name status = do
+  sketch <- gets tcSketchMode
+  when sketch $ do
+    ptr <- gets tcCurrentPtr
+    modify $ \s -> s { tcHoles = SketchHole ("?" <> name) status ptr : tcHoles s }
+
+-- | Emit an ambiguous-hole diagnostic to the error accumulator.
+emitAmbiguous :: Name -> Type -> Type -> TC ()
+emitAmbiguous name t1 t2 = do
+  let msg = "conflicting constraints: " <> typeLabel t1 <> " vs " <> typeLabel t2
+  modify $ \s -> s { tcErrors = tcErrors s ++
+    [mkError Nothing ("ambiguous-hole \"?" <> name <> "\" — " <> msg)] }
 
 -- ---------------------------------------------------------------------------
 -- Entry Points
@@ -241,8 +282,9 @@ checkStatements stmts = do
   -- Populate alias map so expandAlias can resolve TCustom aliases in unify
   modify $ \s -> s { tcAliasMap = aliasMap }
   withEnv topLevel $ do
-    -- Second pass: check each statement in order
-    mapM_ checkStatement stmts
+    -- Second pass: check each statement with its RFC 6901 pointer context
+    forM_ (zip [0 :: Int ..] stmts) $ \(i, stmt) ->
+      withPtr ("/statements/" <> tshow i) (checkStatement stmt)
 
 -- | Extract (name, type) for top-level definitions (for forward references).
 collectTopLevel :: Statement -> Maybe (Name, Type)
@@ -266,8 +308,9 @@ checkStatement (SDefLogic name params mRet contract body) = do
   modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = False }
   let paramBindings = params
   withEnv paramBindings $ do
-    -- Infer body type
-    bodyType <- inferExpr body
+    -- Infer body type (under /body sub-pointer)
+    ptr <- gets tcCurrentPtr
+    bodyType <- withPtr (ptr <> "/body") (inferExpr body)
     -- Check return type annotation if present
     case mRet of
       Nothing -> pure ()
@@ -297,8 +340,9 @@ checkStatement (SLetrec name params mRet contract dec body) = do
     decType <- inferExpr dec
     unless (compatibleWith decType TInt) $
       tcWarn $ "letrec '" <> name <> "': :decreases must be int-typed, got " <> typeLabel decType
-    -- Infer body type
-    bodyType <- inferExpr body
+    -- Infer body type (under /body sub-pointer)
+    ptr <- gets tcCurrentPtr
+    bodyType <- withPtr (ptr <> "/body") (inferExpr body)
     case mRet of
       Nothing -> pure ()
       Just retTy -> unify name retTy bodyType
@@ -403,12 +447,11 @@ isHole (EHole _) = True
 isHole _         = False
 
 -- | Checking mode entry point.
--- At EHole: record the expected type (sketch mode) instead of synthesising TVar "?".
--- At any other expr: infer, then unify against expected — identical to existing behaviour.
+-- At EHole (HNamed): records HoleTyped in sketch mode; reads JSON Pointer from TCState.
+-- At other exprs: infer, then unify against expected (identical to existing behaviour).
 checkExpr :: Expr -> Type -> TC ()
-checkExpr (EHole (HNamed name)) expected = do
-  sketch <- gets tcSketchMode
-  when sketch $ recordSketchHole name expected
+checkExpr (EHole (HNamed name)) expected =
+  recordHole name (HoleTyped expected)
 checkExpr (EHole hk) _ = void (inferHole hk)
 checkExpr e expected   = inferExpr e >>= \actual -> unify "<check>" expected actual
 
@@ -445,11 +488,13 @@ inferExpr (EIf cond thenE elseE) = do
   unless (compatibleWith condType TBool) $
     tcError $ "if condition must be bool, got " <> typeLabel condType
   -- Sketch propagation: if one branch is a hole, constrain it from the other.
+  -- withPtr threads the sub-path so holes record their exact position.
+  ptr <- gets tcCurrentPtr
   case (isHole thenE, isHole elseE) of
     (False, False) -> do
       -- Standard path (both concrete)
-      thenType <- inferExpr thenE
-      elseType <- inferExpr elseE
+      thenType <- withPtr (ptr <> "/then") (inferExpr thenE)
+      elseType <- withPtr (ptr <> "/else") (inferExpr elseE)
       if compatibleWith thenType elseType
         then pure thenType
         else do
@@ -458,18 +503,18 @@ inferExpr (EIf cond thenE elseE) = do
           pure thenType
     (False, True) -> do
       -- else is a hole: infer then, propagate into else
-      thenType <- inferExpr thenE
-      checkExpr elseE thenType
+      thenType <- withPtr (ptr <> "/then") (inferExpr thenE)
+      withPtr (ptr <> "/else") (checkExpr elseE thenType)
       pure thenType
     (True, False) -> do
       -- then is a hole: infer else, propagate into then
-      elseType <- inferExpr elseE
-      checkExpr thenE elseType
+      elseType <- withPtr (ptr <> "/else") (inferExpr elseE)
+      withPtr (ptr <> "/then") (checkExpr thenE elseType)
       pure elseType
     (True, True) -> do
-      -- both holes: synthesise TVar "?" for each
-      void $ inferExpr thenE
-      void $ inferExpr elseE
+      -- both holes: infer each (will emit HoleUnknown)
+      withPtr (ptr <> "/then") (void $ inferExpr thenE)
+      withPtr (ptr <> "/else") (void $ inferExpr elseE)
       pure (TVar "?")
 
 inferExpr (EMatch expr cases) = do
@@ -478,33 +523,43 @@ inferExpr (EMatch expr cases) = do
   resolvedScrutType <- expandAlias scrutType
   -- Exhaustiveness check: only for TSumType where the full constructor set is known
   checkExhaustive resolvedScrutType cases
-  -- Two-pass arm loop for sketch constraint propagation.
-  -- Pass 1: synthesise non-hole arm bodies; unify to T.
-  let nonHoleArms = [(pat, body) | (pat, body) <- cases, not (isHole body)]
-      holeArms    = [(pat, body) | (pat, body) <- cases, isHole body]
-  nonHoleTypes <- forM nonHoleArms $ \(pat, body) -> do
+  -- Index all cases for reliable pointer paths
+  let indexedCases = zip [0 :: Int ..] cases
+      nonHoleArms  = [(i, pat, body) | (i, (pat, body)) <- indexedCases, not (isHole body)]
+      holeArms     = [(i, pat, body) | (i, (pat, body)) <- indexedCases,     isHole body]
+  -- Pass 1: synthesise non-hole arm bodies; track conflict
+  ptr <- gets tcCurrentPtr
+  nonHoleResults <- forM nonHoleArms $ \(i, pat, body) -> do
     patBindings <- checkPattern pat resolvedScrutType
-    withEnv patBindings (inferExpr body)
-  armT <- case nonHoleTypes of
-    [] -> pure (TVar "?")   -- all arms are holes
-    (t:ts) -> do
-      -- Unify arm types; use sentinel on conflict
-      foldM (\acc t' ->
-        if acc == TVar "__conflict__" then pure acc
-        else if compatibleWith acc t' then pure acc
+    t <- withEnv patBindings $ withPtr (ptr <> "/arms/" <> tshow i <> "/body") (inferExpr body)
+    pure t
+  -- Unify non-hole arm types; on first mismatch record the conflicting pair
+  (armT, mConflict) <- case nonHoleResults of
+    [] -> pure (TVar "?", Nothing)
+    (t:ts) -> foldM (\(acc, mc) t' ->
+        if mc /= Nothing then pure (acc, mc)
+        else if compatibleWith acc t' then pure (acc, Nothing)
              else do
-               tcWarn $ "match arms have different types: "
-                         <> typeLabel acc <> " vs " <> typeLabel t'
-               pure (TVar "__conflict__")
-        ) t ts
-  -- Also infer hole arm pattern-bindings (for exhaustiveness accuracy), ignoring body
-  forM_ holeArms $ \(pat, _) -> do
+               tcWarn $ "match arms have different types: " <> typeLabel acc <> " vs " <> typeLabel t'
+               pure (acc, Just (acc, t'))
+      ) (t, Nothing) ts
+  -- Pass 2: check hole arm bodies against unified arm type (or record conflict/unknown)
+  forM_ holeArms $ \(i, pat, body) -> do
     patBindings <- checkPattern pat resolvedScrutType
-    -- Pass 2: check each hole arm body against the unified arm type
-    -- (checkExpr records the type in sketch mode via recordSketchHole)
-    forM_ [(pat, body) | (p2, body) <- cases, isHole body, p2 == pat] $ \(_, body) ->
-      withEnv patBindings (checkExpr body armT)
-  pure $ if armT == TVar "__conflict__" then TVar "?" else armT
+    withEnv patBindings $
+      withPtr (ptr <> "/arms/" <> tshow i <> "/body") $ do
+        case body of
+          EHole (HNamed name) -> do
+            let status = case mConflict of
+                  Just (t1, t2) -> HoleAmbiguous t1 t2
+                  Nothing       -> if armT == TVar "?" then HoleUnknown else HoleTyped armT
+            recordHole name status
+            -- Emit ambiguous-hole diagnostic if conflict
+            case mConflict of
+              Just (t1, t2) -> emitAmbiguous name t1 t2
+              Nothing       -> pure ()
+          _ -> checkExpr body armT  -- non-named hole kinds
+  pure $ if mConflict /= Nothing then TVar "?" else armT
 
 inferExpr (EApp func args) = do
   mFuncTy <- tcLookup func
@@ -526,8 +581,12 @@ inferExpr (EApp func args) = do
                      else ""
         tcError $ "function '" <> func <> "' expects " <> tshow (length paramTypes)
                   <> " args, got " <> tshow nArgs <> hint
-      -- Use checkExpr so hole arguments get their inferredType recorded in sketch mode.
-      zipWithM_ (\expected arg -> checkExpr arg expected) paramTypes args
+      -- Use checkExpr per argument so holes in arg positions get their type recorded.
+      -- withPtr threads the arg sub-pointer for accurate JSON Pointer output.
+      ptr <- gets tcCurrentPtr
+      zipWithM_ (\(j, expected) arg ->
+        withPtr (ptr <> "/args/" <> tshow (j :: Int)) (checkExpr arg expected))
+        (zip [0..] paramTypes) args
       pure retType
     Just (TCustom _) ->
       -- Might be a constructor call
@@ -572,7 +631,10 @@ inferExpr (EDo steps) = do
 
 -- | Infer the type of a hole expression.
 inferHole :: HoleKind -> TC Type
-inferHole (HNamed _name) = do
+inferHole (HNamed name) = do
+  -- Synthesis context: no expected type reached this hole.
+  -- In sketch mode, emit HoleUnknown (pointer already set by withPtr in parent).
+  recordHole name HoleUnknown
   tcWarn $ "unresolved named hole"
   pure (TVar "?")  -- Unknown type, will be resolved when hole is filled
 
@@ -772,18 +834,18 @@ data TypeCheckResult = TypeCheckResult
 
 -- | Result of running the type checker in sketch mode.
 data SketchResult = SketchResult
-  { sketchHoles  :: [(Name, Type)]  -- ^ (hole name, inferred type) pairs
-  , sketchErrors :: [Diagnostic]    -- ^ type errors present in partial program
+  { sketchHoles  :: [SketchHole]  -- ^ holes in source order
+  , sketchErrors :: [Diagnostic]  -- ^ type errors present in partial program
   } deriving (Show)
 
 -- | Run the type checker in sketch mode.
--- Accepts partial programs with holes everywhere. Returns each named hole's
--- inferred type plus any type errors that exist independently of the holes.
+-- Accepts partial programs with holes everywhere. Returns each named hole\'s
+-- status (Typed / Ambiguous / Unknown) and JSON Pointer, plus any type errors.
 runSketch :: TypeEnv -> [Statement] -> SketchResult
 runSketch env stmts =
   let action          = checkStatements stmts
       (_, finalState) = runTCSketch env action
   in SketchResult
-       { sketchHoles  = tcSketchHoles finalState
+       { sketchHoles  = reverse (tcHoles finalState)   -- flip prepend accumulator
        , sketchErrors = tcErrors finalState
        }
