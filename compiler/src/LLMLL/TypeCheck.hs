@@ -170,6 +170,22 @@ tcError :: Text -> TC ()
 tcError msg = modify $ \s -> s
   { tcErrors = tcErrors s ++ [mkError Nothing msg] }
 
+-- | Emit a hole-sensitive type error (holeSensitive = True).
+-- Used in unify when at least one type is a hole variable.
+tcErrorHS :: Text -> TC ()
+tcErrorHS msg = modify $ \s -> s
+  { tcErrors = tcErrors s ++ [(mkError Nothing msg) { diagHoleSensitive = True }] }
+
+-- | True if a type is a hole variable (TVar with "?" prefix).
+isHoleVar :: Type -> Bool
+isHoleVar (TVar n) = "?" `T.isPrefixOf` n
+isHoleVar _        = False
+
+-- | True if either type is a hole variable — signals that a unification
+-- failure may disappear once the hole resolves (D3).
+isHoleSensitive :: Type -> Type -> Bool
+isHoleSensitive t1 t2 = isHoleVar t1 || isHoleVar t2
+
 -- | Emit a type warning.
 tcWarn :: Text -> TC ()
 tcWarn msg = modify $ \s -> s
@@ -633,10 +649,11 @@ inferExpr (EDo steps) = do
 inferHole :: HoleKind -> TC Type
 inferHole (HNamed name) = do
   -- Synthesis context: no expected type reached this hole.
-  -- In sketch mode, emit HoleUnknown (pointer already set by withPtr in parent).
+  -- Return TVar (\"?\" <> name) so isHoleVar fires on downstream unification
+  -- failures, classifying them as holeSensitive (D3 invariant).
   recordHole name HoleUnknown
   tcWarn $ "unresolved named hole"
-  pure (TVar "?")  -- Unknown type, will be resolved when hole is filled
+  pure (TVar ("?" <> name))  -- D3 canonical form: must use ?-prefixed TVar
 
 inferHole (HChoose _options) = do
   tcWarn "unresolved ?choose hole"
@@ -808,8 +825,11 @@ unify ctx expected actual = do
   expected' <- expandAlias expected
   actual'   <- expandAlias actual
   unless (compatibleWith expected' actual') $
-    tcError $ "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
-              <> ", got " <> typeLabel actual
+    -- Choose hole-sensitivity: if either expanded type is a hole var, the
+    -- error is conditional on how the hole resolves (holeSensitive: true).
+    (if isHoleSensitive expected' actual' then tcErrorHS else tcError) $
+      "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
+        <> ", got " <> typeLabel actual
 
 -- | zipWithM_ with indices.
 zipWithM_ :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m ()

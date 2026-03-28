@@ -820,6 +820,8 @@ doTypecheck json fp True  = do
              , "inferredType" .= inferredTypeJson (shStatus sh)
              , "pointer"      .= shPointer sh ]
     errObj d =
-      object [ "kind"    .= diagKind d
-             , "message" .= diagMessage d ]
+      object [ "kind"          .= diagKind d
+             , "message"       .= diagMessage d
+             , "holeSensitive" .= diagHoleSensitive d ]
+
 
