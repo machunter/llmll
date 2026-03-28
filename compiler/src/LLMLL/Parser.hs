@@ -218,10 +218,9 @@ pFnType = parens $ do
   where
     -- Try named param first (name: type), fall back to bare type
     pFnParam = try (do
-      n <- pIdent
+      _ <- pIdent
       _ <- symbol ":"
-      ty <- pType
-      pure ty) <|> pType
+      pType) <|> pType
 
 -- | Parse (type Name definition)
 pTypeDef :: Parser Statement
@@ -400,7 +399,7 @@ pPostClause = parens $ symbol "post" *> pExpr
 
 pType :: Parser Type
 pType = choice
-  [ try pPairTypeError  -- explicitly catch pair-types in type position and give a helpful error
+  [ try pPairType   -- Phase 2c: (T1, T2) pair-type in parameter positions
   , TInt      <$ symbol "int"
   , TFloat    <$ symbol "float"
   , TString   <$ symbol "string"
@@ -416,13 +415,17 @@ pType = choice
   , TCustom <$> pIdent
   ]
 
--- | V0.1.1 doesn't support pair types in parameters, but a common developer mistake
--- is to write `[acc: (int, string)]`. If we see `(type, type)`, we fail explicitly
--- with a helpful error message to prevent confusing backtracking.
-pPairTypeError :: Parser Type
-pPairTypeError = do
-  _ <- try (symbol "(" *> pType <* symbol ",")
-  fail "pair-types (A, B) are not supported in parameters in v0.1.1 (see LLMLL.md §3.2); use untyped parameters like [acc item] instead"
+-- | Phase 2c: parse pair-type (T1, T2) in type position into TResult T1 T2.
+-- This matches the runtime model: EPair evaluates to TResult.
+-- Accepted in def-logic params, lambda params, and for-all bindings.
+pPairType :: Parser Type
+pPairType = do
+  _ <- try (lookAhead (symbol "("))
+  parens $ do
+    t1 <- pType
+    _  <- symbol ","
+    t2 <- pType
+    pure (TResult t1 t2)
 
 pBytesType :: Parser Type
 pBytesType = do

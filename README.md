@@ -16,8 +16,10 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
-| `llmll verify <file> [--fq-out FILE]` | **Phase 2b** — emit `.fq` constraint file and run `liquid-fixpoint` (if installed). Reports SAFE or contract-violation diagnostics with JSON Pointers. |
-| `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). Remote `hub fetch` is Phase 2b. |
+| `llmll verify <file> [--fq-out FILE]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). Reports SAFE or contract-violation diagnostics with JSON Pointers. |
+| `llmll typecheck --sketch <file>` | **Phase 2c** — partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors. |
+| `llmll serve [--host H] [--port P] [--token T]` | **Phase 2c** — expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
+| `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). |
 
 ### Input formats
 

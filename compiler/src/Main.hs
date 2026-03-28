@@ -3,13 +3,15 @@
 -- Description : CLI entry point for the LLMLL compiler.
 --
 -- Subcommands:
---   check  — parse + type-check, optional --json output
---   holes  — list and classify all holes, optional --json output
---   test   — run property-based tests (check blocks)
---   build  — emit Haskell/JSON-AST, optional --emit json-ast / --from-json
---   run    — build into temp dir and execute
---   repl   — interactive read-eval-print loop
---   verify — D4: emit .fq constraints + run liquid-fixpoint (if installed)
+--   check      — parse + type-check, optional --json output
+--   holes      — list and classify all holes, optional --json output
+--   test       — run property-based tests (check blocks)
+--   build      — emit Haskell/JSON-AST, optional --emit json-ast / --from-json
+--   run        — build into temp dir and execute
+--   repl       — interactive read-eval-print loop
+--   verify     — D4: emit .fq constraints + run liquid-fixpoint (if installed)
+--   typecheck  — Phase 2c: parse + type-check; --sketch infers hole types
+--   serve      — Phase 2c: HTTP endpoint for agent sketch queries (localhost:7777)
 module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
@@ -29,8 +31,8 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..))
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal)
 import LLMLL.HoleAnalysis
@@ -48,6 +50,8 @@ import LLMLL.Diagnostic
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
+import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
+import LLMLL.Sketch (encodeSketchResult)
 
 import qualified Data.Map.Strict as Map
 
@@ -56,15 +60,17 @@ import qualified Data.Map.Strict as Map
 -- ---------------------------------------------------------------------------
 
 data Command
-  = CmdCheck  FilePath
-  | CmdHoles  FilePath
-  | CmdTest   FilePath Bool                         -- file, --emit-only
-  | CmdBuild  FilePath (Maybe FilePath) Bool Bool Bool  -- file, outdir, --wasm, --emit-json-ast, --emit-only
-  | CmdBuildFromJson FilePath (Maybe FilePath) Bool     -- file, outdir, --emit-only
-  | CmdRun    FilePath [String]                         -- file, extra args
+  = CmdCheck    FilePath
+  | CmdHoles    FilePath
+  | CmdTest     FilePath Bool                               -- file, --emit-only
+  | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool    -- file, outdir, --wasm, --emit-json-ast, --emit-only
+  | CmdBuildFromJson FilePath (Maybe FilePath) Bool         -- file, outdir, --emit-only
+  | CmdRun      FilePath [String]                           -- file, extra args
   | CmdRepl
-  | CmdHub    FilePath                                  -- Phase 2a: hub fetch --from-file <tarball>
-  | CmdVerify FilePath (Maybe FilePath)                 -- D4: file, optional .fq output path
+  | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
+  | CmdVerify   FilePath (Maybe FilePath)                   -- D4: file, optional .fq output path
+  | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
+  | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   deriving (Show)
 
 data Options = Options
@@ -75,7 +81,7 @@ data Options = Options
 optionsParser :: ParserInfo Options
 optionsParser = info (helper <*> opts) $
   fullDesc
-  <> progDesc "LLMLL — Large Language Model Logical Language Compiler (v0.1.2)"
+  <> progDesc "LLMLL — Large Language Model Logical Language Compiler (v0.2.0)"
   <> header "llmll — AI-to-AI programming language compiler"
   where
     opts = Options
@@ -101,6 +107,10 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Manage llmll-hub local package cache"))
       <> command "verify" (info verifyCmd
           (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
+      <> command "typecheck" (info typecheckCmd
+          (progDesc "Parse and type-check; with --sketch infer hole types from context (Phase 2c)"))
+      <> command "serve" (info serveCmd
+          (progDesc "D5: Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -140,6 +150,21 @@ optionsParser = info (helper <*> opts) $
             (short 'o' <> long "fq-out" <> metavar "FILE"
             <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
 
+    typecheckCmd = CmdTypecheck
+      <$> fileArg
+      <*> switch (long "sketch" <> help "Run bidirectional sketch inference — report inferred hole types")
+
+    serveCmd = CmdServe <$> (ServeOptions
+      <$> option auto
+            (long "port" <> value 7777 <> metavar "PORT"
+             <> help "Port to listen on (default: 7777)")
+      <*> strOption
+            (long "host" <> value "127.0.0.1" <> metavar "HOST"
+             <> help "Host to bind (default: 127.0.0.1; TLS via reverse proxy)")
+      <*> optional (strOption
+            (long "token" <> metavar "TOKEN"
+             <> help "Bearer token (default: auto-generated); use \"\" to disable auth")))
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -161,6 +186,8 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdVerify fp mFqOut       -> doVerify json fp mFqOut
+    CmdTypecheck fp sketch    -> doTypecheck json fp sketch
+    CmdServe serveOpts        -> runServe serveOpts
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -775,4 +802,29 @@ doVerify json fp mFqOut = do
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
 
           if reportSuccess report then exitSuccess else exitFailure
+
+-- ---------------------------------------------------------------------------
+-- Phase 2c: typecheck [--sketch]
+-- ---------------------------------------------------------------------------
+
+doTypecheck :: Bool -> FilePath -> Bool -> IO ()
+doTypecheck json fp False = doCheck json fp   -- non-sketch: identical to check
+doTypecheck json fp True  = do
+  -- Sketch mode: propagate types into holes
+  mResult <- loadStatementsMulti json fp
+  case mResult of
+    Left () -> exitFailure
+    Right (ss, cache, _) -> do
+      -- Seed env with cross-module names then run sketch inference
+      let seededEnv = Map.foldlWithKey' seedModule emptyEnv cache
+          result    = runSketch seededEnv ss
+      -- encodeSketchResult produces schemaVersion + sorted errors + structured fields
+      BLC.putStrLn (encodeSketchResult result)
+      exitSuccess
+  where
+    seedModule acc path menv =
+      let prefix    = T.intercalate "." path <> "."
+          qualified = Map.mapKeys (prefix <>) (meExports menv)
+      in Map.union qualified acc
+
 

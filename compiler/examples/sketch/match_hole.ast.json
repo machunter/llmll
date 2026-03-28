@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "0.2.0",
+  "statements": [
+    {
+      "kind": "type-decl",
+      "name": "Action",
+      "body": {
+        "kind": "sum",
+        "variants": [
+          { "constructor": "Notify", "payload": { "kind": "primitive", "name": "string" } },
+          { "constructor": "Ignore" }
+        ]
+      }
+    },
+    {
+      "kind": "def-logic",
+      "name": "handle",
+      "params": [
+        { "name": "action", "param_type": { "kind": "named", "name": "Action" } }
+      ],
+      "body": {
+        "kind": "match",
+        "scrutinee": { "kind": "var", "name": "action" },
+        "arms": [
+          {
+            "pattern": { "kind": "constructor", "constructor": "Notify",
+                         "sub_patterns": [{ "kind": "bind", "name": "msg" }] },
+            "body": { "kind": "lit-int", "value": 1 }
+          },
+          {
+            "pattern": { "kind": "constructor", "constructor": "Ignore" },
+            "body": { "kind": "hole-named", "name": "ignore_action" }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -44,6 +44,11 @@ dependencies:
   - tar >= 0.5
   - zlib >= 0.6
   - unix >= 2.7
+  - network >= 3.1     # D5: LLMLL.Serve socket server (kept for getAddrInfo)
+  - random >= 1.2      # D5: token generation
+  - warp >= 3.3        # D5: HTTP server
+  - wai >= 3.2         # D5: WAI application interface
+  - http-types >= 0.12 # D5: HTTP status codes + headers
 
 library:
   source-dirs: src
@@ -66,6 +71,10 @@ library:
     - LLMLL.FixpointIR
     - LLMLL.FixpointEmit
     - LLMLL.DiagnosticFQ
+    # D5: HTTP serve endpoint
+    - LLMLL.Serve
+    # D5: Sketch output contract
+    - LLMLL.Sketch
 
 executables:
   llmll:

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "greet",
+      "params": [
+        { "name": "formal", "param_type": { "kind": "primitive", "name": "bool" } }
+      ],
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "var", "name": "formal" },
+        "then_branch": { "kind": "lit-string", "value": "Dear Sir/Madam" },
+        "else_branch": { "kind": "hole-named", "name": "informal_greeting" }
+      }
+    }
+  ]
+}

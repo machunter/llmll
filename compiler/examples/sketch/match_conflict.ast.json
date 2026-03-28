@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "0.2.0",
+  "statements": [
+    {
+      "kind": "type-decl",
+      "name": "Shape",
+      "body": {
+        "kind": "sum",
+        "variants": [
+          { "constructor": "Circle", "payload": { "kind": "primitive", "name": "float" } },
+          { "constructor": "Square", "payload": { "kind": "primitive", "name": "float" } },
+          { "constructor": "Triangle" }
+        ]
+      }
+    },
+    {
+      "kind": "def-logic",
+      "name": "describe",
+      "params": [
+        { "name": "shape", "param_type": { "kind": "named", "name": "Shape" } }
+      ],
+      "body": {
+        "kind": "match",
+        "scrutinee": { "kind": "var", "name": "shape" },
+        "arms": [
+          {
+            "pattern": { "kind": "constructor", "constructor": "Circle",
+                         "sub_patterns": [{ "kind": "bind", "name": "r" }] },
+            "body": { "kind": "lit-int", "value": 42 }
+          },
+          {
+            "pattern": { "kind": "constructor", "constructor": "Square",
+                         "sub_patterns": [{ "kind": "bind", "name": "s" }] },
+            "body": { "kind": "lit-string", "value": "square" }
+          },
+          {
+            "pattern": { "kind": "constructor", "constructor": "Triangle" },
+            "body": { "kind": "hole-named", "name": "triangle_result" }
+          }
+        ]
+      }
+    }
+  ]
+}
