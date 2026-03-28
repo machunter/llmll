@@ -48,6 +48,8 @@ import LLMLL.Diagnostic
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
+import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
+import LLMLL.Sketch (encodeSketchResult)
 
 import qualified Data.Map.Strict as Map
 
@@ -66,6 +68,7 @@ data Command
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdVerify   FilePath (Maybe FilePath)                   -- D4: file, optional .fq output path
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
+  | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   deriving (Show)
 
 data Options = Options
@@ -104,6 +107,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
       <> command "typecheck" (info typecheckCmd
           (progDesc "Parse and type-check; with --sketch infer hole types from context (Phase 2c)"))
+      <> command "serve" (info serveCmd
+          (progDesc "D5: Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -147,6 +152,17 @@ optionsParser = info (helper <*> opts) $
       <$> fileArg
       <*> switch (long "sketch" <> help "Run bidirectional sketch inference — report inferred hole types")
 
+    serveCmd = CmdServe <$> (ServeOptions
+      <$> option auto
+            (long "port" <> value 7777 <> metavar "PORT"
+             <> help "Port to listen on (default: 7777)")
+      <*> strOption
+            (long "host" <> value "127.0.0.1" <> metavar "HOST"
+             <> help "Host to bind (default: 127.0.0.1; TLS via reverse proxy)")
+      <*> optional (strOption
+            (long "token" <> metavar "TOKEN"
+             <> help "Bearer token (default: auto-generated); use \"\" to disable auth")))
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -169,6 +185,7 @@ main = do
     CmdHub   tarball          -> doHubFetch json tarball
     CmdVerify fp mFqOut       -> doVerify json fp mFqOut
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
+    CmdServe serveOpts        -> runServe serveOpts
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -799,29 +816,13 @@ doTypecheck json fp True  = do
       -- Seed env with cross-module names then run sketch inference
       let seededEnv = Map.foldlWithKey' seedModule emptyEnv cache
           result    = runSketch seededEnv ss
-          holesJson = map holeObj (sketchHoles result)
-          errsJson  = map errObj  (sketchErrors result)
-      TIO.putStrLn . T.pack . BLC.unpack . encode $
-        object [ "holes"  .= holesJson
-               , "errors" .= errsJson ]
+      -- encodeSketchResult produces schemaVersion + sorted errors + structured fields
+      BLC.putStrLn (encodeSketchResult result)
       exitSuccess
   where
-    -- Qualify exported names from a cached module (mirrors typeCheckWithCache)
     seedModule acc path menv =
       let prefix    = T.intercalate "." path <> "."
           qualified = Map.mapKeys (prefix <>) (meExports menv)
       in Map.union qualified acc
-    -- inferredType: a valid LLMLL type string, or null for Ambiguous/Unknown
-    inferredTypeJson (HoleTyped t)      = Just (typeLabel t)
-    inferredTypeJson (HoleAmbiguous {}) = Nothing
-    inferredTypeJson HoleUnknown        = Nothing
-    holeObj sh =
-      object [ "name"         .= shName sh
-             , "inferredType" .= inferredTypeJson (shStatus sh)
-             , "pointer"      .= shPointer sh ]
-    errObj d =
-      object [ "kind"          .= diagKind d
-             , "message"       .= diagMessage d
-             , "holeSensitive" .= diagHoleSensitive d ]
 
 

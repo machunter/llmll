@@ -63,6 +63,10 @@ data Diagnostic = Diagnostic
   , diagInferredType  :: Maybe Text     -- ^ Inferred type at the error site, if available
   -- Phase 2c D3:
   , diagHoleSensitive :: Bool           -- ^ True → error may disappear when holes are filled
+  -- Phase 2c D5 (structured error schema):
+  , diagExpected      :: Maybe Text     -- ^ Expected type label (type-mismatch errors)
+  , diagGot           :: Maybe Text     -- ^ Actual type label   (type-mismatch errors)
+  , diagHole          :: Maybe Text     -- ^ Hole name (ambiguous-hole errors, e.g. \"?my_hole\")
   } deriving (Show, Eq, Generic)
 
 -- | A collection of diagnostics from a compiler phase.
@@ -77,13 +81,13 @@ data DiagnosticReport = DiagnosticReport
 -- ---------------------------------------------------------------------------
 
 mkError :: Maybe Span -> Text -> Diagnostic
-mkError sp msg = Diagnostic SevError sp msg Nothing Nothing Nothing Nothing Nothing False
+mkError sp msg = Diagnostic SevError sp msg Nothing Nothing Nothing Nothing Nothing False Nothing Nothing Nothing
 
 mkWarning :: Maybe Span -> Text -> Diagnostic
-mkWarning sp msg = Diagnostic SevWarning sp msg Nothing Nothing Nothing Nothing Nothing False
+mkWarning sp msg = Diagnostic SevWarning sp msg Nothing Nothing Nothing Nothing Nothing False Nothing Nothing Nothing
 
 mkInfo :: Maybe Span -> Text -> Diagnostic
-mkInfo sp msg = Diagnostic SevInfo sp msg Nothing Nothing Nothing Nothing Nothing False
+mkInfo sp msg = Diagnostic SevInfo sp msg Nothing Nothing Nothing Nothing Nothing False Nothing Nothing Nothing
 
 -- | Smart constructor for diagnostics with a JSON Pointer and kind class.
 -- Used by ParserJSON and the hole density validator.
@@ -225,7 +229,10 @@ instance ToJSON Diagnostic where
     maybe [] (\c  -> ["code"          .= c]) (diagCode d)        ++
     maybe [] (\k  -> ["kind"          .= k]) (diagKind d)        ++
     maybe [] (\p  -> ["pointer"       .= p]) (diagPointer d)     ++
-    maybe [] (\t  -> ["inferred-type" .= t]) (diagInferredType d)
+    maybe [] (\t  -> ["inferred-type" .= t]) (diagInferredType d) ++
+    maybe [] (\e  -> ["expected"      .= e]) (diagExpected d)    ++
+    maybe [] (\g  -> ["got"           .= g]) (diagGot d)         ++
+    maybe [] (\h  -> ["hole"          .= h]) (diagHole d)
 
 instance ToJSON DiagnosticReport where
   toJSON r = object
@@ -272,7 +279,7 @@ megaparsecToDiagnostic fp bundle =
       -- so downstream formatters can append their own location info.
       cleanMsg    = stripLocationPrefix prettyMsg
       suggestion  = Just "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)"
-  in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False)
+  in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False Nothing Nothing Nothing)
   where
     stripLocationPrefix t =
       -- errorBundlePretty lines: "<file>:line:col:\nerror: ..."

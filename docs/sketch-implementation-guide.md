@@ -1,7 +1,8 @@
-# `--sketch` Inference Algorithm Architecture
+# `--sketch` Implementation Design — D1 through D5
 
 > **Phase:** 2c  
 > **Date:** 2026-03-27  
+> **Decisions:** D1 (inference algorithm), D2 (hole status + output contract), D3 (error aggressiveness), D4 (JSON pointer tracking), D5 (server security posture)  
 > **Decision (Professor, 2026-03-27):** `inferredType` is a pure type field. `null` for all indeterminate cases. Conflicts go in `errors` only.
 
 ---
@@ -276,3 +277,66 @@ The top-level descent into each `Statement` seeds the stack with `"statements/N"
 - A hole at `/statements/0/body/arms/1/body` is reported with the correct nested path.
 - `tcPointerStack` is `[]` at the start of every top-level check in non-sketch mode.
 - No existing `llmll check` test is affected — pointer stack is inert when `tcSketch = False`.
+
+> [!WARNING]
+> `withSegment` uses `init` to pop the last segment. `init` panics on an empty list. The implementation must guard against this — e.g., check that `tcPointerStack` is non-empty before calling `init`, or use a safe alternative. This panic cannot occur in correct usage (every `withSegment` push is matched by a pop), but defensive handling prevents a runtime crash if `withSegment` is ever called on a zero-depth stack during debugging or testing.
+
+---
+
+## D5 — `llmll serve` Security Posture
+
+> **Decision (language team + compiler team, 2026-03-28):** Localhost default, network-ready by design. TLS delegated to reverse proxy. Stateless per request is a first-class design invariant.
+
+### Stateless-per-request — design invariant
+
+Every `POST /sketch` call invokes `runSketch` with a fresh environment:
+
+```haskell
+-- Handler is a pure function: ByteString → ByteString
+-- No shared mutable state. No request ordering dependency.
+sketchHandler :: ByteString -> IO ByteString
+sketchHandler body = case parseAST body of
+  Left err    -> pure (encodeError err)
+  Right stmts -> pure (encodeSketchResult (runSketch emptyTCState stmts))
+```
+
+**Consequences:**
+- Concurrency is free — Warp's thread pool can serve N simultaneous agents with no locks
+- No inter-request contamination — `tcPointerStack`, `tcHoles`, `tcSketch` all start at their zero values per call
+- Adding async or worker pools in v0.3 requires no architectural change
+
+This is not just a docs property — it must be enforced by construction. `emptyTCState` must be called inside the handler, never hoisted to a shared ref.
+
+### CLI interface
+
+```bash
+llmll serve [--host HOST] [--port PORT] [--token TOKEN]
+# Defaults: --host 127.0.0.1  --port 7777  (no auth)
+```
+
+| Flag | Phase 2c | v0.3 (distributed swarm) |
+|------|----------|--------------------------|
+| `--host` | `127.0.0.1` | `0.0.0.0` for network agents |
+| `--token` | Optional — enables `Authorization: Bearer` check | Required |
+| TLS | Reverse proxy (nginx/Caddy) | Same — compiler never manages certs |
+
+### Token auth — pre-wired in Phase 2c
+
+```haskell
+checkAuth :: Maybe Text -> Request -> Either Response ()
+checkAuth Nothing  _   = Right ()    -- no token configured: open
+checkAuth (Just t) req =
+  if lookupHeader "Authorization" req == Just ("Bearer " <> t)
+  then Right ()
+  else Left (response401 "invalid token")
+```
+
+One-line check in the handler. Zero cost when `--token` is omitted. v0.3 flips to distributed mode by adding `--host` + `--token` without changing the interface.
+
+### D5 acceptance criteria
+
+- `llmll serve` binds `127.0.0.1:7777` by default; `--host` and `--port` override.
+- With `--token <t>`: requests missing or wrong `Authorization: Bearer` receive 401.
+- Without `--token`: all requests accepted.
+- Two simultaneous `POST /sketch` requests return independent results — no shared state between them.
+- `emptyTCState` is constructed inside the handler, not at server startup.

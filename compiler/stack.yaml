@@ -4,3 +4,14 @@ packages:
   - .
 
 extra-deps: []
+
+# Disable crypton's C hardware extensions that fail to build on aarch64-osx.
+# These are transitive via warp -> tls -> crypton.
+# TLS is irrelevant for us (delegated to a reverse proxy).
+flags:
+  crypton:
+    support_aesni: false
+    support_rdrand: false
+    support_sse: false
+    support_pclmuldq: false
+    old_toolchain_inliner: true

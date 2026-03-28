@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "check_value",
+      "params": [
+        { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "if",
+        "cond": {
+          "kind": "op",
+          "op": ">",
+          "args": [
+            { "kind": "var", "name": "x" },
+            { "kind": "lit-int", "value": 0 }
+          ]
+        },
+        "then_branch": {
+          "kind": "lit-string", "value": "positive"
+        },
+        "else_branch": {
+          "kind": "hole-named", "name": "non_positive_case"
+        }
+      }
+    },
+    {
+      "kind": "def-logic",
+      "name": "process",
+      "params": [
+        { "name": "flag", "param_type": { "kind": "primitive", "name": "bool" } }
+      ],
+      "body": {
+        "kind": "if",
+        "cond": { "kind": "var", "name": "flag" },
+        "then_branch": { "kind": "lit-int", "value": 1 },
+        "else_branch": { "kind": "lit-string", "value": "false branch" }
+      }
+    }
+  ]
+}

@@ -176,6 +176,21 @@ tcErrorHS :: Text -> TC ()
 tcErrorHS msg = modify $ \s -> s
   { tcErrors = tcErrors s ++ [(mkError Nothing msg) { diagHoleSensitive = True }] }
 
+-- | Emit a structured type-mismatch error with expected/got fields.
+-- holeSensitive is set if either type is a hole variable (D3).
+tcTypeMismatch :: Text -> Type -> Type -> TC ()
+tcTypeMismatch ctx expected actual = modify $ \s -> s
+  { tcErrors = tcErrors s ++
+      [ (mkError Nothing msg)
+          { diagKind          = Just "type-mismatch"
+          , diagExpected      = Just (typeLabel expected)
+          , diagGot           = Just (typeLabel actual)
+          , diagHoleSensitive = isHoleSensitive expected actual
+          } ] }
+  where
+    msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
+            <> ", got " <> typeLabel actual
+
 -- | True if a type is a hole variable (TVar with "?" prefix).
 isHoleVar :: Type -> Bool
 isHoleVar (TVar n) = "?" `T.isPrefixOf` n
@@ -256,7 +271,10 @@ emitAmbiguous :: Name -> Type -> Type -> TC ()
 emitAmbiguous name t1 t2 = do
   let msg = "conflicting constraints: " <> typeLabel t1 <> " vs " <> typeLabel t2
   modify $ \s -> s { tcErrors = tcErrors s ++
-    [mkError Nothing ("ambiguous-hole \"?" <> name <> "\" — " <> msg)] }
+    [(mkError Nothing ("ambiguous-hole \"?" <> name <> "\" — " <> msg))
+       { diagKind = Just "ambiguous-hole"
+       , diagHole = Just ("?" <> name)
+       }] }
 
 -- ---------------------------------------------------------------------------
 -- Entry Points
@@ -831,11 +849,8 @@ unify ctx expected actual = do
   expected' <- expandAlias expected
   actual'   <- expandAlias actual
   unless (compatibleWith expected' actual') $
-    -- Choose hole-sensitivity: if either expanded type is a hole var, the
-    -- error is conditional on how the hole resolves (holeSensitive: true).
-    (if isHoleSensitive expected' actual' then tcErrorHS else tcError) $
-      "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
-        <> ", got " <> typeLabel actual
+    -- Use structured type-mismatch error with separate expected/got fields (D5).
+    tcTypeMismatch ctx expected' actual'
 
 -- | zipWithM_ with indices.
 zipWithM_ :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m ()

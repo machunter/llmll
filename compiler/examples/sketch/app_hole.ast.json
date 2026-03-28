@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "greet",
+      "params": [
+        { "name": "name", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "app",
+        "fn": "string-concat",
+        "args": [
+          { "kind": "lit-string", "value": "Hello, " },
+          { "kind": "hole-named", "name": "greeting_suffix" }
+        ]
+      }
+    }
+  ]
+}
