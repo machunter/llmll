@@ -203,3 +203,76 @@ inferExpr (EHole name kind) = do
 - A `unify` failure where one side is `TVar "?foo"` emits `holeSensitive: true`.
 - `inferExpr (EHole name _)` returns `TVar ("?" <> name)` in synthesis mode.
 - Agents re-querying after hole resolution see `holeSensitive: false` errors persist and `holeSensitive: true` errors resolve or change.
+
+---
+
+## D4 — JSON Pointer Tracking
+
+> **Decision (Professor, 2026-03-28):** Option C — fold `tcPointerStack :: [Text]` into `TCState`.  
+> ReaderT layer (Option A) rejected: `TC` is `type TC a = State TCState a` — a 2-layer transformer stack would require `lift` at ~40 call sites. Explicit argument (Option B) rejected: high risk of stale pointer at manual call sites.
+
+### Why Option C
+
+`withSegment` is structurally identical to the existing `withEnv` pattern. Any compiler team member who understands `withEnv` understands `withSegment` immediately. Zero monad stack change. Zero lift surface. The stack is empty when `tcSketch = False` — no overhead on the normal `llmll check` path.
+
+### `TCState` addition
+
+```haskell
+data TCState = TCState
+  { tcEnv          :: TypeEnv
+  , tcAliasMap     :: Map Name Type
+  , tcCurrentFn    :: Maybe Name
+  , tcIsLetrec     :: Bool
+  , tcSketch       :: Bool
+  , tcHoles        :: [SketchHole]
+  , tcPointerStack :: [Text]         -- NEW: empty in check mode
+  }
+```
+
+### `withSegment` and `currentPointer`
+
+```haskell
+withSegment :: Text -> TC a -> TC a
+withSegment seg action = do
+  modify $ \s -> s { tcPointerStack = tcPointerStack s ++ [seg] }
+  result <- action
+  modify $ \s -> s { tcPointerStack = init (tcPointerStack s) }
+  pure result
+
+currentPointer :: TC Text
+currentPointer = do
+  stack <- gets tcPointerStack
+  pure $ "/" <> T.intercalate "/" stack
+```
+
+`recordHole` reads `currentPointer` internally — callers pass nothing extra.
+
+### Call-site wrapping
+
+Wrap each named descent in `inferExpr` and `checkStatement` with `withSegment`. Segment names must match JSON-AST field names to produce valid RFC 6901 pointers:
+
+```haskell
+-- EIf
+inferExpr (EIf cond thenE elseE) = do
+  inferExpr cond
+  thenT <- withSegment "then" $ inferExpr thenE
+  elseT <- withSegment "else" $ inferExpr elseE
+  ...
+
+-- EMatch arm i
+forM_ (zip [0..] arms) $ \(i, (pat, body)) ->
+  withSegment ("arms/" <> T.pack (show i) <> "/body") $ inferExpr body
+
+-- EApp arg i
+forM_ (zip [0..] args) $ \(i, arg) ->
+  withSegment ("args/" <> T.pack (show i)) $ checkExpr arg paramType
+```
+
+The top-level descent into each `Statement` seeds the stack with `"statements/N"` before any nested `withSegment` calls.
+
+### D4 acceptance criteria
+
+- A hole at `/statements/2/body/else` is reported with `"pointer": "/statements/2/body/else"`.
+- A hole at `/statements/0/body/arms/1/body` is reported with the correct nested path.
+- `tcPointerStack` is `[]` at the start of every top-level check in non-sketch mode.
+- No existing `llmll check` test is affected — pointer stack is inert when `tcSketch = False`.

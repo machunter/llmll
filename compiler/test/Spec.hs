@@ -881,3 +881,52 @@ main = hspec $ do
           let holes = sketchHoles result
           holes `shouldSatisfy` (not . null)
           shStatus (head holes) `shouldBe` HoleUnknown
+
+  -- -----------------------------------------------------------------------
+  -- Phase 2c D4: tcPointerStack — one RFC 6901 token per stack element
+  -- -----------------------------------------------------------------------
+  describe "Phase 2c D4 pointer stack (nested withSegment)" $ do
+
+    it "hole at else branch has pointer /statements/0/body/else" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic greet [formal: bool]"
+            , "  (if formal \"Good day.\" ?informal))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case filter ((== "?informal") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?informal hole not recorded"
+            (h:_) -> shPointer h `shouldBe` "/statements/0/body/else"
+
+    it "hole at match arm 2 has pointer /statements/1/body/arms/2/body" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"      -- stmt 0
+            , "(def-logic describe [c: Color]"               -- stmt 1
+            , "  (match c"
+            , "    ((Red) \"red\")"       -- arm 0
+            , "    ((Green) \"green\")"   -- arm 1
+            , "    ((Blue) ?blue_label)))" -- arm 2
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case filter ((== "?blue_label") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?blue_label hole not recorded"
+            (h:_) -> shPointer h `shouldBe` "/statements/1/body/arms/2/body"
+
+    it "concrete program produces no holes and non-sketch check is unaffected" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic f [x: int] x)"
+            , "(def-logic g [s: string] s)"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+          let result = runSketch emptyEnv stmts
+          sketchHoles result `shouldBe` []
+
