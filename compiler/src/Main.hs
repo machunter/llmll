@@ -3,13 +3,15 @@
 -- Description : CLI entry point for the LLMLL compiler.
 --
 -- Subcommands:
---   check  — parse + type-check, optional --json output
---   holes  — list and classify all holes, optional --json output
---   test   — run property-based tests (check blocks)
---   build  — emit Haskell/JSON-AST, optional --emit json-ast / --from-json
---   run    — build into temp dir and execute
---   repl   — interactive read-eval-print loop
---   verify — D4: emit .fq constraints + run liquid-fixpoint (if installed)
+--   check      — parse + type-check, optional --json output
+--   holes      — list and classify all holes, optional --json output
+--   test       — run property-based tests (check blocks)
+--   build      — emit Haskell/JSON-AST, optional --emit json-ast / --from-json
+--   run        — build into temp dir and execute
+--   repl       — interactive read-eval-print loop
+--   verify     — D4: emit .fq constraints + run liquid-fixpoint (if installed)
+--   typecheck  — Phase 2c: parse + type-check; --sketch infers hole types
+--   serve      — Phase 2c: HTTP endpoint for agent sketch queries (localhost:7777)
 module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
@@ -79,7 +81,7 @@ data Options = Options
 optionsParser :: ParserInfo Options
 optionsParser = info (helper <*> opts) $
   fullDesc
-  <> progDesc "LLMLL — Large Language Model Logical Language Compiler (v0.1.2)"
+  <> progDesc "LLMLL — Large Language Model Logical Language Compiler (v0.2.0)"
   <> header "llmll — AI-to-AI programming language compiler"
   where
     opts = Options
