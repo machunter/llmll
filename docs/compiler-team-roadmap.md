@@ -307,26 +307,13 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 
 ---
 
-### Phase 2c — Type System Fixes + Sketch API
+### Phase 2c — Type System Fixes + Sketch API ✅ Shipped (2026-03-28)
 
 **[SPEC]** and **[CT]** ~~Lift `pair-type` in `typed-param` limitation~~ ✅ **Shipped (2026-03-27)** — `[acc: (int, string)]` accepted in `def-logic` params, lambda params, and `for-all` bindings. Parsed as `TResult A B` (consistent with `EPair` runtime model). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
 
-**[CT]** `llmll typecheck --sketch <file>` *(new design team proposal)* — accepts a partial LLMLL program (holes allowed everywhere). Runs constraint-propagation type inference. Returns a JSON object mapping each hole's JSON Pointer to its inferred type, plus any type errors that exist even with holes present:
+**[CT]** ~~`llmll typecheck --sketch <file>`~~ ✅ **Shipped (2026-03-28)** — accepts a partial LLMLL program (holes allowed everywhere). Runs constraint-propagation type inference. Returns a JSON object mapping each hole's JSON Pointer to its inferred type (`null` if indeterminate) plus `holeSensitive`-annotated errors.
 
-```json
-{
-  "holes": [
-    { "pointer": "/body/let/bindings/0/expr", "kind": "?name",
-      "name": "?impl", "inferredType": "Result[int, string]" }
-  ],
-  "errors": [
-    { "pointer": "/body/if/condition", "kind": "type-mismatch",
-      "expected": "bool", "got": "int" }
-  ]
-}
-```
-
-**[CT]** HTTP interface for agent use: `POST localhost:7777/sketch` with a `.ast.json` body. Agents call this incrementally during generation, filling holes consistent with inferred types before final submission. Target latency: < 200ms for programs up to 500 nodes.
+**[CT]** ~~HTTP interface for agent use~~ ✅ **Shipped (2026-03-28)** — `llmll serve [--host H] [--port P] [--token T]`. Default: `127.0.0.1:7777`. Stateless per request; `--token` enables `Authorization: Bearer` auth; TLS delegated to reverse proxy.
 
 **[CT]** `--sketch` hole-constraint propagation (*language team design, 2026-03-27*) — `--sketch` must propagate checking types to hole expressions at all three sites where a peer expression provides the constraint:
 
@@ -342,11 +329,11 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 - Pass 1 — synthesise all non-hole arm bodies → unify to `T` (or emit type-mismatch error as today)
 - Pass 2 — check all hole arm bodies against `T`; record `T` as `inferredType` in sketch output
 
-If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch` still reports the conflict as an `errors` entry and records `inferredType: "<conflict>"` for hole arms — it does not fall silent.
+If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch` reports the conflict as an `errors` entry with `"kind": "ambiguous-hole"` and records `inferredType: null` for hole arms — it does not fall silent.
 
-**[CT]** N2 — `string-concat` arity hint. When an arity mismatch occurs on `string-concat` and actual arg count > expected (2), append a hint to the diagnostic: `— consider string-concat-many for joining more than 2 strings`. Implementation: `TypeCheck.hs` arity error path. **Language team sign-off (2026-03-27):** Options to make `string-concat` variadic (type checker special-case) or deprecate the binary form were both rejected. Variadic typing breaks the fixed-arity invariant; deprecation breaks partial application. Hint only for Phase 2c; parse-level sugar deferred to v0.3 (see below).
+**[CT]** ~~N2 — `string-concat` arity hint~~ ✅ **Shipped (2026-03-27)** — arity mismatch on `string-concat` with actual > 2 now appends `— use string-concat-many for joining more than 2 strings`.
 
-**[CT]** N3 — Strict key validation for JSON-AST `let` binding objects. `parseLet1Binding` in `ParserJSON.hs` currently accepts extra keys (e.g. `kind`, `op`) alongside `name`/`expr`, producing silent corrupt AST nodes. Fix: explicitly fail on unexpected keys, emitting a clear error with the offending key name. The schema already declares `additionalProperties: false`; this brings the parser into conformance.
+**[CT]** ~~N3 — Strict key validation for JSON-AST `let` binding objects~~ ✅ **Shipped (2026-03-27)** — `parseLet1Binding` now fails explicitly on unexpected keys, emitting a clear error naming the offending key.
 
 **Acceptance criteria:**
 - `[acc: (int, string)]` in a lambda parameter list parses and type-checks without a workaround.

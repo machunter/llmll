@@ -133,7 +133,7 @@ llmll hub fetch llmll-crypto@0.1.0
 
 Import fetched packages using the `hub.` prefix (see §4.8).
 
-### `verify` — liquid-fixpoint contract verification (Phase 2b)
+### `verify` — liquid-fixpoint contract verification
 
 ```bash
 # Verify linear arithmetic pre/post contracts at compile time:
@@ -153,6 +153,39 @@ stack exec llmll -- --json verify file.llmll
 
 > [!IMPORTANT]
 > `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error.
+
+### `typecheck --sketch` — partial-program type inference (Phase 2c)
+
+```bash
+stack exec llmll -- typecheck --sketch ../examples/sketch/if_hole.ast.json
+# {
+#   "holes": [ { "name": "?handler", "inferredType": "Command", "pointer": "/statements/2/body/else" } ],
+#   "errors": []
+# }
+```
+
+Accepts a partial LLMLL program with holes anywhere. Returns:
+- `holes[]` — each `?hole`'s inferred type (or `null` if indeterminate) and its RFC 6901 JSON Pointer
+- `errors[]` — type errors detectable even with holes present, each annotated with `holeSensitive: bool`
+
+`holeSensitive: true` means the error may disappear once holes are filled — fix `holeSensitive: false` errors first.
+
+### `serve` — HTTP sketch endpoint (Phase 2c)
+
+```bash
+# Start on default localhost:7777
+stack exec llmll -- serve
+
+# Custom host/port/token
+stack exec llmll -- serve --host 0.0.0.0 --port 8888 --token my-secret
+
+# Query from an agent
+curl -s -X POST localhost:7777/sketch \
+     -H "Content-Type: application/json" \
+     -d @partial.ast.json | jq '.holes'
+```
+
+Every `POST /sketch` is **stateless** — a fresh type-check context per request. Safe for concurrent agent use with no locking. TLS is handled by a reverse proxy (nginx/Caddy); `llmll serve` binds plaintext only.
 
 ---
 
@@ -252,14 +285,13 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > [!IMPORTANT]
 > **`:on-done` is the canonical hook for end-of-game output.** If `game-loop` prints a win/loss message on the same turn the game ends, the board can render twice. Move all terminal output for the final state into a dedicated `show-result` function and declare it via `:on-done`. See `LLMLL.md §9.5` for the full before/after pattern.
 
-### 4.7 Still Restricted in v0.2
+### 4.7 Known Restrictions (v0.2 fully shipped)
 
-| Feature | Status | Workaround |
-|---------|--------|------------|
-| `[acc: (int, string)]` in `typed-param` | ✅ **Supported (Phase 2c)** | None needed — parsed as `TResult[int,string]` internally |
-| `[...]` list literal as direct argument to a call inside an `if` branch (S-expression only) | ❌ Parse error | Extract to a `let` binding before the `if` (see note below) |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `[...]` list literal as direct argument inside S-expression `if` branch | ❌ Parse error | Hoist into a `let` binding before the `if` (workaround below) |
 | `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
-| `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | Phase 2c / v0.3 |
+| `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | v0.3 |
 
 > [!WARNING]
 > **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
