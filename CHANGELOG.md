@@ -2,9 +2,18 @@
 
 ---
 
-## v0.2.0 — Phase 2b: Compile-Time Verification (2026-03-27)
+## v0.2.0 — Phase 2a/2b/2c: Module System, Compile-Time Verification, Sketch API (2026-03-28)
 
-### Compiler
+### Compiler — Phase 2c (2026-03-28)
+
+- **`llmll typecheck --sketch <file>`** — new subcommand for partial-program type inference. Accepts a program with holes anywhere; returns each hole's inferred type (`null` if indeterminate) and all detectable type errors annotated with `holeSensitive: bool`. `holeSensitive: true` means the error may resolve once holes are filled.
+- **`llmll serve [--host H] [--port P] [--token T]`** — exposes `--sketch` as `POST /sketch` HTTP endpoint for distributed agent swarms. Binds `127.0.0.1:7777` by default. Every request is stateless (fresh type-check context per call — safe for concurrent agent use). `--token` enables `Authorization: Bearer` auth; TLS is delegated to a reverse proxy.
+- **Pair-type in typed parameters** — `[acc: (int, string)]` is now valid in `def-logic`, lambda, and `for-all` parameter lists. Parsed as `TResult A B` internally (consistent with `EPair` runtime model). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
+- **`string-concat` arity hint (N2)** — arity mismatch error on `string-concat` with more than 2 arguments now appends `— use string-concat-many for joining more than 2 strings`.
+- **Strict `let` key validation (N3)** — JSON-AST `let` binding objects with unexpected keys (e.g. `kind`, `op` alongside `name`/`expr`) now produce a clear parse error naming the offending key. Previously accepted silently, producing corrupt AST nodes.
+- **`LLMLL.Sketch`** — new module. `HoleStatus` ADT (`HoleTyped`, `HoleAmbiguous`, `HoleUnknown`); `runSketch`; `encodeSketchResult`. Hole-constraint propagation at `EIf` (sibling branch), `EMatch` (two-pass arm loop), and `EApp` (function signature via `unify`).
+
+### Compiler — Phase 2b (2026-03-27)
 
 - **`llmll verify <file>`** — new subcommand (D4). Emits a `.fq` constraint file from the typed AST and runs `liquid-fixpoint` + Z3 as a standalone binary. Reports SAFE or contract-violation diagnostics with RFC 6901 JSON Pointers back to the original `pre`/`post` clause. Gracefully degrades when `fixpoint`/`z3` are not in `PATH`.
 - **Static `match` exhaustiveness (D1)** — post-inference pass `checkExhaustive` rejects any `match` on an ADT sum type that does not cover all constructors. GHC-style error with pointer to the missing arm.
@@ -23,20 +32,27 @@
 - `examples/conways_life_json_verifier/` — Conway's Game of Life with verified `count-neighbors` and `next-cell` contracts
 - `examples/hangman_json_verifier/` — Hangman with verified `apply-guess` pre/post
 - `examples/tictactoe_json_verifier/` — Tic-Tac-Toe with verified `set-cell` bounds and `make-board` postcondition
+- `examples/sketch/` — minimal fixture programs for `--sketch` acceptance tests (`if_hole`, `match_hole`, `match_conflict`, `app_hole`, `hole_sensitive`)
 
 ### Spec (LLMLL.md)
 
-- Header tagline updated: Phase 2b marked complete
+- v0.2 scope note updated: Phase 2c complete
+- §3.2 — pair-type restriction removed; `[acc: (int, string)]` documented as supported
 - §4.2 `letrec` — new section documenting bounded recursion with `:decreases`
 - §4.4 Contract Semantics — updated: runtime + compile-time enforcement described
 - §5.3 — renamed "Verification (Phase 2b — Shipped)"; documents `llmll verify` command and qualifier synthesis strategy
-- v0.2 changelog row in §14 rewritten to reflect what actually shipped (decoupled `.fq` backend, not GHC plugin)
 
 ### Schema (`docs/llmll-ast.schema.json`)
 
 - `hole-proof-required` expression node added with `reason` enum: `manual | non-linear-contract | complex-decreases`
 
+### Compiler team design docs (new)
+
+- `docs/sketch-implementation-guide.md` — D1–D5 design decisions for the sketch pass
+- `docs/sketch-compiler-handoff.md` — compiler team implementation reference
+
 ---
+
 
 ## v0.1.3 / v0.1.3.1
 
