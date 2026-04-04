@@ -26,7 +26,7 @@
 ### Decision Record
 
 | Decision | Resolution |
-|----------|------------|
+| -------- | ---------- |
 | Primary AI interface | JSON-AST (S-expressions remain, human-facing only) |
 | Codegen target | Switch from Rust to Haskell |
 | Algebraic effects library | `effectful` — committed, not revisited |
@@ -45,10 +45,11 @@
 **[CT]** `llmll build --emit json-ast` — round-trip flag. Compiles an `.llmll` source and emits the equivalent validated JSON-AST. Used for S-expression ↔ JSON conversion and regression testing.
 
 **[CT]** JSON diagnostics — every compiler error becomes a JSON object with:
-  - `"kind"`: error class (e.g., `"type-mismatch"`, `"undefined-name"`)
-  - `"pointer"`: RFC 6901 JSON Pointer to the offending AST node
-  - `"message"`: human-readable description
-  - `"inferred-type"`: inferred type at the error site, if available
+
+- `"kind"`: error class (e.g., `"type-mismatch"`, `"undefined-name"`)
+- `"pointer"`: RFC 6901 JSON Pointer to the offending AST node
+- `"message"`: human-readable description
+- `"inferred-type"`: inferred type at the error site, if available
 
 **[CT]** `llmll holes --json` — lists all unresolved `?` holes as a JSON array. Each entry includes: hole kind, inferred type, module path, agent target (for `?delegate`), and (in v0.2) `?proof-required` complexity hint.
 
@@ -61,6 +62,7 @@
 **[SPEC]** Update `LLMLL.md §2` to document JSON-AST as a first-class source format.
 
 **Acceptance criteria:**
+
 - An LLM generating JSON against the schema cannot produce a structurally invalid LLMLL program.
 - `llmll build` and `llmll build --from-json` produce identical binaries for all examples.
 - `llmll holes --json` output is a valid JSON array parseable by `jq`.
@@ -70,7 +72,7 @@
 Three bugs were found by an AI developer during the Hangman JSON-AST implementation and fixed before v0.1.2 was considered complete:
 
 | Bug | Location | Fix | Status |
-|-----|----------|-----|---------|
+| --- | -------- | --- | ------ |
 | **P1** — `build-json` passes `hangman.ast` (with dot) as Cargo crate name; `cargo` rejects it immediately | `Main.hs`, `doBuildFromJson` | Strip `.ast` suffix from `rawName` **before** passing `modName` to `generateRust` | ✅ Fixed |
 | **P2** — `builtinEnv` in `TypeCheck.hs` contained only 8 operator entries; all §13 stdlib calls (`string-length`, `list-map`, `first`, `second`, `range`, …) produced false-positive "unknown function" warnings, causing exit code 1 on every real program | `TypeCheck.hs`, `builtinEnv` | Seeded all ~25 §13 stdlib function signatures; polymorphic positions use `TVar "a"`/`TVar "b"` | ✅ Fixed |
 | **P4** — `llmll test` always read the file as `Text` and called the S-expression parser regardless of extension; `test hangman.ast.json` silently produced a parse error | `Main.hs`, `doTest` | Replace inline `TIO.readFile` + `parseSrc` with `loadStatements json fp` (same dispatcher used by `check`, `holes`, `build`) | ✅ Fixed |
@@ -92,7 +94,7 @@ Three bugs were found by an AI developer during the Hangman JSON-AST implementat
 > **Design decision:** For v0.1.2, all `def-logic`, type declarations, and interface definitions are emitted into a single `src/Lib.hs`. The multi-module split (`Logic.hs`, `Types.hs`, `Interfaces.hs`, `Capabilities.hs`) requires cross-module resolution and is deferred to v0.2 when the module system ships — tracked as a [CT] item in Phase 2c below.
 
 | File | Contents |
-|------|----------|
+| ---- | -------- |
 | `src/Lib.hs` | All `def-logic` functions, type declarations, `def-interface` type classes, and §13 stdlib preamble |
 | `src/Main.hs` | `def-main` harness (only if `SDefMain` present) |
 | `src/FFI/<Name>.hs` | `foreign import ccall` stubs, generated on demand for `c.*` imports |
@@ -101,9 +103,9 @@ Three bugs were found by an AI developer during the Hangman JSON-AST implementat
 **[CT]** LLMLL construct → generated Haskell (normative mapping):
 
 | LLMLL | Generated Haskell |
-|-------|-------------------|
+| ----- | ----------------- |
 | `(def-logic f [x: int y: string] body)` | `f :: Int -> String -> <inferred>; f x y = body` |
-| `(type T (| A int) (| B string))` | `data T = A Int \| B String deriving (Eq, Show)` |
+| `(type T (\| A int) (\| B string))` | `data T = A Int \| B String deriving (Eq, Show)` |
 | `Result[t,e]` | `Either e t` |
 | `Promise[t]` | `IO t` (upgraded to `Async t` in v0.3) |
 | `(def-interface I [m fn-type])` | `class I a where m :: fn-type` |
@@ -118,13 +120,13 @@ Three bugs were found by an AI developer during the Hangman JSON-AST implementat
 **[CT]** Revised two-tier FFI (Python tier excluded from spec):
 
 | Tier | Prefix | Mechanism | Stub? |
-|------|--------|-----------|-------|
+| ---- | ------ | --------- | ----- |
 | 1 — Hackage | `haskell.*` | Regular `import`; added to `package.yaml` | No |
 | 2 — C | `c.*` | `foreign import ccall`; GHC FFI template generated | Yes |
 
 **[CT]** Sandboxing:
 
-```
+```bash
 .llmll / .ast.json
      │  llmll build
      ▼
@@ -146,6 +148,7 @@ Docker container
 **[SPEC]** Update `LLMLL.md §7`, `§9`, `§10`, `§14` to reflect Haskell target, typed effect row, and Docker sandbox. Add explicit language to `§14`: *"WASM-WASI is the primary long-term deployment target. Docker + seccomp-bpf is the v0.1.2–v0.3 sandbox. WASM is deferred to v0.4, not abandoned."*
 
 **Acceptance criteria:**
+
 - `llmll build examples/hangman.llmll` produces a runnable GHC binary that passes all `check` blocks.
 - A function calling `wasi.http.response` without the HTTP capability import produces a type error.
 - The WASM proof-of-concept report shows no structural blockers.
@@ -159,7 +162,7 @@ Docker container
 **[SPEC]** and **[CT]**:
 
 | Current | Fixed |
-|---------|-------|
+| ------- | ----- |
 | `(let [[x e1] [y e2]] body)` | `(let [(x e1) (y e2)] body)` |
 | `(list-empty)` / `(list-append l e)` | `[]` / `[a b c]` list literals |
 | `(pair a b)` | **unchanged** — current syntax is unambiguous |
@@ -193,6 +196,7 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 - **Codegen**: `Error`→`Left`, `Success`→`Right` rewrite in `emitPat`; exhaustive `Left`+`Right` match suppresses redundant GHC warning.
 
 **Acceptance criteria — all met:**
+
 - ✅ `llmll check hangman_json`: **0 errors** (was 10: `expected GuessCount, got int` etc.)
 - ✅ `llmll check hangman_sexp`: **0 errors** (was ~10)
 - ✅ `llmll check tictactoe_json` / `tictactoe_sexp`: unaffected, still OK
@@ -202,7 +206,7 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 #### Post-ship bug fixes — round 1 (discovered via `examples/hangman_json/WALKTHROUGH.md`, 2026-03-21)
 
 | Bug | Location | Fix | Status |
-|-----|----------|-----|--------|
+| --- | -------- | --- | ------ |
 | **P1** — `first`/`second` reject any explicitly-typed pair parameter with `expected Result[a,b], got <T>`; agent forced to use `"untyped": true` workaround on all state accessor params | `TypeCheck.hs`, `builtinEnv` | Changed `first`/`second` input from `TResult (TVar "a") (TVar "b")` to `TVar "p"` (fully polymorphic). Without a dedicated pair type in the AST, `TResult` was the wrong constraint — TVar unifies with any argument. | ✅ Fixed (`ef6f41c`) |
 | **P2** — `post` clause on a pair-returning function cannot project `result` via `first`/`second` (same root cause as P1) | Derived from P1 | Same fix | ✅ Fixed (`ef6f41c`) |
 | **P3** — `llmll test` skipped properties show opaque "requires full runtime evaluation" with no reason; agent cannot distinguish Command-skip from non-constant-skip | `PBT.hs`, `runProperty` | Added `bodyMentionsCommand` heuristic walk; skip message now names the specific cause | ✅ Fixed (`ef6f41c`) |
@@ -210,7 +214,7 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 #### Post-ship bug fixes — round 2 (discovered via hangman/tictactoe walkthroughs, 2026-03-22)
 
 | Bug | Location | Fix | Status |
-|-----|----------|-----|--------|
+| --- | -------- | --- | ------ |
 | **B1** — `check` block labels with special chars (`(`, `)`, `+`, `?`) produce invalid Haskell `prop_*` identifiers; `stack build` fails with `Invalid type signature` | `CodegenHs.hs`, `emitCheck` | Added `sanitizeCheckLabel` — replaces all non-`[a-zA-Z0-9]` with `_`, collapses runs | ✅ Fixed (`880a8ad`) |
 | **B2** — `[a b c]` in S-expression expression position rejected with `unexpected '['`; agents read §13.5 list-literal docs and try this syntax | `Parser.hs`, `pExpr` | Added `pListLitExpr` — desugars `[expr ...]` to `foldr list-prepend (list-empty)`, symmetric with JSON-AST `lit-list` | ✅ Fixed (`880a8ad`) |
 | **N1** — `bodyMentionsCommand` prefix list included `"step"`, `"done"`, `"command"` — too broad, caused false-positive "Command-producing" skip reason for user-defined functions | `PBT.hs`, `bodyMentionsCommand` | Narrowed prefix list to `wasi./console./http./fs.` only | ✅ Fixed (`880a8ad`) |
@@ -224,9 +228,9 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 #### Post-ship bug fixes — round 3 (discovered via hangman re-implementation, 2026-03-23)
 
 | Bug | Location | Fix | Status |
-|-----|----------|-----|--------|
+| --- | -------- | --- | ------ |
 | **B3** — `[...]` list literal in S-expression fails with `unexpected ']'` when used as a function argument inside an `if` branch body. Top-level `let` bindings and direct expressions work fine; the failure is specific to the nested call-inside-if position. `pListLitExpr` was added in B2 for expression position but the `pExpr` grammar inside if-`then`/`else` branches does not correctly disambiguate `]` from a surrounding parameter-list close when nesting is deep. | `Parser.hs`, `pExpr` / `pIf` | Fix: ensure `pListLitExpr` is tried with the correct bracket-depth context inside `pIf`. Alternatively, disambiguate by requiring list literals to be wrapped in parens when nested: `([ a b c ])`. Workaround: hoist list literals into `let` bindings before the `if` (see `getting-started.md §4.7`). JSON-AST is unaffected. | ⚠️ Cannot reproduce — retested 2026-03-23 against all developer-reported patterns (`hangman.llmll`, `tictactoe.llmll`, `wasi.io.stdout (string-concat-many [...])` inside `if`, nested `let`+`if`) — all pass ✅. May have been fixed as part of B2. Workaround in §4.7 is still good practice; bug remains documented in case it resurfaces. |
-| **N2** — `string-concat` arity errors (2 args required, >2 given) now suggest `string-concat-many`. | `TypeCheck.hs`, arity error path | Appended ` — use string-concat-many for joining more than 2 strings` to the arity mismatch error when `func == "string-concat"` and `actual > expected`. | ✅ Fixed (2026-03-27) |
+| **N2** — `string-concat` arity errors (2 args required, >2 given) now suggest `string-concat-many`. | `TypeCheck.hs`, arity error path | Appended `— use string-concat-many for joining more than 2 strings` to the arity mismatch error when `func == "string-concat"` and `actual > expected`. | ✅ Fixed (2026-03-27) |
 | **N3** — JSON-AST `let` binding objects with extra keys silently accepted despite schema declaring `additionalProperties: false`. | `ParserJSON.hs`, `parseLet1Binding` | Added `Data.Aeson.KeyMap` key-whitelist check; fails with `let binding has unexpected keys: [...]` on any key outside `{"name", "expr"}`. | ✅ Fixed (2026-03-27) |
 
 ---
@@ -237,7 +241,7 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 
 ### Internal Ordering (design team requirement)
 
-```
+```text
 Phase 2a: Module System  →  Phase 2b: LiquidHaskell  →  Phase 2c: Type System Fixes + Sketch API
 ```
 
@@ -256,6 +260,7 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 **[CT]** `llmll-hub` registry — `llmll hub fetch <package>@<version>` downloads a package and its `.ast.json` to the local cache. The compiler resolves `(import hub.<package>.<module> ...)` from the cache.
 
 **Acceptance criteria:**
+
 - A two-file program (A defines `def-interface`, B implements it) compiles and links.
 - Circular imports produce a diagnostic naming the import cycle.
 
@@ -290,7 +295,7 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 **[CT]** Three new modules:
 
 | Module | Role |
-|--------|------|
+| ------ | ---- |
 | `LLMLL.FixpointIR` | ADT for `.fq` constraint language (sorts, predicates, refinements, binders, constraints, qualifiers) + text emitter |
 | `LLMLL.FixpointEmit` | Walks typed AST → `FQFile` + `ConstraintTable` (constraint ID → JSON Pointer). Covers QF linear integer arithmetic. Auto-synthesizes qualifiers from `pre`/`post`. |
 | `LLMLL.DiagnosticFQ` | Parses `fixpoint` stdout (SAFE / UNSAFE) → `[Diagnostic]` with `diagPointer` (RFC 6901 JSON Pointer) using `ConstraintTable`. |
@@ -300,6 +305,7 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 **Prerequisites:** `stack install liquid-fixpoint` + `brew install z3`.
 
 **Acceptance criteria — met:**
+
 - `llmll verify hangman_sexp/hangman.llmll` → `✅ SAFE (liquid-fixpoint)`
 - JSON `--json verify` returns `{"success": true}`
 - Contract violation returns diagnostic with `diagPointer` referencing original `pre`/`post` clause
@@ -318,7 +324,7 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 **[CT]** `--sketch` hole-constraint propagation (*language team design, 2026-03-27*) — `--sketch` must propagate checking types to hole expressions at all three sites where a peer expression provides the constraint:
 
 | Site | Constraint source | Implementation |
-|------|-------------------|----------------|
+| ---- | ----------------- | -------------- |
 | `EIf` then/else | sibling branch synthesises type `T`; hole branch checked against `T` | `inferExpr (EIf ...)` — try-and-fallback |
 | `EMatch` arms | non-hole arms unified to `T`; hole arms checked against `T` | two-pass arm loop (see below) |
 | `EApp` arguments | function signature via `unify` | ✅ already handled |
@@ -326,6 +332,7 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 | `fn` / lambda body | outer checking context propagates inward | ✅ already handled |
 
 `EMatch` requires a **two-pass arm loop** in `inferExpr (EMatch ...)`:
+
 - Pass 1 — synthesise all non-hole arm bodies → unify to `T` (or emit type-mismatch error as today)
 - Pass 2 — check all hole arm bodies against `T`; record `T` as `inferredType` in sketch output
 
@@ -336,6 +343,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 **[CT]** ~~N3 — Strict key validation for JSON-AST `let` binding objects~~ ✅ **Shipped (2026-03-27)** — `parseLet1Binding` now fails explicitly on unexpected keys, emitting a clear error naming the offending key.
 
 **Acceptance criteria:**
+
 - `[acc: (int, string)]` in a lambda parameter list parses and type-checks without a workaround.
 - Given a partial program with three holes, `llmll typecheck --sketch` returns each hole's inferred type.
 - A type conflict in a partial program is reported even when the surrounding program is incomplete.
@@ -356,6 +364,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 > **Decision record:** Type-checker variadic special-casing rejected (breaks fixed-arity invariant; JSON-AST complexity). Binary `string-concat` deprecation rejected (breaks partial application). Parse-level sugar is the minimal, correct resolution.
 
 **Acceptance criteria (v0.3):**
+
 - `(string-concat "a" "b" "c")` in S-expression compiles to the same Haskell as `(string-concat-many ["a" "b" "c"])`.
 - `(string-concat prefix)` partial application still type-checks as `string → string`.
 - JSON-AST `{"fn": "string-concat", "args": [a, b, c]}` produces a clear arity error (unchanged behavior — sugar is parse-time S-expression only).
@@ -363,6 +372,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 ---
 
 **[CT]** `?delegate` JSON-Patch lifecycle:
+
 1. Lead AI checks out a hole: `llmll holes --checkout <pointer>`
 2. Agent submits implementation as RFC 6902 JSON-Patch against the program's JSON-AST
 3. Compiler applies patch, re-runs type checking and contract verification
@@ -371,6 +381,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 **[CT]** `?scaffold` — `llmll hub scaffold <template>` fetches a pre-typed skeleton from `llmll-hub`. `def-interface` boundaries are pre-typed; implementation details are named `?` holes. Resolves at parse time.
 
 **[CT]** Leanstral MCP integration — `?proof-required :inductive` and `:unknown` hole resolution:
+
 1. `llmll holes --json` emits holes with complexity hints
 2. Compiler translates LLMLL `TypeWhere` AST node → Lean 4 `theorem` obligation *(the only novel engineering piece)*
 3. MCP call to Leanstral's `lean-lsp-mcp`
@@ -387,6 +398,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 **[CT]** `Promise[t]` upgrade: `IO t` → `Async t` from the `async` package. `(await x)` desugars to `Async.wait`.
 
 **Acceptance criteria:**
+
 - Two-agent demo: Agent A writes a module with `?delegate`, Agent B submits a JSON-Patch; compiler accepts the merge.
 - A `?proof-required :inductive` hole for a structural list property is resolved by Leanstral; certificate verified on next build without a Leanstral call.
 
@@ -405,6 +417,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 **[CT]** Resolve any GHC WASM backend compatibility issues for `effectful`, `QuickCheck`, and other vendored dependencies. Maintain a minimal shim package if needed.
 
 **Acceptance criteria:**
+
 - `llmll build --target wasm examples/hangman.llmll` produces a `.wasm` binary that runs in Wasmtime and passes all `check` blocks.
 - A capability violation terminates the WASM instance with a typed error.
 
@@ -413,7 +426,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 ## Summary: What Changed from LLMLL.md §14
 
 | Version | Original | Revised |
-|---------|----------|---------|
+| ------- | -------- | ------- |
 | **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + typed effect row + hole-density validator + Docker sandbox |
 | **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **LiquidHaskell** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
 | **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** *(agent exists; build translation layer only)* + `do`-notation |
@@ -422,7 +435,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 ### Items Removed from Scope
 
 | Item | Reason |
-|------|--------|
+| ---- | ------ |
 | Rust FFI stdlib (`serde_json`, `clap`, etc.) | Replaced by native Hackage imports |
 | Z3 binding layer (build from scratch) | Replaced by LiquidHaskell GHC plugin |
 | Lean 4 proof agent (build from scratch) | Replaced by Leanstral MCP integration |

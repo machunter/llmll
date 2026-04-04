@@ -11,11 +11,11 @@
 ### Prerequisites
 
 | Tool | Version | Purpose |
-|------|---------|---------| 
+|------|---------|---------|
 | GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
 | `fixpoint` + `z3` | any stable | **Optional** (Phase 2b `verify` command only): `stack install liquid-fixpoint` then `brew install z3` |
 
-**Install Stack:** https://docs.haskellstack.org/en/stable/install_and_upgrade/
+**Install Stack:** <https://docs.haskellstack.org/en/stable/install_and_upgrade/>
 
 ```bash
 git clone <repo-url> llmll && cd llmll/compiler
@@ -24,7 +24,8 @@ stack exec llmll -- --help
 ```
 
 Expected output:
-```
+
+```bash
 llmll — AI-to-AI programming language compiler
 
 Usage: llmll COMMAND [--json]
@@ -63,10 +64,10 @@ stack exec llmll -- holes ../examples/hangman_json/hangman.ast.json
 ```
 
 | Label | Meaning |
-|-------|---------|
+| ------- | --------- |
 | `BLOCK` | Execution cannot proceed — must be filled |
 | `AGENT` | Delegated to a specialist agent |
-| `info`  | Non-blocking TODO |
+| `info` | Non-blocking TODO |
 
 ### `test` — property-based tests
 
@@ -80,6 +81,7 @@ The skip message names which case applies.
 
 > [!IMPORTANT]
 > **Stack lock deadlock** — same lock issue as `build`. Use `--emit-only` to generate the QuickCheck Haskell without running `stack test`:
+>
 > ```bash
 > stack exec llmll -- test hangman.ast.json --emit-only
 > #    src/Lib.hs -- 8803 chars
@@ -98,6 +100,7 @@ stack exec llmll -- build ../examples/hangman_json/hangman.ast.json -o ../genera
 
 > [!IMPORTANT]
 > **Stack lock deadlock** — if you have a long-running `stack exec llmll -- repl` terminal open, `llmll build` will deadlock because both try to hold the Stack project lock. Use `--emit-only` to skip the internal `stack build` and run it separately:
+>
 > ```bash
 > # Step 1: write Haskell files only (no stack build)
 > stack exec llmll -- build hangman.ast.json -o ../generated/hangman_json --emit-only
@@ -107,7 +110,8 @@ stack exec llmll -- build ../examples/hangman_json/hangman.ast.json -o ../genera
 > ```
 
 Output layout:
-```
+
+```bash
 generated/hangman_json/
   package.yaml     ← hpack descriptor
   stack.yaml       ← GHC 9.6.6 pin
@@ -165,6 +169,7 @@ stack exec llmll -- typecheck --sketch ../examples/sketch/if_hole.ast.json
 ```
 
 Accepts a partial LLMLL program with holes anywhere. Returns:
+
 - `holes[]` — each `?hole`'s inferred type (or `null` if indeterminate) and its RFC 6901 JSON Pointer
 - `errors[]` — type errors detectable even with holes present, each annotated with `holeSensitive: bool`
 
@@ -264,7 +269,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 ### 4.5 New Built-ins (since v0.1.3.1)
 
 | Function | Signature | Notes |
-|----------|-----------|-------|
+| -------- | --------- | ----- |
 | `string-trim` | `string → string` | Strip leading/trailing whitespace, `\t`, `\n`, `\r` |
 | `string-concat-many` | `list[string] → string` | Concat list of strings |
 | `list-nth` | `list[a] int → Result[a, string]` | Safe indexed access |
@@ -288,7 +293,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 ### 4.7 Known Restrictions (v0.2 fully shipped)
 
 | Feature | Status | Notes |
-|---------|--------|-------|
+| ------- | ------ | ----- |
 | `[...]` list literal as direct argument inside S-expression `if` branch | ❌ Parse error | Hoist into a `let` binding before the `if` (workaround below) |
 | `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
 | `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | v0.3 |
@@ -296,6 +301,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > [!WARNING]
 > **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
 > The S-expression parser misreads `]` when a list literal appears as a function argument inside an `if` body:
+>
 > ```lisp
 > ;; FAILS — parse error 'unexpected ]':
 > (if won
@@ -306,6 +312,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > (let [(msg (string-concat-many ["You won! " word "\n"]))]
 >   (if won (wasi.io.stdout msg) ...))
 > ```
+>
 > This restriction does not apply to JSON-AST (`{"kind": "lit-list", ...}` is always unambiguous). Bug tracked as **B3** in `compiler-team-roadmap.md`.
 
 ---
@@ -313,7 +320,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 ### 4.8 Common Agent Mistakes
 
 | Mistake | Effect | Correct form |
-|---------|--------|--------------|
+| ------- | ------ | ------------ |
 | `def-main` field `"done"` instead of `"done?"` | Silently ignored by JSON parsers; game never terminates | `"done?"` (with `?`) |
 | `def-main` field `"onDone"` or `"on_done"` | Silently ignored | `"on-done"` (with hyphen) |
 | `"isDone"` instead of `"done?"` | Silently ignored | `"done?"` |
@@ -434,7 +441,8 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 > This means sub-modules can import sibling sub-modules correctly only when they all live **in the same directory as the entry-point**, or in a flat peer layout.
 >
 > **What works:**
-> ```
+>
+> ```text
 > examples/life_json/
 >   main.ast.json       ← entry-point: llmll check main.ast.json
 >   world.ast.json      ← (import world)   → resolved to ./world.ast.json ✅
@@ -442,7 +450,8 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 > ```
 >
 > **What does NOT work in Phase 2a:**
-> ```
+>
+> ```text
 > examples/life_json/
 >   main.ast.json       ← entry-point
 >   life/
@@ -478,6 +487,7 @@ Use `letrec` (not `def-logic`) for any self-recursive function. The `:decreases`
 ```
 
 JSON-AST:
+
 ```json
 { "kind": "letrec",
   "name": "countdown",
@@ -504,11 +514,13 @@ The compiler auto-emits `?proof-required` holes for constraints outside the deci
 | `?proof-required(non-linear-contract)` | `pre`/`post` contains `*`, `/`, `mod`, `^` | No |
 
 **Manual annotation** (S-expression):
+
 ```lisp
 ?proof-required    ;; skip this expression in the verifier
 ```
 
 **JSON-AST node:**
+
 ```json
 { "kind": "hole-proof-required", "reason": "non-linear-contract" }
 ```
@@ -519,11 +531,10 @@ The compiler auto-emits `?proof-required` holes for constraints outside the deci
 
 ### §4.9 String Escape Sequences by Format
 
-
 S-expression (`.llmll`) and JSON-AST (`.ast.json`) files use different string escape rules. Mixing them up is a common source of parse errors.
 
 | Escape | JSON-AST | S-expression (v0.2+) |
-|--------|----------|----------------------|
+| ------ | -------- | -------------------- |
 | `\n` newline | ✅ | ✅ |
 | `\t` tab | ✅ | ✅ |
 | `\r` CR | ✅ | ✅ |
@@ -533,17 +544,20 @@ S-expression (`.llmll`) and JSON-AST (`.ast.json`) files use different string es
 | `\xNN` hex | ❌ not valid JSON | ❌ not supported |
 
 **JSON-AST:** follows RFC 8259. Use `\uXXXX` for control characters:
+
 ```json
 { "kind": "lit-string", "value": "\u001b[2J\u001b[H" }  // ✅ VT100 clear-screen
 { "kind": "lit-string", "value": "\x1b[2J\x1b[H" }    // ❌ \x1b not valid JSON
 ```
 
 The compiler emits a hint when it detects the `\x1b` pattern:
+
 ```
 :hint "JSON strings must use \\uXXXX for control/non-ASCII chars (e.g. \\u001b not \\x1b)"
 ```
 
 **S-expression:** uses Haskell-style escapes. `\uXXXX` is now also supported (v0.2):
+
 ```lisp
 (def-logic clear-screen [] "\u001b[2J\u001b[H")  ;; ✅ works in v0.2
 ```
