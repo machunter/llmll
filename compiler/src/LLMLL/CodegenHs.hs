@@ -553,8 +553,10 @@ emitDo :: [DoStep] -> Text
 emitDo steps =
   "(do { " <> T.intercalate "; " (map emitStep steps) <> " })"
   where
-    emitStep (DoBind n e) = toHsIdent n <> " <- " <> emitExpr e
-    emitStep (DoExpr e)   = emitExpr e
+    -- PR 2: updated dispatch for unified DoStep constructor.
+    -- The do-notation emission itself is replaced in PR 3.
+    emitStep (DoStep (Just n) e) = toHsIdent n <> " <- " <> emitExpr e
+    emitStep (DoStep Nothing  e) = emitExpr e
 
 emitHole :: HoleKind -> Text
 emitHole (HNamed n)        = "( error (\"hole: \" ++ " <> T.pack (show (T.unpack n)) <> ") {- HOLE -} )"

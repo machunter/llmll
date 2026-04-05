@@ -708,29 +708,16 @@
     },
 
     "DoStep": {
-      "oneOf": [
-        {
-          "description": "Bound step: (<- name expr)",
-          "type": "object",
-          "required": ["kind", "name", "expr"],
-          "additionalProperties": false,
-          "properties": {
-            "kind": { "type": "string", "const": "bind-step" },
-            "name": { "type": "string" },
-            "expr": { "$ref": "#/$defs/Expr" }
-          }
-        },
-        {
-          "description": "Plain expression step (for side-effect commands).",
-          "type": "object",
-          "required": ["kind", "expr"],
-          "additionalProperties": false,
-          "properties": {
-            "kind": { "type": "string", "const": "expr-step" },
-            "expr": { "$ref": "#/$defs/Expr" }
-          }
-        }
-      ]
+      "description": "A single step in a do-block (PR 2: unified form). Named steps bind the state component; anonymous steps discard it (state-loss hazard if non-terminal). Old kinds 'bind-step' and 'expr-step' are parsed for backward compatibility but should be migrated to 'do-step'.",
+      "type": "object",
+      "required": ["kind", "expr"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":       { "type": "string", "const": "do-step" },
+        "expr":       { "$ref": "#/$defs/Expr" },
+        "name":       { "type": "string", "description": "If present, bound to the state component of expr's result (former bind-step). If absent, the state component is discarded (former expr-step)." },
+        "state_type": { "$ref": "#/$defs/Type", "description": "Optional hint: the state type S. Required only when expr itself is a hole." }
+      }
     },
 
     "ExprLitList": {

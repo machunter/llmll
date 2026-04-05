@@ -70,9 +70,9 @@ builtinEnv = Map.fromList $
   , ("not", TFn [TBool] TBool)
   -- §13.4 Pair / record
   -- first/second accept TVar "p" (any pair-like value) because the type checker
-  -- has no dedicated pair type — EPair produces TResult but explicitly-annotated
-  -- parameters may carry a different static type.  TVar input unifies with anything.
-  , ("pair",   TFn [TVar "a", TVar "b"] (TResult (TVar "a") (TVar "b")))
+  -- cannot structurally inspect them without a concrete pair annotation.
+  -- TVar input unifies with anything.
+  , ("pair",   TFn [TVar "a", TVar "b"] (TPair (TVar "a") (TVar "b")))  -- PR 2: was TResult
   , ("first",  TFn [TVar "p"] (TVar "a"))
   , ("second", TFn [TVar "p"] (TVar "b"))
   -- §13.5 List operations
@@ -703,19 +703,41 @@ inferHole HConflictResolution = do
   tcError "unresolved merge conflict hole"
   pure (TVar "?")
 
--- | Infer type from do-steps (chained monadic computation).
+-- | Infer type from do-steps with pair-thread enforcement (PR 2).
+-- Every step must return (S, Command) i.e. TPair S (TCustom "Command").
+-- The state type S is unified across all steps.
 inferDoSteps :: [DoStep] -> TC Type
 inferDoSteps [] = pure TUnit
-inferDoSteps [DoExpr e] = inferExpr e
-inferDoSteps [DoBind _ e] = inferExpr e
-inferDoSteps (DoExpr e : rest) = do
-  _ <- inferExpr e
-  inferDoSteps rest
-inferDoSteps (DoBind name e : rest) = do
-  ty <- inferExpr e
-  -- Unwrap Promise if needed
-  let innerTy = case ty of { TPromise t -> t; t -> t }
-  withEnv [(name, innerTy)] (inferDoSteps rest)
+inferDoSteps steps = do
+  let (DoStep mName0 e0) = head steps
+  t0 <- withSegment "steps" $ withSegment "0" $ inferExpr e0
+  (s0, _) <- expectPairType "do-block step 0" t0
+  let binding0 = case mName0 of
+        Just n  -> [(n, s0)]
+        Nothing -> [("_s_0", s0)]
+  withEnv binding0 $ go s0 (1 :: Int) (tail steps)
+  where
+    go sType _ [] = pure (TPair sType (TCustom "Command"))
+    go sType i (DoStep mName e : rest) = do
+      t <- withSegment "steps" $ withSegment (tshow i) $ inferExpr e
+      (si, _) <- expectPairType ("do-block step " <> tshow i) t
+      -- Unify S: all steps must thread the same state type
+      unify ("do-block step " <> tshow i) sType si
+      let bindName = case mName of
+            Just n  -> n
+            Nothing -> "_s_" <> tshow i
+      withEnv [(bindName, si)] $ go sType (i + 1) rest
+
+-- | Expect a TPair; emit "do-step-type-error" and return wildcard components
+-- on failure so one bad step doesn't cascade and suppress subsequent errors.
+expectPairType :: Text -> Type -> TC (Type, Type)
+expectPairType _ (TPair a b) = pure (a, b)
+expectPairType ctx t = do
+  modify $ \s -> s { tcErrors = tcErrors s ++
+    [(mkError Nothing ("do-step-type-error in " <> ctx <>
+      ": step must return (S, Command), got " <> typeLabel t))
+      { diagKind = Just "do-step-type-error" }] }
+  pure (TVar "?", TCustom "Command")  -- wildcards; don't cascade
 
 -- ---------------------------------------------------------------------------
 -- Pattern Checking

@@ -187,8 +187,7 @@ collectHolesExpr ctx expr = case expr of
     concatMap (collectHolesDoStep ctx) steps
 
 collectHolesDoStep :: Text -> DoStep -> [HoleEntry]
-collectHolesDoStep ctx (DoBind _ e) = collectHolesExpr ctx e
-collectHolesDoStep ctx (DoExpr e)   = collectHolesExpr ctx e
+collectHolesDoStep ctx (DoStep _ e) = collectHolesExpr ctx e  -- PR 2: unified constructor
 
 -- ---------------------------------------------------------------------------
 -- Traversal — Types (for dependent type constraints)
@@ -202,6 +201,8 @@ collectHolesType ctx (TList inner) =
 collectHolesType ctx (TMap k v) =
   collectHolesType ctx k ++ collectHolesType ctx v
 collectHolesType ctx (TResult a b) =
+  collectHolesType ctx a ++ collectHolesType ctx b
+collectHolesType ctx (TPair a b) =   -- PR 2: pair types may contain dependent parts
   collectHolesType ctx a ++ collectHolesType ctx b
 collectHolesType ctx (TPromise a) =
   collectHolesType ctx a

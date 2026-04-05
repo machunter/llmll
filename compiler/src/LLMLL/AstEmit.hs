@@ -270,8 +270,9 @@ exprToJson (EAwait e) =
 exprToJson (EDo steps) =
   object ["kind" .= ("do" :: Text), "steps" .= map doStepToJson steps]
   where
-    doStepToJson (DoBind n e) = object ["kind" .= ("bind-step" :: Text), "name" .= n, "expr" .= exprToJson e]
-    doStepToJson (DoExpr e)   = object ["kind" .= ("expr-step" :: Text), "expr" .= exprToJson e]
+    -- PR 2: unified "do-step" with optional "name" field
+    doStepToJson (DoStep (Just n) e) = object ["kind" .= ("do-step" :: Text), "name" .= n,  "expr" .= exprToJson e]
+    doStepToJson (DoStep Nothing  e) = object ["kind" .= ("do-step" :: Text), "expr" .= exprToJson e]
 
 exprToJson (EHole hk) = holeToJson hk
 
