@@ -105,6 +105,7 @@ data Type
   | TList Type                    -- ^ Homogeneous list
   | TMap Type Type                -- ^ Key-value dictionary
   | TResult Type Type             -- ^ Sum type: Success(t) | Error(e)
+  | TPair Type Type               -- ^ Product type: (a, b) — state + command pair
   | TFn [Type] Type               -- ^ Function type: [arg types] -> return type
   | TPromise Type                 -- ^ Async result wrapper
   | TDependent Name Type Expr     -- ^ Dependent type: binding name + base type + constraint expr
@@ -125,6 +126,7 @@ typeLabel (TBytes n)      = "bytes[" <> tshow n <> "]"
 typeLabel (TList t)       = "list[" <> typeLabel t <> "]"
 typeLabel (TMap k v)      = "map[" <> typeLabel k <> "," <> typeLabel v <> "]"
 typeLabel (TResult t e)   = "Result[" <> typeLabel t <> "," <> typeLabel e <> "]"
+typeLabel (TPair a b)     = "(" <> typeLabel a <> ", " <> typeLabel b <> ")"
 typeLabel (TFn args ret)  = "fn[" <> tshow (length args) <> " args] -> " <> typeLabel ret
 typeLabel (TPromise t)    = "Promise[" <> typeLabel t <> "]"
 typeLabel (TDependent _ b _)= typeLabel b <> " (constrained)"

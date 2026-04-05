@@ -648,7 +648,7 @@ inferExpr (EOp op _args) = do
 inferExpr (EPair a b) = do
   ta <- inferExpr a
   tb <- inferExpr b
-  pure (TResult ta tb)  -- Pair used as (state, command) — approximate as Result
+  pure (TPair ta tb)  -- PR 1: correct product type; was TResult (unsound)
 
 inferExpr (EHole holeKind) = inferHole holeKind
 
@@ -740,6 +740,8 @@ checkExhaustive scrutTy arms = do
           tcEmitNonExhaustive (typeLabel scrutTy) missing covered
       TResult _ _ -> do
         -- Built-in: Success / Error must both be present
+        -- NOTE: TPair is handled by the fallthrough `_ -> pure ()` case below;
+        -- pair-typed scrutinees have no known constructor set to check exhaustively.
         let missing = filter (`notElem` covered) ["Success", "Error"]
         unless (null missing) $
           tcEmitNonExhaustive "Result" missing covered
@@ -825,6 +827,8 @@ compatibleWith a (TDependent _ b _)   = compatibleWith a b
 compatibleWith (TList a) (TList b)  = compatibleWith a b
 compatibleWith (TMap k1 v1) (TMap k2 v2) = compatibleWith k1 k2 && compatibleWith v1 v2
 compatibleWith (TResult a b) (TResult c d) = compatibleWith a c && compatibleWith b d
+-- PR 1: TPair structural equality (both components must match)
+compatibleWith (TPair a b) (TPair c d) = compatibleWith a c && compatibleWith b d
 compatibleWith (TPromise a) (TPromise b) = compatibleWith a b
 compatibleWith (TFn as r) (TFn bs s) =
   length as == length bs && all (uncurry compatibleWith) (zip as bs) && compatibleWith r s

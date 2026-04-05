@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "make-pair",
+      "params": [
+        { "name": "s", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "pair",
+        "fst": { "kind": "var", "name": "s" },
+        "snd": { "kind": "var", "name": "s" }
+      }
+    },
+    {
+      "kind": "def-main",
+      "mode": "console",
+      "init": {
+        "kind": "pair",
+        "fst": { "kind": "lit-string", "value": "hello" },
+        "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "starting" }] }
+      },
+      "step": {
+        "kind": "lambda",
+        "params": [
+          { "name": "state", "param_type": { "kind": "primitive", "name": "string" } },
+          { "name": "line",  "param_type": { "kind": "primitive", "name": "string" } }
+        ],
+        "body": {
+          "kind": "pair",
+          "fst": { "kind": "var", "name": "state" },
+          "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "line" }] }
+        }
+      }
+    }
+  ]
+}

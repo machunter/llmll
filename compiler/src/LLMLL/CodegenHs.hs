@@ -614,6 +614,7 @@ toHsType (TBytes _)        = "[Word8]"
 toHsType (TList t)         = "[" <> toHsType t <> "]"
 toHsType (TMap k v)        = "(Map.Map " <> toHsType k <> " " <> toHsType v <> ")"
 toHsType (TResult t e)     = "(Either " <> toHsType e <> " " <> toHsType t <> ")"
+toHsType (TPair a b)       = "(" <> toHsType a <> ", " <> toHsType b <> ")"  -- PR 1: pair tuple
 toHsType (TPromise t)      = "(IO " <> toHsType t <> ")"
 toHsType (TFn args ret)    =
   T.intercalate " -> " (map toHsType args ++ [toHsType ret])

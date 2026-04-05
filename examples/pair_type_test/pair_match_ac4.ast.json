@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "use-pair",
+      "params": [
+        { "name": "p", "param_type": { "kind": "named", "name": "MyState" } }
+      ],
+      "body": {
+        "kind": "pair",
+        "fst": { "kind": "var", "name": "p" },
+        "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "cmd" }] }
+      }
+    }
+  ]
+}
