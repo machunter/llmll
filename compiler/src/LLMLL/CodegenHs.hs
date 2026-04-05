@@ -549,14 +549,33 @@ emitMatch scrut cs =
                then " "
                else "; _ -> error \"non-exhaustive match\" "
 
+-- PR 3: pure let-chain emitter for do-blocks.
+-- Each step desugars to a let-binding that destructures the (State, Command) pair.
+-- Intermediate commands are bound to _cmdN (discarded but named to avoid
+-- GHC -Wunused-binds). The final step's pair is returned as the block result.
+--
+-- Example:
+--   (do [s1 <- e0] [s2 <- e1] e2)
+-- emits:
+--   (let { (s1, _cmd0) = e0; (s2, _cmd1) = e1; (_s_2, _cmd2) = e2 } in (_s_2, _cmd2))
 emitDo :: [DoStep] -> Text
+emitDo [] = "((), ())"  -- empty do: unit state, unit command
 emitDo steps =
-  "(do { " <> T.intercalate "; " (map emitStep steps) <> " })"
+  let ishow     = T.pack . show   -- local alias: tshow not in scope here
+      indexed   = zip [0 :: Int ..] steps
+      bindings  = map mkBinding indexed
+      (finalIdx, _) = last indexed
+      finalState = stateVar ishow finalIdx (last steps)
+      finalCmd   = "_cmd" <> ishow finalIdx
+  in "(let { " <> T.intercalate "; " bindings <> " } in ("
+     <> finalState <> ", " <> finalCmd <> "))"
   where
-    -- PR 2: updated dispatch for unified DoStep constructor.
-    -- The do-notation emission itself is replaced in PR 3.
-    emitStep (DoStep (Just n) e) = toHsIdent n <> " <- " <> emitExpr e
-    emitStep (DoStep Nothing  e) = emitExpr e
+    stateVar _     _ (DoStep (Just n) _) = toHsIdent n
+    stateVar ishow i (DoStep Nothing  _) = "_s_" <> ishow i
+
+    mkBinding (i, step@(DoStep _ e)) =
+      let ishow = T.pack . show
+      in "(" <> stateVar ishow i step <> ", _cmd" <> ishow i <> ") = " <> emitExpr e
 
 emitHole :: HoleKind -> Text
 emitHole (HNamed n)        = "( error (\"hole: \" ++ " <> T.pack (show (T.unpack n)) <> ") {- HOLE -} )"
