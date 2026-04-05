@@ -1,8 +1,10 @@
-# LLMLL — v0.2
+# LLMLL — v0.2 (v0.3 in development)
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
+
+> **v0.3 development is underway.** PR 1 (TPair introduction) has merged: `EPair` expressions are now typed `TPair a b` rather than the prior `TResult a b` approximation. This is a type-soundness fix with no surface-syntax changes. PRs 2–4 (do-notation + pair destructuring) are in progress. See [`docs/do_notation_implementation_plan.md`](docs/do_notation_implementation_plan.md).
 
 ---
 
@@ -87,7 +89,7 @@ compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
     Parser.hs               ← S-expression parser (Megaparsec)
     ParserJSON.hs           ← JSON-AST parser
-    Syntax.hs               ← AST types (incl. ModulePath, ModuleEnv, ModuleCache)
+    Syntax.hs               ← AST types (incl. ModulePath, ModuleEnv, ModuleCache, TPair — v0.3)
     TypeCheck.hs            ← Bidirectional type checker
     HoleAnalysis.hs         ← Hole collector (?hole expressions)
     CodegenHs.hs            ← Haskell code emitter

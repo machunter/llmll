@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.2
+# LLMLL Getting Started — v0.2 (v0.3 in development)
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -236,6 +236,9 @@ These patterns work in the **current compiler**. Each shows what works today and
 
 ✅ **Works.** `first`/`second` accept any pair-like value regardless of annotation.
 
+> [!NOTE]
+> **v0.3 (PR 1 shipped):** `EPair` expressions are now typed `TPair a b` internally. The `first`/`second` polymorphic signatures remain unchanged, but a `match` on a pair-typed scrutinee no longer incorrectly cites `Success`/`Error` constructor arms in exhaustiveness errors.
+
 ### 4.2 Type Aliases at Call Sites
 
 ```lisp
@@ -297,6 +300,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `[...]` list literal as direct argument inside S-expression `if` branch | ❌ Parse error | Hoist into a `let` binding before the `if` (workaround below) |
 | `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
 | `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | v0.3 |
+| `EPair` returning `TResult` approximation | ✅ **Fixed (v0.3 PR 1)** | `EPair` now correctly typed `TPair a b`; `match` on pairs no longer suggests `Success`/`Error` arms |
 
 > [!WARNING]
 > **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
@@ -561,6 +565,21 @@ The compiler emits a hint when it detects the `\x1b` pattern:
 ```lisp
 (def-logic clear-screen [] "\u001b[2J\u001b[H")  ;; ✅ works in v0.2
 ```
+
+---
+
+### §4.12 Pair-Type JSON-AST Round-Trip (v0.3 PR 1)
+
+Since PR 1, `llmll build --emit json-ast` on any program containing `(pair a b)` emits the correct `"pair-type"` node:
+
+```json
+{ "kind": "pair-type", "fst": { "kind": "primitive", "name": "int" }, "snd": { "kind": "primitive", "name": "string" } }
+```
+
+Previously, pair expressions were approximated as `"result-type"` in JSON-AST output. That approximation is gone. The schema `$def/TypePair` with `fst`/`snd` fields was already correct and required no change.
+
+> [!IMPORTANT]
+> If you have any tooling that post-processes `llmll build --emit json-ast` output and matches on `"kind": "result-type"` for pairs, update it to match `"kind": "pair-type"` instead. Programs that do **not** post-process the JSON-AST are unaffected.
 
 ---
 
