@@ -181,9 +181,10 @@ data Expr
   deriving (Show, Eq, Generic)
 
 -- | A step in a do-block.
-data DoStep
-  = DoBind Name Expr     -- ^ name <- expr
-  | DoExpr Expr          -- ^ bare expression (final)
+-- PR 2: collapsed from two constructors into one unified form.
+-- @Nothing@   → anonymous step (former DoExpr; state component discarded)
+-- @Just name@ → named step     (former DoBind; state component bound)
+data DoStep = DoStep (Maybe Name) Expr
   deriving (Show, Eq, Generic)
 
 -- ---------------------------------------------------------------------------

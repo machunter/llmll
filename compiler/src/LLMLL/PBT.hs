@@ -183,8 +183,7 @@ bodyMentionsCommand expr = go expr
     go (ELambda _ body)       = go body
     go _                      = False
 
-    goStep (DoBind _ e) = go e
-    goStep (DoExpr e)   = go e
+    goStep (DoStep _ e) = go e  -- PR 2: unified constructor
 
     -- Names known to produce a Command value — only WASI/IO imports qualify.
     -- Keep this list narrow: false positives cause valid properties to be skipped.

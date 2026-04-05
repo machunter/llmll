@@ -415,9 +415,8 @@ pType = choice
   , TCustom <$> pIdent
   ]
 
--- | Phase 2c: parse pair-type (T1, T2) in type position into TResult T1 T2.
--- This matches the runtime model: EPair evaluates to TResult.
--- Accepted in def-logic params, lambda params, and for-all bindings.
+-- | Phase 2c: parse pair-type (T1, T2) in type position into TPair T1 T2.
+-- PR 2 fix: was producing TResult (unsound); now correctly produces TPair.
 pPairType :: Parser Type
 pPairType = do
   _ <- try (lookAhead (symbol "("))
@@ -425,7 +424,7 @@ pPairType = do
     t1 <- pType
     _  <- symbol ","
     t2 <- pType
-    pure (TResult t1 t2)
+    pure (TPair t1 t2)
 
 pBytesType :: Parser Type
 pBytesType = do
@@ -601,12 +600,12 @@ pDoExpr = parens $ do
   pure $ EDo steps
 
 pDoStep :: Parser DoStep
-pDoStep = try pDoBind <|> (DoExpr <$> pExpr)
+pDoStep = try pDoBind <|> (DoStep Nothing <$> pExpr)
   where
     pDoBind = brackets $ do
       name <- pIdent
       _ <- symbol "<-"
-      DoBind name <$> pExpr
+      DoStep (Just name) <$> pExpr
 
 -- | Parse hole expressions.
 pHoleExpr :: Parser Expr

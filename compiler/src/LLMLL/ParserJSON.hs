@@ -291,11 +291,11 @@ parseType = withObject "Type" $ \o -> do
       baseType  <- o .: "base_type" >>= parseType
       predicate <- o .: "predicate" >>= parseExpr
       pure $ TDependent binding baseType predicate
-    -- Phase 2c: pair-type now produces a real TResult instead of a TCustom string
+    -- PR 2 fix: pair-type now correctly produces TPair (was TResult — unsound)
     "pair-type" -> do
       fst_ <- o .: "fst" >>= parseType
       snd_ <- o .: "snd" >>= parseType
-      pure $ TResult fst_ snd_
+      pure $ TPair fst_ snd_
     "command"   -> pure $ TCustom "Command"
     "named"     -> TCustom <$> o .: "name"
     _           -> fail $ "unknown Type kind: " ++ T.unpack kind
@@ -449,12 +449,19 @@ parseLiteralValue o = do
     Bool b     -> pure (LitBool b)
     _          -> fail "literal value must be number, string, or bool"
 
+-- PR 2: unified DoStep. Only "do-step" is accepted.
+-- "bind-step"/"expr-step" are rejected: do-notation never shipped in a stable
+-- release, so there is nothing to be backward-compatible with.
 parseDoStep :: Value -> Parser DoStep
 parseDoStep = withObject "DoStep" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
-    "bind-step" -> DoBind <$> o .: "name" <*> (o .: "expr" >>= parseExpr)
-    "expr-step" -> DoExpr <$> (o .: "expr" >>= parseExpr)
+    "do-step"   -> do
+      expr  <- o .: "expr" >>= parseExpr
+      mName <- o .:? "name" :: Parser (Maybe Name)
+      pure $ DoStep mName expr
+    "bind-step" -> fail "use {\"kind\":\"do-step\",\"name\":\"x\",\"expr\":...} instead of \"bind-step\" (schema v0.3)"
+    "expr-step" -> fail "use {\"kind\":\"do-step\",\"expr\":...} instead of \"expr-step\" (schema v0.3)"
     _ -> fail $ "unknown DoStep kind: " ++ T.unpack kind
 
 parseScaffoldSpec :: Object -> Parser ScaffoldSpec
