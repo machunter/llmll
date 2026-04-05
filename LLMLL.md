@@ -2,7 +2,7 @@
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 development is underway:** PR 1 (TPair introduction) has merged — `EPair` expressions are now correctly typed `TPair a b`, replacing the interim `TResult` approximation and closing a type-soundness gap. PRs 2–4 (do-notation + pair destructuring) are in progress. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -106,6 +106,11 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 | `Promise[t]` | Pending async value | `Promise[ImageBytes]` |
 | `(a, b)` | 2-tuple (product type) | `(int, string)` |
 | `Command` | An IO effect value (see §9) | _(constructed via capability constructors only)_ |
+
+> [!NOTE]
+> **v0.3 PR 1 — `(a, b)` is now backed by `TPair`.**  
+> Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
+> Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
 
 > **`Command` in v0.1.1:** Opaque — cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields.
 >
@@ -1138,7 +1143,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
-| `pair` | `a b -> (a, b)` | Construct a 2-tuple |
+| `pair` | `a b -> (a, b)` | Construct a 2-tuple. **v0.3 PR 1:** now correctly typed `TPair a b` — distinct from `Result[a,b]` in diagnostics and JSON-AST output |
 | `first` | `(a, b) -> a` | First projection — accepts any pair, including explicitly-annotated parameters |
 | `second` | `(a, b) -> b` | Second projection — accepts any pair, including explicitly-annotated parameters |
 
@@ -1386,7 +1391,7 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 | `llmll check` | Verifies stored Lean 4 proof certificates without re-running Leanstral |
 | Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at the GHC/WASM boundary |
 | Trace proofs | SMT validation of `pre`/`post` over replayed Event Log traces (requires ✅ replayable modules) |
-| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) -> (NewState, Command)`. No new runtime semantics |
+| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. **PR 1 (TPair introduction) shipped** — type-system foundation is in place. PRs 2–4 in progress. |
 | `Promise[t]` | Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
 
 ### v0.4 — WASM Hardening

@@ -160,6 +160,12 @@ typeToJson (TBytes n)        = object ["kind" .= ("bytes" :: Text),     "length"
 typeToJson (TList t)         = object ["kind" .= ("list" :: Text),      "elem_type" .= typeToJson t]
 typeToJson (TMap k v)        = object ["kind" .= ("map" :: Text),       "key_type" .= typeToJson k, "val_type" .= typeToJson v]
 typeToJson (TResult t e)     = object ["kind" .= ("result" :: Text),    "ok_type" .= typeToJson t,  "err_type" .= typeToJson e]
+-- PR 1: pair-type schema ($def already present in llmll-ast.schema.json lines 388-398)
+typeToJson (TPair a b)       = object
+  [ "kind" .= ("pair-type" :: Text)
+  , "fst"  .= typeToJson a
+  , "snd"  .= typeToJson b
+  ]
 typeToJson (TPromise t)      = object ["kind" .= ("promise" :: Text),   "inner_type" .= typeToJson t]
 typeToJson (TFn args ret)    = object
   [ "kind"        .= ("fn-type" :: Text)

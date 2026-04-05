@@ -1,0 +1,7 @@
+(def-logic make-pair [s : string] : (string, string)
+  (pair s s))
+
+(def-main :console
+  :init (pair "hello" (wasi.io.stdout "starting"))
+  :step (lambda [state line]
+    (pair state (wasi.io.stdout line))))
