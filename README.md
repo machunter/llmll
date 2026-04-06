@@ -4,7 +4,7 @@
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.3 development is underway.** PR 1 (TPair introduction) has merged: `EPair` expressions are now typed `TPair a b` rather than the prior `TResult a b` approximation. This is a type-soundness fix with no surface-syntax changes. PRs 2–4 (do-notation + pair destructuring) are in progress. See [`docs/do_notation_implementation_plan.md`](docs/do_notation_implementation_plan.md).
+> **v0.3 development is underway.** PR 1 (TPair introduction), PR 2 (DoStep collapse), and PR 3 (emitDo rewrite soundness fix) have merged. `EPair` expressions are now correctly typed `TPair a b`. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring) is in progress. See [`docs/archive/analysis/do_notation/do_notation_implementation_plan.md`](docs/archive/analysis/do_notation/do_notation_implementation_plan.md).
 
 ---
 

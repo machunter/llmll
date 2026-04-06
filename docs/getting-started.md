@@ -583,6 +583,24 @@ Previously, pair expressions were approximated as `"result-type"` in JSON-AST ou
 
 ---
 
+### §4.13 do-notation JSON-AST Schema Migration (v0.3 PR 2)
+
+Since PR 2, the JSON-AST schema for `do`-blocks uses a single, unified `"do-step"` node. The old separation of `"bind-step"` and `"expr-step"` is obsolete:
+
+```json
+// Named step (formerly bind-step)
+{ "kind": "do-step", "name": "state1", "expr": { /* ... */ } }
+
+// Anonymous step (formerly expr-step)
+{ "kind": "do-step", "expr": { /* ... */ } }
+```
+
+> [!IMPORTANT]
+> **Migrating from pre-PR2 do-blocks:** `llmll build` currently parses old `"bind-step"` and `"expr-step"` JSON nodes for backward compatibility, but it will emit a `"schema-migration-required"` warning. To eliminate the warning, rename your step `"kind"` to `"do-step"`. For bind-steps, keeping the `"name"` property is correct and required if you want to capture the bound state.
+> Furthermore, `llmll check` enforces state threading. Every step inside a `do`-block must return exactly `(S, Command)`, and the type `S` must be strictly identical across all steps. A mismatch produces a `"type-mismatch"` diagnostic.
+
+---
+
 ## Part 5 — Core Language Quick Reference
 
 ```lisp
