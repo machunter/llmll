@@ -22,6 +22,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll typecheck --sketch <file>` | **Phase 2c** — partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors. |
 | `llmll serve [--host H] [--port P] [--token T]` | **Phase 2c** — expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). |
+| `llmll repl` | Start an interactive LLMLL REPL |
 
 ### Input formats
 
@@ -89,11 +90,12 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.2)
+LLMLL.md                    ← canonical language specification (v0.2; v0.3 in development)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
     Parser.hs               ← S-expression parser (Megaparsec)
+    Lexer.hs                ← Megaparsec lexer (tokens, whitespace, layout)
     ParserJSON.hs           ← JSON-AST parser
     Syntax.hs               ← AST types (incl. ModulePath, ModuleEnv, ModuleCache, TPair — v0.3)
     TypeCheck.hs            ← Bidirectional type checker
