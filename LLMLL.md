@@ -741,6 +741,27 @@ In JSON-AST:
 }
 ```
 
+### 9.6 `do`-notation State Threading (v0.3)
+
+For complex sequences of actions that thread a state and accumulate commands, LLMLL provides a monadic `do`-notation block as a cleaner alternative to deeply nested `let` and `seq-commands`.
+
+```lisp
+(def-logic process-turn [state: GameState]
+  (do
+    [s1 (action1 state)]
+    [s2 (action2 s1)]
+    (action3 s2)))
+```
+
+#### Semantics
+
+- **State threading enforced:** Every step inside a `do`-block must evaluate to exactly `(S, Command)`. The type `S` must be strictly identical across all steps in the block.
+- **Named vs. Anonymous steps:** A named step `[s1 (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
+- **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def-logic` pure contexts. `seq-commands` is used automatically under the hood to fold the commands into a single `Command` return value.
+
+> [!WARNING]
+> Using an anonymous step `(expr)` when `expr` returns a new state will result in **state-loss**. The bound state from prior steps is retained, but the updated state from `(expr)` is discarded. Always use named steps `[s (expr)]` to thread modified states properly.
+
 ---
 
 ## 10. Compilation & Execution Pipeline

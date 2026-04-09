@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "step-fn",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "input", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "body": {
+        "kind": "do",
+        "steps": [
+          {
+            "kind": "do-step",
+            "name": "s1",
+            "expr": {
+              "kind": "pair",
+              "fst": { "kind": "var", "name": "state" },
+              "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "input" }] }
+            }
+          },
+          {
+            "kind": "do-step",
+            "expr": {
+              "kind": "pair",
+              "fst": { "kind": "var", "name": "s1" },
+              "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "done" }] }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
