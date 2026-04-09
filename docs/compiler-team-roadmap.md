@@ -81,7 +81,7 @@ Three bugs were found by an AI developer during the Hangman JSON-AST implementat
 
 ### Deliverable 2 — Haskell Codegen Target
 
-> **One-shot impact:** Eliminates codegen semantic drift; makes v0.2 LiquidHaskell a 2-week integration instead of a 3-month Z3 binding project.
+> **One-shot impact:** Eliminates codegen semantic drift; makes v0.2 liquid-fixpoint verification a 2-week integration instead of a 3-month Z3 binding project.
 
 **[DESIGN — COMMITTED]** Effects library: `effectful`. Effect rows are type-visible in function signatures — AI agents can inspect what capabilities a function requires. This is a direct one-shot correctness gain, not merely an implementation preference.
 
@@ -110,7 +110,7 @@ Three bugs were found by an AI developer during the Hangman JSON-AST implementat
 | `Promise[t]` | `IO t` (upgraded to `Async t` in v0.3) |
 | `(def-interface I [m fn-type])` | `class I a where m :: fn-type` |
 | `Command` (effect) | `Eff '[<capability-row>] r` |
-| `(pre pred)` / `(post pred)` | LiquidHaskell `{-@ ... @-}` annotations (v0.2); runtime `assert` wrappers (v0.1.2) |
+| `(pre pred)` / `(post pred)` | liquid-fixpoint `.fq` constraints (v0.2); runtime `assert` wrappers (v0.1.2) |
 | `(check "..." (for-all [...] e))` | `QuickCheck.property $ \... -> e` |
 | `(import haskell.aeson ...)` | `import Data.Aeson` — no stub |
 | `(import c.libsodium ...)` | `foreign import ccall ...` in `src/FFI/Libsodium.hs` |
@@ -242,7 +242,7 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 ### Internal Ordering (design team requirement)
 
 ```text
-Phase 2a: Module System  →  Phase 2b: LiquidHaskell  →  Phase 2c: Type System Fixes + Sketch API
+Phase 2a: Module System  →  Phase 2b: liquid-fixpoint verification  →  Phase 2c: Type System Fixes + Sketch API
 ```
 
 Rationale: `def-invariant` + Z3 verification requires multi-file resolution as substrate. Cross-module invariant checking is meaningless without cross-module compilation.

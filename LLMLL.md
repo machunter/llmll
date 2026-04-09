@@ -326,7 +326,7 @@ A program with holes can be **parsed, type-checked, and analyzed** but **not exe
 | `?scaffold(template ...)` | Cold-start a module from a `llmll-hub` skeleton (see §6.1). |
 | `?delegate @agent "description" -> Type` | Delegate implementation to a named agent (see §11.2). |
 | `?delegate-async @agent "description" -> Promise[Type]` | Non-blocking delegation (see §11.2). |
-| `?proof-required` | A contract predicate that is outside the decidable QF arithmetic fragment (v0.2+). The compiler assigns a complexity hint: `:simple` (LiquidHaskell track), `:inductive` (Leanstral track), or `:unknown`. Non-blocking in v0.2; resolved by Leanstral (Lean 4) in v0.3. |
+| `?proof-required` | A contract predicate that is outside the decidable QF arithmetic fragment (v0.2+). The compiler assigns a complexity hint: `:simple` (liquid-fixpoint track), `:inductive` (Leanstral track), or `:unknown`. Non-blocking in v0.2; resolved by Leanstral (Lean 4) in v0.3. |
 
 **Usage in expressions:** A hole can appear anywhere an expression is expected:
 
@@ -751,7 +751,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module's declared capabilities (v0.1.2–v0.3). In v0.4 this is replaced by a WASM-WASI VM.
 8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
 
-> **v0.2:** Step 2 will include compile-time LiquidHaskell refinement-type checking. Contracts that are outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
+> **v0.2 (shipped):** Step 2 includes compile-time contract verification via `llmll verify` (decoupled liquid-fixpoint backend). Contracts outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
 > **v0.3:** `?proof-required :inductive` holes are resolved by Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds without re-calling Leanstral.
 > **v0.4:** Docker sandbox is replaced by a WASM-WASI VM. `llmll build --target wasm` is available as an opt-in in v0.3.
 
@@ -1310,7 +1310,7 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 
 > For the compiler team's full implementation schedule, ticket-level deliverables, and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). This section documents **language-visible features** only.
 
-### v0.1.1 — Current Version
+### v0.1.1
 
 Closed all specification gaps found during real-world implementation. The spec is now sufficient to implement any program using only v0.1.1 primitives without workarounds.
 
@@ -1344,13 +1344,13 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 | `let` syntax | `(let [(x e1) (y e2)] body)` — canonical v0.1.2 form; `(let [[x e1] [y e2]] body)` also accepted (v0.1.1 backward compat) |
 | List literals | `[]` and `[a b c]` list literals added; `(list-empty)` and `(list-append ...)` remain valid |
 
-> **Rationale — Haskell target:** LLMLL's concepts (pure functions, ADTs, algebraic effects, liquid types) map directly onto Haskell's native semantics. The Haskell target eliminates codegen semantic drift, makes v0.2 compile-time verification a LiquidHaskell integration task (weeks, not months), and shares the compiler's own type universe with generated programs. WASM-WASI remains the long-term deployment target (v0.4); Docker is the research-stage sandbox.
+> **Rationale — Haskell target:** LLMLL's concepts (pure functions, ADTs, algebraic effects, liquid types) map directly onto Haskell's native semantics. The Haskell target eliminates codegen semantic drift, makes v0.2 compile-time verification a liquid-fixpoint integration task (weeks, not months), and shares the compiler's own type universe with generated programs. WASM-WASI remains the long-term deployment target (v0.4); Docker is the research-stage sandbox.
 
 > **Rationale — JSON-AST:** LLMs generating S-expressions suffer parentheses drift — a structural error whose rate is a function of generation length vs. nesting depth, not model quality. JSON schema-constrained generation (via OpenAI Structured Outputs, Gemini schema parameters, etc.) provides mathematical structural validity guarantees before the compiler runs.
 
 ### v0.2 — Module System + Compile-Time Verification
 
-The module system shipped **first within v0.2** (Phase 2a) because cross-module invariant verification (`def-invariant` + LiquidHaskell) requires multi-file resolution as substrate.
+The module system shipped **first within v0.2** (Phase 2a) because cross-module invariant verification (`def-invariant` + liquid-fixpoint) requires multi-file resolution as substrate.
 
 | Area | Feature |
 |------|---------|
@@ -1365,7 +1365,7 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 | **`letrec` (Phase 2b)** | Bounded recursion with mandatory `:decreases` termination annotation. Simple variable measures are verified by `llmll verify`. |
 | **`match` exhaustiveness (Phase 2b)** | Static exhaustiveness checking for ADT sum types — a `match` missing a constructor arm is a compile error. |
 | **Type system fix (Phase 2c)** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.x untyped-parameter workaround is no longer needed. |
-| `def-invariant` | LiquidHaskell-backed module invariant verification after every AST merge |
+| `def-invariant` | liquid-fixpoint-backed module invariant verification after every AST merge |
 | **`llmll typecheck --sketch`** | Partial-program type inference API: accepts a program with holes, returns inferred type of each hole and any type errors present even in the incomplete program |
 
 ### v0.3 — Agent Coordination + Interactive Proofs
