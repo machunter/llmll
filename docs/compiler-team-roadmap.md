@@ -169,7 +169,7 @@ Docker container
 
 **[CT]** Parser disambiguation: `[...]` in *expression position* = list literal; `[...]` in *parameter-list position* (after function name in `def-logic` or `fn`) = parameter list. Rule documented in `LLMLL.md §12`.
 
-**[CT]** Old `(let [[x 1] ...])` syntax emits a clear error with a migration message.
+**[CT]** ~~Old `(let [[x 1] ...])` syntax emits a clear error with a migration message.~~ **Not implemented** — both `(x e)` and `[x e]` binding forms are accepted for backward compatibility (see `Parser.hs` `pLetBinding`).
 
 ---
 
