@@ -76,7 +76,13 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 | `examples/hangman_json/` | JSON-AST | Same program, JSON-AST schema-constrained version |
 | `examples/tictactoe_sexp/` | S-expression | Two-player Tic-Tac-Toe; demonstrates `:done?` + `:on-done` |
 | `examples/tictactoe_json/` | JSON-AST | Same Tic-Tac-Toe program in JSON-AST format |
+| `examples/life_sexp/` | S-expression | Conway's Game of Life; multi-module (`core`, `world`, `main`) |
+| `examples/life_json/` | JSON-AST | Same Life program in JSON-AST format |
 | `examples/withdraw.llmll` | S-expression | Simple withdraw with `pre`/`post` contracts; acceptance gate |
+| `examples/hangman_json_verifier/` | JSON-AST | Hangman with verified `apply-guess` contracts (`llmll verify`) |
+| `examples/tictactoe_json_verifier/` | JSON-AST | Tic-Tac-Toe with verified `set-cell` contracts |
+| `examples/conways_life_json_verifier/` | JSON-AST | Conway's Life with verified `count-neighbors` and `next-cell` contracts |
+| `examples/pair_type_test/` | Mixed | TPair type system and do-notation test fixtures |
 
 ---
 
@@ -93,10 +99,14 @@ compiler/                   ← Haskell compiler (stack project)
     TypeCheck.hs            ← Bidirectional type checker
     HoleAnalysis.hs         ← Hole collector (?hole expressions)
     CodegenHs.hs            ← Haskell code emitter
+    AstEmit.hs              ← JSON-AST emitter (--emit json-ast round-trip)
+    Contracts.hs            ← Runtime contract assertion generator
     PBT.hs                  ← QuickCheck property runner
     Diagnostic.hs           ← Structured error/warning types
     Module.hs               ← Multi-file module resolver, cycle detection, ModuleCache
     Hub.hs                  ← llmll-hub registry fetch and local cache
+    Sketch.hs               ← Partial-program type inference (--sketch)
+    Serve.hs                ← HTTP endpoint for agent swarms (llmll serve)
     FixpointIR.hs           ← D4: .fq constraint IR + text emitter
     FixpointEmit.hs         ← D4: typed AST → .fq + ConstraintTable builder
     DiagnosticFQ.hs         ← D4: liquid-fixpoint output → [Diagnostic] with JSON Pointers
@@ -106,7 +116,13 @@ examples/
   hangman_json/             ← Full Hangman (JSON-AST)
   tictactoe_sexp/           ← Tic-Tac-Toe (S-expression)
   tictactoe_json/           ← Tic-Tac-Toe (JSON-AST)
+  life_sexp/                ← Conway's Life (S-expression, multi-module)
+  life_json/                ← Conway's Life (JSON-AST, multi-module)
   withdraw.llmll            ← Contract demo
+  hangman_json_verifier/    ← Hangman with verified contracts
+  tictactoe_json_verifier/  ← Tic-Tac-Toe with verified contracts
+  conways_life_json_verifier/ ← Life with verified contracts
+  pair_type_test/           ← TPair + do-notation test fixtures
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog

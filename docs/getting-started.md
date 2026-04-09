@@ -31,13 +31,15 @@ llmll — AI-to-AI programming language compiler
 Usage: llmll COMMAND [--json]
 
 Available commands:
-  check   Parse and type-check a .llmll or .ast.json file
-  holes   List and classify all holes in a file
-  test    Run property-based tests (check blocks)
-  build   Compile source to a Haskell application
-  verify  Emit .fq constraints and run liquid-fixpoint (Phase 2b)
-  hub     llmll-hub package registry (fetch, cache)
-  repl    Start an interactive LLMLL REPL
+  check      Parse and type-check a .llmll or .ast.json file
+  holes      List and classify all holes in a file
+  test       Run property-based tests (check blocks)
+  build      Compile source to a Haskell application
+  verify     Emit .fq constraints and run liquid-fixpoint (Phase 2b)
+  typecheck  Type inference (use --sketch for partial programs)
+  serve      HTTP sketch endpoint for agent swarms
+  hub        llmll-hub package registry (fetch, cache)
+  repl       Start an interactive LLMLL REPL
 ```
 
 ---
@@ -222,7 +224,7 @@ The compiler rejects mismatched versions immediately. **Strict mode:** only the 
 
 ---
 
-## Part 4 — Known-Good Patterns (v0.1.3.1)
+## Part 4 — Known-Good Patterns (Current Compiler)
 
 These patterns work in the **current compiler**. Each shows what works today and what the old workaround was.
 
@@ -596,7 +598,7 @@ Since PR 2, the JSON-AST schema for `do`-blocks uses a single, unified `"do-step
 ```
 
 > [!IMPORTANT]
-> **Migrating from pre-PR2 do-blocks:** `llmll build` currently parses old `"bind-step"` and `"expr-step"` JSON nodes for backward compatibility, but it will emit a `"schema-migration-required"` warning. To eliminate the warning, rename your step `"kind"` to `"do-step"`. For bind-steps, keeping the `"name"` property is correct and required if you want to capture the bound state.
+> **Migrating from pre-PR2 do-blocks:** The JSON parser **rejects** old `"bind-step"` and `"expr-step"` kinds with a clear migration error. To update, rename your step `"kind"` to `"do-step"`. For named steps, keep the `"name"` property to capture the bound state.
 > Furthermore, `llmll check` enforces state threading. Every step inside a `do`-block must return exactly `(S, Command)`, and the type `S` must be strictly identical across all steps. A mismatch produces a `"type-mismatch"` diagnostic.
 
 ---

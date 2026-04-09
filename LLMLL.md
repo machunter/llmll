@@ -2,7 +2,7 @@
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 development is underway:** PR 1 (TPair introduction) has merged — `EPair` expressions are now correctly typed `TPair a b`, replacing the interim `TResult` approximation and closing a type-soundness gap. PRs 2–4 (do-notation + pair destructuring) are in progress. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 development is underway:** PR 1 (TPair introduction), PR 2 (DoStep collapse), and PR 3 (emitDo rewrite soundness fix) have merged. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring in `let`) is in progress. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -748,19 +748,19 @@ For complex sequences of actions that thread a state and accumulate commands, LL
 ```lisp
 (def-logic process-turn [state: GameState]
   (do
-    [s1 (action1 state)]
-    [s2 (action2 s1)]
+    [s1 <- (action1 state)]
+    [s2 <- (action2 s1)]
     (action3 s2)))
 ```
 
 #### Semantics
 
 - **State threading enforced:** Every step inside a `do`-block must evaluate to exactly `(S, Command)`. The type `S` must be strictly identical across all steps in the block.
-- **Named vs. Anonymous steps:** A named step `[s1 (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
+- **Named vs. Anonymous steps:** A named step `[s1 <- (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
 - **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def-logic` pure contexts. `seq-commands` is used automatically under the hood to fold the commands into a single `Command` return value.
 
 > [!WARNING]
-> Using an anonymous step `(expr)` when `expr` returns a new state will result in **state-loss**. The bound state from prior steps is retained, but the updated state from `(expr)` is discarded. Always use named steps `[s (expr)]` to thread modified states properly.
+> Using an anonymous step `(expr)` when `expr` returns a new state will result in **state-loss**. The bound state from prior steps is retained, but the updated state from `(expr)` is discarded. Always use named steps `[s <- (expr)]` to thread modified states properly.
 
 ---
 
@@ -1080,7 +1080,8 @@ op          = "(" OP { expr } ")" ;
 pair        = "(" "pair" expr expr ")" ;
 await       = "(" "await" expr ")" ;
 do          = "(" "do" { do-step } ")" ;
-do-step     = "(" "<-" IDENT expr ")" | expr ;
+do-step     = "[" IDENT "<-" expr "]"        (* named: bind state component *)
+            | expr ;                           (* anonymous: discard state     *)
 lambda      = "(" "fn" "[" { typed-param } "]" expr ")" ;
 
 qual-ident  = IDENT { "." IDENT } ;   (* e.g., wasi.io.stdout *)
@@ -1412,7 +1413,7 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 | `llmll check` | Verifies stored Lean 4 proof certificates without re-running Leanstral |
 | Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at the GHC/WASM boundary |
 | Trace proofs | SMT validation of `pre`/`post` over replayed Event Log traces (requires ✅ replayable modules) |
-| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. **PR 1 (TPair introduction) shipped** — type-system foundation is in place. PRs 2–4 in progress. |
+| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. **PRs 1–3 shipped:** TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3). `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring in `let`) is in progress. |
 | `Promise[t]` | Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
 
 ### v0.4 — WASM Hardening

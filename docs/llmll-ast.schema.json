@@ -265,14 +265,14 @@
     },
 
     "TypedParam": {
-      "description": "A named, typed parameter. Note: pair-type in 'param_type' is rejected by the parser in v0.1.x — use 'untyped': true for pair-typed params (fixed in v0.2).",
+      "description": "A named, typed parameter. Pair-type in 'param_type' is supported since v0.2.",
       "type": "object",
       "required": ["name"],
       "additionalProperties": false,
       "properties": {
         "name":       { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
         "param_type": { "$ref": "#/$defs/Type" },
-        "untyped":    { "type": "boolean", "default": false, "description": "Set true when param_type is a pair-type (v0.1.x limitation — pair-type in typed-param position is a parse error; fixed in v0.2)." },
+        "untyped":    { "type": "boolean", "default": false, "description": "Legacy field — no longer needed since v0.2. Pair-type in param_type is fully supported." },
         "comment":    { "type": "string", "description": "When untyped=true, document the expected type here." }
       }
     },
@@ -386,7 +386,7 @@
     },
 
     "TypePair": {
-      "description": "A 2-tuple product type: (a, b). NOTE: v0.1.1 rejects pair-type in typed-param position.",
+      "description": "A 2-tuple product type: (a, b). v0.3 PR 1: now backed by TPair internally (distinct from Result in diagnostics and JSON-AST output).",
       "type": "object",
       "required": ["kind", "fst", "snd"],
       "additionalProperties": false,
@@ -671,7 +671,7 @@
     },
 
     "ExprLambda": {
-      "description": "An anonymous function: (fn [params] body). Note: pair-type params are rejected in v0.1.1.",
+      "description": "An anonymous function: (fn [params] body).",
       "type": "object",
       "required": ["kind", "params", "body"],
       "additionalProperties": false,
@@ -708,7 +708,7 @@
     },
 
     "DoStep": {
-      "description": "A single step in a do-block (PR 2: unified form). Named steps bind the state component; anonymous steps discard it (state-loss hazard if non-terminal). Old kinds 'bind-step' and 'expr-step' are parsed for backward compatibility but should be migrated to 'do-step'.",
+      "description": "A single step in a do-block (PR 2: unified form). Named steps bind the state component; anonymous steps discard it (state-loss hazard if non-terminal). Old kinds 'bind-step' and 'expr-step' are rejected with a migration error pointing to 'do-step'.",
       "type": "object",
       "required": ["kind", "expr"],
       "additionalProperties": false,
