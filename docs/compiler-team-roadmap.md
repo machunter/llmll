@@ -1,8 +1,8 @@
 # LLMLL Compiler Team Implementation Roadmap
 
 > **Prepared by:** Compiler Team  
-> **Date:** 2026-03-19  
-> **Status:** Active  
+> **Date:** 2026-04-09  
+> **Status:** Active — v0.3 PRs 1–3 shipped; PR 4 in progress  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -315,7 +315,7 @@ Rationale: `def-invariant` + Z3 verification requires multi-file resolution as s
 
 ### Phase 2c — Type System Fixes + Sketch API ✅ Shipped (2026-03-28)
 
-**[SPEC]** and **[CT]** ~~Lift `pair-type` in `typed-param` limitation~~ ✅ **Shipped (2026-03-27)** — `[acc: (int, string)]` accepted in `def-logic` params, lambda params, and `for-all` bindings. Parsed as `TResult A B` (consistent with `EPair` runtime model). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
+**[SPEC]** and **[CT]** ~~Lift `pair-type` in `typed-param` limitation~~ ✅ **Shipped (2026-03-27)** — `[acc: (int, string)]` accepted in `def-logic` params, lambda params, and `for-all` bindings. Parsed as `TPair A B` (v0.3 PR 1 introduced `TPair` — the `TResult` approximation is obsolete). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
 
 **[CT]** ~~`llmll typecheck --sketch <file>`~~ ✅ **Shipped (2026-03-28)** — accepts a partial LLMLL program (holes allowed everywhere). Runs constraint-propagation type inference. Returns a JSON object mapping each hole's JSON Pointer to its inferred type (`null` if indeterminate) plus `holeSensitive`-annotated errors.
 
@@ -357,9 +357,35 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 
 ## v0.3 — Agent Coordination + Interactive Proofs
 
-**Theme:** Make the swarm model operational end-to-end.
+### Shipped: Do-Notation (PRs 1–3, 2026-04-05 – 2026-04-08)
 
-**[SPEC]** and **[CT]** `string-concat` parse-level variadic sugar (S-expression only) *(language team proposal, 2026-03-27)*. In the S-expression parser, desugar `(string-concat e1 e2 e3 …)` with 3+ arguments into `(string-concat-many [e1 e2 e3 …])` at parse time. The type checker never sees a 3-arg `string-concat` — the fixed-arity invariant is fully preserved. The binary form `(string-concat a b)` remains unchanged and retains first-class partial-application semantics. JSON-AST is unaffected: agents already use `{"kind": "app", "fn": "string-concat-many", "args": [{"kind": "lit-list", ...}]}` naturally. Implementation: `Parser.hs` `pApp` / `pExpr` only — zero `TypeCheck.hs` impact.
+> **One-shot impact:** Eliminates deeply nested `let`/`seq-commands` boilerplate for stateful action sequences. Type checker enforces state-type consistency across all steps.
+
+**[CT]** ~~`TPair` type system foundation~~ ✅ **PR 1 (2026-04-05)** — new `TPair Type Type` constructor in `Syntax.hs`. `EPair` expressions typed `TPair a b`, replacing the unsound `TResult a b` approximation. Fixes JSON-AST round-trip (`"result-type"` → `"pair-type"`) and `match` exhaustiveness (no longer cites `Success`/`Error` for pairs). Surface syntax unchanged.
+
+**[CT]** ~~`DoStep` collapse~~ ✅ **PR 2 (2026-04-06)** — unified `DoStep (Maybe Name) Expr` replaces `DoBind`/`DoExpr` split. Type checker enforces pair-thread: every step returns `(S, Command)` with identical `S`. JSON parser rejects old `"bind-step"`/`"expr-step"` kinds.
+
+**[CT]** ~~`emitDo` rewrite~~ ✅ **PR 3 (2026-04-08)** — pure `let`-chain codegen. Named steps `[s <- expr]` bind state via `let`; anonymous steps discard it. `seq-commands` folds accumulated commands. No Haskell `do` or monads emitted.
+
+**Acceptance criteria — all met:**
+
+- ✅ `(do [s1 <- (action1 state)] [s2 <- (action2 s1)] (action3 s2))` parses, type-checks, and compiles
+- ✅ Mismatched state type `S` across steps produces a `"type-mismatch"` diagnostic
+- ✅ Anonymous step `(expr)` with non-matching state emits state-loss warning
+- ✅ `llmll build --emit json-ast` round-trips `do`-blocks with `"do-step"` nodes
+- ✅ All 47 existing tests still pass
+
+---
+
+### In Progress: Pair Destructuring (PR 4)
+
+**[CT]** Pair destructuring in `let` bindings — `(let [((a b) expr)] body)` pattern. Extends `ELet` binding target from `Name` to `Pattern`. Implementation in progress across Syntax, Parser, TypeCheck, and Codegen.
+
+---
+
+### Planned: Agent Coordination + Interactive Proofs
+
+**[CT]** `string-concat` parse-level variadic sugar (S-expression only) *(language team proposal, 2026-03-27)*. In the S-expression parser, desugar `(string-concat e1 e2 e3 …)` with 3+ arguments into `(string-concat-many [e1 e2 e3 …])` at parse time. The type checker never sees a 3-arg `string-concat` — the fixed-arity invariant is fully preserved. The binary form `(string-concat a b)` remains unchanged and retains first-class partial-application semantics. JSON-AST is unaffected: agents already use `{"kind": "app", "fn": "string-concat-many", "args": [{"kind": "lit-list", ...}]}` naturally. Implementation: `Parser.hs` `pApp` / `pExpr` only — zero `TypeCheck.hs` impact.
 
 > **Decision record:** Type-checker variadic special-casing rejected (breaks fixed-arity invariant; JSON-AST complexity). Binary `string-concat` deprecation rejected (breaks partial application). Parse-level sugar is the minimal, correct resolution.
 
@@ -391,7 +417,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 
 **[SPEC]** Document `?proof-required :simple | :inductive | :unknown` hint syntax in `LLMLL.md §6`.
 
-**[CT]** `do`-notation sugar: `(do (<- x expr) ...)` desugars to the Command/Response model at AST level. No new runtime semantics.
+**[CT]** ~~`do`-notation sugar~~ ✅ **Shipped (PRs 1–3)** — see "Shipped" section above.
 
 **[CT]** Event Log spec — formalized `(Input, CommandResult, captures)` deterministic replay. NaN rejected at GHC/WASM boundary.
 
@@ -428,8 +454,8 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 | Version | Original | Revised |
 | ------- | -------- | ------- |
 | **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + typed effect row + hole-density validator + Docker sandbox |
-| **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **LiquidHaskell** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
-| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** *(agent exists; build translation layer only)* + `do`-notation |
+| **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
+| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3 shipped) + pair destructuring (PR 4 in progress) |
 | **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker |
 
 ### Items Removed from Scope
@@ -437,7 +463,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 | Item | Reason |
 | ---- | ------ |
 | Rust FFI stdlib (`serde_json`, `clap`, etc.) | Replaced by native Hackage imports |
-| Z3 binding layer (build from scratch) | Replaced by LiquidHaskell GHC plugin |
+| Z3 binding layer (build from scratch) | Replaced by decoupled liquid-fixpoint backend (no GHC plugin) |
 | Lean 4 proof agent (build from scratch) | Replaced by Leanstral MCP integration |
 | Python FFI tier | Breaks WASM compatibility; dynamically typed; dropped from spec |
 | Opaque `Command` type | Replaced by typed effect row (`Eff '[...]`) |
