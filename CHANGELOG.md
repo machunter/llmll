@@ -59,7 +59,6 @@
 - `examples/conways_life_json_verifier/` — Conway's Game of Life with verified `count-neighbors` and `next-cell` contracts
 - `examples/hangman_json_verifier/` — Hangman with verified `apply-guess` pre/post
 - `examples/tictactoe_json_verifier/` — Tic-Tac-Toe with verified `set-cell` bounds and `make-board` postcondition
-- `examples/sketch/` — minimal fixture programs for `--sketch` acceptance tests (`if_hole`, `match_hole`, `match_conflict`, `app_hole`, `hole_sensitive`)
 
 ### Spec (LLMLL.md)
 
@@ -73,10 +72,6 @@
 
 - `hole-proof-required` expression node added with `reason` enum: `manual | non-linear-contract | complex-decreases`
 
-### Compiler team design docs (new)
-
-- `docs/sketch-implementation-guide.md` — D1–D5 design decisions for the sketch pass
-- `docs/sketch-compiler-handoff.md` — compiler team implementation reference
 
 ---
 
