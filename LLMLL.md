@@ -112,33 +112,7 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
 > Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
 
-> **`Command` in v0.1.1:** Opaque — cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields.
->
-> **`Command` from v0.1.2:** In generated Haskell, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library). A function's required capabilities are visible in its type signature. Missing capability declarations become type errors rather than silent runtime failures. The LLMLL surface syntax is unchanged — the effect row is a codegen detail, not a language syntax change.
-
-> [!IMPORTANT]
-> **v0.1.x restriction — `pair-type` not accepted in `typed-param` position (Fixed in v0.2)**
->
-> Writing `[acc: (int, string)]` anywhere a `typed-param` is expected is **rejected by the parser** with a parse error.
-> This applies to `def-logic` parameter lists, lambda parameters in `list-fold`/`list-map`, and `for-all` bindings.
->
-> **Workaround (v0.1.x):** Use an untyped parameter:
-> ```lisp
-> ;; OK in v0.1.x — use untyped lambda params:
-> (list-fold board init (fn [acc cell] ...))
-> ```
-> **Scheduled fix:** Phase 2c — see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
-
-> [!NOTE]
-> **`first`/`second` with annotated parameters — resolved in v0.1.3.1**
->
-> `first` and `second` now accept any pair-like value regardless of how the parameter is annotated.
-> Explicit type annotations such as `[s: string]` on state accessor parameters work correctly:
-> ```lisp
-> (def-logic state-word  [s: string] (first s))
-> (def-logic state-score [s: string] (first (second s)))
-> ```
-> Remove any `"untyped": true` fields from state accessor functions — they are no longer needed.
+> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In generated Haskell, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library). A function's required capabilities are visible in its type signature. Missing capability declarations become type errors rather than silent runtime failures.
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -189,7 +163,7 @@ Any base type can be constrained by a predicate using `(where [binding: base] pr
 (type BlockID      (where [s: string] (regex-match "^[a-f0-9]{64}$" s)))
 ```
 
-In v0.1.2, dependent type constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker also expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected no longer triggers a spurious type error. Compile-time SMT verification of constraint *values* is introduced in v0.2.
+Dependent type constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify` (Phase 2b).
 
 ---
 
@@ -404,7 +378,7 @@ Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-l
 ]))
 ```
 
-In LLMLL, FFI imports are resolved through a **two-tier lookup** (v0.1.2+). The compiler checks each tier in order:
+In LLMLL, FFI imports are resolved through a **two-tier lookup**. The compiler checks each tier in order:
 
 | Tier | Prefix | Mechanism | Stub generated? |
 |------|--------|-----------|----------------|
@@ -928,7 +902,7 @@ A module can declare invariants that must hold over its state at all times:
      (state-total-supply state)))
 ```
 
-After any AST merge, the compiler runs Z3 verification of all declared invariants. A merge that breaks a global invariant is rejected before it can produce runnable code. _(Note: `def-invariant` verification requires v0.2 Z3 integration; in v0.1.1 invariants are stored and reported but not checked at compile time.)_
+After any AST merge, the compiler runs Z3 verification of all declared invariants. A merge that breaks a global invariant is rejected before it can produce runnable code.
 
 ---
 
@@ -1108,16 +1082,11 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 3. **`check` block labels must be valid identifiers.** Labels become Haskell `prop_*` function names. Any character outside `[a-zA-Z0-9]` is automatically replaced with `_` by the compiler. Write labels like `"game-over-false-at-start"` rather than `"game over (initial state)"` — both are accepted but special chars are silently normalized.
 4. **List literals** (`[]`, `[a b c]`) are valid in both S-expression and JSON-AST. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)` — **not** a parameter list. In JSON-AST use `{ "kind": "lit-list", "items": [...] }`.
 
-   > **v0.1.x S-expression restriction (B3):** A list literal used as a direct argument to a function call inside an `if` branch body causes a parse error (`unexpected ']'`). Hoist the literal into a `let` binding before the `if`, or use JSON-AST where this is not an issue. See `docs/getting-started.md §4.7`.
-5. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The v0.1.1 double-bracket form `(let [[x 1] [y 2]] ...)` is also accepted and equivalent — both forms compile to identical AST nodes.
+5. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The double-bracket form `(let [[x 1] [y 2]] ...)` is also accepted and equivalent — both forms compile to identical AST nodes.
 6. **`match` must be exhaustive.** Use `_` as the final arm if not all cases are covered explicitly. A `match` without `_` that fails at runtime raises `MatchFailure`.
 7. **`result` is reserved** inside `post` clauses. Do not use it as a variable or parameter name anywhere.
 8. **Named parameters in `fn-type` are doc-only.** `(fn [raw: string] -> bytes[64])` and `(fn [string] -> bytes[64])` are type-equivalent.
 
-> [!IMPORTANT]
-> **v0.1.x — Two distinct pair-type issues (see §3.2 for full detail):**
-> - **Issue A:** Declaring `[acc: (int, string)]` in any `typed-param` position is a **parse error**. Use untyped `[acc]` instead. **Fixed in v0.2.**
-> - **Issue B:** Passing an explicitly-typed variable to `first`/`second` (e.g. `[s: string]` then `(first s)`) was a type-checker error. **Fixed in v0.1.3.1** — `"untyped": true` workarounds on state accessor params are no longer needed.
 
 ---
 
@@ -1169,7 +1138,7 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `first` | `(a, b) -> a` | First projection — accepts any pair, including explicitly-annotated parameters |
 | `second` | `(a, b) -> b` | Second projection — accepts any pair, including explicitly-annotated parameters |
 
-> **Pattern for records:** LLMLL v0.1.1 has no native record syntax. Use nested `pair` values and named accessor functions. A 4-field record uses 3 levels of nesting:
+> **Pattern for records:** LLMLL has no native record syntax. Use nested `pair` values and named accessor functions. A 4-field record uses 3 levels of nesting:
 > ```lisp
 > ;; State = (word, (guessed, (wrong-count, max-wrong)))
 > (def-logic make-state [w: Word g: list[Letter] wc: GuessCount mx: GuessCount]
@@ -1204,15 +1173,11 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 > (range 5 3)   ;; => empty list
 > ```
 >
-> **List literals** (v0.1.3.1+): `[]` is the empty list; `[a b c]` is a three-element list — valid in both S-expression and JSON-AST syntax. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)`. In JSON-AST, use `{ "kind": "lit-list", "items": [...] }`. The `list-empty` and `list-prepend` functions remain valid alternatives.
+> **List literals:** `[]` is the empty list; `[a b c]` is a three-element list — valid in both S-expression and JSON-AST syntax. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)`. In JSON-AST, use `{ "kind": "lit-list", "items": [...] }`. The `list-empty` and `list-prepend` functions remain valid alternatives.
 > ```lisp
-> ;; v0.1.2+ — list literal and updated let syntax:
+> ;; list literal with let syntax:
 > (let [(n       (string-length word))
 >       (indices (range 0 n))]
->   (list-map indices (fn [i: int] (string-char-at word i))))
->
-> ;; v0.1.1 equivalent (still accepted but deprecated):
-> (let [[n (string-length word)] [indices (range 0 n)]]
 >   (list-map indices (fn [i: int] (string-char-at word i))))
 > ```
 
@@ -1299,7 +1264,7 @@ The identifier `result` is a **reserved pseudo-binding** available only inside `
 
 ### 13.10 Building Services (FAQ)
 
-When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solutions to common patterns. All examples use the v0.1.2+ Haskell FFI model.
+When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solutions to common patterns. All examples use the Haskell FFI model.
 
 1. **HTTP Requests (Input):**
    LLMLL does not have a built-in `HttpRequest` sum type with headers and paths. If your service requires routing or header inspection, use the Tier 1 Hackage FFI:
