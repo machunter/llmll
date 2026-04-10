@@ -57,7 +57,7 @@
 
 **[CT]** Round-trip regression suite — every `.llmll` example in `examples/` is run through `s-expr → JSON → s-expr → compile` and asserted semantically equivalent. Must pass before v0.1.2 ships.
 
-**[CT]** JSON Schema versioning — introduce `"schemaVersion"` field to `llmll-ast.schema.json`. The compiler rejects `.ast.json` files with an unrecognized version. Versioning policy documented in `docs/json-ast-versioning.md`.
+**[CT]** JSON Schema versioning — introduce `"schemaVersion"` field to `llmll-ast.schema.json`. The compiler rejects `.ast.json` files with an unrecognized version.
 
 **[SPEC]** Update `LLMLL.md §2` to document JSON-AST as a first-class source format.
 
@@ -143,7 +143,7 @@ Docker container
   └── LLMLL host runtime (interprets Eff commands, enforces capability list)
 ```
 
-**[CT]** WASM compatibility proof-of-concept — before merging `Codegen.hs`, compile the Hangman and Todo service generated `.hs` files with `ghc --target=wasm32-wasi`. Document results in `docs/wasm-compat-report.md`. Resolve any blockers before shipping. This validates that WASM remains on track for v0.4.
+**[CT]** WASM compatibility proof-of-concept — before merging `Codegen.hs`, compile the Hangman and Todo service generated `.hs` files with `ghc --target=wasm32-wasi`. Resolve any blockers before shipping. This validates that WASM remains on track for v0.4.
 
 **[SPEC]** Update `LLMLL.md §7`, `§9`, `§10`, `§14` to reflect Haskell target, typed effect row, and Docker sandbox. Add explicit language to `§14`: *"WASM-WASI is the primary long-term deployment target. Docker + seccomp-bpf is the v0.1.2–v0.3 sandbox. WASM is deferred to v0.4, not abandoned."*
 
