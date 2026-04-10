@@ -25,7 +25,6 @@ library
       LLMLL.Contracts
       LLMLL.PBT
       LLMLL.CodegenHs
-      LLMLL.Codegen
       LLMLL.Diagnostic
       LLMLL.Module
       LLMLL.Hub
@@ -79,7 +78,6 @@ executable llmll
   main-is: Main.hs
   other-modules:
       LLMLL.AstEmit
-      LLMLL.Codegen
       LLMLL.CodegenHs
       LLMLL.Contracts
       LLMLL.Diagnostic

@@ -138,7 +138,7 @@ wrapPre :: Name -> Maybe Expr -> Expr -> Expr
 wrapPre _ Nothing body = body
 wrapPre funcName (Just preExpr) body =
   ELet
-    [ ("_pre_check"
+    [ (PVar "_pre_check"
       , Just TBool
       , EIf
           (EOp "not" [preExpr])
@@ -155,9 +155,9 @@ wrapPost :: Name -> Maybe Expr -> Expr -> Expr
 wrapPost _ Nothing body = body
 wrapPost funcName (Just postExpr) body =
   ELet
-    [ ("result", Nothing, body) ]
+    [ (PVar "result", Nothing, body) ]
     (ELet
-      [ ("_post_check"
+      [ (PVar "_post_check"
         , Just TBool
         , EIf
             (EOp "not" [postExpr])  -- postExpr can reference 'result'

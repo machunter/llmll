@@ -168,7 +168,7 @@ data Pattern
 data Expr
   = ELit Literal                       -- ^ Literal value
   | EVar Name                          -- ^ Variable reference
-  | ELet [(Name, Maybe Type, Expr)] Expr -- ^ Let bindings with body
+  | ELet [(Pattern, Maybe Type, Expr)] Expr -- ^ Let bindings with body (PR 4: pattern head)
   | EIf Expr Expr Expr                 -- ^ Conditional
   | EMatch Expr [(Pattern, Expr)]      -- ^ Pattern matching
   | EApp Name [Expr]                   -- ^ Function application

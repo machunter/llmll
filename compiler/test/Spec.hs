@@ -575,12 +575,12 @@ main = hspec $ do
         Left err    -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
 
-    it "S-expression: pair-type parameter parsed as TResult TInt TString" $ do
+    it "S-expression: pair-type parameter parsed as TPair TInt TString" $ do
       let src = "(def-logic f [acc: (int, string)] (first acc))"
       case parseStatements "<test>" src of
         Left err -> expectationFailure (show err)
         Right [SDefLogic _ params _ _ _] ->
-          snd (head params) `shouldBe` TResult TInt TString
+          snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
     it "S-expression: (int, string) typed param passes type-check" $ do
@@ -594,7 +594,7 @@ main = hspec $ do
           let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
           errs `shouldBe` []
 
-    it "JSON-AST: pair-type param_type decodes to TResult TInt TString" $ do
+    it "JSON-AST: pair-type param_type decodes to TPair TInt TString" $ do
       let src = BLC.pack $ unlines
             [ "{"
             , "  \"schemaVersion\": \"0.2.0\","
@@ -618,7 +618,7 @@ main = hspec $ do
       case parseJSONAST "<test>" src of
         Left err -> expectationFailure (show err)
         Right [SDefLogic _ params _ _ _] ->
-          snd (head params) `shouldBe` TResult TInt TString
+          snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
   -- -----------------------------------------------------------------------

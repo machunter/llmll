@@ -509,17 +509,24 @@ inferExpr (EVar name) = do
 
 inferExpr (ELet bindings body) = do
   -- Process bindings sequentially: each binding extends the scope for the next
-  resolvedBindings <- foldM (\acc (n, mAnnot, expr) -> do
+  -- PR 4: binding head is now Pattern, not Name.
+  resolvedBindings <- foldM (\acc (pat, mAnnot, expr) -> do
     inferredTy <- inferExpr expr
-    let ty = case mAnnot of
-              Nothing -> inferredTy
-              Just annotTy -> annotTy  -- trust annotation; unify below
-    case mAnnot of
-      Nothing -> pure ()
-      Just annotTy -> unify n annotTy inferredTy
+    newBindings <- case pat of
+      -- Simple variable binding (hot path — identical to old semantics)
+      PVar n -> do
+        let ty = case mAnnot of
+                   Nothing     -> inferredTy
+                   Just annotTy -> annotTy  -- trust annotation; unify below
+        case mAnnot of
+          Nothing     -> pure ()
+          Just annotTy -> unify n annotTy inferredTy
+        pure [(n, ty)]
+      -- All other patterns (pair destructuring, nested, future extensions)
+      _ -> checkPattern pat inferredTy
     -- Extend scope for subsequent bindings
-    tcInsert n ty
-    pure (acc ++ [(n, ty)])
+    mapM_ (uncurry tcInsert) newBindings
+    pure (acc ++ newBindings)
     ) [] bindings
   withEnv resolvedBindings (inferExpr body)
 
@@ -818,6 +825,14 @@ checkPattern (PConstructor ctor subPats) scrutTy = do
           case subPats of
             [p] -> checkPattern p payload
             _   -> do { tcWarn $ "constructor '" <> ctor <> "' takes one argument"; pure [] }
+    -- PR 4: Built-in pair constructor: (pair fst snd)
+    ("pair", TPair a b) ->
+      case subPats of
+        [p1, p2] -> do
+          bs1 <- checkPattern p1 a
+          bs2 <- checkPattern p2 b
+          pure (bs1 ++ bs2)
+        _ -> do { tcError "pair destructor takes exactly two sub-patterns"; pure [] }
     _ -> do
       -- Unknown constructor — bind sub patterns as type vars
       bindings <- forM (zip [0..] subPats) $ \(i, p) ->

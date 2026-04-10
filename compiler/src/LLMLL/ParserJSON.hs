@@ -401,20 +401,25 @@ parseExpr = withObject "Expr" $ \o -> do
 
     _ -> fail $ "unknown Expr kind: " ++ T.unpack kind
 
-parseLet1Binding :: Value -> Parser (Name, Maybe Type, Expr)
+parseLet1Binding :: Value -> Parser (Pattern, Maybe Type, Expr)
 parseLet1Binding = withObject "LetBinding" $ \o -> do
   -- N3: reject unexpected keys — schema declares additionalProperties: false
-  let allowedKeys = ["name", "expr"]
+  let allowedKeys = ["name", "pattern", "expr"]
       allKeys     = map (Key.toText . fst) (KM.toList o)
       extraKeys   = filter (`notElem` allowedKeys) allKeys
   case extraKeys of
     [] -> pure ()
     ks -> fail $ "let binding has unexpected keys: "
                  ++ show (map T.unpack ks)
-                 ++ " (allowed: \"name\", \"expr\")"
-  name <- o .: "name"
+                 ++ " (allowed: \"name\", \"pattern\", \"expr\")"
+  -- PR 4: "name" → PVar (ergonomic shorthand); "pattern" → full pattern
+  pat <- do
+    mName <- o .:? "name" :: Parser (Maybe Name)
+    case mName of
+      Just n  -> pure (PVar n)
+      Nothing -> o .: "pattern" >>= parsePattern
   expr <- o .: "expr" >>= parseExpr
-  pure (name, Nothing, expr)
+  pure (pat, Nothing, expr)
 
 parseMatchArm :: Value -> Parser (Pattern, Expr)
 parseMatchArm = withObject "MatchArm" $ \o -> do

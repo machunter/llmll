@@ -155,7 +155,7 @@ collectHolesExpr ctx expr = case expr of
   EVar _       -> []
 
   ELet bindings body ->
-    concatMap (\(n, _, e) -> collectHolesExpr (ctx <> " let " <> n) e) bindings
+    concatMap (\(pat, _, e) -> collectHolesExpr (ctx <> " let " <> patLabel pat) e) bindings
     ++ collectHolesExpr ctx body
 
   EIf cond t f ->
@@ -188,6 +188,13 @@ collectHolesExpr ctx expr = case expr of
 
 collectHolesDoStep :: Text -> DoStep -> [HoleEntry]
 collectHolesDoStep ctx (DoStep _ e) = collectHolesExpr ctx e  -- PR 2: unified constructor
+
+-- | PR 4: Extract a label from a pattern for context strings.
+patLabel :: Pattern -> Text
+patLabel (PVar n) = n
+patLabel (PConstructor c _) = "(" <> c <> " ...)"
+patLabel PWildcard = "_"
+patLabel (PLiteral _) = "<literal>"
 
 -- ---------------------------------------------------------------------------
 -- Traversal — Types (for dependent type constraints)

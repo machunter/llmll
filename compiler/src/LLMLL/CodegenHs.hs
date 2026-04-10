@@ -481,10 +481,10 @@ emitExpr (EAwait e)        = emitExpr e  -- IO t in v0.1.2; await is a no-op wra
 emitExpr (EDo steps)       = emitDo steps
 emitExpr (EHole hk)        = emitHole hk
 
-emitLet :: [(Name, Maybe Type, Expr)] -> Expr -> Text
+emitLet :: [(Pattern, Maybe Type, Expr)] -> Expr -> Text
 emitLet bs body =
   "(let { "
-  <> T.intercalate "; " (map (\(n,_,e) -> toHsIdent n <> " = " <> emitExpr e) bs)
+  <> T.intercalate "; " (map (\(pat,_,e) -> emitPat pat <> " = " <> emitExpr e) bs)
   <> " } in " <> emitExpr body <> ")"
 
 emitApp :: Name -> [Expr] -> Text
@@ -594,6 +594,7 @@ emitPat :: Pattern -> Text
 emitPat PWildcard             = "_"
 emitPat (PVar n)              = toHsIdent n
 emitPat (PLiteral lit)        = emitLit lit
+emitPat (PConstructor "pair" [p1, p2]) = "(" <> emitPat p1 <> ", " <> emitPat p2 <> ")"
 emitPat (PConstructor c [])   = rewriteCtor c
 emitPat (PConstructor c subs) = "(" <> rewriteCtor c <> " " <> T.unwords (map emitPat subs) <> ")"
 

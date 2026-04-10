@@ -225,7 +225,9 @@ exprToJson (ELet bindings body) =
     , "body"     .= exprToJson body
     ]
   where
-    bindingToJson (n, _, e) = object ["name" .= n, "expr" .= exprToJson e]
+    -- PR 4: PVar → "name" (ergonomic shorthand), other patterns → "pattern"
+    bindingToJson (PVar n, _, e) = object ["name" .= n, "expr" .= exprToJson e]
+    bindingToJson (pat, _, e) = object ["pattern" .= patternToJson pat, "expr" .= exprToJson e]
 
 exprToJson (EIf cond t f) =
   object

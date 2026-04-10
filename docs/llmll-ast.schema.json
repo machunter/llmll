@@ -507,12 +507,17 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["name", "expr"],
+            "required": ["expr"],
             "additionalProperties": false,
             "properties": {
-              "name": { "type": "string" },
+              "name":    { "type": "string", "description": "Simple binding: name = expr (ergonomic shorthand)" },
+              "pattern": { "$ref": "#/$defs/Pattern", "description": "Destructuring binding: (pair x y) = expr" },
               "expr": { "$ref": "#/$defs/Expr" }
-            }
+            },
+            "oneOf": [
+              { "required": ["name"] },
+              { "required": ["pattern"] }
+            ]
           }
         },
         "body": { "$ref": "#/$defs/Expr" }
