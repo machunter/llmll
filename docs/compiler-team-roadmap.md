@@ -87,7 +87,7 @@ Three bugs were found by an AI developer during the Hangman JSON-AST implementat
 
 **[DESIGN — COMMITTED]** `Command` becomes a typed effect row. A function calling `wasi.http.response` without declaring the HTTP capability is a **type error** in generated Haskell, caught at compile time. This closes the v0.1.1 gap where missing capability declarations were silently accepted.
 
-**[CT]** Rename `Codegen.hs` → `CodegenHs.hs` (new module `LLMLL.CodegenHs`). Public symbol `generateRust` → `generateHaskell`; `CodegenResult` fields renamed (`cgRustSource` → `cgHsSource`, `cgCargoToml` → `cgPackageYaml`, etc.). Old `Codegen.hs` becomes a deprecated re-export shim; deleted in v0.2.
+**[CT]** Rename `Codegen.hs` → `CodegenHs.hs` (new module `LLMLL.CodegenHs`). Public symbol `generateRust` → `generateHaskell`; `CodegenResult` fields renamed (`cgRustSource` → `cgHsSource`, `cgCargoToml` → `cgPackageYaml`, etc.). Old `Codegen.hs` deprecated re-export shim deleted.
 
 **[CT]** Generated file layout **(v0.1.2 — single-module)**:
 
@@ -143,7 +143,7 @@ Docker container
   └── LLMLL host runtime (interprets Eff commands, enforces capability list)
 ```
 
-**[CT]** WASM compatibility proof-of-concept — before merging `Codegen.hs`, compile the Hangman and Todo service generated `.hs` files with `ghc --target=wasm32-wasi`. Resolve any blockers before shipping. This validates that WASM remains on track for v0.4.
+**[CT]** WASM compatibility proof-of-concept — compile the Hangman and Todo service generated `.hs` files with `ghc --target=wasm32-wasi`. Resolve any blockers before shipping. This validates that WASM remains on track for v0.4.
 
 **[SPEC]** Update `LLMLL.md §7`, `§9`, `§10`, `§14` to reflect Haskell target, typed effect row, and Docker sandbox. Add explicit language to `§14`: *"WASM-WASI is the primary long-term deployment target. Docker + seccomp-bpf is the v0.1.2–v0.3 sandbox. WASM is deferred to v0.4, not abandoned."*
 

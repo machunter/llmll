@@ -1337,7 +1337,7 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 | JSON-AST | `llmll build --emit json-ast` round-trips S-expressions ↔ JSON |
 | Diagnostics | Every compiler error is a JSON object with an RFC 6901 JSON Pointer to the offending AST node |
 | Holes CLI | `llmll holes --json` lists all `?` holes with inferred type, module path, and agent target |
-| **Codegen target** | Generated code is **Haskell** (`.hs` + `package.yaml`), replacing Rust. `Codegen.hs` rewritten as `CodegenHs.hs` (`generateHaskell`); old `Codegen.hs` retained as a deprecated re-export shim |
+| **Codegen target** | Generated code is **Haskell** (`.hs` + `package.yaml`), replacing Rust. `Codegen.hs` rewritten as `CodegenHs.hs` (`generateHaskell`) |
 | **`Command` model** | `Command` is no longer an opaque type. In generated Haskell it becomes a **typed effect row** (`Eff '[HTTP, FS, ...]`) using the `effectful` library. A function's required capabilities are visible in its type signature. Missing capability declarations are **type errors**, not silently accepted |
 | **FFI tiers** | Two tiers: (1) Hackage — `(import haskell.* ...)` resolves to a native GHC import, no stub generated; (2) C — `(import c.* ...)` generates a `foreign import ccall` stub in `src/FFI/*.hs`. The legacy `rust.*` namespace and Rust FFI stdlib are retired |
 | **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM deferred to v0.4) |
