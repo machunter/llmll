@@ -2,7 +2,7 @@
 
 > **Prepared by:** Compiler Team  
 > **Date:** 2026-04-09  
-> **Status:** Active — v0.3 PRs 1–4 shipped  
+> **Status:** Active — v0.3 items 1–11 + 14 shipped (12 of 14)  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -385,7 +385,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 
 ### Planned: Agent Coordination + Interactive Proofs
 
-**[CT]** `string-concat` parse-level variadic sugar (S-expression only) *(language team proposal, 2026-03-27)*. In the S-expression parser, desugar `(string-concat e1 e2 e3 …)` with 3+ arguments into `(string-concat-many [e1 e2 e3 …])` at parse time. The type checker never sees a 3-arg `string-concat` — the fixed-arity invariant is fully preserved. The binary form `(string-concat a b)` remains unchanged and retains first-class partial-application semantics. JSON-AST is unaffected: agents already use `{"kind": "app", "fn": "string-concat-many", "args": [{"kind": "lit-list", ...}]}` naturally. Implementation: `Parser.hs` `pApp` / `pExpr` only — zero `TypeCheck.hs` impact.
+**[CT]** ~~`string-concat` parse-level variadic sugar~~ ✅ **Shipped (2026-04-11)** — In the S-expression parser, `(string-concat e1 e2 e3 …)` with 3+ arguments is desugared to `(string-concat-many [e1 e2 e3 …])` at parse time. `Parser.hs` L713-719. Type checker never sees a 3-arg `string-concat`. JSON-AST unaffected.
 
 > **Decision record:** Type-checker variadic special-casing rejected (breaks fixed-arity invariant; JSON-AST complexity). Binary `string-concat` deprecation rejected (breaks partial application). Parse-level sugar is the minimal, correct resolution.
 
@@ -404,7 +404,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 3. Compiler applies patch, re-runs type checking and contract verification
 4. Success → patch merged; failure → JSON diagnostics targeting patch node pointers
 
-**[CT]** `?scaffold` — `llmll hub scaffold <template>` fetches a pre-typed skeleton from `llmll-hub`. `def-interface` boundaries are pre-typed; implementation details are named `?` holes. Resolves at parse time.
+**[CT]** ~~`?scaffold`~~ ✅ **Shipped (2026-04-11)** — Hole kind fully implemented across Syntax, Lexer, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, HoleAnalysis. CLI: `llmll hub scaffold <template> [--output DIR]` resolves from `~/.llmll/templates/`, copies scaffold file, parses and reports holes via `analyzeHoles`. `Hub.hs` adds `scaffoldCacheRoot`, `resolveScaffold`. Hub command upgraded to `fetch`/`scaffold` subcommand group.
 
 **[CT]** Leanstral MCP integration — `?proof-required :inductive` and `:unknown` hole resolution:
 
@@ -421,7 +421,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 
 **[CT]** Event Log spec — formalized `(Input, CommandResult, captures)` deterministic replay. NaN rejected at GHC/WASM boundary.
 
-**[CT]** `Promise[t]` upgrade: `IO t` → `Async t` from the `async` package. `(await x)` desugars to `Async.wait`.
+**[CT]** ~~`Promise[t]` upgrade: `IO t` → `Async t`~~ ✅ **Shipped (2026-04-11)** — `TPromise` emits `Async.Async`, `EAwait` emits `try (Async.wait ...)` with `SomeException` catch-all. Generated preamble imports `Control.Concurrent.Async` + `Control.Exception`. `package.yaml` includes `async` dependency. 10 regression tests.
 
 **Acceptance criteria:**
 
@@ -455,7 +455,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 | ------- | -------- | ------- |
 | **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + typed effect row + hole-density validator + Docker sandbox |
 | **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
-| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3 shipped) + pair destructuring ✅ (PR 4 shipped) |
+| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ — **12/14 shipped** |
 | **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker |
 
 ### Items Removed from Scope
