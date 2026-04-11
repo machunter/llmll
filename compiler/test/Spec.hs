@@ -625,7 +625,7 @@ main = hspec $ do
   -- N2: string-concat arity hint
   -- -----------------------------------------------------------------------
   describe "N2 string-concat arity hint" $ do
-    it "string-concat with 3 args emits error mentioning string-concat-many" $ do
+    it "string-concat with 3 args desugars to string-concat-many (no error)" $ do
       let src = T.pack $ unlines
             [ "(def-logic f [a: string b: string c: string]"
             , "  (string-concat a b c))"
@@ -635,8 +635,7 @@ main = hspec $ do
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
           let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
-          length errs `shouldBe` 1
-          diagMessage (head errs) `shouldSatisfy` T.isInfixOf "string-concat-many"
+          errs `shouldBe` []
 
     it "string-concat with correct 2 args has no arity error" $ do
       let src = "(def-logic f [a: string b: string] (string-concat a b))"

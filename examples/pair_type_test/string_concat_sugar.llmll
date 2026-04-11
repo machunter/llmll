@@ -1,0 +1,22 @@
+;; string-concat variadic sugar test
+;; AC #1: 3+ args desugars to string-concat-many
+(def-logic greet [name: string title: string]
+  (string-concat "Hello, " title " " name "!"))
+
+;; AC #2: 2 args — no desugaring, stays as binary string-concat
+(def-logic join2 [a: string b: string]
+  (string-concat a b))
+
+;; AC: explicit string-concat-many still works
+(def-logic join-list [parts: list[string]]
+  (string-concat-many parts))
+
+(check "3-arg sugar matches manual concat"
+  (for-all [a: string b: string]
+    (= (string-concat a " " b)
+       (string-concat-many [a " " b]))))
+
+(check "5-arg sugar works"
+  (for-all [name: string]
+    (= (greet name "Dr.")
+       (string-concat-many ["Hello, " "Dr." " " name "!"]))))

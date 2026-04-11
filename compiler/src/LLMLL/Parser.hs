@@ -690,7 +690,14 @@ pSExprApp = parens $ do
   args <- many pExpr
   if isOperator func
     then pure $ EOp func args
-    else pure $ EApp func args
+    -- Sugar: (string-concat a b c ...) with 3+ args → (string-concat-many [a, b, c, ...])
+    -- Binary (string-concat a b) is untouched. See compiler-team-roadmap.md.
+    else if func == "string-concat" && length args > 2
+      then let listExpr = foldr (\item acc -> EApp "list-prepend" [item, acc])
+                                (EApp "list-empty" [])
+                                args
+           in pure $ EApp "string-concat-many" [listExpr]
+      else pure $ EApp func args
 
 -- | Parse a function/operator name: either an identifier or an operator symbol.
 -- Recognises both ASCII operators and their Unicode aliases (see LLMLL.md §2.4).
