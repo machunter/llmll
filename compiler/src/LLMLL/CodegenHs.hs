@@ -148,6 +148,8 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   , "import qualified Data.Map.Strict as Map"
   , "import System.IO (hPutStr, stderr)"
   , "import Test.QuickCheck (quickCheck, property)"
+  , "import qualified Control.Concurrent.Async as Async"
+  , "import Control.Exception (try, SomeException)"
   , ""
   , "-- ---------------------------------------------------------------------------"
   , "-- §13 Runtime Preamble — always in scope"
@@ -477,7 +479,11 @@ emitExpr (EOp op args)     = emitOp op args
 emitExpr (EMatch scrut cs) = emitMatch scrut cs
 emitExpr (ELambda ps body) =
   "(\\" <> T.unwords (map (toHsIdent . fst) ps) <> " -> " <> emitExpr body <> ")"
-emitExpr (EAwait e)        = emitExpr e  -- IO t in v0.1.2; await is a no-op wrapper
+emitExpr (EAwait e)        =
+  -- v0.3 §3.2: exception-safe await returning Result[t, DelegationError]
+  "(do { r_ <- try (Async.wait " <> emitExpr e <> "); "
+  <> "case r_ of { Left (e_ :: SomeException) -> pure (Left (show e_)); "
+  <> "Right v_ -> pure (Right v_) } })"
 emitExpr (EDo steps)       = emitDo steps
 emitExpr (EHole hk)        = emitHole hk
 
@@ -637,7 +643,7 @@ toHsType (TList t)         = "[" <> toHsType t <> "]"
 toHsType (TMap k v)        = "(Map.Map " <> toHsType k <> " " <> toHsType v <> ")"
 toHsType (TResult t e)     = "(Either " <> toHsType e <> " " <> toHsType t <> ")"
 toHsType (TPair a b)       = "(" <> toHsType a <> ", " <> toHsType b <> ")"  -- PR 1: pair tuple
-toHsType (TPromise t)      = "(IO " <> toHsType t <> ")"
+toHsType (TPromise t)      = "(Async.Async " <> toHsType t <> ")"
 toHsType (TFn args ret)    =
   T.intercalate " -> " (map toHsType args ++ [toHsType ret])
 toHsType (TDependent _ b _)  = toHsType b
@@ -767,6 +773,7 @@ emitPackageYaml modName hasMain hackagePkgs = T.unlines $
   , "  - base >= 4.14"
   , "  - containers"
   , "  - QuickCheck"
+  , "  - async"
   ] ++
   map (\p -> "  - " <> p) (hackagePkgNames hackagePkgs) ++
   [ ""

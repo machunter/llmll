@@ -10,6 +10,7 @@
 -- Versioning policy: docs/json-ast-versioning.md
 module LLMLL.ParserJSON
   ( parseJSONAST
+  , parseJSONASTValue
   , expectedSchemaVersion
   ) where
 
@@ -69,6 +70,17 @@ parseJSONAST fp bs =
     extractKind msg
       | "schema-version-mismatch" `T.isInfixOf` msg = "schema-version-mismatch"
       | otherwise = "json-decode-error"
+
+-- | Parse a JSON Value (already decoded) into statements.
+-- Returns multi-error diagnostics for agent round-trip efficiency.
+parseJSONASTValue :: Value -> Either [Diagnostic] [Statement]
+parseJSONASTValue val =
+  case parseEither (parseProgram "<patch>") val of
+    Left msg -> Left [(mkError Nothing (T.pack msg))
+      { diagKind = Just "json-decode-error"
+      , diagCode = Just "E011"
+      }]
+    Right stmts -> Right stmts
 
 -- ---------------------------------------------------------------------------
 -- Program-level decoder

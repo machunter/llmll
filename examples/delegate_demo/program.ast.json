@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "add-numbers",
+      "params": [
+        { "name": "state", "type": { "kind": "primitive", "name": "int" } },
+        { "name": "a", "type": { "kind": "primitive", "name": "int" } },
+        { "name": "b", "type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "pair",
+        "fst": { "kind": "var", "name": "state" },
+        "snd": {
+          "kind": "app",
+          "fn": "int-add",
+          "args": [
+            { "kind": "var", "name": "a" },
+            { "kind": "var", "name": "b" }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "def-logic",
+      "name": "compute-value",
+      "params": [
+        { "name": "state", "type": { "kind": "primitive", "name": "int" } },
+        { "name": "x", "type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "hole-delegate",
+        "agent": "@math-agent",
+        "description": "Compute the square of x and return (state, result)",
+        "return_type": { "kind": "pair-type", "fst": { "kind": "primitive", "name": "int" }, "snd": { "kind": "primitive", "name": "int" } }
+      }
+    }
+  ]
+}

@@ -12,6 +12,8 @@
 --   verify     — D4: emit .fq constraints + run liquid-fixpoint (if installed)
 --   typecheck  — Phase 2c: parse + type-check; --sketch infers hole types
 --   serve      — Phase 2c: HTTP endpoint for agent sketch queries (localhost:7777)
+--   checkout   — v0.3: lock a hole for exclusive editing
+--   patch      — v0.3: apply RFC 6902 JSON-Patch to a checked-out hole
 module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
@@ -23,7 +25,8 @@ import Control.Monad (unless, forM_, when, foldM)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
-import Data.Aeson (encode, object, (.=))
+import Data.Aeson (Value, encode, object, (.=))
+import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Options.Applicative
 import qualified Data.Set as Set
@@ -52,6 +55,8 @@ import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
+import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
+import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
 
 import qualified Data.Map.Strict as Map
 
@@ -71,6 +76,10 @@ data Command
   | CmdVerify   FilePath (Maybe FilePath)                   -- D4: file, optional .fq output path
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
+  | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
+  | CmdCheckoutRelease FilePath String                      -- v0.3: checkout --release <file> <token>
+  | CmdCheckoutStatus  FilePath String                      -- v0.3: checkout --status <file> <token>
+  | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
   deriving (Show)
 
 data Options = Options
@@ -111,6 +120,10 @@ optionsParser = info (helper <*> opts) $
           (progDesc "Parse and type-check; with --sketch infer hole types from context (Phase 2c)"))
       <> command "serve" (info serveCmd
           (progDesc "D5: Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
+      <> command "checkout" (info checkoutCmd
+          (progDesc "v0.3: Lock a hole for exclusive editing (checkout/release/status)"))
+      <> command "patch" (info patchCmd
+          (progDesc "v0.3: Apply an RFC 6902 JSON-Patch to a checked-out hole"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -165,6 +178,21 @@ optionsParser = info (helper <*> opts) $
             (long "token" <> metavar "TOKEN"
              <> help "Bearer token (default: auto-generated); use \"\" to disable auth")))
 
+    checkoutCmd = mkCheckout
+      <$> strArgument (metavar "FILE" <> help "Path to .ast.json file")
+      <*> optional (strOption (long "release" <> metavar "TOKEN" <> help "Release a checkout lock"))
+      <*> optional (strOption (long "status" <> metavar "TOKEN" <> help "Query remaining TTL for a token"))
+      <*> optional (strArgument (metavar "POINTER" <> help "RFC 6901 pointer to hole (e.g. /statements/2/body)"))
+
+    mkCheckout fp (Just tok) _ _          = CmdCheckoutRelease fp tok
+    mkCheckout fp _ (Just tok) _          = CmdCheckoutStatus fp tok
+    mkCheckout fp _ _ (Just ptr)          = CmdCheckout fp ptr
+    mkCheckout fp _ _ Nothing             = CmdCheckout fp ""  -- will error in handler
+
+    patchCmd = CmdPatch
+      <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
+      <*> strArgument (metavar "PATCH" <> help "Path to patch-request.json")
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -188,6 +216,10 @@ main = do
     CmdVerify fp mFqOut       -> doVerify json fp mFqOut
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
+    CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
+    CmdCheckoutRelease fp tok -> doCheckoutRelease json fp (T.pack tok)
+    CmdCheckoutStatus fp tok  -> doCheckoutStatusCmd json fp (T.pack tok)
+    CmdPatch fp patchFp       -> doPatch json fp patchFp
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -827,4 +859,89 @@ doTypecheck json fp True  = do
           qualified = Map.mapKeys (prefix <>) (meExports menv)
       in Map.union qualified acc
 
+-- ---------------------------------------------------------------------------
+-- v0.3: Checkout handlers
+-- ---------------------------------------------------------------------------
 
+-- | Guard: only allow .ast.json / .json files for checkout operations.
+guardJsonFile :: FilePath -> IO Bool
+guardJsonFile fp = do
+  let ext = takeExtension fp
+  if ext == ".json"
+    then pure True
+    else do
+      hPutStrLn stderr $ "Error: checkout requires .ast.json input; run 'llmll build --emit json-ast' first"
+      hPutStrLn stderr $ "  Got: " ++ fp
+      pure False
+
+doCheckout :: Bool -> FilePath -> T.Text -> IO ()
+doCheckout _json fp pointer = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  -- Load JSON-AST as raw Value
+  raw <- BL.readFile fp
+  case A.decode raw of
+    Nothing -> do
+      hPutStrLn stderr $ "Error: cannot parse " ++ fp ++ " as JSON"
+      exitFailure
+    Just astVal -> do
+      result <- checkoutHole fp astVal pointer
+      case result of
+        Left diag -> do
+          hPutStrLn stderr $ T.unpack (diagMessage diag)
+          exitFailure
+        Right ct -> do
+          BLC.putStrLn (encode ct)
+          exitSuccess
+
+doCheckoutRelease :: Bool -> FilePath -> T.Text -> IO ()
+doCheckoutRelease _json fp token = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  result <- releaseHole fp token
+  case result of
+    Left diag -> do
+      hPutStrLn stderr $ T.unpack (diagMessage diag)
+      exitFailure
+    Right () -> do
+      BLC.putStrLn (encode (object ["released" .= True]))
+      exitSuccess
+
+doCheckoutStatusCmd :: Bool -> FilePath -> T.Text -> IO ()
+doCheckoutStatusCmd _json fp token = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  result <- checkoutStatus fp token
+  case result of
+    Left diag -> do
+      hPutStrLn stderr $ T.unpack (diagMessage diag)
+      exitFailure
+    Right remaining -> do
+      BLC.putStrLn (encode (object ["remaining_ttl" .= (round remaining :: Int)]))
+      exitSuccess
+
+-- ---------------------------------------------------------------------------
+-- v0.3: Patch handler
+-- ---------------------------------------------------------------------------
+
+doPatch :: Bool -> FilePath -> FilePath -> IO ()
+doPatch _json fp patchFp = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  -- Read and parse patch request
+  patchRaw <- BL.readFile patchFp
+  case A.decode patchRaw of
+    Nothing -> do
+      hPutStrLn stderr $ "Error: cannot parse " ++ patchFp ++ " as JSON"
+      exitFailure
+    Just patchVal ->
+      case parsePatchRequest patchVal of
+        Left err -> do
+          hPutStrLn stderr $ "Error parsing patch request: " ++ T.unpack err
+          exitFailure
+        Right pr -> do
+          result <- applyPatch fp pr
+          BLC.putStrLn (encode result)
+          case result of
+            PatchSuccess _ -> exitSuccess
+            _              -> exitFailure

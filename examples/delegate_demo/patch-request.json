@@ -1,0 +1,50 @@
+{
+  "token": "2621e1032b7a1c4b25a19a7dc82fe9df0164318275d5bd6f4584b0921e98dc92",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/statements/1/body",
+      "value": {
+        "kind": "hole-delegate",
+        "agent": "@math-agent",
+        "description": "Compute the square of x and return (state, result)",
+        "return_type": {
+          "kind": "pair-type",
+          "fst": {
+            "kind": "primitive",
+            "name": "int"
+          },
+          "snd": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      }
+    },
+    {
+      "op": "replace",
+      "path": "/statements/1/body",
+      "value": {
+        "kind": "pair",
+        "fst": {
+          "kind": "var",
+          "name": "state"
+        },
+        "snd": {
+          "kind": "app",
+          "fn": "int-mul",
+          "args": [
+            {
+              "kind": "var",
+              "name": "x"
+            },
+            {
+              "kind": "var",
+              "name": "x"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -662,7 +662,7 @@ inferExpr (EHole holeKind) = inferHole holeKind
 inferExpr (EAwait expr) = do
   innerType <- inferExpr expr
   case innerType of
-    TPromise t -> pure t
+    TPromise t -> pure (TResult t TDelegationError)  -- v0.3 §3.2: await returns Result[t, DelegationError]
     other -> do
       tcWarn $ "await applied to non-Promise type " <> typeLabel other
       pure other  -- Best-effort: unwrap whatever

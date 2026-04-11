@@ -49,6 +49,7 @@ dependencies:
   - warp >= 3.3        # D5: HTTP server
   - wai >= 3.2         # D5: WAI application interface
   - http-types >= 0.12 # D5: HTTP status codes + headers
+  - time >= 1.12       # v0.3: checkout lock timestamps
 
 library:
   source-dirs: src
@@ -74,6 +75,10 @@ library:
     - LLMLL.Serve
     # D5: Sketch output contract
     - LLMLL.Sketch
+    # v0.3: checkout/patch lifecycle
+    - LLMLL.JsonPointer
+    - LLMLL.Checkout
+    - LLMLL.PatchApply
 
 executables:
   llmll:
