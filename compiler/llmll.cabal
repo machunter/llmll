@@ -33,6 +33,9 @@ library
       LLMLL.DiagnosticFQ
       LLMLL.Serve
       LLMLL.Sketch
+      LLMLL.JsonPointer
+      LLMLL.Checkout
+      LLMLL.PatchApply
   other-modules:
       Main
       Paths_llmll
@@ -67,6 +70,7 @@ library
     , random >=1.2
     , tar >=0.5
     , text >=2.0
+    , time >=1.12
     , unix >=2.7
     , vector >=0.13
     , wai >=3.2
@@ -78,6 +82,7 @@ executable llmll
   main-is: Main.hs
   other-modules:
       LLMLL.AstEmit
+      LLMLL.Checkout
       LLMLL.CodegenHs
       LLMLL.Contracts
       LLMLL.Diagnostic
@@ -86,10 +91,12 @@ executable llmll
       LLMLL.FixpointIR
       LLMLL.HoleAnalysis
       LLMLL.Hub
+      LLMLL.JsonPointer
       LLMLL.Lexer
       LLMLL.Module
       LLMLL.Parser
       LLMLL.ParserJSON
+      LLMLL.PatchApply
       LLMLL.PBT
       LLMLL.Serve
       LLMLL.Sketch
@@ -128,6 +135,7 @@ executable llmll
     , random >=1.2
     , tar >=0.5
     , text >=2.0
+    , time >=1.12
     , unix >=2.7
     , vector >=0.13
     , wai >=3.2
@@ -153,7 +161,7 @@ test-suite llmll-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   build-depends:
       QuickCheck
-    , aeson >=2.1
+    , aeson
     , aeson-pretty >=0.8
     , base >=4.18 && <5
     , bytestring >=0.11
@@ -174,6 +182,7 @@ test-suite llmll-test
     , random >=1.2
     , tar >=0.5
     , text >=2.0
+    , time >=1.12
     , unix >=2.7
     , vector >=0.13
     , wai >=3.2
