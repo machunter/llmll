@@ -27,6 +27,10 @@ module LLMLL.CodegenHs
     -- * Import classification (re-exported for Main.hs)
   , ImportKind(..)
   , classifyImport
+    -- * Internals (exported for test coverage)
+  , emitExpr
+  , toHsType
+  , emitHole
   ) where
 
 import Data.Text (Text)
@@ -590,6 +594,7 @@ emitHole (HDelegateAsync s)= "( error (\"delegate-async: \" ++ " <> T.pack (show
 emitHole (HDelegatePending _) = "( error \"delegate-pending: blocking hole\" )"
 -- D3: proof-required holes compile to an explicit error stub — the LH pipeline validates this site
 emitHole (HProofRequired r) = "( error \"PROOF REQUIRED [" <> r <> "]: add LiquidHaskell annotation\" )"
+emitHole (HScaffold spec)  = "( error (\"scaffold: \" ++ " <> T.pack (show (T.unpack (scaffoldTemplate spec))) <> ") )"
 emitHole _                 = "( error \"unresolved hole\" )"
 
 -- ---------------------------------------------------------------------------

@@ -18,8 +18,9 @@ module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
 import System.Exit (exitFailure, exitSuccess, ExitCode(..))
-import System.FilePath (takeBaseName, (</>), takeExtension)
+import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
+import Data.Maybe (fromMaybe)
 import System.Process (readProcessWithExitCode)
 import Control.Monad (unless, forM_, when, foldM)
 import qualified Data.Text as T
@@ -37,7 +38,7 @@ import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), VerificationLevel(..), Name)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
-import LLMLL.Hub (hubFetchLocal)
+import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
   , totalHoles, blockingHoles, holeEntries
@@ -75,6 +76,7 @@ data Command
   | CmdRun      FilePath [String]                           -- file, extra args
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
+  | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
   | CmdVerify   FilePath (Maybe FilePath)                   -- D4: file, optional .fq output path
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
@@ -115,7 +117,7 @@ optionsParser = info (helper <*> opts) $
       <> command "repl"  (info (pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
       <> command "hub"   (info hubCmd
-          (progDesc "Manage llmll-hub local package cache"))
+          (progDesc "Manage llmll-hub local package cache (fetch, scaffold)"))
       <> command "verify" (info verifyCmd
           (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
       <> command "typecheck" (info typecheckCmd
@@ -165,10 +167,23 @@ optionsParser = info (helper <*> opts) $
       <$> fileArg
       <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
 
-    hubCmd = CmdHub
+    hubCmd = hsubparser
+      (  command "fetch" (info hubFetchCmd
+           (progDesc "Install a .tar.gz package into the local hub cache"))
+      <> command "scaffold" (info hubScaffoldCmd
+           (progDesc "v0.3: Copy a scaffold template to the current directory"))
+      )
+
+    hubFetchCmd = CmdHub
       <$> strOption
             (long "from-file" <> metavar "TARBALL"
             <> help "Install a .tar.gz package into the local hub cache (~/.llmll/modules/)")
+
+    hubScaffoldCmd = CmdHubScaffold
+      <$> (T.pack <$> strArgument (metavar "TEMPLATE" <> help "Template name (e.g. todo-app, rest-api)"))
+      <*> optional (strOption
+            (short 'o' <> long "output" <> metavar "DIR"
+            <> help "Output directory (default: ./<template>/)"))
 
     verifyCmd = CmdVerify
       <$> fileArg
@@ -226,6 +241,7 @@ main = do
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
+    CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
     CmdVerify fp mFqOut       -> doVerify json fp mFqOut
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
@@ -785,6 +801,46 @@ doHubFetch json tarball = do
                object ["success" .= True, "tarball" .= tarball]
         else TIO.putStrLn $ "\x2705 Hub package installed from: " <> T.pack tarball
       exitSuccess
+
+-- ---------------------------------------------------------------------------
+-- v0.3: hub scaffold
+-- ---------------------------------------------------------------------------
+
+doHubScaffold :: Bool -> T.Text -> Maybe FilePath -> IO ()
+doHubScaffold json template mOutDir = do
+  mPath <- resolveScaffold template
+  case mPath of
+    Nothing -> do
+      let msg = "Template '" <> T.unpack template <> "' not found in ~/.llmll/templates/."
+      if json
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+               object ["success" .= False, "error" .= msg]
+        else do
+          hPutStrLn stderr msg
+          hPutStrLn stderr "Install with: llmll hub fetch --from-file <tarball>"
+      exitFailure
+    Just srcPath -> do
+      let outDir = fromMaybe (T.unpack template) mOutDir
+      createDirectoryIfMissing True outDir
+      -- Copy scaffold file
+      srcBytes <- BL.readFile srcPath
+      let outFile = outDir </> takeFileName srcPath
+      BL.writeFile outFile srcBytes
+      -- Parse and report holes
+      mStmts <- loadStatements json outFile
+      case mStmts of
+        Left () -> do
+          unless json $ TIO.putStrLn $ "   Scaffolded to " <> T.pack outDir <> " (parse errors — holes not analyzed)"
+          exitSuccess
+        Right stmts -> do
+          let report = analyzeHoles stmts
+          if json
+            then TIO.putStrLn (formatHoleReportJson outFile report)
+            else do
+              TIO.putStrLn $ "\x2705 Scaffolded '" <> template <> "' \8594 " <> T.pack outDir
+              TIO.putStrLn $ "   " <> tshow (totalHoles report) <> " holes ("
+                <> tshow (blockingHoles report) <> " blocking)"
+          exitSuccess
 
 -- ---------------------------------------------------------------------------
 -- D4: verify (liquid-fixpoint)

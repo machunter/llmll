@@ -14,6 +14,8 @@ module LLMLL.Hub
   ( resolveHubPath
   , hubFetchLocal
   , hubCacheRoot
+  , scaffoldCacheRoot
+  , resolveScaffold
   ) where
 
 import System.FilePath ((</>), (<.>), splitFileName, dropExtension)
@@ -62,8 +64,11 @@ resolveHubPath (pkg:rest) = do
   firstExisting candidates
   where
     looksLikeVersion t = '.' `elem` T.unpack t && all (\c -> c == '.' || c `elem` ['0'..'9']) (T.unpack t)
-    firstExisting []     = pure Nothing
-    firstExisting (f:fs) = doesFileExist f >>= \ex -> if ex then pure (Just f) else firstExisting fs
+
+-- | Return the first file path that exists, or Nothing.
+firstExisting :: [FilePath] -> IO (Maybe FilePath)
+firstExisting []     = pure Nothing
+firstExisting (f:fs) = doesFileExist f >>= \ex -> if ex then pure (Just f) else firstExisting fs
 
 -- ---------------------------------------------------------------------------
 -- Local tarball installation
@@ -110,3 +115,23 @@ installEntries root entries = go entries
       case break (== '/') p of
         (_, '/':rest) -> rest
         _             -> p
+
+-- ---------------------------------------------------------------------------
+-- Scaffold template resolution
+-- ---------------------------------------------------------------------------
+
+-- | Root directory for scaffold templates.
+-- ~/.llmll/templates/
+scaffoldCacheRoot :: IO FilePath
+scaffoldCacheRoot = do
+  home <- getHomeDirectory
+  pure (home </> ".llmll" </> "templates")
+
+-- | Resolve a scaffold template name to a file path.
+-- Looks in ~/.llmll/templates/<template>/scaffold.ast.json (or .llmll).
+resolveScaffold :: T.Text -> IO (Maybe FilePath)
+resolveScaffold template = do
+  root <- scaffoldCacheRoot
+  let dir = root </> T.unpack template
+      candidates = [dir </> "scaffold.ast.json", dir </> "scaffold.llmll"]
+  firstExisting candidates

@@ -10,13 +10,16 @@ import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
-import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole)
+import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind, HoleEntry(..))
+import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
-import System.Directory (removeFile, doesFileExist)
+import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
+import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
+import Data.List (isSuffixOf)
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Aeson (encode, decode, Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
@@ -1390,6 +1393,125 @@ main = hspec $ do
           report = typeCheckWithCache cache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       trustGaps `shouldBe` []
+
+  -- =========================================================================
+  -- v0.3 #14: Async/Await codegen test coverage (10 tests)
+  -- =========================================================================
+
+  describe "Async codegen (#14)" $ do
+    -- Type emission (3)
+    it "toHsType (TPromise TInt) = (Async.Async Int)" $
+      toHsType (TPromise TInt) `shouldBe` "(Async.Async Int)"
+
+    it "toHsType (TPromise (TResult TString TInt)) handles nesting" $
+      toHsType (TPromise (TResult TString TInt)) `shouldBe` "(Async.Async (Either Int String))"
+
+    it "toHsType (TPromise (TPromise TInt)) handles double-wrap" $
+      toHsType (TPromise (TPromise TInt)) `shouldBe` "(Async.Async (Async.Async Int))"
+
+    -- Codegen output (4)
+    it "emitExpr (EAwait ...) contains Async.wait" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "Async.wait" output `shouldBe` True
+
+    it "emitExpr (EAwait ...) contains try" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "try" output `shouldBe` True
+
+    it "emitExpr (EAwait ...) contains SomeException" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "SomeException" output `shouldBe` True
+
+    it "emitExpr (EAwait ...) wraps in Left/Right (Result shape)" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "Left" output `shouldBe` True
+      T.isInfixOf "Right" output `shouldBe` True
+
+    -- TypeCheck (2)
+    it "EAwait on TPromise infers TResult t TDelegationError" $ do
+      let delegSpec = DelegateSpec "agent" "task" TInt Nothing
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                    (EAwait (EHole (HDelegateAsync delegSpec)))]
+          report = typeCheck emptyEnv prog
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      errs `shouldBe` []
+
+    it "?delegate-async hole infers TPromise(returnType)" $ do
+      let delegSpec = DelegateSpec "agent" "task" TInt Nothing
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                    (EHole (HDelegateAsync delegSpec))]
+          report = typeCheck emptyEnv prog
+          hardErrs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      hardErrs `shouldBe` []
+
+    -- Parser roundtrip (1)
+    it "(await expr) parses to EAwait" $ do
+      case parseStatements "<test>" "(def-logic f [] (await (+ 1 2)))" of
+        Right [SDefLogic _ _ _ _ (EAwait _)] -> pure ()
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+  -- =========================================================================
+  -- v0.3 #11: Scaffold test coverage (7 tests)
+  -- =========================================================================
+
+  describe "Scaffold (#11)" $ do
+    -- Hub resolution (3)
+    it "scaffoldCacheRoot ends with .llmll/templates" $ do
+      root <- scaffoldCacheRoot
+      ".llmll/templates" `isSuffixOf` root `shouldBe` True
+
+    it "resolveScaffold nonexistent returns Nothing" $ do
+      result <- resolveScaffold "nonexistent-template-xyz"
+      result `shouldBe` Nothing
+
+    it "resolveScaffold finds scaffold.ast.json in cache" $ do
+      root <- scaffoldCacheRoot
+      let dir = root ++ "/test-scaffold-tmp"
+          file = dir ++ "/scaffold.ast.json"
+      createDirectoryIfMissing True dir
+      writeFile file "{\"schemaVersion\": \"0.2.0\", \"statements\": []}"
+      result <- resolveScaffold "test-scaffold-tmp"
+      result `shouldBe` Just file
+      removeDirectoryRecursive dir
+
+    -- Parser (2)
+    it "(?scaffold todo-app) parses to EHole (HScaffold ...)" $ do
+      case parseStatements "<test>" "(def-logic f [] (?scaffold todo-app))" of
+        Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
+          scaffoldTemplate spec `shouldBe` "todo-app"
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "JSON-AST hole-scaffold parses correctly" $ do
+      let jsonSrc = BLC.pack $ unlines
+            [ "{ \"schemaVersion\": \"0.2.0\""
+            , ", \"statements\": ["
+            , "    { \"kind\": \"def-logic\", \"name\": \"f\", \"params\": []"
+            , "    , \"body\": { \"kind\": \"hole-scaffold\", \"template\": \"rest-api\" } }"
+            , "  ]"
+            , "}"
+            ]
+      case parseJSONAST "<test>" jsonSrc of
+        Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
+          scaffoldTemplate spec `shouldBe` "rest-api"
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    -- HoleAnalysis (1)
+    it "analyzeHoles reports ?scaffold as NonBlocking" $ do
+      let spec = ScaffoldSpec "todo-app" Nothing [] Nothing Nothing
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                    (EHole (HScaffold spec))]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      holeStatus (head entries) `shouldBe` HA.NonBlocking
+      holeName (head entries) `shouldSatisfy` T.isInfixOf "scaffold"
+
+    -- Codegen (1)
+    it "emitHole (HScaffold ...) contains scaffold and template name" $ do
+      let spec = ScaffoldSpec "todo-app" Nothing [] Nothing Nothing
+          output = emitHole (HScaffold spec)
+      T.isInfixOf "scaffold" output `shouldBe` True
+      T.isInfixOf "todo-app" output `shouldBe` True
 
 -- | Helper to remove a file if it exists (used for test cleanup).
 removeIfExists :: FilePath -> IO ()
