@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "make-pair",
+      "params": [
+        { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "pair",
+        "fst": { "kind": "var", "name": "x" },
+        "snd": { "kind": "lit-string", "value": "hello" }
+      }
+    },
+    {
+      "kind": "def-logic",
+      "name": "use-pair-name",
+      "params": [
+        { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          { "name": "p", "expr": { "kind": "app", "fn": "make-pair", "args": [{ "kind": "var", "name": "x" }] } },
+          { "name": "n", "expr": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "p" }] } }
+        ],
+        "body": { "kind": "app", "fn": "int-to-string", "args": [{ "kind": "var", "name": "n" }] }
+      }
+    },
+    {
+      "kind": "def-logic",
+      "name": "use-pair-pattern",
+      "params": [
+        { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          {
+            "pattern": {
+              "kind": "constructor",
+              "constructor": "pair",
+              "sub_patterns": [
+                { "kind": "bind", "name": "n" },
+                { "kind": "bind", "name": "msg" }
+              ]
+            },
+            "expr": { "kind": "app", "fn": "make-pair", "args": [{ "kind": "var", "name": "x" }] }
+          }
+        ],
+        "body": { "kind": "app", "fn": "string-concat", "args": [
+          { "kind": "var", "name": "msg" },
+          { "kind": "app", "fn": "int-to-string", "args": [{ "kind": "var", "name": "n" }] }
+        ]}
+      }
+    },
+    {
+      "kind": "check",
+      "label": "JSON-AST name binding backward compat",
+      "for_all": {
+        "kind": "for-all",
+        "bindings": [
+          { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
+        ],
+        "body": {
+          "kind": "op", "op": "=",
+          "args": [
+            { "kind": "app", "fn": "use-pair-name", "args": [{ "kind": "var", "name": "x" }] },
+            { "kind": "app", "fn": "int-to-string", "args": [{ "kind": "var", "name": "x" }] }
+          ]
+        }
+      }
+    }
+  ]
+}

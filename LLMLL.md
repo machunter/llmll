@@ -2,7 +2,7 @@
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 development is underway:** PR 1 (TPair introduction), PR 2 (DoStep collapse), and PR 3 (emitDo rewrite soundness fix) have merged. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring in `let`) is in progress. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 development is underway:** PR 1 (TPair introduction), PR 2 (DoStep collapse), and PR 3 (emitDo rewrite soundness fix) have merged. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring in `let`) has shipped. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -731,10 +731,13 @@ For complex sequences of actions that thread a state and accumulate commands, LL
 
 - **State threading enforced:** Every step inside a `do`-block must evaluate to exactly `(S, Command)`. The type `S` must be strictly identical across all steps in the block.
 - **Named vs. Anonymous steps:** A named step `[s1 <- (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
-- **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def-logic` pure contexts. `seq-commands` is used automatically under the hood to fold the commands into a single `Command` return value.
+- **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def-logic` pure contexts. Each step's `(State, Command)` pair is destructured via `let`; the final result is `(lastState, lastCommand)`. Intermediate commands from non-final steps are bound but discarded — the caller is responsible for sequencing via `seq-commands` if earlier commands must be executed.
 
 > [!WARNING]
 > Using an anonymous step `(expr)` when `expr` returns a new state will result in **state-loss**. The bound state from prior steps is retained, but the updated state from `(expr)` is discarded. Always use named steps `[s <- (expr)]` to thread modified states properly.
+
+> [!NOTE]
+> **JSON-AST schema:** `do`-blocks use a unified `"do-step"` kind with an optional `"name"` field. The old `"bind-step"` / `"expr-step"` separation is rejected. See `getting-started.md §4.13` for migration details.
 
 ---
 
@@ -1033,9 +1036,12 @@ literal     = INT | "-" INT | FLOAT | STRING | "true" | "false" ;
 var         = IDENT ;
 
 (* let is SEQUENTIAL: each binding is in scope for all subsequent bindings *)
-let         = "(" "let" "[" { "[" IDENT expr "]" } "]" expr ")" ;
-              (* Example: (let [[x 1] [y (+ x 1)]] y)  => 2          *)
-              (* y can reference x because bindings are sequential.   *)
+(* PR 4: binding head is now a pattern, not just an identifier.           *)
+let         = "(" "let" "[" { let-binding } "]" expr ")" ;
+let-binding = "(" pattern expr ")"          (* v0.1.2 canonical form *)
+            | "[" pattern expr "]" ;        (* v0.1.1 legacy form — also accepted *)
+              (* Example: (let [(x 1) (y (+ x 1))] y)  => 2 (simple vars)         *)
+              (* Example: (let [((pair s cmd) (authenticate state cred))] ...)      *)
 
 if          = "(" "if" expr expr expr ")" ;
 
@@ -1082,7 +1088,7 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 3. **`check` block labels must be valid identifiers.** Labels become Haskell `prop_*` function names. Any character outside `[a-zA-Z0-9]` is automatically replaced with `_` by the compiler. Write labels like `"game-over-false-at-start"` rather than `"game over (initial state)"` — both are accepted but special chars are silently normalized.
 4. **List literals** (`[]`, `[a b c]`) are valid in both S-expression and JSON-AST. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)` — **not** a parameter list. In JSON-AST use `{ "kind": "lit-list", "items": [...] }`.
 
-5. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The double-bracket form `(let [[x 1] [y 2]] ...)` is also accepted and equivalent — both forms compile to identical AST nodes.
+5. **`let` bindings are sequential.** Each binding sees all previous bindings. The current syntax is `(let [(x 1) (y (+ x 1))] y)` (evaluates to `2`). The double-bracket form `(let [[x 1] [y 2]] ...)` is also accepted and equivalent — both forms compile to identical AST nodes. The binding head may be a `pattern` instead of a simple identifier, enabling pair destructuring: `(let [((pair s cmd) expr)] ...)`. In JSON-AST, use `"pattern"` instead of `"name"` in the let-binding object.
 6. **`match` must be exhaustive.** Use `_` as the final arm if not all cases are covered explicitly. A `match` without `_` that fails at runtime raises `MatchFailure`.
 7. **`result` is reserved** inside `post` clauses. Do not use it as a variable or parameter name anywhere.
 8. **Named parameters in `fn-type` are doc-only.** `(fn [raw: string] -> bytes[64])` and `(fn [string] -> bytes[64])` are type-equivalent.
@@ -1137,6 +1143,9 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `pair` | `a b -> (a, b)` | Construct a 2-tuple. **v0.3 PR 1:** now correctly typed `TPair a b` — distinct from `Result[a,b]` in diagnostics and JSON-AST output |
 | `first` | `(a, b) -> a` | First projection — accepts any pair, including explicitly-annotated parameters |
 | `second` | `(a, b) -> b` | Second projection — accepts any pair, including explicitly-annotated parameters |
+
+> **Pair destructuring in `let` bindings (v0.3 PR 4 — shipped).**
+> `(let [((pair s cmd) (authenticate state cred))] ...)` destructures a pair result into `s` and `cmd`. Nested destructuring is supported: `(let [((pair word (pair g rest)) state)] ...)`. This works identically to pair patterns in `match` arms. In JSON-AST, use `"pattern"` instead of `"name"` in the let-binding object.
 
 > **Pattern for records:** LLMLL has no native record syntax. Use nested `pair` values and named accessor functions. A 4-field record uses 3 levels of nesting:
 > ```lisp
@@ -1378,7 +1387,7 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 | `llmll check` | Verifies stored Lean 4 proof certificates without re-running Leanstral |
 | Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at the GHC/WASM boundary |
 | Trace proofs | SMT validation of `pre`/`post` over replayed Event Log traces (requires ✅ replayable modules) |
-| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. **PRs 1–3 shipped:** TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3). `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring in `let`) is in progress. |
+| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. **PRs 1–4 shipped:** TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3), pair destructuring in `let` bindings (PR 4). `do`-notation and pair destructuring are fully implemented with type-safe state threading and compile to pure `let`-chains. |
 | `Promise[t]` | Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
 
 ### v0.4 — WASM Hardening

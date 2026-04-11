@@ -2,7 +2,7 @@
 
 > **Prepared by:** Compiler Team  
 > **Date:** 2026-04-09  
-> **Status:** Active — v0.3 PRs 1–3 shipped; PR 4 in progress  
+> **Status:** Active — v0.3 PRs 1–4 shipped  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -377,9 +377,9 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 
 ---
 
-### In Progress: Pair Destructuring (PR 4)
+### ✅ Shipped: Pair Destructuring (PR 4)
 
-**[CT]** Pair destructuring in `let` bindings — `(let [((a b) expr)] body)` pattern. Extends `ELet` binding target from `Name` to `Pattern`. Implementation in progress across Syntax, Parser, TypeCheck, and Codegen.
+**[CT]** Pair destructuring in `let` bindings — `(let [((pair s cmd) expr)] body)` pattern. `ELet` binding target extended from `Name` to `Pattern`. Shipped across Syntax, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, and JSON schema. All 7 acceptance criteria verified; 69/69 tests pass.
 
 ---
 
@@ -455,7 +455,7 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 | ------- | -------- | ------- |
 | **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + typed effect row + hole-density validator + Docker sandbox |
 | **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
-| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3 shipped) + pair destructuring (PR 4 in progress) |
+| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3 shipped) + pair destructuring ✅ (PR 4 shipped) |
 | **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker |
 
 ### Items Removed from Scope

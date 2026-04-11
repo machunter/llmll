@@ -4,7 +4,7 @@
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.3 development is underway.** PR 1 (TPair introduction), PR 2 (DoStep collapse), and PR 3 (emitDo rewrite soundness fix) have merged. `EPair` expressions are now correctly typed `TPair a b`. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring) is in progress. See [`docs/archive/analysis/do_notation/do_notation_implementation_plan.md`](docs/archive/analysis/do_notation/do_notation_implementation_plan.md).
+> **v0.3 development is underway.** PRs 1–4 have merged: TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3), and pair destructuring in `let` bindings (PR 4). `EPair` expressions are correctly typed `TPair a b`. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. Pair destructuring — `(let [((pair s cmd) expr)] ...)` — is now available in both S-expression and JSON-AST. See [`docs/archive/analysis/do_notation/do_notation_implementation_plan.md`](docs/archive/analysis/do_notation/do_notation_implementation_plan.md).
 
 ---
 

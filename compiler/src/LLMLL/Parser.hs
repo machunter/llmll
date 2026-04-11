@@ -571,6 +571,11 @@ pPattern = choice
       notFollowedBy (alphaNumChar <|> char '-' <|> char '_')
       sc
       pure PWildcard
+  , try $ parens $ do   -- (pair p1 p2) — pair is reserved, handle before general ctor
+      _ <- symbol "pair"
+      p1 <- pPattern
+      p2 <- pPattern
+      pure $ PConstructor "pair" [p1, p2]
   , try $ parens $ do   -- (Ctor arg1 arg2 ...) constructor pattern
       name <- pIdent
       args <- many pPattern

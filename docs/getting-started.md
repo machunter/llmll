@@ -601,6 +601,52 @@ Since PR 2, the JSON-AST schema for `do`-blocks uses a single, unified `"do-step
 > **Migrating from pre-PR2 do-blocks:** The JSON parser **rejects** old `"bind-step"` and `"expr-step"` kinds with a clear migration error. To update, rename your step `"kind"` to `"do-step"`. For named steps, keep the `"name"` property to capture the bound state.
 > Furthermore, `llmll check` enforces state threading. Every step inside a `do`-block must return exactly `(S, Command)`, and the type `S` must be strictly identical across all steps. A mismatch produces a `"type-mismatch"` diagnostic.
 
+### 4.14 Pair Destructuring in `let` Bindings (v0.3 PR 4)
+
+The binding head of a `let` form can be a **pattern** instead of a simple name, enabling pair destructuring without a separate `match`:
+
+```lisp
+;; S-expression: (pair p1 p2) pattern in let binding
+(def-logic use-pair [x: int]
+  (let [((pair n msg) (make-pair x))]
+    (string-concat msg (int-to-string n))))
+```
+
+Nested destructuring is supported:
+
+```lisp
+(def-logic use-nested [w: string g: int r: bool]
+  (let [((pair word (pair count flag)) (make-triple w g r))]
+    (if flag
+      (string-concat word (int-to-string count))
+      word)))
+```
+
+**JSON-AST:** Use `"pattern"` instead of `"name"` in the let-binding object. Both forms can appear in the same `"bindings"` array:
+
+```json
+{
+  "kind": "let",
+  "bindings": [
+    { "name": "p", "expr": { "kind": "app", "fn": "make-pair", "args": [{"kind": "var", "name": "x"}] } },
+    {
+      "pattern": {
+        "kind": "constructor", "constructor": "pair",
+        "sub_patterns": [
+          { "kind": "bind", "name": "n" },
+          { "kind": "bind", "name": "msg" }
+        ]
+      },
+      "expr": { "kind": "var", "name": "p" }
+    }
+  ],
+  "body": { "kind": "var", "name": "n" }
+}
+```
+
+> [!NOTE]
+> Simple bindings (`"name"`) and pattern bindings (`"pattern"`) are mutually exclusive within a single binding object — the JSON parser enforces a strict `oneOf` on these two keys. Using both in the same object is a parse error.
+
 ---
 
 ## Part 5 — Core Language Quick Reference

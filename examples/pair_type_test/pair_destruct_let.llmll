@@ -1,0 +1,23 @@
+;; PR 4 Acceptance Test: Pair destructuring in let bindings
+;; AC #1: (let [((pair s cmd) expr)] ...) type-checks with correct component types
+
+(def-logic make-pair [x: int]
+  (pair x "hello"))
+
+(def-logic use-pair [x: int]
+  (let [((pair n msg) (make-pair x))]
+    (string-concat msg (int-to-string n))))
+
+;; AC #2: match with (pair s cmd) pattern — same syntax, same semantics
+(def-logic match-pair [x: int]
+  (match (make-pair x)
+    ((pair n msg) (string-concat msg (int-to-string n)))))
+
+;; Simple let binding still works (AC #3 regression — no pattern)
+(def-logic simple-let [x: int]
+  (let [(y (+ x 1))]
+    y))
+
+(check "pair destructuring preserves values"
+  (for-all [x: int]
+    (= (use-pair x) (match-pair x))))
