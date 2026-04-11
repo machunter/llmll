@@ -1,10 +1,12 @@
-# LLMLL — v0.2 (v0.3 in development)
+# LLMLL — v0.3
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.3 development is underway.** PRs 1–4 have merged: TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3), and pair destructuring in `let` bindings (PR 4). `EPair` expressions are correctly typed `TPair a b`. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. Pair destructuring — `(let [((pair s cmd) expr)] ...)` — is now available in both S-expression and JSON-AST. See [`docs/archive/analysis/do_notation/do_notation_implementation_plan.md`](docs/archive/analysis/do_notation/do_notation_implementation_plan.md).
+> **v0.3 is shipped (12/12 items).** All planned features have landed: TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite (PR 3), pair destructuring (PR 4), `string-concat` variadic sugar, `?scaffold` CLI, stratified verification with `(trust ...)` declarations, `--contracts` flag, `.verified.json` sidecar, and `Promise[t]` → `Async t` upgrade.
+>
+> **v0.3.1** (planned) will deliver the remaining agent integration features: `?delegate` JSON-Patch lifecycle, Leanstral MCP integration, and Event Log spec. See [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md).
 
 ---
 
@@ -23,7 +25,8 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll serve [--host H] [--port P] [--token T]` | **Phase 2c** — expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll checkout <file.ast.json> <pointer>` | **v0.3** — lock a `?hole` for exclusive agent editing. Returns a checkout token. Use `--release` to abandon, `--status` to query TTL. |
 | `llmll patch <file.ast.json> <patch.json>` | **v0.3** — apply an RFC 6902 JSON-Patch to a checked-out hole. Re-verifies type safety before committing. |
-| `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). |
+| `llmll hub fetch <pkg>@<ver>` | Download a package into the hub cache (`~/.llmll/modules/`). |
+| `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
 | `llmll repl` | Start an interactive LLMLL REPL |
 
 ### Input formats
@@ -92,7 +95,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.2; v0.3 in development)
+LLMLL.md                    ← canonical language specification (v0.3)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -108,7 +111,7 @@ compiler/                   ← Haskell compiler (stack project)
     PBT.hs                  ← QuickCheck property runner
     Diagnostic.hs           ← Structured error/warning types
     Module.hs               ← Multi-file module resolver, cycle detection, ModuleCache
-    Hub.hs                  ← llmll-hub registry fetch and local cache
+    Hub.hs                  ← llmll-hub registry fetch, scaffold, and local cache
     Sketch.hs               ← Partial-program type inference (--sketch)
     Serve.hs                ← HTTP endpoint for agent swarms (llmll serve)
     FixpointIR.hs           ← D4: .fq constraint IR + text emitter
@@ -142,7 +145,7 @@ docs/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.2 / v0.3 planned features |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.3.1 planned, v0.3 / v0.2 shipped |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes by version |
 

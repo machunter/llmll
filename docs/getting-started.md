@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.2 (v0.3 in development)
+# LLMLL Getting Started — v0.3
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -38,7 +38,9 @@ Available commands:
   verify     Emit .fq constraints and run liquid-fixpoint (Phase 2b)
   typecheck  Type inference (use --sketch for partial programs)
   serve      HTTP sketch endpoint for agent swarms
-  hub        llmll-hub package registry (fetch, cache)
+  checkout   Lock a hole for exclusive agent editing (v0.3)
+  patch      Apply an RFC 6902 JSON-Patch to a checked-out hole (v0.3)
+  hub        llmll-hub package registry (fetch, scaffold)
   repl       Start an interactive LLMLL REPL
 ```
 
@@ -135,6 +137,13 @@ llmll hub fetch llmll-crypto@0.1.0
 # ~/.llmll/modules/llmll-crypto/0.1.0/
 #   hash/bcrypt.ast.json
 #   hash/bcrypt.llmll
+```
+
+```bash
+# Scaffold a new project from a hub skeleton template
+llmll hub scaffold web-api-server --output ./my-project
+
+# Template cache: ~/.llmll/templates/
 ```
 
 Import fetched packages using the `hub.` prefix (see §4.8).

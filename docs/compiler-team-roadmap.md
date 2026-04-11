@@ -1,8 +1,8 @@
 # LLMLL Compiler Team Implementation Roadmap
 
 > **Prepared by:** Compiler Team  
-> **Date:** 2026-04-09  
-> **Status:** Active — v0.3 items 1–11 + 14 shipped (12 of 14)  
+> **Date:** 2026-04-11  
+> **Status:** Active — v0.3 shipped (12 of 12); v0.3.1 planned  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -16,6 +16,275 @@
 - Items marked **[CT]** are compiler team implementation tasks.
 - Items marked **[SPEC]** are language specification changes that must land in `LLMLL.md` before or alongside the implementation.
 - Items marked **[DESIGN]** are design decisions resolved by the joint team, recorded here as implementation constraints.
+
+---
+
+## v0.3.1 — Deferred Agent Integration (Planned)
+
+**Theme:** Deliver the Leanstral proof integration and the Event Log spec.
+
+> **Note:** The `?delegate` checkout/patch *compiler primitives* (`Checkout.hs`, `PatchApply.hs`, `JsonPointer.hs`, `llmll checkout`, `llmll patch`) shipped in v0.3. The agent orchestrator (`llmll-orchestra`) is scoped separately — see [`docs/agent-orchestration.md`](agent-orchestration.md).
+
+**[CT]** Leanstral MCP integration — `?proof-required :inductive` and `:unknown` hole resolution:
+
+1. `llmll holes --json` emits holes with complexity hints
+2. Compiler translates LLMLL `TypeWhere` AST node → Lean 4 `theorem` obligation *(the only novel engineering piece)*
+3. MCP call to Leanstral's `lean-lsp-mcp`
+4. Leanstral returns verified Lean 4 proof term
+5. `llmll check` stores certificate; subsequent builds verify certificate without re-calling Leanstral
+6. Fallback: if Leanstral unreachable, hole becomes `?delegate-pending` (blocks execution, does not fail build)
+
+~~**[SPEC]** Document `?proof-required :simple | :inductive | :unknown` hint syntax in `LLMLL.md §6`.~~ ✅ Already documented — see `LLMLL.md §6` line 372.
+
+**[CT]** Event Log spec — formalized `(Input, CommandResult, captures)` deterministic replay. NaN rejected at GHC/WASM boundary.
+
+**Acceptance criteria:**
+
+
+- A `?proof-required :inductive` hole for a structural list property is resolved by Leanstral; certificate verified on next build without a Leanstral call.
+- An LLMLL program with `def-main :mode console` produces a `.event-log.json` after execution.
+- `llmll replay <log-file>` produces identical output from the logged inputs.
+- NaN values in captured results are rejected at serialization time.
+
+### v0.3 Verification (validates shipped checkout/patch infrastructure)
+
+- Two-agent demo: Agent A writes a module with `?delegate`, Agent B submits a JSON-Patch via `llmll checkout` + `llmll patch`; compiler accepts the merge.
+
+
+
+## v0.3 — Agent Coordination + Interactive Proofs ✅ Shipped
+
+### Shipped: Do-Notation (PRs 1–3, 2026-04-05 – 2026-04-08)
+
+> **One-shot impact:** Eliminates deeply nested `let`/`seq-commands` boilerplate for stateful action sequences. Type checker enforces state-type consistency across all steps.
+
+**[CT]** ~~`TPair` type system foundation~~ ✅ **PR 1 (2026-04-05)** — new `TPair Type Type` constructor in `Syntax.hs`. `EPair` expressions typed `TPair a b`, replacing the unsound `TResult a b` approximation. Fixes JSON-AST round-trip (`"result-type"` → `"pair-type"`) and `match` exhaustiveness (no longer cites `Success`/`Error` for pairs). Surface syntax unchanged.
+
+**[CT]** ~~`DoStep` collapse~~ ✅ **PR 2 (2026-04-06)** — unified `DoStep (Maybe Name) Expr` replaces `DoBind`/`DoExpr` split. Type checker enforces pair-thread: every step returns `(S, Command)` with identical `S`. JSON parser rejects old `"bind-step"`/`"expr-step"` kinds.
+
+**[CT]** ~~`emitDo` rewrite~~ ✅ **PR 3 (2026-04-08)** — pure `let`-chain codegen. Named steps `[s <- expr]` bind state via `let`; anonymous steps discard it. `seq-commands` folds accumulated commands. No Haskell `do` or monads emitted.
+
+**Acceptance criteria — all met:**
+
+- ✅ `(do [s1 <- (action1 state)] [s2 <- (action2 s1)] (action3 s2))` parses, type-checks, and compiles
+- ✅ Mismatched state type `S` across steps produces a `"type-mismatch"` diagnostic
+- ✅ Anonymous step `(expr)` with non-matching state emits state-loss warning
+- ✅ `llmll build --emit json-ast` round-trips `do`-blocks with `"do-step"` nodes
+- ✅ All 47 existing tests still pass
+
+---
+
+### ✅ Shipped: Pair Destructuring (PR 4)
+
+**[CT]** Pair destructuring in `let` bindings — `(let [((pair s cmd) expr)] body)` pattern. `ELet` binding target extended from `Name` to `Pattern`. Shipped across Syntax, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, and JSON schema. All 7 acceptance criteria verified; 69/69 tests pass.
+
+---
+
+### ✅ Shipped: Stratified Verification + Feature Completion (2026-04-11)
+
+**[CT]** ~~`string-concat` parse-level variadic sugar~~ ✅ **Shipped (2026-04-11)** — In the S-expression parser, `(string-concat e1 e2 e3 …)` with 3+ arguments is desugared to `(string-concat-many [e1 e2 e3 …])` at parse time. `Parser.hs` L713-719. Type checker never sees a 3-arg `string-concat`. JSON-AST unaffected.
+
+> **Decision record:** Type-checker variadic special-casing rejected (breaks fixed-arity invariant; JSON-AST complexity). Binary `string-concat` deprecation rejected (breaks partial application). Parse-level sugar is the minimal, correct resolution.
+
+**Acceptance criteria (v0.3):**
+
+- `(string-concat "a" "b" "c")` in S-expression compiles to the same Haskell as `(string-concat-many ["a" "b" "c"])`.
+- `(string-concat prefix)` partial application still type-checks as `string → string`.
+- JSON-AST `{"fn": "string-concat", "args": [a, b, c]}` produces a clear arity error (unchanged behavior — sugar is parse-time S-expression only).
+
+**[CT]** ~~`?scaffold` CLI~~ ✅ **Shipped (2026-04-11)** — Hole kind fully implemented across Syntax, Lexer, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, HoleAnalysis. CLI: `llmll hub scaffold <template> [--output DIR]` resolves from `~/.llmll/templates/`, copies scaffold file, parses and reports holes via `analyzeHoles`. `Hub.hs` adds `scaffoldCacheRoot`, `resolveScaffold`. Hub command upgraded to `fetch`/`scaffold` subcommand group.
+
+**[CT]** ~~Stratified Verification (Item 7b)~~ ✅ **Shipped (2026-04-11)** — `VerificationLevel` ADT (`VLAsserted`, `VLTested n`, `VLProven prover`) with custom `Ord` instance. `ContractStatus` tracks per-function pre/post levels. Trust-gap warnings for cross-module unproven calls. `(trust ...)` declaration silences warnings.
+
+**[CT]** ~~`--contracts` CLI flag (Item 8)~~ ✅ **Shipped (2026-04-11)** — `llmll build --contracts=full|unproven|none`. Strips contract clauses by mode.
+
+**[CT]** ~~`.verified.json` sidecar write (Item 9)~~ ✅ **Shipped (2026-04-11)** — `llmll verify` writes per-function `ContractStatus` with `VLProven "liquid-fixpoint"` to sidecar. Subsequent builds read sidecar to strip proven assertions.
+
+**[CT]** ~~`Promise[t]` upgrade: `IO t` → `Async t` (Item 14)~~ ✅ **Shipped (2026-04-11)** — `TPromise` emits `Async.Async`, `EAwait` emits `try (Async.wait ...)` with `SomeException` catch-all. Generated preamble imports `Control.Concurrent.Async` + `Control.Exception`. `package.yaml` includes `async` dependency. 10 regression tests.
+
+**[CT]** ~~`do`-notation sugar~~ ✅ **Shipped (PRs 1–3)** — see "Shipped" section above.
+
+---
+
+## v0.2 — Module System + Compile-Time Verification
+
+**Theme:** Make multi-file composition real and make contracts compile-time verified.
+
+### Internal Ordering (design team requirement)
+
+```text
+Phase 2a: Module System  →  Phase 2b: liquid-fixpoint verification  →  Phase 2c: Type System Fixes + Sketch API
+```
+
+Rationale: `def-invariant` + Z3 verification requires multi-file resolution as substrate. Cross-module invariant checking is meaningless without cross-module compilation.
+
+---
+
+### Phase 2a — Module System
+
+**[CT]** Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent. Compiler maintains a module cache; circular imports are a compile error with cycle listed in the diagnostic.
+
+**[CT]** Namespace isolation: each source file has its own top-level scope. Names from imported modules are prefixed by module path unless opened with `(open foo.bar)`.
+
+**[CT]** Cross-module `def-interface` enforcement: when module A imports module B and relies on B's implementation of an interface, the compiler verifies structural compatibility at import time.
+
+**[CT]** `llmll-hub` registry — `llmll hub fetch <package>@<version>` downloads a package and its `.ast.json` to the local cache. The compiler resolves `(import hub.<package>.<module> ...)` from the cache.
+
+**Acceptance criteria:**
+
+- A two-file program (A defines `def-interface`, B implements it) compiles and links.
+- Circular imports produce a diagnostic naming the import cycle.
+
+---
+
+### Phase 2b — Compile-Time Verification via liquid-fixpoint ✅ Shipped (2026-03-27)
+
+> **One-shot impact:** `pre`/`post` violations in the linear arithmetic fragment become compile-time errors. ~80% of practical contracts are decidable.
+
+**Design pivot (approved by language team):** Rather than integrating LiquidHaskell as a GHC plugin (fragile, version-locked), Phase 2b uses a **decoupled backend**: the compiler emits `.fq` constraint files directly from the LLMLL typed AST, then invokes `liquid-fixpoint` (the stable Z3-backed solver engine that LH sits on top of) as a standalone binary.
+
+#### D1 — Static `match` Exhaustiveness ✅
+
+**[CT]** Post-inference pass `checkExhaustive` — collects all ADT definitions from `STypeDef`, checks every `EMatch` covers all constructors, emits `DiagError` with kind `"non-exhaustive-match"` if any arm is missing.
+
+**Acceptance criteria — met:** `match` on `Color` with missing arm rejected at compile time. `Result[t,e]` with both arms accepted. Wildcard `_` satisfies exhaustiveness.
+
+#### D2 — `letrec` + `:decreases` Termination Annotation ✅
+
+**[CT]** `SLetrec` statement variant in `Syntax.hs`. Parser (`Parser.hs` + `ParserJSON.hs`) parse `(letrec name [params] :decreases expr body)` / JSON `{"kind": "letrec", "decreases": ...}`. Codegen emits `:decreases` comment marker. Self-recursive `def-logic` emits a non-blocking self-recursion warning.
+
+**Acceptance criteria — met:** `letrec` with `:decreases` parses and type-checks. Recursive `def-logic` emits warning.
+
+#### D3 — `?proof-required` Holes ✅
+
+**[CT]** `HProofRequired Text` constructor added to `HoleKind` in `Syntax.hs`. Auto-detection in `HoleAnalysis.hs`: non-linear contracts emit `?proof-required(non-linear-contract)`; complex `letrec :decreases` emit `?proof-required(complex-decreases)`. Codegen emits `error "proof-required"` — non-blocking.
+
+**Acceptance criteria — met:** `llmll holes` reports `?proof-required` with correct hint. `?proof-required` parses in S-expression form. JSON-AST `{"kind": "hole-proof-required"}` accepted.
+
+#### D4 — Decoupled `.fq` Verification Backend ✅
+
+**[CT]** Three new modules:
+
+| Module | Role |
+| ------ | ---- |
+| `LLMLL.FixpointIR` | ADT for `.fq` constraint language (sorts, predicates, refinements, binders, constraints, qualifiers) + text emitter |
+| `LLMLL.FixpointEmit` | Walks typed AST → `FQFile` + `ConstraintTable` (constraint ID → JSON Pointer). Covers QF linear integer arithmetic. Auto-synthesizes qualifiers from `pre`/`post`. |
+| `LLMLL.DiagnosticFQ` | Parses `fixpoint` stdout (SAFE / UNSAFE) → `[Diagnostic]` with `diagPointer` (RFC 6901 JSON Pointer) using `ConstraintTable`. |
+
+**[CT]** `llmll verify <file> [--fq-out FILE]` subcommand in `Main.hs`. Tries `fixpoint` and `liquid-fixpoint` binary names. Graceful degradation when not installed.
+
+**Prerequisites:** `stack install liquid-fixpoint` + `brew install z3`.
+
+**Acceptance criteria — met:**
+
+- `llmll verify hangman_sexp/hangman.llmll` → `✅ SAFE (liquid-fixpoint)`
+- JSON `--json verify` returns `{"success": true}`
+- Contract violation returns diagnostic with `diagPointer` referencing original `pre`/`post` clause
+- All 47 existing tests still pass
+
+---
+
+### Phase 2c — Type System Fixes + Sketch API ✅ Shipped (2026-03-28)
+
+**[SPEC]** and **[CT]** ~~Lift `pair-type` in `typed-param` limitation~~ ✅ **Shipped (2026-03-27)** — `[acc: (int, string)]` accepted in `def-logic` params, lambda params, and `for-all` bindings. Parsed as `TPair A B` (v0.3 PR 1 introduced `TPair` — the `TResult` approximation is obsolete). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
+
+**[CT]** ~~`llmll typecheck --sketch <file>`~~ ✅ **Shipped (2026-03-28)** — accepts a partial LLMLL program (holes allowed everywhere). Runs constraint-propagation type inference. Returns a JSON object mapping each hole's JSON Pointer to its inferred type (`null` if indeterminate) plus `holeSensitive`-annotated errors.
+
+**[CT]** ~~HTTP interface for agent use~~ ✅ **Shipped (2026-03-28)** — `llmll serve [--host H] [--port P] [--token T]`. Default: `127.0.0.1:7777`. Stateless per request; `--token` enables `Authorization: Bearer` auth; TLS delegated to reverse proxy.
+
+**[CT]** `--sketch` hole-constraint propagation (*language team design, 2026-03-27*) — `--sketch` must propagate checking types to hole expressions at all three sites where a peer expression provides the constraint:
+
+| Site | Constraint source | Implementation |
+| ---- | ----------------- | -------------- |
+| `EIf` then/else | sibling branch synthesises type `T`; hole branch checked against `T` | `inferExpr (EIf ...)` — try-and-fallback |
+| `EMatch` arms | non-hole arms unified to `T`; hole arms checked against `T` | two-pass arm loop (see below) |
+| `EApp` arguments | function signature via `unify` | ✅ already handled |
+| `ELet` binding RHS | explicit annotation | ✅ already handled |
+| `fn` / lambda body | outer checking context propagates inward | ✅ already handled |
+
+`EMatch` requires a **two-pass arm loop** in `inferExpr (EMatch ...)`:
+
+- Pass 1 — synthesise all non-hole arm bodies → unify to `T` (or emit type-mismatch error as today)
+- Pass 2 — check all hole arm bodies against `T`; record `T` as `inferredType` in sketch output
+
+If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch` reports the conflict as an `errors` entry with `"kind": "ambiguous-hole"` and records `inferredType: null` for hole arms — it does not fall silent.
+
+**[CT]** ~~N2 — `string-concat` arity hint~~ ✅ **Shipped (2026-03-27)** — arity mismatch on `string-concat` with actual > 2 now appends `— use string-concat-many for joining more than 2 strings`.
+
+**[CT]** ~~N3 — Strict key validation for JSON-AST `let` binding objects~~ ✅ **Shipped (2026-03-27)** — `parseLet1Binding` now fails explicitly on unexpected keys, emitting a clear error naming the offending key.
+
+**Acceptance criteria:**
+
+- `[acc: (int, string)]` in a lambda parameter list parses and type-checks without a workaround.
+- Given a partial program with three holes, `llmll typecheck --sketch` returns each hole's inferred type.
+- A type conflict in a partial program is reported even when the surrounding program is incomplete.
+- A hole in the `then` (or `else`) branch of an `if`, where the sibling branch synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
+- A hole in a `match` arm body, where at least one other arm synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
+- A `match` where non-hole arms have conflicting types reports the conflict as an `errors` entry; hole arms in that `match` report `inferredType: "<conflict>"` rather than being omitted.
+- `(string-concat a b c)` arity error includes the `string-concat-many` hint.
+- A JSON-AST `let` binding object with an extra key produces a clear parse error naming the offending key.
+
+---
+
+## v0.1.3 — Type Alias Expansion ✅ Shipped (2026-03-21)
+
+**Theme:** Close the last spurious type-checker errors affecting every real program using dependent type aliases, and fix where-clause binding variable scope.
+
+### Deliverable — Structural Type Alias Resolution
+
+**Implemented in `TypeCheck.hs` (commit `9931a77`):**
+
+Instead of fixing `collectTopLevel` (which would break forward-reference resolution in function signatures), we took a lower-risk approach:
+
+- **Added `tcAliasMap :: Map Name Type` to `TCState`** — populated from all `STypeDef` bodies at the start of each type-check run.
+- **Added `expandAlias :: Type -> TC Type`** — looks up `TCustom n` in the alias map and returns the structural body; leaves all other types unchanged.
+- **`unify` now calls `expandAlias` on both `expected` and `actual`** before `compatibleWith`. The existing `compatibleWith (TDependent _ a _) b = compatibleWith a b` rule handles the rest automatically.
+
+`collectTopLevel` is unchanged — function signatures still register `TCustom name` for forward references, which is correct.
+
+**Also shipped alongside (commit `fa008b1`):**
+
+- **`where`-clause binding variable scope** — `TDependent` now carries the binding name; `TypeCheck.hs` uses `withEnv [(bindName, base)]` before inferring the constraint, eliminating `unbound variable 's'` / `'n'` false warnings.
+- **Parser**: `_foo` treated as a single `PVar` binder (not `PWildcard` + `foo`).
+- **Codegen**: `Error`→`Left`, `Success`→`Right` rewrite in `emitPat`; exhaustive `Left`+`Right` match suppresses redundant GHC warning.
+
+**Acceptance criteria — all met:**
+
+- ✅ `llmll check hangman_json`: **0 errors** (was 10: `expected GuessCount, got int` etc.)
+- ✅ `llmll check hangman_sexp`: **0 errors** (was ~10)
+- ✅ `llmll check tictactoe_json` / `tictactoe_sexp`: unaffected, still OK
+- ✅ `stack test`: **25 examples, 0 failures** (was 21; 4 new tests added)
+- ✅ `LLMLL.md §3.4` limitation block removed; replaced with accurate v0.1.2 description
+
+#### Post-ship bug fixes — round 1 (discovered via `examples/hangman_json/WALKTHROUGH.md`, 2026-03-21)
+
+| Bug | Location | Fix | Status |
+| --- | -------- | --- | ------ |
+| **P1** — `first`/`second` reject any explicitly-typed pair parameter with `expected Result[a,b], got <T>`; agent forced to use `"untyped": true` workaround on all state accessor params | `TypeCheck.hs`, `builtinEnv` | Changed `first`/`second` input from `TResult (TVar "a") (TVar "b")` to `TVar "p"` (fully polymorphic). Without a dedicated pair type in the AST, `TResult` was the wrong constraint — TVar unifies with any argument. | ✅ Fixed (`ef6f41c`) |
+| **P2** — `post` clause on a pair-returning function cannot project `result` via `first`/`second` (same root cause as P1) | Derived from P1 | Same fix | ✅ Fixed (`ef6f41c`) |
+| **P3** — `llmll test` skipped properties show opaque "requires full runtime evaluation" with no reason; agent cannot distinguish Command-skip from non-constant-skip | `PBT.hs`, `runProperty` | Added `bodyMentionsCommand` heuristic walk; skip message now names the specific cause | ✅ Fixed (`ef6f41c`) |
+
+#### Post-ship bug fixes — round 2 (discovered via hangman/tictactoe walkthroughs, 2026-03-22)
+
+| Bug | Location | Fix | Status |
+| --- | -------- | --- | ------ |
+| **B1** — `check` block labels with special chars (`(`, `)`, `+`, `?`) produce invalid Haskell `prop_*` identifiers; `stack build` fails with `Invalid type signature` | `CodegenHs.hs`, `emitCheck` | Added `sanitizeCheckLabel` — replaces all non-`[a-zA-Z0-9]` with `_`, collapses runs | ✅ Fixed (`880a8ad`) |
+| **B2** — `[a b c]` in S-expression expression position rejected with `unexpected '['`; agents read §13.5 list-literal docs and try this syntax | `Parser.hs`, `pExpr` | Added `pListLitExpr` — desugars `[expr ...]` to `foldr list-prepend (list-empty)`, symmetric with JSON-AST `lit-list` | ✅ Fixed (`880a8ad`) |
+| **N1** — `bodyMentionsCommand` prefix list included `"step"`, `"done"`, `"command"` — too broad, caused false-positive "Command-producing" skip reason for user-defined functions | `PBT.hs`, `bodyMentionsCommand` | Narrowed prefix list to `wasi./console./http./fs.` only | ✅ Fixed (`880a8ad`) |
+| **P2** — `ok`/`err` not in scope in generated `Lib.hs`; preamble only defined `llmll_ok`/`llmll_err` but codegen emits bare `ok`/`err` | `CodegenHs.hs`, preamble | Added `ok = Right` and `err = Left` short aliases to preamble | ✅ Fixed (`db8f7a6`) |
+| **P3** — Extra step rendered after game over; console harness checked `:done?` after `:step`, not before; one extra stdin read triggered a final render | `CodegenHs.hs`, `emitMainBody` | Restructured generated loop: `done? s` checked at top before `getLine` | ✅ Fixed (`db8f7a6`) |
+| **P1** — `llmll build` deadlocks when called from inside a running `stack exec llmll -- repl` session (Stack project lock contention) | `Main.hs`, `doBuild`/`doBuildFromJson` | Added `--emit-only` flag: writes Haskell files, skips internal `stack build` | ✅ Fixed (`38265af`) |
+| **C1** — `schemaVersion: "0.1.3"` in JSON-AST sources rejected with `schema-version-mismatch`; docs showed `0.1.3` but parser gated on `0.1.2` | `ParserJSON.hs`, `expectedSchemaVersion`; `docs/llmll-ast.schema.json` | Bumped `expectedSchemaVersion` and schema `const` from `"0.1.2"` to `"0.1.3"` | ✅ Fixed (`012b048`) |
+| **C2** — `:on-done` in S-expression `def-main` generated `show_result state0` after the `where` clause — a GHC parse error | `CodegenHs.hs`, `emitMainBody` | `doneGuard` now pattern-matches on `(mDone, mOnDone)` pair; when both present emits `if done? s then onDone s else do` inside the loop | ✅ Fixed (`012b048`) |
+| **C3** — `:on-done` in JSON-AST `def-main` silently omitted from generated `Main.hs` (same root cause as C2) | `CodegenHs.hs`, `emitMainBody` | Same fix as C2 — removed `onDoneBlock` list item that was erroneously placed after `where` | ✅ Fixed (`012b048`) |
+
+#### Post-ship bug fixes — round 3 (discovered via hangman re-implementation, 2026-03-23)
+
+| Bug | Location | Fix | Status |
+| --- | -------- | --- | ------ |
+| **B3** — `[...]` list literal in S-expression fails with `unexpected ']'` when used as a function argument inside an `if` branch body. Top-level `let` bindings and direct expressions work fine; the failure is specific to the nested call-inside-if position. `pListLitExpr` was added in B2 for expression position but the `pExpr` grammar inside if-`then`/`else` branches does not correctly disambiguate `]` from a surrounding parameter-list close when nesting is deep. | `Parser.hs`, `pExpr` / `pIf` | Fix: ensure `pListLitExpr` is tried with the correct bracket-depth context inside `pIf`. Alternatively, disambiguate by requiring list literals to be wrapped in parens when nested: `([ a b c ])`. Workaround: hoist list literals into `let` bindings before the `if` (see `getting-started.md §4.7`). JSON-AST is unaffected. | ⚠️ Cannot reproduce — retested 2026-03-23 against all developer-reported patterns (`hangman.llmll`, `tictactoe.llmll`, `wasi.io.stdout (string-concat-many [...])` inside `if`, nested `let`+`if`) — all pass ✅. May have been fixed as part of B2. Workaround in §4.7 is still good practice; bug remains documented in case it resurfaces. |
+| **N2** — `string-concat` arity errors (2 args required, >2 given) now suggest `string-concat-many`. | `TypeCheck.hs`, arity error path | Appended `— use string-concat-many for joining more than 2 strings` to the arity mismatch error when `func == "string-concat"` and `actual > expected`. | ✅ Fixed (2026-03-27) |
+| **N3** — JSON-AST `let` binding objects with extra keys silently accepted despite schema declaring `additionalProperties: false`. | `ParserJSON.hs`, `parseLet1Binding` | Added `Data.Aeson.KeyMap` key-whitelist check; fails with `let binding has unexpected keys: [...]` on any key outside `{"name", "expr"}`. | ✅ Fixed (2026-03-27) |
 
 ---
 
@@ -173,263 +442,6 @@ Docker container
 
 ---
 
-## v0.1.3 — Type Alias Expansion ✅ Shipped (2026-03-21)
-
-**Theme:** Close the last spurious type-checker errors affecting every real program using dependent type aliases, and fix where-clause binding variable scope.
-
-### Deliverable — Structural Type Alias Resolution
-
-**Implemented in `TypeCheck.hs` (commit `9931a77`):**
-
-Instead of fixing `collectTopLevel` (which would break forward-reference resolution in function signatures), we took a lower-risk approach:
-
-- **Added `tcAliasMap :: Map Name Type` to `TCState`** — populated from all `STypeDef` bodies at the start of each type-check run.
-- **Added `expandAlias :: Type -> TC Type`** — looks up `TCustom n` in the alias map and returns the structural body; leaves all other types unchanged.
-- **`unify` now calls `expandAlias` on both `expected` and `actual`** before `compatibleWith`. The existing `compatibleWith (TDependent _ a _) b = compatibleWith a b` rule handles the rest automatically.
-
-`collectTopLevel` is unchanged — function signatures still register `TCustom name` for forward references, which is correct.
-
-**Also shipped alongside (commit `fa008b1`):**
-
-- **`where`-clause binding variable scope** — `TDependent` now carries the binding name; `TypeCheck.hs` uses `withEnv [(bindName, base)]` before inferring the constraint, eliminating `unbound variable 's'` / `'n'` false warnings.
-- **Parser**: `_foo` treated as a single `PVar` binder (not `PWildcard` + `foo`).
-- **Codegen**: `Error`→`Left`, `Success`→`Right` rewrite in `emitPat`; exhaustive `Left`+`Right` match suppresses redundant GHC warning.
-
-**Acceptance criteria — all met:**
-
-- ✅ `llmll check hangman_json`: **0 errors** (was 10: `expected GuessCount, got int` etc.)
-- ✅ `llmll check hangman_sexp`: **0 errors** (was ~10)
-- ✅ `llmll check tictactoe_json` / `tictactoe_sexp`: unaffected, still OK
-- ✅ `stack test`: **25 examples, 0 failures** (was 21; 4 new tests added)
-- ✅ `LLMLL.md §3.4` limitation block removed; replaced with accurate v0.1.2 description
-
-#### Post-ship bug fixes — round 1 (discovered via `examples/hangman_json/WALKTHROUGH.md`, 2026-03-21)
-
-| Bug | Location | Fix | Status |
-| --- | -------- | --- | ------ |
-| **P1** — `first`/`second` reject any explicitly-typed pair parameter with `expected Result[a,b], got <T>`; agent forced to use `"untyped": true` workaround on all state accessor params | `TypeCheck.hs`, `builtinEnv` | Changed `first`/`second` input from `TResult (TVar "a") (TVar "b")` to `TVar "p"` (fully polymorphic). Without a dedicated pair type in the AST, `TResult` was the wrong constraint — TVar unifies with any argument. | ✅ Fixed (`ef6f41c`) |
-| **P2** — `post` clause on a pair-returning function cannot project `result` via `first`/`second` (same root cause as P1) | Derived from P1 | Same fix | ✅ Fixed (`ef6f41c`) |
-| **P3** — `llmll test` skipped properties show opaque "requires full runtime evaluation" with no reason; agent cannot distinguish Command-skip from non-constant-skip | `PBT.hs`, `runProperty` | Added `bodyMentionsCommand` heuristic walk; skip message now names the specific cause | ✅ Fixed (`ef6f41c`) |
-
-#### Post-ship bug fixes — round 2 (discovered via hangman/tictactoe walkthroughs, 2026-03-22)
-
-| Bug | Location | Fix | Status |
-| --- | -------- | --- | ------ |
-| **B1** — `check` block labels with special chars (`(`, `)`, `+`, `?`) produce invalid Haskell `prop_*` identifiers; `stack build` fails with `Invalid type signature` | `CodegenHs.hs`, `emitCheck` | Added `sanitizeCheckLabel` — replaces all non-`[a-zA-Z0-9]` with `_`, collapses runs | ✅ Fixed (`880a8ad`) |
-| **B2** — `[a b c]` in S-expression expression position rejected with `unexpected '['`; agents read §13.5 list-literal docs and try this syntax | `Parser.hs`, `pExpr` | Added `pListLitExpr` — desugars `[expr ...]` to `foldr list-prepend (list-empty)`, symmetric with JSON-AST `lit-list` | ✅ Fixed (`880a8ad`) |
-| **N1** — `bodyMentionsCommand` prefix list included `"step"`, `"done"`, `"command"` — too broad, caused false-positive "Command-producing" skip reason for user-defined functions | `PBT.hs`, `bodyMentionsCommand` | Narrowed prefix list to `wasi./console./http./fs.` only | ✅ Fixed (`880a8ad`) |
-| **P2** — `ok`/`err` not in scope in generated `Lib.hs`; preamble only defined `llmll_ok`/`llmll_err` but codegen emits bare `ok`/`err` | `CodegenHs.hs`, preamble | Added `ok = Right` and `err = Left` short aliases to preamble | ✅ Fixed (`db8f7a6`) |
-| **P3** — Extra step rendered after game over; console harness checked `:done?` after `:step`, not before; one extra stdin read triggered a final render | `CodegenHs.hs`, `emitMainBody` | Restructured generated loop: `done? s` checked at top before `getLine` | ✅ Fixed (`db8f7a6`) |
-| **P1** — `llmll build` deadlocks when called from inside a running `stack exec llmll -- repl` session (Stack project lock contention) | `Main.hs`, `doBuild`/`doBuildFromJson` | Added `--emit-only` flag: writes Haskell files, skips internal `stack build` | ✅ Fixed (`38265af`) |
-| **C1** — `schemaVersion: "0.1.3"` in JSON-AST sources rejected with `schema-version-mismatch`; docs showed `0.1.3` but parser gated on `0.1.2` | `ParserJSON.hs`, `expectedSchemaVersion`; `docs/llmll-ast.schema.json` | Bumped `expectedSchemaVersion` and schema `const` from `"0.1.2"` to `"0.1.3"` | ✅ Fixed (`012b048`) |
-| **C2** — `:on-done` in S-expression `def-main` generated `show_result state0` after the `where` clause — a GHC parse error | `CodegenHs.hs`, `emitMainBody` | `doneGuard` now pattern-matches on `(mDone, mOnDone)` pair; when both present emits `if done? s then onDone s else do` inside the loop | ✅ Fixed (`012b048`) |
-| **C3** — `:on-done` in JSON-AST `def-main` silently omitted from generated `Main.hs` (same root cause as C2) | `CodegenHs.hs`, `emitMainBody` | Same fix as C2 — removed `onDoneBlock` list item that was erroneously placed after `where` | ✅ Fixed (`012b048`) |
-
-#### Post-ship bug fixes — round 3 (discovered via hangman re-implementation, 2026-03-23)
-
-| Bug | Location | Fix | Status |
-| --- | -------- | --- | ------ |
-| **B3** — `[...]` list literal in S-expression fails with `unexpected ']'` when used as a function argument inside an `if` branch body. Top-level `let` bindings and direct expressions work fine; the failure is specific to the nested call-inside-if position. `pListLitExpr` was added in B2 for expression position but the `pExpr` grammar inside if-`then`/`else` branches does not correctly disambiguate `]` from a surrounding parameter-list close when nesting is deep. | `Parser.hs`, `pExpr` / `pIf` | Fix: ensure `pListLitExpr` is tried with the correct bracket-depth context inside `pIf`. Alternatively, disambiguate by requiring list literals to be wrapped in parens when nested: `([ a b c ])`. Workaround: hoist list literals into `let` bindings before the `if` (see `getting-started.md §4.7`). JSON-AST is unaffected. | ⚠️ Cannot reproduce — retested 2026-03-23 against all developer-reported patterns (`hangman.llmll`, `tictactoe.llmll`, `wasi.io.stdout (string-concat-many [...])` inside `if`, nested `let`+`if`) — all pass ✅. May have been fixed as part of B2. Workaround in §4.7 is still good practice; bug remains documented in case it resurfaces. |
-| **N2** — `string-concat` arity errors (2 args required, >2 given) now suggest `string-concat-many`. | `TypeCheck.hs`, arity error path | Appended `— use string-concat-many for joining more than 2 strings` to the arity mismatch error when `func == "string-concat"` and `actual > expected`. | ✅ Fixed (2026-03-27) |
-| **N3** — JSON-AST `let` binding objects with extra keys silently accepted despite schema declaring `additionalProperties: false`. | `ParserJSON.hs`, `parseLet1Binding` | Added `Data.Aeson.KeyMap` key-whitelist check; fails with `let binding has unexpected keys: [...]` on any key outside `{"name", "expr"}`. | ✅ Fixed (2026-03-27) |
-
----
-
-## v0.2 — Module System + Compile-Time Verification
-
-**Theme:** Make multi-file composition real and make contracts compile-time verified.
-
-### Internal Ordering (design team requirement)
-
-```text
-Phase 2a: Module System  →  Phase 2b: liquid-fixpoint verification  →  Phase 2c: Type System Fixes + Sketch API
-```
-
-Rationale: `def-invariant` + Z3 verification requires multi-file resolution as substrate. Cross-module invariant checking is meaningless without cross-module compilation.
-
----
-
-### Phase 2a — Module System
-
-**[CT]** Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent. Compiler maintains a module cache; circular imports are a compile error with cycle listed in the diagnostic.
-
-**[CT]** Namespace isolation: each source file has its own top-level scope. Names from imported modules are prefixed by module path unless opened with `(open foo.bar)`.
-
-**[CT]** Cross-module `def-interface` enforcement: when module A imports module B and relies on B's implementation of an interface, the compiler verifies structural compatibility at import time.
-
-**[CT]** `llmll-hub` registry — `llmll hub fetch <package>@<version>` downloads a package and its `.ast.json` to the local cache. The compiler resolves `(import hub.<package>.<module> ...)` from the cache.
-
-**Acceptance criteria:**
-
-- A two-file program (A defines `def-interface`, B implements it) compiles and links.
-- Circular imports produce a diagnostic naming the import cycle.
-
----
-
-### Phase 2b — Compile-Time Verification via liquid-fixpoint ✅ Shipped (2026-03-27)
-
-> **One-shot impact:** `pre`/`post` violations in the linear arithmetic fragment become compile-time errors. ~80% of practical contracts are decidable.
-
-**Design pivot (approved by language team):** Rather than integrating LiquidHaskell as a GHC plugin (fragile, version-locked), Phase 2b uses a **decoupled backend**: the compiler emits `.fq` constraint files directly from the LLMLL typed AST, then invokes `liquid-fixpoint` (the stable Z3-backed solver engine that LH sits on top of) as a standalone binary.
-
-#### D1 — Static `match` Exhaustiveness ✅
-
-**[CT]** Post-inference pass `checkExhaustive` — collects all ADT definitions from `STypeDef`, checks every `EMatch` covers all constructors, emits `DiagError` with kind `"non-exhaustive-match"` if any arm is missing.
-
-**Acceptance criteria — met:** `match` on `Color` with missing arm rejected at compile time. `Result[t,e]` with both arms accepted. Wildcard `_` satisfies exhaustiveness.
-
-#### D2 — `letrec` + `:decreases` Termination Annotation ✅
-
-**[CT]** `SLetrec` statement variant in `Syntax.hs`. Parser (`Parser.hs` + `ParserJSON.hs`) parse `(letrec name [params] :decreases expr body)` / JSON `{"kind": "letrec", "decreases": ...}`. Codegen emits `:decreases` comment marker. Self-recursive `def-logic` emits a non-blocking self-recursion warning.
-
-**Acceptance criteria — met:** `letrec` with `:decreases` parses and type-checks. Recursive `def-logic` emits warning.
-
-#### D3 — `?proof-required` Holes ✅
-
-**[CT]** `HProofRequired Text` constructor added to `HoleKind` in `Syntax.hs`. Auto-detection in `HoleAnalysis.hs`: non-linear contracts emit `?proof-required(non-linear-contract)`; complex `letrec :decreases` emit `?proof-required(complex-decreases)`. Codegen emits `error "proof-required"` — non-blocking.
-
-**Acceptance criteria — met:** `llmll holes` reports `?proof-required` with correct hint. `?proof-required` parses in S-expression form. JSON-AST `{"kind": "hole-proof-required"}` accepted.
-
-#### D4 — Decoupled `.fq` Verification Backend ✅
-
-**[CT]** Three new modules:
-
-| Module | Role |
-| ------ | ---- |
-| `LLMLL.FixpointIR` | ADT for `.fq` constraint language (sorts, predicates, refinements, binders, constraints, qualifiers) + text emitter |
-| `LLMLL.FixpointEmit` | Walks typed AST → `FQFile` + `ConstraintTable` (constraint ID → JSON Pointer). Covers QF linear integer arithmetic. Auto-synthesizes qualifiers from `pre`/`post`. |
-| `LLMLL.DiagnosticFQ` | Parses `fixpoint` stdout (SAFE / UNSAFE) → `[Diagnostic]` with `diagPointer` (RFC 6901 JSON Pointer) using `ConstraintTable`. |
-
-**[CT]** `llmll verify <file> [--fq-out FILE]` subcommand in `Main.hs`. Tries `fixpoint` and `liquid-fixpoint` binary names. Graceful degradation when not installed.
-
-**Prerequisites:** `stack install liquid-fixpoint` + `brew install z3`.
-
-**Acceptance criteria — met:**
-
-- `llmll verify hangman_sexp/hangman.llmll` → `✅ SAFE (liquid-fixpoint)`
-- JSON `--json verify` returns `{"success": true}`
-- Contract violation returns diagnostic with `diagPointer` referencing original `pre`/`post` clause
-- All 47 existing tests still pass
-
----
-
-### Phase 2c — Type System Fixes + Sketch API ✅ Shipped (2026-03-28)
-
-**[SPEC]** and **[CT]** ~~Lift `pair-type` in `typed-param` limitation~~ ✅ **Shipped (2026-03-27)** — `[acc: (int, string)]` accepted in `def-logic` params, lambda params, and `for-all` bindings. Parsed as `TPair A B` (v0.3 PR 1 introduced `TPair` — the `TResult` approximation is obsolete). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
-
-**[CT]** ~~`llmll typecheck --sketch <file>`~~ ✅ **Shipped (2026-03-28)** — accepts a partial LLMLL program (holes allowed everywhere). Runs constraint-propagation type inference. Returns a JSON object mapping each hole's JSON Pointer to its inferred type (`null` if indeterminate) plus `holeSensitive`-annotated errors.
-
-**[CT]** ~~HTTP interface for agent use~~ ✅ **Shipped (2026-03-28)** — `llmll serve [--host H] [--port P] [--token T]`. Default: `127.0.0.1:7777`. Stateless per request; `--token` enables `Authorization: Bearer` auth; TLS delegated to reverse proxy.
-
-**[CT]** `--sketch` hole-constraint propagation (*language team design, 2026-03-27*) — `--sketch` must propagate checking types to hole expressions at all three sites where a peer expression provides the constraint:
-
-| Site | Constraint source | Implementation |
-| ---- | ----------------- | -------------- |
-| `EIf` then/else | sibling branch synthesises type `T`; hole branch checked against `T` | `inferExpr (EIf ...)` — try-and-fallback |
-| `EMatch` arms | non-hole arms unified to `T`; hole arms checked against `T` | two-pass arm loop (see below) |
-| `EApp` arguments | function signature via `unify` | ✅ already handled |
-| `ELet` binding RHS | explicit annotation | ✅ already handled |
-| `fn` / lambda body | outer checking context propagates inward | ✅ already handled |
-
-`EMatch` requires a **two-pass arm loop** in `inferExpr (EMatch ...)`:
-
-- Pass 1 — synthesise all non-hole arm bodies → unify to `T` (or emit type-mismatch error as today)
-- Pass 2 — check all hole arm bodies against `T`; record `T` as `inferredType` in sketch output
-
-If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch` reports the conflict as an `errors` entry with `"kind": "ambiguous-hole"` and records `inferredType: null` for hole arms — it does not fall silent.
-
-**[CT]** ~~N2 — `string-concat` arity hint~~ ✅ **Shipped (2026-03-27)** — arity mismatch on `string-concat` with actual > 2 now appends `— use string-concat-many for joining more than 2 strings`.
-
-**[CT]** ~~N3 — Strict key validation for JSON-AST `let` binding objects~~ ✅ **Shipped (2026-03-27)** — `parseLet1Binding` now fails explicitly on unexpected keys, emitting a clear error naming the offending key.
-
-**Acceptance criteria:**
-
-- `[acc: (int, string)]` in a lambda parameter list parses and type-checks without a workaround.
-- Given a partial program with three holes, `llmll typecheck --sketch` returns each hole's inferred type.
-- A type conflict in a partial program is reported even when the surrounding program is incomplete.
-- A hole in the `then` (or `else`) branch of an `if`, where the sibling branch synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
-- A hole in a `match` arm body, where at least one other arm synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
-- A `match` where non-hole arms have conflicting types reports the conflict as an `errors` entry; hole arms in that `match` report `inferredType: "<conflict>"` rather than being omitted.
-- `(string-concat a b c)` arity error includes the `string-concat-many` hint.
-- A JSON-AST `let` binding object with an extra key produces a clear parse error naming the offending key.
-
----
-
-## v0.3 — Agent Coordination + Interactive Proofs
-
-### Shipped: Do-Notation (PRs 1–3, 2026-04-05 – 2026-04-08)
-
-> **One-shot impact:** Eliminates deeply nested `let`/`seq-commands` boilerplate for stateful action sequences. Type checker enforces state-type consistency across all steps.
-
-**[CT]** ~~`TPair` type system foundation~~ ✅ **PR 1 (2026-04-05)** — new `TPair Type Type` constructor in `Syntax.hs`. `EPair` expressions typed `TPair a b`, replacing the unsound `TResult a b` approximation. Fixes JSON-AST round-trip (`"result-type"` → `"pair-type"`) and `match` exhaustiveness (no longer cites `Success`/`Error` for pairs). Surface syntax unchanged.
-
-**[CT]** ~~`DoStep` collapse~~ ✅ **PR 2 (2026-04-06)** — unified `DoStep (Maybe Name) Expr` replaces `DoBind`/`DoExpr` split. Type checker enforces pair-thread: every step returns `(S, Command)` with identical `S`. JSON parser rejects old `"bind-step"`/`"expr-step"` kinds.
-
-**[CT]** ~~`emitDo` rewrite~~ ✅ **PR 3 (2026-04-08)** — pure `let`-chain codegen. Named steps `[s <- expr]` bind state via `let`; anonymous steps discard it. `seq-commands` folds accumulated commands. No Haskell `do` or monads emitted.
-
-**Acceptance criteria — all met:**
-
-- ✅ `(do [s1 <- (action1 state)] [s2 <- (action2 s1)] (action3 s2))` parses, type-checks, and compiles
-- ✅ Mismatched state type `S` across steps produces a `"type-mismatch"` diagnostic
-- ✅ Anonymous step `(expr)` with non-matching state emits state-loss warning
-- ✅ `llmll build --emit json-ast` round-trips `do`-blocks with `"do-step"` nodes
-- ✅ All 47 existing tests still pass
-
----
-
-### ✅ Shipped: Pair Destructuring (PR 4)
-
-**[CT]** Pair destructuring in `let` bindings — `(let [((pair s cmd) expr)] body)` pattern. `ELet` binding target extended from `Name` to `Pattern`. Shipped across Syntax, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, and JSON schema. All 7 acceptance criteria verified; 69/69 tests pass.
-
----
-
-### Planned: Agent Coordination + Interactive Proofs
-
-**[CT]** ~~`string-concat` parse-level variadic sugar~~ ✅ **Shipped (2026-04-11)** — In the S-expression parser, `(string-concat e1 e2 e3 …)` with 3+ arguments is desugared to `(string-concat-many [e1 e2 e3 …])` at parse time. `Parser.hs` L713-719. Type checker never sees a 3-arg `string-concat`. JSON-AST unaffected.
-
-> **Decision record:** Type-checker variadic special-casing rejected (breaks fixed-arity invariant; JSON-AST complexity). Binary `string-concat` deprecation rejected (breaks partial application). Parse-level sugar is the minimal, correct resolution.
-
-**Acceptance criteria (v0.3):**
-
-- `(string-concat "a" "b" "c")` in S-expression compiles to the same Haskell as `(string-concat-many ["a" "b" "c"])`.
-- `(string-concat prefix)` partial application still type-checks as `string → string`.
-- JSON-AST `{"fn": "string-concat", "args": [a, b, c]}` produces a clear arity error (unchanged behavior — sugar is parse-time S-expression only).
-
----
-
-**[CT]** `?delegate` JSON-Patch lifecycle:
-
-1. Lead AI checks out a hole: `llmll holes --checkout <pointer>`
-2. Agent submits implementation as RFC 6902 JSON-Patch against the program's JSON-AST
-3. Compiler applies patch, re-runs type checking and contract verification
-4. Success → patch merged; failure → JSON diagnostics targeting patch node pointers
-
-**[CT]** ~~`?scaffold`~~ ✅ **Shipped (2026-04-11)** — Hole kind fully implemented across Syntax, Lexer, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, HoleAnalysis. CLI: `llmll hub scaffold <template> [--output DIR]` resolves from `~/.llmll/templates/`, copies scaffold file, parses and reports holes via `analyzeHoles`. `Hub.hs` adds `scaffoldCacheRoot`, `resolveScaffold`. Hub command upgraded to `fetch`/`scaffold` subcommand group.
-
-**[CT]** Leanstral MCP integration — `?proof-required :inductive` and `:unknown` hole resolution:
-
-1. `llmll holes --json` emits holes with complexity hints
-2. Compiler translates LLMLL `TypeWhere` AST node → Lean 4 `theorem` obligation *(the only novel engineering piece)*
-3. MCP call to Leanstral's `lean-lsp-mcp`
-4. Leanstral returns verified Lean 4 proof term
-5. `llmll check` stores certificate; subsequent builds verify certificate without re-calling Leanstral
-6. Fallback: if Leanstral unreachable, hole becomes `?delegate-pending` (blocks execution, does not fail build)
-
-**[SPEC]** Document `?proof-required :simple | :inductive | :unknown` hint syntax in `LLMLL.md §6`.
-
-**[CT]** ~~`do`-notation sugar~~ ✅ **Shipped (PRs 1–3)** — see "Shipped" section above.
-
-**[CT]** Event Log spec — formalized `(Input, CommandResult, captures)` deterministic replay. NaN rejected at GHC/WASM boundary.
-
-**[CT]** ~~`Promise[t]` upgrade: `IO t` → `Async t`~~ ✅ **Shipped (2026-04-11)** — `TPromise` emits `Async.Async`, `EAwait` emits `try (Async.wait ...)` with `SomeException` catch-all. Generated preamble imports `Control.Concurrent.Async` + `Control.Exception`. `package.yaml` includes `async` dependency. 10 regression tests.
-
-**Acceptance criteria:**
-
-- Two-agent demo: Agent A writes a module with `?delegate`, Agent B submits a JSON-Patch; compiler accepts the merge.
-- A `?proof-required :inductive` hole for a structural list property is resolved by Leanstral; certificate verified on next build without a Leanstral call.
-
----
-
 ## v0.4 — WASM Hardening
 
 **Theme:** Replace Docker with WASM-WASI as the primary sandbox. No new language semantics.
@@ -455,7 +467,8 @@ If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch
 | ------- | -------- | ------- |
 | **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + typed effect row + hole-density validator + Docker sandbox |
 | **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
-| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ — **12/14 shipped** |
+| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ + checkout/patch primitives ✅ — **12/12 shipped** |
+| **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **0/2 shipped** |
 | **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker |
 
 ### Items Removed from Scope

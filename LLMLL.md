@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.2)
+# LLMLL: Large Language Model Logical Language (v0.3)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.2):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 development is underway:** PR 1 (TPair introduction), PR 2 (DoStep collapse), and PR 3 (emitDo rewrite soundness fix) have merged. `do`-notation is fully implemented with type-safe state threading and compiles to pure `let`-chains. PR 4 (pair destructuring in `let`) has shipped. Interactive theorem proving via Leanstral arrives in v0.3. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.3 shipped):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 is shipped (12/12 items):** do-notation (PRs 1–4), stratified verification, `--contracts` flag, `.verified.json` sidecar, `string-concat` variadic sugar, `?scaffold` CLI, and `Promise[t]` → `Async t` are all complete. **v0.3.1** (planned) will deliver `?delegate` JSON-Patch lifecycle, Leanstral MCP integration, and Event Log spec. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1426,24 +1426,58 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 
 > For the compiler team's full implementation schedule, ticket-level deliverables, and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). This section documents **language-visible features** only.
 
-### v0.1.1
-
-Closed all specification gaps found during real-world implementation. The spec is now sufficient to implement any program using only v0.1.1 primitives without workarounds.
+### v0.3.1 — Deferred Agent Integration (Planned)
 
 | Area | Feature |
 |------|---------|
-| Type system | `Command` type formally defined; custom ADT sum types (`(type T (| Ctor t) ...)`) |
-| Iteration | `range` built-in (`(range from to) -> list[int]`) |
-| Grammar | `QualIdent` production; ARROW terminal with maximal-munch rule; exhaustive `match` spec; `=` polymorphism |
-| Grammar | Unicode symbol aliases (`→` `∀` `λ` `∧` `∨` `¬` `≥` `≤` `≠`) |
-| Contracts | `result` keyword formally defined for `post` clauses |
-| `let` | Sequential binding semantics (`let*`) formally specified |
-| IO | Standard command constructor library in §13.9; `seq-commands` combinator |
-| Interfaces | Named parameters in `fn-type` formally specified as doc-only |
-| PBT | Rejection-sampling fallback for dependent types; `gen` declaration for custom generators |
-| Concurrency | `def-invariant` syntax (verification deferred to v0.2) |
+| `?delegate` protocol | Formal lifecycle: check-out → implementation → RFC 6902 JSON-Patch submission → compiler re-verification + merge |
+| **Leanstral integration** | `?proof-required :inductive` and `:unknown` holes are routed to [Leanstral](https://mistral.ai/news/leanstral) (open-source Lean 4 MCP proof agent) via `lean-lsp-mcp`. The compiler translates LLMLL `TypeWhere` constraints to Lean 4 `theorem` obligations. Verified proof certificates are stored alongside the source; subsequent builds verify certificates without re-calling Leanstral |
+| `llmll check` | Verifies stored Lean 4 proof certificates without re-running Leanstral |
+| Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at the GHC/WASM boundary |
+| Trace proofs | SMT validation of `pre`/`post` over replayed Event Log traces (requires ✅ replayable modules) |
 
-### v0.1.2 — Machine-First Foundation
+### v0.3 — Agent Coordination + Interactive Proofs ✅ Shipped
+
+| Area | Feature |
+|------|---------|
+| `?scaffold` | ✅ Cold-start module from `llmll-hub` skeleton; all `def-interface` boundaries pre-typed; implementation details as named `?` holes; resolves at parse time |
+| `do`-notation | ✅ Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. PRs 1–4 shipped: TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3), pair destructuring in `let` bindings (PR 4). |
+| Stratified verification | ✅ Contracts carry a verification level (`proven`, `tested`, `asserted`). `--contracts` flag controls runtime assertion compilation. Trust-level propagation with `(trust ...)` declarations. `.verified.json` sidecar for cross-build proof caching. |
+| `string-concat` sugar | ✅ Parse-level variadic: `(string-concat a b c)` desugars to `(string-concat-many [a b c])` |
+| `Promise[t]` | ✅ Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
+
+### v0.4 — WASM Hardening
+
+WASM-WASI is the primary long-term deployment target. Docker + `seccomp-bpf` remains the sandbox through v0.3; v0.4 replaces it.
+
+| Area | Feature |
+|------|---------|
+| `llmll build --target wasm` | Generated Haskell compiled with GHC's `--target=wasm32-wasi` backend |
+| WASM VM | Wasmtime (or equivalent) replaces Docker as the default sandbox |
+| Capability enforcement | WASI import declarations replace Docker network/filesystem policy layers |
+| `{-# LANGUAGE Safe #-}` | Already enforced from v0.1.2; guarantees generated code is structurally WASM-compatible from day one |
+
+### v0.2 — Module System + Compile-Time Verification ✅ Shipped
+
+The module system shipped **first within v0.2** (Phase 2a) because cross-module invariant verification (`def-invariant` + liquid-fixpoint) requires multi-file resolution as substrate.
+
+| Area | Feature |
+|------|---------|
+| **Module system (Phase 2a)** | Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent |
+| **Module system (Phase 2a)** | Namespace isolation: each source file has its own top-level scope; imported names accessible as `module.name` by default |
+| **Module system (Phase 2a)** | `open` / `export` — selective unprefixing and visibility control (see §8.6, §8.7) |
+| **Module system (Phase 2a)** | Cross-module `def-interface` enforcement — structural compatibility checked at import time (see §8.8) |
+| **Module system (Phase 2a)** | `llmll-hub` read-only registry: `llmll hub fetch <pkg>@<ver>` + `hub.` import prefix (see §8.9) |
+| **Capability enforcement** | Capability declarations fully enforced by the typed effect row — missing imports are type errors at compile time |
+| **Compile-time contracts (Phase 2b)** | `llmll verify` emits `.fq` constraints from the typed AST and runs `liquid-fixpoint` + Z3 as a standalone binary. Covers quantifier-free linear integer arithmetic. Reports SAFE or contract-violation diagnostics with JSON Pointers. No GHC plugin required. |
+| **`?proof-required` holes (Phase 2b)** | Auto-emitted for predicates outside the QF fragment or complex `letrec` `:decreases` measures. Complexity hints: `complex-decreases` or `non-linear-contract`. Non-blocking — runtime assertion remains active. |
+| **`letrec` (Phase 2b)** | Bounded recursion with mandatory `:decreases` termination annotation. Simple variable measures are verified by `llmll verify`. |
+| **`match` exhaustiveness (Phase 2b)** | Static exhaustiveness checking for ADT sum types — a `match` missing a constructor arm is a compile error. |
+| **Type system fix (Phase 2c)** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.x untyped-parameter workaround is no longer needed. |
+| `def-invariant` | liquid-fixpoint-backed module invariant verification after every AST merge |
+| **`llmll typecheck --sketch`** | Partial-program type inference API: accepts a program with holes, returns inferred type of each hole and any type errors present even in the incomplete program |
+
+### v0.1.2 — Machine-First Foundation ✅ Shipped
 
 New language-visible features: JSON-AST as a first-class source format, Haskell codegen target, typed effect row for `Command`, and minor surface syntax fixes.
 
@@ -1464,47 +1498,20 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 
 > **Rationale — JSON-AST:** LLMs generating S-expressions suffer parentheses drift — a structural error whose rate is a function of generation length vs. nesting depth, not model quality. JSON schema-constrained generation (via OpenAI Structured Outputs, Gemini schema parameters, etc.) provides mathematical structural validity guarantees before the compiler runs.
 
-### v0.2 — Module System + Compile-Time Verification
+### v0.1.1 ✅ Shipped
 
-The module system shipped **first within v0.2** (Phase 2a) because cross-module invariant verification (`def-invariant` + liquid-fixpoint) requires multi-file resolution as substrate.
-
-| Area | Feature |
-|------|---------|
-| **Module system (Phase 2a)** | Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent |
-| **Module system (Phase 2a)** | Namespace isolation: each source file has its own top-level scope; imported names accessible as `module.name` by default |
-| **Module system (Phase 2a)** | `open` / `export` — selective unprefixing and visibility control (see §8.6, §8.7) |
-| **Module system (Phase 2a)** | Cross-module `def-interface` enforcement — structural compatibility checked at import time (see §8.8) |
-| **Module system (Phase 2a)** | `llmll-hub` read-only registry: `llmll hub fetch <pkg>@<ver>` + `hub.` import prefix (see §8.9) |
-| **Capability enforcement** | Capability declarations fully enforced by the typed effect row — missing imports are type errors at compile time |
-| **Compile-time contracts (Phase 2b)** | `llmll verify` emits `.fq` constraints from the typed AST and runs `liquid-fixpoint` + Z3 as a standalone binary. Covers quantifier-free linear integer arithmetic. Reports SAFE or contract-violation diagnostics with JSON Pointers. No GHC plugin required. |
-| **`?proof-required` holes (Phase 2b)** | Auto-emitted for predicates outside the QF fragment or complex `letrec` `:decreases` measures. Complexity hints: `complex-decreases` or `non-linear-contract`. Non-blocking — runtime assertion remains active. |
-| **`letrec` (Phase 2b)** | Bounded recursion with mandatory `:decreases` termination annotation. Simple variable measures are verified by `llmll verify`. |
-| **`match` exhaustiveness (Phase 2b)** | Static exhaustiveness checking for ADT sum types — a `match` missing a constructor arm is a compile error. |
-| **Type system fix (Phase 2c)** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.x untyped-parameter workaround is no longer needed. |
-| `def-invariant` | liquid-fixpoint-backed module invariant verification after every AST merge |
-| **`llmll typecheck --sketch`** | Partial-program type inference API: accepts a program with holes, returns inferred type of each hole and any type errors present even in the incomplete program |
-
-### v0.3 — Agent Coordination + Interactive Proofs
+Closed all specification gaps found during real-world implementation. The spec is now sufficient to implement any program using only v0.1.1 primitives without workarounds.
 
 | Area | Feature |
 |------|---------|
-| `?delegate` protocol | Formal lifecycle: check-out → implementation → RFC 6902 JSON-Patch submission → compiler re-verification + merge |
-| `?scaffold` | Cold-start module from `llmll-hub` skeleton; all `def-interface` boundaries pre-typed; implementation details as named `?` holes; resolves at parse time |
-| **Leanstral integration** | `?proof-required :inductive` and `:unknown` holes are routed to [Leanstral](https://mistral.ai/news/leanstral) (open-source Lean 4 MCP proof agent) via `lean-lsp-mcp`. The compiler translates LLMLL `TypeWhere` constraints to Lean 4 `theorem` obligations. Verified proof certificates are stored alongside the source; subsequent builds verify certificates without re-calling Leanstral |
-| `llmll check` | Verifies stored Lean 4 proof certificates without re-running Leanstral |
-| Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at the GHC/WASM boundary |
-| Trace proofs | SMT validation of `pre`/`post` over replayed Event Log traces (requires ✅ replayable modules) |
-| `do`-notation | Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. **PRs 1–4 shipped:** TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3), pair destructuring in `let` bindings (PR 4). `do`-notation and pair destructuring are fully implemented with type-safe state threading and compile to pure `let`-chains. |
-| `Promise[t]` | Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
-
-### v0.4 — WASM Hardening
-
-WASM-WASI is the primary long-term deployment target. Docker + `seccomp-bpf` remains the sandbox through v0.3; v0.4 replaces it.
-
-| Area | Feature |
-|------|---------|
-| `llmll build --target wasm` | Generated Haskell compiled with GHC's `--target=wasm32-wasi` backend |
-| WASM VM | Wasmtime (or equivalent) replaces Docker as the default sandbox |
-| Capability enforcement | WASI import declarations replace Docker network/filesystem policy layers |
-| `{-# LANGUAGE Safe #-}` | Already enforced from v0.1.2; guarantees generated code is structurally WASM-compatible from day one |
+| Type system | `Command` type formally defined; custom ADT sum types (`(type T (| Ctor t) ...)`) |
+| Iteration | `range` built-in (`(range from to) -> list[int]`) |
+| Grammar | `QualIdent` production; ARROW terminal with maximal-munch rule; exhaustive `match` spec; `=` polymorphism |
+| Grammar | Unicode symbol aliases (`→` `∀` `λ` `∧` `∨` `¬` `≥` `≤` `≠`) |
+| Contracts | `result` keyword formally defined for `post` clauses |
+| `let` | Sequential binding semantics (`let*`) formally specified |
+| IO | Standard command constructor library in §13.9; `seq-commands` combinator |
+| Interfaces | Named parameters in `fn-type` formally specified as doc-only |
+| PBT | Rejection-sampling fallback for dependent types; `gen` declaration for custom generators |
+| Concurrency | `def-invariant` syntax (verification deferred to v0.2) |
 
