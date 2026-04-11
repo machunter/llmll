@@ -8,14 +8,15 @@ import qualified Data.Text.IO as TIO
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
-import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts)
-import LLMLL.VerifiedCache (verifiedPath)
+import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode)
+import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
+import System.Directory (removeFile, doesFileExist)
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Aeson (encode, decode, Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
@@ -1289,3 +1290,109 @@ main = hspec $ do
 
     it "path/to/bar.ast.json -> path/to/bar.ast.json.verified.json" $
       verifiedPath "path/to/bar.ast.json" `shouldBe` "path/to/bar.ast.json.verified.json"
+
+  -- =========================================================================
+  -- v0.3: #8 — applyContractsMode
+  -- =========================================================================
+
+  describe "applyContractsMode" $ do
+    let mkDL name preE postE bodyE =
+          SDefLogic name [("x", TInt)] Nothing (Contract preE postE) bodyE
+        pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+        post1 = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+        body1 = EVar "x"
+        stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
+        provenMap = DM.fromList
+          [ ("f", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))
+          , ("g", ContractStatus (Just (VLProven "z3")) Nothing)
+          ]
+        emptyMap = DM.empty
+
+    it "ContractsFull preserves all contracts" $ do
+      let result = applyContractsMode ContractsFull emptyMap stmts
+      length result `shouldBe` 2
+      defLogicContract (head result) `shouldBe` Contract pre1 post1
+
+    it "ContractsNone clears all contracts" $ do
+      let result = applyContractsMode ContractsNone emptyMap stmts
+      defLogicContract (head result) `shouldBe` Contract Nothing Nothing
+      defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing
+
+    it "ContractsUnproven strips proven, keeps unknown" $ do
+      -- "f" is fully proven → both clauses stripped
+      -- "g" pre is proven → stripped; g has no post → Nothing stays
+      let result = applyContractsMode ContractsUnproven provenMap stmts
+      defLogicContract (head result) `shouldBe` Contract Nothing Nothing
+      defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing
+
+  -- =========================================================================
+  -- v0.3: #9 — saveVerified / loadVerified round-trip
+  -- =========================================================================
+
+  describe "VerifiedCache round-trip" $ do
+    it "saveVerified then loadVerified recovers contract status" $ do
+      let testFile = "test/_tmp_roundtrip_test.llmll"
+          statuses = DM.fromList
+            [ ("add", ContractStatus (Just (VLProven "liquid-fixpoint")) (Just (VLProven "liquid-fixpoint")))
+            , ("mul", ContractStatus (Just VLAsserted) Nothing)
+            ]
+      saveVerified testFile statuses
+      loaded <- loadVerified testFile
+      loaded `shouldBe` statuses
+      -- Clean up sidecar
+      let sidecar = verifiedPath testFile
+      removeIfExists sidecar
+
+  -- =========================================================================
+  -- v0.3: trust-gap integration tests
+  -- =========================================================================
+
+  describe "trust-gap warnings in typeCheckWithCache" $ do
+    let mkModule name preE postE bodyE =
+          [ SDefLogic name [("x", TInt)] (Just TInt) (Contract preE postE) bodyE
+          , SExport [name]
+          ]
+        pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+        post1 = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+        body1 = EVar "x"
+        modPath = ["math"]
+        modEnv = ModuleEnv
+          { meExports = DM.fromList [("safe-add", TFn [TInt] TInt)]
+          , meStatements = mkModule "safe-add" pre1 post1 body1
+          , meInterfaces = DM.empty
+          , meAliasMap = DM.empty
+          , mePath = modPath
+          , meContractStatus = DM.fromList
+              [("safe-add", ContractStatus (Just VLAsserted) (Just VLAsserted))]
+          }
+        cache = DM.fromList [(modPath, modEnv)]
+
+    it "emits trust-gap warning for unproven cross-module call" $ do
+      let callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+          trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      length trustGaps `shouldSatisfy` (> 0)
+
+    it "no trust-gap for proven contracts" $ do
+      let provenEnv = modEnv { meContractStatus = DM.fromList
+              [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))] }
+          provenCache = DM.fromList [(modPath, provenEnv)]
+          callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
+          report = typeCheckWithCache provenCache emptyEnv callerStmts
+          trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      trustGaps `shouldBe` []
+
+    it "trust declaration suppresses trust-gap warning" $ do
+      let callerStmts =
+            [ STrust "math.safe-add" VLAsserted  -- acknowledge the assertion level
+            , SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])
+            ]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+          trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      trustGaps `shouldBe` []
+
+-- | Helper to remove a file if it exists (used for test cleanup).
+removeIfExists :: FilePath -> IO ()
+removeIfExists fp = do
+  exists <- doesFileExist fp
+  if exists then removeFile fp else pure ()

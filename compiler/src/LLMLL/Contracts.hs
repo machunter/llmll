@@ -16,6 +16,7 @@ module LLMLL.Contracts
 
     -- * Contract Modes (v0.3)
   , ContractsMode(..)
+  , applyContractsMode
 
     -- * Contract Checking Helpers
   , ContractViolation(..)
@@ -180,6 +181,29 @@ filterContracts cs contract = Contract
 -- | Empty contract — contracts moved into body as assertions.
 noContract :: Contract
 noContract = Contract Nothing Nothing
+
+-- | Pre-process statements for codegen: strip contract clauses based on mode.
+-- Full: keep all contracts (codegen emits them as runtime assertions).
+-- None: clear all contracts (no runtime assertions emitted).
+-- Unproven: clear proven contracts, keep unproven ones.
+applyContractsMode :: ContractsMode -> Map Name ContractStatus -> [Statement] -> [Statement]
+applyContractsMode ContractsFull _ stmts = stmts  -- all contracts survive
+applyContractsMode ContractsNone _ stmts = map clearContracts stmts
+applyContractsMode ContractsUnproven statusMap stmts = map stripProven stmts
+  where
+    stripProven (SDefLogic n p r c b) =
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing) n statusMap
+      in SDefLogic n p r (filterContracts cs c) b
+    stripProven (SLetrec n p r c d b) =
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing) n statusMap
+      in SLetrec n p r (filterContracts cs c) d b
+    stripProven s = s
+
+-- | Clear all contract clauses from a statement.
+clearContracts :: Statement -> Statement
+clearContracts (SDefLogic n p r _ b) = SDefLogic n p r noContract b
+clearContracts (SLetrec n p r _ d b) = SLetrec n p r noContract d b
+clearContracts s = s
 
 -- | Wrap a function body with pre/post contract assertions.
 wrapWithContracts :: Name -> Contract -> Expr -> Expr

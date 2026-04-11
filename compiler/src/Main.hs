@@ -34,7 +34,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..))
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), VerificationLevel(..), Name)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal)
@@ -57,7 +57,8 @@ import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
 import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
-import LLMLL.Contracts (ContractsMode(..))
+import LLMLL.Contracts (ContractsMode(..), applyContractsMode)
+import LLMLL.VerifiedCache (saveVerified, verifiedPath)
 
 import qualified Data.Map.Strict as Map
 
@@ -483,7 +484,11 @@ doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
         Right (stmts, cache, loadOrder) -> do
           let modName      = T.pack $ takeBaseName fp
               importedEnvs = topoSortedEnvs cache loadOrder
-              result       = generateHaskellMulti modName importedEnvs stmts
+              -- v0.3: collect contract statuses and strip contracts per mode
+              allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
+                                Map.empty cache
+              filteredStmts = applyContractsMode contractsMode allCS stmts
+              result       = generateHaskellMulti modName importedEnvs filteredStmts
               outDir       = case mOutDir of
                                Just d  -> d
                                Nothing -> "generated/" <> T.unpack modName
@@ -847,6 +852,22 @@ doVerify json fp mFqOut = do
               FQError e ->
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
 
+          -- v0.3: write .verified.json sidecar on SAFE
+          case fqResult of
+            FQSafe -> do
+              let provenCS = Map.fromList
+                    [ (n, ContractStatus
+                        { csPreLevel  = fmap (const (VLProven "liquid-fixpoint")) (contractPre c)
+                        , csPostLevel = fmap (const (VLProven "liquid-fixpoint")) (contractPost c)
+                        })
+                    | s <- stmts
+                    , Just (n, c) <- [extractContract s]
+                    , contractPre c /= Nothing || contractPost c /= Nothing
+                    ]
+              saveVerified fp provenCS
+              unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
+            _ -> pure ()
+
           if reportSuccess report then exitSuccess else exitFailure
 
 -- ---------------------------------------------------------------------------
@@ -959,3 +980,13 @@ doPatch _json fp patchFp = do
           case result of
             PatchSuccess _ -> exitSuccess
             _              -> exitFailure
+
+-- ---------------------------------------------------------------------------
+-- v0.3: contract extraction helper (used by doVerify)
+-- ---------------------------------------------------------------------------
+
+-- | Extract (name, contract) from a statement, if it has one.
+extractContract :: Statement -> Maybe (Name, Contract)
+extractContract (SDefLogic name _ _ c _)  = Just (name, c)
+extractContract (SLetrec name _ _ c _ _)  = Just (name, c)
+extractContract _                         = Nothing
