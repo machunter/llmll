@@ -57,6 +57,7 @@ import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
 import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
+import LLMLL.Contracts (ContractsMode(..))
 
 import qualified Data.Map.Strict as Map
 
@@ -68,7 +69,7 @@ data Command
   = CmdCheck    FilePath
   | CmdHoles    FilePath
   | CmdTest     FilePath Bool                               -- file, --emit-only
-  | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool    -- file, outdir, --wasm, --emit-json-ast, --emit-only
+  | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool ContractsMode  -- file, outdir, --wasm, --emit-json-ast, --emit-only, --contracts
   | CmdBuildFromJson FilePath (Maybe FilePath) Bool         -- file, outdir, --emit-only
   | CmdRun      FilePath [String]                           -- file, extra args
   | CmdRepl
@@ -136,6 +137,17 @@ optionsParser = info (helper <*> opts) $
       <*> switch (long "wasm" <> help "Run wasm-pack after generating (requires wasm-pack in PATH)")
       <*> switch (long "emit" <> help "Emit JSON-AST (.ast.json) instead of compiling to Haskell")
       <*> switch (long "emit-only" <> help "Write Haskell files but skip the internal stack build (avoids Stack lock deadlock)")
+      <*> contractsOpt
+
+    contractsOpt = option (eitherReader parseContractsMode)
+        (  long "contracts" <> value ContractsFull <> metavar "MODE"
+        <> help "v0.3: runtime assertion mode: full (default), unproven, none")
+
+    parseContractsMode :: String -> Either String ContractsMode
+    parseContractsMode "full"     = Right ContractsFull
+    parseContractsMode "unproven" = Right ContractsUnproven
+    parseContractsMode "none"     = Right ContractsNone
+    parseContractsMode s          = Left $ "unknown --contracts mode: " ++ s ++ " (expected: full, unproven, none)"
 
     buildJsonCmd = CmdBuildFromJson
       <$> fileArg
@@ -208,7 +220,7 @@ main = do
     CmdCheck fp               -> doCheck  json fp
     CmdHoles fp               -> doHoles  json fp
     CmdTest  fp emitOnly         -> doTest   json fp emitOnly
-    CmdBuild fp mOut wasm emitJson emitOnly -> doBuild  json fp mOut wasm emitJson emitOnly
+    CmdBuild fp mOut wasm emitJson emitOnly contracts -> doBuild json fp mOut wasm emitJson emitOnly contracts
     CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
@@ -436,8 +448,10 @@ pbtResultJson fp r =
 -- build (Rust codegen + optional WASM)
 -- ---------------------------------------------------------------------------
 
-doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> IO ()
-doBuild json fp mOutDir doWasm emitJson emitOnly = do
+doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> ContractsMode -> IO ()
+doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
+  unless (json || contractsMode == ContractsFull) $
+    TIO.putStrLn $ "   --contracts=" <> T.pack (show contractsMode)
   -- Auto-detect JSON-AST files and delegate to the JSON build path.
   if takeExtension fp == ".json"
     then doBuildFromJson json fp mOutDir emitOnly

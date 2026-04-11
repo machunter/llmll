@@ -40,6 +40,7 @@ import LLMLL.Diagnostic
 import LLMLL.TypeCheck (typeCheck, emptyEnv, TypeEnv)
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
+import LLMLL.VerifiedCache (loadVerified)
 
 -- ---------------------------------------------------------------------------
 -- Module path utilities
@@ -173,7 +174,12 @@ loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
                 (\imp -> Map.lookup (splitDotted (importPath imp)) cache1) imports
               baseEnv = mergeModuleEnvs importedEnvs emptyEnv
               report  = typeCheck baseEnv stmts
-              env     = buildModuleEnv modPath stmts baseEnv
+              env0    = buildModuleEnv modPath stmts baseEnv
+          -- v0.3: merge sidecar .verified.json to upgrade contract statuses
+          sidecar <- loadVerified fp
+          let env = if Map.null sidecar
+                then env0
+                else env0 { meContractStatus = Map.unionWith mergeCS sidecar (meContractStatus env0) }
               cache2  = Map.insert modPath env cache1
               -- Post-order: append THIS module after all its dependencies
               order2  = depOrder ++ [modPath]
@@ -263,6 +269,19 @@ buildModuleEnv path stmts _env =
             , csPostLevel = fmap (const VLAsserted) (contractPost contract)
             })
       | otherwise = Nothing
+
+-- | Merge sidecar contract status: take the higher-tier level for each clause.
+-- Sidecar can upgrade (asserted → proven), but buildModuleEnv defaults remain
+-- if the sidecar is missing a clause.
+mergeCS :: ContractStatus -> ContractStatus -> ContractStatus
+mergeCS sidecar base = ContractStatus
+  { csPreLevel  = pickHigher (csPreLevel sidecar) (csPreLevel base)
+  , csPostLevel = pickHigher (csPostLevel sidecar) (csPostLevel base)
+  }
+  where
+    pickHigher (Just a) (Just b) = Just (max a b)
+    pickHigher a        Nothing  = a
+    pickHigher Nothing  b        = b
 
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = Nothing

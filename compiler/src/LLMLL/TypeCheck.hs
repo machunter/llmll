@@ -161,6 +161,9 @@ data TCState = TCState
   , tcSketchMode   :: Bool            -- ^ True when called from runSketch
   , tcHoles        :: [SketchHole]    -- ^ accumulator (prepend; reversed at runSketch exit)
   , tcPointerStack :: [Text]          -- ^ RFC 6901 pointer segments; [] in check mode (D4)
+  -- v0.3: Stratified verification trust-gap tracking
+  , tcContractStatus :: Map Name ContractStatus  -- ^ imported function → contract status
+  , tcTrusts         :: Map Name VerificationLevel -- ^ acknowledged trust declarations
   } deriving (Show)
 
 type TC a = State TCState a
@@ -233,13 +236,30 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [])
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode — collects hole types.
 runTCSketch :: TypeEnv -> TC a -> (a, TCState)
 runTCSketch env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [])
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty)
+
+-- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
+-- not covered by a (trust ...) declaration.
+emitTrustGap :: Name -> Map Name VerificationLevel -> Maybe VerificationLevel -> TC ()
+emitTrustGap _ _ Nothing = pure ()
+emitTrustGap _ _ (Just (VLProven _)) = pure ()  -- proven: no gap
+emitTrustGap func trusts (Just vl) =
+  case Map.lookup func trusts of
+    Just tl | tl >= vl -> pure ()  -- trust level sufficient
+    _ -> do
+      ptr <- gets tcPointerStack
+      let ptrText = "/" <> T.intercalate "/" (reverse ptr)
+          levelText = case vl of
+            VLAsserted  -> "asserted"
+            VLTested _  -> "tested"
+            _           -> "unknown"
+      modify $ \s -> s { tcErrors = tcErrors s ++ [mkTrustGapWarning func levelText ptrText] }
 
 -- | Push a path segment onto the pointer stack, run action, then pop (D4).
 -- Structurally identical to withEnv: push/run/pop.
@@ -299,15 +319,30 @@ typeCheckModule env m = typeCheck env (moduleBody m)
 -- Seeds the TypeEnv with all qualified names from imported modules before
 -- running the standard single-file check. Empty cache = single-file path.
 -- This is the Phase 2a cross-module entry point.
+-- v0.3: also seeds tcContractStatus for trust-gap warnings.
 typeCheckWithCache :: ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
 typeCheckWithCache cache baseEnv stmts =
   let -- Inject qualified names from all cached modules
       seededEnv = Map.foldlWithKey' seedModule baseEnv cache
-  in typeCheck seededEnv stmts
+      -- v0.3: merge contract status from all cached modules (qualified names)
+      seededCS  = Map.foldlWithKey' seedStatus Map.empty cache
+      (_, st) = runState (checkStatements stmts)
+        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty)
+      diags = tcErrors st
+      hasErrors = any ((== SevError) . diagSeverity) diags
+  in DiagnosticReport
+    { reportPhase       = "typecheck"
+    , reportDiagnostics = diags
+    , reportSuccess     = not hasErrors
+    }
   where
     seedModule acc path menv =
       let prefix = T.intercalate "." path <> "."
           qualified = Map.mapKeys (prefix <>) (meExports menv)
+      in Map.union qualified acc
+    seedStatus acc path menv =
+      let prefix = T.intercalate "." path <> "."
+          qualified = Map.mapKeys (prefix <>) (meContractStatus menv)
       in Map.union qualified acc
 
 -- ---------------------------------------------------------------------------
@@ -320,8 +355,10 @@ checkStatements stmts = do
   -- First pass: collect all top-level function and type names
   let topLevel  = mapMaybe collectTopLevel stmts
       aliasMap  = Map.fromList [(n, body) | STypeDef n body <- stmts]
+      -- v0.3: collect trust declarations into tcTrusts
+      trustMap  = Map.fromList [(trustTarget s, trustLevel s) | s@STrust{} <- stmts]
   -- Populate alias map so expandAlias can resolve TCustom aliases in unify
-  modify $ \s -> s { tcAliasMap = aliasMap }
+  modify $ \s -> s { tcAliasMap = aliasMap, tcTrusts = Map.union trustMap (tcTrusts s) }
   withEnv topLevel $ do
     -- Second pass: check each statement with its RFC 6901 pointer context.
     -- Each segment is one RFC 6901 token: "statements" and "N" are separate.
@@ -462,6 +499,9 @@ checkStatement (SOpen openPath_ mNames) = do
 
 -- | SExport is a compile-time annotation only; no type-checking action needed.
 checkStatement (SExport _) = pure ()
+
+-- | v0.3: STrust is already collected in checkStatements; no per-statement action.
+checkStatement (STrust _ _) = pure ()
 
 checkStatement (SExpr expr) = do
   _ <- inferExpr expr
@@ -618,6 +658,16 @@ inferExpr (EApp func args) = do
   when (mCurrent == Just func && not isLetrec) $
     tcWarn $ "self-recursive call to '" <> func <> "' inside def-logic; "
               <> "use (letrec " <> func <> " [...] :decreases ...) to provide a termination measure"
+  -- v0.3: trust-gap warning for cross-module calls with unproven contracts
+  do csMap  <- gets tcContractStatus
+     trusts <- gets tcTrusts
+     case Map.lookup func csMap of
+       Nothing -> pure ()  -- no contract status known (local or unknown)
+       Just cs -> do
+         -- Check pre-condition
+         emitTrustGap func trusts (csPreLevel cs)
+         -- Check post-condition
+         emitTrustGap func trusts (csPostLevel cs)
   case mFuncTy of
     Nothing -> do
       tcWarn $ "call to unknown function '" <> func <> "'"
