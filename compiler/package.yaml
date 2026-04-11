@@ -96,3 +96,5 @@ tests:
       - hspec >= 2.11
       - hspec-megaparsec >= 2.2
       - QuickCheck
+      - aeson
+      - time >= 1.12

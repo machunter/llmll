@@ -9,14 +9,22 @@ import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
-import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, diagHoleSensitive, Severity(..))
+import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
 import qualified Data.ByteString.Lazy.Char8 as BLC
-import Data.Aeson (encode, decode, Value(..))
+import Data.Aeson (encode, decode, Value(..), object, (.=))
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
+
+import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..))
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos)
+import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
+import Data.Time.Calendar (fromGregorian)
 
 main :: IO ()
 main = hspec $ do
@@ -929,3 +937,258 @@ main = hspec $ do
           let result = runSketch emptyEnv stmts
           sketchHoles result `shouldBe` []
 
+
+  -- =========================================================================
+  -- v0.3: JsonPointer tests (pure)
+  -- =========================================================================
+
+  describe "JsonPointer" $ do
+    let testAst = object
+          [ "schemaVersion" .= ("0.2.0" :: T.Text)
+          , "statements" .= [ object
+              [ "kind" .= ("def-logic" :: T.Text)
+              , "name" .= ("foo" :: T.Text)
+              , "body" .= object
+                  [ "kind" .= ("pair" :: T.Text)
+                  , "fst"  .= object [ "kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text) ]
+                  , "snd"  .= object [ "kind" .= ("lit-int" :: T.Text), "value" .= (42 :: Int) ]
+                  ]
+              ]
+            , object
+              [ "kind" .= ("def-logic" :: T.Text)
+              , "name" .= ("bar" :: T.Text)
+              , "body" .= object
+                  [ "kind" .= ("hole-delegate" :: T.Text)
+                  , "agent" .= ("@agent" :: T.Text)
+                  ]
+              ]
+            ]
+          ]
+
+    describe "resolvePointer" $ do
+      it "resolves root to entire value" $
+        resolvePointer "" testAst `shouldBe` Just testAst
+
+      it "resolves /statements/0 to first statement" $ do
+        let result = resolvePointer "/statements/0" testAst
+        case result of
+          Just (Object o) -> KM.lookup "name" o `shouldBe` Just (String "foo")
+          _               -> expectationFailure "expected Object with name=foo"
+
+      it "resolves nested /statements/0/body/snd" $ do
+        let result = resolvePointer "/statements/0/body/snd" testAst
+        result `shouldBe` Just (object [ "kind" .= ("lit-int" :: T.Text), "value" .= (42 :: Int) ])
+
+      it "returns Nothing on out-of-bounds array index" $
+        resolvePointer "/statements/99" testAst `shouldBe` Nothing
+
+      it "returns Nothing on non-existent key" $
+        resolvePointer "/statements/0/nonexistent" testAst `shouldBe` Nothing
+
+    describe "setAtPointer" $ do
+      it "replaces value at nested path" $ do
+        let newVal = object [ "kind" .= ("lit-int" :: T.Text), "value" .= (99 :: Int) ]
+        case setAtPointer "/statements/0/body/snd" newVal testAst of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/0/body/snd" updated `shouldBe` Just newVal
+
+      it "returns Left on non-existent key" $ do
+        let result = setAtPointer "/statements/0/missing/deep" (String "x") testAst
+        case result of
+          Left _ -> pure ()
+          Right _ -> expectationFailure "should fail on missing key"
+
+    describe "removeAtPointer" $ do
+      it "removes object key" $
+        case removeAtPointer "/statements/0/body/snd" testAst of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/0/body/snd" updated `shouldBe` Nothing
+
+      it "returns Left when removing root" $
+        removeAtPointer "" testAst `shouldBe` Left "cannot remove root"
+
+    describe "isHoleNode + findDescendantHoles" $ do
+      it "detects hole-delegate as a hole" $
+        isHoleNode (object [ "kind" .= ("hole-delegate" :: T.Text) ]) `shouldBe` True
+
+      it "rejects non-hole nodes" $
+        isHoleNode (object [ "kind" .= ("var" :: T.Text) ]) `shouldBe` False
+
+      it "finds hole-delegate in subtree" $
+        findDescendantHoles "/statements/1" testAst `shouldBe` ["/statements/1/body"]
+
+      it "returns [] when no holes in subtree" $
+        findDescendantHoles "/statements/0" testAst `shouldBe` []
+
+  -- =========================================================================
+  -- v0.3: validateScope tests (pure, security-critical)
+  -- =========================================================================
+
+  describe "validateScope" $ do
+    it "op path == checkout pointer passes" $
+      validateScope "/statements/1/body" [PatchReplace "/statements/1/body" (String "x")]
+        `shouldBe` Right ()
+
+    it "op path is child of checkout pointer passes" $
+      validateScope "/statements/1/body" [PatchReplace "/statements/1/body/fst" (String "x")]
+        `shouldBe` Right ()
+
+    it "op path is sibling of checkout pointer fails" $ do
+      let result = validateScope "/statements/1/body" [PatchReplace "/statements/0/body" (String "x")]
+      case result of
+        Left _ -> pure ()
+        Right _ -> expectationFailure "should reject sibling scope"
+
+    it "multiple ops, one out of scope, fails" $ do
+      let ops = [ PatchReplace "/statements/1/body/fst" (String "x")
+                , PatchReplace "/statements/0/body" (String "y")
+                ]
+      case validateScope "/statements/1/body" ops of
+        Left err -> T.isInfixOf "/statements/0/body" err `shouldBe` True
+        Right () -> expectationFailure "should have rejected"
+
+  -- =========================================================================
+  -- v0.3: rebaseToPatch tests (pure)
+  -- =========================================================================
+
+  describe "rebaseToPatch" $ do
+    let mkDiagWithPtr ptr = (mkError Nothing "test error") { diagPointer = Just ptr }
+        ops = [ PatchOpInfo 0 "/statements/1/body" "replace"
+              , PatchOpInfo 2 "/statements/1/body/args/0" "add"
+              ]
+
+    it "diagnostic without pointer is unchanged" $
+      diagPointer (rebaseToPatch ops (mkError Nothing "no pointer")) `shouldBe` Nothing
+
+    it "pointer matching op path exactly gets rebased" $
+      diagPointer (rebaseToPatch ops (mkDiagWithPtr "/statements/1/body"))
+        `shouldBe` Just "patch-op/0"
+
+    it "pointer descending into op path gets rebased with suffix" $
+      diagPointer (rebaseToPatch ops (mkDiagWithPtr "/statements/1/body/fst"))
+        `shouldBe` Just "patch-op/0/fst"
+
+    it "pointer outside all ops is unchanged" $
+      diagPointer (rebaseToPatch ops (mkDiagWithPtr "/statements/0/body"))
+        `shouldBe` Just "/statements/0/body"
+
+  -- =========================================================================
+  -- v0.3: PatchApply ops tests (pure, on Value)
+  -- =========================================================================
+
+  describe "PatchApply ops" $ do
+    let root = object
+          [ "statements" .= [ object [ "kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text) ]
+                             , object [ "kind" .= ("hole-delegate" :: T.Text) ]
+                             ]
+          ]
+
+    describe "applyOp" $ do
+      it "replace on existing path succeeds" $ do
+        let newVal = object [ "kind" .= ("lit-int" :: T.Text), "value" .= (42 :: Int) ]
+        case applyOp (PatchReplace "/statements/1" newVal) root of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/1" updated `shouldBe` Just newVal
+
+      it "replace on non-existent path fails" $ do
+        case applyOp (PatchReplace "/statements/99" (String "x")) root of
+          Left _ -> pure ()
+          Right _ -> expectationFailure "should fail on missing path"
+
+      it "test with matching value passes (value unchanged)" $ do
+        let expected = object [ "kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text) ]
+        applyOp (PatchTest "/statements/0" expected) root `shouldBe` Right root
+
+      it "test with non-matching value fails" $ do
+        let wrong = object [ "kind" .= ("lit-int" :: T.Text) ]
+        case applyOp (PatchTest "/statements/0" wrong) root of
+          Left err -> T.isInfixOf "does not match" err `shouldBe` True
+          Right _ -> expectationFailure "test should fail"
+
+      it "remove deletes node" $
+        case applyOp (PatchRemove "/statements/1") root of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/1" updated `shouldBe` Nothing
+
+    describe "applyOps" $ do
+      it "applies ops in sequence (test then replace)" $ do
+        let newVal = object [ "kind" .= ("lit-int" :: T.Text), "value" .= (1 :: Int) ]
+            ops = [ PatchTest "/statements/1" (object [ "kind" .= ("hole-delegate" :: T.Text) ])
+                  , PatchReplace "/statements/1" newVal
+                  ]
+        case applyOps ops root of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/1" updated `shouldBe` Just newVal
+
+      it "short-circuits on first failure" $ do
+        let ops = [ PatchTest "/statements/0" (String "wrong")
+                  , PatchReplace "/statements/1" (String "should-not-reach")
+                  ]
+        case applyOps ops root of
+          Left _ -> pure ()
+          Right _ -> expectationFailure "should short-circuit on test failure"
+
+  -- =========================================================================
+  -- v0.3: parsePatchOp tests (pure)
+  -- =========================================================================
+
+  describe "parsePatchOp" $ do
+    it "parses replace op" $ do
+      let val = object [ "op" .= ("replace" :: T.Text), "path" .= ("/s/0" :: T.Text), "value" .= (42 :: Int) ]
+      case parsePatchOp val of
+        Right (PatchReplace "/s/0" _) -> pure ()
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "parses test op" $ do
+      let val = object [ "op" .= ("test" :: T.Text), "path" .= ("/s/0" :: T.Text), "value" .= (42 :: Int) ]
+      case parsePatchOp val of
+        Right (PatchTest "/s/0" _) -> pure ()
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "rejects move with workaround message" $ do
+      let val = object [ "op" .= ("move" :: T.Text), "from" .= ("/a" :: T.Text), "path" .= ("/b" :: T.Text) ]
+      case parsePatchOp val of
+        Left err -> T.isInfixOf "'move' is not supported" err `shouldBe` True
+        Right _  -> expectationFailure "move should be rejected"
+
+    it "rejects copy with workaround message" $ do
+      let val = object [ "op" .= ("copy" :: T.Text), "from" .= ("/a" :: T.Text), "path" .= ("/b" :: T.Text) ]
+      case parsePatchOp val of
+        Left err -> T.isInfixOf "'copy' is not supported" err `shouldBe` True
+        Right _  -> expectationFailure "copy should be rejected"
+
+  -- =========================================================================
+  -- v0.3: Checkout helpers (pure)
+  -- =========================================================================
+
+  describe "Checkout helpers" $ do
+    it "lockFilePath: program.ast.json -> program.llmll-lock.json" $
+      lockFilePath "path/to/program.ast.json" `shouldBe` "path/to/program.llmll-lock.json"
+
+    it "lockFilePath: simple.json -> simple.llmll-lock.json" $
+      lockFilePath "simple.json" `shouldBe` "simple.llmll-lock.json"
+
+    it "expireStale removes expired tokens" $ do
+      let epoch = UTCTime (fromGregorian 2026 1 1) 0
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600
+          lock = CheckoutLock "test.json" [tok]
+          later = addUTCTime 7200 epoch
+      lockTokens (expireStale later lock) `shouldBe` []
+
+    it "expireStale keeps non-expired tokens" $ do
+      let epoch = UTCTime (fromGregorian 2026 1 1) 0
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600
+          lock = CheckoutLock "test.json" [tok]
+          later = addUTCTime 1800 epoch
+      length (lockTokens (expireStale later lock)) `shouldBe` 1
+
+    it "toPatchOpInfos excludes test ops" $ do
+      let ops = [ PatchTest "/a" (String "x")
+                , PatchReplace "/b" (String "y")
+                , PatchRemove "/c"
+                , PatchAdd "/d" (String "z")
+                ]
+      let infos = toPatchOpInfos ops
+      length infos `shouldBe` 3
+      map poiKind infos `shouldBe` ["replace", "remove", "add"]
+      map poiIndex infos `shouldBe` [1, 2, 3]
