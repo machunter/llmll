@@ -81,6 +81,8 @@ library:
     - LLMLL.PatchApply
     # v0.3: stratified verification
     - LLMLL.VerifiedCache
+    # v0.3.1: event log
+    - LLMLL.Replay
 
 executables:
   llmll:

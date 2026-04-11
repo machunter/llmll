@@ -10,7 +10,7 @@ import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole, emitEventLogPreamble)
 import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind, HoleEntry(..))
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
@@ -18,6 +18,7 @@ import LLMLL.AstEmit (stmtToJson)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
+import LLMLL.Replay (parseEventLog, EventLogEntry(..))
 import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
 import Data.List (isSuffixOf)
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -1513,8 +1514,69 @@ main = hspec $ do
       T.isInfixOf "scaffold" output `shouldBe` True
       T.isInfixOf "todo-app" output `shouldBe` True
 
+  -- =========================================================================
+  -- v0.3.1: Event Log (#13)
+  -- =========================================================================
+
+  describe "Event Log (v0.3.1)" $ do
+
+    -- Preamble (1)
+    it "emitEventLogPreamble contains eventJsonL and captureStdout" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "eventJsonL" preamble `shouldBe` True
+      T.isInfixOf "captureStdout" preamble `shouldBe` True
+      T.isInfixOf "headerJsonL" preamble `shouldBe` True
+
+    -- Codegen integration (1)
+    it "Generated Main.hs for console mode contains event-log.jsonl" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "testmod" stmts
+          case cgMainHs result of
+            Nothing -> expectationFailure "No Main.hs generated"
+            Just mainHs -> do
+              T.isInfixOf "event-log.jsonl" mainHs `shouldBe` True
+              T.isInfixOf "logHandle" mainHs `shouldBe` True
+              T.isInfixOf "seqRef" mainHs `shouldBe` True
+              T.isInfixOf "captureStdout" mainHs `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    -- JSONL format (1)
+    it "parseEventLog parses valid JSONL events" $ do
+      let logContent = T.unlines
+            [ "{\"type\":\"header\",\"version\":\"0.3.1\",\"module\":\"test\"}"
+            , "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"hello\"},\"result\":{\"kind\":\"stdout\",\"value\":\"world\"},\"captures\":[]}"
+            , "{\"type\":\"event\",\"seq\":1,\"input\":{\"kind\":\"stdin\",\"value\":\"foo\"},\"result\":{\"kind\":\"stdout\",\"value\":\"bar\"},\"captures\":[]}"
+            ]
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 2
+      evSeq (head entries) `shouldBe` 0
+      evInputVal (head entries) `shouldBe` "hello"
+      evResultVal (head entries) `shouldBe` "world"
+      evSeq (entries !! 1) `shouldBe` 1
+
+    -- Crash tolerance (1)
+    it "parseEventLog handles partial log (no trailing line)" $ do
+      let logContent = T.unlines
+            [ "{\"type\":\"header\",\"version\":\"0.3.1\",\"module\":\"test\"}"
+            , "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"x\"},\"result\":{\"kind\":\"stdout\",\"value\":\"y\"},\"captures\":[]}"
+            ]
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 1
+      evInputVal (head entries) `shouldBe` "x"
+
+    -- Escape (1)
+    it "parseEventLog handles escaped quotes and newlines" $ do
+      let logContent = "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"say \\\"hi\\\"\"},\"result\":{\"kind\":\"stdout\",\"value\":\"line1\\nline2\"},\"captures\":[]}"
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 1
+      evInputVal (head entries) `shouldBe` "say \"hi\""
+      evResultVal (head entries) `shouldBe` "line1\nline2"
+
 -- | Helper to remove a file if it exists (used for test cleanup).
 removeIfExists :: FilePath -> IO ()
 removeIfExists fp = do
   exists <- doesFileExist fp
   if exists then removeFile fp else pure ()
+

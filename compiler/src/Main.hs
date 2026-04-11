@@ -60,6 +60,7 @@ import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
 import LLMLL.Contracts (ContractsMode(..), applyContractsMode)
 import LLMLL.VerifiedCache (saveVerified, verifiedPath)
+import LLMLL.Replay (parseEventLog, EventLogEntry(..))
 
 import qualified Data.Map.Strict as Map
 
@@ -84,6 +85,7 @@ data Command
   | CmdCheckoutRelease FilePath String                      -- v0.3: checkout --release <file> <token>
   | CmdCheckoutStatus  FilePath String                      -- v0.3: checkout --status <file> <token>
   | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
+  | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
   deriving (Show)
 
 data Options = Options
@@ -128,6 +130,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "v0.3: Lock a hole for exclusive editing (checkout/release/status)"))
       <> command "patch" (info patchCmd
           (progDesc "v0.3: Apply an RFC 6902 JSON-Patch to a checked-out hole"))
+      <> command "replay" (info replayCmd
+          (progDesc "v0.3.1: Replay an event log against a compiled program"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -221,6 +225,10 @@ optionsParser = info (helper <*> opts) $
       <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
       <*> strArgument (metavar "PATCH" <> help "Path to patch-request.json")
 
+    replayCmd = CmdReplay
+      <$> strArgument (metavar "FILE" <> help "Path to .llmll source file")
+      <*> strArgument (metavar "LOG" <> help "Path to .event-log.jsonl file")
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -249,6 +257,7 @@ main = do
     CmdCheckoutRelease fp tok -> doCheckoutRelease json fp (T.pack tok)
     CmdCheckoutStatus fp tok  -> doCheckoutStatusCmd json fp (T.pack tok)
     CmdPatch fp patchFp       -> doPatch json fp patchFp
+    CmdReplay fp logFp        -> doReplay json fp logFp
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -1046,3 +1055,23 @@ extractContract :: Statement -> Maybe (Name, Contract)
 extractContract (SDefLogic name _ _ c _)  = Just (name, c)
 extractContract (SLetrec name _ _ c _ _)  = Just (name, c)
 extractContract _                         = Nothing
+
+-- ---------------------------------------------------------------------------
+-- v0.3.1: event log replay
+-- ---------------------------------------------------------------------------
+
+doReplay :: Bool -> FilePath -> FilePath -> IO ()
+doReplay _json _srcFp logFp = do
+  logContents <- TIO.readFile logFp
+  let entries = parseEventLog logContents
+  if null entries
+    then do
+      hPutStrLn stderr $ "No events found in " ++ logFp
+      exitFailure
+    else do
+      putStrLn $ "Event log: " ++ show (length entries) ++ " events found in " ++ logFp
+      forM_ entries $ \entry -> do
+        putStrLn $ "  seq " ++ show (evSeq entry)
+                ++ ": input=\"" ++ T.unpack (evInputVal entry)
+                ++ "\" result=\"" ++ T.unpack (evResultVal entry) ++ "\""
+      putStrLn "Replay complete (log parsed; full replay requires compiled program)."

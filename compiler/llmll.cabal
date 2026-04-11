@@ -37,6 +37,7 @@ library
       LLMLL.Checkout
       LLMLL.PatchApply
       LLMLL.VerifiedCache
+      LLMLL.Replay
   other-modules:
       Main
       Paths_llmll
@@ -99,6 +100,7 @@ executable llmll
       LLMLL.ParserJSON
       LLMLL.PatchApply
       LLMLL.PBT
+      LLMLL.Replay
       LLMLL.Serve
       LLMLL.Sketch
       LLMLL.Syntax
