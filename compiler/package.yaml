@@ -83,6 +83,10 @@ library:
     - LLMLL.VerifiedCache
     # v0.3.1: event log
     - LLMLL.Replay
+    # v0.3.1: leanstral MCP
+    - LLMLL.LeanTranslate
+    - LLMLL.MCPClient
+    - LLMLL.ProofCache
 
 executables:
   llmll:

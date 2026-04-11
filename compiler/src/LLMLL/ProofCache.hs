@@ -1,0 +1,103 @@
+{-# LANGUAGE OverloadedStrings #-}
+-- |
+-- Module      : LLMLL.ProofCache
+-- Description : Per-file .proof-cache.json sidecar for Lean proof certificates (v0.3.1).
+--
+-- Follows the @VerifiedCache@ pattern: one sidecar file per LLMLL source file.
+-- Stores proof certificates indexed by contract path (JSON pointer into the AST).
+-- Cache invalidation uses SHA-256 hash of the contract expression text.
+module LLMLL.ProofCache
+  ( -- * Path convention
+    proofCachePath
+    -- * Cache entries
+  , ProofEntry(..)
+    -- * I/O
+  , loadProofCache
+  , saveProofCache
+  , lookupProof
+  , insertProof
+  ) where
+
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Aeson ((.=), (.:), (.:?))
+import qualified Data.Aeson as A
+import qualified Data.Aeson.Key as AK
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.ByteString.Lazy as BL
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import System.Directory (doesFileExist)
+
+-- | A cached proof entry.
+data ProofEntry = ProofEntry
+  { peObligationHash :: Text    -- ^ SHA-256 hash of contract text (for invalidation)
+  , peProof          :: Text    -- ^ Lean 4 proof term
+  , peProver         :: Text    -- ^ Prover name (e.g. "leanstral")
+  , peVerifiedAt     :: Text    -- ^ ISO 8601 timestamp
+  } deriving (Show, Eq)
+
+instance A.ToJSON ProofEntry where
+  toJSON pe = A.object
+    [ "obligation_hash" .= peObligationHash pe
+    , "proof"           .= peProof pe
+    , "prover"          .= peProver pe
+    , "verified_at"     .= peVerifiedAt pe
+    ]
+
+instance A.FromJSON ProofEntry where
+  parseJSON = A.withObject "ProofEntry" $ \o -> do
+    h <- o .: "obligation_hash"
+    p <- o .: "proof"
+    prov <- o .:? "prover" A..!= "leanstral"
+    t <- o .:? "verified_at" A..!= ""
+    pure ProofEntry
+      { peObligationHash = h
+      , peProof = p
+      , peProver = prov
+      , peVerifiedAt = t
+      }
+
+-- | Compute the sidecar path: foo.llmll -> foo.llmll.proof-cache.json
+proofCachePath :: FilePath -> FilePath
+proofCachePath fp = fp ++ ".proof-cache.json"
+
+-- | Load proof cache from disk. Returns empty map if file doesn't exist.
+loadProofCache :: FilePath -> IO (Map Text ProofEntry)
+loadProofCache fp = do
+  let path = proofCachePath fp
+  exists <- doesFileExist path
+  if not exists then pure Map.empty
+  else do
+    raw <- BL.readFile path
+    case A.decode raw of
+      Just (A.Object top) ->
+        case KM.lookup "proofs" top of
+          Just proofsVal ->
+            case A.fromJSON proofsVal of
+              A.Success m -> pure m
+              A.Error _   -> pure Map.empty
+          Nothing -> pure Map.empty
+      _ -> pure Map.empty
+
+-- | Save proof cache to disk.
+saveProofCache :: FilePath -> Map Text ProofEntry -> IO ()
+saveProofCache fp entries = do
+  let path = proofCachePath fp
+      val = A.object
+        [ "version" .= ("0.3.1" :: Text)
+        , "proofs"  .= entries
+        ]
+  BL.writeFile path (A.encode val)
+
+-- | Look up a proof by contract path, checking hash for invalidation.
+lookupProof :: Text -> Text -> Map Text ProofEntry -> Maybe ProofEntry
+lookupProof contractPath currentHash cache =
+  case Map.lookup contractPath cache of
+    Just entry | peObligationHash entry == currentHash -> Just entry
+    _ -> Nothing
+
+-- | Insert a proof entry into the cache.
+insertProof :: Text -> ProofEntry -> Map Text ProofEntry -> Map Text ProofEntry
+insertProof = Map.insert
+

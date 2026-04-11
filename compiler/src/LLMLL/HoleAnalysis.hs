@@ -19,6 +19,9 @@ module LLMLL.HoleAnalysis
   , formatHoleReportSExp
   , formatHoleReportJson
   , holeDensityWarnings
+    -- * v0.3.1: complexity classification
+  , holeComplexity
+  , normalizeComplexity
   ) where
 
 import Data.Text (Text)
@@ -49,6 +52,7 @@ data HoleEntry = HoleEntry
   , holeAgent       :: Maybe Name      -- ^ Target agent for delegate holes
   , holeStatus      :: HoleStatus      -- ^ Blocking / NonBlocking / AgentTask
   , holeDescription :: Text            -- ^ What the hole is asking for
+  , holeComplexity  :: Maybe Text      -- ^ v0.3.1: :simple, :inductive, :unknown (proof-required only)
   } deriving (Show, Eq)
 
 -- | Complete hole report for a module/program.
@@ -258,6 +262,9 @@ classifyHole ctx mType hk = HoleEntry
   , holeAgent        = holeAgent' hk
   , holeStatus       = holeStatus' hk
   , holeDescription  = holeDesc hk
+  , holeComplexity   = case hk of
+      HProofRequired reason -> Just (normalizeComplexity reason)
+      _                     -> Nothing
   }
 
 holeAgent' :: HoleKind -> Maybe Name
@@ -373,7 +380,7 @@ formatHoleReportJson :: FilePath -> HoleReport -> Text
 formatHoleReportJson _fp report =
   T.pack . BL.unpack . encode $ map entryToJson (_holeEntries report)
   where
-    entryToJson e = object
+    entryToJson e = object $
       [ "kind"          .= holeKindTag (holeKind e)
       , "pointer"       .= ("/" <> T.replace " " "/" (holeContext e))
       , "message"       .= ("hole: " <> holeName e)
@@ -381,7 +388,7 @@ formatHoleReportJson _fp report =
       , "module-path"   .= holeContext e
       , "agent"         .= holeAgent e
       , "status"        .= statusStr (holeStatus e)
-      ]
+      ] ++ maybe [] (\c -> ["complexity" .= c]) (holeComplexity e)
 
     holeKindTag (HNamed _)          = "named"          :: Text
     holeKindTag (HChoose _)         = "choose"
@@ -418,3 +425,17 @@ holeDensityWarnings = concatMap checkStmt
           ]
         _ -> []
     checkStmt _ = []
+
+-- ---------------------------------------------------------------------------
+-- Complexity Classification (v0.3.1)
+-- ---------------------------------------------------------------------------
+
+-- | Normalize a proof-required reason to a complexity class.
+--   Used by @llmll holes --json@ to guide Leanstral strategy selection.
+normalizeComplexity :: Text -> Text
+normalizeComplexity reason
+  | T.isInfixOf "complex-decreases" reason = ":inductive"
+  | T.isInfixOf "inductive" reason         = ":inductive"
+  | T.isInfixOf "manual" reason            = ":unknown"
+  | T.isInfixOf "non-linear" reason        = ":unknown"
+  | otherwise                              = ":simple"

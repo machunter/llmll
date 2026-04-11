@@ -38,6 +38,9 @@ library
       LLMLL.PatchApply
       LLMLL.VerifiedCache
       LLMLL.Replay
+      LLMLL.LeanTranslate
+      LLMLL.MCPClient
+      LLMLL.ProofCache
   other-modules:
       Main
       Paths_llmll
@@ -94,12 +97,15 @@ executable llmll
       LLMLL.HoleAnalysis
       LLMLL.Hub
       LLMLL.JsonPointer
+      LLMLL.LeanTranslate
       LLMLL.Lexer
+      LLMLL.MCPClient
       LLMLL.Module
       LLMLL.Parser
       LLMLL.ParserJSON
       LLMLL.PatchApply
       LLMLL.PBT
+      LLMLL.ProofCache
       LLMLL.Replay
       LLMLL.Serve
       LLMLL.Sketch

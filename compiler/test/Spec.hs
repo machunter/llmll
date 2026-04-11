@@ -19,6 +19,10 @@ import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContra
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..))
+import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
+import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
+import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof)
+import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
 import Data.List (isSuffixOf)
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -1574,9 +1578,114 @@ main = hspec $ do
       evInputVal (head entries) `shouldBe` "say \"hi\""
       evResultVal (head entries) `shouldBe` "line1\nline2"
 
+  -- =========================================================================
+  -- v0.3.1: Leanstral MCP — Phase B (#14)
+  -- =========================================================================
+
+  describe "Leanstral MCP (v0.3.1)" $ do
+
+    -- LeanTranslate (3)
+    it "translateObligation on linear arithmetic → valid Lean 4" $ do
+      let contract = Contract
+            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
+            , contractPost = Just (EOp ">" [EVar "result", ELit (LitInt 0)])
+            }
+      case translateObligation "test-func" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "theorem test_func" thm `shouldBe` True
+          T.isInfixOf "sorry" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem, got: " ++ T.unpack reason
+
+    it "translateObligation on unsupported predicate → Unsupported" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EApp "fold" [EVar "xs"])
+            }
+      case translateObligation "fold-test" contract of
+        Unsupported reason -> T.isInfixOf "fold" reason `shouldBe` True
+        LeanTheorem _ -> expectationFailure "Expected Unsupported for fold"
+
+    it "translateObligation on list induction → List syntax" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EOp ">" [EApp "list-length" [EVar "xs"], ELit (LitInt 0)])
+            }
+      case translateObligation "list-test" contract of
+        LeanTheorem thm -> T.isInfixOf ".length" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem, got: " ++ T.unpack reason
+
+    -- MCPClient (2)
+    it "mockProofResult returns ProofFound" $ do
+      let result = mockProofResult "some obligation"
+      result `shouldBe` ProofFound "by sorry"
+
+    it "callLeanstral with unavailable binary → LeanstralUnavailable" $ do
+      let config = defaultMCPConfig { mcpMock = False }
+      result <- callLeanstral config "test obligation"
+      case result of
+        LeanstralUnavailable _ -> pure ()
+        _ -> expectationFailure $ "Expected LeanstralUnavailable, got: " ++ show result
+
+    -- ProofCache (2)
+    it "ProofCache save → load roundtrip" $ do
+      let tmpDir = "/tmp/llmll-test-proof-cache"
+      createDirectoryIfMissing True tmpDir
+      let fp = tmpDir ++ "/test.llmll"
+          entry = ProofEntry
+            { peObligationHash = "abc123"
+            , peProof = "by sorry"
+            , peProver = "leanstral"
+            , peVerifiedAt = "2026-04-11T10:00:00Z"
+            }
+          cache = insertProof "/post" entry Map.empty
+      saveProofCache fp cache
+      loaded <- loadProofCache fp
+      lookupProof "/post" "abc123" loaded `shouldBe` Just entry
+      removeIfExists (proofCachePath fp)
+
+    it "ProofCache hash mismatch detection" $ do
+      let entry = ProofEntry
+            { peObligationHash = "abc123"
+            , peProof = "by sorry"
+            , peProver = "leanstral"
+            , peVerifiedAt = "2026-04-11T10:00:00Z"
+            }
+          cache = insertProof "/post" entry Map.empty
+      lookupProof "/post" "different-hash" cache `shouldBe` Nothing
+
+    -- HoleAnalysis complexity (2)
+    it "normalizeComplexity classifies complex-decreases as :inductive" $ do
+      HA.normalizeComplexity "complex-decreases" `shouldBe` ":inductive"
+      HA.normalizeComplexity "manual" `shouldBe` ":unknown"
+      HA.normalizeComplexity "simple" `shouldBe` ":simple"
+
+    it "formatHoleReportJson includes complexity for proof-required holes" $ do
+      let stmts = [SDefLogic "safe-div" [("n", TInt), ("d", TInt)] Nothing
+                     (Contract Nothing Nothing) (EHole (HProofRequired "complex-decreases"))]
+          report = HA.analyzeHoles stmts
+          json   = HA.formatHoleReportJson "<test>" report
+      T.isInfixOf "complexity" json `shouldBe` True
+      T.isInfixOf ":inductive" json `shouldBe` True
+
+    -- End-to-end mock pipeline (1)
+    it "Mock pipeline: translate → mock-prove → cache → verify" $ do
+      let contract = Contract
+            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
+            , contractPost = Just (EOp ">" [EVar "result", ELit (LitInt 0)])
+            }
+      case translateObligation "pipeline-test" contract of
+        LeanTheorem thm -> do
+          let proofResult = mockProofResult thm
+          case proofResult of
+            ProofFound proof -> do
+              let entry = ProofEntry "hash123" proof "leanstral" "2026-04-11"
+                  cache = insertProof "/post" entry Map.empty
+              lookupProof "/post" "hash123" cache `shouldBe` Just entry
+            _ -> expectationFailure "Expected ProofFound"
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
 -- | Helper to remove a file if it exists (used for test cleanup).
 removeIfExists :: FilePath -> IO ()
 removeIfExists fp = do
   exists <- doesFileExist fp
   if exists then removeFile fp else pure ()
-
