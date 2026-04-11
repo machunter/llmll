@@ -30,6 +30,8 @@ module LLMLL.Diagnostic
   -- * v0.3: Patch diagnostic rebasing
   , PatchOpInfo(..)
   , rebaseToPatch
+  -- * v0.3: Stratified verification
+  , mkTrustGapWarning
   ) where
 
 import Data.Text (Text)
@@ -189,6 +191,17 @@ mkOpenShadowWarning name shadowedBy prevFrom =
   let msg = "open-shadow-warning: '" <> name <> "' from " <> prevFrom
             <> " is shadowed by " <> shadowedBy
   in (mkWarning Nothing msg) { diagKind = Just "open-shadow-warning" }
+
+-- | v0.3: Cross-module call to a function with an unproven contract.
+mkTrustGapWarning :: Text -> Text -> Text -> Diagnostic
+mkTrustGapWarning funcName level pointer =
+  let msg = "Function " <> funcName <> " has an unproven contract (level: "
+            <> level <> "). Your module inherits this trust gap. "
+            <> "Silence with: (trust " <> funcName <> " :level " <> level <> ")"
+  in (mkWarning Nothing msg)
+       { diagKind = Just "trust-gap"
+       , diagPointer = Just pointer
+       }
 
 -- ---------------------------------------------------------------------------
 -- Phase 2b: Static Analysis Diagnostics

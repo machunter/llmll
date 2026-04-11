@@ -140,6 +140,7 @@ pStatement = choice
   , pImportStmt
   , pOpenDecl
   , pExportDecl
+  , pTrustDecl
   , SExpr <$> pExpr
   ]
 
@@ -323,6 +324,25 @@ pExportDecl = do
   names <- many pIdent
   _ <- symbol ")"
   pure $ SExport names
+
+-- | Parse (trust foo.bar.baz :level proven|tested|asserted) — v0.3.
+-- Acknowledges an unproven contract from an imported function.
+pTrustDecl :: Parser Statement
+pTrustDecl = do
+  _ <- try (symbol "(" *> symbol "trust")
+  target <- pDottedIdent
+  _ <- symbol ":level"
+  level <- pTrustLevel
+  _ <- symbol ")"
+  pure $ STrust target level
+
+-- | Parse a trust level keyword.
+pTrustLevel :: Parser VerificationLevel
+pTrustLevel = choice
+  [ VLProven ""    <$ symbol "proven"
+  , VLTested 0     <$ symbol "tested"
+  , VLAsserted     <$ symbol "asserted"
+  ]
 
 -- | Split a dotted Text identifier into a module path.
 splitDotted :: Text -> [Text]

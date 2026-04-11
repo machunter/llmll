@@ -13,7 +13,7 @@
 The active compiler is a **Haskell stack project** in `compiler/`. It is the only supported backend as of v0.2.
 
 | Command | What it does |
-|---------|--------------|
+|---------|--------------| 
 | `llmll check <file>` | Parse + type-check; emit structured diagnostics |
 | `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
@@ -21,6 +21,8 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll verify <file> [--fq-out FILE]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). Reports SAFE or contract-violation diagnostics with JSON Pointers. |
 | `llmll typecheck --sketch <file>` | **Phase 2c** — partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors. |
 | `llmll serve [--host H] [--port P] [--token T]` | **Phase 2c** — expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
+| `llmll checkout <file.ast.json> <pointer>` | **v0.3** — lock a `?hole` for exclusive agent editing. Returns a checkout token. Use `--release` to abandon, `--status` to query TTL. |
+| `llmll patch <file.ast.json> <patch.json>` | **v0.3** — apply an RFC 6902 JSON-Patch to a checked-out hole. Re-verifies type safety before committing. |
 | `llmll hub --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). |
 | `llmll repl` | Start an interactive LLMLL REPL |
 

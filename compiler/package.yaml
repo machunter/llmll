@@ -79,6 +79,8 @@ library:
     - LLMLL.JsonPointer
     - LLMLL.Checkout
     - LLMLL.PatchApply
+    # v0.3: stratified verification
+    - LLMLL.VerifiedCache
 
 executables:
   llmll:

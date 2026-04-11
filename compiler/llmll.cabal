@@ -36,6 +36,7 @@ library
       LLMLL.JsonPointer
       LLMLL.Checkout
       LLMLL.PatchApply
+      LLMLL.VerifiedCache
   other-modules:
       Main
       Paths_llmll
@@ -102,6 +103,7 @@ executable llmll
       LLMLL.Sketch
       LLMLL.Syntax
       LLMLL.TypeCheck
+      LLMLL.VerifiedCache
       Paths_llmll
   hs-source-dirs:
       src

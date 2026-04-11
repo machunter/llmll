@@ -14,6 +14,9 @@ module LLMLL.Contracts
     instrumentContracts
   , instrumentStatement
 
+    -- * Contract Modes (v0.3)
+  , ContractsMode(..)
+
     -- * Contract Checking Helpers
   , ContractViolation(..)
   , evalContract
@@ -113,17 +116,70 @@ analyzeContracts stmts =
 --       (let [result body]
 --         (let [_post_ok (assert-post f (>= result 0))]
 --           result))))
-instrumentContracts :: [Statement] -> [Statement]
-instrumentContracts = map instrumentStatement
+-- ---------------------------------------------------------------------------
+-- Contract Modes (v0.3 Stratified Verification)
+-- ---------------------------------------------------------------------------
+
+-- | Controls which runtime assertions survive into generated Haskell.
+data ContractsMode
+  = ContractsFull      -- ^ All contracts remain as runtime assertions
+  | ContractsUnproven  -- ^ Strip assertions for VLProven contracts only
+  | ContractsNone      -- ^ Strip all runtime assertions
+  deriving (Show, Eq)
+
+-- ---------------------------------------------------------------------------
+-- AST Instrumentation
+-- ---------------------------------------------------------------------------
+
+-- | Instrument all def-logic/letrec functions with runtime contract checks.
+instrumentContracts :: ContractsMode -> Map Name ContractStatus -> [Statement] -> [Statement]
+instrumentContracts mode statusMap = map go
+  where
+    go stmt = instrumentStatement mode (lookupStatus stmt) stmt
+    lookupStatus (SDefLogic n _ _ _ _) = Map.findWithDefault defaultCS n statusMap
+    lookupStatus (SLetrec n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
+    lookupStatus _                     = defaultCS
+    defaultCS = ContractStatus Nothing Nothing
 
 -- | Instrument a single statement.
-instrumentStatement :: Statement -> Statement
-instrumentStatement stmt@(SDefLogic name params mRet contract body) =
+instrumentStatement :: ContractsMode -> ContractStatus -> Statement -> Statement
+-- None: strip everything
+instrumentStatement ContractsNone _ stmt = stmt
+-- Full: instrument all contracts (SDefLogic)
+instrumentStatement ContractsFull _ (SDefLogic name params mRet contract body) =
   let newBody = wrapWithContracts name contract body
   in SDefLogic name params mRet noContract newBody
-  where
-    noContract = Contract Nothing Nothing  -- contracts moved into body as assertions
-instrumentStatement stmt = stmt
+-- Full: instrument all contracts (SLetrec)
+instrumentStatement ContractsFull _ (SLetrec name params mRet contract dec body) =
+  let newBody = wrapWithContracts name contract body
+  in SLetrec name params mRet noContract dec newBody
+-- Unproven: strip proven contracts, keep unproven (SDefLogic)
+instrumentStatement ContractsUnproven cs (SDefLogic name params mRet contract body) =
+  let stripped = filterContracts cs contract
+      newBody  = wrapWithContracts name stripped body
+  in SDefLogic name params mRet noContract newBody
+-- Unproven: strip proven contracts, keep unproven (SLetrec)
+instrumentStatement ContractsUnproven cs (SLetrec name params mRet contract dec body) =
+  let stripped = filterContracts cs contract
+      newBody  = wrapWithContracts name stripped body
+  in SLetrec name params mRet noContract dec newBody
+-- Everything else: pass through
+instrumentStatement _ _ stmt = stmt
+
+-- | Strip proven contract clauses, keep unproven ones.
+filterContracts :: ContractStatus -> Contract -> Contract
+filterContracts cs contract = Contract
+  { contractPre = case csPreLevel cs of
+      Just (VLProven _) -> Nothing
+      _                 -> contractPre contract
+  , contractPost = case csPostLevel cs of
+      Just (VLProven _) -> Nothing
+      _                 -> contractPost contract
+  }
+
+-- | Empty contract — contracts moved into body as assertions.
+noContract :: Contract
+noContract = Contract Nothing Nothing
 
 -- | Wrap a function body with pre/post contract assertions.
 wrapWithContracts :: Name -> Contract -> Expr -> Expr

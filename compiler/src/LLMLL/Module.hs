@@ -230,20 +230,39 @@ buildModuleEnv path stmts _env =
       filteredExports = case mExportDecl of
         Nothing -> allExports
         Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) allExports
+      -- v0.3: default all contracts to VLAsserted
+      contractStats = Map.fromList $ mapMaybe extractContractStatus stmts
   in ModuleEnv
-       { meExports    = filteredExports
-       , meStatements = stmts
-       , meInterfaces = ifaceMap
-       , meAliasMap   = aliasMap'
-       , mePath       = path
+       { meExports        = filteredExports
+       , meStatements     = stmts
+       , meInterfaces     = ifaceMap
+       , meAliasMap       = aliasMap'
+       , mePath           = path
+       , meContractStatus = contractStats
        }
   where
     toExport (SDefLogic name params mRet _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
+    toExport (SLetrec name params mRet _ _ _) =
+      let retType = fromMaybe (TVar "?") mRet
+      in Just (name, TFn (map snd params) retType)
     toExport (SDefInterface name _) = Just (name, TCustom name)
     toExport (STypeDef name body)   = Just (name, body)
     toExport _                      = Nothing
+
+    -- v0.3: build default contract status (VLAsserted for any clause that exists)
+    extractContractStatus (SDefLogic name _ _ contract _) = mkCS name contract
+    extractContractStatus (SLetrec name _ _ contract _ _) = mkCS name contract
+    extractContractStatus _ = Nothing
+
+    mkCS name contract
+      | contractPre contract /= Nothing || contractPost contract /= Nothing =
+          Just (name, ContractStatus
+            { csPreLevel  = fmap (const VLAsserted) (contractPre contract)
+            , csPostLevel = fmap (const VLAsserted) (contractPost contract)
+            })
+      | otherwise = Nothing
 
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = Nothing

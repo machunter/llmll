@@ -13,7 +13,7 @@
 1. **Strict Immutability:** There are no variables, only constants. State is transformed, never mutated. Re-binding the same name in the same scope is a compile error.
 2. **Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`). A program with holes can be analyzed and type-checked but not executed until the holes are filled. Always prefer a typed hole over a hallucinated implementation.
 3. **Typed Logic:** Every expression has a type. The type system prevents null pointer dereferences, type mismatches, and unguarded IO. Return types are inferred — never annotate them explicitly.
-4. **Runtime Contract Verification:** Logic functions declare `pre` and `post` conditions enforced as runtime assertions. These contracts are the machine-checked trust interface between agents: a caller does not need to understand an implementation, only that its contract holds.
+4. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications. These contracts are the trust interface between agents. Verification is stratified: contracts in the decidable arithmetic fragment are proven at compile time (liquid-fixpoint / Z3); contracts requiring induction are routed to interactive proof (Leanstral); contracts outside both fragments are enforced as runtime assertions and flagged with `?proof-required`. A caller can inspect a contract's *verification level* — proven, tested, or asserted — without reading the implementation.
 5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.3; WASM-WASI in v0.4). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly.
 
 ---
@@ -244,11 +244,54 @@ Inside a `post` clause, the identifier `result` is **automatically bound to the 
 | `post` violation | `AssertionError` raised before result is returned. The implementation is buggy. |
 | Both satisfied | Result is returned normally. |
 
-**Runtime:** Contracts always run during `llmll test` and remain active in production as a belt-and-suspenders check.
+#### 4.4.1 Verification Levels
 
-**Compile-time (Phase 2b):** `llmll verify` translates `pre`/`post` constraints in the **quantifier-free linear arithmetic fragment** (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`) to `.fq` constraints and solves them via `liquid-fixpoint` + Z3. Violations are reported as diagnostics with JSON Pointers before any binary is produced.
+Every `pre` and `post` clause carries a **verification level** that describes how the contract has been checked:
 
-Predicates outside the decidable fragment (`*`, `/`, `mod`, non-linear) are emitted as `?proof-required(non-linear-contract)` holes (see §6). The runtime assertion remains active for those sites.
+| Level | Meaning | When assigned |
+|-------|---------|---------------|
+| `proven` | Formally verified via SMT (Z3) or interactive proof (Lean). The contract holds for all well-typed inputs. | `llmll verify` reports SAFE |
+| `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` passes; `llmll verify` skips or emits `?proof-required` |
+| `asserted` | Enforced as a runtime assertion only. No static or dynamic evidence of correctness beyond the assertion itself. | Default for any contract not yet run through `verify` or `test` |
+
+The verification level is recorded per-contract, per-function in the module's exported metadata (see §8 — `ModuleEnv` extensions).
+
+#### 4.4.2 Runtime Assertion Modes
+
+The `--contracts` flag controls which runtime assertions are compiled into the output:
+
+| Mode | Assertions included | Default for |
+|------|---------------------|-------------|
+| `--contracts=full` | All contracts (proven + tested + asserted) | `llmll test` |
+| `--contracts=unproven` | Only `tested` and `asserted` contracts; `proven` contracts are stripped | `llmll build` (when a cached verify result exists) |
+| `--contracts=none` | No runtime assertions | Opt-in only; requires explicit flag |
+
+Without a prior `llmll verify` pass, `llmll build` defaults to `--contracts=full`. The `--contracts` flag applies to Haskell code generation regardless of `--emit-only`.
+
+> [!IMPORTANT]
+> **Invariant:** Stripping a `proven` contract must not change observable behavior for any well-typed program. This invariant depends on `.fq` emitter faithfulness — see compiler team brief for verification obligations.
+
+#### 4.4.3 Trust-Level Propagation
+
+When module B imports module A and calls a function whose contract is `tested` or `asserted`, the compiler emits a **downstream trust warning**:
+
+```
+⚠ Function foo.bar.withdraw has an unproven postcondition.
+  Your module inherits this trust gap.
+```
+
+The downstream module can acknowledge the gap explicitly:
+
+```lisp
+(trust foo.bar.withdraw :level asserted)
+(trust auth.verify-token :level tested)
+```
+
+This silences the warning and makes the trust decision visible in source. An agent auditing module B can enumerate all `(trust ...)` declarations to see which unproven contracts it depends on.
+
+`(trust ...)` declarations follow `import` semantics — per-function, multiple declarations per module, must appear before any `def-logic`. Duplicate declarations for the same function are idempotent (not an error).
+
+When the sidecar `.verified.json` file is missing for an imported module, all contracts default to `asserted`.
 
 ---
 
@@ -868,15 +911,26 @@ hashed-pw (?delegate @crypto-agent "Implement PBKDF2 hashing" -> bytes[64])
 
 #### Async Delegation
 
-`?delegate-async` returns `Promise[t]` immediately and continues. The module runtime resolves the promise when the agent completes:
+`?delegate-async` returns `Promise[t]` immediately and continues. The module runtime resolves the promise when the agent completes.
+
+**`await` returns `Result[t, DelegationError]`, not bare `t`.** The generated code wraps `Async.wait` in exception handling so that agent failures (crash, timeout, type mismatch) are captured as `Result.Error DelegationError` values rather than propagating as uncaught exceptions. This preserves the LLMLL invariant that logic functions cannot crash from IO.
 
 ```lisp
-(def-logic build-report [data: ReportData]
+(def-logic build-report [state: AppState data: ReportData]
   (let [[chart-future (?delegate-async @viz-agent
                          "Render a bar chart from data"
                          -> Promise[ImageBytes])]]
-    (pair state (wasi.http.response 202 (await chart-future)))))
+    (let [[chart-result (await chart-future)]]
+      (match chart-result
+        (Success img) (pair state (wasi.http.response 200 img))
+        (Error err)   (pair state (wasi.http.response 500 "Agent failed")))))))
 ```
+
+> [!IMPORTANT]
+> **Type of `await`:** `await : Promise[t] -> Result[t, DelegationError]`. The type checker infers `Result[t, DelegationError]` for any `(await expr)` where `expr : Promise[t]`. An un-`await`ed `Promise[t]` remains `Promise[t]`.
+
+> [!WARNING]
+> **Breaking change from v0.2:** In v0.2, `await` was a no-op that returned bare `t` (since `Promise[t]` was backed by `IO t`). In v0.3, `await` returns `Result[t, DelegationError]`. Code that pattern-matches the result of `await` must use `Success`/`Error` arms. Code that used `await` without matching (e.g., passing the result directly) will get a type mismatch.
 
 #### Delegation Outcome Table
 
@@ -886,7 +940,50 @@ hashed-pw (?delegate @crypto-agent "Implement PBKDF2 hashing" -> bytes[64])
 | Delegation succeeds, type mismatch | Compile error: `TypeMismatch` |
 | Agent unavailable, `on-failure` provided | Fallback expression inserted |
 | Agent unavailable, no `on-failure` | `?delegate-pending` hole — blocks execution |
-| `?delegate-async` failure | `Promise` resolves to `Result.Error DelegationError` at runtime |
+| `?delegate-async`, agent succeeds | `await` returns `Result.Success value` |
+| `?delegate-async`, agent fails | `await` returns `Result.Error DelegationError` |
+
+#### Hole Resolution via JSON-Patch (v0.3)
+
+In v0.3, `?delegate` holes can be resolved programmatically by agents through the **checkout/patch lifecycle**. This is the primary agent-coordination mechanism for filling holes without human intervention.
+
+**Workflow:**
+
+1. **Checkout.** An agent calls `llmll checkout <file.ast.json> <pointer>` to lock a hole. The compiler validates the RFC 6901 pointer resolves to a `hole-*` node, creates a lock entry in `.llmll-lock.json`, and returns a checkout token. The lock has a 1-hour TTL; stale locks are auto-expired.
+
+2. **Patch.** The agent submits an RFC 6902 JSON-Patch wrapped in an LLMLL envelope containing the checkout token and patch operations:
+
+```json
+{
+  "token": "a1b2c3d4...",
+  "patch": [
+    { "op": "test",    "path": "/statements/2/body", "value": { "kind": "hole-delegate", ... } },
+    { "op": "replace", "path": "/statements/2/body", "value": { "kind": "lit-int", "value": 42 } }
+  ]
+}
+```
+
+3. **Re-verify.** The compiler applies the patch to the JSON-AST, re-parses, and re-typechecks. If the patch introduces a type error, the diagnostic pointers reference the patch operation that caused the failure (e.g., `patch-op/1/body` instead of `/statements/2/body`).
+
+4. **Commit or reject.** On success the updated `.ast.json` is written and the lock is cleared. On failure the original file is unchanged and the lock is preserved for retry.
+
+**Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot be used to modify `/statements/0/body` — this prevents lateral hole theft between agents.
+
+**Supported RFC 6902 operations:** `replace`, `add`, `remove`, `test`. The `test` operation is the agent's guard against stale patches — it asserts that the hole hasn't been modified since checkout. `move` and `copy` are deferred to v0.4.
+
+**CLI commands:**
+
+| Command | Purpose |
+|---------|---------|
+| `llmll checkout <file.ast.json> <pointer>` | Lock a hole, get token |
+| `llmll checkout --release <file> <token>` | Explicitly abandon a checkout |
+| `llmll checkout --status <file> <token>` | Query remaining TTL |
+| `llmll patch <file.ast.json> <patch.json>` | Apply patch + re-verify |
+
+**HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
+
+> [!NOTE]
+> Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling in v0.3; general AST mutation is planned for v0.4.
 
 ### 11.3 AST-Level Merging (Semantic Source Control)
 
@@ -921,6 +1018,7 @@ program     = { statement } ;
 statement   = type-decl | gen-decl | def-logic | def-interface
             | def-invariant | def-main | module-decl | import
             | open-decl | export-decl              (* NEW in v0.2 *)
+            | trust-decl                            (* NEW in v0.3 *)
             | check | expr ;
 
 (* ============================================================ *)
@@ -949,6 +1047,15 @@ export-decl = "(" "export" { IDENT } ")" ;
               (* Listed names become the module's public interface.               *)
               (* Absent: all top-level defs exported (open default).             *)
               (* Must appear before the first def-logic in the file.             *)
+
+(* ============================================================ *)
+(* Trust declarations — NEW in v0.3 (§4.4.3)                    *)
+(* ============================================================ *)
+trust-decl  = "(" "trust" qual-ident ":level" TRUST_LEVEL ")" ;
+TRUST_LEVEL = "proven" | "tested" | "asserted" ;
+              (* Acknowledges an unproven contract from an imported function.    *)
+              (* Per-function, multiple per module. Idempotent (duplicates OK).  *)
+              (* Must appear before any def-logic (same ordering as import).     *)
 
 (* ============================================================ *)
 (* Types                                                         *)

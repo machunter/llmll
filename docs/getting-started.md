@@ -194,6 +194,61 @@ curl -s -X POST localhost:7777/sketch \
 
 Every `POST /sketch` is **stateless** — a fresh type-check context per request. Safe for concurrent agent use with no locking. TLS is handled by a reverse proxy (nginx/Caddy); `llmll serve` binds plaintext only.
 
+### `checkout` — lock a hole for exclusive editing (v0.3)
+
+```bash
+# Lock a hole and get a checkout token
+stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/2/body
+# {
+#   "pointer": "/statements/2/body",
+#   "hole_kind": "hole-delegate",
+#   "token": "a1b2c3d4e5f6...",
+#   "ttl": 3600
+# }
+
+# Check remaining TTL
+stack exec llmll -- checkout --status ../examples/delegate_demo/program.ast.json a1b2c3d4e5f6...
+# { "remaining_ttl": 3542 }
+
+# Explicitly release a lock (don't wait for TTL expiry)
+stack exec llmll -- checkout --release ../examples/delegate_demo/program.ast.json a1b2c3d4e5f6...
+# { "released": true }
+```
+
+`checkout` validates that the RFC 6901 pointer targets a `hole-*` node in the JSON-AST. If the pointer targets a non-hole node but a descendant hole exists, the error includes a hint: `"did you mean /statements/2/body?"`.
+
+Locks are per-file (`.llmll-lock.json` alongside the source) with a 1-hour TTL. Stale locks are auto-expired on any `checkout` or `patch` call.
+
+> [!IMPORTANT]
+> `checkout` requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`.
+
+### `patch` — apply an RFC 6902 JSON-Patch to a checked-out hole (v0.3)
+
+```bash
+stack exec llmll -- patch ../examples/delegate_demo/program.ast.json ../examples/delegate_demo/patch-request.json
+# { "result": "PatchSuccess", "statements": 5 }
+```
+
+The patch request is a JSON envelope containing the checkout token and RFC 6902 operations:
+
+```json
+{
+  "token": "a1b2c3d4e5f6...",
+  "patch": [
+    { "op": "test",    "path": "/statements/2/body", "value": { "kind": "hole-delegate", ... } },
+    { "op": "replace", "path": "/statements/2/body", "value": { "kind": "lit-int", "value": 42 } }
+  ]
+}
+```
+
+Supported operations: `replace`, `add`, `remove`, `test`. The `test` op guards against stale patches. `move` and `copy` are not supported in v0.3 — use `remove` + `add` instead.
+
+**Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot mutate `/statements/0/body`.
+
+**On success:** the updated `.ast.json` is written and the lock is cleared. **On failure:** the original file is unchanged, the lock is preserved for retry, and diagnostics reference the responsible patch operation (e.g., `patch-op/1/body`).
+
+**HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
+
 ---
 
 ## Part 3 — JSON-AST Schema Versioning

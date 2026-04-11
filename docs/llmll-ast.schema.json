@@ -46,7 +46,8 @@
         { "$ref": "#/$defs/ModuleDecl" },
         { "$ref": "#/$defs/OpenDecl" },
         { "$ref": "#/$defs/ExportDecl" },
-        { "$ref": "#/$defs/DefMain" }
+        { "$ref": "#/$defs/DefMain" },
+        { "$ref": "#/$defs/TrustDecl" }
       ]
     },
 
@@ -688,7 +689,7 @@
     },
 
     "ExprAwait": {
-      "description": "Await a Promise[t]: (await promise-expr).",
+      "description": "Await a Promise[t]: (await promise-expr). The expression's inferred type is Result[t, DelegationError], not bare t. The generated code wraps Async.wait in exception handling so agent failures are captured as Result.Error rather than propagating as uncaught exceptions. Breaking change from v0.2 where await returned bare t.",
       "type": "object",
       "required": ["kind", "expr"],
       "additionalProperties": false,
@@ -919,6 +920,64 @@
           "$ref": "#/$defs/Expr"
         }
       }
+    },
+
+    "PatchEnvelope": {
+      "description": "LLMLL patch request envelope (v0.3). Submitted to 'llmll patch' CLI or POST /patch HTTP endpoint. Not part of the AST schema proper — companion definition for agent tooling.",
+      "type": "object",
+      "required": ["token", "patch"],
+      "additionalProperties": false,
+      "properties": {
+        "token": { "type": "string", "description": "Checkout bearer token from 'llmll checkout'." },
+        "patch": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PatchOp" },
+          "description": "RFC 6902 operations to apply to the JSON-AST."
+        }
+      }
+    },
+
+    "PatchOp": {
+      "description": "A single RFC 6902 JSON-Patch operation (v0.3). Supported ops: replace, add, remove, test. 'move' and 'copy' are deferred to v0.4.",
+      "type": "object",
+      "required": ["op", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "op":    { "type": "string", "enum": ["replace", "add", "remove", "test"] },
+        "path":  { "type": "string", "description": "RFC 6901 JSON Pointer targeting a node within the checked-out subtree." },
+        "value": { "description": "The value to use for replace/add/test. Required for replace, add, test. Must be absent for remove." }
+      },
+      "if": { "properties": { "op": { "enum": ["replace", "add", "test"] } } },
+      "then": { "required": ["value"] }
+    },
+
+    "CheckoutToken": {
+      "description": "Checkout token response from 'llmll checkout' or POST /checkout (v0.3). Companion definition for agent tooling.",
+      "type": "object",
+      "required": ["pointer", "token", "ttl"],
+      "additionalProperties": false,
+      "properties": {
+        "pointer":   { "type": "string", "description": "RFC 6901 JSON Pointer to the checked-out hole." },
+        "hole_kind": { "type": "string", "description": "The kind of hole (e.g. 'hole-delegate', 'hole-named')." },
+        "token":     { "type": "string", "description": "32-character hex bearer token. Include in patch requests." },
+        "ttl":       { "type": "integer", "description": "Lock time-to-live in seconds. Default: 3600 (1 hour)." }
+      }
+    },
+
+    "TrustDecl": {
+      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Must appear before any def-logic. Multiple trust declarations per module are allowed; duplicates are idempotent.",
+      "type": "object",
+      "required": ["kind", "target", "level"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "trust" },
+        "target": { "type": "string", "description": "Dot-separated qualified function name, e.g. 'crypto.hash.pbkdf2'." },
+        "level":  { "type": "string", "enum": ["proven", "tested", "asserted"], "description": "The verification level being acknowledged. Sample counts for 'tested' are compiler-internal (stored in sidecar .verified.json, not in surface syntax)." }
+      },
+      "examples": [
+        { "kind": "trust", "target": "crypto.hash.pbkdf2", "level": "asserted" },
+        { "kind": "trust", "target": "auth.verify-token", "level": "tested" }
+      ]
     }
 
   },

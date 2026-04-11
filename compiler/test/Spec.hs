@@ -9,11 +9,13 @@ import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
-import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch)
+import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
 import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
+import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts)
+import LLMLL.VerifiedCache (verifiedPath)
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Aeson (encode, decode, Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
@@ -1192,3 +1194,98 @@ main = hspec $ do
       length infos `shouldBe` 3
       map poiKind infos `shouldBe` ["replace", "remove", "add"]
       map poiIndex infos `shouldBe` [1, 2, 3]
+
+  -- =========================================================================
+  -- v0.3: Stratified Verification tests
+  -- =========================================================================
+
+  describe "VerificationLevel Ord" $ do
+    it "VLAsserted < VLTested" $
+      compare VLAsserted (VLTested 50) `shouldBe` LT
+
+    it "VLTested < VLProven" $
+      compare (VLTested 100) (VLProven "z3") `shouldBe` LT
+
+    it "VLTested 50 == VLTested 1000 (sample count ignored)" $
+      compare (VLTested 50) (VLTested 1000) `shouldBe` EQ
+
+    it "VLProven z3 == VLProven leanstral (prover name ignored)" $
+      compare (VLProven "z3") (VLProven "leanstral") `shouldBe` EQ
+
+    it "VLAsserted < VLProven" $
+      compare VLAsserted (VLProven "z3") `shouldBe` LT
+
+  describe "ContractsMode: instrumentStatement" $ do
+    let mkDefLogic name preE postE bodyE =
+          SDefLogic name [("x", TInt)] Nothing
+            (Contract preE postE) bodyE
+        mkLetrec name preE postE bodyE =
+          SLetrec name [("n", TInt)] Nothing
+            (Contract preE postE) (EVar "n") bodyE
+        hasPre  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+        hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+        body    = EVar "x"
+        defaultCS = ContractStatus Nothing Nothing
+        provenCS  = ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3"))
+        mixedCS   = ContractStatus (Just (VLProven "z3")) (Just VLAsserted)
+
+    it "ContractsFull keeps all contracts (SDefLogic)" $ do
+      let stmt = mkDefLogic "f" hasPre hasPost body
+          result = instrumentStatement ContractsFull defaultCS stmt
+      defLogicContract result `shouldBe` Contract Nothing Nothing
+      -- body should be wrapped (not the original)
+      defLogicBody result `shouldNotBe` body
+
+    it "ContractsFull keeps all contracts (SLetrec)" $ do
+      let stmt = mkLetrec "g" hasPre hasPost body
+          result = instrumentStatement ContractsFull defaultCS stmt
+      letrecContract result `shouldBe` Contract Nothing Nothing
+
+    it "ContractsNone strips all contracts" $ do
+      let stmt = mkDefLogic "f" hasPre hasPost body
+          result = instrumentStatement ContractsNone defaultCS stmt
+      -- ContractsNone returns stmt unchanged
+      result `shouldBe` stmt
+
+    it "ContractsUnproven strips proven pre, keeps asserted post" $ do
+      let stmt = mkDefLogic "f" hasPre hasPost body
+          result = instrumentStatement ContractsUnproven mixedCS stmt
+      defLogicContract result `shouldBe` Contract Nothing Nothing
+      -- The body should still be instrumented (post is unproven)
+      defLogicBody result `shouldNotBe` body
+
+  describe "parseTrustDecl (S-expression)" $ do
+    it "parses (trust foo.bar :level tested)" $ do
+      case parseStatements "<test>" "(trust foo.bar :level tested)" of
+        Right [STrust target level] -> do
+          target `shouldBe` "foo.bar"
+          vlTier level `shouldBe` 1
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "parses (trust crypto.hash.pbkdf2 :level asserted)" $ do
+      case parseStatements "<test>" "(trust crypto.hash.pbkdf2 :level asserted)" of
+        Right [STrust target level] -> do
+          target `shouldBe` "crypto.hash.pbkdf2"
+          level `shouldBe` VLAsserted
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "parses (trust z3.verify :level proven)" $ do
+      case parseStatements "<test>" "(trust z3.verify :level proven)" of
+        Right [STrust target level] -> do
+          target `shouldBe` "z3.verify"
+          vlTier level `shouldBe` 2
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+  describe "mkTrustGapWarning" $ do
+    it "produces a warning with trust-gap kind" $ do
+      let d = mkTrustGapWarning "foo.bar" "asserted" "/statements/0"
+      diagSeverity d `shouldBe` SevWarning
+      diagKind d `shouldBe` Just "trust-gap"
+      diagPointer d `shouldBe` Just "/statements/0"
+
+  describe "VerifiedCache: verifiedPath" $ do
+    it "foo.llmll -> foo.llmll.verified.json" $
+      verifiedPath "foo.llmll" `shouldBe` "foo.llmll.verified.json"
+
+    it "path/to/bar.ast.json -> path/to/bar.ast.json.verified.json" $
+      verifiedPath "path/to/bar.ast.json" `shouldBe` "path/to/bar.ast.json.verified.json"

@@ -93,13 +93,21 @@ When module B imports module A and calls a function whose contract is `tested` o
   Your module inherits this trust gap.
 ```
 
-The downstream module can acknowledge the gap explicitly:
+The downstream module can acknowledge the gap with a **per-function `(trust ...)` declaration** — one declaration per function, like `import`:
 
 ```lisp
-(trust foo.bar.withdraw :level asserted)
+;; Each trust gap is acknowledged individually
+(trust crypto.hash.pbkdf2 :level asserted)
+(trust auth.verify-token  :level tested)
 ```
 
-This silences the warning and makes the trust decision visible in source. An agent auditing module B can enumerate all `(trust ...)` declarations to see which unproven contracts it depends on.
+This follows the `import` model (one declaration per function), not the `export` model (single list). Rationale:
+
+- **Grep-able:** `grep '(trust' module.llmll` gives one line per acknowledged dependency.
+- **Extensible:** future versions can add per-declaration metadata (e.g., `:reason "..."`  without restructuring.
+- **Merge-friendly:** two agents independently acknowledging the same gap produce identical lines.
+
+**Idempotency:** Declaring `(trust ...)` twice for the same function is not an error — the duplicate is silently ignored. This prevents merge conflicts when multiple agents acknowledge the same trust gap.
 
 `(trust ...)` declarations must appear in the import block (same ordering rules as `import`, `open`, `export`).
 ```
@@ -116,18 +124,29 @@ Add an entry under v0.3 (in development):
 
 ---
 
-## Open Questions for Review
+## Resolved Questions
 
-> [!WARNING]
-> **Granularity of `tested` level.** Should `tested` carry a sample count (e.g., `tested(1000)`) to distinguish high-coverage testing from minimal coverage? The professor raised this; deferring to v0.4 seems reasonable, but the `VerificationLevel` enum design should leave room for future refinement (e.g., `Tested { sampleCount :: Int }` rather than a bare tag).
-
-> [!IMPORTANT]
-> **`(trust ...)` syntax.** The proposed `(trust foo.bar.withdraw :level asserted)` form is new surface syntax. It needs:
+> [!NOTE]
+> **RESOLVED: `(trust ...)` declaration style.**
+> Decision: **Per-function, multiple declarations** (like `import`), not a single list (like `export`). Declarations are idempotent — duplicates are silently ignored. This needs:
 > - A grammar rule in §12
 > - A JSON-AST node kind in the schema
 > - Parser support
 >
 > This is a cross-team dependency — the language team defines the syntax; the compiler team implements it.
+
+> [!NOTE]
+> **RESOLVED: `tested(N)` sample counts.**
+> Decision: **Compiler-internal only for v0.3.** The surface syntax uses bare `tested` — no count.
+>
+> | Layer | Sample count visible? |
+> |-------|-----------------------|
+> | Surface syntax (`.llmll`) | No — `(trust foo :level tested)` |
+> | `(trust ...)` parser | Maps to `VLTested 0` (sentinel: "any count accepted") |
+> | Sidecar `.verified.json` | **Yes** — `{"level": "tested", "samples": 1000}` |
+> | `llmll verify --json` output | **Yes** — diagnostic includes sample count |
+>
+> The compiler's `VerificationLevel` Haskell type carries `VLTested { vlSamples :: Int }` internally. The parser does not expose this to authors.
 
 ---
 
