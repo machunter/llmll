@@ -10,6 +10,7 @@
 -- Versioning policy: docs/json-ast-versioning.md
 module LLMLL.ParserJSON
   ( parseJSONAST
+  , parseJSONASTValue
   , expectedSchemaVersion
   ) where
 
@@ -70,6 +71,17 @@ parseJSONAST fp bs =
       | "schema-version-mismatch" `T.isInfixOf` msg = "schema-version-mismatch"
       | otherwise = "json-decode-error"
 
+-- | Parse a JSON Value (already decoded) into statements.
+-- Returns multi-error diagnostics for agent round-trip efficiency.
+parseJSONASTValue :: Value -> Either [Diagnostic] [Statement]
+parseJSONASTValue val =
+  case parseEither (parseProgram "<patch>") val of
+    Left msg -> Left [(mkError Nothing (T.pack msg))
+      { diagKind = Just "json-decode-error"
+      , diagCode = Just "E011"
+      }]
+    Right stmts -> Right stmts
+
 -- ---------------------------------------------------------------------------
 -- Program-level decoder
 -- ---------------------------------------------------------------------------
@@ -109,6 +121,8 @@ parseStatement = withObject "Statement" $ \o -> do
     -- v0.2 module system
     "open"         -> parseOpenDecl o
     "export"       -> parseExportDecl o
+    -- v0.3 stratified verification
+    "trust"        -> parseTrustDecl o
     _              -> fail $ "unknown Statement kind: " ++ T.unpack kind
 
 parseDefLogic :: Object -> Parser Statement
@@ -243,6 +257,19 @@ parseExportDecl :: Object -> Parser Statement
 parseExportDecl o = do
   names <- o .: "names" :: Parser [Name]
   pure $ SExport names
+
+-- | Parse a trust declaration from JSON-AST.
+-- { "kind": "trust", "target": "crypto.hash.pbkdf2", "level": "asserted" }
+parseTrustDecl :: Object -> Parser Statement
+parseTrustDecl o = do
+  target <- o .: "target" :: Parser Name
+  lvl    <- o .: "level"  :: Parser Text
+  vl <- case lvl of
+    "proven"   -> pure $ VLProven ""
+    "tested"   -> pure $ VLTested 0
+    "asserted" -> pure VLAsserted
+    _          -> fail $ "unknown trust level: " ++ T.unpack lvl
+  pure $ STrust target vl
 
 parseDefMain :: Object -> Parser Statement
 parseDefMain o = do

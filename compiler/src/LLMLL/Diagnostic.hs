@@ -27,6 +27,11 @@ module LLMLL.Diagnostic
   , mkNonExhaustiveMatch
   , reportDiagnostics
   , reportSuccess
+  -- * v0.3: Patch diagnostic rebasing
+  , PatchOpInfo(..)
+  , rebaseToPatch
+  -- * v0.3: Stratified verification
+  , mkTrustGapWarning
   ) where
 
 import Data.Text (Text)
@@ -89,6 +94,50 @@ mkWarning sp msg = Diagnostic SevWarning sp msg Nothing Nothing Nothing Nothing 
 mkInfo :: Maybe Span -> Text -> Diagnostic
 mkInfo sp msg = Diagnostic SevInfo sp msg Nothing Nothing Nothing Nothing Nothing False Nothing Nothing Nothing
 
+-- ---------------------------------------------------------------------------
+-- v0.3: Patch diagnostic rebasing
+-- ---------------------------------------------------------------------------
+
+-- | Metadata for a single mutation patch op. Test ops are excluded because
+-- they cannot introduce type errors.
+data PatchOpInfo = PatchOpInfo
+  { poiIndex :: Int    -- ^ 0-based index in the patch array
+  , poiPath  :: Text   -- ^ RFC 6901 pointer targeted by this op
+  , poiKind  :: Text   -- ^ "replace" | "add" | "remove"
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON PatchOpInfo where
+  toJSON poi = object
+    [ "index" .= poiIndex poi
+    , "path"  .= poiPath poi
+    , "kind"  .= poiKind poi
+    ]
+
+-- | Rebase diagnostic pointers relative to patch operations.
+-- Only mutation ops (replace/add/remove) can introduce type errors; test cannot.
+--
+-- Algorithm (reverse precedence — last matching op wins):
+--   for each op in ops (reversed):
+--     if diag.pointer starts with op.path:
+--       suffix = diag.pointer - op.path
+--       diag.pointer = "patch-op/" <> show op.index <> suffix
+--       return diag
+--   return diag unchanged (error in pre-existing code)
+rebaseToPatch :: [PatchOpInfo] -> Diagnostic -> Diagnostic
+rebaseToPatch ops diag = case diagPointer diag of
+  Nothing  -> diag
+  Just ptr -> case findMatchingOp (reverse ops) ptr of
+    Nothing  -> diag  -- error not in any patched subtree
+    Just (poi, suffix) ->
+      diag { diagPointer = Just ("patch-op/" <> T.pack (show (poiIndex poi)) <> suffix) }
+  where
+    findMatchingOp [] _ = Nothing
+    findMatchingOp (poi:rest) ptr
+      | poiPath poi == ptr = Just (poi, "")  -- exact match
+      | (poiPath poi <> "/") `T.isPrefixOf` ptr =
+          Just (poi, T.drop (T.length (poiPath poi)) ptr)
+      | otherwise = findMatchingOp rest ptr
+
 -- | Smart constructor for diagnostics with a JSON Pointer and kind class.
 -- Used by ParserJSON and the hole density validator.
 mkErrorAt :: Text   -- ^ kind (e.g. \"type-mismatch\")
@@ -142,6 +191,17 @@ mkOpenShadowWarning name shadowedBy prevFrom =
   let msg = "open-shadow-warning: '" <> name <> "' from " <> prevFrom
             <> " is shadowed by " <> shadowedBy
   in (mkWarning Nothing msg) { diagKind = Just "open-shadow-warning" }
+
+-- | v0.3: Cross-module call to a function with an unproven contract.
+mkTrustGapWarning :: Text -> Text -> Text -> Diagnostic
+mkTrustGapWarning funcName level pointer =
+  let msg = "Function " <> funcName <> " has an unproven contract (level: "
+            <> level <> "). Your module inherits this trust gap. "
+            <> "Silence with: (trust " <> funcName <> " :level " <> level <> ")"
+  in (mkWarning Nothing msg)
+       { diagKind = Just "trust-gap"
+       , diagPointer = Just pointer
+       }
 
 -- ---------------------------------------------------------------------------
 -- Phase 2b: Static Analysis Diagnostics

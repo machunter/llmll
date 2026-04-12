@@ -33,6 +33,14 @@ library
       LLMLL.DiagnosticFQ
       LLMLL.Serve
       LLMLL.Sketch
+      LLMLL.JsonPointer
+      LLMLL.Checkout
+      LLMLL.PatchApply
+      LLMLL.VerifiedCache
+      LLMLL.Replay
+      LLMLL.LeanTranslate
+      LLMLL.MCPClient
+      LLMLL.ProofCache
   other-modules:
       Main
       Paths_llmll
@@ -54,6 +62,7 @@ library
     , base >=4.18 && <5
     , bytestring >=0.11
     , containers >=0.6
+    , cryptohash-sha256
     , directory >=1.3
     , filepath >=1.4
     , http-types >=0.12
@@ -67,6 +76,7 @@ library
     , random >=1.2
     , tar >=0.5
     , text >=2.0
+    , time >=1.12
     , unix >=2.7
     , vector >=0.13
     , wai >=3.2
@@ -78,6 +88,7 @@ executable llmll
   main-is: Main.hs
   other-modules:
       LLMLL.AstEmit
+      LLMLL.Checkout
       LLMLL.CodegenHs
       LLMLL.Contracts
       LLMLL.Diagnostic
@@ -86,15 +97,22 @@ executable llmll
       LLMLL.FixpointIR
       LLMLL.HoleAnalysis
       LLMLL.Hub
+      LLMLL.JsonPointer
+      LLMLL.LeanTranslate
       LLMLL.Lexer
+      LLMLL.MCPClient
       LLMLL.Module
       LLMLL.Parser
       LLMLL.ParserJSON
+      LLMLL.PatchApply
       LLMLL.PBT
+      LLMLL.ProofCache
+      LLMLL.Replay
       LLMLL.Serve
       LLMLL.Sketch
       LLMLL.Syntax
       LLMLL.TypeCheck
+      LLMLL.VerifiedCache
       Paths_llmll
   hs-source-dirs:
       src
@@ -114,6 +132,7 @@ executable llmll
     , base >=4.18 && <5
     , bytestring >=0.11
     , containers >=0.6
+    , cryptohash-sha256
     , directory >=1.3
     , filepath >=1.4
     , http-types >=0.12
@@ -128,6 +147,7 @@ executable llmll
     , random >=1.2
     , tar >=0.5
     , text >=2.0
+    , time >=1.12
     , unix >=2.7
     , vector >=0.13
     , wai >=3.2
@@ -153,11 +173,12 @@ test-suite llmll-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
   build-depends:
       QuickCheck
-    , aeson >=2.1
+    , aeson
     , aeson-pretty >=0.8
     , base >=4.18 && <5
     , bytestring >=0.11
     , containers >=0.6
+    , cryptohash-sha256
     , directory >=1.3
     , filepath >=1.4
     , hspec >=2.11
@@ -174,6 +195,7 @@ test-suite llmll-test
     , random >=1.2
     , tar >=0.5
     , text >=2.0
+    , time >=1.12
     , unix >=2.7
     , vector >=0.13
     , wai >=3.2

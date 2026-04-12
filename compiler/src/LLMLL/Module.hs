@@ -40,6 +40,7 @@ import LLMLL.Diagnostic
 import LLMLL.TypeCheck (typeCheck, emptyEnv, TypeEnv)
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
+import LLMLL.VerifiedCache (loadVerified)
 
 -- ---------------------------------------------------------------------------
 -- Module path utilities
@@ -173,7 +174,12 @@ loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
                 (\imp -> Map.lookup (splitDotted (importPath imp)) cache1) imports
               baseEnv = mergeModuleEnvs importedEnvs emptyEnv
               report  = typeCheck baseEnv stmts
-              env     = buildModuleEnv modPath stmts baseEnv
+              env0    = buildModuleEnv modPath stmts baseEnv
+          -- v0.3: merge sidecar .verified.json to upgrade contract statuses
+          sidecar <- loadVerified fp
+          let env = if Map.null sidecar
+                then env0
+                else env0 { meContractStatus = Map.unionWith mergeCS sidecar (meContractStatus env0) }
               cache2  = Map.insert modPath env cache1
               -- Post-order: append THIS module after all its dependencies
               order2  = depOrder ++ [modPath]
@@ -230,20 +236,52 @@ buildModuleEnv path stmts _env =
       filteredExports = case mExportDecl of
         Nothing -> allExports
         Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) allExports
+      -- v0.3: default all contracts to VLAsserted
+      contractStats = Map.fromList $ mapMaybe extractContractStatus stmts
   in ModuleEnv
-       { meExports    = filteredExports
-       , meStatements = stmts
-       , meInterfaces = ifaceMap
-       , meAliasMap   = aliasMap'
-       , mePath       = path
+       { meExports        = filteredExports
+       , meStatements     = stmts
+       , meInterfaces     = ifaceMap
+       , meAliasMap       = aliasMap'
+       , mePath           = path
+       , meContractStatus = contractStats
        }
   where
     toExport (SDefLogic name params mRet _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
+    toExport (SLetrec name params mRet _ _ _) =
+      let retType = fromMaybe (TVar "?") mRet
+      in Just (name, TFn (map snd params) retType)
     toExport (SDefInterface name _) = Just (name, TCustom name)
     toExport (STypeDef name body)   = Just (name, body)
     toExport _                      = Nothing
+
+    -- v0.3: build default contract status (VLAsserted for any clause that exists)
+    extractContractStatus (SDefLogic name _ _ contract _) = mkCS name contract
+    extractContractStatus (SLetrec name _ _ contract _ _) = mkCS name contract
+    extractContractStatus _ = Nothing
+
+    mkCS name contract
+      | contractPre contract /= Nothing || contractPost contract /= Nothing =
+          Just (name, ContractStatus
+            { csPreLevel  = fmap (const VLAsserted) (contractPre contract)
+            , csPostLevel = fmap (const VLAsserted) (contractPost contract)
+            })
+      | otherwise = Nothing
+
+-- | Merge sidecar contract status: take the higher-tier level for each clause.
+-- Sidecar can upgrade (asserted → proven), but buildModuleEnv defaults remain
+-- if the sidecar is missing a clause.
+mergeCS :: ContractStatus -> ContractStatus -> ContractStatus
+mergeCS sidecar base = ContractStatus
+  { csPreLevel  = pickHigher (csPreLevel sidecar) (csPreLevel base)
+  , csPostLevel = pickHigher (csPostLevel sidecar) (csPostLevel base)
+  }
+  where
+    pickHigher (Just a) (Just b) = Just (max a b)
+    pickHigher a        Nothing  = a
+    pickHigher Nothing  b        = b
 
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = Nothing

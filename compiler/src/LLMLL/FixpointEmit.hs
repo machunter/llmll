@@ -12,6 +12,13 @@
 --
 -- Non-linear sites (HProofRequired holes from D3) are skipped — the compiler
 -- already flagged them; the verifier simply omits them from the .fq output.
+--
+-- FAITHFULNESS INVARIANT (v0.3):
+-- This module's output is trusted by --contracts=unproven. If emitFixpoint
+-- reports SAFE for a contract, the runtime assertion for that contract must
+-- be semantically redundant for all well-typed inputs. Any extension to
+-- exprToPred must preserve this invariant: never translate a contract to a
+-- weaker .fq constraint that the solver accepts trivially.
 
 module LLMLL.FixpointEmit
   ( emitFixpoint

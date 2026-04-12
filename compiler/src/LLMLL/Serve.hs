@@ -22,8 +22,9 @@ module LLMLL.Serve
   ) where
 
 import Control.Monad (when)
-import Data.Aeson (encode, object, (.=), Value)
+import Data.Aeson (encode, object, (.=), Value(..))
 import qualified Data.Aeson as A
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -51,6 +52,8 @@ import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch)
 import LLMLL.Diagnostic (DiagnosticReport(..), Diagnostic(..))
 import LLMLL.Sketch (encodeSketchResult, SketchResult(..))
 import LLMLL.Syntax (Statement)
+import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
+import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), PatchRequest(..))
 
 -- ---------------------------------------------------------------------------
 -- Options
@@ -211,10 +214,13 @@ router req respond = do
   let path   = rawPathInfo req
       method = requestMethod req
   response <- case (method, path) of
-    ("GET",  "/health")    -> handleHealth
-    ("POST", "/typecheck") -> handleTypecheck req
-    ("POST", "/sketch")    -> handleSketch req
-    _                      -> pure respond404
+    ("GET",  "/health")            -> handleHealth
+    ("POST", "/typecheck")         -> handleTypecheck req
+    ("POST", "/sketch")            -> handleSketch req
+    ("POST", "/checkout")          -> handleCheckout req
+    ("POST", "/checkout/release")  -> handleCheckoutRelease req
+    ("POST", "/patch")             -> handlePatch req
+    _                              -> pure respond404
   respond response
 
 -- ---------------------------------------------------------------------------
@@ -245,3 +251,86 @@ runServe opts = do
   -- Use run (port only); host restriction is via --host flag + reverse proxy (per D5 spec).
   -- Default Warp binding: all interfaces. Security enforced by auth token.
   run port app
+
+-- ---------------------------------------------------------------------------
+-- v0.3: Checkout/Patch Handlers
+-- ---------------------------------------------------------------------------
+
+-- | POST /checkout — body: { "file": "<absolute-path>", "pointer": "..." }
+handleCheckout :: Request -> IO Response
+handleCheckout req = do
+  bodyE <- readBodyLimited req
+  case bodyE of
+    Left _  -> pure respond413
+    Right raw ->
+      case A.decode raw of
+        Nothing -> pure $ respond400 "invalid JSON body"
+        Just val -> case parseCheckoutBody val of
+          Left err -> pure $ respond400 err
+          Right (fp, ptr) -> do
+            fileRaw <- BL.readFile fp
+            case A.decode fileRaw of
+              Nothing -> pure $ respond400 ("cannot parse " <> T.pack fp <> " as JSON")
+              Just astVal -> do
+                result <- checkoutHole fp astVal ptr
+                case result of
+                  Left diag -> pure $ respond400 (diagMessage diag)
+                  Right ct  -> pure $ respondOK (encode ct)
+
+-- | POST /checkout/release — body: { "file": "...", "token": "..." }
+handleCheckoutRelease :: Request -> IO Response
+handleCheckoutRelease req = do
+  bodyE <- readBodyLimited req
+  case bodyE of
+    Left _  -> pure respond413
+    Right raw ->
+      case A.decode raw of
+        Nothing -> pure $ respond400 "invalid JSON body"
+        Just val -> case parseReleaseBody val of
+          Left err -> pure $ respond400 err
+          Right (fp, tok) -> do
+            result <- releaseHole fp tok
+            case result of
+              Left diag -> pure $ respond400 (diagMessage diag)
+              Right ()  -> pure $ respondOK (encode (A.object ["released" A..= True]))
+
+-- | POST /patch — body: { "file": "...", "token": "...", "patch": [...] }
+handlePatch :: Request -> IO Response
+handlePatch req = do
+  bodyE <- readBodyLimited req
+  case bodyE of
+    Left _  -> pure respond413
+    Right raw ->
+      case A.decode raw of
+        Nothing -> pure $ respond400 "invalid JSON body"
+        Just val -> case parsePatchBody val of
+          Left err -> pure $ respond400 err
+          Right (fp, pr) -> do
+            result <- applyPatch fp pr
+            pure $ respondOK (encode result)
+
+-- Body parsers for the HTTP handlers
+parseCheckoutBody :: Value -> Either T.Text (FilePath, T.Text)
+parseCheckoutBody (Object o) = do
+  fp  <- maybe (Left "missing 'file' field") extractStr (KM.lookup "file" o)
+  ptr <- maybe (Left "missing 'pointer' field") extractStr (KM.lookup "pointer" o)
+  Right (T.unpack fp, ptr)
+parseCheckoutBody _ = Left "body must be a JSON object"
+
+parseReleaseBody :: Value -> Either T.Text (FilePath, T.Text)
+parseReleaseBody (Object o) = do
+  fp  <- maybe (Left "missing 'file' field") extractStr (KM.lookup "file" o)
+  tok <- maybe (Left "missing 'token' field") extractStr (KM.lookup "token" o)
+  Right (T.unpack fp, tok)
+parseReleaseBody _ = Left "body must be a JSON object"
+
+parsePatchBody :: Value -> Either T.Text (FilePath, PatchRequest)
+parsePatchBody val@(Object o) = do
+  fp <- maybe (Left "missing 'file' field") extractStr (KM.lookup "file" o)
+  pr <- parsePatchRequest val
+  Right (T.unpack fp, pr)
+parsePatchBody _ = Left "body must be a JSON object"
+
+extractStr :: Value -> Either T.Text T.Text
+extractStr (String s) = Right s
+extractStr _          = Left "field must be a string"

@@ -49,6 +49,8 @@ dependencies:
   - warp >= 3.3        # D5: HTTP server
   - wai >= 3.2         # D5: WAI application interface
   - http-types >= 0.12 # D5: HTTP status codes + headers
+  - time >= 1.12       # v0.3: checkout lock timestamps
+  - cryptohash-sha256  # v0.3.1: proof cache obligation hashing
 
 library:
   source-dirs: src
@@ -74,6 +76,18 @@ library:
     - LLMLL.Serve
     # D5: Sketch output contract
     - LLMLL.Sketch
+    # v0.3: checkout/patch lifecycle
+    - LLMLL.JsonPointer
+    - LLMLL.Checkout
+    - LLMLL.PatchApply
+    # v0.3: stratified verification
+    - LLMLL.VerifiedCache
+    # v0.3.1: event log
+    - LLMLL.Replay
+    # v0.3.1: leanstral MCP
+    - LLMLL.LeanTranslate
+    - LLMLL.MCPClient
+    - LLMLL.ProofCache
 
 executables:
   llmll:
@@ -91,3 +105,5 @@ tests:
       - hspec >= 2.11
       - hspec-megaparsec >= 2.2
       - QuickCheck
+      - aeson
+      - time >= 1.12

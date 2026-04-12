@@ -27,6 +27,12 @@ module LLMLL.CodegenHs
     -- * Import classification (re-exported for Main.hs)
   , ImportKind(..)
   , classifyImport
+    -- * Internals (exported for test coverage)
+  , emitExpr
+  , toHsType
+  , emitHole
+    -- * Event Log (v0.3.1)
+  , emitEventLogPreamble
   ) where
 
 import Data.Text (Text)
@@ -148,6 +154,8 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   , "import qualified Data.Map.Strict as Map"
   , "import System.IO (hPutStr, stderr)"
   , "import Test.QuickCheck (quickCheck, property)"
+  , "import qualified Control.Concurrent.Async as Async"
+  , "import Control.Exception (try, SomeException)"
   , ""
   , "-- ---------------------------------------------------------------------------"
   , "-- §13 Runtime Preamble — always in scope"
@@ -477,7 +485,11 @@ emitExpr (EOp op args)     = emitOp op args
 emitExpr (EMatch scrut cs) = emitMatch scrut cs
 emitExpr (ELambda ps body) =
   "(\\" <> T.unwords (map (toHsIdent . fst) ps) <> " -> " <> emitExpr body <> ")"
-emitExpr (EAwait e)        = emitExpr e  -- IO t in v0.1.2; await is a no-op wrapper
+emitExpr (EAwait e)        =
+  -- v0.3 §3.2: exception-safe await returning Result[t, DelegationError]
+  "(do { r_ <- try (Async.wait " <> emitExpr e <> "); "
+  <> "case r_ of { Left (e_ :: SomeException) -> pure (Left (show e_)); "
+  <> "Right v_ -> pure (Right v_) } })"
 emitExpr (EDo steps)       = emitDo steps
 emitExpr (EHole hk)        = emitHole hk
 
@@ -584,6 +596,7 @@ emitHole (HDelegateAsync s)= "( error (\"delegate-async: \" ++ " <> T.pack (show
 emitHole (HDelegatePending _) = "( error \"delegate-pending: blocking hole\" )"
 -- D3: proof-required holes compile to an explicit error stub — the LH pipeline validates this site
 emitHole (HProofRequired r) = "( error \"PROOF REQUIRED [" <> r <> "]: add LiquidHaskell annotation\" )"
+emitHole (HScaffold spec)  = "( error (\"scaffold: \" ++ " <> T.pack (show (T.unpack (scaffoldTemplate spec))) <> ") )"
 emitHole _                 = "( error \"unresolved hole\" )"
 
 -- ---------------------------------------------------------------------------
@@ -637,7 +650,7 @@ toHsType (TList t)         = "[" <> toHsType t <> "]"
 toHsType (TMap k v)        = "(Map.Map " <> toHsType k <> " " <> toHsType v <> ")"
 toHsType (TResult t e)     = "(Either " <> toHsType e <> " " <> toHsType t <> ")"
 toHsType (TPair a b)       = "(" <> toHsType a <> ", " <> toHsType b <> ")"  -- PR 1: pair tuple
-toHsType (TPromise t)      = "(IO " <> toHsType t <> ")"
+toHsType (TPromise t)      = "(Async.Async " <> toHsType t <> ")"
 toHsType (TFn args ret)    =
   T.intercalate " -> " (map toHsType args ++ [toHsType ret])
 toHsType (TDependent _ b _)  = toHsType b
@@ -652,6 +665,43 @@ toHsType (TCustom n)       = toHsIdent n
 toHsType (TSumType ctors)  = T.intercalate "_or_" (map (toHsIdent . fst) ctors)
 
 -- ---------------------------------------------------------------------------
+-- Event Log helpers emitted into generated Main.hs (v0.3.1)
+-- ---------------------------------------------------------------------------
+
+-- | Preamble functions emitted into the generated Main.hs for event logging.
+--   Provides: headerJsonL, eventJsonL (with escape), captureStdout.
+emitEventLogPreamble :: [Text]
+emitEventLogPreamble =
+  [ "-- Event Log (v0.3.1 §10a)"
+  , "headerJsonL :: String -> String"
+  , "headerJsonL m = \"{\\\"type\\\":\\\"header\\\",\\\"version\\\":\\\"0.3.1\\\",\\\"module\\\":\\\"\" ++ m ++ \"\\\"}\""
+  , ""
+  , "eventJsonL :: Int -> String -> String -> String -> String -> String"
+  , "eventJsonL sq ik iv rk rv ="
+  , "  \"{\\\"type\\\":\\\"event\\\",\\\"seq\\\":\" ++ show sq"
+  , "  ++ \",\\\"input\\\":{\\\"kind\\\":\\\"\" ++ ik ++ \"\\\",\\\"value\\\":\\\"\" ++ esc iv"
+  , "  ++ \"\\\"},\\\"result\\\":{\\\"kind\\\":\\\"\" ++ rk ++ \"\\\",\\\"value\\\":\\\"\" ++ esc rv"
+  , "  ++ \"\\\"},\\\"captures\\\":[]}\""
+  , "  where esc = concatMap (\\\\c -> if c == '\"' then \"\\\\\\\"\" else if c == '\\\\n' then \"\\\\n\" else [c])"
+  , ""
+  , "captureStdout :: IO () -> IO String"
+  , "captureStdout action = do"
+  , "  oldStdout <- hDuplicate stdout"
+  , "  (readFd, writeFd) <- createPipe"
+  , "  writeEnd <- fdToHandle writeFd"
+  , "  hDupTo writeEnd stdout"
+  , "  action"
+  , "  hFlush stdout"
+  , "  hDupTo oldStdout stdout"
+  , "  hClose writeEnd"
+  , "  readEnd <- fdToHandle readFd"
+  , "  output <- hGetContents readEnd"
+  , "  length output `seq` pure ()   -- force lazy I/O (professor flag #1)"
+  , "  putStr output"
+  , "  pure output"
+  ]
+
+-- ---------------------------------------------------------------------------
 -- src/Main.hs harness
 -- ---------------------------------------------------------------------------
 
@@ -663,20 +713,27 @@ emitMainHs modName stmts =
       [ "module Main where"
       , "import Lib"
       , "import System.Environment (getArgs)"
-      , "import System.IO (hSetBuffering, BufferMode(..), hIsEOF, stdin, stdout)"
+      , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, IOMode(..), BufferMode(..), stdin, stdout)"
+      , "import Data.IORef (newIORef, readIORef, modifyIORef')"
+      , "import GHC.IO.Handle (hDuplicate, hDupTo)"
+      , "import System.Posix.IO (createPipe, fdToHandle)"
       , ""
-      ] ++ emitMainBody modName dm
+      ] ++ emitEventLogPreamble ++ [""] ++ emitMainBody modName dm
 
 emitMainBody :: Text -> Statement -> [Text]
-emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainInit = mInit, defMainDone = mDone, defMainOnDone = mOnDone} =
+emitMainBody modName SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainInit = mInit, defMainDone = mDone, defMainOnDone = mOnDone} =
   [ "main :: IO ()"
   , "main = do"
   , "  hSetBuffering stdin LineBuffering"
   , "  hSetBuffering stdout NoBuffering"
+  , "  logHandle <- openFile \"" <> modName <> ".event-log.jsonl\" WriteMode"
+  , "  hPutStrLn logHandle (headerJsonL \"" <> modName <> "\")"
+  , "  seqRef <- newIORef (0 :: Int)"
   , initBlock
-  , "  loop state0"
+  , "  loop state0 logHandle seqRef"
+  , "  hClose logHandle"
   , "  where"
-  , "    loop s = do"
+  , "    loop s logHandle seqRef = do"
   ] ++ doneLines
   where
     -- init returns (state, IO ()) pair — destructure and execute the command
@@ -685,7 +742,7 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
       Just e  -> "  let (state0, initCmd) = " <> emitExpr e <> "\n  initCmd"
     stepCall (EVar n) = toHsIdent n
     stepCall e        = "(\\ s l -> " <> emitExpr e <> " s l)"
-    -- The inner loop body (eof check + step call).
+    -- The inner loop body (eof check + step call + event logging).
     -- 'ind' is the indentation prefix:
     --   6 spaces ("      ") when there is no :done? guard (body sits directly in `do`)
     --   8 spaces ("        ") when the body must sit inside an `else do` branch
@@ -693,17 +750,19 @@ emitMainBody _ SDefMain{defMainMode = ModeConsole, defMainStep = step, defMainIn
       [ ind <> "eof <- hIsEOF stdin"
       , ind <> "if eof then return () else do"
       , ind <> "  line <- getLine"
+      , ind <> "  seqN <- readIORef seqRef"
       , ind <> "  let (s', cmd) = " <> stepCall step <> " s line"
-      , ind <> "  cmd"
-      , ind <> "  loop s'"
+      , ind <> "  output <- captureStdout cmd"
+      , ind <> "  hPutStrLn logHandle (eventJsonL seqN \"stdin\" line \"stdout\" output)"
+      , ind <> "  hFlush logHandle"
+      , ind <> "  modifyIORef' seqRef (+1)"
+      , ind <> "  loop s' logHandle seqRef"
       ]
     -- Check done? at the TOP of the loop, before blocking on stdin.
     -- When :done? is absent the body is at 6-space indent (same level as `do`).
     -- When :done? is present the guard ends with `else do` and the body must be
     -- indented 2 extra spaces (8 total) to sit inside that branch.
-    -- Fixing this resolves the GHC-82311 "empty do block" error in S-expression
-    -- console programs. The JSON-AST path took the (Nothing,_) branch and was
-    -- never affected.
+    -- Professor flag #2: ALL loop call sites must pass logHandle + seqRef.
     doneLines = case (mDone, mOnDone) of
       (Nothing, _) ->
           "      let _done = False"   -- placeholder; never triggers
@@ -767,6 +826,7 @@ emitPackageYaml modName hasMain hackagePkgs = T.unlines $
   , "  - base >= 4.14"
   , "  - containers"
   , "  - QuickCheck"
+  , "  - async"
   ] ++
   map (\p -> "  - " <> p) (hackagePkgNames hackagePkgs) ++
   [ ""

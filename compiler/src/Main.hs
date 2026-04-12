@@ -12,18 +12,22 @@
 --   verify     — D4: emit .fq constraints + run liquid-fixpoint (if installed)
 --   typecheck  — Phase 2c: parse + type-check; --sketch infers hole types
 --   serve      — Phase 2c: HTTP endpoint for agent sketch queries (localhost:7777)
+--   checkout   — v0.3: lock a hole for exclusive editing
+--   patch      — v0.3: apply RFC 6902 JSON-Patch to a checked-out hole
 module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
 import System.Exit (exitFailure, exitSuccess, ExitCode(..))
-import System.FilePath (takeBaseName, (</>), takeExtension)
+import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import System.Process (readProcessWithExitCode)
 import Control.Monad (unless, forM_, when, foldM)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
-import Data.Aeson (encode, object, (.=))
+import Data.Aeson (Value, encode, object, (.=))
+import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Options.Applicative
 import qualified Data.Set as Set
@@ -31,10 +35,10 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..))
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), VerificationLevel(..), Name, Expr(..), HoleKind(..))
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
-import LLMLL.Hub (hubFetchLocal)
+import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HoleAnalysis
   ( analyzeHoles, HoleReport, HoleStatus(..)
   , totalHoles, blockingHoles, holeEntries
@@ -52,6 +56,16 @@ import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
+import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
+import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
+import LLMLL.Contracts (ContractsMode(..), applyContractsMode)
+import LLMLL.VerifiedCache (saveVerified, verifiedPath)
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
+import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
+import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
+import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
+import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
+import System.IO (hGetLine)
 
 import qualified Data.Map.Strict as Map
 
@@ -63,15 +77,28 @@ data Command
   = CmdCheck    FilePath
   | CmdHoles    FilePath
   | CmdTest     FilePath Bool                               -- file, --emit-only
-  | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool    -- file, outdir, --wasm, --emit-json-ast, --emit-only
+  | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool ContractsMode  -- file, outdir, --wasm, --emit-json-ast, --emit-only, --contracts
   | CmdBuildFromJson FilePath (Maybe FilePath) Bool         -- file, outdir, --emit-only
   | CmdRun      FilePath [String]                           -- file, extra args
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
-  | CmdVerify   FilePath (Maybe FilePath)                   -- D4: file, optional .fq output path
+  | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts     -- D4: file, optional .fq output path, leanstral opts
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
+  | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
+  | CmdCheckoutRelease FilePath String                      -- v0.3: checkout --release <file> <token>
+  | CmdCheckoutStatus  FilePath String                      -- v0.3: checkout --status <file> <token>
+  | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
+  | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
   deriving (Show)
+
+-- | Leanstral MCP options for the verify command (v0.3.1).
+data LeanstralOpts = LeanstralOpts
+  { lsMock    :: Bool           -- ^ --leanstral-mock: use mock prover
+  , lsCmd     :: Maybe FilePath -- ^ --leanstral-cmd: path to lean-lsp-mcp
+  , lsTimeout :: Int            -- ^ --leanstral-timeout: seconds (default 30)
+  } deriving (Show)
 
 data Options = Options
   { optCommand :: Command
@@ -104,13 +131,19 @@ optionsParser = info (helper <*> opts) $
       <> command "repl"  (info (pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
       <> command "hub"   (info hubCmd
-          (progDesc "Manage llmll-hub local package cache"))
+          (progDesc "Manage llmll-hub local package cache (fetch, scaffold)"))
       <> command "verify" (info verifyCmd
           (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
       <> command "typecheck" (info typecheckCmd
           (progDesc "Parse and type-check; with --sketch infer hole types from context (Phase 2c)"))
       <> command "serve" (info serveCmd
           (progDesc "D5: Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
+      <> command "checkout" (info checkoutCmd
+          (progDesc "v0.3: Lock a hole for exclusive editing (checkout/release/status)"))
+      <> command "patch" (info patchCmd
+          (progDesc "v0.3: Apply an RFC 6902 JSON-Patch to a checked-out hole"))
+      <> command "replay" (info replayCmd
+          (progDesc "v0.3.1: Replay an event log against a compiled program"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -123,6 +156,17 @@ optionsParser = info (helper <*> opts) $
       <*> switch (long "wasm" <> help "Run wasm-pack after generating (requires wasm-pack in PATH)")
       <*> switch (long "emit" <> help "Emit JSON-AST (.ast.json) instead of compiling to Haskell")
       <*> switch (long "emit-only" <> help "Write Haskell files but skip the internal stack build (avoids Stack lock deadlock)")
+      <*> contractsOpt
+
+    contractsOpt = option (eitherReader parseContractsMode)
+        (  long "contracts" <> value ContractsFull <> metavar "MODE"
+        <> help "v0.3: runtime assertion mode: full (default), unproven, none")
+
+    parseContractsMode :: String -> Either String ContractsMode
+    parseContractsMode "full"     = Right ContractsFull
+    parseContractsMode "unproven" = Right ContractsUnproven
+    parseContractsMode "none"     = Right ContractsNone
+    parseContractsMode s          = Left $ "unknown --contracts mode: " ++ s ++ " (expected: full, unproven, none)"
 
     buildJsonCmd = CmdBuildFromJson
       <$> fileArg
@@ -139,16 +183,40 @@ optionsParser = info (helper <*> opts) $
       <$> fileArg
       <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
 
-    hubCmd = CmdHub
+    hubCmd = hsubparser
+      (  command "fetch" (info hubFetchCmd
+           (progDesc "Install a .tar.gz package into the local hub cache"))
+      <> command "scaffold" (info hubScaffoldCmd
+           (progDesc "v0.3: Copy a scaffold template to the current directory"))
+      )
+
+    hubFetchCmd = CmdHub
       <$> strOption
             (long "from-file" <> metavar "TARBALL"
             <> help "Install a .tar.gz package into the local hub cache (~/.llmll/modules/)")
+
+    hubScaffoldCmd = CmdHubScaffold
+      <$> (T.pack <$> strArgument (metavar "TEMPLATE" <> help "Template name (e.g. todo-app, rest-api)"))
+      <*> optional (strOption
+            (short 'o' <> long "output" <> metavar "DIR"
+            <> help "Output directory (default: ./<template>/)"))
 
     verifyCmd = CmdVerify
       <$> fileArg
       <*> optional (strOption
             (short 'o' <> long "fq-out" <> metavar "FILE"
             <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
+      <*> leanstralOpts
+
+    leanstralOpts = LeanstralOpts
+      <$> switch (long "leanstral-mock"
+            <> help "Use mock Leanstral prover (returns 'by sorry')")
+      <*> optional (strOption
+            (long "leanstral-cmd" <> metavar "PATH"
+            <> help "Path to lean-lsp-mcp binary"))
+      <*> option auto
+            (long "leanstral-timeout" <> value 30 <> metavar "SECS"
+            <> help "Leanstral timeout in seconds (default: 30)")
 
     typecheckCmd = CmdTypecheck
       <$> fileArg
@@ -165,6 +233,25 @@ optionsParser = info (helper <*> opts) $
             (long "token" <> metavar "TOKEN"
              <> help "Bearer token (default: auto-generated); use \"\" to disable auth")))
 
+    checkoutCmd = mkCheckout
+      <$> strArgument (metavar "FILE" <> help "Path to .ast.json file")
+      <*> optional (strOption (long "release" <> metavar "TOKEN" <> help "Release a checkout lock"))
+      <*> optional (strOption (long "status" <> metavar "TOKEN" <> help "Query remaining TTL for a token"))
+      <*> optional (strArgument (metavar "POINTER" <> help "RFC 6901 pointer to hole (e.g. /statements/2/body)"))
+
+    mkCheckout fp (Just tok) _ _          = CmdCheckoutRelease fp tok
+    mkCheckout fp _ (Just tok) _          = CmdCheckoutStatus fp tok
+    mkCheckout fp _ _ (Just ptr)          = CmdCheckout fp ptr
+    mkCheckout fp _ _ Nothing             = CmdCheckout fp ""  -- will error in handler
+
+    patchCmd = CmdPatch
+      <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
+      <*> strArgument (metavar "PATCH" <> help "Path to patch-request.json")
+
+    replayCmd = CmdReplay
+      <$> strArgument (metavar "FILE" <> help "Path to .llmll source file")
+      <*> strArgument (metavar "LOG" <> help "Path to .event-log.jsonl file")
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -180,14 +267,20 @@ main = do
     CmdCheck fp               -> doCheck  json fp
     CmdHoles fp               -> doHoles  json fp
     CmdTest  fp emitOnly         -> doTest   json fp emitOnly
-    CmdBuild fp mOut wasm emitJson emitOnly -> doBuild  json fp mOut wasm emitJson emitOnly
+    CmdBuild fp mOut wasm emitJson emitOnly contracts -> doBuild json fp mOut wasm emitJson emitOnly contracts
     CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
-    CmdVerify fp mFqOut       -> doVerify json fp mFqOut
+    CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
+    CmdVerify fp mFqOut lsOpts -> doVerify json fp mFqOut lsOpts
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
+    CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
+    CmdCheckoutRelease fp tok -> doCheckoutRelease json fp (T.pack tok)
+    CmdCheckoutStatus fp tok  -> doCheckoutStatusCmd json fp (T.pack tok)
+    CmdPatch fp patchFp       -> doPatch json fp patchFp
+    CmdReplay fp logFp        -> doReplay json fp logFp
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -404,8 +497,10 @@ pbtResultJson fp r =
 -- build (Rust codegen + optional WASM)
 -- ---------------------------------------------------------------------------
 
-doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> IO ()
-doBuild json fp mOutDir doWasm emitJson emitOnly = do
+doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> ContractsMode -> IO ()
+doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
+  unless (json || contractsMode == ContractsFull) $
+    TIO.putStrLn $ "   --contracts=" <> T.pack (show contractsMode)
   -- Auto-detect JSON-AST files and delegate to the JSON build path.
   if takeExtension fp == ".json"
     then doBuildFromJson json fp mOutDir emitOnly
@@ -437,7 +532,11 @@ doBuild json fp mOutDir doWasm emitJson emitOnly = do
         Right (stmts, cache, loadOrder) -> do
           let modName      = T.pack $ takeBaseName fp
               importedEnvs = topoSortedEnvs cache loadOrder
-              result       = generateHaskellMulti modName importedEnvs stmts
+              -- v0.3: collect contract statuses and strip contracts per mode
+              allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
+                                Map.empty cache
+              filteredStmts = applyContractsMode contractsMode allCS stmts
+              result       = generateHaskellMulti modName importedEnvs filteredStmts
               outDir       = case mOutDir of
                                Just d  -> d
                                Nothing -> "generated/" <> T.unpack modName
@@ -736,11 +835,51 @@ doHubFetch json tarball = do
       exitSuccess
 
 -- ---------------------------------------------------------------------------
+-- v0.3: hub scaffold
+-- ---------------------------------------------------------------------------
+
+doHubScaffold :: Bool -> T.Text -> Maybe FilePath -> IO ()
+doHubScaffold json template mOutDir = do
+  mPath <- resolveScaffold template
+  case mPath of
+    Nothing -> do
+      let msg = "Template '" <> T.unpack template <> "' not found in ~/.llmll/templates/."
+      if json
+        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+               object ["success" .= False, "error" .= msg]
+        else do
+          hPutStrLn stderr msg
+          hPutStrLn stderr "Install with: llmll hub fetch --from-file <tarball>"
+      exitFailure
+    Just srcPath -> do
+      let outDir = fromMaybe (T.unpack template) mOutDir
+      createDirectoryIfMissing True outDir
+      -- Copy scaffold file
+      srcBytes <- BL.readFile srcPath
+      let outFile = outDir </> takeFileName srcPath
+      BL.writeFile outFile srcBytes
+      -- Parse and report holes
+      mStmts <- loadStatements json outFile
+      case mStmts of
+        Left () -> do
+          unless json $ TIO.putStrLn $ "   Scaffolded to " <> T.pack outDir <> " (parse errors — holes not analyzed)"
+          exitSuccess
+        Right stmts -> do
+          let report = analyzeHoles stmts
+          if json
+            then TIO.putStrLn (formatHoleReportJson outFile report)
+            else do
+              TIO.putStrLn $ "\x2705 Scaffolded '" <> template <> "' \8594 " <> T.pack outDir
+              TIO.putStrLn $ "   " <> tshow (totalHoles report) <> " holes ("
+                <> tshow (blockingHoles report) <> " blocking)"
+          exitSuccess
+
+-- ---------------------------------------------------------------------------
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> IO ()
-doVerify json fp mFqOut = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> IO ()
+doVerify json fp mFqOut lsOpts = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -801,7 +940,85 @@ doVerify json fp mFqOut = do
               FQError e ->
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
 
-          if reportSuccess report then exitSuccess else exitFailure
+          -- v0.3: write .verified.json sidecar on SAFE
+          case fqResult of
+            FQSafe -> do
+              let provenCS = Map.fromList
+                    [ (n, ContractStatus
+                        { csPreLevel  = fmap (const (VLProven "liquid-fixpoint")) (contractPre c)
+                        , csPostLevel = fmap (const (VLProven "liquid-fixpoint")) (contractPost c)
+                        })
+                    | s <- stmts
+                    , Just (n, c) <- [extractContract s]
+                    , contractPre c /= Nothing || contractPost c /= Nothing
+                    ]
+              saveVerified fp provenCS
+              unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
+            _ -> pure ()
+
+          if reportSuccess report then do
+            -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
+            when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
+              runLeanstralPipeline json fp stmts lsOpts
+            exitSuccess
+          else exitFailure
+
+-- ---------------------------------------------------------------------------
+-- v0.3.1: Leanstral proof pipeline
+-- ---------------------------------------------------------------------------
+
+-- | Scan statements for ?proof-required holes and run the Leanstral pipeline.
+--   Professor flag E1: scan [Statement] directly, not HoleReport.
+runLeanstralPipeline :: Bool -> FilePath -> [Statement] -> LeanstralOpts -> IO ()
+runLeanstralPipeline json fp stmts lsOpts = do
+  let proofHoles = [ (n, c)
+                   | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts
+                   ] ++ [ (n, c)
+                   | SLetrec n _ _ c _ (EHole (HProofRequired _)) <- stmts
+                   ]
+  if null proofHoles
+    then unless json $ putStrLn "   No proof-required holes found."
+    else do
+      unless json $ putStrLn $ "   " ++ show (length proofHoles) ++ " proof-required hole(s) found."
+      cache <- loadProofCache fp
+      let config = if lsMock lsOpts
+                     then defaultMCPConfig { mcpMock = True }
+                     else defaultMCPConfig
+                            { mcpMock = False
+                            , mcpCommand = T.pack (fromMaybe "lean-lsp-mcp" (lsCmd lsOpts))
+                            , mcpTimeout = lsTimeout lsOpts
+                            }
+      updatedCache <- foldM (processPH config json) cache proofHoles
+      saveProofCache fp updatedCache
+      unless json $ putStrLn $ "   .proof-cache.json written to " ++ fp ++ ".proof-cache.json"
+  where
+    processPH config isJson cache (name, contract) = do
+      case translateObligation name contract of
+        LeanTheorem thm -> do
+          let hash = computeObligationHash thm  -- v0.3.1 Phase F: real SHA-256
+          case lookupProof ("/post/" <> name) hash cache of
+            Just _ -> do
+              unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": cached proof (skip)"
+              pure cache
+            Nothing -> do
+              result <- callLeanstral config thm
+              case result of
+                ProofFound proof -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": proof found"
+                  let entry = ProofEntry hash proof "leanstral" ""
+                  pure (insertProof ("/post/" <> name) entry cache)
+                ProofTimeout -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": timeout"
+                  pure cache
+                ProofError e -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": error: " ++ T.unpack e
+                  pure cache
+                LeanstralUnavailable e -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": unavailable: " ++ T.unpack e
+                  pure cache
+        Unsupported reason -> do
+          unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": unsupported (" ++ T.unpack reason ++ ")"
+          pure cache
 
 -- ---------------------------------------------------------------------------
 -- Phase 2c: typecheck [--sketch]
@@ -827,4 +1044,143 @@ doTypecheck json fp True  = do
           qualified = Map.mapKeys (prefix <>) (meExports menv)
       in Map.union qualified acc
 
+-- ---------------------------------------------------------------------------
+-- v0.3: Checkout handlers
+-- ---------------------------------------------------------------------------
+
+-- | Guard: only allow .ast.json / .json files for checkout operations.
+guardJsonFile :: FilePath -> IO Bool
+guardJsonFile fp = do
+  let ext = takeExtension fp
+  if ext == ".json"
+    then pure True
+    else do
+      hPutStrLn stderr $ "Error: checkout requires .ast.json input; run 'llmll build --emit json-ast' first"
+      hPutStrLn stderr $ "  Got: " ++ fp
+      pure False
+
+doCheckout :: Bool -> FilePath -> T.Text -> IO ()
+doCheckout _json fp pointer = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  -- Load JSON-AST as raw Value
+  raw <- BL.readFile fp
+  case A.decode raw of
+    Nothing -> do
+      hPutStrLn stderr $ "Error: cannot parse " ++ fp ++ " as JSON"
+      exitFailure
+    Just astVal -> do
+      result <- checkoutHole fp astVal pointer
+      case result of
+        Left diag -> do
+          hPutStrLn stderr $ T.unpack (diagMessage diag)
+          exitFailure
+        Right ct -> do
+          BLC.putStrLn (encode ct)
+          exitSuccess
+
+doCheckoutRelease :: Bool -> FilePath -> T.Text -> IO ()
+doCheckoutRelease _json fp token = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  result <- releaseHole fp token
+  case result of
+    Left diag -> do
+      hPutStrLn stderr $ T.unpack (diagMessage diag)
+      exitFailure
+    Right () -> do
+      BLC.putStrLn (encode (object ["released" .= True]))
+      exitSuccess
+
+doCheckoutStatusCmd :: Bool -> FilePath -> T.Text -> IO ()
+doCheckoutStatusCmd _json fp token = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  result <- checkoutStatus fp token
+  case result of
+    Left diag -> do
+      hPutStrLn stderr $ T.unpack (diagMessage diag)
+      exitFailure
+    Right remaining -> do
+      BLC.putStrLn (encode (object ["remaining_ttl" .= (round remaining :: Int)]))
+      exitSuccess
+
+-- ---------------------------------------------------------------------------
+-- v0.3: Patch handler
+-- ---------------------------------------------------------------------------
+
+doPatch :: Bool -> FilePath -> FilePath -> IO ()
+doPatch _json fp patchFp = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  -- Read and parse patch request
+  patchRaw <- BL.readFile patchFp
+  case A.decode patchRaw of
+    Nothing -> do
+      hPutStrLn stderr $ "Error: cannot parse " ++ patchFp ++ " as JSON"
+      exitFailure
+    Just patchVal ->
+      case parsePatchRequest patchVal of
+        Left err -> do
+          hPutStrLn stderr $ "Error parsing patch request: " ++ T.unpack err
+          exitFailure
+        Right pr -> do
+          result <- applyPatch fp pr
+          BLC.putStrLn (encode result)
+          case result of
+            PatchSuccess _ -> exitSuccess
+            _              -> exitFailure
+
+-- ---------------------------------------------------------------------------
+-- v0.3: contract extraction helper (used by doVerify)
+-- ---------------------------------------------------------------------------
+
+-- | Extract (name, contract) from a statement, if it has one.
+extractContract :: Statement -> Maybe (Name, Contract)
+extractContract (SDefLogic name _ _ c _)  = Just (name, c)
+extractContract (SLetrec name _ _ c _ _)  = Just (name, c)
+extractContract _                         = Nothing
+
+-- ---------------------------------------------------------------------------
+-- v0.3.1: event log replay
+-- ---------------------------------------------------------------------------
+
+doReplay :: Bool -> FilePath -> FilePath -> IO ()
+doReplay json srcFp logFp = do
+  logContents <- TIO.readFile logFp
+  let entries = parseEventLog logContents
+  if null entries
+    then do
+      hPutStrLn stderr $ "No events found in " ++ logFp
+      exitFailure
+    else do
+      unless json $
+        putStrLn $ "Event log: " ++ show (length entries) ++ " events found in " ++ logFp
+
+      -- Build the program to get an executable
+      let modName = takeBaseName srcFp
+          outDir  = "generated/" ++ modName
+      unless json $ putStrLn $ "Building " ++ srcFp ++ " ..."
+      doBuild json srcFp Nothing False False False ContractsFull
+
+      -- Find the executable (stack build puts it in .stack-work)
+      let execFinder = (proc "stack" ["exec", "which", modName])
+                        { std_out = CreatePipe }
+      (_, Just hexec, _, ph) <- createProcess execFinder
+      execPath <- hGetLine hexec
+      _ <- waitForProcess ph
+
+      if null execPath
+        then do
+          hPutStrLn stderr $ "Could not find executable for " ++ modName
+          exitFailure
+        else do
+          unless json $ putStrLn $ "Running replay against " ++ execPath ++ " ..."
+          result <- runReplay execPath entries
+          putStrLn $ show (replayMatched result) ++ "/" ++ show (replayTotal result) ++ " events matched"
+          forM_ (replayDiverged result) $ \(sq, expected, actual) ->
+            putStrLn $ "  DIVERGE seq " ++ show sq
+                    ++ ": expected=\"" ++ T.unpack expected
+                    ++ "\" actual=\"" ++ T.unpack actual ++ "\""
+          when (replayMatched result /= replayTotal result) exitFailure
 

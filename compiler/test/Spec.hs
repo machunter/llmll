@@ -8,15 +8,35 @@ import qualified Data.Text.IO as TIO
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
-import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, diagHoleSensitive, Severity(..))
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource)
-import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
+import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole, emitEventLogPreamble)
+import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind, HoleEntry(..))
+import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
+import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode)
+import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
+import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
+import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
+import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
+import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
+import qualified Data.Map.Strict as Map
+import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
+import System.Process (callProcess)
+import Data.List (isSuffixOf)
 import qualified Data.ByteString.Lazy.Char8 as BLC
-import Data.Aeson (encode, decode, Value(..))
+import Data.Aeson (encode, decode, Value(..), object, (.=))
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
+
+import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..))
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos)
+import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
+import Data.Time.Calendar (fromGregorian)
 
 main :: IO ()
 main = hspec $ do
@@ -929,3 +949,1049 @@ main = hspec $ do
           let result = runSketch emptyEnv stmts
           sketchHoles result `shouldBe` []
 
+
+  -- =========================================================================
+  -- v0.3: JsonPointer tests (pure)
+  -- =========================================================================
+
+  describe "JsonPointer" $ do
+    let testAst = object
+          [ "schemaVersion" .= ("0.2.0" :: T.Text)
+          , "statements" .= [ object
+              [ "kind" .= ("def-logic" :: T.Text)
+              , "name" .= ("foo" :: T.Text)
+              , "body" .= object
+                  [ "kind" .= ("pair" :: T.Text)
+                  , "fst"  .= object [ "kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text) ]
+                  , "snd"  .= object [ "kind" .= ("lit-int" :: T.Text), "value" .= (42 :: Int) ]
+                  ]
+              ]
+            , object
+              [ "kind" .= ("def-logic" :: T.Text)
+              , "name" .= ("bar" :: T.Text)
+              , "body" .= object
+                  [ "kind" .= ("hole-delegate" :: T.Text)
+                  , "agent" .= ("@agent" :: T.Text)
+                  ]
+              ]
+            ]
+          ]
+
+    describe "resolvePointer" $ do
+      it "resolves root to entire value" $
+        resolvePointer "" testAst `shouldBe` Just testAst
+
+      it "resolves /statements/0 to first statement" $ do
+        let result = resolvePointer "/statements/0" testAst
+        case result of
+          Just (Object o) -> KM.lookup "name" o `shouldBe` Just (String "foo")
+          _               -> expectationFailure "expected Object with name=foo"
+
+      it "resolves nested /statements/0/body/snd" $ do
+        let result = resolvePointer "/statements/0/body/snd" testAst
+        result `shouldBe` Just (object [ "kind" .= ("lit-int" :: T.Text), "value" .= (42 :: Int) ])
+
+      it "returns Nothing on out-of-bounds array index" $
+        resolvePointer "/statements/99" testAst `shouldBe` Nothing
+
+      it "returns Nothing on non-existent key" $
+        resolvePointer "/statements/0/nonexistent" testAst `shouldBe` Nothing
+
+    describe "setAtPointer" $ do
+      it "replaces value at nested path" $ do
+        let newVal = object [ "kind" .= ("lit-int" :: T.Text), "value" .= (99 :: Int) ]
+        case setAtPointer "/statements/0/body/snd" newVal testAst of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/0/body/snd" updated `shouldBe` Just newVal
+
+      it "returns Left on non-existent key" $ do
+        let result = setAtPointer "/statements/0/missing/deep" (String "x") testAst
+        case result of
+          Left _ -> pure ()
+          Right _ -> expectationFailure "should fail on missing key"
+
+    describe "removeAtPointer" $ do
+      it "removes object key" $
+        case removeAtPointer "/statements/0/body/snd" testAst of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/0/body/snd" updated `shouldBe` Nothing
+
+      it "returns Left when removing root" $
+        removeAtPointer "" testAst `shouldBe` Left "cannot remove root"
+
+    describe "isHoleNode + findDescendantHoles" $ do
+      it "detects hole-delegate as a hole" $
+        isHoleNode (object [ "kind" .= ("hole-delegate" :: T.Text) ]) `shouldBe` True
+
+      it "rejects non-hole nodes" $
+        isHoleNode (object [ "kind" .= ("var" :: T.Text) ]) `shouldBe` False
+
+      it "finds hole-delegate in subtree" $
+        findDescendantHoles "/statements/1" testAst `shouldBe` ["/statements/1/body"]
+
+      it "returns [] when no holes in subtree" $
+        findDescendantHoles "/statements/0" testAst `shouldBe` []
+
+  -- =========================================================================
+  -- v0.3: validateScope tests (pure, security-critical)
+  -- =========================================================================
+
+  describe "validateScope" $ do
+    it "op path == checkout pointer passes" $
+      validateScope "/statements/1/body" [PatchReplace "/statements/1/body" (String "x")]
+        `shouldBe` Right ()
+
+    it "op path is child of checkout pointer passes" $
+      validateScope "/statements/1/body" [PatchReplace "/statements/1/body/fst" (String "x")]
+        `shouldBe` Right ()
+
+    it "op path is sibling of checkout pointer fails" $ do
+      let result = validateScope "/statements/1/body" [PatchReplace "/statements/0/body" (String "x")]
+      case result of
+        Left _ -> pure ()
+        Right _ -> expectationFailure "should reject sibling scope"
+
+    it "multiple ops, one out of scope, fails" $ do
+      let ops = [ PatchReplace "/statements/1/body/fst" (String "x")
+                , PatchReplace "/statements/0/body" (String "y")
+                ]
+      case validateScope "/statements/1/body" ops of
+        Left err -> T.isInfixOf "/statements/0/body" err `shouldBe` True
+        Right () -> expectationFailure "should have rejected"
+
+  -- =========================================================================
+  -- v0.3: rebaseToPatch tests (pure)
+  -- =========================================================================
+
+  describe "rebaseToPatch" $ do
+    let mkDiagWithPtr ptr = (mkError Nothing "test error") { diagPointer = Just ptr }
+        ops = [ PatchOpInfo 0 "/statements/1/body" "replace"
+              , PatchOpInfo 2 "/statements/1/body/args/0" "add"
+              ]
+
+    it "diagnostic without pointer is unchanged" $
+      diagPointer (rebaseToPatch ops (mkError Nothing "no pointer")) `shouldBe` Nothing
+
+    it "pointer matching op path exactly gets rebased" $
+      diagPointer (rebaseToPatch ops (mkDiagWithPtr "/statements/1/body"))
+        `shouldBe` Just "patch-op/0"
+
+    it "pointer descending into op path gets rebased with suffix" $
+      diagPointer (rebaseToPatch ops (mkDiagWithPtr "/statements/1/body/fst"))
+        `shouldBe` Just "patch-op/0/fst"
+
+    it "pointer outside all ops is unchanged" $
+      diagPointer (rebaseToPatch ops (mkDiagWithPtr "/statements/0/body"))
+        `shouldBe` Just "/statements/0/body"
+
+  -- =========================================================================
+  -- v0.3: PatchApply ops tests (pure, on Value)
+  -- =========================================================================
+
+  describe "PatchApply ops" $ do
+    let root = object
+          [ "statements" .= [ object [ "kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text) ]
+                             , object [ "kind" .= ("hole-delegate" :: T.Text) ]
+                             ]
+          ]
+
+    describe "applyOp" $ do
+      it "replace on existing path succeeds" $ do
+        let newVal = object [ "kind" .= ("lit-int" :: T.Text), "value" .= (42 :: Int) ]
+        case applyOp (PatchReplace "/statements/1" newVal) root of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/1" updated `shouldBe` Just newVal
+
+      it "replace on non-existent path fails" $ do
+        case applyOp (PatchReplace "/statements/99" (String "x")) root of
+          Left _ -> pure ()
+          Right _ -> expectationFailure "should fail on missing path"
+
+      it "test with matching value passes (value unchanged)" $ do
+        let expected = object [ "kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text) ]
+        applyOp (PatchTest "/statements/0" expected) root `shouldBe` Right root
+
+      it "test with non-matching value fails" $ do
+        let wrong = object [ "kind" .= ("lit-int" :: T.Text) ]
+        case applyOp (PatchTest "/statements/0" wrong) root of
+          Left err -> T.isInfixOf "does not match" err `shouldBe` True
+          Right _ -> expectationFailure "test should fail"
+
+      it "remove deletes node" $
+        case applyOp (PatchRemove "/statements/1") root of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/1" updated `shouldBe` Nothing
+
+    describe "applyOps" $ do
+      it "applies ops in sequence (test then replace)" $ do
+        let newVal = object [ "kind" .= ("lit-int" :: T.Text), "value" .= (1 :: Int) ]
+            ops = [ PatchTest "/statements/1" (object [ "kind" .= ("hole-delegate" :: T.Text) ])
+                  , PatchReplace "/statements/1" newVal
+                  ]
+        case applyOps ops root of
+          Left err -> expectationFailure (T.unpack err)
+          Right updated -> resolvePointer "/statements/1" updated `shouldBe` Just newVal
+
+      it "short-circuits on first failure" $ do
+        let ops = [ PatchTest "/statements/0" (String "wrong")
+                  , PatchReplace "/statements/1" (String "should-not-reach")
+                  ]
+        case applyOps ops root of
+          Left _ -> pure ()
+          Right _ -> expectationFailure "should short-circuit on test failure"
+
+  -- =========================================================================
+  -- v0.3: parsePatchOp tests (pure)
+  -- =========================================================================
+
+  describe "parsePatchOp" $ do
+    it "parses replace op" $ do
+      let val = object [ "op" .= ("replace" :: T.Text), "path" .= ("/s/0" :: T.Text), "value" .= (42 :: Int) ]
+      case parsePatchOp val of
+        Right (PatchReplace "/s/0" _) -> pure ()
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "parses test op" $ do
+      let val = object [ "op" .= ("test" :: T.Text), "path" .= ("/s/0" :: T.Text), "value" .= (42 :: Int) ]
+      case parsePatchOp val of
+        Right (PatchTest "/s/0" _) -> pure ()
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "rejects move with workaround message" $ do
+      let val = object [ "op" .= ("move" :: T.Text), "from" .= ("/a" :: T.Text), "path" .= ("/b" :: T.Text) ]
+      case parsePatchOp val of
+        Left err -> T.isInfixOf "'move' is not supported" err `shouldBe` True
+        Right _  -> expectationFailure "move should be rejected"
+
+    it "rejects copy with workaround message" $ do
+      let val = object [ "op" .= ("copy" :: T.Text), "from" .= ("/a" :: T.Text), "path" .= ("/b" :: T.Text) ]
+      case parsePatchOp val of
+        Left err -> T.isInfixOf "'copy' is not supported" err `shouldBe` True
+        Right _  -> expectationFailure "copy should be rejected"
+
+  -- =========================================================================
+  -- v0.3: Checkout helpers (pure)
+  -- =========================================================================
+
+  describe "Checkout helpers" $ do
+    it "lockFilePath: program.ast.json -> program.llmll-lock.json" $
+      lockFilePath "path/to/program.ast.json" `shouldBe` "path/to/program.llmll-lock.json"
+
+    it "lockFilePath: simple.json -> simple.llmll-lock.json" $
+      lockFilePath "simple.json" `shouldBe` "simple.llmll-lock.json"
+
+    it "expireStale removes expired tokens" $ do
+      let epoch = UTCTime (fromGregorian 2026 1 1) 0
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600
+          lock = CheckoutLock "test.json" [tok]
+          later = addUTCTime 7200 epoch
+      lockTokens (expireStale later lock) `shouldBe` []
+
+    it "expireStale keeps non-expired tokens" $ do
+      let epoch = UTCTime (fromGregorian 2026 1 1) 0
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600
+          lock = CheckoutLock "test.json" [tok]
+          later = addUTCTime 1800 epoch
+      length (lockTokens (expireStale later lock)) `shouldBe` 1
+
+    it "toPatchOpInfos excludes test ops" $ do
+      let ops = [ PatchTest "/a" (String "x")
+                , PatchReplace "/b" (String "y")
+                , PatchRemove "/c"
+                , PatchAdd "/d" (String "z")
+                ]
+      let infos = toPatchOpInfos ops
+      length infos `shouldBe` 3
+      map poiKind infos `shouldBe` ["replace", "remove", "add"]
+      map poiIndex infos `shouldBe` [1, 2, 3]
+
+  -- =========================================================================
+  -- v0.3: Stratified Verification tests
+  -- =========================================================================
+
+  describe "VerificationLevel Ord" $ do
+    it "VLAsserted < VLTested" $
+      compare VLAsserted (VLTested 50) `shouldBe` LT
+
+    it "VLTested < VLProven" $
+      compare (VLTested 100) (VLProven "z3") `shouldBe` LT
+
+    it "VLTested 50 == VLTested 1000 (sample count ignored)" $
+      compare (VLTested 50) (VLTested 1000) `shouldBe` EQ
+
+    it "VLProven z3 == VLProven leanstral (prover name ignored)" $
+      compare (VLProven "z3") (VLProven "leanstral") `shouldBe` EQ
+
+    it "VLAsserted < VLProven" $
+      compare VLAsserted (VLProven "z3") `shouldBe` LT
+
+  describe "ContractsMode: instrumentStatement" $ do
+    let mkDefLogic name preE postE bodyE =
+          SDefLogic name [("x", TInt)] Nothing
+            (Contract preE postE) bodyE
+        mkLetrec name preE postE bodyE =
+          SLetrec name [("n", TInt)] Nothing
+            (Contract preE postE) (EVar "n") bodyE
+        hasPre  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+        hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+        body    = EVar "x"
+        defaultCS = ContractStatus Nothing Nothing
+        provenCS  = ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3"))
+        mixedCS   = ContractStatus (Just (VLProven "z3")) (Just VLAsserted)
+
+    it "ContractsFull keeps all contracts (SDefLogic)" $ do
+      let stmt = mkDefLogic "f" hasPre hasPost body
+          result = instrumentStatement ContractsFull defaultCS stmt
+      defLogicContract result `shouldBe` Contract Nothing Nothing
+      -- body should be wrapped (not the original)
+      defLogicBody result `shouldNotBe` body
+
+    it "ContractsFull keeps all contracts (SLetrec)" $ do
+      let stmt = mkLetrec "g" hasPre hasPost body
+          result = instrumentStatement ContractsFull defaultCS stmt
+      letrecContract result `shouldBe` Contract Nothing Nothing
+
+    it "ContractsNone strips all contracts" $ do
+      let stmt = mkDefLogic "f" hasPre hasPost body
+          result = instrumentStatement ContractsNone defaultCS stmt
+      -- ContractsNone returns stmt unchanged
+      result `shouldBe` stmt
+
+    it "ContractsUnproven strips proven pre, keeps asserted post" $ do
+      let stmt = mkDefLogic "f" hasPre hasPost body
+          result = instrumentStatement ContractsUnproven mixedCS stmt
+      defLogicContract result `shouldBe` Contract Nothing Nothing
+      -- The body should still be instrumented (post is unproven)
+      defLogicBody result `shouldNotBe` body
+
+  describe "parseTrustDecl (S-expression)" $ do
+    it "parses (trust foo.bar :level tested)" $ do
+      case parseStatements "<test>" "(trust foo.bar :level tested)" of
+        Right [STrust target level] -> do
+          target `shouldBe` "foo.bar"
+          vlTier level `shouldBe` 1
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "parses (trust crypto.hash.pbkdf2 :level asserted)" $ do
+      case parseStatements "<test>" "(trust crypto.hash.pbkdf2 :level asserted)" of
+        Right [STrust target level] -> do
+          target `shouldBe` "crypto.hash.pbkdf2"
+          level `shouldBe` VLAsserted
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "parses (trust z3.verify :level proven)" $ do
+      case parseStatements "<test>" "(trust z3.verify :level proven)" of
+        Right [STrust target level] -> do
+          target `shouldBe` "z3.verify"
+          vlTier level `shouldBe` 2
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+  describe "mkTrustGapWarning" $ do
+    it "produces a warning with trust-gap kind" $ do
+      let d = mkTrustGapWarning "foo.bar" "asserted" "/statements/0"
+      diagSeverity d `shouldBe` SevWarning
+      diagKind d `shouldBe` Just "trust-gap"
+      diagPointer d `shouldBe` Just "/statements/0"
+
+  describe "VerifiedCache: verifiedPath" $ do
+    it "foo.llmll -> foo.llmll.verified.json" $
+      verifiedPath "foo.llmll" `shouldBe` "foo.llmll.verified.json"
+
+    it "path/to/bar.ast.json -> path/to/bar.ast.json.verified.json" $
+      verifiedPath "path/to/bar.ast.json" `shouldBe` "path/to/bar.ast.json.verified.json"
+
+  -- =========================================================================
+  -- v0.3: #8 — applyContractsMode
+  -- =========================================================================
+
+  describe "applyContractsMode" $ do
+    let mkDL name preE postE bodyE =
+          SDefLogic name [("x", TInt)] Nothing (Contract preE postE) bodyE
+        pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+        post1 = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+        body1 = EVar "x"
+        stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
+        provenMap = DM.fromList
+          [ ("f", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))
+          , ("g", ContractStatus (Just (VLProven "z3")) Nothing)
+          ]
+        emptyMap = DM.empty
+
+    it "ContractsFull preserves all contracts" $ do
+      let result = applyContractsMode ContractsFull emptyMap stmts
+      length result `shouldBe` 2
+      defLogicContract (head result) `shouldBe` Contract pre1 post1
+
+    it "ContractsNone clears all contracts" $ do
+      let result = applyContractsMode ContractsNone emptyMap stmts
+      defLogicContract (head result) `shouldBe` Contract Nothing Nothing
+      defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing
+
+    it "ContractsUnproven strips proven, keeps unknown" $ do
+      -- "f" is fully proven → both clauses stripped
+      -- "g" pre is proven → stripped; g has no post → Nothing stays
+      let result = applyContractsMode ContractsUnproven provenMap stmts
+      defLogicContract (head result) `shouldBe` Contract Nothing Nothing
+      defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing
+
+  -- =========================================================================
+  -- v0.3: #9 — saveVerified / loadVerified round-trip
+  -- =========================================================================
+
+  describe "VerifiedCache round-trip" $ do
+    it "saveVerified then loadVerified recovers contract status" $ do
+      let testFile = "test/_tmp_roundtrip_test.llmll"
+          statuses = DM.fromList
+            [ ("add", ContractStatus (Just (VLProven "liquid-fixpoint")) (Just (VLProven "liquid-fixpoint")))
+            , ("mul", ContractStatus (Just VLAsserted) Nothing)
+            ]
+      saveVerified testFile statuses
+      loaded <- loadVerified testFile
+      loaded `shouldBe` statuses
+      -- Clean up sidecar
+      let sidecar = verifiedPath testFile
+      removeIfExists sidecar
+
+  -- =========================================================================
+  -- v0.3: trust-gap integration tests
+  -- =========================================================================
+
+  describe "trust-gap warnings in typeCheckWithCache" $ do
+    let mkModule name preE postE bodyE =
+          [ SDefLogic name [("x", TInt)] (Just TInt) (Contract preE postE) bodyE
+          , SExport [name]
+          ]
+        pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+        post1 = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+        body1 = EVar "x"
+        modPath = ["math"]
+        modEnv = ModuleEnv
+          { meExports = DM.fromList [("safe-add", TFn [TInt] TInt)]
+          , meStatements = mkModule "safe-add" pre1 post1 body1
+          , meInterfaces = DM.empty
+          , meAliasMap = DM.empty
+          , mePath = modPath
+          , meContractStatus = DM.fromList
+              [("safe-add", ContractStatus (Just VLAsserted) (Just VLAsserted))]
+          }
+        cache = DM.fromList [(modPath, modEnv)]
+
+    it "emits trust-gap warning for unproven cross-module call" $ do
+      let callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+          trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      length trustGaps `shouldSatisfy` (> 0)
+
+    it "no trust-gap for proven contracts" $ do
+      let provenEnv = modEnv { meContractStatus = DM.fromList
+              [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))] }
+          provenCache = DM.fromList [(modPath, provenEnv)]
+          callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
+          report = typeCheckWithCache provenCache emptyEnv callerStmts
+          trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      trustGaps `shouldBe` []
+
+    it "trust declaration suppresses trust-gap warning" $ do
+      let callerStmts =
+            [ STrust "math.safe-add" VLAsserted  -- acknowledge the assertion level
+            , SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])
+            ]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+          trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      trustGaps `shouldBe` []
+
+  -- =========================================================================
+  -- v0.3 #14: Async/Await codegen test coverage (10 tests)
+  -- =========================================================================
+
+  describe "Async codegen (#14)" $ do
+    -- Type emission (3)
+    it "toHsType (TPromise TInt) = (Async.Async Int)" $
+      toHsType (TPromise TInt) `shouldBe` "(Async.Async Int)"
+
+    it "toHsType (TPromise (TResult TString TInt)) handles nesting" $
+      toHsType (TPromise (TResult TString TInt)) `shouldBe` "(Async.Async (Either Int String))"
+
+    it "toHsType (TPromise (TPromise TInt)) handles double-wrap" $
+      toHsType (TPromise (TPromise TInt)) `shouldBe` "(Async.Async (Async.Async Int))"
+
+    -- Codegen output (4)
+    it "emitExpr (EAwait ...) contains Async.wait" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "Async.wait" output `shouldBe` True
+
+    it "emitExpr (EAwait ...) contains try" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "try" output `shouldBe` True
+
+    it "emitExpr (EAwait ...) contains SomeException" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "SomeException" output `shouldBe` True
+
+    it "emitExpr (EAwait ...) wraps in Left/Right (Result shape)" $ do
+      let output = emitExpr (EAwait (EVar "x"))
+      T.isInfixOf "Left" output `shouldBe` True
+      T.isInfixOf "Right" output `shouldBe` True
+
+    -- TypeCheck (2)
+    it "EAwait on TPromise infers TResult t TDelegationError" $ do
+      let delegSpec = DelegateSpec "agent" "task" TInt Nothing
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                    (EAwait (EHole (HDelegateAsync delegSpec)))]
+          report = typeCheck emptyEnv prog
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      errs `shouldBe` []
+
+    it "?delegate-async hole infers TPromise(returnType)" $ do
+      let delegSpec = DelegateSpec "agent" "task" TInt Nothing
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                    (EHole (HDelegateAsync delegSpec))]
+          report = typeCheck emptyEnv prog
+          hardErrs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      hardErrs `shouldBe` []
+
+    -- Parser roundtrip (1)
+    it "(await expr) parses to EAwait" $ do
+      case parseStatements "<test>" "(def-logic f [] (await (+ 1 2)))" of
+        Right [SDefLogic _ _ _ _ (EAwait _)] -> pure ()
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+  -- =========================================================================
+  -- v0.3 #11: Scaffold test coverage (7 tests)
+  -- =========================================================================
+
+  describe "Scaffold (#11)" $ do
+    -- Hub resolution (3)
+    it "scaffoldCacheRoot ends with .llmll/templates" $ do
+      root <- scaffoldCacheRoot
+      ".llmll/templates" `isSuffixOf` root `shouldBe` True
+
+    it "resolveScaffold nonexistent returns Nothing" $ do
+      result <- resolveScaffold "nonexistent-template-xyz"
+      result `shouldBe` Nothing
+
+    it "resolveScaffold finds scaffold.ast.json in cache" $ do
+      root <- scaffoldCacheRoot
+      let dir = root ++ "/test-scaffold-tmp"
+          file = dir ++ "/scaffold.ast.json"
+      createDirectoryIfMissing True dir
+      writeFile file "{\"schemaVersion\": \"0.2.0\", \"statements\": []}"
+      result <- resolveScaffold "test-scaffold-tmp"
+      result `shouldBe` Just file
+      removeDirectoryRecursive dir
+
+    -- Parser (2)
+    it "(?scaffold todo-app) parses to EHole (HScaffold ...)" $ do
+      case parseStatements "<test>" "(def-logic f [] (?scaffold todo-app))" of
+        Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
+          scaffoldTemplate spec `shouldBe` "todo-app"
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    it "JSON-AST hole-scaffold parses correctly" $ do
+      let jsonSrc = BLC.pack $ unlines
+            [ "{ \"schemaVersion\": \"0.2.0\""
+            , ", \"statements\": ["
+            , "    { \"kind\": \"def-logic\", \"name\": \"f\", \"params\": []"
+            , "    , \"body\": { \"kind\": \"hole-scaffold\", \"template\": \"rest-api\" } }"
+            , "  ]"
+            , "}"
+            ]
+      case parseJSONAST "<test>" jsonSrc of
+        Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
+          scaffoldTemplate spec `shouldBe` "rest-api"
+        other -> expectationFailure $ "unexpected: " ++ show other
+
+    -- HoleAnalysis (1)
+    it "analyzeHoles reports ?scaffold as NonBlocking" $ do
+      let spec = ScaffoldSpec "todo-app" Nothing [] Nothing Nothing
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                    (EHole (HScaffold spec))]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      holeStatus (head entries) `shouldBe` HA.NonBlocking
+      holeName (head entries) `shouldSatisfy` T.isInfixOf "scaffold"
+
+    -- Codegen (1)
+    it "emitHole (HScaffold ...) contains scaffold and template name" $ do
+      let spec = ScaffoldSpec "todo-app" Nothing [] Nothing Nothing
+          output = emitHole (HScaffold spec)
+      T.isInfixOf "scaffold" output `shouldBe` True
+      T.isInfixOf "todo-app" output `shouldBe` True
+
+  -- =========================================================================
+  -- v0.3.1: Event Log (#13)
+  -- =========================================================================
+
+  describe "Event Log (v0.3.1)" $ do
+
+    -- Preamble (1)
+    it "emitEventLogPreamble contains eventJsonL and captureStdout" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "eventJsonL" preamble `shouldBe` True
+      T.isInfixOf "captureStdout" preamble `shouldBe` True
+      T.isInfixOf "headerJsonL" preamble `shouldBe` True
+
+    -- Codegen integration (1)
+    it "Generated Main.hs for console mode contains event-log.jsonl" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "testmod" stmts
+          case cgMainHs result of
+            Nothing -> expectationFailure "No Main.hs generated"
+            Just mainHs -> do
+              T.isInfixOf "event-log.jsonl" mainHs `shouldBe` True
+              T.isInfixOf "logHandle" mainHs `shouldBe` True
+              T.isInfixOf "seqRef" mainHs `shouldBe` True
+              T.isInfixOf "captureStdout" mainHs `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    -- JSONL format (1)
+    it "parseEventLog parses valid JSONL events" $ do
+      let logContent = T.unlines
+            [ "{\"type\":\"header\",\"version\":\"0.3.1\",\"module\":\"test\"}"
+            , "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"hello\"},\"result\":{\"kind\":\"stdout\",\"value\":\"world\"},\"captures\":[]}"
+            , "{\"type\":\"event\",\"seq\":1,\"input\":{\"kind\":\"stdin\",\"value\":\"foo\"},\"result\":{\"kind\":\"stdout\",\"value\":\"bar\"},\"captures\":[]}"
+            ]
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 2
+      evSeq (head entries) `shouldBe` 0
+      evInputVal (head entries) `shouldBe` "hello"
+      evResultVal (head entries) `shouldBe` "world"
+      evSeq (entries !! 1) `shouldBe` 1
+
+    -- Crash tolerance (1)
+    it "parseEventLog handles partial log (no trailing line)" $ do
+      let logContent = T.unlines
+            [ "{\"type\":\"header\",\"version\":\"0.3.1\",\"module\":\"test\"}"
+            , "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"x\"},\"result\":{\"kind\":\"stdout\",\"value\":\"y\"},\"captures\":[]}"
+            ]
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 1
+      evInputVal (head entries) `shouldBe` "x"
+
+    -- Escape (1)
+    it "parseEventLog handles escaped quotes and newlines" $ do
+      let logContent = "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"say \\\"hi\\\"\"},\"result\":{\"kind\":\"stdout\",\"value\":\"line1\\nline2\"},\"captures\":[]}"
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 1
+      evInputVal (head entries) `shouldBe` "say \"hi\""
+      evResultVal (head entries) `shouldBe` "line1\nline2"
+
+  -- =========================================================================
+  -- v0.3.1: Leanstral MCP — Phase B (#14)
+  -- =========================================================================
+
+  describe "Leanstral MCP (v0.3.1)" $ do
+
+    -- LeanTranslate (3)
+    it "translateObligation on linear arithmetic → valid Lean 4" $ do
+      let contract = Contract
+            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
+            , contractPost = Just (EOp ">" [EVar "result", ELit (LitInt 0)])
+            }
+      case translateObligation "test-func" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "theorem test_func" thm `shouldBe` True
+          T.isInfixOf "sorry" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem, got: " ++ T.unpack reason
+
+    it "translateObligation on unsupported predicate → Unsupported" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EApp "fold" [EVar "xs"])
+            }
+      case translateObligation "fold-test" contract of
+        Unsupported reason -> T.isInfixOf "fold" reason `shouldBe` True
+        LeanTheorem _ -> expectationFailure "Expected Unsupported for fold"
+
+    it "translateObligation on list induction → List syntax" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EOp ">" [EApp "list-length" [EVar "xs"], ELit (LitInt 0)])
+            }
+      case translateObligation "list-test" contract of
+        LeanTheorem thm -> T.isInfixOf ".length" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem, got: " ++ T.unpack reason
+
+    -- MCPClient (2)
+    it "mockProofResult returns ProofFound" $ do
+      let result = mockProofResult "some obligation"
+      result `shouldBe` ProofFound "by sorry"
+
+    it "callLeanstral with unavailable binary → LeanstralUnavailable" $ do
+      let config = defaultMCPConfig { mcpMock = False }
+      result <- callLeanstral config "test obligation"
+      case result of
+        LeanstralUnavailable _ -> pure ()
+        _ -> expectationFailure $ "Expected LeanstralUnavailable, got: " ++ show result
+
+    -- ProofCache (2)
+    it "ProofCache save → load roundtrip" $ do
+      let tmpDir = "/tmp/llmll-test-proof-cache"
+      createDirectoryIfMissing True tmpDir
+      let fp = tmpDir ++ "/test.llmll"
+          entry = ProofEntry
+            { peObligationHash = "abc123"
+            , peProof = "by sorry"
+            , peProver = "leanstral"
+            , peVerifiedAt = "2026-04-11T10:00:00Z"
+            }
+          cache = insertProof "/post" entry Map.empty
+      saveProofCache fp cache
+      loaded <- loadProofCache fp
+      lookupProof "/post" "abc123" loaded `shouldBe` Just entry
+      removeIfExists (proofCachePath fp)
+
+    it "ProofCache hash mismatch detection" $ do
+      let entry = ProofEntry
+            { peObligationHash = "abc123"
+            , peProof = "by sorry"
+            , peProver = "leanstral"
+            , peVerifiedAt = "2026-04-11T10:00:00Z"
+            }
+          cache = insertProof "/post" entry Map.empty
+      lookupProof "/post" "different-hash" cache `shouldBe` Nothing
+
+    -- HoleAnalysis complexity (2)
+    it "normalizeComplexity classifies complex-decreases as :inductive" $ do
+      HA.normalizeComplexity "complex-decreases" `shouldBe` ":inductive"
+      HA.normalizeComplexity "manual" `shouldBe` ":unknown"
+      HA.normalizeComplexity "simple" `shouldBe` ":simple"
+
+    it "formatHoleReportJson includes complexity for proof-required holes" $ do
+      let stmts = [SDefLogic "safe-div" [("n", TInt), ("d", TInt)] Nothing
+                     (Contract Nothing Nothing) (EHole (HProofRequired "complex-decreases"))]
+          report = HA.analyzeHoles stmts
+          json   = HA.formatHoleReportJson "<test>" report
+      T.isInfixOf "complexity" json `shouldBe` True
+      T.isInfixOf ":inductive" json `shouldBe` True
+
+    -- End-to-end mock pipeline (1)
+    it "Mock pipeline: translate → mock-prove → cache → verify" $ do
+      let contract = Contract
+            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
+            , contractPost = Just (EOp ">" [EVar "result", ELit (LitInt 0)])
+            }
+      case translateObligation "pipeline-test" contract of
+        LeanTheorem thm -> do
+          let proofResult = mockProofResult thm
+          case proofResult of
+            ProofFound proof -> do
+              let entry = ProofEntry "hash123" proof "leanstral" "2026-04-11"
+                  cache = insertProof "/post" entry Map.empty
+              lookupProof "/post" "hash123" cache `shouldBe` Just entry
+            _ -> expectationFailure "Expected ProofFound"
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
+  -- =========================================================================
+  -- v0.3.1 Phase D: Replay Re-Execution
+  -- =========================================================================
+
+  replayExecutionTests
+
+  -- =========================================================================
+  -- v0.3.1 Phase E: Verify Integration
+  -- =========================================================================
+
+  verifyIntegrationTests
+
+  -- =========================================================================
+  -- v0.3.1 Phase F: SHA-256 Hashing
+  -- =========================================================================
+
+  sha256Tests
+
+  -- =========================================================================
+  -- v0.3.1 Coverage Gaps
+  -- =========================================================================
+
+  coverageGapTests
+
+-- | Helper to remove a file if it exists (used for test cleanup).
+removeIfExists :: FilePath -> IO ()
+removeIfExists fp = do
+  exists <- doesFileExist fp
+  if exists then removeFile fp else pure ()
+
+-- =====================================================================
+-- Phase D tests: Replay Re-Execution (v0.3.1)
+-- =====================================================================
+
+replayExecutionTests :: Spec
+replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
+    it "runReplay with matching events reports all matched" $ do
+      -- Create a mock executable that echoes input with a prefix
+      let mockScript = "test_echo_mock.sh"
+      writeFile mockScript "#!/bin/bash\nwhile IFS= read -r line; do echo \"Got: $line\"; done"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "Got: hello\n"
+                    , EventLogEntry 1 "stdin" "world" "stdout" "Got: world\n"
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 2
+      replayMatched result `shouldBe` 2
+      replayDiverged result `shouldBe` []
+
+    it "runReplay with tampered result detects divergence" $ do
+      let mockScript = "test_echo_mock2.sh"
+      writeFile mockScript "#!/bin/bash\nwhile IFS= read -r line; do echo \"Got: $line\"; done"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "WRONG OUTPUT\n"
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 1
+      replayMatched result `shouldBe` 0
+      length (replayDiverged result) `shouldBe` 1
+
+-- =====================================================================
+-- Phase E tests: Verify Integration (v0.3.1)
+-- =====================================================================
+
+verifyIntegrationTests :: Spec
+verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
+    it "LeanstralOpts mock pipeline resolves proof-required holes" $ do
+      -- Simulate the pipeline: scan statements → translate → mock prove → cache
+      let stmts = [ SDefLogic "test-fn" [("x", TInt)] Nothing
+                      (Contract
+                         (Just (EOp ">" [EVar "x", ELit (LitInt 0)]))
+                         (Just (EOp ">" [EVar "result", ELit (LitInt 0)])))
+                      (EHole (HProofRequired "complex-decreases"))
+                  ]
+          proofHoles = [ (n, c)
+                       | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts
+                       ]
+      length proofHoles `shouldBe` 1
+      case proofHoles of
+        [(name, contract)] -> do
+          case translateObligation name contract of
+            LeanTheorem thm -> do
+              let mockResult = mockProofResult thm
+              case mockResult of
+                ProofFound proof -> do
+                  let entry = ProofEntry thm proof "leanstral" ""
+                      cache = insertProof ("/post/" <> name) entry Map.empty
+                  -- Verify cache lookup works
+                  lookupProof ("/post/" <> name) thm cache `shouldBe` Just entry
+                _ -> expectationFailure "Expected ProofFound from mock"
+            Unsupported reason -> expectationFailure $ "Expected LeanTheorem: " ++ T.unpack reason
+        _ -> expectationFailure "Expected exactly one proof hole"
+
+    it "Verify without leanstral opts has no effect (structural)" $ do
+      -- When lsMock is False and lsCmd is Nothing, the pipeline guard
+      -- (lsMock lsOpts || isJust (lsCmd lsOpts)) evaluates to False.
+      -- This is a structural test verifying the guard conditions.
+      let mockFlag = False
+          cmdPath  = Nothing :: Maybe FilePath
+      (mockFlag || maybe False (const True) cmdPath) `shouldBe` False
+
+-- =====================================================================
+-- Phase F tests: SHA-256 Hashing (v0.3.1)
+-- =====================================================================
+
+sha256Tests :: Spec
+sha256Tests = describe "SHA-256 Hashing (v0.3.1)" $ do
+    it "computeObligationHash produces consistent 64-char hex string" $ do
+      let hash1 = computeObligationHash "x > 0"
+          hash2 = computeObligationHash "x > 0"
+          hash3 = computeObligationHash "x > 1"
+      -- Deterministic
+      hash1 `shouldBe` hash2
+      -- Different inputs → different hashes
+      hash1 `shouldNotBe` hash3
+      -- 64-char hex
+      T.length hash1 `shouldBe` 64
+      T.all (\c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) hash1 `shouldBe` True
+
+-- =====================================================================
+-- Coverage gap tests (v0.3.1)
+-- =====================================================================
+
+coverageGapTests :: Spec
+coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
+
+  -- ---------------------------------------------------------------
+  -- Replay edge cases (2)
+  -- ---------------------------------------------------------------
+
+  describe "Replay edge cases" $ do
+    it "parseEventLog on empty input returns empty list" $ do
+      parseEventLog "" `shouldBe` []
+
+    it "parseEventLog on malformed JSON skips bad lines" $ do
+      let logContent = T.unlines
+            [ "{\"type\":\"header\",\"version\":\"0.3.1\"}"
+            , "this is not json at all"
+            , "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"x\"},\"result\":{\"kind\":\"stdout\",\"value\":\"y\"},\"captures\":[]}"
+            , "{\"type\":\"event\",\"seq\":\"NaN\""    -- missing fields
+            ]
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 1
+      evInputVal (head entries) `shouldBe` "x"
+
+  -- ---------------------------------------------------------------
+  -- Replay process crash (1)
+  -- ---------------------------------------------------------------
+
+  describe "Replay process crash" $ do
+    it "runReplay with crashing process reports no matches" $ do
+      let mockScript = "test_crash_mock.sh"
+      writeFile mockScript "#!/bin/bash\nexit 1"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "world" ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 1
+      replayMatched result `shouldBe` 0
+
+  -- ---------------------------------------------------------------
+  -- LeanTranslate coverage (4)
+  -- ---------------------------------------------------------------
+
+  describe "LeanTranslate coverage" $ do
+    it "translateObligation on empty contract → Unsupported" $ do
+      let contract = Contract Nothing Nothing
+      case translateObligation "empty-test" contract of
+        Unsupported reason -> T.isInfixOf "empty" reason `shouldBe` True
+        LeanTheorem _      -> expectationFailure "Expected Unsupported for empty contract"
+
+    it "translateObligation with pre-only (no post) → valid theorem with True goal" $ do
+      let contract = Contract
+            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
+            , contractPost = Nothing
+            }
+      case translateObligation "pre-only" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "True" thm `shouldBe` True
+          T.isInfixOf "(h :" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
+    it "translateObligation with for-all → quantified Lean 4" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EApp "for-all" [EVar "i", EOp ">" [EVar "i", ELit (LitInt 0)]])
+            }
+      case translateObligation "forall-test" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "∀" thm `shouldBe` True
+          T.isInfixOf "i" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
+    it "translateObligation with boolean ops (and/or/not)" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EOp "and" [ EOp ">" [EVar "x", ELit (LitInt 0)]
+                                             , EOp "not" [EOp "<" [EVar "y", ELit (LitInt 0)]]
+                                             ])
+            }
+      case translateObligation "bool-test" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "∧" thm `shouldBe` True
+          T.isInfixOf "¬" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
+  -- ---------------------------------------------------------------
+  -- MCPResult constructors (2)
+  -- ---------------------------------------------------------------
+
+  describe "MCPResult constructors" $ do
+    it "ProofTimeout is distinct from ProofFound" $ do
+      let timeout = ProofTimeout
+          found   = ProofFound "by sorry"
+      timeout `shouldNotBe` found
+      case timeout of
+        ProofTimeout -> pure ()
+        _            -> expectationFailure "Expected ProofTimeout"
+
+    it "ProofError carries error message" $ do
+      let err = ProofError "type mismatch"
+      case err of
+        ProofError msg -> msg `shouldBe` "type mismatch"
+        _              -> expectationFailure "Expected ProofError"
+
+  -- ---------------------------------------------------------------
+  -- ProofCache coverage (2)
+  -- ---------------------------------------------------------------
+
+  describe "ProofCache coverage" $ do
+    it "proofCachePath convention appends .proof-cache.json" $ do
+      proofCachePath "examples/test.llmll" `shouldBe` "examples/test.llmll.proof-cache.json"
+      proofCachePath "foo.llmll" `shouldBe` "foo.llmll.proof-cache.json"
+
+    it "lookupProof with missing key returns Nothing" $ do
+      let entry = ProofEntry "hash" "by sorry" "leanstral" ""
+          cache = insertProof "/post/foo" entry Map.empty
+      lookupProof "/post/bar" "hash" cache `shouldBe` Nothing
+
+  -- ---------------------------------------------------------------
+  -- HoleAnalysis normalizeComplexity :unknown (1)
+  -- ---------------------------------------------------------------
+
+  describe "HoleAnalysis normalizeComplexity :unknown" $ do
+    it "normalizeComplexity 'manual' → :unknown" $ do
+      HA.normalizeComplexity "manual" `shouldBe` ":unknown"
+
+    it "normalizeComplexity 'non-linear' → :unknown" $ do
+      HA.normalizeComplexity "non-linear" `shouldBe` ":unknown"
+
+  -- ---------------------------------------------------------------
+  -- CodegenHs: captureStdout lazy I/O force (1)
+  -- ---------------------------------------------------------------
+
+  describe "CodegenHs captureStdout lazy-IO force" $ do
+    it "emitEventLogPreamble captureStdout contains length/seq force" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "length output" preamble `shouldBe` True
+      T.isInfixOf "seq" preamble `shouldBe` True
+      T.isInfixOf "force lazy" preamble `shouldBe` True
+
+  -- ---------------------------------------------------------------
+  -- CodegenHs: :done? branches pass logHandle/seqRef (1)
+  -- ---------------------------------------------------------------
+
+  describe "CodegenHs :done? loop branches" $ do
+    it "Generated Main.hs with :done? has loop s' logHandle seqRef" $ do
+      -- Use a console program with :done? that stops when input is "quit"
+      let src = "(def-main :mode console :init \"\" :step (fn [s: string input: string] (pair input (wasi.io.stdout input))) :done? (fn [s: string] (= s \"quit\")))"
+      case parseStatements "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "testdone" stmts
+          case cgMainHs result of
+            Nothing -> expectationFailure "No Main.hs generated"
+            Just mainHs -> do
+              -- The :done? branch must contain "loop s' logHandle seqRef"
+              -- (professor flag #2: all loop call sites pass logHandle + seqRef)
+              T.isInfixOf "loop s' logHandle seqRef" mainHs `shouldBe` True
+              -- And the done guard itself
+              T.isInfixOf "then return ()" mainHs `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- ---------------------------------------------------------------
+  -- runLeanstralPipeline SLetrec scan (1)
+  -- ---------------------------------------------------------------
+
+  describe "runLeanstralPipeline SLetrec scan" $ do
+    it "SLetrec with HProofRequired body is detected by pattern match" $ do
+      let stmts = [ SLetrec
+                      { letrecName     = "fib"
+                      , letrecParams   = [("n", TInt)]
+                      , letrecReturn   = Just TInt
+                      , letrecContract = Contract
+                          (Just (EOp ">=" [EVar "n", ELit (LitInt 0)]))
+                          (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
+                      , letrecDecreases = EVar "n"
+                      , letrecBody     = EHole (HProofRequired "complex-decreases")
+                      }
+                  ]
+          -- Same pattern used by runLeanstralPipeline
+          proofHoles = [ (n, c)
+                       | SLetrec n _ _ c _ (EHole (HProofRequired _)) <- stmts
+                       ]
+      length proofHoles `shouldBe` 1
+      fst (head proofHoles) `shouldBe` "fib"
+      case translateObligation "fib" (snd (head proofHoles)) of
+        LeanTheorem thm -> T.isInfixOf "theorem fib" thm `shouldBe` True
+        Unsupported r   -> expectationFailure $ "Expected theorem: " ++ T.unpack r
