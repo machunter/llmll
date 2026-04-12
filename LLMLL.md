@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.3)
+# LLMLL: Large Language Model Logical Language (v0.3.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.3 shipped):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 is shipped (12/12 items):** do-notation (PRs 1–4), stratified verification, `--contracts` flag, `.verified.json` sidecar, `string-concat` variadic sugar, `?scaffold` CLI, and `Promise[t]` → `Async t` are all complete. **v0.3.1** (planned) will deliver `?delegate` JSON-Patch lifecycle, Leanstral MCP integration, and Event Log spec. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.3.1 shipped):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 is shipped (12/12 items):** do-notation (PRs 1–4), stratified verification, `--contracts` flag, `.verified.json` sidecar, `string-concat` variadic sugar, `?scaffold` CLI, and `Promise[t]` → `Async t` are all complete. **v0.3.1 is shipped:** JSONL event log with deterministic replay (`llmll replay`), Leanstral MCP proof integration (mock-first, `--leanstral-mock`), SHA-256 proof cache (`.proof-cache.json`). 181 tests passing. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1426,15 +1426,15 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 
 > For the compiler team's full implementation schedule, ticket-level deliverables, and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). This section documents **language-visible features** only.
 
-### v0.3.1 — Deferred Agent Integration (Planned)
+### v0.3.1 — Event Log + Leanstral MCP ✅ Shipped
 
 | Area | Feature |
 |------|---------|
-| `?delegate` protocol | Formal lifecycle: check-out → implementation → RFC 6902 JSON-Patch submission → compiler re-verification + merge |
-| **Leanstral integration** | `?proof-required :inductive` and `:unknown` holes are routed to [Leanstral](https://mistral.ai/news/leanstral) (open-source Lean 4 MCP proof agent) via `lean-lsp-mcp`. The compiler translates LLMLL `TypeWhere` constraints to Lean 4 `theorem` obligations. Verified proof certificates are stored alongside the source; subsequent builds verify certificates without re-calling Leanstral |
-| `llmll check` | Verifies stored Lean 4 proof certificates without re-running Leanstral |
-| Event Log | Formalized deterministic replay spec: `(Input, CommandResult, captures)` triples; NaN rejected at the GHC/WASM boundary |
-| Trace proofs | SMT validation of `pre`/`post` over replayed Event Log traces (requires ✅ replayable modules) |
+| Event Log | ✅ JSONL event logging for console programs (`.event-log.jsonl`). Stdout capture via `hDuplicate`/`hDupTo`. Crash-safe line-by-line format. |
+| `llmll replay` | ✅ Deterministic replay: rebuilds program, feeds logged inputs step-by-step, compares outputs against recorded results. Reports match/divergence per event. |
+| **Leanstral integration** | ✅ (mock-first) `?proof-required :inductive` and `:unknown` holes translated to Lean 4 `theorem` obligations (`LeanTranslate.hs`). MCP client (`MCPClient.hs`) with `--leanstral-mock` mode. Real `lean-lsp-mcp` integration deferred. |
+| Proof cache | ✅ Per-file `.proof-cache.json` sidecar with SHA-256 invalidation (`ProofCache.hs`). Subsequent `llmll verify` reads cache, skips re-proving. |
+| `llmll verify` extensions | ✅ `--leanstral-mock` / `--leanstral-cmd` / `--leanstral-timeout` CLI flags. `runLeanstralPipeline` scans statements for proof-required holes. |
 
 ### v0.3 — Agent Coordination + Interactive Proofs ✅ Shipped
 

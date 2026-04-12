@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.3
+# LLMLL Getting Started — v0.3.1
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -41,6 +41,7 @@ Available commands:
   checkout   Lock a hole for exclusive agent editing (v0.3)
   patch      Apply an RFC 6902 JSON-Patch to a checked-out hole (v0.3)
   hub        llmll-hub package registry (fetch, scaffold)
+  replay     Deterministic replay from event log (v0.3.1)
   repl       Start an interactive LLMLL REPL
 ```
 
@@ -162,12 +163,44 @@ stack exec llmll -- verify file.llmll --fq-out out.fq
 
 # JSON output:
 stack exec llmll -- --json verify file.llmll
+
+# v0.3.1: Run Leanstral proof pipeline on ?proof-required holes (mock mode):
+stack exec llmll -- verify file.llmll --leanstral-mock
+# Runs liquid-fixpoint first, then scans for ?proof-required holes,
+# translates to Lean 4 obligations, resolves via mock prover,
+# caches results in .proof-cache.json.
+
+# v0.3.1: Leanstral with custom command and timeout:
+stack exec llmll -- verify file.llmll --leanstral-cmd /path/to/lean-lsp-mcp --leanstral-timeout 60
 ```
 
 `verify` is **gracefully degrading**: if `fixpoint` or `z3` is not in `PATH`, it writes the `.fq` file and exits 0 with an install hint. The file can be checked manually or in CI once the tools are installed.
 
 > [!IMPORTANT]
-> `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error.
+> `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
+
+### `replay` — deterministic event log replay (v0.3.1)
+
+```bash
+# Run a console program — produces .event-log.jsonl automatically:
+stack exec llmll -- build ../examples/event_log_test/event_log_test.llmll
+cd event_log_test && stack exec event_log_test
+# (interact with program — .event-log.jsonl written on exit)
+
+# Replay: rebuild from source, feed logged inputs, compare outputs:
+stack exec llmll -- replay ../examples/event_log_test/event_log_test.llmll event_log_test.event-log.jsonl
+# Replay: 5/5 events matched
+```
+
+The replay command:
+1. Parses the `.event-log.jsonl` file (JSONL — one JSON object per line)
+2. Builds the program from source using the standard `build` pipeline
+3. Feeds each logged input to the rebuilt program step-by-step
+4. Compares actual output against logged output
+5. Reports match count and any divergences with sequence numbers
+
+> [!NOTE]
+> Event logs are crash-safe: if the program is killed mid-run, the log is valid up to the last flushed line. Partial logs can be replayed.
 
 ### `typecheck --sketch` — partial-program type inference (Phase 2c)
 
