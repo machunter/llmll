@@ -28,15 +28,17 @@
 **[CT]** ✅ Event Log — JSONL format with stdout capture:
 - Generated `Main.hs` writes `.event-log.jsonl` (true JSONL, crash-safe)
 - `captureStdout` via `hDuplicate`/`hDupTo` captures actual program output
-- `llmll replay <source> <log>` parses JSONL and reports events
-- `Replay.hs` — line-by-line parser with crash tolerance
+- `llmll replay <source> <log>` builds program, feeds inputs step-by-step, compares outputs
+- `Replay.hs` — line-by-line parser with crash tolerance + `runReplay` execution engine
 
 **[CT]** ✅ Leanstral MCP integration (mock-only for v0.3.1):
 - `LeanTranslate.hs` — LLMLL contract AST → Lean 4 `theorem` obligation
 - `MCPClient.hs` — `--leanstral-mock` returns `ProofFound "by sorry"`
-- `ProofCache.hs` — per-file `.proof-cache.json` sidecar (SHA-256 invalidation)
+- `ProofCache.hs` — per-file `.proof-cache.json` sidecar (SHA-256 invalidation via `computeObligationHash`)
 - `holeComplexity` field + `normalizeComplexity` in `HoleAnalysis.hs`
 - `inferHole (HProofRequired)` added to `TypeCheck.hs`
+- `--leanstral-mock` / `--leanstral-cmd` / `--leanstral-timeout` CLI flags on `llmll verify`
+- `runLeanstralPipeline` — scans `[Statement]` directly for proof-required holes
 
 **Acceptance criteria:** ✅ All met (mock mode)
 
@@ -47,7 +49,7 @@
 - ⏸ Real Leanstral integration deferred until `lean-lsp-mcp` available
 - ⏸ NaN guard infrastructure present but NOOP (no float sources in v0.3.1)
 
-**Tests:** 145 → 160 (15 new)
+**Tests:** 145 → 181 (36 new)
 
 ### v0.3 Verification (validates shipped checkout/patch infrastructure)
 
@@ -471,7 +473,7 @@ Docker container
 | **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + typed effect row + hole-density validator + Docker sandbox |
 | **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
 | **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ + checkout/patch primitives ✅ — **12/12 shipped** |
-| **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **0/2 shipped** |
+| **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **shipped** |
 | **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker |
 
 ### Items Removed from Scope

@@ -19,10 +19,25 @@
 - **`holeComplexity`** — `HoleAnalysis.hs` gains `holeComplexity :: Maybe Text` field. `normalizeComplexity` classifies proof-required holes as `:simple`, `:inductive`, or `:unknown`. JSON output includes `"complexity"` field.
 - **`inferHole (HProofRequired)`** — Added missing type checker pattern for `?proof-required` holes.
 
-### Integration
+### Integration (Phase C)
 
 - `examples/event_log_test/` and `examples/proof_required_test/` — minimal programs for end-to-end validation.
-- **Tests:** 145 → 160 (15 new: 5 event log + 10 Leanstral MCP).
+
+### Replay Execution (Phase D)
+
+- **`runReplay`** — Spawns compiled executable, feeds inputs step-by-step via blocking `hGetLine` (synchronized I/O), compares captured outputs against logged results.
+- **`doReplay`** — Full pipeline: parse JSONL → build program → find executable → run replay → report matches/divergences.
+
+### Verify Integration (Phase E)
+
+- **`--leanstral-mock`** / `--leanstral-cmd` / `--leanstral-timeout`** — CLI flags on `llmll verify` to enable Leanstral proof pipeline.
+- **`runLeanstralPipeline`** — Scans `[Statement]` directly for `SDefLogic`/`SLetrec` with `HProofRequired` body. Runs translate → prove → cache flow.
+
+### SHA-256 Hardening (Phase F)
+
+- **`computeObligationHash`** — `cryptohash-sha256` dependency. Real SHA-256 hash (64-char hex) for proof cache invalidation.
+
+**Tests:** 145 → 181 (36 new: 5 event log + 10 Leanstral MCP + 5 integration + 16 coverage gaps).
 
 ---
 
