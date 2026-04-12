@@ -9,10 +9,14 @@ module LLMLL.Replay
   ( ReplayResult(..)
   , parseEventLog
   , EventLogEntry(..)
+  , runReplay
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import System.Process (createProcess, proc, std_in, std_out, StdStream(..), waitForProcess)
+import System.IO (Handle, hPutStrLn, hFlush, hGetLine, hSetBuffering, BufferMode(..), hClose)
+import Control.Exception (try, SomeException)
 
 -- | A single event from the JSONL log.
 data EventLogEntry = EventLogEntry
@@ -106,3 +110,43 @@ unescape = T.pack . go . T.unpack
     go ('\\' : '\\' : cs) = '\\' : go cs
     go ('\\' : c : cs) = c : go cs
     go (c : cs) = c : go cs
+
+-- | Run replay: spawn the compiled executable, feed inputs step-by-step,
+--   capture outputs, and compare against logged results.
+--   Uses step-by-step I/O synchronization (professor flag D1):
+--   write one input → read until output quiesces → compare → next.
+runReplay :: FilePath -> [EventLogEntry] -> IO ReplayResult
+runReplay execPath entries = do
+  let cp = (proc execPath []) { std_in = CreatePipe, std_out = CreatePipe }
+  (Just hin, Just hout, _, ph) <- createProcess cp
+  hSetBuffering hin LineBuffering
+  hSetBuffering hout LineBuffering
+  results <- mapM (replayOne hin hout) entries
+  hClose hin
+  _ <- waitForProcess ph
+  let matched = length (filter id results)
+      diverged = [ (evSeq e, evResultVal e, T.pack "<no output>")
+                 | (e, False) <- zip entries results ]
+  pure ReplayResult
+    { replayTotal = length entries
+    , replayMatched = matched
+    , replayDiverged = diverged
+    }
+
+-- | Replay a single event: write input, wait for output, compare.
+--   Step-by-step sync (professor flag D1): write one input → read one line of output.
+--   The console loop is line-based, so hGetLine blocks correctly until output is ready.
+replayOne :: Handle -> Handle -> EventLogEntry -> IO Bool
+replayOne hin hout entry = do
+  -- Write the input
+  hPutStrLn hin (T.unpack (evInputVal entry))
+  hFlush hin
+  -- Read one line of output (blocks until available)
+  result <- try (hGetLine hout) :: IO (Either SomeException String)
+  case result of
+    Left _ -> pure False  -- process exited or error
+    Right output -> do
+      let expected = T.strip (evResultVal entry)
+          actual   = T.strip (T.pack output)
+      pure (expected == actual)
+

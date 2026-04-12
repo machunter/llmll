@@ -20,7 +20,7 @@ import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
 import System.Exit (exitFailure, exitSuccess, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import System.Process (readProcessWithExitCode)
 import Control.Monad (unless, forM_, when, foldM)
 import qualified Data.Text as T
@@ -35,7 +35,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), VerificationLevel(..), Name)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), VerificationLevel(..), Name, Expr(..), HoleKind(..))
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -60,7 +60,12 @@ import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
 import LLMLL.Contracts (ContractsMode(..), applyContractsMode)
 import LLMLL.VerifiedCache (saveVerified, verifiedPath)
-import LLMLL.Replay (parseEventLog, EventLogEntry(..))
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
+import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
+import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
+import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
+import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
+import System.IO (hGetLine)
 
 import qualified Data.Map.Strict as Map
 
@@ -78,7 +83,7 @@ data Command
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
-  | CmdVerify   FilePath (Maybe FilePath)                   -- D4: file, optional .fq output path
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts     -- D4: file, optional .fq output path, leanstral opts
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -87,6 +92,13 @@ data Command
   | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
   | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
   deriving (Show)
+
+-- | Leanstral MCP options for the verify command (v0.3.1).
+data LeanstralOpts = LeanstralOpts
+  { lsMock    :: Bool           -- ^ --leanstral-mock: use mock prover
+  , lsCmd     :: Maybe FilePath -- ^ --leanstral-cmd: path to lean-lsp-mcp
+  , lsTimeout :: Int            -- ^ --leanstral-timeout: seconds (default 30)
+  } deriving (Show)
 
 data Options = Options
   { optCommand :: Command
@@ -194,6 +206,17 @@ optionsParser = info (helper <*> opts) $
       <*> optional (strOption
             (short 'o' <> long "fq-out" <> metavar "FILE"
             <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
+      <*> leanstralOpts
+
+    leanstralOpts = LeanstralOpts
+      <$> switch (long "leanstral-mock"
+            <> help "Use mock Leanstral prover (returns 'by sorry')")
+      <*> optional (strOption
+            (long "leanstral-cmd" <> metavar "PATH"
+            <> help "Path to lean-lsp-mcp binary"))
+      <*> option auto
+            (long "leanstral-timeout" <> value 30 <> metavar "SECS"
+            <> help "Leanstral timeout in seconds (default: 30)")
 
     typecheckCmd = CmdTypecheck
       <$> fileArg
@@ -250,7 +273,7 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
-    CmdVerify fp mFqOut       -> doVerify json fp mFqOut
+    CmdVerify fp mFqOut lsOpts -> doVerify json fp mFqOut lsOpts
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -855,8 +878,8 @@ doHubScaffold json template mOutDir = do
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> IO ()
-doVerify json fp mFqOut = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> IO ()
+doVerify json fp mFqOut lsOpts = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -933,7 +956,69 @@ doVerify json fp mFqOut = do
               unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
             _ -> pure ()
 
-          if reportSuccess report then exitSuccess else exitFailure
+          if reportSuccess report then do
+            -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
+            when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
+              runLeanstralPipeline json fp stmts lsOpts
+            exitSuccess
+          else exitFailure
+
+-- ---------------------------------------------------------------------------
+-- v0.3.1: Leanstral proof pipeline
+-- ---------------------------------------------------------------------------
+
+-- | Scan statements for ?proof-required holes and run the Leanstral pipeline.
+--   Professor flag E1: scan [Statement] directly, not HoleReport.
+runLeanstralPipeline :: Bool -> FilePath -> [Statement] -> LeanstralOpts -> IO ()
+runLeanstralPipeline json fp stmts lsOpts = do
+  let proofHoles = [ (n, c)
+                   | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts
+                   ] ++ [ (n, c)
+                   | SLetrec n _ _ c _ (EHole (HProofRequired _)) <- stmts
+                   ]
+  if null proofHoles
+    then unless json $ putStrLn "   No proof-required holes found."
+    else do
+      unless json $ putStrLn $ "   " ++ show (length proofHoles) ++ " proof-required hole(s) found."
+      cache <- loadProofCache fp
+      let config = if lsMock lsOpts
+                     then defaultMCPConfig { mcpMock = True }
+                     else defaultMCPConfig
+                            { mcpMock = False
+                            , mcpCommand = T.pack (fromMaybe "lean-lsp-mcp" (lsCmd lsOpts))
+                            , mcpTimeout = lsTimeout lsOpts
+                            }
+      updatedCache <- foldM (processPH config json) cache proofHoles
+      saveProofCache fp updatedCache
+      unless json $ putStrLn $ "   .proof-cache.json written to " ++ fp ++ ".proof-cache.json"
+  where
+    processPH config isJson cache (name, contract) = do
+      case translateObligation name contract of
+        LeanTheorem thm -> do
+          let hash = computeObligationHash thm  -- v0.3.1 Phase F: real SHA-256
+          case lookupProof ("/post/" <> name) hash cache of
+            Just _ -> do
+              unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": cached proof (skip)"
+              pure cache
+            Nothing -> do
+              result <- callLeanstral config thm
+              case result of
+                ProofFound proof -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": proof found"
+                  let entry = ProofEntry hash proof "leanstral" ""
+                  pure (insertProof ("/post/" <> name) entry cache)
+                ProofTimeout -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": timeout"
+                  pure cache
+                ProofError e -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": error: " ++ T.unpack e
+                  pure cache
+                LeanstralUnavailable e -> do
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": unavailable: " ++ T.unpack e
+                  pure cache
+        Unsupported reason -> do
+          unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": unsupported (" ++ T.unpack reason ++ ")"
+          pure cache
 
 -- ---------------------------------------------------------------------------
 -- Phase 2c: typecheck [--sketch]
@@ -1061,7 +1146,7 @@ extractContract _                         = Nothing
 -- ---------------------------------------------------------------------------
 
 doReplay :: Bool -> FilePath -> FilePath -> IO ()
-doReplay _json _srcFp logFp = do
+doReplay json srcFp logFp = do
   logContents <- TIO.readFile logFp
   let entries = parseEventLog logContents
   if null entries
@@ -1069,9 +1154,33 @@ doReplay _json _srcFp logFp = do
       hPutStrLn stderr $ "No events found in " ++ logFp
       exitFailure
     else do
-      putStrLn $ "Event log: " ++ show (length entries) ++ " events found in " ++ logFp
-      forM_ entries $ \entry -> do
-        putStrLn $ "  seq " ++ show (evSeq entry)
-                ++ ": input=\"" ++ T.unpack (evInputVal entry)
-                ++ "\" result=\"" ++ T.unpack (evResultVal entry) ++ "\""
-      putStrLn "Replay complete (log parsed; full replay requires compiled program)."
+      unless json $
+        putStrLn $ "Event log: " ++ show (length entries) ++ " events found in " ++ logFp
+
+      -- Build the program to get an executable
+      let modName = takeBaseName srcFp
+          outDir  = "generated/" ++ modName
+      unless json $ putStrLn $ "Building " ++ srcFp ++ " ..."
+      doBuild json srcFp Nothing False False False ContractsFull
+
+      -- Find the executable (stack build puts it in .stack-work)
+      let execFinder = (proc "stack" ["exec", "which", modName])
+                        { std_out = CreatePipe }
+      (_, Just hexec, _, ph) <- createProcess execFinder
+      execPath <- hGetLine hexec
+      _ <- waitForProcess ph
+
+      if null execPath
+        then do
+          hPutStrLn stderr $ "Could not find executable for " ++ modName
+          exitFailure
+        else do
+          unless json $ putStrLn $ "Running replay against " ++ execPath ++ " ..."
+          result <- runReplay execPath entries
+          putStrLn $ show (replayMatched result) ++ "/" ++ show (replayTotal result) ++ " events matched"
+          forM_ (replayDiverged result) $ \(sq, expected, actual) ->
+            putStrLn $ "  DIVERGE seq " ++ show sq
+                    ++ ": expected=\"" ++ T.unpack expected
+                    ++ "\" actual=\"" ++ T.unpack actual ++ "\""
+          when (replayMatched result /= replayTotal result) exitFailure
+

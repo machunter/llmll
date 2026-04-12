@@ -281,28 +281,235 @@ Per-file `.proof-cache.json` sidecar. SHA-256 hash for cache invalidation.
 
 ---
 
-## Phase C: Integration Testing
+## Phase C: Integration Testing ✅ (`41228ef`)
 
-- [NEW] `examples/event_log_test/` — minimal console, generate log → replay → verify
-- [NEW] `examples/proof_required_test/` — list fold with `?proof-required :inductive`, test with `--leanstral-mock`
-- Regression: all 145 tests pass, `llmll verify examples/withdraw.llmll` still SAFE
+- [NEW] `examples/event_log_test/` — minimal console echo program
+- [NEW] `examples/proof_required_test/` — proof-required hole program
+- `inferHole (HProofRequired)` added to `TypeCheck.hs` (was non-exhaustive)
+- Regression: all 160 tests pass, `llmll verify examples/withdraw.llmll` still SAFE
+
+---
+
+## Post-Implementation Audit
+
+Gaps identified after Phase C:
+
+| Gap | Severity | Description |
+|-----|----------|-------------|
+| 1 | Medium | `doReplay` parses log only — does not build/run program or compare outputs |
+| 2 | Medium | `--leanstral-mock`/`--leanstral-cmd`/`--leanstral-timeout` CLI flags missing |
+| 3 | Medium | `doVerify` not extended with Leanstral proof pipeline |
+| 4 | Low | `cryptohash-sha256` not added; ProofCache uses string comparison |
+| 5 | Low | Example programs simplified from plan specs |
+
+---
+
+## Phase D: Replay Re-Execution (Gap 1)
+
+### D1. Modified Files
+
+#### [MODIFY] [Replay.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Replay.hs)
+
+Add `runReplay` — the core comparison loop (~30 lines):
+
+```haskell
+runReplay :: FilePath        -- path to compiled executable
+          -> [EventLogEntry] -- parsed events
+          -> IO ReplayResult
+
+-- Spawns the executable via createProcess with piped stdin/stdout.
+-- For each event: write input → read output → compare against log.
+-- Returns total count, match count, and divergence list.
+```
+
+> [!WARNING]
+> **Professor flag (D1): Step-by-step I/O synchronization.**
+> The replay must feed inputs one-at-a-time, synchronized with outputs. The console loop reads one line → processes → outputs → reads again. If `runReplay` writes all inputs to the pipe simultaneously, the output interleaving will be unpredictable. Protocol: write one input → read until output quiesces (e.g. `hReady` loop or timeout) → compare → next input.
+
+#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs) — `doReplay`
+
+Replace the current log-only handler with full replay:
+
+1. Parse JSONL via `parseEventLog` (already works)
+2. Build the program using existing `doBuild` codepath → get executable path
+3. Call `runReplay execPath entries`
+4. Report `ReplayResult` (total, matched, divergences)
+
+### D2. Tests (2 new)
+
+| # | Test | What it covers |
+|---|------|----------------|
+| 1 | `runReplay` with matching inputs → `replayMatched == replayTotal` | Happy path |
+| 2 | `runReplay` with tampered result → divergence reported | Divergence detection |
+
+> [!NOTE]
+> Tests use a mock executable (shell script) rather than compiling a full LLMLL program. End-to-end verification is manual.
+
+### D3. Acceptance Criteria
+
+- [ ] `llmll replay source.llmll log.jsonl` builds the program, re-executes with logged inputs
+- [ ] Matching outputs → "N/N events matched"
+- [ ] Divergent outputs → reports sequence number, expected, actual
+
+---
+
+## Phase E: Verify Integration + CLI Flags (Gaps 2 + 3)
+
+### E1. Modified Files
+
+#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs) — CLI parser
+
+Extend `CmdVerify` with Leanstral options:
+
+```haskell
+data LeanstralOpts = LeanstralOpts
+  { lsMock    :: Bool           -- --leanstral-mock
+  , lsCmd     :: Maybe FilePath -- --leanstral-cmd
+  , lsTimeout :: Int            -- --leanstral-timeout (default 30)
+  }
+```
+
+~~Add `--json` flag to `CmdHoles`:~~ **Removed (professor review):** `doHoles` already respects the global `--json` flag (Main.hs L390–391). No `CmdHoles` change needed.
+
+#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs) — `doVerify`
+
+Extend the `doVerify` pipeline (after liquid-fixpoint).
+
+> [!WARNING]
+> **Professor flag (E1): Scan `[Statement]` directly, not `HoleReport`.**
+> `analyzeHoles` returns `HoleEntry` records which don't include `Contract` expressions. `translateObligation` takes `Name -> Contract`. The verify pipeline must walk `[Statement]` directly:
+> ```haskell
+> let proofHoles = [(n, c) | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts]
+>                ++ [(n, c) | SLetrec n _ _ c _ _ <- stmts, hasProofRequiredBody stmts n]
+> ```
+
+```haskell
+  -- v0.3.1: Leanstral proof pipeline
+  when (lsMock lsOpts || isJust (lsCmd lsOpts)) $ do
+    stmts <- loadSource fp
+    let proofHoles = [(n, c) | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts]
+    cache <- loadProofCache fp
+    forM_ proofHoles $ \(name, contract) -> do
+      case translateObligation name contract of
+        LeanTheorem thm -> do
+          let hash = computeObligationHash thm
+          case lookupProof ("/post/" <> name) hash cache of
+            Just _  -> putStrLn $ "  " ++ T.unpack name ++ ": cached proof (skip)"
+            Nothing -> do
+              result <- callLeanstral (mkConfig lsOpts) thm
+              case result of
+                ProofFound proof -> do
+                  let entry = ProofEntry hash proof "leanstral" timestamp
+                  saveProofCache fp (insertProof ("/post/" <> name) entry cache)
+                  putStrLn $ "  " ++ T.unpack name ++ ": proof found"
+                ProofTimeout -> putStrLn $ "  " ++ T.unpack name ++ ": timeout"
+                ProofError e -> putStrLn $ "  " ++ T.unpack name ++ ": error: " ++ T.unpack e
+                LeanstralUnavailable e -> putStrLn $ "  " ++ T.unpack name ++ ": unavailable: " ++ T.unpack e
+        Unsupported reason -> putStrLn $ "  " ++ T.unpack name ++ ": unsupported (" ++ T.unpack reason ++ ")"
+```
+
+### E2. Tests (2 new)
+
+| # | Test | What it covers |
+|---|------|----------------|
+| 1 | `llmll verify --leanstral-mock` on proof-required program → "proof found" | Pipeline integration |
+| 2 | `llmll verify` without `--leanstral-mock` → existing behavior unchanged | Regression |
+
+> [!NOTE]
+> The `llmll holes --json` test was removed from Phase E because `doHoles` already supports JSON output via the global `--json` flag. This was already validated by Phase B test 9 (`formatHoleReportJson includes complexity for proof-required holes`).
+
+### E3. Acceptance Criteria
+
+- [ ] `llmll verify --leanstral-mock proof_required_test.llmll` → "proof found", `.proof-cache.json` written
+- [ ] Second `llmll verify --leanstral-mock` → "cached proof (skip)"
+- [ ] `llmll holes --json proof_required_test.llmll` → `"complexity": ":simple"` in output (already works)
+- [ ] `llmll verify` without Leanstral flags → existing liquid-fixpoint flow unchanged
+
+---
+
+## Phase F: SHA-256 + Hardened Examples (Gaps 4 + 5)
+
+### F1. Modified Files
+
+#### [MODIFY] [package.yaml](file:///Users/burcsahinoglu/Documents/llmll/compiler/package.yaml)
+
+Add `cryptohash-sha256` dependency.
+
+#### [MODIFY] [ProofCache.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ProofCache.hs)
+
+Add hash utility:
+
+```haskell
+import Crypto.Hash.SHA256 (hash)
+import qualified Data.ByteString.Char8 as BS
+
+computeObligationHash :: Text -> Text
+computeObligationHash = T.pack . concatMap (printf "%02x") . BS.unpack . hash . TE.encodeUtf8
+```
+
+Export `computeObligationHash` for use by `doVerify`.
+
+#### [MODIFY] Example programs
+
+**`event_log_test.llmll`** — Expand to use `:init` + `:done?`:
+
+```lisp
+(def-main
+  :mode console
+  :init (pair "" (wasi.io.stdout "Enter two words:\n"))
+  :step (fn [state: string input: string]
+    (pair (string-concat state input)
+          (wasi.io.stdout (string-concat "Got: " input "\n"))))
+  :done? (fn [state: string] (>= (string-length state) 2)))
+```
+
+**`proof_required_test.llmll`** — Add contract clauses:
+
+```lisp
+(def-logic safe-div [n: int d: int
+   (:pre (> d 0))
+   (:post (>= result 0))]
+  ?proof-required)
+```
+
+> [!NOTE]
+> The `letrec` + `:decreases` pattern from the professor's §C2 (L374–382) requires structural recursion features that may not parse in S-expression format. Will test and simplify if needed.
+
+### F2. Tests (1 new)
+
+| # | Test | What it covers |
+|---|------|----------------|
+| 1 | `computeObligationHash` produces consistent hex string | SHA-256 correctness |
+
+### F3. Acceptance Criteria
+
+- [ ] `computeObligationHash "x > 0"` returns a 64-char hex string
+- [ ] `ProofCache` roundtrip uses real SHA-256, not arbitrary strings
+- [ ] `llmll check` passes on both expanded example programs
 
 ---
 
 ## Delivery Schedule
 
 ```
-Phase A: Event Log           ─── 1-2 days ───→ commit + 5 tests
-Phase B: Leanstral MCP       ─── 3-5 days ───→ commit + 10 tests  
-Phase C: Integration testing  ─── 1 day   ───→ examples + regression
-                                              ─────────────────────
-                              Total: ~160 tests, v0.3.1 tagged
+Phase A: Event Log           ─── shipped ───→ d4005b0 (5 tests)
+Phase B: Leanstral MCP       ─── shipped ───→ 69b466a (10 tests)
+Phase C: Integration testing  ─── shipped ───→ 41228ef
+Phase D: Replay execution    ─── ~1 hour ───→ +2 tests
+Phase E: Verify integration  ─── ~2 hours ──→ +2 tests
+Phase F: SHA-256 + examples  ─── ~30 min ───→ +1 test
+                                              ─────────────────
+                              Total: ~165 tests, v0.3.1 tagged
 ```
 
 ## File Summary
 
 | Phase | New Files | Modified Files |
 |---|---|---|
-| A | `Replay.hs` | `CodegenHs.hs`, `Main.hs`, `Spec.hs` |
-| B | `LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs` | `Main.hs`, `HoleAnalysis.hs`, `package.yaml`, `Spec.hs` |
-| C | `examples/event_log_test/`, `examples/proof_required_test/` | — |
+| A ✅ | `Replay.hs` | `CodegenHs.hs`, `Main.hs`, `Spec.hs` |
+| B ✅ | `LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs` | `Main.hs`, `HoleAnalysis.hs`, `package.yaml`, `Spec.hs` |
+| C ✅ | `examples/event_log_test/`, `examples/proof_required_test/` | `TypeCheck.hs`, `CHANGELOG.md`, `compiler-team-roadmap.md` |
+| D | — | `Main.hs`, `Replay.hs`, `Spec.hs` |
+| E | — | `Main.hs`, `Spec.hs` |
+| F | — | `package.yaml`, `ProofCache.hs`, examples, `Spec.hs` |
+

@@ -50,6 +50,7 @@ dependencies:
   - wai >= 3.2         # D5: WAI application interface
   - http-types >= 0.12 # D5: HTTP status codes + headers
   - time >= 1.12       # v0.3: checkout lock timestamps
+  - cryptohash-sha256  # v0.3.1: proof cache obligation hashing
 
 library:
   source-dirs: src

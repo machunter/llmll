@@ -16,6 +16,8 @@ module LLMLL.ProofCache
   , saveProofCache
   , lookupProof
   , insertProof
+    -- * Hashing
+  , computeObligationHash
   ) where
 
 import Data.Text (Text)
@@ -28,6 +30,11 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import System.Directory (doesFileExist)
+import Crypto.Hash.SHA256 (hash)
+import qualified Data.ByteString as BS
+import qualified Data.Text.Encoding as TE
+import Data.Word (Word8)
+import Numeric (showHex)
 
 -- | A cached proof entry.
 data ProofEntry = ProofEntry
@@ -100,4 +107,12 @@ lookupProof contractPath currentHash cache =
 -- | Insert a proof entry into the cache.
 insertProof :: Text -> ProofEntry -> Map Text ProofEntry -> Map Text ProofEntry
 insertProof = Map.insert
+
+-- | Compute SHA-256 hash of obligation text for cache invalidation.
+--   Returns a 64-character lowercase hex string.
+computeObligationHash :: Text -> Text
+computeObligationHash = T.pack . concatMap toHex . BS.unpack . hash . TE.encodeUtf8
+  where
+    toHex :: Word8 -> String
+    toHex w = let s = showHex w "" in if length s == 1 then '0' : s else s
 

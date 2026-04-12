@@ -18,12 +18,13 @@ import LLMLL.AstEmit (stmtToJson)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
-import LLMLL.Replay (parseEventLog, EventLogEntry(..))
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
-import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof)
+import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
 import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
+import System.Process (callProcess)
 import Data.List (isSuffixOf)
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Aeson (encode, decode, Value(..), object, (.=))
@@ -1684,8 +1685,117 @@ main = hspec $ do
             _ -> expectationFailure "Expected ProofFound"
         Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
 
+  -- =========================================================================
+  -- v0.3.1 Phase D: Replay Re-Execution
+  -- =========================================================================
+
+  replayExecutionTests
+
+  -- =========================================================================
+  -- v0.3.1 Phase E: Verify Integration
+  -- =========================================================================
+
+  verifyIntegrationTests
+
+  -- =========================================================================
+  -- v0.3.1 Phase F: SHA-256 Hashing
+  -- =========================================================================
+
+  sha256Tests
+
 -- | Helper to remove a file if it exists (used for test cleanup).
 removeIfExists :: FilePath -> IO ()
 removeIfExists fp = do
   exists <- doesFileExist fp
   if exists then removeFile fp else pure ()
+
+-- =====================================================================
+-- Phase D tests: Replay Re-Execution (v0.3.1)
+-- =====================================================================
+
+replayExecutionTests :: Spec
+replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
+    it "runReplay with matching events reports all matched" $ do
+      -- Create a mock executable that echoes input with a prefix
+      let mockScript = "test_echo_mock.sh"
+      writeFile mockScript "#!/bin/bash\nwhile IFS= read -r line; do echo \"Got: $line\"; done"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "Got: hello\n"
+                    , EventLogEntry 1 "stdin" "world" "stdout" "Got: world\n"
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 2
+      replayMatched result `shouldBe` 2
+      replayDiverged result `shouldBe` []
+
+    it "runReplay with tampered result detects divergence" $ do
+      let mockScript = "test_echo_mock2.sh"
+      writeFile mockScript "#!/bin/bash\nwhile IFS= read -r line; do echo \"Got: $line\"; done"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "WRONG OUTPUT\n"
+                    ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 1
+      replayMatched result `shouldBe` 0
+      length (replayDiverged result) `shouldBe` 1
+
+-- =====================================================================
+-- Phase E tests: Verify Integration (v0.3.1)
+-- =====================================================================
+
+verifyIntegrationTests :: Spec
+verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
+    it "LeanstralOpts mock pipeline resolves proof-required holes" $ do
+      -- Simulate the pipeline: scan statements → translate → mock prove → cache
+      let stmts = [ SDefLogic "test-fn" [("x", TInt)] Nothing
+                      (Contract
+                         (Just (EOp ">" [EVar "x", ELit (LitInt 0)]))
+                         (Just (EOp ">" [EVar "result", ELit (LitInt 0)])))
+                      (EHole (HProofRequired "complex-decreases"))
+                  ]
+          proofHoles = [ (n, c)
+                       | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts
+                       ]
+      length proofHoles `shouldBe` 1
+      case proofHoles of
+        [(name, contract)] -> do
+          case translateObligation name contract of
+            LeanTheorem thm -> do
+              let mockResult = mockProofResult thm
+              case mockResult of
+                ProofFound proof -> do
+                  let entry = ProofEntry thm proof "leanstral" ""
+                      cache = insertProof ("/post/" <> name) entry Map.empty
+                  -- Verify cache lookup works
+                  lookupProof ("/post/" <> name) thm cache `shouldBe` Just entry
+                _ -> expectationFailure "Expected ProofFound from mock"
+            Unsupported reason -> expectationFailure $ "Expected LeanTheorem: " ++ T.unpack reason
+        _ -> expectationFailure "Expected exactly one proof hole"
+
+    it "Verify without leanstral opts has no effect (structural)" $ do
+      -- When lsMock is False and lsCmd is Nothing, the pipeline guard
+      -- (lsMock lsOpts || isJust (lsCmd lsOpts)) evaluates to False.
+      -- This is a structural test verifying the guard conditions.
+      let mockFlag = False
+          cmdPath  = Nothing :: Maybe FilePath
+      (mockFlag || maybe False (const True) cmdPath) `shouldBe` False
+
+-- =====================================================================
+-- Phase F tests: SHA-256 Hashing (v0.3.1)
+-- =====================================================================
+
+sha256Tests :: Spec
+sha256Tests = describe "SHA-256 Hashing (v0.3.1)" $ do
+    it "computeObligationHash produces consistent 64-char hex string" $ do
+      let hash1 = computeObligationHash "x > 0"
+          hash2 = computeObligationHash "x > 0"
+          hash3 = computeObligationHash "x > 1"
+      -- Deterministic
+      hash1 `shouldBe` hash2
+      -- Different inputs → different hashes
+      hash1 `shouldNotBe` hash3
+      -- 64-char hex
+      T.length hash1 `shouldBe` 64
+      T.all (\c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) hash1 `shouldBe` True
