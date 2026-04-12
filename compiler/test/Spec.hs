@@ -1703,6 +1703,12 @@ main = hspec $ do
 
   sha256Tests
 
+  -- =========================================================================
+  -- v0.3.1 Coverage Gaps
+  -- =========================================================================
+
+  coverageGapTests
+
 -- | Helper to remove a file if it exists (used for test cleanup).
 removeIfExists :: FilePath -> IO ()
 removeIfExists fp = do
@@ -1799,3 +1805,193 @@ sha256Tests = describe "SHA-256 Hashing (v0.3.1)" $ do
       -- 64-char hex
       T.length hash1 `shouldBe` 64
       T.all (\c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) hash1 `shouldBe` True
+
+-- =====================================================================
+-- Coverage gap tests (v0.3.1)
+-- =====================================================================
+
+coverageGapTests :: Spec
+coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
+
+  -- ---------------------------------------------------------------
+  -- Replay edge cases (2)
+  -- ---------------------------------------------------------------
+
+  describe "Replay edge cases" $ do
+    it "parseEventLog on empty input returns empty list" $ do
+      parseEventLog "" `shouldBe` []
+
+    it "parseEventLog on malformed JSON skips bad lines" $ do
+      let logContent = T.unlines
+            [ "{\"type\":\"header\",\"version\":\"0.3.1\"}"
+            , "this is not json at all"
+            , "{\"type\":\"event\",\"seq\":0,\"input\":{\"kind\":\"stdin\",\"value\":\"x\"},\"result\":{\"kind\":\"stdout\",\"value\":\"y\"},\"captures\":[]}"
+            , "{\"type\":\"event\",\"seq\":\"NaN\""    -- missing fields
+            ]
+      let entries = parseEventLog logContent
+      length entries `shouldBe` 1
+      evInputVal (head entries) `shouldBe` "x"
+
+  -- ---------------------------------------------------------------
+  -- Replay process crash (1)
+  -- ---------------------------------------------------------------
+
+  describe "Replay process crash" $ do
+    it "runReplay with crashing process reports no matches" $ do
+      let mockScript = "test_crash_mock.sh"
+      writeFile mockScript "#!/bin/bash\nexit 1"
+      callProcess "chmod" ["+x", mockScript]
+      let entries = [ EventLogEntry 0 "stdin" "hello" "stdout" "world" ]
+      result <- runReplay ("./" ++ mockScript) entries
+      removeIfExists mockScript
+      replayTotal result `shouldBe` 1
+      replayMatched result `shouldBe` 0
+
+  -- ---------------------------------------------------------------
+  -- LeanTranslate coverage (4)
+  -- ---------------------------------------------------------------
+
+  describe "LeanTranslate coverage" $ do
+    it "translateObligation on empty contract → Unsupported" $ do
+      let contract = Contract Nothing Nothing
+      case translateObligation "empty-test" contract of
+        Unsupported reason -> T.isInfixOf "empty" reason `shouldBe` True
+        LeanTheorem _      -> expectationFailure "Expected Unsupported for empty contract"
+
+    it "translateObligation with pre-only (no post) → valid theorem with True goal" $ do
+      let contract = Contract
+            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
+            , contractPost = Nothing
+            }
+      case translateObligation "pre-only" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "True" thm `shouldBe` True
+          T.isInfixOf "(h :" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
+    it "translateObligation with for-all → quantified Lean 4" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EApp "for-all" [EVar "i", EOp ">" [EVar "i", ELit (LitInt 0)]])
+            }
+      case translateObligation "forall-test" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "∀" thm `shouldBe` True
+          T.isInfixOf "i" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
+    it "translateObligation with boolean ops (and/or/not)" $ do
+      let contract = Contract
+            { contractPre  = Nothing
+            , contractPost = Just (EOp "and" [ EOp ">" [EVar "x", ELit (LitInt 0)]
+                                             , EOp "not" [EOp "<" [EVar "y", ELit (LitInt 0)]]
+                                             ])
+            }
+      case translateObligation "bool-test" contract of
+        LeanTheorem thm -> do
+          T.isInfixOf "∧" thm `shouldBe` True
+          T.isInfixOf "¬" thm `shouldBe` True
+        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+
+  -- ---------------------------------------------------------------
+  -- MCPResult constructors (2)
+  -- ---------------------------------------------------------------
+
+  describe "MCPResult constructors" $ do
+    it "ProofTimeout is distinct from ProofFound" $ do
+      let timeout = ProofTimeout
+          found   = ProofFound "by sorry"
+      timeout `shouldNotBe` found
+      case timeout of
+        ProofTimeout -> pure ()
+        _            -> expectationFailure "Expected ProofTimeout"
+
+    it "ProofError carries error message" $ do
+      let err = ProofError "type mismatch"
+      case err of
+        ProofError msg -> msg `shouldBe` "type mismatch"
+        _              -> expectationFailure "Expected ProofError"
+
+  -- ---------------------------------------------------------------
+  -- ProofCache coverage (2)
+  -- ---------------------------------------------------------------
+
+  describe "ProofCache coverage" $ do
+    it "proofCachePath convention appends .proof-cache.json" $ do
+      proofCachePath "examples/test.llmll" `shouldBe` "examples/test.llmll.proof-cache.json"
+      proofCachePath "foo.llmll" `shouldBe` "foo.llmll.proof-cache.json"
+
+    it "lookupProof with missing key returns Nothing" $ do
+      let entry = ProofEntry "hash" "by sorry" "leanstral" ""
+          cache = insertProof "/post/foo" entry Map.empty
+      lookupProof "/post/bar" "hash" cache `shouldBe` Nothing
+
+  -- ---------------------------------------------------------------
+  -- HoleAnalysis normalizeComplexity :unknown (1)
+  -- ---------------------------------------------------------------
+
+  describe "HoleAnalysis normalizeComplexity :unknown" $ do
+    it "normalizeComplexity 'manual' → :unknown" $ do
+      HA.normalizeComplexity "manual" `shouldBe` ":unknown"
+
+    it "normalizeComplexity 'non-linear' → :unknown" $ do
+      HA.normalizeComplexity "non-linear" `shouldBe` ":unknown"
+
+  -- ---------------------------------------------------------------
+  -- CodegenHs: captureStdout lazy I/O force (1)
+  -- ---------------------------------------------------------------
+
+  describe "CodegenHs captureStdout lazy-IO force" $ do
+    it "emitEventLogPreamble captureStdout contains length/seq force" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "length output" preamble `shouldBe` True
+      T.isInfixOf "seq" preamble `shouldBe` True
+      T.isInfixOf "force lazy" preamble `shouldBe` True
+
+  -- ---------------------------------------------------------------
+  -- CodegenHs: :done? branches pass logHandle/seqRef (1)
+  -- ---------------------------------------------------------------
+
+  describe "CodegenHs :done? loop branches" $ do
+    it "Generated Main.hs with :done? has loop s' logHandle seqRef" $ do
+      -- Use a console program with :done? that stops when input is "quit"
+      let src = "(def-main :mode console :init \"\" :step (fn [s: string input: string] (pair input (wasi.io.stdout input))) :done? (fn [s: string] (= s \"quit\")))"
+      case parseStatements "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "testdone" stmts
+          case cgMainHs result of
+            Nothing -> expectationFailure "No Main.hs generated"
+            Just mainHs -> do
+              -- The :done? branch must contain "loop s' logHandle seqRef"
+              -- (professor flag #2: all loop call sites pass logHandle + seqRef)
+              T.isInfixOf "loop s' logHandle seqRef" mainHs `shouldBe` True
+              -- And the done guard itself
+              T.isInfixOf "then return ()" mainHs `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- ---------------------------------------------------------------
+  -- runLeanstralPipeline SLetrec scan (1)
+  -- ---------------------------------------------------------------
+
+  describe "runLeanstralPipeline SLetrec scan" $ do
+    it "SLetrec with HProofRequired body is detected by pattern match" $ do
+      let stmts = [ SLetrec
+                      { letrecName     = "fib"
+                      , letrecParams   = [("n", TInt)]
+                      , letrecReturn   = Just TInt
+                      , letrecContract = Contract
+                          (Just (EOp ">=" [EVar "n", ELit (LitInt 0)]))
+                          (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
+                      , letrecDecreases = EVar "n"
+                      , letrecBody     = EHole (HProofRequired "complex-decreases")
+                      }
+                  ]
+          -- Same pattern used by runLeanstralPipeline
+          proofHoles = [ (n, c)
+                       | SLetrec n _ _ c _ (EHole (HProofRequired _)) <- stmts
+                       ]
+      length proofHoles `shouldBe` 1
+      fst (head proofHoles) `shouldBe` "fib"
+      case translateObligation "fib" (snd (head proofHoles)) of
+        LeanTheorem thm -> T.isInfixOf "theorem fib" thm `shouldBe` True
+        Unsupported r   -> expectationFailure $ "Expected theorem: " ++ T.unpack r
