@@ -760,6 +760,10 @@ inferHole HConflictResolution = do
   tcError "unresolved merge conflict hole"
   pure (TVar "?")
 
+inferHole (HProofRequired reason) = do
+  tcWarn $ "proof-required hole [" <> reason <> "]: needs formal verification"
+  pure (TVar "?")
+
 -- | Infer type from do-steps with pair-thread enforcement (PR 2).
 -- Every step must return (S, Command) i.e. TPair S (TCustom "Command").
 -- The state type S is unified across all steps.

@@ -1,0 +1,21 @@
+;; Proof-Required Integration Test (v0.3.1)
+;;
+;; Program with a ?proof-required hole for testing the Leanstral MCP pipeline.
+;; The safe-div function has a proof obligation that Leanstral would verify.
+;;
+;; Test procedure:
+;;   1. llmll holes --json proof_required_test.llmll
+;;      → verify output includes "proof-required"
+;;   2. llmll verify --leanstral-mock proof_required_test.llmll
+;;      → verify .proof-cache.json created
+;;   3. llmll verify proof_required_test.llmll (second run)
+;;      → verify certificate read from cache, no re-call
+
+(def-logic safe-div [n: int d: int]
+  ?proof-required)
+
+(def-logic main-step [state: string input: string]
+  (pair state (wasi.io.stdout "proof-required test")))
+
+(def-main :mode console
+  :step main-step)

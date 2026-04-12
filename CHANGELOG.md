@@ -2,6 +2,30 @@
 
 ---
 
+## v0.3.1 — Event Log + Leanstral MCP (2026-04-11)
+
+### Event Log (Phase A)
+
+- **JSONL event logging** — Generated `Main.hs` for console programs writes `.event-log.jsonl` with true JSONL format (one JSON object per line, crash-safe).
+- **stdout capture** — `captureStdout` via `hDuplicate`/`hDupTo` captures program output for the `result` field. Forced lazy I/O evaluation prevents pipe read bugs.
+- **`llmll replay`** — New subcommand parses `.event-log.jsonl` files and reports events with input/result values.
+- **`Replay.hs`** — JSONL line-by-line parser with crash tolerance (partial logs parseable up to last flushed line).
+
+### Leanstral MCP (Phase B — Mock-Only)
+
+- **`LeanTranslate.hs`** — Translates LLMLL contract AST (`EOp`/`EApp`) to Lean 4 `theorem` obligations. Supports linear arithmetic, list structural induction, quantified variables.
+- **`MCPClient.hs`** — MCP JSON-RPC client with `--leanstral-mock` mode (`ProofFound "by sorry"`). Real protocol implemented but untested.
+- **`ProofCache.hs`** — Per-file `.proof-cache.json` sidecar with SHA-256 invalidation. Follows `VerifiedCache` pattern.
+- **`holeComplexity`** — `HoleAnalysis.hs` gains `holeComplexity :: Maybe Text` field. `normalizeComplexity` classifies proof-required holes as `:simple`, `:inductive`, or `:unknown`. JSON output includes `"complexity"` field.
+- **`inferHole (HProofRequired)`** — Added missing type checker pattern for `?proof-required` holes.
+
+### Integration
+
+- `examples/event_log_test/` and `examples/proof_required_test/` — minimal programs for end-to-end validation.
+- **Tests:** 145 → 160 (15 new: 5 event log + 10 Leanstral MCP).
+
+---
+
 ## v0.3.0-dev — Do-Notation + Type Soundness (in progress)
 
 ### Compiler — Stratified Verification + Feature Completion (2026-04-11)
