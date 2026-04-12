@@ -23,7 +23,7 @@
 
 **Theme:** Deterministic replay via JSONL event log and mock-first Leanstral proof integration.
 
-> **Note:** The `?delegate` checkout/patch *compiler primitives* (`Checkout.hs`, `PatchApply.hs`, `JsonPointer.hs`, `llmll checkout`, `llmll patch`) shipped in v0.3. The agent orchestrator (`llmll-orchestra`) is scoped separately — see [`docs/agent-orchestration.md`](agent-orchestration.md).
+> **Note:** The `?delegate` checkout/patch *compiler primitives* (`Checkout.hs`, `PatchApply.hs`, `JsonPointer.hs`, `llmll checkout`, `llmll patch`) shipped in v0.3. The agent orchestrator (`llmll-orchestra`) is scoped separately — see [`docs/design/agent-orchestration.md`](design/agent-orchestration.md).
 
 **[CT]** ✅ Event Log — JSONL format with stdout capture:
 - Generated `Main.hs` writes `.event-log.jsonl` (true JSONL, crash-safe)
