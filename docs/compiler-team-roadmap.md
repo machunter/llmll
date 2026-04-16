@@ -1,8 +1,8 @@
 # LLMLL Compiler Team Implementation Roadmap
 
 > **Prepared by:** Compiler Team  
-> **Date:** 2026-04-11  
-> **Status:** Active — v0.3 shipped (12 of 12); v0.3.1 planned  
+> **Date:** 2026-04-15  
+> **Status:** Active — v0.3.1 shipped; v0.3.2 planned (trust hardening + WASM PoC); v0.3.3 planned (orchestrator)  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -16,6 +16,74 @@
 - Items marked **[CT]** are compiler team implementation tasks.
 - Items marked **[SPEC]** are language specification changes that must land in `LLMLL.md` before or alongside the implementation.
 - Items marked **[DESIGN]** are design decisions resolved by the joint team, recorded here as implementation constraints.
+
+---
+
+## v0.3.3 — Agent Orchestration (Planned)
+
+**Theme:** First end-to-end multi-agent coordination demo. Validates the checkout/patch primitives shipped in v0.3.
+
+> **Note:** The orchestrator ships as a separate package (`llmll-orchestra`), not as part of the compiler binary. M2 is a compiler deliverable; M1 is an external tool that consumes the compiler's CLI/HTTP contract.
+
+**[CT]** ☐ M2 — `llmll holes --json --deps` flag:
+- Add a `depends_on` field to each hole entry in `llmll holes --json` output
+- Dependency = "hole B's inferred type references hole A's return type"
+- Enables the orchestrator to topologically sort holes and parallelize independent ones safely
+- Implementation in `HoleAnalysis.hs` — walk the AST dependency graph from each hole's type context
+
+**[EXT]** ☐ M1 — Python orchestrator (`llmll-orchestra` v0.1):
+- ~200-line Python script validating the two-agent auth module exercise
+- Reads `llmll holes --json`, calls `llmll checkout` + `llmll patch` via CLI
+- Sends hole context + LLMLL.md to Claude (Anthropic SDK), submits returned JSON-Patches
+- Reports success/failure per hole, handles retry with diagnostics (max 3 attempts)
+- Ships as a separate `pip` package with the compiler as a prerequisite
+
+**Acceptance criteria:**
+
+- ☐ `llmll holes --json --deps` returns a `depends_on` array per hole entry; empty array for independent holes
+- ☐ `llmll-orchestra` fills both `?delegate @crypto-agent` holes in the auth module exercise end-to-end
+- ☐ A deliberately malformed patch triggers retry with diagnostics fed back to the agent
+- ☐ Lock expiry (checkout TTL) is handled gracefully (re-queue, not crash)
+
+**Open questions (from [`docs/design/agent-orchestration.md`](design/agent-orchestration.md)):**
+
+- Q2 resolved: `--json --deps` adds the dependency graph (this milestone)
+- Q3 deferred: orchestration events reusing the Event Log format — decide in v0.3.4 or later
+- Q5 deferred: MCP client/server dual role — Python v1 is CLI-only, MCP integration comes with self-hosted rewrite
+
+---
+
+## v0.3.2 — Trust Hardening + WASM PoC (Planned)
+
+**Theme:** Prove the compositionality story works (trust propagation) and de-risk v0.4 (WASM PoC).
+
+> **Source:** [`docs/design/verification-debate-action-items.md`](design/verification-debate-action-items.md) — items surfaced by external formal methods review.
+
+**[CT]** ☐ Cross-module trust propagation test:
+- Write a multi-module test: Module A exports a function with `VLAsserted` contract, Module B imports it and calls it from a function with `VLProven` contract
+- Verify that Module B's effective verification level is capped at `VLAsserted`, not `VLProven`
+- Test the inverse: Module A has `VLProven`, Module B inherits `VLProven` correctly
+- Test `(trust foo.bar :level asserted)` silences the downstream warning
+
+**[CT]** ☐ `llmll verify --trust-report` flag:
+- New output mode on `llmll verify` that prints a trust summary after verification
+- Per-function: contract name, verification level (proven/tested/asserted)
+- Transitive closure: which `proven` conclusions depend on `asserted` assumptions upstream
+- Flags epistemic drift: "Function `withdraw` is proven, but depends on `auth.verify-token` which is asserted"
+- JSON output with `--json` for tooling consumption
+
+**[CT]** ☐ GHC WASM proof-of-concept:
+- Compile the generated `hangman_sexp` Haskell output with `ghc --target=wasm32-wasi`
+- Document all blockers: missing GHC WASM support for `effectful`, `QuickCheck`, `async`, `liquid-fixpoint`, etc.
+- Write up a go/no-go assessment for v0.4 WASM hardening
+- If blockers exist, identify minimal shims or alternative packages
+- This is a spike, not a shipping feature — the deliverable is a written report
+
+**Acceptance criteria:**
+
+- ☐ Multi-module trust propagation tests pass (at least 4 test cases covering the matrix)
+- ☐ `llmll verify --trust-report` on a multi-module program outputs the transitive trust graph
+- ☐ WASM PoC report written with go/no-go recommendation for v0.4
 
 ---
 
@@ -474,6 +542,8 @@ Docker container
 | **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
 | **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ + checkout/patch primitives ✅ — **12/12 shipped** |
 | **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **shipped** |
+| **v0.3.2** | *(new)* | Trust hardening (`--trust-report`, cross-module propagation tests) + GHC WASM PoC — **planned** |
+| **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) — **planned** |
 | **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker |
 
 ### Items Removed from Scope
