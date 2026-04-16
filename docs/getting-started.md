@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.3.1
+# LLMLL Getting Started — v0.3.2
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -35,7 +35,7 @@ Available commands:
   holes      List and classify all holes in a file
   test       Run property-based tests (check blocks)
   build      Compile source to a Haskell application
-  verify     Emit .fq constraints and run liquid-fixpoint (Phase 2b)
+  verify     Emit .fq constraints, run liquid-fixpoint, trust report (Phase 2b+)
   typecheck  Type inference (use --sketch for partial programs)
   serve      HTTP sketch endpoint for agent swarms
   checkout   Lock a hole for exclusive agent editing (v0.3)
@@ -172,6 +172,22 @@ stack exec llmll -- verify file.llmll --leanstral-mock
 
 # v0.3.1: Leanstral with custom command and timeout:
 stack exec llmll -- verify file.llmll --leanstral-cmd /path/to/lean-lsp-mcp --leanstral-timeout 60
+
+# v0.3.2: Trust report — transitive trust closure with epistemic drift detection:
+stack exec llmll -- verify file.llmll --trust-report
+# Trust Report
+# ────────────────────────────────────────────────────────────
+#   withdraw:
+#     pre: proven (liquid-fixpoint)  |  post: proven (liquid-fixpoint)
+#     ↳ calls auth.verify-token (pre: —, post: asserted)
+#     ⚠ withdraw is proven, but depends on auth.verify-token which is asserted
+# ────────────────────────────────────────────────────────────
+# Summary:
+#   proven: 3  tested: 1  asserted: 2  no contract: 5
+#   ⚠ epistemic drifts: 1
+
+# JSON trust report (for tooling consumption):
+stack exec llmll -- verify file.llmll --trust-report --json
 ```
 
 `verify` is **gracefully degrading**: if `fixpoint` or `z3` is not in `PATH`, it writes the `.fq` file and exits 0 with an install hint. The file can be checked manually or in CI once the tools are installed.

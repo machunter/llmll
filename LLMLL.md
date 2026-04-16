@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.3.1)
+# LLMLL: Large Language Model Logical Language (v0.3.2)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.3.1 shipped):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 is shipped (12/12 items):** do-notation (PRs 1–4), stratified verification, `--contracts` flag, `.verified.json` sidecar, `string-concat` variadic sugar, `?scaffold` CLI, and `Promise[t]` → `Async t` are all complete. **v0.3.1 is shipped:** JSONL event log with deterministic replay (`llmll replay`), Leanstral MCP proof integration (mock-first, `--leanstral-mock`), SHA-256 proof cache (`.proof-cache.json`). 181 tests passing. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.3.2 shipped):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 is shipped (12/12 items):** do-notation (PRs 1–4), stratified verification, `--contracts` flag, `.verified.json` sidecar, `string-concat` variadic sugar, `?scaffold` CLI, and `Promise[t]` → `Async t` are all complete. **v0.3.1 is shipped:** JSONL event log with deterministic replay (`llmll replay`), Leanstral MCP proof integration (mock-first, `--leanstral-mock`), SHA-256 proof cache (`.proof-cache.json`). **v0.3.2 is shipped:** Trust hardening — `llmll verify --trust-report` prints transitive trust closure with epistemic drift detection; cross-module trust propagation fully tested (7 new test cases). GHC WASM proof-of-concept completed (conditional GO for v0.4; see [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md)). 194 tests passing. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -292,6 +292,28 @@ This silences the warning and makes the trust decision visible in source. An age
 `(trust ...)` declarations follow `import` semantics — per-function, multiple declarations per module, must appear before any `def-logic`. Duplicate declarations for the same function are idempotent (not an error).
 
 When the sidecar `.verified.json` file is missing for an imported module, all contracts default to `asserted`.
+
+#### 4.4.4 Trust Report (`--trust-report`)
+
+`llmll verify --trust-report` prints a per-function trust summary after verification. For each function with contracts, the report shows:
+
+- The function’s own verification level (proven/tested/asserted) for pre and post clauses
+- Which cross-module functions it calls and their verification levels
+- **Epistemic drift warnings:** when a `proven` conclusion depends transitively on an `asserted` or `tested` assumption upstream
+
+```bash
+stack exec llmll -- verify program.llmll --trust-report
+# Trust Report
+# ────────────────────────────────────────────────────────────
+#   withdraw:
+#     pre: proven (liquid-fixpoint)  |  post: proven (liquid-fixpoint)
+#     ↳ calls auth.verify-token (pre: —, post: asserted)
+#     ⚠ withdraw is proven, but depends on auth.verify-token which is asserted
+```
+
+Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling.
+
+The report walks the full module cache (entry-point module plus all imported modules) and computes the transitive trust closure. An agent auditing a module can use the trust report to identify all points where the formal verification chain breaks down.
 
 ---
 
@@ -1425,6 +1447,14 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 ## 14. Version Roadmap
 
 > For the compiler team's full implementation schedule, ticket-level deliverables, and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). This section documents **language-visible features** only.
+
+### v0.3.2 — Trust Hardening + WASM PoC ✅ Shipped
+
+| Area | Feature |
+|------|---------|
+| Cross-module trust propagation | ✅ 7 test cases covering the asserted/tested/proven matrix, mixed verification levels, and `(trust ...)` declaration suppression. Validates that a `VLProven` function importing a `VLAsserted` dependency is correctly capped at `VLAsserted`. |
+| `llmll verify --trust-report` | ✅ Per-function trust summary with transitive closure analysis. Reports verification level (proven/tested/asserted) for every contract. Flags epistemic drift: “Function `withdraw` is proven, but depends on `auth.verify-token` which is asserted.” JSON output with `--json`. New `LLMLL.TrustReport` module. |
+| GHC WASM PoC | ✅ Analyzed generated Haskell output for WASM compatibility. Conditional GO verdict — pure logic compiles cleanly; ~6-7 days engineering for v0.4. See [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md). |
 
 ### v0.3.1 — Event Log + Leanstral MCP ✅ Shipped
 

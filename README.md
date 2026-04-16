@@ -1,10 +1,10 @@
-# LLMLL — v0.3.1
+# LLMLL — v0.3.2
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.3.1 is shipped.** Event log with JSONL replay, Leanstral MCP proof verification (mock-only), SHA-256 proof cache, `llmll replay` and `llmll verify --leanstral-mock`. 181 tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.3.2 is shipped.** Trust hardening: `llmll verify --trust-report` prints transitive trust closure with epistemic drift detection; cross-module trust propagation fully tested. GHC WASM proof-of-concept completed (conditional GO for v0.4). 194 tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -18,7 +18,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
-| `llmll verify <file> [--fq-out FILE] [--leanstral-mock]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. |
+| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure and epistemic drift warnings. |
 | `llmll typecheck --sketch <file>` | **Phase 2c** — partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors. |
 | `llmll serve [--host H] [--port P] [--token T]` | **Phase 2c** — expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll checkout <file.ast.json> <pointer>` | **v0.3** — lock a `?hole` for exclusive agent editing. Returns a checkout token. Use `--release` to abandon, `--status` to query TTL. |
@@ -96,7 +96,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.3.1)
+LLMLL.md                    ← canonical language specification (v0.3.2)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -122,6 +122,8 @@ compiler/                   ← Haskell compiler (stack project)
     LeanTranslate.hs        ← v0.3.1: LLMLL contracts → Lean 4 theorem obligations
     MCPClient.hs            ← v0.3.1: MCP JSON-RPC client (mock-first)
     ProofCache.hs           ← v0.3.1: per-file .proof-cache.json sidecar (SHA-256)
+    TrustReport.hs          ← v0.3.2: transitive trust closure analysis (--trust-report)
+    VerifiedCache.hs        ← v0.3: .verified.json sidecar read/write
   package.yaml / stack.yaml
 examples/
   hangman_sexp/             ← Full Hangman (S-expression)
@@ -139,6 +141,7 @@ docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog
   llmll-ast.schema.json     ← JSON-AST schema v0.2.0 (use with AI agents)
+  wasm-poc-report.md        ← v0.3.2: GHC WASM feasibility assessment
   archive/analysis/         ← Historical analysis docs
 ```
 
@@ -150,8 +153,9 @@ docs/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.3.1 shipped, v0.3 / v0.2 shipped |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.3.2 shipped, v0.3.3 planned |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
+| [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md) | v0.3.2 GHC WASM feasibility assessment (conditional GO for v0.4) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes by version |
 
 ---
