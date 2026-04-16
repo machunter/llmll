@@ -41,6 +41,7 @@ library
       LLMLL.LeanTranslate
       LLMLL.MCPClient
       LLMLL.ProofCache
+      LLMLL.TrustReport
   other-modules:
       Main
       Paths_llmll
@@ -111,6 +112,7 @@ executable llmll
       LLMLL.Serve
       LLMLL.Sketch
       LLMLL.Syntax
+      LLMLL.TrustReport
       LLMLL.TypeCheck
       LLMLL.VerifiedCache
       Paths_llmll
