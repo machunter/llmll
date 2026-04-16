@@ -22,6 +22,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
+import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..))
 import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
 import System.Process (callProcess)
@@ -1399,6 +1400,243 @@ main = hspec $ do
           report = typeCheckWithCache cache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       trustGaps `shouldBe` []
+
+  -- =========================================================================
+  -- v0.3.2: Cross-module trust propagation (7 tests)
+  -- =========================================================================
+
+  describe "v0.3.2 cross-module trust propagation" $ do
+    -- Shared test infrastructure
+    let mkModuleEnvWith name contractStatus =
+          let pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+              post1 = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+              stmts = [ SDefLogic name [("x", TInt)] (Just TInt)
+                          (Contract pre1 post1) (EVar "x")
+                       , SExport [name]
+                       ]
+          in ModuleEnv
+               { meExports        = DM.fromList [(name, TFn [TInt] TInt)]
+               , meStatements     = stmts
+               , meInterfaces     = DM.empty
+               , meAliasMap       = DM.empty
+               , mePath           = T.splitOn "." name
+               , meContractStatus = DM.fromList [(name, contractStatus)]
+               }
+
+        -- Module A: "auth.verify" with configurable contract status
+        mkAuthModule cs = mkModuleEnvWith "auth.verify" cs
+        authModPath     = ["auth", "verify"]
+
+        -- Module B caller: calls "auth.verify.auth.verify" (qualified via cache seeding)
+        mkCallerStmts = [SDefLogic "check-user" [("uid", TInt)] (Just TInt)
+                           (Contract Nothing Nothing)
+                           (EApp "auth.verify.auth.verify" [EVar "uid"])]
+
+        -- Helper: count trust-gap diagnostics
+        countTrustGaps report =
+          length $ filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+
+    -- Test 1: Asserted contracts emit trust-gap warnings
+    it "asserted contract in imported module emits trust-gap warning" $ do
+      let authEnv = mkAuthModule (ContractStatus (Just VLAsserted) (Just VLAsserted))
+          cache   = DM.fromList [(authModPath, authEnv)]
+          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+      countTrustGaps report `shouldSatisfy` (> 0)
+
+    -- Test 2: Proven contracts do NOT emit trust-gap warnings
+    it "proven contract in imported module emits no trust-gap warning" $ do
+      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))
+          cache   = DM.fromList [(authModPath, authEnv)]
+          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+      countTrustGaps report `shouldBe` 0
+
+    -- Test 3: Tested contracts emit trust-gap warnings
+    it "tested contract in imported module emits trust-gap warning" $ do
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)))
+          cache   = DM.fromList [(authModPath, authEnv)]
+          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+      countTrustGaps report `shouldSatisfy` (> 0)
+
+    -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
+    it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
+      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just VLAsserted))
+          cache   = DM.fromList [(authModPath, authEnv)]
+          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+          gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      -- Should have exactly 1 gap (for the asserted postcondition)
+      length gaps `shouldBe` 1
+
+    -- Test 5: Trust declaration at VLTested suppresses VLTested gap
+    it "trust declaration at tested level suppresses tested trust-gap" $ do
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)))
+          cache   = DM.fromList [(authModPath, authEnv)]
+          callerStmts =
+            [ STrust "auth.verify.auth.verify" (VLTested 0)
+            , SDefLogic "check-user" [("uid", TInt)] (Just TInt)
+                (Contract Nothing Nothing)
+                (EApp "auth.verify.auth.verify" [EVar "uid"])
+            ]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+      countTrustGaps report `shouldBe` 0
+
+    -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
+    -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
+    it "trust at asserted does NOT suppress tested-level gap" $ do
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)))
+          cache   = DM.fromList [(authModPath, authEnv)]
+          callerStmts =
+            [ STrust "auth.verify.auth.verify" VLAsserted  -- asserted < tested
+            , SDefLogic "check-user" [("uid", TInt)] (Just TInt)
+                (Contract Nothing Nothing)
+                (EApp "auth.verify.auth.verify" [EVar "uid"])
+            ]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+      -- Trust at asserted is insufficient for tested contracts → gap still emitted
+      countTrustGaps report `shouldSatisfy` (> 0)
+
+    -- Test 7: Two modules with different trust levels — both are checked independently
+    it "two imported modules with different trust levels: gaps emitted correctly" $ do
+      let mathEnv = ModuleEnv
+            { meExports        = DM.fromList [("safe-add", TFn [TInt] TInt)]
+            , meStatements     = []
+            , meInterfaces     = DM.empty
+            , meAliasMap       = DM.empty
+            , mePath           = ["math"]
+            , meContractStatus = DM.fromList
+                [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))]
+            }
+          cryptoEnv = ModuleEnv
+            { meExports        = DM.fromList [("hash", TFn [TString] TString)]
+            , meStatements     = []
+            , meInterfaces     = DM.empty
+            , meAliasMap       = DM.empty
+            , mePath           = ["crypto"]
+            , meContractStatus = DM.fromList
+                [("hash", ContractStatus (Just VLAsserted) Nothing)]
+            }
+          cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
+          callerStmts =
+            [ SDefLogic "process" [("x", TInt)] (Just TInt)
+                (Contract Nothing Nothing)
+                (EApp "math.safe-add" [EVar "x"])
+            , SDefLogic "hash-input" [("s", TString)] (Just TString)
+                (Contract Nothing Nothing)
+                (EApp "crypto.hash" [EVar "s"])
+            ]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+          gaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
+      -- math.safe-add is proven → no gap
+      -- crypto.hash is asserted → 1 gap (pre only, post is Nothing)
+      length gaps `shouldBe` 1
+      diagMessage (head gaps) `shouldSatisfy` T.isInfixOf "crypto.hash"
+
+  -- =========================================================================
+  -- v0.3.2: TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson)
+  -- =========================================================================
+
+  describe "v0.3.2 --trust-report (TrustReport)" $ do
+    let -- Shared module fixtures
+        mkModEnv name path cs =
+          ModuleEnv
+            { meExports        = DM.fromList [(name, TFn [TInt] TInt)]
+            , meStatements     = [SDefLogic name [("x", TInt)] (Just TInt)
+                                   (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
+                                             (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])))
+                                   (EVar "x")]
+            , meInterfaces     = DM.empty
+            , meAliasMap       = DM.empty
+            , mePath           = path
+            , meContractStatus = DM.fromList [(name, cs)]
+            }
+
+    -- Test 1: Report includes entry function with its contract levels
+    it "report includes entry module functions" $ do
+      let stmts = [ SDefLogic "main-fn" [("n", TInt)] (Just TInt)
+                       (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing)
+                       (EVar "n")
+                   ]
+          cache = DM.empty
+          report = buildTrustReport cache stmts
+      length (trEntries report) `shouldBe` 1
+      teName (head (trEntries report)) `shouldBe` "main-fn"
+      tePreLevel (head (trEntries report)) `shouldBe` Just VLAsserted
+
+    -- Test 2: Report detects epistemic drift (proven depends on asserted)
+    it "detects epistemic drift: proven function depending on asserted callee" $ do
+      let provenMod = mkModEnv "safe-add" ["math"]
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))
+          assertedMod = mkModEnv "hash" ["crypto"]
+                          (ContractStatus (Just VLAsserted) (Just VLAsserted))
+          cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
+          -- Entry function is proven but calls asserted crypto.hash
+          stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
+                                (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])))
+                      (EApp "crypto.hash" [EVar "x"])
+                  ]
+          report = buildTrustReport cache stmts
+          processEntry = head [e | e <- trEntries report, teName e == "process"]
+      -- The entry function has asserted contracts (default) and depends on crypto.hash
+      length (teDeps processEntry) `shouldSatisfy` (>= 1)
+
+    -- Test 3: No drift when all dependencies are proven
+    it "no drift when all dependencies are proven" $ do
+      let provenMod = mkModEnv "safe-add" ["math"]
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))
+          cache = DM.fromList [(["math"], provenMod)]
+          stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing)
+                      (EApp "math.safe-add" [EVar "x"])
+                  ]
+          report = buildTrustReport cache stmts
+          callerEntry = head [e | e <- trEntries report, teName e == "caller"]
+      teDrifts callerEntry `shouldBe` []
+
+    -- Test 4: Summary counts are correct
+    it "summary counts match entry classification" $ do
+      let provenMod = mkModEnv "safe-add" ["math"]
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")))
+          assertedMod = mkModEnv "hash" ["crypto"]
+                          (ContractStatus (Just VLAsserted) (Just VLAsserted))
+          cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
+          stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing) (EVar "x")
+                  ]
+          report = buildTrustReport cache stmts
+      -- math.safe-add is proven, crypto.hash is asserted, no-contract has no contract
+      tsProven   (trSummary report) `shouldBe` 1
+      tsAsserted (trSummary report) `shouldBe` 1
+      tsNone     (trSummary report) `shouldBe` 1
+
+    -- Test 5: JSON output is valid JSON and contains expected keys
+    it "formatTrustReportJson produces valid JSON with entries and summary" $ do
+      let cache = DM.empty
+          stmts = [ SDefLogic "fn1" [("x", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing)
+                      (EVar "x")
+                  ]
+          report = buildTrustReport cache stmts
+          jsonText = formatTrustReportJson report
+      -- Must parse as valid JSON
+      (decode (BLC.pack (T.unpack jsonText)) :: Maybe Value) `shouldSatisfy` (/= Nothing)
+      -- Must contain expected keys
+      jsonText `shouldSatisfy` T.isInfixOf "\"entries\""
+      jsonText `shouldSatisfy` T.isInfixOf "\"summary\""
+      jsonText `shouldSatisfy` T.isInfixOf "\"proven\""
+      jsonText `shouldSatisfy` T.isInfixOf "\"asserted\""
+      jsonText `shouldSatisfy` T.isInfixOf "\"drifts\""
+
+    -- Test 6: Human-readable format contains function names and levels
+    it "formatTrustReport contains function names and verification levels" $ do
+      let assertedMod = mkModEnv "verify-token" ["auth"]
+                          (ContractStatus (Just VLAsserted) Nothing)
+          cache = DM.fromList [(["auth"], assertedMod)]
+          stmts = []
+          report = buildTrustReport cache stmts
+          humanText = formatTrustReport report
+      humanText `shouldSatisfy` T.isInfixOf "Trust Report"
+      humanText `shouldSatisfy` T.isInfixOf "verify-token"
+      humanText `shouldSatisfy` T.isInfixOf "asserted"
 
   -- =========================================================================
   -- v0.3 #14: Async/Await codegen test coverage (10 tests)
