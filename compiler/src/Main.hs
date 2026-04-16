@@ -64,6 +64,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
+import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -83,7 +84,7 @@ data Command
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts     -- D4: file, optional .fq output path, leanstral opts
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool -- D4: file, optional .fq output path, leanstral opts, --trust-report
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -207,6 +208,8 @@ optionsParser = info (helper <*> opts) $
             (short 'o' <> long "fq-out" <> metavar "FILE"
             <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
       <*> leanstralOpts
+      <*> switch (long "trust-report"
+            <> help "v0.3.2: Print transitive trust summary instead of running fixpoint")
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -273,7 +276,7 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
-    CmdVerify fp mFqOut lsOpts -> doVerify json fp mFqOut lsOpts
+    CmdVerify fp mFqOut lsOpts trustRpt -> doVerify json fp mFqOut lsOpts trustRpt
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -878,13 +881,20 @@ doHubScaffold json template mOutDir = do
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> IO ()
-doVerify json fp mFqOut lsOpts = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> IO ()
+doVerify json fp mFqOut lsOpts trustReport = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
     Left () -> exitFailure
     Right (stmts, _cache, _) -> do
+      -- v0.3.2: --trust-report mode — print trust summary and exit
+      when trustReport $ do
+        let report = buildTrustReport _cache stmts
+        if json
+          then TIO.putStrLn (formatTrustReportJson report)
+          else TIO.putStr (formatTrustReport report)
+        exitSuccess
       -- 2. Emit .fq constraints + build ConstraintTable
       emitR <- emitFixpoint fp stmts
       let fqText = erFQText emitR

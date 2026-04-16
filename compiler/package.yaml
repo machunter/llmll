@@ -88,6 +88,8 @@ library:
     - LLMLL.LeanTranslate
     - LLMLL.MCPClient
     - LLMLL.ProofCache
+    # v0.3.2: trust report
+    - LLMLL.TrustReport
 
 executables:
   llmll:
