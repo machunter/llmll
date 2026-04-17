@@ -11,7 +11,7 @@ import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole, emitEventLogPreamble)
-import LLMLL.HoleAnalysis (analyzeHoles, holeEntries, holeKind, HoleEntry(..))
+import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson)
@@ -1902,7 +1902,7 @@ main = hspec $ do
       let stmts = [SDefLogic "safe-div" [("n", TInt), ("d", TInt)] Nothing
                      (Contract Nothing Nothing) (EHole (HProofRequired "complex-decreases"))]
           report = HA.analyzeHoles stmts
-          json   = HA.formatHoleReportJson "<test>" report
+          json   = HA.formatHoleReportJson "<test>" False report
       T.isInfixOf "complexity" json `shouldBe` True
       T.isInfixOf ":inductive" json `shouldBe` True
 
@@ -1946,6 +1946,12 @@ main = hspec $ do
   -- =========================================================================
 
   coverageGapTests
+
+  -- =========================================================================
+  -- v0.3.3: Agent Orchestration — Pointer, Dependencies, Cycles (10 tests)
+  -- =========================================================================
+
+  holeAnalysisV033Tests
 
 -- | Helper to remove a file if it exists (used for test cleanup).
 removeIfExists :: FilePath -> IO ()
@@ -2233,3 +2239,143 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
       case translateObligation "fib" (snd (head proofHoles)) of
         LeanTheorem thm -> T.isInfixOf "theorem fib" thm `shouldBe` True
         Unsupported r   -> expectationFailure $ "Expected theorem: " ++ T.unpack r
+
+-- =====================================================================
+-- v0.3.3 tests: Agent Orchestration
+-- =====================================================================
+
+holeAnalysisV033Tests :: Spec
+holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
+
+  -- -----------------------------------------------------------------
+  -- Pointer structural correctness (3 tests)
+  -- -----------------------------------------------------------------
+
+  describe "Pointer structural correctness" $ do
+    it "def-logic body hole gets /statements/N/body pointer" $ do
+      let prog = [ SDefLogic "f" [("x", TInt)] Nothing (Contract Nothing Nothing)
+                     (EHole (HNamed "impl"))
+                 ]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      HA.holePointer (head entries) `shouldBe` "/statements/0/body"
+
+    it "second statement gets /statements/1/body pointer" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing) (ELit (LitInt 1))
+                 , SDefLogic "g" [("x", TInt)] Nothing (Contract Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
+                 ]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      HA.holePointer (head entries) `shouldBe` "/statements/1/body"
+
+    it "hole in if-then branch gets /then_branch subpath" $ do
+      let prog = [ SDefLogic "f" [("x", TInt)] Nothing (Contract Nothing Nothing)
+                     (EIf (EVar "x")
+                          (EHole (HNamed "then-impl"))
+                          (ELit (LitInt 0)))
+                 ]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      HA.holePointer (head entries) `shouldBe` "/statements/0/body/then_branch"
+
+  -- -----------------------------------------------------------------
+  -- Dependency analysis (3 tests)
+  -- -----------------------------------------------------------------
+
+  describe "Dependency analysis" $ do
+    it "hole in caller depends on hole in callee" $ do
+      -- hash-password has a ?delegate hole; login-handler calls hash-password and has its own hole
+      let prog = [ SDefLogic "hash-password" [("pw", TString)] Nothing (Contract Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "crypto-agent" "hash" TString Nothing)))
+                 , SDefLogic "login-handler" [("user", TString)] Nothing (Contract Nothing Nothing)
+                     (EApp "hash-password" [EHole (HDelegate (DelegateSpec "auth-agent" "login" TString Nothing))])
+                 ]
+          report = analyzeHolesWithDeps prog
+          entries = holeEntries report
+          loginHole = head [e | e <- entries, HA.holeContext e == "def-logic login-handler"]
+      length (HA.holeDependsOn loginHole) `shouldBe` 1
+      hdPointer (head (HA.holeDependsOn loginHole)) `shouldBe` "/statements/0/body"
+      hdVia (head (HA.holeDependsOn loginHole)) `shouldBe` "hash-password"
+      hdReason (head (HA.holeDependsOn loginHole)) `shouldBe` "calls-hole-body"
+
+    it "independent holes have empty depends_on" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "a" "t1" TInt Nothing)))
+                 , SDefLogic "g" [] Nothing (Contract Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "b" "t2" TInt Nothing)))
+                 ]
+          report = analyzeHolesWithDeps prog
+          entries = holeEntries report
+      all (\e -> null (HA.holeDependsOn e)) entries `shouldBe` True
+
+    it "JSON output with deps includes depends_on and cycle_warning" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "a" "t" TInt Nothing)))
+                 ]
+          report = analyzeHolesWithDeps prog
+          json = HA.formatHoleReportJson "<test>" True report
+      T.isInfixOf "depends_on" json `shouldBe` True
+      T.isInfixOf "cycle_warning" json `shouldBe` True
+
+  -- -----------------------------------------------------------------
+  -- Cycle detection (2 tests)
+  -- -----------------------------------------------------------------
+
+  describe "Cycle detection" $ do
+    it "mutual recursion sets cycle_warning on both holes" $ do
+      -- f calls g, g calls f — both have holes
+      let prog = [ SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing)
+                     (EApp "g" [EHole (HDelegate (DelegateSpec "a" "t1" TInt Nothing))])
+                 , SDefLogic "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing)
+                     (EApp "f" [EHole (HDelegate (DelegateSpec "b" "t2" TInt Nothing))])
+                 ]
+          report = analyzeHolesWithDeps prog
+          entries = holeEntries report
+      -- Both should have cycle_warning
+      all (\e -> HA.holeCycleWarn e) entries `shouldBe` True
+
+    it "cycle breaking removes back-edge from highest-index hole" $ do
+      let prog = [ SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing)
+                     (EApp "g" [EHole (HDelegate (DelegateSpec "a" "t1" TInt Nothing))])
+                 , SDefLogic "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing)
+                     (EApp "f" [EHole (HDelegate (DelegateSpec "b" "t2" TInt Nothing))])
+                 ]
+          report = analyzeHolesWithDeps prog
+          entries = holeEntries report
+          gHole = head [e | e <- entries, HA.holePointer e == "/statements/1/body/args/0"]
+      -- g (statement 1, higher index) should have its back-edge to f removed
+      -- so g should have NO deps pointing to /statements/0/...
+      let depsToF = [d | d <- HA.holeDependsOn gHole, T.isPrefixOf "/statements/0" (hdPointer d)]
+      null depsToF `shouldBe` True
+
+  -- -----------------------------------------------------------------
+  -- Scope exclusions (2 tests)
+  -- -----------------------------------------------------------------
+
+  describe "Dependency scope exclusions" $ do
+    it "?proof-required holes do not appear in depends_on" $ do
+      let prog = [ SDefLogic "hash" [("x", TString)] Nothing (Contract Nothing Nothing)
+                     (EHole (HProofRequired "complex-decreases"))
+                 , SDefLogic "login" [("u", TString)] Nothing (Contract Nothing Nothing)
+                     (EApp "hash" [EHole (HDelegate (DelegateSpec "agent" "login" TString Nothing))])
+                 ]
+          report = analyzeHolesWithDeps prog
+          entries = holeEntries report
+          loginHole = head [e | e <- entries, HA.holeContext e == "def-logic login"]
+      -- hash's hole is ?proof-required (NonBlocking) — should NOT appear as a dependency
+      null (HA.holeDependsOn loginHole) `shouldBe` True
+
+    it "contract-position holes do not appear in depends_on" $ do
+      let prog = [ SDefLogic "validate" [("x", TInt)] Nothing
+                     (Contract (Just (EHole (HNamed "pre-impl"))) Nothing)
+                     (EHole (HDelegate (DelegateSpec "agent" "validate" TInt Nothing)))
+                 ]
+          report = analyzeHolesWithDeps prog
+          entries = holeEntries report
+          bodyHole = head [e | e <- entries, HA.holePointer e == "/statements/0/body"]
+      -- The contract hole (in /pre) should not create a dependency
+      null (HA.holeDependsOn bodyHole) `shouldBe` True

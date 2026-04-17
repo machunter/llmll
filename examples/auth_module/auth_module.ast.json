@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "auth_module.llmll",
+  "statements": [
+    {
+      "kind": "def-interface",
+      "name": "AuthSystem",
+      "methods": [
+        {
+          "name": "hash-password",
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [{"name": "raw-pw", "type": {"kind": "primitive", "name": "string"}}],
+            "return_type": {"kind": "primitive", "name": "string"}
+          }
+        },
+        {
+          "name": "verify-token",
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [{"name": "token", "type": {"kind": "primitive", "name": "string"}}],
+            "return_type": {"kind": "primitive", "name": "bool"}
+          }
+        }
+      ]
+    },
+    {
+      "kind": "def-logic",
+      "name": "login-handler",
+      "params": [
+        {"name": "username", "type": {"kind": "primitive", "name": "string"}},
+        {"name": "password", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "pre": {
+        "kind": "op",
+        "op": "not",
+        "args": [
+          {"kind": "app", "fn": "string-empty?", "args": [{"kind": "var", "name": "password"}]}
+        ]
+      },
+      "body": {
+        "kind": "hole-delegate",
+        "agent": "@crypto-agent",
+        "description": "Hash the password using AuthSystem.hash-password, return Result[string, string]",
+        "return_type": {"kind": "result", "ok_type": {"kind": "primitive", "name": "string"}, "err_type": {"kind": "primitive", "name": "string"}},
+        "on_failure": {
+          "kind": "app",
+          "fn": "err",
+          "args": [{"kind": "lit-string", "value": "crypto-agent unavailable"}]
+        }
+      }
+    },
+    {
+      "kind": "def-logic",
+      "name": "validate-session",
+      "params": [
+        {"name": "session-token", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "body": {
+        "kind": "hole-delegate",
+        "agent": "@crypto-agent",
+        "description": "Verify the session token using AuthSystem.verify-token, return bool",
+        "return_type": {"kind": "primitive", "name": "bool"},
+        "on_failure": {"kind": "lit-bool", "value": false}
+      }
+    }
+  ]
+}

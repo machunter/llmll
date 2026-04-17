@@ -1,8 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Prepared by:** Compiler Team  
-> **Date:** 2026-04-15  
-> **Status:** Active — v0.3.2 shipped (trust hardening + WASM PoC); v0.3.3 planned (orchestrator)  
+> **Status:** Active — v0.3.3 shipped (agent orchestration compiler support); `llmll-orchestra` Python package pending  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -19,37 +17,47 @@
 
 ---
 
-## v0.3.3 — Agent Orchestration (Planned)
+## v0.3.3 — Agent Orchestration (Shipped 2026-04-16)
 
 **Theme:** First end-to-end multi-agent coordination demo. Validates the checkout/patch primitives shipped in v0.3.
 
 > **Note:** The orchestrator ships as a separate package (`llmll-orchestra`), not as part of the compiler binary. M2 is a compiler deliverable; M1 is an external tool that consumes the compiler's CLI/HTTP contract.
 
-**[CT]** ☐ M2 — `llmll holes --json --deps` flag:
-- Add a `depends_on` field to each hole entry in `llmll holes --json` output
-- Dependency = "hole B's inferred type references hole A's return type"
-- Enables the orchestrator to topologically sort holes and parallelize independent ones safely
-- Implementation in `HoleAnalysis.hs` — walk the AST dependency graph from each hole's type context
+**[CT]** ✅ M2 — `llmll holes --json --deps` flag:
+- Added annotated `depends_on` edges per hole entry: `{pointer, via, reason}`
+- Dependency = "hole B's enclosing function calls a function whose body contains hole A" (`calls-hole-body`)
+- Cycle detection via Tarjan's SCC with deterministic back-edge removal; `cycle_warning` flag per hole
+- P0 fix: rewrote pointer generation to produce RFC 6901-compatible structural paths (`/statements/N/body`)
+- Scope exclusions: `?proof-required` holes and contract-position holes excluded from dependency graph
+- New `--deps-out FILE` flag persists the dependency graph to a file
+- Implementation in `HoleAnalysis.hs` — `computeHoleDeps`, `detectCycles`, `extractCalls`, `buildCallGraph`
 
 **[EXT]** ☐ M1 — Python orchestrator (`llmll-orchestra` v0.1):
 - ~200-line Python script validating the two-agent auth module exercise
-- Reads `llmll holes --json`, calls `llmll checkout` + `llmll patch` via CLI
+- Reads `llmll holes --json --deps`, calls `llmll checkout` + `llmll patch` via CLI
 - Sends hole context + LLMLL.md to Claude (Anthropic SDK), submits returned JSON-Patches
 - Reports success/failure per hole, handles retry with diagnostics (max 3 attempts)
 - Ships as a separate `pip` package with the compiler as a prerequisite
 
 **Acceptance criteria:**
 
-- ☐ `llmll holes --json --deps` returns a `depends_on` array per hole entry; empty array for independent holes
+- ✅ `llmll holes --json --deps` returns annotated `depends_on` edges per hole entry; empty array for independent holes
+- ✅ Pointers in `llmll holes --json` match RFC 6901 format compatible with `llmll checkout`
+- ✅ `?proof-required` and contract-position holes excluded from dependency graph
+- ✅ Dependency cycles detected via SCC, broken deterministically, flagged with `cycle_warning: true`
+- ✅ `--deps-out FILE` writes the dependency graph to a file
 - ☐ `llmll-orchestra` fills both `?delegate @crypto-agent` holes in the auth module exercise end-to-end
 - ☐ A deliberately malformed patch triggers retry with diagnostics fed back to the agent
 - ☐ Lock expiry (checkout TTL) is handled gracefully (re-queue, not crash)
 
 **Open questions (from [`docs/design/agent-orchestration.md`](design/agent-orchestration.md)):**
 
-- Q2 resolved: `--json --deps` adds the dependency graph (this milestone)
+- Q2 resolved: `--json --deps` adds the annotated dependency graph (shipped)
 - Q3 deferred: orchestration events reusing the Event Log format — decide in v0.3.4 or later
 - Q5 deferred: MCP client/server dual role — Python v1 is CLI-only, MCP integration comes with self-hosted rewrite
+- `domain_hints` deferred to v0.3.4: existing hole metadata sufficient for orchestrator routing
+- `type-reference` edges deferred to v0.3.4: only `calls-hole-body` edges shipped
+- `?delegate-async` fire-and-forget filtering deferred to v0.3.4: requires data-flow analysis
 
 ---
 

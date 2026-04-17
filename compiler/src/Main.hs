@@ -40,7 +40,7 @@ import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, Sket
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HoleAnalysis
-  ( analyzeHoles, HoleReport, HoleStatus(..)
+  ( analyzeHoles, analyzeHolesWithDeps, HoleReport, HoleStatus(..)
   , totalHoles, blockingHoles, holeEntries
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
@@ -76,7 +76,7 @@ import qualified Data.Map.Strict as Map
 
 data Command
   = CmdCheck    FilePath
-  | CmdHoles    FilePath
+  | CmdHoles    FilePath Bool (Maybe FilePath)  -- file, --deps, --deps-out
   | CmdTest     FilePath Bool                               -- file, --emit-only
   | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool ContractsMode  -- file, outdir, --wasm, --emit-json-ast, --emit-only, --contracts
   | CmdBuildFromJson FilePath (Maybe FilePath) Bool         -- file, outdir, --emit-only
@@ -119,7 +119,7 @@ optionsParser = info (helper <*> opts) $
     commandParser = subparser
       ( command "check" (info (CmdCheck <$> fileArg)
           (progDesc "Parse and type-check a .llmll or .ast.json file"))
-      <> command "holes" (info (CmdHoles <$> fileArg)
+      <> command "holes" (info holesCmd
           (progDesc "List and classify all holes in a .llmll file"))
       <> command "test"  (info testCmd
           (progDesc "Run property-based tests (check blocks)"))
@@ -255,6 +255,13 @@ optionsParser = info (helper <*> opts) $
       <$> strArgument (metavar "FILE" <> help "Path to .llmll source file")
       <*> strArgument (metavar "LOG" <> help "Path to .event-log.jsonl file")
 
+    holesCmd = CmdHoles
+      <$> fileArg
+      <*> switch (long "deps" <> help "v0.3.3: Include dependency graph in --json output")
+      <*> optional (strOption
+            (long "deps-out" <> metavar "FILE"
+            <> help "v0.3.3: Write dependency graph to FILE (implies --deps)"))
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -268,7 +275,7 @@ main = do
   let json = optJson opts
   case optCommand opts of
     CmdCheck fp               -> doCheck  json fp
-    CmdHoles fp               -> doHoles  json fp
+    CmdHoles fp deps mDepsOut  -> doHoles  json fp deps mDepsOut
     CmdTest  fp emitOnly         -> doTest   json fp emitOnly
     CmdBuild fp mOut wasm emitJson emitOnly contracts -> doBuild json fp mOut wasm emitJson emitOnly contracts
     CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
@@ -402,19 +409,28 @@ doCheck json fp = do
 -- holes
 -- ---------------------------------------------------------------------------
 
-doHoles :: Bool -> FilePath -> IO ()
-doHoles json fp = do
+doHoles :: Bool -> FilePath -> Bool -> Maybe FilePath -> IO ()
+doHoles json fp deps mDepsOut = do
   stmts <- loadStatements json fp
   case stmts of
     Left () -> pure ()
     Right ss -> do
-      let report = analyzeHoles ss
+      let includeDeps = deps || isJust mDepsOut
+          report = if includeDeps
+                   then analyzeHolesWithDeps ss
+                   else analyzeHoles ss
           warnings = holeDensityWarnings ss
       -- Emit density warnings to stderr (informational, not blocking)
       forM_ warnings $ \w ->
         hPutStrLn stderr (T.unpack ("WARNING: " <> diagMessage w))
       if json
-        then TIO.putStrLn (formatHoleReportJson fp report)
+        then do
+          let jsonOut = formatHoleReportJson fp includeDeps report
+          TIO.putStrLn jsonOut
+          -- v0.3.3: optionally write deps to file
+          case mDepsOut of
+            Just outFile -> TIO.writeFile outFile jsonOut
+            Nothing      -> pure ()
         else do
           TIO.putStrLn $
             T.pack fp <> " \8212 " <> tshow (totalHoles report)
@@ -794,7 +810,7 @@ replLoop _env = do
         replLoop _env
       | T.isPrefixOf ":holes " trimmed -> do
         let fp = T.unpack (T.drop 7 trimmed)
-        doHoles False fp
+        doHoles False fp False Nothing
         replLoop _env
       | T.null trimmed -> replLoop _env
       | otherwise -> do
@@ -870,7 +886,7 @@ doHubScaffold json template mOutDir = do
         Right stmts -> do
           let report = analyzeHoles stmts
           if json
-            then TIO.putStrLn (formatHoleReportJson outFile report)
+            then TIO.putStrLn (formatHoleReportJson outFile False report)
             else do
               TIO.putStrLn $ "\x2705 Scaffolded '" <> template <> "' \8594 " <> T.pack outDir
               TIO.putStrLn $ "   " <> tshow (totalHoles report) <> " holes ("

@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.3.2
+# LLMLL Getting Started — v0.3.3
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -73,6 +73,45 @@ stack exec llmll -- holes ../examples/hangman_json/hangman.ast.json
 | `BLOCK` | Execution cannot proceed — must be filled |
 | `AGENT` | Delegated to a specialist agent |
 | `info` | Non-blocking TODO |
+
+#### `--deps` — dependency graph (v0.3.3)
+
+Add `--deps` to `--json` output to include a dependency graph between holes.
+The orchestrator uses this for topological sorting and parallel scheduling.
+
+```bash
+stack exec llmll -- --json holes --deps program.llmll
+```
+
+Each hole entry gains two additional fields:
+
+```json
+{
+  "pointer": "/statements/2/body",
+  "kind": "delegate",
+  "agent": "@crypto-agent",
+  "depends_on": [
+    { "pointer": "/statements/0/body",
+      "via": "hash-password",
+      "reason": "calls-hole-body" }
+  ],
+  "cycle_warning": false
+}
+```
+
+- `depends_on`: annotated edges — which holes this hole depends on, why, and via which function
+- `cycle_warning`: `true` if this hole was in a broken dependency cycle (mutual recursion)
+
+Only `AgentTask` and `Blocking` body-level holes participate in the graph.
+`?proof-required` holes and contract-position holes (`pre`/`post`) are excluded.
+
+#### `--deps-out FILE` — persist dependency graph
+
+```bash
+stack exec llmll -- --json holes --deps --deps-out deps.json program.llmll
+```
+
+Writes the full JSON output (with dependency data) to `deps.json`. Implies `--deps`.
 
 ### `test` — property-based tests
 

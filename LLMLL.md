@@ -1456,6 +1456,16 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 | `llmll verify --trust-report` | ✅ Per-function trust summary with transitive closure analysis. Reports verification level (proven/tested/asserted) for every contract. Flags epistemic drift: “Function `withdraw` is proven, but depends on `auth.verify-token` which is asserted.” JSON output with `--json`. New `LLMLL.TrustReport` module. |
 | GHC WASM PoC | ✅ Analyzed generated Haskell output for WASM compatibility. Conditional GO verdict — pure logic compiles cleanly; ~6-7 days engineering for v0.4. See [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md). |
 
+### v0.3.3 — Agent Orchestration ✅ Shipped
+
+| Area | Feature |
+|------|---------|
+| `llmll holes --deps` | ✅ Annotated dependency graph in `--json` output. Each hole entry includes `depends_on` edges (pointer/via/reason) and `cycle_warning` flag. Only body-level `AgentTask`/`Blocking` holes participate; `?proof-required` and contract-position holes excluded. |
+| Cycle detection | ✅ Tarjan's SCC algorithm detects mutual-recursion cycles. Deterministic back-edge removal (highest statement index). Error-level diagnostic if any SCC function lacks explicit return type. |
+| `--deps-out FILE` | ✅ Persist dependency graph to file (implies `--deps`). Compiler does not manage lifecycle — orchestrator owns the file. |
+| RFC 6901 pointer fix | ✅ `holePointer` now tracks structural AST position (`/statements/N/body`, etc.) — compatible with `llmll checkout`. Previous context-based pointer generation was non-functional. |
+| Call-graph analysis | ✅ `extractCalls` + `buildCallGraph` + `buildFuncBodyHoles` + `computeHoleDeps` — new internal functions in `HoleAnalysis.hs`. |
+
 ### v0.3.1 — Event Log + Leanstral MCP ✅ Shipped
 
 | Area | Feature |

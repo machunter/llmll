@@ -1,10 +1,10 @@
-# LLMLL — v0.3.2
+# LLMLL — v0.3.3
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.3.2 is shipped.** Trust hardening: `llmll verify --trust-report` prints transitive trust closure with epistemic drift detection; cross-module trust propagation fully tested. GHC WASM proof-of-concept completed (conditional GO for v0.4). 194 tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.3.3 is shipped.** Agent orchestration: `llmll holes --json --deps` emits an annotated dependency graph with cycle detection (Tarjan's SCC) for topological hole scheduling. New `--deps-out FILE` flag persists the graph. 194 tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -15,7 +15,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | Command | What it does |
 |---------|--------------| 
 | `llmll check <file>` | Parse + type-check; emit structured diagnostics |
-| `llmll holes <file>` | List all `?hole` expressions (blocking and informational) |
+| `llmll holes <file> [--deps] [--deps-out FILE]` | List all `?hole` expressions. With `--deps`: include dependency graph in `--json` output. With `--deps-out`: persist graph to file. |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
 | `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure and epistemic drift warnings. |

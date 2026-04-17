@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "llmll-orchestra"
+version = "0.1.0"
+description = "Multi-agent orchestrator for LLMLL hole-filling"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "anthropic>=0.25.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-mock"]
+
+[project.scripts]
+llmll-orchestra = "llmll_orchestra.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["llmll_orchestra*"]
