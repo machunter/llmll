@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "auth_module.llmll",
+  "statements": [
+    {
+      "kind": "def-interface",
+      "name": "AuthSystem",
+      "methods": [
+        {
+          "name": "hash-password",
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [{"name": "raw-pw", "type": {"kind": "primitive", "name": "string"}}],
+            "return_type": {"kind": "primitive", "name": "string"}
+          }
+        },
+        {
+          "name": "verify-token",
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [{"name": "token", "type": {"kind": "primitive", "name": "string"}}],
+            "return_type": {"kind": "primitive", "name": "bool"}
+          }
+        }
+      ]
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "hash-password-impl",
+      "params": [
+        {"name": "raw-pw", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "body": {
+        "kind": "hole-delegate",
+        "agent": "@crypto-agent",
+        "description": "Hash the raw password using a salt-based scheme. Concatenate a fixed salt with the password, compute a digest representation, and return the hashed string prefixed with 'hashed:'.",
+        "return_type": {"kind": "primitive", "name": "string"},
+        "on_failure": {"kind": "lit-string", "value": "hash-unavailable"}
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "verify-token-impl",
+      "params": [
+        {"name": "token", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "body": {
+        "kind": "hole-delegate",
+        "agent": "@crypto-agent",
+        "description": "Verify the session token is well-formed and not expired. Reject empty tokens. Valid tokens must be at least 8 characters long. Return true if valid, false otherwise.",
+        "return_type": {"kind": "primitive", "name": "bool"},
+        "on_failure": {"kind": "lit-bool", "value": false}
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "login-handler",
+      "params": [
+        {"name": "username", "type": {"kind": "primitive", "name": "string"}},
+        {"name": "password", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "pre": {
+        "kind": "op",
+        "op": "not",
+        "args": [
+          {"kind": "app", "fn": "string-empty?", "args": [{"kind": "var", "name": "password"}]}
+        ]
+      },
+      "body": {
+        "kind": "let",
+        "bindings": [
+          {
+            "name": "hashed",
+            "expr": {"kind": "app", "fn": "hash-password-impl", "args": [{"kind": "var", "name": "password"}]}
+          }
+        ],
+        "body": {
+          "kind": "hole-delegate",
+          "agent": "@session-agent",
+          "description": "Using the hashed password (bound as 'hashed') and the username, build a session token string. If the hash failed (hashed equals 'hash-unavailable'), return an error. Otherwise concatenate username, ':', and hashed into a session ID and return it wrapped in ok. Return Result[string, string].",
+          "return_type": {"kind": "result", "ok_type": {"kind": "primitive", "name": "string"}, "err_type": {"kind": "primitive", "name": "string"}},
+          "on_failure": {"kind": "app", "fn": "err", "args": [{"kind": "lit-string", "value": "session-agent unavailable"}]}
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "authenticate-request",
+      "params": [
+        {"name": "username", "type": {"kind": "primitive", "name": "string"}},
+        {"name": "password", "type": {"kind": "primitive", "name": "string"}},
+        {"name": "existing-token", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          {
+            "name": "token-valid",
+            "expr": {"kind": "app", "fn": "verify-token-impl", "args": [{"kind": "var", "name": "existing-token"}]}
+          },
+          {
+            "name": "session",
+            "expr": {"kind": "app", "fn": "login-handler", "args": [{"kind": "var", "name": "username"}, {"kind": "var", "name": "password"}]}
+          }
+        ],
+        "body": {
+          "kind": "hole-delegate",
+          "agent": "@gateway-agent",
+          "description": "Decide authentication outcome. The let bindings provide: 'token-valid' (bool — whether the existing token is still good) and 'session' (Result[string, string] — a fresh login attempt). If token-valid is true, return ok with existing-token (reuse). Otherwise, match on session: on Success return ok with the new session ID, on Error propagate the error. Return Result[string, string].",
+          "return_type": {"kind": "result", "ok_type": {"kind": "primitive", "name": "string"}, "err_type": {"kind": "primitive", "name": "string"}},
+          "on_failure": {"kind": "app", "fn": "err", "args": [{"kind": "lit-string", "value": "gateway-agent unavailable"}]}
+        }
+      }
+    }
+  ]
+}

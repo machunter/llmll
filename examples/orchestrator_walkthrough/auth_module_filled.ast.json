@@ -1,0 +1,189 @@
+{
+  "schemaVersion": "0.2.0",
+  "llmll_version": "0.2.0",
+  "source_file": "auth_module.llmll",
+  "statements": [
+    {
+      "kind": "def-interface",
+      "name": "AuthSystem",
+      "methods": [
+        {
+          "name": "hash-password",
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [{"name": "raw-pw", "type": {"kind": "primitive", "name": "string"}}],
+            "return_type": {"kind": "primitive", "name": "string"}
+          }
+        },
+        {
+          "name": "verify-token",
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [{"name": "token", "type": {"kind": "primitive", "name": "string"}}],
+            "return_type": {"kind": "primitive", "name": "bool"}
+          }
+        }
+      ]
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "hash-password-impl",
+      "params": [
+        {"name": "raw-pw", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          {
+            "name": "salt",
+            "expr": {"kind": "lit-string", "value": "llmll-v1-salt"}
+          },
+          {
+            "name": "salted",
+            "expr": {"kind": "app", "fn": "string-concat", "args": [
+              {"kind": "var", "name": "salt"},
+              {"kind": "var", "name": "raw-pw"}
+            ]}
+          },
+          {
+            "name": "digest",
+            "expr": {"kind": "app", "fn": "int-to-string", "args": [
+              {"kind": "app", "fn": "string-length", "args": [
+                {"kind": "var", "name": "salted"}
+              ]}
+            ]}
+          }
+        ],
+        "body": {"kind": "app", "fn": "string-concat", "args": [
+          {"kind": "lit-string", "value": "hashed:"},
+          {"kind": "var", "name": "digest"}
+        ]}
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "verify-token-impl",
+      "params": [
+        {"name": "token", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "body": {
+        "kind": "if",
+        "cond": {"kind": "app", "fn": "string-empty?", "args": [{"kind": "var", "name": "token"}]},
+        "then_branch": {"kind": "lit-bool", "value": false},
+        "else_branch": {"kind": "op", "op": ">=", "args": [
+          {"kind": "app", "fn": "string-length", "args": [{"kind": "var", "name": "token"}]},
+          {"kind": "lit-int", "value": 8}
+        ]}
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "login-handler",
+      "params": [
+        {"name": "username", "type": {"kind": "primitive", "name": "string"}},
+        {"name": "password", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "pre": {
+        "kind": "op",
+        "op": "not",
+        "args": [
+          {"kind": "app", "fn": "string-empty?", "args": [{"kind": "var", "name": "password"}]}
+        ]
+      },
+      "body": {
+        "kind": "let",
+        "bindings": [
+          {
+            "name": "hashed",
+            "expr": {"kind": "app", "fn": "hash-password-impl", "args": [{"kind": "var", "name": "password"}]}
+          }
+        ],
+        "body": {
+          "kind": "if",
+          "cond": {"kind": "op", "op": "=", "args": [
+            {"kind": "var", "name": "hashed"},
+            {"kind": "lit-string", "value": "hash-unavailable"}
+          ]},
+          "then_branch": {"kind": "app", "fn": "err", "args": [
+            {"kind": "lit-string", "value": "crypto agent failed to hash password"}
+          ]},
+          "else_branch": {"kind": "app", "fn": "ok", "args": [
+            {"kind": "app", "fn": "string-concat", "args": [
+              {"kind": "lit-string", "value": "session:"},
+              {"kind": "app", "fn": "string-concat", "args": [
+                {"kind": "var", "name": "username"},
+                {"kind": "app", "fn": "string-concat", "args": [
+                  {"kind": "lit-string", "value": ":"},
+                  {"kind": "var", "name": "hashed"}
+                ]}
+              ]}
+            ]}
+          ]}
+        }
+      }
+    },
+
+    {
+      "kind": "def-logic",
+      "name": "authenticate-request",
+      "params": [
+        {"name": "username", "type": {"kind": "primitive", "name": "string"}},
+        {"name": "password", "type": {"kind": "primitive", "name": "string"}},
+        {"name": "existing-token", "type": {"kind": "primitive", "name": "string"}}
+      ],
+      "body": {
+        "kind": "let",
+        "bindings": [
+          {
+            "name": "token-valid",
+            "expr": {"kind": "app", "fn": "verify-token-impl", "args": [{"kind": "var", "name": "existing-token"}]}
+          },
+          {
+            "name": "session",
+            "expr": {"kind": "app", "fn": "login-handler", "args": [
+              {"kind": "var", "name": "username"},
+              {"kind": "var", "name": "password"}
+            ]}
+          }
+        ],
+        "body": {
+          "kind": "if",
+          "cond": {"kind": "var", "name": "token-valid"},
+          "then_branch": {"kind": "app", "fn": "ok", "args": [
+            {"kind": "app", "fn": "string-concat", "args": [
+              {"kind": "lit-string", "value": "token-reuse:"},
+              {"kind": "var", "name": "existing-token"}
+            ]}
+          ]},
+          "else_branch": {
+            "kind": "match",
+            "scrutinee": {"kind": "var", "name": "session"},
+            "arms": [
+              {
+                "pattern": {"kind": "constructor", "constructor": "Success", "sub_patterns": [{"kind": "bind", "name": "s"}]},
+                "body": {"kind": "app", "fn": "ok", "args": [
+                  {"kind": "app", "fn": "string-concat", "args": [
+                    {"kind": "lit-string", "value": "new-session:"},
+                    {"kind": "var", "name": "s"}
+                  ]}
+                ]}
+              },
+              {
+                "pattern": {"kind": "constructor", "constructor": "Error", "sub_patterns": [{"kind": "bind", "name": "e"}]},
+                "body": {"kind": "app", "fn": "err", "args": [
+                  {"kind": "app", "fn": "string-concat", "args": [
+                    {"kind": "lit-string", "value": "login-failed:"},
+                    {"kind": "var", "name": "e"}
+                  ]}
+                ]}
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
