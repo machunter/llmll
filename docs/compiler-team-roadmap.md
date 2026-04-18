@@ -50,7 +50,34 @@
 - ☐ A deliberately malformed patch triggers retry with diagnostics fed back to the agent
 - ☐ Lock expiry (checkout TTL) is handled gracefully (re-queue, not crash)
 
-**Open questions (from [`docs/design/agent-orchestration.md`](design/agent-orchestration.md)):**
+**[CT]** ☐ M3 — Agent Prompt Semantic Reference (Phase A):
+
+> **Source:** [`docs/design/agent-prompt-semantics-gap.md`](design/agent-prompt-semantics-gap.md) — reviewed and approved by Language Team and Professor.
+
+Single-file edit to `llmll_orchestra/agent.py`. Adds ~950 tokens to the agent system prompt:
+
+| # | Action | Blocking? |
+|---|--------|----------|
+| A1 | Add `pair`/`first`/`second` signatures to prompt reference | ✅ Blocks do-notation |
+| A2 | Fix comparison operators: `< > <= >=` are `int → int → bool`, not polymorphic | ✅ Causes silent failures |
+| A3 | Add `regex-match`, `seq-commands` to prompt reference | No |
+| A4 | Remove `string-empty?` from prompt (phantom function — not in `builtinEnv`) | ✅ Agent-breaking |
+| A5 | Add `pair` and `fn-type` type nodes | ✅ Blocks pair return types |
+| A6 | Add ok/err vs Success/Error explicit callout block | No |
+| A7 | Add fixed-arity operator rule and parametricity note | No |
+| A9 | Add minimal `letrec` note (2 lines) | No |
+| A10 | Exclude `is-valid?` and `wasi.*` from reference | No |
+
+**[CT]** ☐ M3-pre — Pre-requisite compiler fixes for Phase A:
+
+| # | Action | Location | Blocking? |
+|---|--------|----------|-----------|
+| A8a | Implement `string-empty?` in type checker | `TypeCheck.hs` `builtinEnv`: `("string-empty?", TFn [TString] TBool)` | ✅ |
+| A8b | Implement `string-empty?` in runtime preamble | `CodegenHs.hs` `runtimePreamble`: `string_empty' s = null s` | ✅ |
+| A8c | Document `string-empty?` in language spec | `LLMLL.md` §13.6 | ✅ |
+| A11 | Remove `is-valid?` from `builtinEnv` | `TypeCheck.hs`: one-line delete (grep test suite first) | No |
+
+**Open questions (from [`docs/design/agent-orchestration.md`](design/agent-orchestration.md) and [`docs/design/agent-prompt-semantics-gap.md`](design/agent-prompt-semantics-gap.md)):**
 
 - Q2 resolved: `--json --deps` adds the annotated dependency graph (shipped)
 - Q3 deferred: orchestration events reusing the Event Log format — decide in v0.3.4 or later
@@ -58,6 +85,54 @@
 - `domain_hints` deferred to v0.3.4: existing hole metadata sufficient for orchestrator routing
 - `type-reference` edges deferred to v0.3.4: only `calls-hole-body` edges shipped
 - `?delegate-async` fire-and-forget filtering deferred to v0.3.4: requires data-flow analysis
+
+---
+
+## v0.3.4 — Agent Spec + Orchestrator Hardening (Planned)
+
+**Theme:** Compiler-emitted agent prompt spec (Phase B from agent-prompt-semantics-gap.md) — eliminates hand-maintained prompt references by generating the spec directly from `builtinEnv`.
+
+> **Source:** [`docs/design/agent-prompt-semantics-gap.md §4 Option B`](design/agent-prompt-semantics-gap.md)
+
+**[CT]** ☐ B1 — New module `LLMLL/AgentSpec.hs`:
+- Must `import LLMLL.TypeCheck (builtinEnv)` and serialize it directly
+- Partition functions vs operators (do not filter symbolic keys via `isAlpha`)
+- Use Haskell-style polymorphic notation (`a → Result[a, e]`)
+- Output JSON spec covering: builtins, operators, constructors, evaluation model, pattern kinds
+
+**[CT]** ☐ B2 — `llmll spec --agent` CLI command:
+- Emits the agent spec to stdout (JSON or text)
+- Orchestrator calls once, caches result, includes in system prompt
+
+**[CT]** ☐ B3 — Spec Faithfulness property test (`AgentSpecTests.hs`):
+
+```haskell
+prop_specCoversAllBuiltins =
+  let specEntries = agentSpecBuiltins
+      builtinKeys = Map.keys builtinEnv
+  in all (`elem` map asName specEntries) builtinKeys
+```
+
+**Spec Faithfulness Invariant:**
+
+> ∀ (f, TFn [t₁...tₙ] r) ∈ builtinEnv ⟹ ∃ entry ∈ spec_output .
+> entry.name = f ∧ entry.params = [t₁...tₙ] ∧ entry.returns = r
+
+**[EXT]** ☐ B4 — Update `agent.py` to call `compiler.spec()` and replace hardcoded prompt reference.
+
+**Acceptance criteria:**
+
+- `llmll spec --agent` output is a superset of the Phase A prompt reference (all builtins, operators, constructors, pattern kinds)
+- `prop_specCoversAllBuiltins` passes in the test suite
+- Adding a new builtin to `builtinEnv` without updating `AgentSpec.hs` is caught by the property test
+- `llmll-orchestra` uses `llmll spec --agent` output instead of hardcoded prompt text
+
+**Open questions:**
+
+- Q3 (from v0.3.3): orchestration events reusing the Event Log format — decide in v0.3.4 or later
+- `domain_hints` — existing hole metadata sufficient for orchestrator routing; decide if enhancements needed
+- `type-reference` edges — only `calls-hole-body` edges shipped in v0.3.3; add `type-reference` edges?
+- `?delegate-async` fire-and-forget filtering — requires data-flow analysis
 
 ---
 
@@ -524,9 +599,9 @@ Docker container
 
 ---
 
-## v0.4 — WASM Hardening
+## v0.4 — WASM Hardening + Context-Aware Checkout
 
-**Theme:** Replace Docker with WASM-WASI as the primary sandbox. No new language semantics.
+**Theme:** Replace Docker with WASM-WASI as the primary sandbox. Context-aware checkout for agent orchestration (Phase C).
 
 **[CT]** `llmll build --target wasm` — compile generated Haskell with `ghc --target=wasm32-wasi`.
 
@@ -535,6 +610,19 @@ Docker container
 **[CT]** Capability enforcement via WASI import declarations (replaces Docker network/filesystem policy layer).
 
 **[CT]** Resolve any GHC WASM backend compatibility issues for `effectful`, `QuickCheck`, and other vendored dependencies. Maintain a minimal shim package if needed.
+
+**[CT]** ☐ C1 — Context-aware checkout (Phase C from agent-prompt-semantics-gap.md):
+
+> **Source:** [`docs/design/agent-prompt-semantics-gap.md §4 Option C`](design/agent-prompt-semantics-gap.md)
+
+| # | Action |
+|---|--------|
+| C1 | Extend `SketchHole` with `shEnv :: TypeEnv` |
+| C2 | Snapshot `gets tcEnv` in `inferHole (HNamed name)` and `checkExpr (EHole (HNamed name))` |
+| C3 | Serialize delta (`tcEnv \ builtinEnv`) in checkout response |
+| C4 | Include `tcAliasMap` entries for `TCustom` types referenced by Γ or τ |
+| C5 | Monomorphize polymorphic Σ signatures against concrete Γ types |
+| C6 | Add `--checkout-scope-limit 50` flag with shadowing-safety constraint + `prop_truncationPreservesShadowing` test |
 
 **Acceptance criteria:**
 
@@ -552,8 +640,9 @@ Docker container
 | **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ + checkout/patch primitives ✅ — **12/12 shipped** |
 | **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **shipped** |
 | **v0.3.2** | 2026-04-16 | Trust hardening (`--trust-report`, cross-module propagation tests) + GHC WASM PoC — **shipped** |
-| **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) — **planned** |
-| **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker |
+| **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) + **agent prompt semantic reference** (Phase A) — **planned** |
+| **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec --agent` (Phase B) + Spec Faithfulness property tests — **planned** |
+| **v0.4** | *(not planned)* | WASM hardening: `--target wasm`, WASM VM replaces Docker + **context-aware checkout** (Phase C) |
 
 ### Items Removed from Scope
 
