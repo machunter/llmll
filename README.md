@@ -96,7 +96,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.3.2)
+LLMLL.md                    ← canonical language specification (v0.3.3)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -137,12 +137,22 @@ examples/
   tictactoe_json_verifier/  ← Tic-Tac-Toe with verified contracts
   conways_life_json_verifier/ ← Life with verified contracts
   pair_type_test/           ← TPair + do-notation test fixtures
+  orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog
   llmll-ast.schema.json     ← JSON-AST schema v0.2.0 (use with AI agents)
+  orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
+  one-pager.md              ← Project overview / pitch document
   wasm-poc-report.md        ← v0.3.2: GHC WASM feasibility assessment
+  design/                   ← Design discussions, proposals, and reviews
+    INDEX.md                ← Reading guide for all design documents
+    agent-orchestration.md  ← Orchestrator architecture design
+    agent-prompt-semantics-gap.md ← Agent prompt gap analysis (approved)
+    lead-agent.md           ← Lead Agent skeleton generation design
   archive/analysis/         ← Historical analysis docs
+tools/
+  llmll-orchestra/          ← Python orchestrator (pip package)
 ```
 
 ---
@@ -153,8 +163,11 @@ docs/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.3.2 shipped, v0.3.3 planned |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.3.3 shipped, v0.3.4 planned |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
+| [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
+| [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |
+| [`docs/design/INDEX.md`](docs/design/INDEX.md) | Reading guide for all active design documents |
 | [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md) | v0.3.2 GHC WASM feasibility assessment (conditional GO for v0.4) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes by version |
 

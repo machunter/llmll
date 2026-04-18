@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-04-12  
+> **Last updated:** 2026-04-18  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -29,6 +29,17 @@ Documents addressing the specification-coverage gap: how can the system create p
 | [invariant-discovery.md](invariant-discovery.md) | Distilled design discussion. 6 mechanisms: adversarial red-team, mutation testing on specs, property mining, spec coverage metric, hub-driven suggestions, counter-example display. | Active reference |
 | [invariant-discovery-proposal.md](invariant-discovery-proposal.md) | External team's full proposal. 9 mechanisms, ranked. Key concepts: "specification pressure" and "contract entropy." Includes a concrete architecture sketch (6 phases per hole). | Under review |
 | [invariant-discovery-review.md](invariant-discovery-review.md) | Professor's mechanism-by-mechanism critique. Recommends differential implementation pressure (Phase A), CEGIS-style strengthening (Phase B), adversarial search (Phase C). Defines "contract discriminative power." | Under review |
+
+---
+
+## Agent Integration
+
+Documents addressing the gap between agent capabilities and language semantics: what agents need to know to generate correct code, and how to automate skeleton authoring.
+
+| Document | Summary | Status |
+|---|---|---|
+| [agent-prompt-semantics-gap.md](agent-prompt-semantics-gap.md) | Gap analysis: agents lack built-in function reference, evaluation rules, type node coverage, and in-scope variable context. Proposes 3-phase solution: (A) enhanced system prompt (~950 tokens), (B) `llmll spec --agent` compiler-emitted reference, (C) context-aware checkout with Γ/τ/Σ. Includes corrected built-in reference verified against `builtinEnv`. | Approved — ready for implementation |
+| [lead-agent.md](lead-agent.md) | Automated skeleton generation from natural-language intent. Two-step prompt (architecture plan → JSON-AST), compiler-in-the-loop validation, structural quality heuristics (parallelism, fan-out, loose types, sentinel collisions). Phased: plan-only → skeleton generation → `--mode auto` → tool-use with `POST /sketch`. | Design draft |
 
 ---
 
