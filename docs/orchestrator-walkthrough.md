@@ -2,6 +2,8 @@
 
 ### How LLM Agents Fill Code Holes — An End-to-End Walkthrough
 
+> **The orchestrator is a compile-time, dependency-driven scheduler:** it asks the compiler to extract typed holes and their dependencies from a partial program, dispatches each synthesis obligation to the assigned agent, and only commits patches that re-type-check.
+
 > You write the skeleton. The agents write the code. The compiler keeps everyone honest.
 
 ---
@@ -37,6 +39,13 @@ three things for free:
 This is what `llmll-orchestra` does. This document walks through the entire
 pipeline, from a program with four empty holes to a running Haskell application,
 using OpenAI's `gpt-4o` as the agent brain.
+
+This is not a runtime orchestrator in the usual LangChain / agent-router sense.
+It does not decide, step by step, which tool or agent should act next in an
+open-ended conversation. Instead, orchestration happens *before* execution: the
+compiler extracts a dependency graph from typed holes, and that graph fixes the
+fill order ahead of time. In that sense, the system is closer to a build planner
+plus patch executor than to a conversational router.
 
 ---
 
@@ -305,6 +314,8 @@ exclusive access, so no two patches can modify overlapping subtrees. This
 invariant justifies filling Tier 0 holes in parallel without risk of
 interference.
 
+> **What just happened:** The compiler scanned the AST, found four holes, computed their dependencies via call-graph analysis, and produced a three-tier scheduling DAG. No agents were invoked — this is all compile-time analysis.
+
 ---
 
 ## Step 3: Schedule and Sort
@@ -360,6 +371,8 @@ graph TD
     style C fill:#2196F3,color:#fff
     style D fill:#FF9800,color:#fff
 ```
+
+> **What just happened:** The orchestrator consumed the compiler's dependency graph and produced a concrete execution plan — three tiers with four holes. The plan is deterministic: given the same program, the same tiers appear in the same order.
 
 ---
 
@@ -646,6 +659,8 @@ Two paths:
    On `Success`, wrap the new session. On `Error`, propagate with a prefix.
 
 ✅ All four holes are filled.
+
+> **What just happened:** Four agents filled four holes across three tiers. Each fill was type-checked by the compiler before being committed. The dependency ordering ensured that later agents could reason about the concrete implementations of earlier fills, not just their type signatures.
 
 ---
 
@@ -1039,6 +1054,19 @@ automatic (computed by the compiler), the task specification is typed (each hole
 has a required type), and the verification is formal (the type checker, not a
 test suite, is the arbiter). This eliminates the integration-time failures that
 plague procedural multi-agent coordination.
+
+### DAG Schedulers and Build Systems
+
+LLMLL also has an affinity with DAG schedulers and build systems such as
+**Airflow** and **Bazel**. Like those systems, it executes work in dependency
+order rather than in a handwritten procedural sequence. The difference is where
+the graph comes from and what validity means. In Airflow or Bazel, the graph is
+declared explicitly by the author and correctness is primarily operational
+("can this task run now?" / "does this target depend on that one?"). In LLMLL,
+the graph is *inferred* from typed holes and call structure, and each step is
+revalidated by the compiler before it is committed. The result is a scheduler
+whose ordering is compile-time and whose acceptance criterion is typing, not
+just successful task execution.
 
 ---
 
