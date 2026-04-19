@@ -149,6 +149,21 @@ class Compiler:
             return {"success": False, "diagnostics": [{"message": str(parsed)}]}
 
     # -----------------------------------------------------------------
+    # checkout --status (v0.3.5: TTL check for O3)
+    # -----------------------------------------------------------------
+
+    def checkout_status(self, source: str | Path, token: str) -> dict[str, Any]:
+        """Run `llmll checkout --status <file> <token>` and return TTL info."""
+        result = self._run(
+            ["--json", "checkout", str(source), "--status", token],
+            check=False,
+        )
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {"remaining_seconds": 0}
+
+    # -----------------------------------------------------------------
     # release (abandon checkout)
     # -----------------------------------------------------------------
 
