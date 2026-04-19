@@ -50,7 +50,7 @@ import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..)
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
-  , formatReportJson, megaparsecToDiagnostic)
+  , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
@@ -66,6 +66,7 @@ import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfi
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson)
 import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
+import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -85,7 +86,7 @@ data Command
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool -- D4: file, optional .fq output path, leanstral opts, --trust-report
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -214,6 +215,8 @@ optionsParser = info (helper <*> opts) $
       <*> leanstralOpts
       <*> switch (long "trust-report"
             <> help "v0.3.2: Print transitive trust summary instead of running fixpoint")
+      <*> switch (long "weakness-check"
+            <> help "v0.3.5: After SAFE, check if trivial implementations also satisfy contracts")
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -290,7 +293,7 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
-    CmdVerify fp mFqOut lsOpts trustRpt -> doVerify json fp mFqOut lsOpts trustRpt
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck -> doVerify json fp mFqOut lsOpts trustRpt weakCheck
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -905,8 +908,8 @@ doHubScaffold json template mOutDir = do
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> IO ()
-doVerify json fp mFqOut lsOpts trustReport = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> IO ()
+doVerify json fp mFqOut lsOpts trustReport weaknessCheck = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -990,12 +993,57 @@ doVerify json fp mFqOut lsOpts trustReport = do
               unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
             _ -> pure ()
 
+          -- v0.3.5: Weakness check — only runs on SAFE results
+          case fqResult of
+            FQSafe | weaknessCheck -> do
+              unless json $ TIO.putStrLn "   Running weakness check ..."
+              let candidates = generateWeaknessCandidates stmts
+              weakDiags <- fmap concat $ mapM (checkWeaknessCandidate lfBin json) candidates
+              if null weakDiags
+                then unless json $ TIO.putStrLn "   No spec weaknesses detected."
+                else do
+                  unless json $ do
+                    TIO.putStrLn $ "   ⚠ " <> tshow (length weakDiags) <> " spec weakness(es) detected:"
+                    mapM_ (TIO.putStrLn . ("   " <>) . formatDiagnostic) weakDiags
+                  when json $ do
+                    let weakJson = object
+                          [ "file" .= fp
+                          , "weakness_check" .= True
+                          , "weaknesses" .= map (\d -> object
+                              [ "kind" .= diagKind d
+                              , "message" .= diagMessage d
+                              , "suggestion" .= diagSuggestion d
+                              ]) weakDiags
+                          ]
+                    TIO.putStrLn . T.pack . BLC.unpack $ encode weakJson
+            _ -> pure ()
+
           if reportSuccess report then do
             -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
             when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
               runLeanstralPipeline json fp stmts lsOpts
             exitSuccess
           else exitFailure
+
+-- | Check a single weakness candidate: emit .fq, run solver, return diagnostic if SAFE.
+checkWeaknessCandidate :: FilePath -> Bool -> WeaknessCandidate -> IO [Diagnostic]
+checkWeaknessCandidate lfBin _json wc = do
+  -- Emit .fq for the synthetic trivial statement
+  emitR <- emitFixpoint "<weakness-check>" [wcSyntheticStmt wc]
+  let fqText = erFQText emitR
+      fqPath = "/tmp/llmll-weakness-" <> T.unpack (wcFunctionName wc) <> ".fq"
+  TIO.writeFile fqPath fqText
+  -- Run the solver
+  (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+  let fqResult = parseFQResult (T.pack out <> T.pack err)
+  case fqResult of
+    FQSafe -> do
+      -- The trivial body satisfies the contracts → spec is weak
+      let preText  = fmap (T.pack . show) (wcPrecondition wc)
+          postText = fmap (T.pack . show) (wcPostcondition wc)
+          diag     = mkSpecWeakness (wcFunctionName wc) (wcTrivialLabel wc) preText postText
+      pure [diag]
+    _ -> pure []  -- UNSAFE or error → spec is not weak for this body
 
 -- ---------------------------------------------------------------------------
 -- v0.3.1: Leanstral proof pipeline

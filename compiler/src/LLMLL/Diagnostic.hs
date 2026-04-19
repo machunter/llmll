@@ -32,6 +32,8 @@ module LLMLL.Diagnostic
   , rebaseToPatch
   -- * v0.3: Stratified verification
   , mkTrustGapWarning
+  -- * v0.3.5: Weakness check
+  , mkSpecWeakness
   ) where
 
 import Data.Text (Text)
@@ -201,6 +203,35 @@ mkTrustGapWarning funcName level pointer =
   in (mkWarning Nothing msg)
        { diagKind = Just "trust-gap"
        , diagPointer = Just pointer
+       }
+
+-- ---------------------------------------------------------------------------
+-- v0.3.5: Spec Weakness Diagnostics
+-- ---------------------------------------------------------------------------
+
+-- | Emit a spec-weakness warning diagnostic.
+-- EC-7: includes precondition text when present.
+mkSpecWeakness
+  :: Text         -- ^ function name
+  -> Text         -- ^ trivial body label (e.g. "(lambda [x] x)")
+  -> Maybe Text   -- ^ precondition text (EC-7), if any
+  -> Maybe Text   -- ^ postcondition text, if any
+  -> Diagnostic
+mkSpecWeakness funcName trivialLabel mPre mPost =
+  let preNote = case mPre of
+        Nothing -> ""
+        Just p  -> "\n  Under precondition: " <> p
+      postNote = case mPost of
+        Nothing -> ""
+        Just p  -> "\n  Your contract: " <> p
+      suggestion = "Consider adding a postcondition that distinguishes your implementation from " <> trivialLabel
+      msg = "Spec weakness detected for `" <> funcName <> "`:"
+            <> preNote <> postNote
+            <> "\n  Trivial valid implementation: " <> trivialLabel
+            <> "\n  " <> suggestion
+  in (mkWarning Nothing msg)
+       { diagKind       = Just "spec-weakness"
+       , diagSuggestion = Just suggestion
        }
 
 -- ---------------------------------------------------------------------------

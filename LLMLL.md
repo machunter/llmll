@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.3.4)
+# LLMLL: Large Language Model Logical Language (v0.3.5)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current scope (v0.3.4 shipped):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 is shipped (12/12 items):** do-notation (PRs 1–4), stratified verification, `--contracts` flag, `.verified.json` sidecar, `string-concat` variadic sugar, `?scaffold` CLI, and `Promise[t]` → `Async t` are all complete. **v0.3.1 is shipped:** JSONL event log with deterministic replay (`llmll replay`), Leanstral MCP proof integration (mock-first, `--leanstral-mock`), SHA-256 proof cache (`.proof-cache.json`). **v0.3.2 is shipped:** Trust hardening — `llmll verify --trust-report` with epistemic drift detection; cross-module trust propagation (7 test cases). GHC WASM PoC completed (conditional GO for v0.4). **v0.3.3 is shipped:** Agent orchestration compiler support — `llmll holes --json --deps` with Tarjan's SCC cycle detection; `--deps-out FILE`. **v0.3.4 is shipped:** `llmll spec` emits agent prompt specification directly from `builtinEnv` (36 builtins + 14 operators); 7 faithfulness property tests; orchestrator integration with backward-compat fallback; Phase A prompt enrichment (pair/Result/letrec/fixed-arity). New builtins: `string-empty?`, `regex-match` preamble. `is-valid?` removed. 211 tests passing. For the compiler team's implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
+> **Current scope (v0.3.5 shipped):** Haskell codegen is the only supported backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. Phase 2a delivers the full multi-file module system (`import`, `open`, `export`, `llmll-hub` registry). **Phase 2b is complete:** compile-time contract verification via liquid-fixpoint ships as `llmll verify`; `letrec` with `:decreases` termination measures and `match` exhaustiveness checking are now enforced. **Phase 2c is complete:** pair-type in typed parameters is fully supported; `llmll typecheck --sketch` provides partial-program type inference for agent use; `llmll serve` exposes the sketch pass as an HTTP endpoint for distributed agent swarms. **v0.3 is shipped (12/12 items):** do-notation (PRs 1–4), stratified verification, `--contracts` flag, `.verified.json` sidecar, `string-concat` variadic sugar, `?scaffold` CLI, and `Promise[t]` → `Async t` are all complete. **v0.3.1 is shipped:** JSONL event log with deterministic replay (`llmll replay`), Leanstral MCP proof integration (mock-first, `--leanstral-mock`), SHA-256 proof cache (`.proof-cache.json`). **v0.3.2 is shipped:** Trust hardening — `llmll verify --trust-report` with epistemic drift detection; cross-module trust propagation (7 test cases). GHC WASM PoC completed (conditional GO for v0.4). **v0.3.3 is shipped:** Agent orchestration compiler support — `llmll holes --json --deps` with Tarjan’s SCC cycle detection; `--deps-out FILE`. **v0.3.4 is shipped:** `llmll spec` emits agent prompt specification directly from `builtinEnv` (36 builtins + 14 operators); 7 faithfulness property tests; orchestrator integration with backward-compat fallback; Phase A prompt enrichment (pair/Result/letrec/fixed-arity). New builtins: `string-empty?`, `regex-match` preamble. `is-valid?` removed. **v0.3.5 is shipped:** Context-aware `llmll checkout` returns local typing context (Γ, τ, Σ) for agent prompts. `llmll verify --weakness-check` detects trivial-body spec weaknesses after SAFE. Orchestrator end-to-end with diagnostic-driven retry, lock expiry handling, and context-aware prompts. 225 Haskell + 12 Python tests passing. For the compiler team’s implementation schedule, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). For full release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -112,7 +112,7 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
 > Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
 
-> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. **`[UNIMPLEMENTED]`** In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function's required capabilities visible in its type signature and turning missing capability declarations into type errors. **Currently (v0.3.4):** `Command` is emitted as plain Haskell `IO ()`. Capability enforcement is not yet implemented at compile time — `wasi.*` functions type-check without a matching `import`. Compile-time capability enforcement is planned for v0.4 (CAP-1).
+> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. **`[UNIMPLEMENTED]`** In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function's required capabilities visible in its type signature and turning missing capability declarations into type errors. **Currently (v0.3.5):** `Command` is emitted as plain Haskell `IO ()`. Capability enforcement is not yet implemented at compile time — `wasi.*` functions type-check without a matching `import`. Compile-time capability enforcement is planned for v0.4 (CAP-1).
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -374,6 +374,21 @@ stack exec llmll -- verify ../examples/withdraw.llmll
 ```
 
 > **v0.3 — Interactive Proof Holes:** `?proof-required :inductive` and `:unknown` holes are routed to Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds.
+
+#### 5.3.1 Spec Weakness Detection (v0.3.5)
+
+`llmll verify --weakness-check` is an advisory pass that runs **after** a SAFE verification result. For each contracted function, the compiler constructs trivial candidate bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, a `spec-weakness` diagnostic is emitted:
+
+```
+⚠ Spec weakness detected for `sort-list`:
+  Your contract: (post (= (list-length result) (list-length input)))
+  Trivial valid implementation: (def-logic sort-list [input: list[int]] input)
+  Consider strengthening the postcondition.
+```
+
+This diagnostic is **non-blocking**: the function remains SAFE. It is an *advisory* signal that the specification may not distinguish correct implementations from trivial ones. The structured JSON diagnostic includes `trivial_implementation` and `suggested_postcondition` fields.
+
+Weakness checking does not modify `FixpointEmit.hs` — it constructs synthetic single-statement programs and calls the existing `emitFixpoint` pipeline.
 
 ---
 
@@ -1007,6 +1022,26 @@ In v0.3, `?delegate` holes can be resolved programmatically by agents through th
 > [!NOTE]
 > Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling in v0.3; general AST mutation is planned for v0.4.
 
+#### Context-Aware Checkout (v0.3.5)
+
+Since v0.3.5, `llmll checkout` returns the **local typing context** alongside the lock token. This is the single highest-impact change for agent first-attempt accuracy — agents no longer need to infer what’s in scope from surrounding AST context.
+
+The checkout response includes four optional fields (present when the compiler has sketch data for the target hole):
+
+| Field | Type | Content |
+|-------|------|---------|
+| `in_scope` | `[ScopeEntry]` | Bindings visible at the hole site (Γ delta: `tcEnv \ builtinEnv`). Each entry has `name`, `type` (LLMLL notation), and `source` (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by source priority; truncated at 50 entries with `scope_truncated: true`. |
+| `expected_return_type` | `string` | The inferred return type at the hole site (τ as a type label). |
+| `available_functions` | `[FuncEntry]` | Non-`wasi.*` function signatures (Σ), monomorphized against concrete scope types. E.g., when `xs : list[int]` is in scope, `list-head` appears as `list[int] → Result[int, string]` rather than `list[a] → Result[a, string]`. Each entry has `name`, `params` (with types), `returns`, and `status` (`filled`, `hole`, `builtin`). |
+| `type_definitions` | `[TypeDefEntry]` | User-defined types referenced by in-scope bindings. Sum types include constructors; aliases include the base type. Depth-bounded expansion (max 5 levels) with cycle detection (`recursive: true`). |
+| `scope_truncated` | `bool` | `true` if the scope was truncated to the 50-entry limit; absent or `false` otherwise. |
+
+**Pointer normalization (EC-3):** RFC 6901 pointer segments with leading zeros are normalized: `/statements/02/body` → `/statements/2/body`.
+
+**Monomorphization (C5):** Polymorphic signatures in `available_functions` are rewritten against concrete types found in the scope. This is a presentation-only transformation — the underlying `builtinEnv` is not mutated (INV-2).
+
+**Scope truncation (C6):** When the in-scope binding count exceeds the limit, entries are retained by source priority: `param` > `let-binding` > `match-arm` > `open-import`. Shadowing safety is structurally guaranteed by the single-entry-per-key invariant of the scope map (INV-3).
+
 ### 11.3 AST-Level Merging (Semantic Source Control)
 
 `llmll` bypasses text-based merge conflicts by operating exclusively on the AST:
@@ -1477,6 +1512,16 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 | Orchestrator integration | ✅ `compiler.spec()` wraps `llmll spec` with backward-compat fallback. `build_system_prompt()` injects compiler-emitted spec; falls back to static legacy reference for pre-v0.3.4 compilers. |
 | New builtins | ✅ `string-empty?` (`string → bool`) added to `builtinEnv` + runtime preamble. `regex-match` preamble implemented (`isInfixOf`). `is-valid?` removed from `builtinEnv`. |
 
+### v0.3.5 — Agent Effectiveness ✅ Shipped
+
+| Area | Feature |
+|------|---------|
+| Context-aware checkout (C1–C6) | ✅ `llmll checkout` returns local typing context: `in_scope` (Γ delta with provenance tags), `expected_return_type` (τ), `available_functions` (Σ, monomorphized), `type_definitions` (depth-bounded alias expansion). `ScopeSource`/`ScopeBinding` provenance types in `TypeCheck.hs`. `withTaggedEnv` scope combinator. `truncateScope` with priority-based retention. |
+| Pointer normalization (EC-3) | ✅ `normalizePointer` strips leading zeros from RFC 6901 numeric segments: `/statements/02/body` → `/statements/2/body`. |
+| `ELet` env leak fix (EC-1) | ✅ Let bindings no longer leak into sibling if-branches. Env saved/restored around sequential let processing. |
+| `llmll verify --weakness-check` | ✅ After SAFE, constructs trivial-body candidates (identity, constant-zero, empty-string, true, empty-list) and checks if they satisfy the contract. Advisory `spec-weakness` diagnostic with `trivial_implementation` field. New `WeaknessCheck.hs` module. |
+| Orchestrator E2E | ✅ `_format_diagnostics()` converts raw compiler JSON into actionable text for agent retry prompts. `_ensure_checkout()` handles lock expiry with automatic re-checkout. Context-aware prompt construction from checkout response. 12 Python integration tests. |
+
 ### v0.3.1 — Event Log + Leanstral MCP ✅ Shipped
 
 | Area | Feature |
@@ -1552,7 +1597,7 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 | Diagnostics | Every compiler error is a JSON object with an RFC 6901 JSON Pointer to the offending AST node |
 | Holes CLI | `llmll holes --json` lists all `?` holes with inferred type, module path, and agent target |
 | **Codegen target** | Generated code is **Haskell** (`.hs` + `package.yaml`), replacing Rust. `Codegen.hs` rewritten as `CodegenHs.hs` (`generateHaskell`) |
-| **`Command` model** | **`[UNIMPLEMENTED]`** Planned: `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...]`) using the `effectful` library, making required capabilities visible in type signatures and turning missing capability declarations into **type errors**. **Currently (v0.3.4):** `Command` is emitted as plain Haskell `IO ()`. Capability enforcement is planned for v0.4 (CAP-1); `effectful` integration is a v0.5 concern aligned with WASM WASI. |
+| **`Command` model** | **`[UNIMPLEMENTED]`** Planned: `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...]`) using the `effectful` library, making required capabilities visible in type signatures and turning missing capability declarations into **type errors**. **Currently (v0.3.5):** `Command` is emitted as plain Haskell `IO ()`. Capability enforcement is planned for v0.4 (CAP-1); `effectful` integration is a v0.5 concern aligned with WASM WASI. |
 | **FFI tiers** | Two tiers: (1) Hackage — `(import haskell.* ...)` resolves to a native GHC import, no stub generated; (2) C — `(import c.* ...)` generates a `foreign import ccall` stub in `src/FFI/*.hs`. The legacy `rust.*` namespace and Rust FFI stdlib are retired |
 | **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM deferred to v0.4) |
 | `let` syntax | `(let [(x e1) (y e2)] body)` — canonical v0.1.2 form; `(let [[x e1] [y e2]] body)` also accepted (v0.1.1 backward compat) |

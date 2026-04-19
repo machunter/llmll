@@ -200,10 +200,23 @@ class Orchestrator:
         for attempt in range(1, self.max_retries + 1):
             self._log(f"  Attempt {attempt}/{self.max_retries}")
 
-            # Build augmented context with prior diagnostics
+            # O3: Check checkout TTL before patching
+            token = self._ensure_checkout(source, hole, token)
+            if token is None:
+                last_error = "re-checkout failed (lock taken by another agent)"
+                self._log(f"  {last_error}")
+                return HoleResult(
+                    pointer=hole.pointer,
+                    agent=hole.agent,
+                    attempts=attempt,
+                    success=False,
+                    error=last_error,
+                )
+
+            # O2: Build augmented context with formatted prior diagnostics
             aug_context = dict(context)
             if diagnostics:
-                aug_context["prior_diagnostics"] = diagnostics
+                aug_context["prior_diagnostics"] = _format_diagnostics(diagnostics)
 
             # Ask the agent
             response = self.agent.fill_hole(hole, aug_context)
@@ -216,6 +229,8 @@ class Orchestrator:
             # Compiler expects PatchRequest: {"token": "...", "patch": [...]}
             try:
                 patch_request = {
+                    # EC-6: always use the current token (may have been re-issued
+                    # by _ensure_checkout after TTL expiry)
                     "token": token.token,
                     "patch": response.patch_ops,
                 }
@@ -266,3 +281,69 @@ class Orchestrator:
             success=False,
             error=last_error,
         )
+
+    def _ensure_checkout(
+        self, source: str, hole: HoleEntry, token: CheckoutToken
+    ) -> CheckoutToken | None:
+        """O3: Check checkout TTL; re-checkout if expired.
+
+        EC-6: If a re-checkout is necessary, the new token is returned.
+        The caller MUST use this updated token in subsequent patch requests.
+
+        Returns None if the lock is taken by another agent.
+        """
+        try:
+            status = self.compiler.checkout_status(source, token.token)
+            if status.get("remaining_seconds", 0) > 5:
+                return token  # plenty of time
+            # TTL expired or about to expire — re-checkout
+            self._log(f"  Checkout TTL low/expired, re-checking out {hole.pointer}")
+        except CompilerError:
+            # If status check fails, try re-checkout
+            self._log(f"  Checkout status check failed, attempting re-checkout")
+
+        try:
+            new_token = self.compiler.checkout(source, hole.pointer)
+            self._log(f"  Re-checkout succeeded (new token: {new_token.token[:8]}...)")
+            return new_token
+        except CompilerError as e:
+            self._log(f"  Re-checkout failed: {e}")
+            return None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# O2: Diagnostic formatting for agent retry prompts
+# ─────────────────────────────────────────────────────────────────────
+
+def _format_diagnostics(diagnostics: list[dict]) -> str:
+    """Format raw diagnostics into human-readable text for agent retry prompts.
+
+    Language Team rule: don't pass raw JSON blobs to the agent.
+    Format them as actionable error messages instead.
+    """
+    if not diagnostics:
+        return "No specific diagnostics."
+
+    lines = ["Your previous attempt was rejected by the compiler:\n"]
+    for i, d in enumerate(diagnostics, 1):
+        if isinstance(d, dict):
+            kind = d.get("kind", "error")
+            msg = d.get("message", "unknown error")
+            pointer = d.get("pointer", "")
+            expected = d.get("expected", "")
+            got = d.get("got", "")
+            suggestion = d.get("suggestion", "")
+
+            line = f"  {i}. [{kind}] {msg}"
+            if pointer:
+                line += f"\n     At: {pointer}"
+            if expected and got:
+                line += f"\n     Expected: {expected}, Got: {got}"
+            if suggestion:
+                line += f"\n     Suggestion: {suggestion}"
+            lines.append(line)
+        else:
+            lines.append(f"  {i}. {d}")
+
+    lines.append("\nPlease fix these issues in your next attempt.")
+    return "\n".join(lines)

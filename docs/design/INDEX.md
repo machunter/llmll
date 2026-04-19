@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-04-18  
+> **Last updated:** 2026-04-19  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -30,6 +30,7 @@ Documents addressing the specification-coverage gap: how can the system create p
 | [invariant-discovery.md](invariant-discovery.md) | Distilled design discussion. 6 mechanisms: adversarial red-team, mutation testing on specs, property mining, spec coverage metric, hub-driven suggestions, counter-example display. | Active reference |
 | [invariant-discovery-proposal.md](invariant-discovery-proposal.md) | External team's full proposal. 9 mechanisms, ranked. Key concepts: "specification pressure" and "contract entropy." Includes a concrete architecture sketch (6 phases per hole). | Under review |
 | [invariant-discovery-review.md](invariant-discovery-review.md) | Professor's mechanism-by-mechanism critique. Recommends differential implementation pressure (Phase A), CEGIS-style strengthening (Phase B), adversarial search (Phase C). Defines "contract discriminative power." | Under review |
+| [spec-adequacy-closure.md](spec-adequacy-closure.md) | **Implementation plan** for closing the spec gap. 3 tracks: spec adequacy feedback (weakness-check, spec-coverage, invariant registry, obligation mining), ERC-20 domain benchmark, Lead Agent spec-quality gate. 7 success criteria. External reviewer accepted in design. | **Approved — v0.3.5–v0.4** |
 
 ---
 
