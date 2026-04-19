@@ -604,6 +604,12 @@ inferExpr (EVar name) = do
       pure (TVar name)  -- Return type variable for unbound — not a hard error
 
 inferExpr (ELet bindings body) = do
+  -- EC-1: Save env before processing. The foldM below uses tcInsert to make
+  -- each binding visible to subsequent bindings, which mutates tcEnv.
+  -- We must restore to pre-let env after the let completes, so bindings
+  -- don't leak to sibling expressions (e.g. else-branches in if).
+  savedEnv <- gets tcEnv
+  savedProv <- gets tcProvenance
   -- Process bindings sequentially: each binding extends the scope for the next
   -- PR 4: binding head is now Pattern, not Name.
   resolvedBindings <- foldM (\acc (pat, mAnnot, expr) -> do
@@ -624,6 +630,9 @@ inferExpr (ELet bindings body) = do
     mapM_ (uncurry tcInsert) newBindings
     pure (acc ++ newBindings)
     ) [] bindings
+  -- Restore to pre-let env, then use withTaggedEnv for the body only.
+  -- This ensures foldM's tcInsert mutations don't leak to sibling expressions.
+  modify $ \s -> s { tcEnv = savedEnv, tcProvenance = savedProv }
   withTaggedEnv SrcLetBinding resolvedBindings (inferExpr body)
 
 inferExpr (EIf cond thenE elseE) = do

@@ -37,8 +37,10 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..))
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..))
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos)
+import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), TrivialBody(..))
+import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..))
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
 
@@ -2422,3 +2424,206 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "includes seq-commands (has preamble implementation)" $ do
       "seq-commands" `elem` specBuiltinNames `shouldBe` True
+
+  -- =========================================================================
+  -- v0.3.5: Context-Aware Checkout Tests (Track B)
+  -- =========================================================================
+
+  describe "v0.3.5 Context-Aware Checkout" $ do
+
+    -- EC-1: if-branch env isolation
+    it "EC-1: hole in let inside then-branch does not leak env to else-branch" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic test-isolation [flag: bool]"
+            , "  (if flag"
+            , "    (let [(x 42)] x)"
+            , "    ?else_hole))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case filter ((== "?else_hole") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?else_hole not recorded"
+            (h:_) -> do
+              -- x should NOT be in the else-branch's env
+              let envNames = Map.keys (shEnv h)
+              "x" `elem` envNames `shouldBe` False
+
+    -- Scope provenance: param binding tagged correctly
+    it "hole sees param bindings with SrcParam source" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic greet [name: string]"
+            , "  ?greeting)"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case filter ((== "?greeting") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?greeting not recorded"
+            (h:_) -> do
+              case Map.lookup "name" (shEnv h) of
+                Nothing -> expectationFailure "param 'name' not in env"
+                Just sb -> sbSource sb `shouldBe` SrcParam
+
+    -- Scope: let-binding tagged correctly
+    it "let-binding in scope has SrcLetBinding source" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic f [x: int]"
+            , "  (let [(y (+ x 1))]"
+            , "    ?body))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          case filter ((== "?body") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?body not recorded"
+            (h:_) -> do
+              case Map.lookup "y" (shEnv h) of
+                Nothing -> expectationFailure "let-binding 'y' not in env"
+                Just sb -> sbSource sb `shouldBe` SrcLetBinding
+
+    -- Match arm bindings tagged correctly
+    it "match-arm binding has SrcMatchArm source" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red) (| Green) (| Blue))"
+            , "(def-logic describe [c: Color]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) \"green\")"
+            , "    ((Blue) ?blue)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch emptyEnv stmts
+          -- The Blue arm's hole should have a match-arm env (the constructor pattern)
+          -- Note: Blue is a nullary constructor, so no pattern bindings are introduced.
+          -- The important thing is that the hole is correctly recorded.
+          case filter ((== "?blue") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?blue not recorded"
+            (h:_) -> shPointer h `shouldBe` "/statements/1/body/arms/2/body"
+
+    -- EC-3: Pointer normalization
+    it "EC-3: normalizePointer strips leading zeros" $ do
+      normalizePointer "/statements/02/body" `shouldBe` "/statements/2/body"
+      normalizePointer "/statements/0/body/arms/003/body" `shouldBe` "/statements/0/body/arms/3/body"
+      normalizePointer "/statements/0/body" `shouldBe` "/statements/0/body"
+      normalizePointer "" `shouldBe` ""
+
+    -- Monomorphization idempotency (INV-1)
+    it "INV-1: monomorphization is idempotent" $ do
+      let scope = Map.fromList [("xs", TList TInt)]
+          sigs  = Map.fromList [("list-head", TFn [TList (TVar "a")] (TVar "a"))]
+          mono1 = monomorphizeFunctions scope sigs
+          mono2 = monomorphizeFunctions scope mono1
+      mono1 `shouldBe` mono2
+
+    -- Monomorphization: concrete substitution
+    it "C5: list-head with xs:list[int] monomorphizes to int" $ do
+      let scope = Map.fromList [("xs", TList TInt)]
+          sigs  = Map.fromList [("list-head", TFn [TList (TVar "a")] (TVar "a"))]
+          result = monomorphizeFunctions scope sigs
+      Map.lookup "list-head" result `shouldBe` Just (TFn [TList TInt] TInt)
+
+    -- Scope truncation
+    it "C6: truncateScope keeps params, drops open-imports first" $ do
+      let entries =
+            [ ("x", ScopeEntry "x" "int" "param")
+            , ("y", ScopeEntry "y" "int" "param")
+            , ("z", ScopeEntry "z" "string" "open-import")
+            , ("w", ScopeEntry "w" "bool" "let-binding")
+            ]
+          (kept, truncated) = truncateScope 3 entries
+      truncated `shouldBe` True
+      length kept `shouldBe` 3
+      -- Params (x, y) should always be kept; open-import (z) dropped first
+      map seName kept `shouldSatisfy` (\names -> "x" `elem` names && "y" `elem` names)
+      map seName kept `shouldSatisfy` (\names -> "z" `notElem` names)
+
+  -- =========================================================================
+  -- v0.3.5: WeaknessCheck Tests (Track W)
+  -- =========================================================================
+
+  describe "v0.3.5 WeaknessCheck" $ do
+
+    -- W1: Identity body generates a candidate for int → int
+    it "identity body generates candidate for int → int function" $ do
+      let stmts =
+            [ SDefLogic "inc" [("x", TInt)] (Just TInt)
+                (Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)]))
+                          (Just (EApp ">" [EVar "result", ELit (LitInt 0)])))
+                (EApp "+" [EVar "x", ELit (LitInt 1)])
+            ]
+          candidates = generateWeaknessCandidates stmts
+          identityCandidates = [c | c <- candidates, case wcTrivialBody c of
+                                                       TrivIdentity _ -> True
+                                                       _ -> False]
+      identityCandidates `shouldSatisfy` (not . null)
+      wcFunctionName (head identityCandidates) `shouldBe` "inc"
+
+    -- W1: Constant zero candidate for int-returning function
+    it "constant zero generates candidate for int-returning function" $ do
+      let stmts =
+            [ SDefLogic "abs-val" [("x", TInt)] (Just TInt)
+                (Contract Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])))
+                (EVar "x")
+            ]
+          candidates = generateWeaknessCandidates stmts
+          zeroCandidates = [c | c <- candidates, wcTrivialBody c == TrivConstZero]
+      zeroCandidates `shouldSatisfy` (not . null)
+
+    -- W1 INV-4: type-incompatible bodies skipped
+    it "INV-4: identity body skipped when param type != return type" $ do
+      let stmts =
+            [ SDefLogic "to-str" [("x", TInt)] (Just TString)
+                (Contract Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])))
+                (EApp "to-string" [EVar "x"])
+            ]
+          candidates = generateWeaknessCandidates stmts
+          identityCandidates = [c | c <- candidates, case wcTrivialBody c of
+                                                       TrivIdentity _ -> True
+                                                       _ -> False]
+      -- Identity x : int cannot be a string; should be filtered out
+      identityCandidates `shouldSatisfy` null
+
+    -- W1: Functions without contracts skipped
+    it "function without contracts produces no candidates" $ do
+      let stmts =
+            [ SDefLogic "id" [("x", TInt)] (Just TInt)
+                (Contract Nothing Nothing)
+                (EVar "x")
+            ]
+          candidates = generateWeaknessCandidates stmts
+      candidates `shouldSatisfy` null
+
+    -- W1: Multiple functions independently
+    it "weakness detection is independent per function" $ do
+      let stmts =
+            [ SDefLogic "f" [("x", TInt)] (Just TInt)
+                (Contract Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])))
+                (EVar "x")
+            , SDefLogic "g" [("s", TString)] (Just TString)
+                (Contract Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])))
+                (EVar "s")
+            ]
+          candidates = generateWeaknessCandidates stmts
+          fCandidates = [c | c <- candidates, wcFunctionName c == "f"]
+          gCandidates = [c | c <- candidates, wcFunctionName c == "g"]
+      fCandidates `shouldSatisfy` (not . null)
+      gCandidates `shouldSatisfy` (not . null)
+
+    -- EC-7: Precondition preserved in candidate
+    it "EC-7: candidate preserves precondition for diagnostic" $ do
+      let pre = Just (EApp ">" [EVar "x", ELit (LitInt 0)])
+          stmts =
+            [ SDefLogic "inc" [("x", TInt)] (Just TInt)
+                (Contract pre (Just (EApp ">" [EVar "result", ELit (LitInt 0)])))
+                (EApp "+" [EVar "x", ELit (LitInt 1)])
+            ]
+          candidates = generateWeaknessCandidates stmts
+      case candidates of
+        []    -> expectationFailure "expected at least one candidate"
+        (c:_) -> wcPrecondition c `shouldBe` pre

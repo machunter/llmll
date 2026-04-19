@@ -92,6 +92,8 @@ library:
     - LLMLL.TrustReport
     # v0.3.4: agent spec generator
     - LLMLL.AgentSpec
+    # v0.3.5: weak-spec counter-example generation
+    - LLMLL.WeaknessCheck
 
 executables:
   llmll:

@@ -43,6 +43,7 @@ library
       LLMLL.ProofCache
       LLMLL.TrustReport
       LLMLL.AgentSpec
+      LLMLL.WeaknessCheck
   other-modules:
       Main
       Paths_llmll
@@ -117,6 +118,7 @@ executable llmll
       LLMLL.TrustReport
       LLMLL.TypeCheck
       LLMLL.VerifiedCache
+      LLMLL.WeaknessCheck
       Paths_llmll
   hs-source-dirs:
       src
