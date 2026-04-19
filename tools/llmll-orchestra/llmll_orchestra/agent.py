@@ -195,10 +195,12 @@ class Agent:
         model: str = "claude-sonnet-4-20250514",
         api_key: str | None = None,
         max_tokens: int = 4096,
+        system_prompt: str | None = None,
     ):
         self.model = model
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.max_tokens = max_tokens
+        self.system_prompt = system_prompt or SYSTEM_PROMPT
         self._client = None
 
     def _get_client(self):
@@ -225,7 +227,7 @@ class Agent:
             message = client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
-                system=SYSTEM_PROMPT,
+                system=self.system_prompt,
                 messages=[{"role": "user", "content": prompt}],
             )
         except Exception as e:
@@ -251,10 +253,12 @@ class OpenAIAgent:
         model: str = "gpt-4o",
         api_key: str | None = None,
         max_tokens: int = 4096,
+        system_prompt: str | None = None,
     ):
         self.model = model
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.max_tokens = max_tokens
+        self.system_prompt = system_prompt or SYSTEM_PROMPT
         self._client = None
 
     def _get_client(self):
@@ -282,7 +286,7 @@ class OpenAIAgent:
                 model=self.model,
                 max_tokens=self.max_tokens,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": prompt},
                 ],
             )
@@ -303,6 +307,9 @@ class OpenAIAgent:
 
 class DryRunAgent:
     """Mock agent that returns a placeholder patch without calling any API."""
+
+    def __init__(self, system_prompt: str | None = None):
+        self.system_prompt = system_prompt or SYSTEM_PROMPT
 
     def fill_hole(
         self,

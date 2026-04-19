@@ -16,7 +16,7 @@ from typing import Any, Protocol
 
 from .compiler import Compiler, CompilerError, HoleEntry
 from .graph import topo_sort, scheduling_tiers
-from .agent import build_system_prompt, SYSTEM_PROMPT
+from .agent import build_system_prompt
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -69,6 +69,7 @@ class OrchestratorReport:
 # ─────────────────────────────────────────────────────────────────────
 
 class AgentProtocol(Protocol):
+    system_prompt: str
     def fill_hole(
         self, hole: HoleEntry, context: dict[str, Any] | None = None
     ) -> Any: ...
@@ -116,10 +117,9 @@ class Orchestrator:
         compiler_spec = self.compiler.spec()
         if compiler_spec:
             self._log(f"Using compiler-emitted spec ({len(compiler_spec)} chars)")
-            self.system_prompt = build_system_prompt(compiler_spec)
+            self.agent.system_prompt = build_system_prompt(compiler_spec)
         else:
             self._log("Compiler spec unavailable, using legacy prompt")
-            self.system_prompt = SYSTEM_PROMPT
 
         # Step 1: Get all holes with dependency graph
         self._log(f"Scanning holes in {source}")
