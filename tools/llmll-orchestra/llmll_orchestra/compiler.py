@@ -155,3 +155,23 @@ class Compiler:
     def release(self, source: str | Path, pointer: str) -> None:
         """Run `llmll checkout --release <file> <pointer>`."""
         self._run(["checkout", "--release", str(source), pointer], check=False)
+
+    # -----------------------------------------------------------------
+    # spec --agent (v0.3.4)
+    # -----------------------------------------------------------------
+
+    def spec(self, *, json_output: bool = False) -> str | None:
+        """Run `llmll spec` and return the agent specification.
+
+        Returns the text output by default (for direct system prompt inclusion)
+        or JSON if json_output=True.  Returns None if the compiler doesn't
+        support the spec command (pre-v0.3.4 compiler).
+        """
+        args = ["spec"]
+        if json_output:
+            args.append("--json")
+        try:
+            result = self._run(args)
+            return result.stdout
+        except CompilerError:
+            return None  # pre-v0.3.4 compiler; caller uses hardcoded fallback

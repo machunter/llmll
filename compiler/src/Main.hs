@@ -65,6 +65,7 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson)
+import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -92,6 +93,7 @@ data Command
   | CmdCheckoutStatus  FilePath String                      -- v0.3: checkout --status <file> <token>
   | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
   | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
+  | CmdSpec     Bool                                         -- v0.3.4: spec [--json]
   deriving (Show)
 
 -- | Leanstral MCP options for the verify command (v0.3.1).
@@ -145,6 +147,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "v0.3: Apply an RFC 6902 JSON-Patch to a checked-out hole"))
       <> command "replay" (info replayCmd
           (progDesc "v0.3.1: Replay an event log against a compiled program"))
+      <> command "spec" (info specCmd
+          (progDesc "v0.3.4: Emit agent specification from compiler builtins"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -262,6 +266,9 @@ optionsParser = info (helper <*> opts) $
             (long "deps-out" <> metavar "FILE"
             <> help "v0.3.3: Write dependency graph to FILE (implies --deps)"))
 
+    specCmd = CmdSpec
+      <$> switch (long "json" <> help "Output as JSON (default: formatted text for LLM prompts)")
+
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -291,6 +298,7 @@ main = do
     CmdCheckoutStatus fp tok  -> doCheckoutStatusCmd json fp (T.pack tok)
     CmdPatch fp patchFp       -> doPatch json fp patchFp
     CmdReplay fp logFp        -> doReplay json fp logFp
+    CmdSpec jsonOut            -> doSpec jsonOut
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -1210,3 +1218,12 @@ doReplay json srcFp logFp = do
                     ++ "\" actual=\"" ++ T.unpack actual ++ "\""
           when (replayMatched result /= replayTotal result) exitFailure
 
+-- ---------------------------------------------------------------------------
+-- spec (v0.3.4)
+-- ---------------------------------------------------------------------------
+
+doSpec :: Bool -> IO ()
+doSpec jsonOut =
+  if jsonOut
+    then TIO.putStr agentSpecJSON
+    else TIO.putStr agentSpecText

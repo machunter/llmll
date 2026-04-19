@@ -19,6 +19,7 @@ module LLMLL.TypeCheck
   , runSketch
     -- * Environment
   , TypeEnv
+  , builtinEnv
   , emptyEnv
   , extendEnv
     -- * Results
@@ -98,6 +99,7 @@ builtinEnv = Map.fromList $
   , ("string-trim",     TFn [TString] TString)
   , ("string-concat-many", TFn [TList TString] TString)
   , ("regex-match",     TFn [TString, TString] TBool)
+  , ("string-empty?",   TFn [TString] TBool)
   -- §13.7 Numeric utilities
   , ("int-to-string",  TFn [TInt] TString)
   , ("string-to-int",  TFn [TString] (TResult TInt TString))
@@ -119,8 +121,6 @@ builtinEnv = Map.fromList $
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
   , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
-  -- §13.misc Misc
-  , ("is-valid?", TFn [TBool] TBool)
   ]
 
 emptyEnv :: TypeEnv
