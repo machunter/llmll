@@ -577,7 +577,7 @@ Write the Lead Agent as an LLMLL program. The Lead Agent becomes a
 `def-main :mode cli` program that reads intent from stdin, calls
 `llmll serve` via `wasi.http.post`, and writes a skeleton to stdout.
 This is the "LLMLL all the way down" endgame described in
-[agent-orchestration.md](file:///Users/burcsahinoglu/Documents/llmll/docs/design/agent-orchestration.md).
+[agent-orchestration.md](agent-orchestration.md).
 
 ---
 
@@ -625,9 +625,9 @@ This is the "LLMLL all the way down" endgame described in
 
 | Document | Relationship |
 |---|---|
-| [agent-orchestration.md](file:///Users/burcsahinoglu/Documents/llmll/docs/design/agent-orchestration.md) | Defines the orchestrator/compiler boundary, scheduling strategies, and the self-hosted endgame. This doc extends it with the Lead Agent concept. |
-| [agent-prompt-semantics-gap.md](file:///Users/burcsahinoglu/Documents/llmll/docs/design/agent-prompt-semantics-gap.md) | The Lead Agent has the same knowledge gap as specialist agents (plus more). Phase A prompt enrichment applies to both. Phase C (context-aware checkout) benefits specialists filling lead-generated skeletons. |
-| [orchestrator-walkthrough.md](file:///Users/burcsahinoglu/Documents/llmll/docs/orchestrator-walkthrough.md) | The walkthrough demonstrates the current system with a human-written skeleton. The Lead Agent automates Step 0 (which the walkthrough currently starts at). |
+| [agent-orchestration.md](agent-orchestration.md) | Defines the orchestrator/compiler boundary, scheduling strategies, and the self-hosted endgame. This doc extends it with the Lead Agent concept. |
+| [agent-prompt-semantics-gap.md](agent-prompt-semantics-gap.md) | The Lead Agent has the same knowledge gap as specialist agents (plus more). Phase A prompt enrichment applies to both. Phase C (context-aware checkout) benefits specialists filling lead-generated skeletons. |
+| [orchestrator-walkthrough.md](../orchestrator-walkthrough.md) | The walkthrough demonstrates the current system with a human-written skeleton. The Lead Agent automates Step 0 (which the walkthrough currently starts at). |
 
 ---
 

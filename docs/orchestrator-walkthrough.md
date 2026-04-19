@@ -197,7 +197,7 @@ A few things to notice:
   detects that `login-handler`'s hole *depends on* `hash-password-impl`'s hole.
 
 The full JSON-AST for this program is at
-[`examples/orchestrator_walkthrough/auth_module.ast.json`](file:///Users/burcsahinoglu/Documents/llmll/examples/orchestrator_walkthrough/auth_module.ast.json).
+[`examples/orchestrator_walkthrough/auth_module.ast.json`](../examples/orchestrator_walkthrough/auth_module.ast.json).
 
 Let's verify it type-checks:
 
@@ -293,7 +293,7 @@ The dependency graph reads naturally:
 The dependency computation involves two algorithms in two stages:
 
 **Stage 1: Cycle detection (Tarjan's SCC — compiler, Haskell).** The compiler's
-[`HoleAnalysis.hs`](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/HoleAnalysis.hs)
+[`HoleAnalysis.hs`](../compiler/src/LLMLL/HoleAnalysis.hs)
 walks the call graph and builds edges between holes. A dependency edge exists
 when a function's body *calls* another function whose body is a hole. Transitive
 calls through intermediate non-hole functions create transitive edges. Tarjan's
@@ -1172,7 +1172,7 @@ llmll-orchestra examples/orchestrator_walkthrough/auth_module.ast.json \
 ```
 
 The filled source files for this tutorial are in
-[`examples/orchestrator_walkthrough/`](file:///Users/burcsahinoglu/Documents/llmll/examples/orchestrator_walkthrough/).
+[`examples/orchestrator_walkthrough/`](../examples/orchestrator_walkthrough/).
 
 ### Where the architecture goes from here
 

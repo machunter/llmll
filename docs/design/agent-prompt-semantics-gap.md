@@ -53,7 +53,7 @@ User prompt (per hole):
   └── Checkout context (JSON blob)
 ```
 
-**Source:** [`tools/llmll-orchestra/llmll_orchestra/agent.py:36-80`](file:///Users/burcsahinoglu/Documents/llmll/tools/llmll-orchestra/llmll_orchestra/agent.py#L36-L80)
+**Source:** [`tools/llmll-orchestra/llmll_orchestra/agent.py:36-80`](../../tools/llmll-orchestra/llmll_orchestra/agent.py#L36-L80)
 
 ### What's Present
 
@@ -156,8 +156,8 @@ Haskell and inaccessible to the agent:
 
 | Module | What it captures |
 |--------|-----------------|
-| [`TypeCheck.hs`](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs) | Type rules, bidirectional inference, unification, `Result` uses `Success`/`Error` |
-| [`CodegenHs.hs`](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) | Evaluation model: `let` is sequential, `pre` throws at runtime, strict evaluation |
+| [`TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) | Type rules, bidirectional inference, unification, `Result` uses `Success`/`Error` |
+| [`CodegenHs.hs`](../../compiler/src/LLMLL/CodegenHs.hs) | Evaluation model: `let` is sequential, `pre` throws at runtime, strict evaluation |
 | Runtime preamble (generated `Lib.hs`) | What every built-in does: `string-concat` is `(++)`, `ok` is `Right`, etc. |
 
 There is **no standalone semantic specification**. The compiler implementation
@@ -180,7 +180,7 @@ Add two blocks to `SYSTEM_PROMPT`:
 #### A.1 — Built-in Function Reference
 
 The following reference has been corrected against
-[`builtinEnv`](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs#L52-L124)
+[`builtinEnv`](../../compiler/src/LLMLL/TypeCheck.hs#L52-L124)
 (verified line-by-line by Language Team and Professor):
 
 ```
@@ -503,7 +503,7 @@ in context.
   2. `runtimePreamble` in CodegenHs.hs: `string_empty' s = null s`
   3. §13.6 in LLMLL.md
 
-- **Agent mistakes doc:** [`getting-started.md §4.8`](file:///Users/burcsahinoglu/Documents/llmll/docs/getting-started.md#L478)
+- **Agent mistakes doc:** [`getting-started.md §4.8`](../getting-started.md#L478)
   lists common agent errors. This content should be promoted into the system
   prompt once Option A is implemented.
 
@@ -580,7 +580,7 @@ quality-of-life upgrade.
 ### Current Architecture
 
 The orchestrator already runs the compiler in the loop
-([`orchestrator.py:217`](file:///Users/burcsahinoglu/Documents/llmll/tools/llmll-orchestra/llmll_orchestra/orchestrator.py#L217)):
+([`orchestrator.py:217`](../../tools/llmll-orchestra/llmll_orchestra/orchestrator.py#L217)):
 
 ```
 Agent generates patch → orchestrator writes to temp file →
