@@ -952,15 +952,60 @@
     },
 
     "CheckoutToken": {
-      "description": "Checkout token response from 'llmll checkout' or POST /checkout (v0.3). Companion definition for agent tooling.",
+      "description": "Checkout token response from 'llmll checkout' or POST /checkout (v0.3; context-aware v0.3.5). Companion definition for agent tooling.",
       "type": "object",
       "required": ["pointer", "token", "ttl"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
-        "pointer":   { "type": "string", "description": "RFC 6901 JSON Pointer to the checked-out hole." },
+        "pointer":   { "type": "string", "description": "RFC 6901 JSON Pointer to the checked-out hole. Normalized: leading zeros in numeric segments are stripped (EC-3)." },
         "hole_kind": { "type": "string", "description": "The kind of hole (e.g. 'hole-delegate', 'hole-named')." },
         "token":     { "type": "string", "description": "32-character hex bearer token. Include in patch requests." },
-        "ttl":       { "type": "integer", "description": "Lock time-to-live in seconds. Default: 3600 (1 hour)." }
+        "ttl":       { "type": "integer", "description": "Lock time-to-live in seconds. Default: 3600 (1 hour)." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Lock creation time (ISO 8601)." },
+        "in_scope": {
+          "description": "v0.3.5: Bindings visible at the hole site (Γ delta). Sorted by source priority; may be truncated.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "source"],
+            "properties": {
+              "name":   { "type": "string" },
+              "type":   { "type": "string", "description": "LLMLL type notation (e.g. 'list[int]', '(int, string)')." },
+              "source": { "type": "string", "enum": ["param", "let-binding", "match-arm", "open-import"] }
+            }
+          }
+        },
+        "expected_return_type": { "type": "string", "description": "v0.3.5: Inferred return type at the hole site (τ as LLMLL type label)." },
+        "available_functions": {
+          "description": "v0.3.5: Non-wasi.* function signatures (Σ), monomorphized against concrete scope types.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "params", "returns", "status"],
+            "properties": {
+              "name":    { "type": "string" },
+              "params":  { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "type": { "type": "string" } } } },
+              "returns": { "type": "string" },
+              "status":  { "type": "string", "enum": ["filled", "hole", "builtin"] }
+            }
+          }
+        },
+        "type_definitions": {
+          "description": "v0.3.5: User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name":         { "type": "string" },
+              "kind":         { "type": "string", "enum": ["sum", "alias", "dependent"] },
+              "constructors": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "payload": { "type": "string" } } } },
+              "base_type":    { "type": "string" },
+              "recursive":    { "type": "boolean", "description": "True if cycle detected during alias expansion (EC-4)." }
+            }
+          }
+        },
+        "scope_truncated": { "type": "boolean", "description": "v0.3.5: True if in_scope was truncated to the 50-entry limit (C6)." }
       }
     },
 

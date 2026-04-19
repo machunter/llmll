@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.3.4 shipped (agent spec from compiler builtinEnv + Phase A prompt enrichment); 211 tests passing  
+> **Status:** Active — v0.3.5 shipped (context-aware checkout + weakness checking + orchestrator E2E); 225 Haskell + 12 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -602,7 +602,7 @@ Docker container
 
 ---
 
-## v0.3.5 — Agent Effectiveness (Next Release)
+## v0.3.5 — Agent Effectiveness (Shipped 2026-04-19)
 
 **Theme:** Make the existing multi-agent pipeline actually work end-to-end with high first-attempt success rates.
 
@@ -618,10 +618,10 @@ Complete the Python orchestrator to the point where it fills the auth module exe
 
 | # | Action | Status |
 |---|--------|--------|
-| O1 | `llmll-orchestra --mode fill auth_module.ast.json` fills both `?delegate @crypto-agent` holes | ☐ |
-| O2 | Retry with diagnostics (max 3 attempts, structured error feedback) | ☐ |
-| O3 | Lock expiry handling (re-queue, not crash) | ☐ |
-| O4 | Integration test: malformed patch → retry with diagnostics → success | ☐ |
+| O1 | `llmll-orchestra --mode fill auth_module.ast.json` fills both `?delegate @crypto-agent` holes | ✅ |
+| O2 | Retry with diagnostics (max 3 attempts, structured error feedback) | ✅ |
+| O3 | Lock expiry handling (re-queue, not crash) | ✅ |
+| O4 | Integration test: malformed patch → retry with diagnostics → success | ✅ |
 
 **Acceptance criteria:**
 
@@ -637,18 +637,18 @@ Complete the Python orchestrator to the point where it fills the auth module exe
 
 | # | Action | Module | Status |
 |---|--------|--------|--------|
-| C1 | Extend `SketchHole` with `shEnv :: TypeEnv` | `Sketch.hs` | ☐ |
-| C2 | Snapshot `gets tcEnv` in `inferHole (HNamed name)` and `checkExpr (EHole _)` | `TypeCheck.hs` | ☐ |
-| C3 | Serialize delta (`tcEnv \ builtinEnv`) in checkout response. **Note:** `Checkout.hs` currently doesn't import `TypeCheck.hs` — threading via `Main.hs` avoids double type-checking. | `Checkout.hs`, `Main.hs` | ☐ |
-| C4 | Include `tcAliasMap` entries for `TCustom` types referenced by Γ or τ | `Checkout.hs` | ☐ |
-| C6 | `--checkout-scope-limit 50` with shadowing-safety + `prop_truncationPreservesShadowing` test | `Checkout.hs` | ☐ |
+| C1 | Extend `SketchHole` with `shEnv :: Map Name ScopeBinding` | `TypeCheck.hs` | ✅ |
+| C2 | Snapshot `gets tcEnv` in `recordHole` with provenance tagging | `TypeCheck.hs` | ✅ |
+| C3 | Serialize delta (`tcEnv \ builtinEnv`) in checkout response via `Main.hs` threading | `Checkout.hs`, `Main.hs` | ✅ |
+| C4 | Include `tcAliasMap` entries for `TCustom` types referenced by Γ or τ (`collectTypeDefinitions`) | `Checkout.hs` | ✅ |
+| C6 | `truncateScope` with priority-based retention + shadowing-safety invariant (INV-3) | `Checkout.hs` | ✅ |
 
 > [!NOTE]
 > **C5 (monomorphize polymorphic Σ signatures) included in v0.3.5.** C5 can be implemented as a `Map Name Type` substitution pass over the `available_functions` list in the checkout response: when Γ contains `xs : list[int]`, rewrite `list-head : list[a] → Result[a, string]` to `list-head : list[int] → Result[int, string]`. This is a straightforward find-and-replace, not unification. Implement after C1–C4 land. (~1 day)
 
 | # | Action | Module | Status |
 |---|--------|--------|--------|
-| C5 | Monomorphize polymorphic Σ signatures against concrete Γ types in checkout response via `Map Name Type` substitution. | `Checkout.hs` | ☐ |
+| C5 | Monomorphize polymorphic Σ signatures against concrete Γ types in checkout response via `Map Name Type` substitution (`monomorphizeFunctions`). INV-2: presentation-only, no `builtinEnv` mutation. | `Checkout.hs` | ✅ |
 
 **Acceptance criteria:**
 
@@ -661,7 +661,7 @@ Complete the Python orchestrator to the point where it fills the auth module exe
 
 | # | Action | Status |
 |---|--------|--------|
-| O5 | Context-aware checkout integration — consume C1–C4+C6 output in agent prompt | ☐ |
+| O5 | Context-aware checkout integration — consume C1–C4+C6 output in agent prompt | ✅ |
 
 ### Counter-Example Display for Weak Specs — ~4 days
 
@@ -678,8 +678,8 @@ When a spec admits trivial implementations, show the trivial implementation as e
 
 | # | Action | Module | Status |
 |---|--------|--------|--------|
-| W1 | `llmll verify --weakness-check` — after SAFE result, attempt trivial fills (identity, constant, reverse) | New `WeaknessCheck.hs` | ☐ |
-| W2 | Emit structured diagnostic with the trivial implementation and suggested strengthening | `Diagnostic.hs` | ☐ |
+| W1 | `llmll verify --weakness-check` — after SAFE result, attempt trivial fills (identity, constant-zero, empty-string, true, empty-list) | New `WeaknessCheck.hs` | ✅ |
+| W2 | Emit structured diagnostic with the trivial implementation and `spec-weakness` kind (`mkSpecWeakness`) | `Diagnostic.hs` | ✅ |
 
 **Design note:** `WeaknessCheck.hs` constructs a synthetic `SDefLogic` (same params, same contract, trivial body e.g. `EVar "xs"` for identity), calls `emitFixpoint` on `[syntheticStmt]`, and checks for SAFE. `emitFixpoint :: FilePath -> [Statement] -> IO EmitResult` accepts a full statement list — the synthetic single-statement list is valid input. This does NOT require modifications to `FixpointEmit.hs`.
 
@@ -699,7 +699,7 @@ When a spec admits trivial implementations, show the trivial implementation as e
 | `type-reference` dependency edges | Defer — `calls-hole-body` sufficient for v0.3 orchestration |
 | `?delegate-async` fire-and-forget filtering | Defer — requires data-flow analysis |
 
-**Expected tests:** 211 → ~240 (+6 context-aware checkout + 2 C5 monomorphization + 4 orchestrator integration + 6 weakness check + ~11 coverage)
+**Actual tests:** 211 → 225 Haskell (+14), 12 Python integration tests (all new)
 
 ---
 

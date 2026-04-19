@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.3.3
+# LLMLL Getting Started — v0.3.5
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -36,9 +36,10 @@ Available commands:
   test       Run property-based tests (check blocks)
   build      Compile source to a Haskell application
   verify     Emit .fq constraints, run liquid-fixpoint, trust report (Phase 2b+)
+  spec       Emit the agent prompt specification from builtinEnv (v0.3.4)
   typecheck  Type inference (use --sketch for partial programs)
   serve      HTTP sketch endpoint for agent swarms
-  checkout   Lock a hole for exclusive agent editing (v0.3)
+  checkout   Lock a hole for exclusive agent editing (v0.3; context-aware in v0.3.5)
   patch      Apply an RFC 6902 JSON-Patch to a checked-out hole (v0.3)
   hub        llmll-hub package registry (fetch, scaffold)
   replay     Deterministic replay from event log (v0.3.1)
@@ -227,7 +228,17 @@ stack exec llmll -- verify file.llmll --trust-report
 
 # JSON trust report (for tooling consumption):
 stack exec llmll -- verify file.llmll --trust-report --json
+
+# v0.3.5: Weakness check — detect specs that admit trivial implementations:
+stack exec llmll -- verify file.llmll --weakness-check
+# ✅ hangman.llmll — SAFE (liquid-fixpoint)
+# ⚠ Spec weakness detected for `sort-list`:
+#   Your contract: (post (= (list-length result) (list-length input)))
+#   Trivial valid implementation: (def-logic sort-list [input: list[int]] input)
+#   Consider strengthening the postcondition.
 ```
+
+`--weakness-check` runs **after** a SAFE verification result. For each contracted function, it constructs trivial bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, the spec is flagged as potentially weak. This is advisory — it does not affect the verification outcome.
 
 `verify` is **gracefully degrading**: if `fixpoint` or `z3` is not in `PATH`, it writes the `.fq` file and exits 0 with an install hint. The file can be checked manually or in CI once the tools are installed.
 
@@ -291,16 +302,28 @@ curl -s -X POST localhost:7777/sketch \
 
 Every `POST /sketch` is **stateless** — a fresh type-check context per request. Safe for concurrent agent use with no locking. TLS is handled by a reverse proxy (nginx/Caddy); `llmll serve` binds plaintext only.
 
-### `checkout` — lock a hole for exclusive editing (v0.3)
+### `checkout` — lock a hole for exclusive editing (v0.3; context-aware v0.3.5)
 
 ```bash
-# Lock a hole and get a checkout token
+# Lock a hole and get a checkout token (v0.3.5: includes typing context)
 stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/2/body
 # {
 #   "pointer": "/statements/2/body",
 #   "hole_kind": "hole-delegate",
 #   "token": "a1b2c3d4e5f6...",
-#   "ttl": 3600
+#   "ttl": 3600,
+#   "in_scope": [
+#     { "name": "state", "type": "(int, string)", "source": "param" },
+#     { "name": "input", "type": "string", "source": "param" }
+#   ],
+#   "expected_return_type": "(int, Command)",
+#   "available_functions": [
+#     { "name": "list-head", "params": [{"name": "p0", "type": "list[int]"}],
+#       "returns": "Result[int, string]", "status": "builtin" }
+#   ],
+#   "type_definitions": [
+#     { "name": "GameState", "kind": "alias", "base_type": "(string, (list[string], (int, int)))" }
+#   ]
 # }
 
 # Check remaining TTL
@@ -312,9 +335,19 @@ stack exec llmll -- checkout --release ../examples/delegate_demo/program.ast.jso
 # { "released": true }
 ```
 
-`checkout` validates that the RFC 6901 pointer targets a `hole-*` node in the JSON-AST. If the pointer targets a non-hole node but a descendant hole exists, the error includes a hint: `"did you mean /statements/2/body?"`.
+`checkout` validates that the RFC 6901 pointer targets a `hole-*` node in the JSON-AST. If the pointer targets a non-hole node but a descendant hole exists, the error includes a hint: `"did you mean /statements/2/body?"`. Pointers are normalized (EC-3): leading zeros in numeric segments are stripped (`/statements/02/body` → `/statements/2/body`).
 
 Locks are per-file (`.llmll-lock.json` alongside the source) with a 1-hour TTL. Stale locks are auto-expired on any `checkout` or `patch` call.
+
+**v0.3.5 context-aware fields** (optional — present when the compiler has sketch data):
+
+| Field | Content |
+|-------|---------|
+| `in_scope` | Bindings visible at the hole site, with source provenance (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by priority; truncated at 50 entries if scope is large (`scope_truncated: true`). |
+| `expected_return_type` | The inferred return type at the hole site (τ). |
+| `available_functions` | Non-`wasi.*` function signatures, monomorphized against concrete scope types (e.g., `list-head : list[int] → Result[int, string]` when `xs : list[int]` is in scope). |
+| `type_definitions` | User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection. |
+| `scope_truncated` | `true` if the scope was truncated; absent or `false` otherwise. |
 
 > [!IMPORTANT]
 > `checkout` requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`.
