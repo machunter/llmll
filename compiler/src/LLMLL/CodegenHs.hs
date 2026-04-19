@@ -149,7 +149,7 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   ] ++
   -- Hackage imports from haskell.* declarations
   map hackageImportLine hackagePkgs ++
-  [ "import Data.List (isPrefixOf, intercalate, nub)"
+  [ "import Data.List (isPrefixOf, isInfixOf, intercalate, nub)"
   , "import Data.Char (ord, chr)"
   , "import qualified Data.Map.Strict as Map"
   , "import System.IO (hPutStr, stderr)"
@@ -265,6 +265,12 @@ runtimePreamble =
   , ""
   , "string_concat_many :: [String] -> String"
   , "string_concat_many = concat"
+  , ""
+  , "string_empty' :: String -> Bool"
+  , "string_empty' s = null s"
+  , ""
+  , "regex_match :: String -> String -> Bool"
+  , "regex_match pattern subject = pattern `isInfixOf` subject"
   , ""
   , "-- §13.7 Numeric"
   , "int_to_string :: Int -> String"

@@ -42,6 +42,7 @@ library
       LLMLL.MCPClient
       LLMLL.ProofCache
       LLMLL.TrustReport
+      LLMLL.AgentSpec
   other-modules:
       Main
       Paths_llmll
@@ -88,6 +89,7 @@ library
 executable llmll
   main-is: Main.hs
   other-modules:
+      LLMLL.AgentSpec
       LLMLL.AstEmit
       LLMLL.Checkout
       LLMLL.CodegenHs

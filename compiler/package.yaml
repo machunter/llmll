@@ -90,6 +90,8 @@ library:
     - LLMLL.ProofCache
     # v0.3.2: trust report
     - LLMLL.TrustReport
+    # v0.3.4: agent spec generator
+    - LLMLL.AgentSpec
 
 executables:
   llmll:

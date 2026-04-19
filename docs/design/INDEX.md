@@ -38,7 +38,7 @@ Documents addressing the gap between agent capabilities and language semantics: 
 
 | Document | Summary | Status |
 |---|---|---|
-| [agent-prompt-semantics-gap.md](agent-prompt-semantics-gap.md) | Gap analysis: agents lack built-in function reference, evaluation rules, type node coverage, and in-scope variable context. Proposes 3-phase solution: (A) enhanced system prompt (~950 tokens), (B) `llmll spec --agent` compiler-emitted reference, (C) context-aware checkout with Γ/τ/Σ. Includes corrected built-in reference verified against `builtinEnv`. | Approved — ready for implementation |
+| [agent-prompt-semantics-gap.md](agent-prompt-semantics-gap.md) | Gap analysis: agents lack built-in function reference, evaluation rules, type node coverage, and in-scope variable context. Proposes 3-phase solution: (A) enhanced system prompt (~950 tokens), (B) `llmll spec` compiler-emitted reference, (C) context-aware checkout with Γ/τ/Σ. Includes corrected built-in reference verified against `builtinEnv`. | Phases A+B shipped (v0.3.4); Phase C planned |
 | [lead-agent.md](lead-agent.md) | Automated skeleton generation from natural-language intent. Two-step prompt (architecture plan → JSON-AST), compiler-in-the-loop validation, structural quality heuristics (parallelism, fan-out, loose types, sentinel collisions). Phased: plan-only → skeleton generation → `--mode auto` → tool-use with `POST /sketch`. | Design draft |
 
 ---

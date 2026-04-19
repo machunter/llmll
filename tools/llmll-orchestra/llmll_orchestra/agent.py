@@ -30,10 +30,10 @@ class AgentError(Exception):
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Prompt construction
+# System prompt — composable from compiler-emitted spec
 # ─────────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_HEADER = """\
 You are an LLMLL implementation agent. You receive a hole specification
 from the LLMLL compiler and must produce a JSON-Patch (RFC 6902) that
 fills the hole with a correct implementation.
@@ -55,12 +55,9 @@ Every expression node is a JSON object with a "kind" field. Valid kinds:
 - `match`:      {"kind": "match", "scrutinee": <expr>, "arms": [{"pattern": <pat>, "body": <expr>}]}
 - `pair`:       {"kind": "pair", "fst": <expr>, "snd": <expr>}
 - `lambda`:     {"kind": "lambda", "params": [{"name": "x", "type": <type>}], "body": <expr>}
+"""
 
-## Valid Type Nodes
-
-- `{"kind": "primitive", "name": "int"|"float"|"string"|"bool"|"unit"}`
-- `{"kind": "result", "ok_type": <type>, "err_type": <type>}`
-- `{"kind": "list", "elem_type": <type>}`
+_SYSTEM_PROMPT_FOOTER = """\
 
 ## Patch Format
 
@@ -77,7 +74,58 @@ Return a JSON array with exactly one RFC 6902 "replace" operation:
 4. Do NOT invent new kinds. Use "app" to call functions, "op" for operators.
 5. To return an Ok result: {"kind": "app", "fn": "ok", "args": [<value>]}
 6. To return an Err result: {"kind": "app", "fn": "err", "args": [<value>]}
+7. Operators are FIXED-ARITY: `+`, `-`, `*`, `/` take exactly 2 args; `not` takes 1. Parametricity rule: polymorphic builtins (= != etc.) accept any type — do not cast.
+
+## pair / first / second Usage
+
+- Construct: {"kind": "pair", "fst": <expr>, "snd": <expr>}
+- Project first:  {"kind": "app", "fn": "first", "args": [<pair-expr>]}
+- Project second: {"kind": "app", "fn": "second", "args": [<pair-expr>]}
+- Type node: {"kind": "pair-type", "first_type": <type>, "second_type": <type>}
+- Function type node: {"kind": "fn-type", "param_types": [<type>, ...], "return_type": <type>}
+
+## Result Construction vs Pattern Matching
+
+- To CONSTRUCT a Result: use `ok(v)` → `{"kind": "app", "fn": "ok", "args": [v]}`
+                          use `err(e)` → `{"kind": "app", "fn": "err", "args": [e]}`
+- To MATCH on a Result: use constructors `Success` and `Error` in patterns:
+  `{"pattern": {"kind": "constructor", "constructor": "Success", "sub_patterns": [{"kind": "bind", "name": "v"}]}}`
+
+## letrec (recursive functions)
+
+Recursive functions use `letrec` with a `:decreases` annotation. The agent should not emit letrec nodes — use `def-logic` with standard recursion instead.
 """
+
+# Legacy prompt: used when the compiler doesn't support `llmll spec` (pre-v0.3.4)
+_LEGACY_BUILTINS_REF = """\
+
+## Built-in Functions (pre-v0.3.4 static reference)
+
+abs, err, first, int-to-string, is-ok, list-append, list-contains,
+list-empty, list-filter, list-fold, list-head, list-length, list-map,
+list-nth, list-prepend, list-tail, max, min, ok, pair, range,
+regex-match, second, seq-commands, string-char-at, string-concat,
+string-concat-many, string-contains, string-empty?, string-length,
+string-slice, string-split, string-to-int, string-trim, unwrap, unwrap-or
+
+## Operators
+
++, -, *, /, mod, =, !=, <, >, <=, >=, and, or, not
+"""
+
+
+def build_system_prompt(compiler_spec: str | None = None) -> str:
+    """Build the system prompt, injecting the compiler-emitted spec if available.
+
+    If compiler_spec is None (pre-v0.3.4 compiler), falls back to the
+    static legacy reference.
+    """
+    builtins_section = compiler_spec if compiler_spec else _LEGACY_BUILTINS_REF
+    return _SYSTEM_PROMPT_HEADER + builtins_section + _SYSTEM_PROMPT_FOOTER
+
+
+# Default for backward compatibility — used when no spec is injected
+SYSTEM_PROMPT = build_system_prompt(None)
 
 
 

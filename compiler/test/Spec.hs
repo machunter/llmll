@@ -8,7 +8,7 @@ import qualified Data.Text.IO as TIO
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole, emitEventLogPreamble)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
@@ -23,10 +23,13 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..))
+import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
+
 import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
 import System.Process (callProcess)
-import Data.List (isSuffixOf)
+import Data.List (isSuffixOf, sort, find)
+import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Aeson (encode, decode, Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
@@ -2379,3 +2382,43 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           bodyHole = head [e | e <- entries, HA.holePointer e == "/statements/0/body"]
       -- The contract hole (in /pre) should not create a dependency
       null (HA.holeDependsOn bodyHole) `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- v0.3.4 AgentSpec faithfulness tests
+  -- -----------------------------------------------------------------------
+  describe "AgentSpec" $ do
+    let spec = agentSpec
+        specBuiltinNames = map beName (asBuiltins spec)
+        specOpNames      = map aoOp (asOperators spec)
+        allSpecNames     = specBuiltinNames ++ specOpNames
+        -- Excluded: wasi.* functions are capability-gated
+        isExcluded n     = T.isPrefixOf "wasi." n
+        userFacing       = filter (not . isExcluded) (Map.keys builtinEnv)
+
+    it "covers all non-excluded builtinEnv entries" $ do
+      sort allSpecNames `shouldBe` sort userFacing
+
+    it "does not contain entries absent from builtinEnv" $ do
+      all (`Map.member` builtinEnv) allSpecNames `shouldBe` True
+
+    it "partition is disjoint (builtins ∩ operators = ∅)" $ do
+      let builtinSet = Set.fromList specBuiltinNames
+          opSet      = Set.fromList specOpNames
+      Set.intersection builtinSet opSet `shouldBe` Set.empty
+
+    it "handles unary operator (not) with 1 param" $ do
+      let notEntry = find (\e -> aoOp e == "not") (asOperators spec)
+      fmap (length . aoParams) notEntry `shouldBe` Just 1
+
+    it "output is deterministically ordered" $ do
+      let names1 = map beName (asBuiltins spec)
+      names1 `shouldBe` sort names1
+      let ops1 = map aoOp (asOperators spec)
+      ops1 `shouldBe` sort ops1
+
+    it "excludes all wasi.* functions" $ do
+      let wasiInSpec = filter (T.isPrefixOf "wasi.") allSpecNames
+      wasiInSpec `shouldBe` []
+
+    it "includes seq-commands (has preamble implementation)" $ do
+      "seq-commands" `elem` specBuiltinNames `shouldBe` True
