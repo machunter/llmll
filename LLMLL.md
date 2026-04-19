@@ -112,7 +112,7 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
 > Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
 
-> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In generated Haskell, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library). A function's required capabilities are visible in its type signature. Missing capability declarations become type errors rather than silent runtime failures.
+> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. **`[UNIMPLEMENTED]`** In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function's required capabilities visible in its type signature and turning missing capability declarations into type errors. **Currently (v0.3.4):** `Command` is emitted as plain Haskell `IO ()`. Capability enforcement is not yet implemented at compile time — `wasi.*` functions type-check without a matching `import`. Compile-time capability enforcement is planned for v0.4 (CAP-1).
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -816,7 +816,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 4. **Transpilation:** Validated `.llmll` is converted to **Haskell** (`.hs` + `package.yaml`). Generated modules are compiled with `{-# LANGUAGE Safe #-}`, preventing any IO outside the declared capability model.
 5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
 6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
-7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module's declared capabilities (v0.1.2–v0.3). In v0.4 this is replaced by a WASM-WASI VM.
+7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module's declared capabilities (v0.1.2–v0.3). In v0.5 this is replaced by a WASM-WASI VM. **`[UNIMPLEMENTED]`** Capability enforcement at compile time is planned for v0.4 (CAP-1) — currently, `wasi.*` functions type-check without a matching `import`.
 8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
 
 > **v0.2 (shipped):** Step 2 includes compile-time contract verification via `llmll verify` (decoupled liquid-fixpoint backend). Contracts outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
@@ -1497,15 +1497,28 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 | `string-concat` sugar | ✅ Parse-level variadic: `(string-concat a b c)` desugars to `(string-concat-many [a b c])` |
 | `Promise[t]` | ✅ Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
 
-### v0.4 — WASM Hardening
+### v0.4 — Lead Agent + Soundness
 
-WASM-WASI is the primary long-term deployment target. Docker + `seccomp-bpf` remains the sandbox through v0.3; v0.4 replaces it.
+> Version numbers in this section track the approved roadmap in `docs/compiler-team-roadmap.md`. Historical version labels may differ from planning-stage documents.
+
+| Area | Feature |
+|------|---------|
+| Lead Agent | `llmll-orchestra --mode auto --intent "..."` generates skeleton, fills holes, verifies — end-to-end |
+| U-lite (Soundness) | Substitution-based unification for concrete types. `list-head 42` is now a type error. `first`/`second` properly typed. |
+| CAP-1 (Capability enforcement) | `wasi.*` function calls require a matching `(import wasi.* (capability ...))` — compile-time type error if missing |
+| Invariant pattern registry | `llmll typecheck --sketch` emits invariant suggestions from a pattern database |
+| Downstream obligation mining | Cross-module UNSAFE results suggest postcondition strengthening |
+
+### v0.5 — WASM Sandboxing + Sound Unification
+
+WASM-WASI is the primary long-term deployment target. Docker + `seccomp-bpf` remains the sandbox through v0.4; v0.5 replaces it.
 
 | Area | Feature |
 |------|---------|
 | `llmll build --target wasm` | Generated Haskell compiled with GHC's `--target=wasm32-wasi` backend |
 | WASM VM | Wasmtime (or equivalent) replaces Docker as the default sandbox |
-| Capability enforcement | WASI import declarations replace Docker network/filesystem policy layers |
+| WASI capability enforcement | WASI import declarations replace Docker network/filesystem policy layers |
+| U-full (Algorithm W) | Occurs check, let-generalization. `TDependent` strips to base type (two-layer architecture preserved). |
 | `{-# LANGUAGE Safe #-}` | Already enforced from v0.1.2; guarantees generated code is structurally WASM-compatible from day one |
 
 ### v0.2 — Module System + Compile-Time Verification ✅ Shipped
@@ -1519,7 +1532,7 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 | **Module system (Phase 2a)** | `open` / `export` — selective unprefixing and visibility control (see §8.6, §8.7) |
 | **Module system (Phase 2a)** | Cross-module `def-interface` enforcement — structural compatibility checked at import time (see §8.8) |
 | **Module system (Phase 2a)** | `llmll-hub` read-only registry: `llmll hub fetch <pkg>@<ver>` + `hub.` import prefix (see §8.9) |
-| **Capability enforcement** | Capability declarations fully enforced by the typed effect row — missing imports are type errors at compile time |
+| **Capability enforcement** | **`[UNIMPLEMENTED]`** Planned: capability declarations enforced by the typed effect row — missing imports are type errors at compile time. **Currently:** `wasi.*` functions are in `builtinEnv` unconditionally and type-check without a matching `import`. Compile-time enforcement planned for v0.4 (CAP-1). |
 | **Compile-time contracts (Phase 2b)** | `llmll verify` emits `.fq` constraints from the typed AST and runs `liquid-fixpoint` + Z3 as a standalone binary. Covers quantifier-free linear integer arithmetic. Reports SAFE or contract-violation diagnostics with JSON Pointers. No GHC plugin required. |
 | **`?proof-required` holes (Phase 2b)** | Auto-emitted for predicates outside the QF fragment or complex `letrec` `:decreases` measures. Complexity hints: `complex-decreases` or `non-linear-contract`. Non-blocking — runtime assertion remains active. |
 | **`letrec` (Phase 2b)** | Bounded recursion with mandatory `:decreases` termination annotation. Simple variable measures are verified by `llmll verify`. |
@@ -1530,7 +1543,7 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 
 ### v0.1.2 — Machine-First Foundation ✅ Shipped
 
-New language-visible features: JSON-AST as a first-class source format, Haskell codegen target, typed effect row for `Command`, and minor surface syntax fixes.
+New language-visible features: JSON-AST as a first-class source format, Haskell codegen target, and minor surface syntax fixes.
 
 | Area | Feature |
 |------|---------|
@@ -1539,7 +1552,7 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 | Diagnostics | Every compiler error is a JSON object with an RFC 6901 JSON Pointer to the offending AST node |
 | Holes CLI | `llmll holes --json` lists all `?` holes with inferred type, module path, and agent target |
 | **Codegen target** | Generated code is **Haskell** (`.hs` + `package.yaml`), replacing Rust. `Codegen.hs` rewritten as `CodegenHs.hs` (`generateHaskell`) |
-| **`Command` model** | `Command` is no longer an opaque type. In generated Haskell it becomes a **typed effect row** (`Eff '[HTTP, FS, ...]`) using the `effectful` library. A function's required capabilities are visible in its type signature. Missing capability declarations are **type errors**, not silently accepted |
+| **`Command` model** | **`[UNIMPLEMENTED]`** Planned: `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...]`) using the `effectful` library, making required capabilities visible in type signatures and turning missing capability declarations into **type errors**. **Currently (v0.3.4):** `Command` is emitted as plain Haskell `IO ()`. Capability enforcement is planned for v0.4 (CAP-1); `effectful` integration is a v0.5 concern aligned with WASM WASI. |
 | **FFI tiers** | Two tiers: (1) Hackage — `(import haskell.* ...)` resolves to a native GHC import, no stub generated; (2) C — `(import c.* ...)` generates a `foreign import ccall` stub in `src/FFI/*.hs`. The legacy `rust.*` namespace and Rust FFI stdlib are retired |
 | **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM deferred to v0.4) |
 | `let` syntax | `(let [(x e1) (y e2)] body)` — canonical v0.1.2 form; `(let [[x e1] [y e2]] body)` also accepted (v0.1.1 backward compat) |

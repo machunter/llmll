@@ -15,6 +15,7 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 |---|---|---|
 | [verification-debate.md](verification-debate.md) | Archive of a formal methods critique. Answers 5 Socratic questions (TCB, logic authority, unproven contracts, totality, cross-agent assumptions). Establishes "sound modulo trust" as the defensible position. | Active reference |
 | [verification-debate-action-items.md](verification-debate-action-items.md) | Concrete tickets from the debate: TCB hardening, trust propagation tests, semantic anchor decision, effect system spec, `(trust ...)` elevation. | Active — items tracked |
+| [algorithm_w_tdependent_resolution.md](algorithm_w_tdependent_resolution.md) | Language Team resolution for Algorithm W × TDependent interaction. Decision: Strip-then-Unify (Option A). Unification operates on structural base types; refinement constraints are not propagated. Preserves the two-layer architecture (types = structure, contracts = behavior). | **Resolved** (2026-04-19) |
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |
 
