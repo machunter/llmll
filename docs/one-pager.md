@@ -60,7 +60,7 @@ Agents don't write source code files that get merged with git-style diffs. They 
 
 ## Status
 
-The compiler is completed through **v0.3.3** (April 2026) with all planned features: Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch, async code generation, trust hardening (`--trust-report`), and dependency-aware hole analysis for agent orchestration. An end-to-end orchestrator (`llmll-orchestra`) dispatches typed holes to specialist agents, retries with compiler diagnostics, and produces verified Haskell packages.
+The compiler is completed through **v0.3.4** (April 2026) with all planned features: Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch, async code generation, trust hardening (`--trust-report`), dependency-aware hole analysis for agent orchestration, and compiler-emitted agent specifications (`llmll spec`). An end-to-end orchestrator (`llmll-orchestra`) dispatches typed holes to specialist agents, retries with compiler diagnostics, and produces verified Haskell packages.
 
 Early stage — the compiler infrastructure works, validation on increasingly complex sample programs is ongoing. Open source (GPLv3). Solo project, supported by AI tools.
 
@@ -84,9 +84,10 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 | Milestone | Description |
 |-----------|-------------|
-| **Agent prompt enrichment** (v0.3.4) | Compiler-emitted agent specification (`llmll spec --agent`) generated directly from `builtinEnv`. Eliminates hand-maintained prompt references. Enhanced system prompt with ~950 tokens of built-in function reference and evaluation rules. |
+| **Agent prompt enrichment** (v0.3.4) ✅ | Compiler-emitted agent specification (`llmll spec`) generated directly from `builtinEnv`. Eliminates hand-maintained prompt references. Phase A prompt enrichment shipped in the orchestrator (pair/Result/letrec/fixed-arity). |
 | **Lead Agent** | Automated skeleton generation from natural-language intent. The Lead Agent architects programs (function decomposition, type signatures, agent assignments, contracts) and submits skeletons to the compiler for validation. Closes the last manual step in the pipeline. |
-| **WASM sandboxing** (v0.4) | Contracts cover *correctness*; WASM covers *capability abuse*. Server-side runtimes (Wasmtime, WasmEdge) enforce that programs cannot access resources beyond their declared capabilities. Context-aware checkout (Phase C) ships alongside. |
+| **Context-aware checkout** (Phase C) | `llmll checkout` returns Γ (in-scope bindings), τ (expected type), and Σ (sibling signatures) alongside the lock token. Reduces agent hallucination by providing exact typing context. |
+| **WASM sandboxing** (v0.4) | Contracts cover *correctness*; WASM covers *capability abuse*. Server-side runtimes (Wasmtime, WasmEdge) enforce that programs cannot access resources beyond their declared capabilities. |
 | **Synthetic training corpus** | Haskell-to-LLMLL back-translation from Hackage for fine-tuning and benchmarking. |
 
 ---

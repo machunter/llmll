@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.3.3 shipped (agent orchestration compiler support); `llmll-orchestra` Python package pending  
+> **Status:** Active — v0.3.4 shipped (agent spec from compiler builtinEnv + Phase A prompt enrichment); 211 tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -50,32 +50,33 @@
 - ☐ A deliberately malformed patch triggers retry with diagnostics fed back to the agent
 - ☐ Lock expiry (checkout TTL) is handled gracefully (re-queue, not crash)
 
-**[CT]** ☐ M3 — Agent Prompt Semantic Reference (Phase A):
+**[CT]** ✅ M3 — Agent Prompt Semantic Reference (Phase A):
 
 > **Source:** [`docs/design/agent-prompt-semantics-gap.md`](design/agent-prompt-semantics-gap.md) — reviewed and approved by Language Team and Professor.
 
 Single-file edit to `llmll_orchestra/agent.py`. Adds ~950 tokens to the agent system prompt:
 
-| # | Action | Blocking? |
-|---|--------|----------|
-| A1 | Add `pair`/`first`/`second` signatures to prompt reference | ✅ Blocks do-notation |
-| A2 | Fix comparison operators: `< > <= >=` are `int → int → bool`, not polymorphic | ✅ Causes silent failures |
-| A3 | Add `regex-match`, `seq-commands` to prompt reference | No |
-| A4 | Remove `string-empty?` from prompt (phantom function — not in `builtinEnv`) | ✅ Agent-breaking |
-| A5 | Add `pair` and `fn-type` type nodes | ✅ Blocks pair return types |
-| A6 | Add ok/err vs Success/Error explicit callout block | No |
-| A7 | Add fixed-arity operator rule and parametricity note | No |
-| A9 | Add minimal `letrec` note (2 lines) | No |
-| A10 | Exclude `is-valid?` and `wasi.*` from reference | No |
+| # | Action | Status |
+|---|--------|--------|
+| A1 | Add `pair`/`first`/`second` signatures to prompt reference | ✅ Shipped |
+| A2 | Fix comparison operators: `< > <= >=` are `int → int → bool`, not polymorphic | ✅ Shipped |
+| A3 | Add `regex-match`, `seq-commands` to prompt reference | ✅ Shipped |
+| A4 | `string-empty?` now in `builtinEnv` — added to prompt reference | ✅ Shipped |
+| A5 | Add `pair` and `fn-type` type nodes | ✅ Shipped |
+| A6 | Add ok/err vs Success/Error explicit callout block | ✅ Shipped |
+| A7 | Add fixed-arity operator rule and parametricity note | ✅ Shipped |
+| A9 | Add minimal `letrec` note (2 lines) | ✅ Shipped |
+| A10 | Exclude `is-valid?` and `wasi.*` from reference | ✅ Shipped |
 
-**[CT]** ☐ M3-pre — Pre-requisite compiler fixes for Phase A:
+**[CT]** ✅ M3-pre — Pre-requisite compiler fixes for Phase A:
 
-| # | Action | Location | Blocking? |
-|---|--------|----------|-----------|
-| A8a | Implement `string-empty?` in type checker | `TypeCheck.hs` `builtinEnv`: `("string-empty?", TFn [TString] TBool)` | ✅ |
-| A8b | Implement `string-empty?` in runtime preamble | `CodegenHs.hs` `runtimePreamble`: `string_empty' s = null s` | ✅ |
-| A8c | Document `string-empty?` in language spec | `LLMLL.md` §13.6 | ✅ |
-| A11 | Remove `is-valid?` from `builtinEnv` | `TypeCheck.hs`: one-line delete (grep test suite first) | No |
+| # | Action | Location | Status |
+|---|--------|----------|--------|
+| A8a | Implement `string-empty?` in type checker | `TypeCheck.hs` `builtinEnv`: `("string-empty?", TFn [TString] TBool)` | ✅ Shipped |
+| A8b | Implement `string-empty?` in runtime preamble | `CodegenHs.hs` `runtimePreamble`: `string_empty' s = null s` | ✅ Shipped |
+| A8c | Document `string-empty?` in language spec | `LLMLL.md` §13.6 | ✅ Shipped |
+| A11 | Remove `is-valid?` from `builtinEnv` | `TypeCheck.hs`: one-line delete | ✅ Shipped |
+| A12 | Implement `regex-match` preamble | `CodegenHs.hs` `runtimePreamble`: `regex_match pattern subject = pattern \`isInfixOf\` subject` | ✅ Shipped |
 
 **Open questions (from [`docs/design/agent-orchestration.md`](design/agent-orchestration.md) and [`docs/design/agent-prompt-semantics-gap.md`](design/agent-prompt-semantics-gap.md)):**
 
@@ -88,48 +89,50 @@ Single-file edit to `llmll_orchestra/agent.py`. Adds ~950 tokens to the agent sy
 
 ---
 
-## v0.3.4 — Agent Spec + Orchestrator Hardening (Planned)
+## v0.3.4 — Agent Spec + Orchestrator Hardening (Shipped 2026-04-19)
 
 **Theme:** Compiler-emitted agent prompt spec (Phase B from agent-prompt-semantics-gap.md) — eliminates hand-maintained prompt references by generating the spec directly from `builtinEnv`.
 
 > **Source:** [`docs/design/agent-prompt-semantics-gap.md §4 Option B`](design/agent-prompt-semantics-gap.md)
 
-**[CT]** ☐ B1 — New module `LLMLL/AgentSpec.hs`:
-- Must `import LLMLL.TypeCheck (builtinEnv)` and serialize it directly
-- Partition functions vs operators (do not filter symbolic keys via `isAlpha`)
-- Use Haskell-style polymorphic notation (`a → Result[a, e]`)
-- Output JSON spec covering: builtins, operators, constructors, evaluation model, pattern kinds
+**[CT]** ✅ B1 — New module `LLMLL/AgentSpec.hs`:
+- Imports `LLMLL.TypeCheck (builtinEnv)` and serializes it directly
+- Partitions functions vs operators via `operatorNames` set (matches `CodegenHs.emitOp` exactly)
+- Excludes `wasi.*` functions (capability-gated)
+- Uses LLMLL type notation (`int`, `string`, `Result[ok, err]`)
+- Deterministic alphabetical output (36 builtins + 14 operators)
+- JSON output includes constructors, evaluation model, pattern kinds, type nodes
+- Text output is token-dense for direct system prompt inclusion
 
-**[CT]** ☐ B2 — `llmll spec --agent` CLI command:
-- Emits the agent spec to stdout (JSON or text)
-- Orchestrator calls once, caches result, includes in system prompt
+**[CT]** ✅ B2 — `llmll spec [--json]` CLI command:
+- Emits the agent spec to stdout (text by default, JSON with `--json`)
+- No source file argument required — reads from compiled-in `builtinEnv`
 
-**[CT]** ☐ B3 — Spec Faithfulness property test (`AgentSpecTests.hs`):
+**[CT]** ✅ B3 — Spec Faithfulness property tests (7 tests):
+- `covers all non-excluded builtinEnv entries` — sort(specNames) = sort(builtinKeys - wasi.*)
+- `does not contain entries absent from builtinEnv` — all specNames ∈ builtinEnv
+- `partition is disjoint` — builtins ∩ operators = ∅
+- `handles unary operator (not) with 1 param`
+- `output is deterministically ordered`
+- `excludes all wasi.* functions`
+- `includes seq-commands` — verifies preamble-implemented functions included
 
-```haskell
-prop_specCoversAllBuiltins =
-  let specEntries = agentSpecBuiltins
-      builtinKeys = Map.keys builtinEnv
-  in all (`elem` map asName specEntries) builtinKeys
-```
-
-**Spec Faithfulness Invariant:**
-
-> ∀ (f, TFn [t₁...tₙ] r) ∈ builtinEnv ⟹ ∃ entry ∈ spec_output .
-> entry.name = f ∧ entry.params = [t₁...tₙ] ∧ entry.returns = r
-
-**[EXT]** ☐ B4 — Update `agent.py` to call `compiler.spec()` and replace hardcoded prompt reference.
+**[EXT]** ✅ B4 — Orchestrator integration (`agent.py` + `compiler.py` + `orchestrator.py`):
+- `compiler.spec()` wraps `llmll spec` with backward-compat fallback (returns None for pre-v0.3.4)
+- `build_system_prompt(compiler_spec)` injects spec into prompt; falls back to `_LEGACY_BUILTINS_REF`
+- `orchestrator.py` calls `compiler.spec()` at start of `run()`, before hole scanning
 
 **Acceptance criteria:**
 
-- `llmll spec --agent` output is a superset of the Phase A prompt reference (all builtins, operators, constructors, pattern kinds)
-- `prop_specCoversAllBuiltins` passes in the test suite
-- Adding a new builtin to `builtinEnv` without updating `AgentSpec.hs` is caught by the property test
-- `llmll-orchestra` uses `llmll spec --agent` output instead of hardcoded prompt text
+- ✅ `llmll spec` output is a superset of the Phase A prompt reference (36 builtins + 14 operators + constructors + pattern kinds)
+- ✅ All 7 faithfulness property tests pass
+- ✅ Adding a new builtin to `builtinEnv` without corresponding spec entry is caught automatically
+- ✅ `llmll-orchestra` uses `llmll spec` output instead of hardcoded prompt text (with legacy fallback)
+- ✅ 211 tests passing (194 → 211: +7 AgentSpec + 10 other)
 
 **Open questions:**
 
-- Q3 (from v0.3.3): orchestration events reusing the Event Log format — decide in v0.3.4 or later
+- Q3 (from v0.3.3): orchestration events reusing the Event Log format — decide in v0.3.5 or later
 - `domain_hints` — existing hole metadata sufficient for orchestrator routing; decide if enhancements needed
 - `type-reference` edges — only `calls-hole-body` edges shipped in v0.3.3; add `type-reference` edges?
 - `?delegate-async` fire-and-forget filtering — requires data-flow analysis

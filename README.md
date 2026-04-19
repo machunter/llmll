@@ -1,10 +1,10 @@
-# LLMLL — v0.3.3
+# LLMLL — v0.3.4
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.3.3 is shipped.** Agent orchestration: `llmll holes --json --deps` emits an annotated dependency graph with cycle detection (Tarjan's SCC) for topological hole scheduling. New `--deps-out FILE` flag persists the graph. 194 tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.3.4 is shipped.** Agent spec from compiler builtinEnv: `llmll spec` emits a structured agent prompt specification (36 builtins + 14 operators) directly from the type checker. 7 faithfulness property tests. Phase A prompt enrichment shipped in the orchestrator. New builtins: `string-empty?`, `regex-match` preamble. 211 tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -26,6 +26,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll hub fetch <pkg>@<ver>` | Download a package into the hub cache (`~/.llmll/modules/`). |
 | `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
 | `llmll replay <source> <log>` | **v0.3.1** — rebuild program, replay event log inputs, compare outputs for determinism verification. |
+| `llmll spec [--json]` | **v0.3.4** — emit agent prompt specification from compiler builtins. Text (default) or JSON output. |
 | `llmll repl` | Start an interactive LLMLL REPL |
 
 ### Input formats
@@ -96,7 +97,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.3.3)
+LLMLL.md                    ← canonical language specification (v0.3.4)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -163,7 +164,7 @@ tools/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.3.3 shipped, v0.3.4 planned |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.3.4 shipped, v0.4 planned |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
 | [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |
