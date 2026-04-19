@@ -27,6 +27,9 @@ module LLMLL.TypeCheck
   , SketchResult(..)
   , SketchHole(..)
   , HoleStatus(..)
+    -- * v0.3.5: Scope provenance for context-aware checkout (Phase C)
+  , ScopeSource(..)
+  , ScopeBinding(..)
   ) where
 
 import Data.Map.Strict (Map)
@@ -140,11 +143,33 @@ data HoleStatus
   | HoleUnknown             -- ^ no constraint reached this hole
   deriving (Show, Eq)
 
--- | A named hole with its inferred status and RFC 6901 JSON Pointer location.
+-- ---------------------------------------------------------------------------
+-- v0.3.5: Scope provenance for context-aware checkout (Phase C)
+-- ---------------------------------------------------------------------------
+
+-- | Classification of where a scope binding originated.
+-- The Ord instance gives truncation priority: lower ordinal = higher priority
+-- = truncated last. SrcParam < SrcLetBinding < SrcMatchArm < SrcOpenImport.
+data ScopeSource
+  = SrcParam
+  | SrcLetBinding
+  | SrcMatchArm
+  | SrcOpenImport
+  deriving (Show, Eq, Ord)
+
+-- | A binding in the typing environment with its provenance tag.
+data ScopeBinding = ScopeBinding
+  { sbType   :: Type
+  , sbSource :: ScopeSource
+  } deriving (Show, Eq)
+
+-- | A named hole with its inferred status, RFC 6901 JSON Pointer location,
+-- and the local typing context (Γ delta) captured at the hole site.
 data SketchHole = SketchHole
   { shName    :: Name       -- ^ hole name with \"?\" prefix (e.g. \"?win_message\")
   , shStatus  :: HoleStatus
   , shPointer :: Text       -- ^ RFC 6901 JSON Pointer (e.g. \"/statements/3/body/else\")
+  , shEnv     :: Map Name ScopeBinding  -- ^ v0.3.5: Γ delta (tcEnv \\ builtinEnv) with provenance
   } deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -164,6 +189,8 @@ data TCState = TCState
   -- v0.3: Stratified verification trust-gap tracking
   , tcContractStatus :: Map Name ContractStatus  -- ^ imported function → contract status
   , tcTrusts         :: Map Name VerificationLevel -- ^ acknowledged trust declarations
+  -- v0.3.5: Scope provenance tracking (Phase C)
+  , tcProvenance     :: Map Name ScopeSource  -- ^ per-binding source classification for checkout context
   } deriving (Show)
 
 type TC a = State TCState a
@@ -226,6 +253,22 @@ withEnv bindings action = do
   modify $ \s -> s { tcEnv = old }
   pure result
 
+-- | v0.3.5 (Phase C): Run a computation in an extended environment,
+-- also recording provenance tags for context-aware checkout.
+-- Provenance is scope-restoring: tags pushed here are popped on exit.
+withTaggedEnv :: ScopeSource -> [(Name, Type)] -> TC a -> TC a
+withTaggedEnv source bindings action = do
+  oldEnv <- gets tcEnv
+  oldProv <- gets tcProvenance
+  let newProv = foldr (\(n, _) acc -> Map.insert n source acc) oldProv bindings
+  modify $ \s -> s
+    { tcEnv = foldr (uncurry Map.insert) oldEnv bindings
+    , tcProvenance = newProv
+    }
+  result <- action
+  modify $ \s -> s { tcEnv = oldEnv, tcProvenance = oldProv }
+  pure result
+
 -- | Emit a structured non-exhaustive-match error using the registered diagnostic.
 tcEmitNonExhaustive :: Name -> [Name] -> [Name] -> TC ()
 tcEmitNonExhaustive typeName missing covered = do
@@ -236,13 +279,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode — collects hole types.
 runTCSketch :: TypeEnv -> TC a -> (a, TCState)
 runTCSketch env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty)
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -278,13 +321,24 @@ currentPointer = do
   stack <- gets tcPointerStack
   pure $ "/" <> T.intercalate "/" stack
 
--- | Record a named hole with its status (sketch mode only). Prepends for O(1) append.
+-- | Record a named hole with its status and local typing context (sketch mode only).
+-- v0.3.5 (Phase C): snapshots the env delta (tcEnv \\ builtinEnv) with provenance
+-- at the hole site. This is the complete Γ visible to the agent filling this hole.
 recordHole :: Name -> HoleStatus -> TC ()
 recordHole name status = do
   sketch <- gets tcSketchMode
   when sketch $ do
     ptr <- currentPointer   -- reads tcPointerStack via currentPointer
-    modify $ \s -> s { tcHoles = SketchHole ("?" <> name) status ptr : tcHoles s }
+    -- v0.3.5 C2: snapshot tcEnv delta with provenance
+    env <- gets tcEnv
+    prov <- gets tcProvenance
+    let delta = Map.difference env builtinEnv
+        -- Build ScopeBinding map: join type from env with source from provenance.
+        -- Default to SrcLetBinding for bindings without explicit provenance
+        -- (e.g. top-level definitions registered in checkStatements).
+        scopedDelta = Map.mapWithKey (\k t ->
+          ScopeBinding t (Map.findWithDefault SrcLetBinding k prov)) delta
+    modify $ \s -> s { tcHoles = SketchHole ("?" <> name) status ptr scopedDelta : tcHoles s }
 
 -- | Emit an ambiguous-hole diagnostic to the error accumulator.
 emitAmbiguous :: Name -> Type -> Type -> TC ()
@@ -327,7 +381,7 @@ typeCheckWithCache cache baseEnv stmts =
       -- v0.3: merge contract status from all cached modules (qualified names)
       seededCS  = Map.foldlWithKey' seedStatus Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty)
+        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -386,7 +440,7 @@ checkStatement (SDefLogic name params mRet contract body) = do
   -- Track enclosing function for exhaustiveness (D1) and self-recursion (D2)
   modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = False }
   let paramBindings = params
-  withEnv paramBindings $ do
+  withTaggedEnv SrcParam paramBindings $ do
     -- Infer body type: push "body" segment for pointer precision
     bodyType <- withSegment "body" (inferExpr body)
     -- Check return type annotation if present
@@ -413,7 +467,7 @@ checkStatement (SLetrec name params mRet contract dec body) = do
   -- letrec: like def-logic but tcIsLetrec=True supresses the self-recursion warning
   modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = True }
   let paramBindings = params
-  withEnv paramBindings $ do
+  withTaggedEnv SrcParam paramBindings $ do
     -- Validate :decreases is integer-typed (QF linear arithmetic restriction)
     decType <- inferExpr dec
     unless (compatibleWith decType TInt) $
@@ -496,6 +550,8 @@ checkStatement (SOpen openPath_ mNames) = do
         <> " shadows an existing binding"
       Nothing -> pure ()
     tcInsert bareName ty
+    -- v0.3.5 (Phase C): tag open-imported bindings for checkout context
+    modify $ \s -> s { tcProvenance = Map.insert bareName SrcOpenImport (tcProvenance s) }
 
 -- | SExport is a compile-time annotation only; no type-checking action needed.
 checkStatement (SExport _) = pure ()
@@ -568,7 +624,7 @@ inferExpr (ELet bindings body) = do
     mapM_ (uncurry tcInsert) newBindings
     pure (acc ++ newBindings)
     ) [] bindings
-  withEnv resolvedBindings (inferExpr body)
+  withTaggedEnv SrcLetBinding resolvedBindings (inferExpr body)
 
 inferExpr (EIf cond thenE elseE) = do
   condType <- inferExpr cond
@@ -617,7 +673,7 @@ inferExpr (EMatch expr cases) = do
   -- Each arm pointer uses three clean tokens: "arms" / i / "body"
   nonHoleResults <- forM nonHoleArms $ \(i, pat, body) -> do
     patBindings <- checkPattern pat resolvedScrutType
-    t <- withEnv patBindings $
+    t <- withTaggedEnv SrcMatchArm patBindings $
            withSegment "arms" $ withSegment (tshow i) $ withSegment "body" $
              inferExpr body
     pure t
@@ -634,7 +690,7 @@ inferExpr (EMatch expr cases) = do
   -- Pass 2: check hole arm bodies against unified arm type (or record conflict/unknown)
   forM_ holeArms $ \(i, pat, body) -> do
     patBindings <- checkPattern pat resolvedScrutType
-    withEnv patBindings $
+    withTaggedEnv SrcMatchArm patBindings $
       withSegment "arms" $ withSegment (tshow i) $ withSegment "body" $ do
         case body of
           EHole (HNamed name) -> do
@@ -718,7 +774,7 @@ inferExpr (EAwait expr) = do
       pure other  -- Best-effort: unwrap whatever
 
 inferExpr (ELambda params body) = do
-  bodyType <- withEnv params (inferExpr body)
+  bodyType <- withTaggedEnv SrcParam params (inferExpr body)
   pure (TFn (map snd params) bodyType)
 
 inferExpr (EDo steps) = do

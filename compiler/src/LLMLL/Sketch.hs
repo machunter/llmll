@@ -17,6 +17,8 @@ module LLMLL.Sketch
     SketchResult(..)
   , SketchHole(..)
   , HoleStatus(..)
+  , ScopeSource(..)
+  , ScopeBinding(..)
   , runSketch
     -- Encoding
   , encodeSketchResult
@@ -26,12 +28,15 @@ import Data.Aeson (encode, object, (.=))
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy as BL
 import Data.List (sortBy)
+import qualified Data.Map.Strict as Map
 import Data.Ord (comparing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import LLMLL.TypeCheck
-  ( SketchResult(..), SketchHole(..), HoleStatus(..), runSketch )
+  ( SketchResult(..), SketchHole(..), HoleStatus(..)
+  , ScopeSource(..), ScopeBinding(..)
+  , runSketch )
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..))
 import LLMLL.Syntax (typeLabel)
 
@@ -40,7 +45,7 @@ import LLMLL.Syntax (typeLabel)
 -- ---------------------------------------------------------------------------
 
 schemaVersion :: T.Text
-schemaVersion = "0.2.0"
+schemaVersion = "0.3.0"  -- v0.3.5: added scope env to holes
 
 -- ---------------------------------------------------------------------------
 -- Error sorting: holeSensitive:false before holeSensitive:true (spec requirement)
@@ -59,7 +64,25 @@ holeToJson sh = object
   [ "name"         .= shName sh
   , "inferredType" .= inferredTypeJson (shStatus sh)
   , "pointer"      .= shPointer sh
+  , "scope"        .= scopeToJson (shEnv sh)
   ]
+
+-- | v0.3.5: Serialize the scope delta as a JSON array of {name, type, source} objects.
+scopeToJson :: Map.Map T.Text ScopeBinding -> A.Value
+scopeToJson env = A.toJSON
+  [ object
+      [ "name"   .= name
+      , "type"   .= typeLabel (sbType binding)
+      , "source" .= scopeSourceLabel (sbSource binding)
+      ]
+  | (name, binding) <- Map.toAscList env
+  ]
+
+scopeSourceLabel :: ScopeSource -> T.Text
+scopeSourceLabel SrcParam      = "param"
+scopeSourceLabel SrcLetBinding = "let-binding"
+scopeSourceLabel SrcMatchArm   = "match-arm"
+scopeSourceLabel SrcOpenImport = "open-import"
 
 inferredTypeJson :: HoleStatus -> A.Value
 inferredTypeJson (HoleTyped t)       = A.String (typeLabel t)

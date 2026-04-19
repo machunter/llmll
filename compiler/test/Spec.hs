@@ -1186,14 +1186,14 @@ main = hspec $ do
 
     it "expireStale removes expired tokens" $ do
       let epoch = UTCTime (fromGregorian 2026 1 1) 0
-          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False
           lock = CheckoutLock "test.json" [tok]
           later = addUTCTime 7200 epoch
       lockTokens (expireStale later lock) `shouldBe` []
 
     it "expireStale keeps non-expired tokens" $ do
       let epoch = UTCTime (fromGregorian 2026 1 1) 0
-          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False
           lock = CheckoutLock "test.json" [tok]
           later = addUTCTime 1800 epoch
       length (lockTokens (expireStale later lock)) `shouldBe` 1
