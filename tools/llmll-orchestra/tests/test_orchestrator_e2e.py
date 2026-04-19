@@ -410,4 +410,55 @@ def test_report_json_serialization():
     assert parsed["filled"] == 1
     assert parsed["failed"] == 1
     assert len(parsed["results"]) == 2
-"""Tests for the LLMLL orchestrator v0.3.5 (Track A: O1-O4)."""
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Test 10: O5 — Context-aware prompt formatting
+# ─────────────────────────────────────────────────────────────────────
+
+def test_o5_context_aware_prompt():
+    """O5: build_prompt formats v0.3.5 scope/functions/types as structured markdown."""
+    from llmll_orchestra.agent import build_prompt
+
+    context = {
+        "expected_return_type": "bool",
+        "scope": [
+            {"name": "token", "type": "string", "source": "param"},
+            {"name": "secret", "type": "string", "source": "let-binding"},
+        ],
+        "functions": [
+            {"name": "string-length", "signature": "string -> int"},
+            {"name": "string-contains", "signature": "string -> string -> bool"},
+        ],
+        "type_definitions": [
+            {"name": "AuthResult", "definition": "Result[string, string]"},
+        ],
+    }
+
+    prompt = build_prompt(HOLE_VALIDATE, context)
+
+    # Should contain structured sections, not raw JSON
+    assert "### Expected return type" in prompt
+    assert "`bool`" in prompt
+    assert "### In-scope variables" in prompt
+    assert "| `token` | `string` | param |" in prompt
+    assert "| `secret` | `string` | let-binding |" in prompt
+    assert "### Available functions" in prompt
+    assert "`string-length`" in prompt
+    assert "### Type definitions" in prompt
+    assert "`AuthResult`" in prompt
+    # Should NOT contain a raw JSON dump of scope
+    assert '"name": "token"' not in prompt
+
+
+def test_o5_prompt_fallback_unknown_keys():
+    """O5: Unknown context keys fall back to JSON dump."""
+    from llmll_orchestra.agent import build_prompt
+
+    context = {
+        "custom_field": {"nested": "data"},
+    }
+
+    prompt = build_prompt(HOLE_VALIDATE, context)
+    assert "### Additional context" in prompt
+    assert '"custom_field"' in prompt

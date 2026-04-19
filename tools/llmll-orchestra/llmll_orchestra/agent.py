@@ -130,7 +130,12 @@ SYSTEM_PROMPT = build_system_prompt(None)
 
 
 def build_prompt(hole: HoleEntry, context: dict[str, Any] | None = None) -> str:
-    """Build the user prompt for a hole-filling request."""
+    """Build the user prompt for a hole-filling request.
+
+    v0.3.5 (O5): When context includes scope/functions/type_definitions
+    from the context-aware checkout, formats them as structured sections
+    instead of raw JSON blobs.
+    """
     parts = [
         f"## Hole to fill\n",
         f"- **Pointer:** `{hole.pointer}`",
@@ -152,13 +157,77 @@ def build_prompt(hole: HoleEntry, context: dict[str, Any] | None = None) -> str:
             parts.append(f"- `{dep.pointer}` via `{dep.via}` ({dep.reason})")
 
     if context:
-        parts.append(f"\n### Checkout context\n```json\n{json.dumps(context, indent=2)}\n```")
+        parts.append(_format_context(context))
+
+    # Prior diagnostics from retry (O2 — already formatted as text)
+    if context and "prior_diagnostics" in context:
+        parts.append(f"\n### Previous attempt feedback\n{context['prior_diagnostics']}")
 
     parts.append(
         "\n\nReturn a JSON array of RFC 6902 patch operations to fill this hole."
     )
 
     return "\n".join(parts)
+
+
+def _format_context(context: dict[str, Any]) -> str:
+    """O5: Format checkout context as structured prompt sections.
+
+    Handles v0.3.5 context-aware fields (scope, functions, type_definitions,
+    expected_return_type) and falls back to raw JSON for unknown fields.
+    """
+    sections: list[str] = []
+
+    # Expected return type
+    ret_type = context.get("expected_return_type")
+    if ret_type:
+        sections.append(f"\n### Expected return type\n`{ret_type}`")
+
+    # In-scope variables (Γ)
+    scope = context.get("scope", [])
+    if scope:
+        lines = ["\n### In-scope variables"]
+        lines.append("| Name | Type | Source |")
+        lines.append("|------|------|--------|")
+        for entry in scope:
+            name = entry.get("name", "?")
+            ty = entry.get("type", "?")
+            src = entry.get("source", "?")
+            lines.append(f"| `{name}` | `{ty}` | {src} |")
+        if context.get("scope_truncated"):
+            lines.append("\n> Note: scope was truncated. Additional bindings exist but are omitted.")
+        sections.append("\n".join(lines))
+
+    # Available functions (Σ)
+    functions = context.get("functions", [])
+    if functions:
+        lines = ["\n### Available functions"]
+        for fn in functions:
+            name = fn.get("name", "?")
+            sig = fn.get("signature", "?")
+            lines.append(f"- `{name}` : `{sig}`")
+        sections.append("\n".join(lines))
+
+    # Type definitions
+    type_defs = context.get("type_definitions", [])
+    if type_defs:
+        lines = ["\n### Type definitions"]
+        for td in type_defs:
+            name = td.get("name", "?")
+            defn = td.get("definition", "?")
+            lines.append(f"- `{name}` = `{defn}`")
+        sections.append("\n".join(lines))
+
+    # Fallback: any context keys not handled above
+    known_keys = {
+        "scope", "functions", "type_definitions", "expected_return_type",
+        "scope_truncated", "prior_diagnostics",
+    }
+    extra = {k: v for k, v in context.items() if k not in known_keys}
+    if extra:
+        sections.append(f"\n### Additional context\n```json\n{json.dumps(extra, indent=2)}\n```")
+
+    return "\n".join(sections) if sections else ""
 
 
 def _parse_patch_response(raw: str) -> AgentResponse:
