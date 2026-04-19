@@ -412,6 +412,14 @@ The system prompt tells the agent which AST node kinds are valid (`lit-int`,
 `var`, `app`, `let`, `if`, `match`, etc.) and instructs it to return *only* a
 JSON array — no commentary, no markdown fences.
 
+> **v0.3.4 note:** The system prompt is no longer hardcoded. At startup, the
+> orchestrator calls `llmll spec` to fetch the complete list of built-in
+> functions, operators, constructors, and type nodes directly from the compiler's
+> `builtinEnv`. This means adding a new builtin to the compiler automatically
+> makes it available to agents — no manual prompt editing required. If the
+> compiler doesn't support `spec` (pre-v0.3.4), the orchestrator falls back to a
+> static legacy reference.
+
 **What the agent returns:**
 
 ```json
@@ -931,6 +939,10 @@ sequenceDiagram
     participant G as graph.py
     participant A as OpenAI (gpt-4o)
 
+    O->>C: llmll spec
+    C-->>O: 36 builtins + 14 operators
+    Note over O: build_system_prompt(spec)
+
     O->>C: llmll holes --json --deps
     C-->>O: 4 holes + dependency graph
 
@@ -970,6 +982,7 @@ And the compiler-orchestrator feedback loop:
 ```mermaid
 graph LR
     subgraph Compiler ["llmll compiler (Haskell)"]
+        AS["AgentSpec.hs<br/>builtinEnv → spec"]
         H["HoleAnalysis.hs<br/>Tarjan SCC + RFC 6901 pointers"]
         TC["TypeCheck.hs<br/>Bidirectional type checker"]
         P["Patch engine<br/>RFC 6902 + scope containment"]
@@ -977,10 +990,11 @@ graph LR
 
     subgraph Orchestrator ["llmll-orchestra (Python)"]
         G["graph.py<br/>Kahn's BFS topo-sort"]
-        AG["agent.py<br/>OpenAI / Anthropic SDK"]
-        OL["orchestrator.py<br/>checkout → fill → patch loop"]
+        AG["agent.py<br/>build_system_prompt + SDK"]
+        OL["orchestrator.py<br/>spec → scan → fill → patch loop"]
     end
 
+    AS -->|"spec"| OL
     H -->|"holes --json --deps"| G
     G -->|"sorted holes"| OL
     OL -->|"checkout"| P
@@ -1122,10 +1136,16 @@ If you want to read or modify the orchestrator source:
 ```
 tools/llmll-orchestra/llmll_orchestra/
   __main__.py       CLI entry — argparse, provider selection, scan-only mode
-  compiler.py       Subprocess wrapper — holes(), checkout(), patch(), release()
+  compiler.py       Subprocess wrapper — spec(), holes(), checkout(), patch(), release()
   graph.py          topo_sort() via Kahn's BFS, scheduling_tiers()
-  agent.py          SYSTEM_PROMPT, build_prompt(), OpenAIAgent, Agent, DryRunAgent
-  orchestrator.py   The main loop: scan → sort → (checkout → fill → patch → retry)*
+  agent.py          build_system_prompt(), build_prompt(), OpenAIAgent, Agent, DryRunAgent
+  orchestrator.py   The main loop: spec → scan → sort → (checkout → fill → patch → retry)*
+```
+
+```
+compiler/src/LLMLL/
+  AgentSpec.hs      Reads builtinEnv, emits structured spec (text or JSON)
+  TypeCheck.hs      Exports builtinEnv (operator + function types)
 ```
 
 ---
