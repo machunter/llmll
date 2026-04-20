@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.3.5
+# LLMLL Getting Started — v0.4.0
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -240,6 +240,19 @@ stack exec llmll -- verify file.llmll --weakness-check
 
 `--weakness-check` runs **after** a SAFE verification result. For each contracted function, it constructs trivial bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, the spec is flagged as potentially weak. This is advisory — it does not affect the verification outcome.
 
+#### Downstream obligation mining (v0.4.0)
+
+When `llmll verify` reports UNSAFE at a cross-function boundary, the obligation miner extracts the unsatisfied constraint and suggests a postcondition strengthening on the callee:
+
+```bash
+stack exec llmll -- verify program.llmll
+# ✗ Caller requires: uniqueIds(result)
+#   Producer normalizeUsers does not guarantee this.
+#   Candidate strengthening: postcondition uniqueIds(output)
+```
+
+This leverages existing `TrustReport.hs` transitive closure infrastructure and the new `ObligationMining.hs` module.
+
 `verify` is **gracefully degrading**: if `fixpoint` or `z3` is not in `PATH`, it writes the `.fq` file and exits 0 with an install hint. The file can be checked manually or in CI once the tools are installed.
 
 > [!IMPORTANT]
@@ -280,10 +293,30 @@ stack exec llmll -- typecheck --sketch ../examples/sketch/if_hole.ast.json
 
 Accepts a partial LLMLL program with holes anywhere. Returns:
 
-- `holes[]` — each `?hole`'s inferred type (or `null` if indeterminate) and its RFC 6901 JSON Pointer
+- `holes[]` — each `?hole`’s inferred type (or `null` if indeterminate) and its RFC 6901 JSON Pointer
 - `errors[]` — type errors detectable even with holes present, each annotated with `holeSensitive: bool`
+- `invariant_suggestions[]` (v0.4.0) — invariant suggestions from the pattern registry, keyed by `(type signature, function name pattern)`. Contains ≥5 patterns (list-preserving, sorted, round-trip, subset, idempotent).
 
 `holeSensitive: true` means the error may disappear once holes are filled — fix `holeSensitive: false` errors first.
+
+#### Invariant suggestions (v0.4.0)
+
+When a function’s type signature matches a known pattern, `--sketch` emits invariant suggestions:
+
+```bash
+stack exec llmll -- typecheck --sketch program.ast.json
+# {
+#   "holes": [...],
+#   "errors": [],
+#   "invariant_suggestions": [
+#     { "function": "sort-list",
+#       "pattern": "list[a] → list[a]",
+#       "suggestions": ["(= (list-length result) (list-length input))", "(sorted result)"] }
+#   ]
+# }
+```
+
+The pattern registry is stored as data (not code) — adding new patterns does not require recompilation. See `InvariantRegistry.hs` for the full pattern set.
 
 ### `serve` — HTTP sketch endpoint (Phase 2c)
 
@@ -302,7 +335,7 @@ curl -s -X POST localhost:7777/sketch \
 
 Every `POST /sketch` is **stateless** — a fresh type-check context per request. Safe for concurrent agent use with no locking. TLS is handled by a reverse proxy (nginx/Caddy); `llmll serve` binds plaintext only.
 
-### `checkout` — lock a hole for exclusive editing (v0.3; context-aware v0.3.5)
+### `checkout` — lock a hole for exclusive editing (v0.3; context-aware v0.3.5; CAP-1 v0.4.0)
 
 ```bash
 # Lock a hole and get a checkout token (v0.3.5: includes typing context)
@@ -339,7 +372,7 @@ stack exec llmll -- checkout --release ../examples/delegate_demo/program.ast.jso
 
 Locks are per-file (`.llmll-lock.json` alongside the source) with a 1-hour TTL. Stale locks are auto-expired on any `checkout` or `patch` call.
 
-**v0.3.5 context-aware fields** (optional — present when the compiler has sketch data):
+**v0.3.5+ context-aware fields** (optional — present when the compiler has sketch data):
 
 | Field | Content |
 |-------|---------|
@@ -424,7 +457,7 @@ These patterns work in the **current compiler**. Each shows what works today and
 ✅ **Works.** `first`/`second` accept any pair-like value regardless of annotation.
 
 > [!NOTE]
-> **v0.3 (PR 1 shipped):** `EPair` expressions are now typed `TPair a b` internally. The `first`/`second` polymorphic signatures remain unchanged, but a `match` on a pair-typed scrutinee no longer incorrectly cites `Success`/`Error` constructor arms in exhaustiveness errors.
+> **v0.4.0 (U-Lite):** `first` and `second` are now properly typed as `TPair a b → a` and `TPair a b → b` respectively, with per-call-site type variable instantiation. The previous `TVar "p"` polymorphic hack is replaced by correct pair-type constraints. This means `first 42` is now a type error (correctly rejected). Existing pair-destructuring code is unaffected.
 
 ### 4.2 Type Aliases at Call Sites
 
@@ -518,6 +551,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
 | `[...]` list literal as direct argument inside S-expression `if` branch | Parse error: `unexpected ]` | Hoist into a `let` binding before the `if` (see §4.7) |
 | `import` after `def-logic` inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def-logic` |
+| Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | **v0.4.0 (CAP-1):** compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` before any `wasi.io.*` call |
 
 > [!IMPORTANT]
 > **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
@@ -831,6 +865,76 @@ Nested destructuring is supported:
 
 > [!NOTE]
 > Simple bindings (`"name"`) and pattern bindings (`"pattern"`) are mutually exclusive within a single binding object — the JSON parser enforces a strict `oneOf` on these two keys. Using both in the same object is a parse error.
+
+---
+
+### §4.15 Capability Enforcement (v0.4.0, CAP-1)
+
+Since v0.4.0, calling a `wasi.*` function without a matching capability import is a **compile-time type error**. The check is in `inferExpr (EApp ...)` — it covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, and contract expressions.
+
+```lisp
+;; ✅ CORRECT — capability import present:
+(module my-app
+  (import wasi.io (capability stdout))
+  (def-logic greet [name: string]
+    (wasi.io.stdout (string-concat "Hello, " name))))
+
+;; ❌ COMPILE ERROR — missing capability import:
+(module my-app
+  (def-logic greet [name: string]
+    (wasi.io.stdout (string-concat "Hello, " name))))
+;; Error: wasi.io.stdout requires (import wasi.io (capability ...))
+```
+
+**Non-transitive propagation:** If Module A imports `wasi.io` and Module B imports Module A, Module B must **also** declare `(import wasi.io (capability ...))` to call `wasi.io.*` functions directly. Calling them through a wrapper function from Module A is fine — only direct `wasi.*` calls are checked.
+
+```lisp
+;; Module B: also needs its own wasi.io import:
+(module app.main
+  (import app.auth)
+  (import wasi.io (capability stdout))   ;; required even though app.auth has it
+  (def-logic log-login [user: string]
+    (wasi.io.stdout (string-concat "Login: " user))))
+```
+
+---
+
+### §4.16 U-Lite Type Errors (v0.4.0)
+
+U-Lite replaces the previous `compatibleWith (TVar _) _ = True` wildcard with substitution-based unification for concrete types. This catches several classes of type errors that were previously silently accepted.
+
+**Examples of what now correctly errors:**
+
+```lisp
+;; ❌ list-head expects list[a], not int:
+(list-head 42)
+;; Error: type mismatch: expected list[a], got int
+
+;; ❌ Element type mismatch caught by per-call-site substitution:
+(list-map [1 2 3] (fn [x: string] x))
+;; Error: type mismatch: list element type int ≠ string
+
+;; ❌ first expects a pair, not a bare value:
+(first 42)
+;; Error: type mismatch: expected (a, b), got int
+```
+
+**Examples of correct usage:**
+
+```lisp
+;; ✅ first on a pair — infers type int:
+(first (pair 1 "hello"))
+;; type: int
+
+;; ✅ Polymorphic builtins work across independent call sites:
+(let [(x (list-head [1 2 3]))
+      (y (list-head ["a" "b"]))]
+  (pair x y))
+;; x : Result[int, string], y : Result[string, string]
+```
+
+> [!NOTE]
+> **Per-call-site scoping:** Each call to a polymorphic function gets its own fresh type variable instantiation. The substitution map does not escape the `EApp` boundary, so `list-head` on `list[int]` in one expression does not constrain `list-head` on `list[string]` elsewhere.
 
 ---
 

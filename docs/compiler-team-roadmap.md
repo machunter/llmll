@@ -193,15 +193,18 @@ Codegen emits `import Data.Aeson` in `Lib.hs`, adds `aeson` to `package.yaml`. N
 
 > **Scoping note (P2-2):** v0.4 Aeson FFI requires a manual Haskell bridge file for JSON instance derivation (developer writes `FromJSON`/`ToJSON` instances). Auto-generation of `deriving (FromJSON, ToJSON)` from LLMLL type declarations is a **v0.7 codegen change**, not part of the v0.4 scope.
 
-### Orchestration Event Log Format (Q3 resolution)
+### Orchestration Event Log Format (Q3 resolution) — DEFERRED to v0.4.1/v0.5
 
-Formalize the orchestration event JSONL format defined as draft in v0.3.5:
+> Both teams agreed (2026-04-20) to defer until the Lead Agent ships and real
+> orchestration event patterns are observable. The Lead Agent (Sprint 2) adds new
+> event types (plan_generated, skeleton_validated, quality_check) that would force
+> a schema revision if formalized now.
 
 | # | Action | Status |
 |---|--------|--------|
-| EV1 | Finalize `orchestration-events-schema.json` | ☐ |
-| EV2 | `llmll-orchestra` emits events in the finalized format | ☐ |
-| EV3 | Add replay support for orchestration events (extend `llmll replay`) | ☐ |
+| EV1 | Finalize `orchestration-events-schema.json` | ☐ deferred |
+| EV2 | `llmll-orchestra` emits events in the finalized format | ☐ deferred |
+| EV3 | Add replay support for orchestration events (extend `llmll replay`) | ☐ deferred |
 
 ---
 
