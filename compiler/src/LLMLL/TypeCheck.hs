@@ -73,12 +73,12 @@ builtinEnv = Map.fromList $
   , ("or",  TFn [TBool, TBool] TBool)
   , ("not", TFn [TBool] TBool)
   -- §13.4 Pair / record
-  -- first/second accept TVar "p" (any pair-like value) because the type checker
-  -- cannot structurally inspect them without a concrete pair annotation.
-  -- TVar input unifies with anything.
-  , ("pair",   TFn [TVar "a", TVar "b"] (TPair (TVar "a") (TVar "b")))  -- PR 2: was TResult
-  , ("first",  TFn [TVar "p"] (TVar "a"))
-  , ("second", TFn [TVar "p"] (TVar "b"))
+  -- U2-lite (v0.4): first/second retyped to require TPair argument.
+  -- Before U-lite, these used TVar "p" (any type) because the checker couldn't
+  -- express the pair constraint. With per-call-site substitution, TPair a b works.
+  , ("pair",   TFn [TVar "a", TVar "b"] (TPair (TVar "a") (TVar "b")))
+  , ("first",  TFn [TPair (TVar "a") (TVar "b")] (TVar "a"))
+  , ("second", TFn [TPair (TVar "a") (TVar "b")] (TVar "b"))
   -- §13.5 List operations
   , ("list-empty",    TFn [] (TList (TVar "a")))
   , ("list-append",   TFn [TList (TVar "a"), TVar "a"] (TList (TVar "a")))
@@ -777,12 +777,24 @@ inferExpr (EApp func args) = do
                      else ""
         tcError $ "function '" <> func <> "' expects " <> tshow (length paramTypes)
                   <> " args, got " <> tshow nArgs <> hint
-      -- Use checkExpr per argument so holes in arg positions get their type recorded.
-      -- withSegment "args" / i gives one RFC 6901 token per level.
-      zipWithM_ (\(j, expected) arg ->
-        withSegment "args" $ withSegment (tshow (j :: Int)) $ checkExpr arg expected)
-        (zip [0..] paramTypes) args
-      pure retType
+      -- v0.4 U-Lite: per-call-site substitution.
+      -- Each call gets its own substitution map. When a polymorphic parameter
+      -- (TVar "a") first encounters a concrete type, it binds a → T.
+      -- Subsequent uses of the same TVar check consistency.
+      finalSubst <- foldM (\subst (j, expected, arg) ->
+        withSegment "args" $ withSegment (tshow (j :: Int)) $ do
+          case arg of
+            EHole hk -> do
+              -- Holes: record with substituted type, don't contribute to subst
+              checkExpr (EHole hk) (applySubst subst expected)
+              pure subst
+            _ -> do
+              actual <- inferExpr arg
+              expected' <- expandAlias expected
+              actual'   <- expandAlias actual
+              structuralUnify func subst (stripDep expected') (stripDep actual')
+        ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
+      pure (applySubst finalSubst retType)
     Just (TCustom _) ->
       -- Might be a constructor call
       pure TUnit
@@ -992,6 +1004,100 @@ checkPattern (PConstructor ctor subPats) scrutTy = do
       pure (concat bindings)
 
 -- ---------------------------------------------------------------------------
+-- v0.4 U-Lite: Per-Call-Site Substitution Helpers
+-- ---------------------------------------------------------------------------
+
+-- | Apply a type variable substitution map to a type, recursively.
+applySubst :: Map Name Type -> Type -> Type
+applySubst subst t@(TVar a)       = Map.findWithDefault t a subst
+applySubst subst (TList t)        = TList (applySubst subst t)
+applySubst subst (TResult a b)    = TResult (applySubst subst a) (applySubst subst b)
+applySubst subst (TPair a b)      = TPair (applySubst subst a) (applySubst subst b)
+applySubst subst (TFn ps r)       = TFn (map (applySubst subst) ps) (applySubst subst r)
+applySubst subst (TPromise t)     = TPromise (applySubst subst t)
+applySubst subst (TMap k v)       = TMap (applySubst subst k) (applySubst subst v)
+applySubst subst (TDependent n b e) = TDependent n (applySubst subst b) e
+applySubst _     t                = t  -- TInt, TString, TBool, TUnit, TBytes, TCustom, TSumType, TFloat
+
+-- | Strip TDependent to its base type (ignores the constraint).
+stripDep :: Type -> Type
+stripDep (TDependent _ base _) = base
+stripDep t = t
+
+-- | Structural unification with substitution tracking.
+-- When a TVar in the expected type first encounters a concrete actual type,
+-- it's bound in the substitution map. If the same TVar is encountered again
+-- with a different concrete type, a type-mismatch error is emitted.
+--
+-- TVar-TVar is preserved as wildcard (U-Lite does not track TVar-to-TVar bindings).
+structuralUnify :: Name -> Map Name Type -> Type -> Type -> TC (Map Name Type)
+structuralUnify func subst expected actual =
+  case (expected, actual) of
+    -- TVar expected: check or bind in substitution
+    (TVar a, _) ->
+      case Map.lookup a subst of
+        Just bound ->
+          -- Already bound: check compatibility with actual
+          if compatibleWith bound actual
+            then pure subst
+            else do
+              tcTypeMismatch func bound actual
+              pure subst
+        Nothing ->
+          case actual of
+            TVar _ -> pure subst  -- TVar-TVar wildcard preserved
+            _      -> pure (Map.insert a actual subst)  -- bind
+
+    -- TVar actual: wildcard (can't constrain)
+    (_, TVar _) -> pure subst
+
+    -- Structural recursion for compound types
+    (TList a, TList b) -> structuralUnify func subst a b
+
+    (TResult a b, TResult c d) -> do
+      s1 <- structuralUnify func subst a c
+      structuralUnify func s1 b d
+
+    (TPair a b, TPair c d) -> do
+      s1 <- structuralUnify func subst a c
+      structuralUnify func s1 b d
+
+    (TPromise a, TPromise b) -> structuralUnify func subst a b
+
+    (TMap k1 v1, TMap k2 v2) -> do
+      s1 <- structuralUnify func subst k1 k2
+      structuralUnify func s1 v1 v2
+
+    (TFn as r, TFn bs s) ->
+      if length as == length bs then do
+        s1 <- foldM (\st (a, b) -> structuralUnify func st a b) subst (zip as bs)
+        structuralUnify func s1 r s
+      else do
+        tcTypeMismatch func expected actual
+        pure subst
+
+    -- TDependent: strip and compare base type
+    (TDependent _ a _, b) -> structuralUnify func subst a b
+    (a, TDependent _ b _) -> structuralUnify func subst a b
+
+    -- TCustom wildcard
+    (TCustom "_", _) -> pure subst
+    (_, TCustom "_") -> pure subst
+
+    -- Fallback: structural equality via compatibleWith
+    _ ->
+      if compatibleWith expected actual
+        then pure subst
+        else do
+          tcTypeMismatch func expected actual
+          pure subst
+
+-- | Zip three lists (truncating to shortest).
+zip3' :: [a] -> [b] -> [c] -> [(a, b, c)]
+zip3' (a:as) (b:bs) (c:cs) = (a, b, c) : zip3' as bs cs
+zip3' _ _ _ = []
+
+-- ---------------------------------------------------------------------------
 -- Utilities
 -- ---------------------------------------------------------------------------
 
@@ -1023,9 +1129,11 @@ compatibleWith (TFn as r) (TFn bs s) =
   length as == length bs && all (uncurry compatibleWith) (zip as bs) && compatibleWith r s
 compatibleWith (TBytes m) (TBytes n) = m == n
 -- TSumType: compatible with itself and with TCustom of the same registered name
-compatibleWith (TSumType _) (TSumType _) = True
-compatibleWith (TCustom _)  (TSumType _) = True
-compatibleWith (TSumType _)  (TCustom _) = True
+-- TSumType: structural constructor equality (v0.4 U7-lite)
+-- Before U-lite: any sum ≡ any sum (unsound). Now requires matching constructors.
+compatibleWith (TSumType a) (TSumType b) = map fst a == map fst b
+compatibleWith (TCustom _)  (TSumType _) = True  -- aliases resolved via expandAlias
+compatibleWith (TSumType _)  (TCustom _) = True  -- aliases resolved via expandAlias
 compatibleWith a b = a == b
 
 -- | Unify two types, emitting an error if they are incompatible.

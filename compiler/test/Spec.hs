@@ -251,25 +251,33 @@ main = hspec $ do
           reportSuccess report `shouldBe` True
 
   describe "TypeCheck (first/second pair projectors)" $ do
-    it "first accepts a typed param (regression: Issue 1 hangman_json walkthrough)" $ do
-      -- Before fix: first :: TFn [TResult a b] (TVar a) => rejected s:string param
-      -- After fix:  first :: TFn [TVar p] (TVar a)     => accepts any type
+    it "first accepts a pair-typed param (v0.4 U2-lite: requires TPair)" $ do
+      -- v0.4 U2-lite: first :: TFn [TPair a b] a (was TFn [TVar p] (TVar a))
       let src = T.pack $ unlines
-            [ "(def-logic state-word [s: string] (first s))" ]
+            [ "(def-logic state-word [s: (string, int)] (first s))" ]
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
           reportSuccess report `shouldBe` True
 
-    it "second accepts a typed param (regression: same root cause)" $ do
+    it "second accepts a pair-typed param (v0.4 U2-lite: requires TPair)" $ do
       let src = T.pack $ unlines
-            [ "(def-logic state-rest [s: string] (second s))" ]
+            [ "(def-logic state-rest [s: (int, string)] (second s))" ]
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
           reportSuccess report `shouldBe` True
+
+    it "first on non-pair (string) now produces type error (U2-lite)" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic state-word [s: string] (first s))" ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- CodegenHs regression: :done? indentation (GHC-82311 empty do block)
@@ -2719,3 +2727,109 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- Module B has no wasi.io import → error (non-transitive)
       length capErrors `shouldBe` 1
       diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io"
+
+  -- =========================================================================
+  -- v0.4 U-Lite: Per-Call-Site Substitution Tests
+  -- =========================================================================
+  describe "U-Lite per-call-site substitution" $ do
+
+    -- U4a: cross-argument consistency — (= 42 "hello") should fail
+    it "U4a: (= 42 \"hello\") catches int vs string cross-arg mismatch" $ do
+      let stmts =
+            [ SDefLogic "f" [] (Just TBool) (Contract Nothing Nothing)
+                (EApp "=" [ELit (LitInt 42), ELit (LitString "hello")])
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+
+    -- U4b: list-contains cross-arg mismatch
+    it "U4b: list-contains([1,2,3], \"hello\") catches element type mismatch" $ do
+      let stmts =
+            [ SDefLogic "f" [("xs", TList TInt)] (Just TBool) (Contract Nothing Nothing)
+                (EApp "list-contains" [EVar "xs", ELit (LitString "hello")])
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+
+    -- U5: list-map with mismatched element type in lambda
+    it "U5: list-map [ints] (fn [x: string] x) catches element type mismatch" $ do
+      let stmts =
+            [ SDefLogic "f" [("xs", TList TInt)] (Just (TList TString)) (Contract Nothing Nothing)
+                (EApp "list-map" [EVar "xs", ELambda [("x", TString)] (EVar "x")])
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+
+    -- U4c: first(42) should fail (non-pair argument)
+    it "U4c: first(42) catches non-pair argument" $ do
+      let stmts =
+            [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing)
+                (EApp "first" [ELit (LitInt 42)])
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+
+    -- U4d: second("hello") should fail (non-pair argument)
+    it "U4d: second(\"hello\") catches non-pair argument" $ do
+      let stmts =
+            [ SDefLogic "f" [] (Just (TVar "b")) (Contract Nothing Nothing)
+                (EApp "second" [ELit (LitString "hello")])
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+
+    -- U6: alias expansion + first still works with dep types
+    it "U6: first on pair with where-type alias passes" $ do
+      let src = T.pack $ unlines
+            [ "(type Word (where [s: string] (> (string-length s) 0)))"
+            , "(def-logic get-word [p: (Word, int)] (first p))"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    -- U7a: TSumType structural inequality — different sum types are now incompatible
+    it "U7a: Color /= Shape -- different sum types are incompatible" $ do
+      let stmts =
+            [ STypeDef "Color" (TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)])
+            , STypeDef "Shape" (TSumType [("Circle", Just TInt), ("Rect", Nothing)])
+            , SDefLogic "f" [("c", TCustom "Color")] (Just (TCustom "Shape"))
+                (Contract Nothing Nothing) (EVar "c")
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+
+    -- U7b: Same sum types are still compatible
+    it "U7b: Color = Color -- same sum types are compatible" $ do
+      let stmts =
+            [ STypeDef "Color" (TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)])
+            , SDefLogic "f" [("c", TCustom "Color")] (Just (TCustom "Color"))
+                (Contract Nothing Nothing) (EVar "c")
+            ]
+          report = typeCheck emptyEnv stmts
+      reportSuccess report `shouldBe` True
+
+    -- U-Lite positive: polymorphic functions still work correctly
+    it "U-Lite: list-head on list[int] returns Result[int, string]" $ do
+      let stmts =
+            [ SDefLogic "f" [("xs", TList TInt)] (Just (TResult TInt TString))
+                (Contract Nothing Nothing) (EApp "list-head" [EVar "xs"])
+            ]
+          report = typeCheck emptyEnv stmts
+      reportSuccess report `shouldBe` True
+
+    it "U-Lite: pair(1, \"hello\") then first gives int" $ do
+      let stmts =
+            [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing)
+                (EApp "first" [EApp "pair" [ELit (LitInt 1), ELit (LitString "hello")]])
+            ]
+          report = typeCheck emptyEnv stmts
+      reportSuccess report `shouldBe` True

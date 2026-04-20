@@ -11,6 +11,8 @@
 ;;   5. llmll replay event_log_test.llmll event_log_test.event-log.jsonl
 ;;   6. Verify replay reports 2 events matched
 
+(import wasi.io (capability stdout :deterministic false))
+
 (def-logic echo-step [state: string input: string]
   (pair state (wasi.io.stdout input)))
 
