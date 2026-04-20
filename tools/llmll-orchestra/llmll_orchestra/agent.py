@@ -283,30 +283,31 @@ class Agent:
                 )
         return self._client
 
+    def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Low-level LLM call. Returns raw text response."""
+        client = self._get_client()
+        try:
+            message = client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+        except Exception as e:
+            raise AgentError(f"API error: {e}")
+        return message.content[0].text if message.content else ""
+
     def fill_hole(
         self,
         hole: HoleEntry,
         context: dict[str, Any] | None = None,
     ) -> AgentResponse:
         """Send a hole to Claude and parse the response as a JSON-Patch."""
-        client = self._get_client()
         prompt = build_prompt(hole, context)
-
         try:
-            message = client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=self.system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-            )
-        except Exception as e:
-            return AgentResponse(
-                success=False,
-                raw_response="",
-                error=f"API error: {e}",
-            )
-
-        raw = message.content[0].text if message.content else ""
+            raw = self._call_llm(self.system_prompt, prompt)
+        except AgentError as e:
+            return AgentResponse(success=False, raw_response="", error=str(e))
         return _parse_patch_response(raw)
 
 
@@ -341,32 +342,33 @@ class OpenAIAgent:
                 )
         return self._client
 
+    def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Low-level LLM call. Returns raw text response."""
+        client = self._get_client()
+        try:
+            response = client.chat.completions.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+        except Exception as e:
+            raise AgentError(f"API error: {e}")
+        return response.choices[0].message.content or "" if response.choices else ""
+
     def fill_hole(
         self,
         hole: HoleEntry,
         context: dict[str, Any] | None = None,
     ) -> AgentResponse:
         """Send a hole to OpenAI and parse the response as a JSON-Patch."""
-        client = self._get_client()
         prompt = build_prompt(hole, context)
-
         try:
-            response = client.chat.completions.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-            )
-        except Exception as e:
-            return AgentResponse(
-                success=False,
-                raw_response="",
-                error=f"API error: {e}",
-            )
-
-        raw = response.choices[0].message.content or "" if response.choices else ""
+            raw = self._call_llm(self.system_prompt, prompt)
+        except AgentError as e:
+            return AgentResponse(success=False, raw_response="", error=str(e))
         return _parse_patch_response(raw)
 
 
@@ -379,6 +381,10 @@ class DryRunAgent:
 
     def __init__(self, system_prompt: str | None = None):
         self.system_prompt = system_prompt or SYSTEM_PROMPT
+
+    def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Dry-run: returns a stub JSON response."""
+        return '[{"op": "replace", "path": "/stub", "value": {"kind": "lit-string", "value": "<stub>"}}]'
 
     def fill_hole(
         self,

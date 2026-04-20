@@ -15,6 +15,7 @@ import sys
 from .compiler import Compiler
 from .agent import Agent, OpenAIAgent, DryRunAgent
 from .orchestrator import Orchestrator
+from .lead_agent import LeadAgent
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,6 +70,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Only scan and display holes with scheduling tiers, don't fill",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["fill", "plan", "lead", "auto"],
+        default="fill",
+        help="Operating mode: fill (default), plan (generate architecture), "
+             "lead (plan + skeleton), auto (full pipeline)",
+    )
+    parser.add_argument(
+        "--intent",
+        default=None,
+        help="Natural-language intent for plan/lead/auto modes",
+    )
 
     args = parser.parse_args(argv)
 
@@ -95,7 +108,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.scan_only:
         return _scan_only(compiler, args)
 
-    # Full run
+    # Lead Agent modes (plan, lead, auto)
+    if args.mode in ("plan", "lead", "auto"):
+        if not args.intent:
+            print("Error: --intent is required for --mode plan|lead|auto", file=sys.stderr)
+            return 1
+        return _lead_mode(compiler, agent, orchestrator, args)
+
+    # Default: fill mode
     report = orchestrator.run(args.source)
 
     if args.json_output:
@@ -104,6 +124,77 @@ def main(argv: list[str] | None = None) -> int:
         _print_report(report)
 
     return 0 if report.failed == 0 else 1
+
+
+def _lead_mode(compiler: Compiler, agent, orchestrator: Orchestrator, args) -> int:
+    """Handle --mode plan|lead|auto."""
+    lead = LeadAgent(
+        agent=agent,
+        compiler=compiler,
+        verbose=args.verbose,
+    )
+
+    try:
+        # Phase 0: Generate plan
+        if args.verbose:
+            print(f"  ◦ Generating plan from intent...", file=sys.stderr)
+        plan = lead.generate_plan(args.intent)
+
+        if args.mode == "plan":
+            # Output plan and stop
+            print(json.dumps(plan, indent=2))
+            return 0
+
+        # Phase 1: Generate skeleton
+        if args.verbose:
+            print(f"  ◦ Generating skeleton...", file=sys.stderr)
+        skeleton_path = lead.generate_skeleton(plan)
+
+        if args.mode == "lead":
+            # Output skeleton path and plan summary
+            result = {
+                "skeleton": skeleton_path,
+                "plan": plan,
+                "modules": len(plan.get("modules", [])),
+                "functions": sum(
+                    len(m.get("functions", []))
+                    for m in plan.get("modules", [])
+                ),
+            }
+            if args.json_output:
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"Skeleton: {skeleton_path}")
+                print(f"Modules:  {result['modules']}")
+                print(f"Functions: {result['functions']}")
+                warnings = plan.get("metadata", {}).get("warnings", [])
+                for w in warnings:
+                    print(f"  ⚠ [{w['heuristic']}] {w['message']}")
+            return 0
+
+        # Phase 2: Auto — fill holes using existing orchestrator
+        if args.verbose:
+            print(f"  ◦ Filling holes in skeleton...", file=sys.stderr)
+        report = orchestrator.run(skeleton_path)
+
+        auto_result = {
+            "mode": "auto",
+            "plan": plan,
+            "skeleton": skeleton_path,
+            "orchestration": report.to_dict(),
+        }
+        if args.json_output:
+            print(json.dumps(auto_result, indent=2))
+        else:
+            print(f"Plan: {len(plan.get('modules', []))} modules")
+            print(f"Skeleton: {skeleton_path}")
+            _print_report(report)
+
+        return 0 if report.failed == 0 else 1
+
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
 
 def _scan_only(compiler: Compiler, args) -> int:

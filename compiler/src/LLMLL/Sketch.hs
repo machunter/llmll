@@ -19,6 +19,7 @@ module LLMLL.Sketch
   , HoleStatus(..)
   , ScopeSource(..)
   , ScopeBinding(..)
+  , InvariantSuggestion(..)
   , runSketch
     -- Encoding
   , encodeSketchResult
@@ -36,6 +37,7 @@ import qualified Data.Text.Encoding as TE
 import LLMLL.TypeCheck
   ( SketchResult(..), SketchHole(..), HoleStatus(..)
   , ScopeSource(..), ScopeBinding(..)
+  , InvariantSuggestion(..)
   , runSketch )
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..))
 import LLMLL.Syntax (typeLabel)
@@ -104,11 +106,21 @@ errToJson d = object $
 -- Public API
 -- ---------------------------------------------------------------------------
 
+-- | Encode an InvariantSuggestion as JSON.
+invariantToJson :: InvariantSuggestion -> A.Value
+invariantToJson inv = object
+  [ "pattern_id"  .= isPatternId inv
+  , "suggestion"  .= isSuggestion inv
+  , "description" .= isDescription inv
+  ]
+
 -- | Encode a SketchResult as a lazy ByteString JSON blob.
 -- Errors are sorted: holeSensitive:false first (spec requirement).
+-- v0.4: Includes invariant_suggestions field.
 encodeSketchResult :: SketchResult -> BL.ByteString
 encodeSketchResult result = encode $ object
-  [ "schemaVersion" .= schemaVersion
-  , "holes"         .= map holeToJson (sketchHoles result)
-  , "errors"        .= map errToJson  (sortErrors (sketchErrors result))
+  [ "schemaVersion"         .= schemaVersion
+  , "holes"                 .= map holeToJson (sketchHoles result)
+  , "errors"                .= map errToJson  (sortErrors (sketchErrors result))
+  , "invariant_suggestions" .= map invariantToJson (sketchInvariants result)
   ]

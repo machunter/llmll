@@ -30,6 +30,8 @@ module LLMLL.TypeCheck
     -- * v0.3.5: Scope provenance for context-aware checkout (Phase C)
   , ScopeSource(..)
   , ScopeBinding(..)
+    -- * v0.4: Invariant pattern registry (re-export)
+  , InvariantSuggestion(..)
   ) where
 
 import Data.Map.Strict (Map)
@@ -38,6 +40,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe)
 import Control.Monad (forM_, forM, foldM, when, unless, void)
+import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
 import Control.Monad.State.Strict
 
 import LLMLL.Syntax
@@ -1176,18 +1179,35 @@ data TypeCheckResult = TypeCheckResult
 
 -- | Result of running the type checker in sketch mode.
 data SketchResult = SketchResult
-  { sketchHoles  :: [SketchHole]  -- ^ holes in source order
-  , sketchErrors :: [Diagnostic]  -- ^ type errors present in partial program
+  { sketchHoles      :: [SketchHole]           -- ^ holes in source order
+  , sketchErrors     :: [Diagnostic]           -- ^ type errors present in partial program
+  , sketchInvariants :: [InvariantSuggestion]  -- ^ v0.4: matched invariant suggestions
   } deriving (Show)
 
 -- | Run the type checker in sketch mode.
--- Accepts partial programs with holes everywhere. Returns each named hole\'s
+-- Accepts partial programs with holes everywhere. Returns each named hole's
 -- status (Typed / Ambiguous / Unknown) and JSON Pointer, plus any type errors.
-runSketch :: TypeEnv -> [Statement] -> SketchResult
-runSketch env stmts =
+-- v0.4: Also matches function signatures against the invariant pattern registry.
+runSketch :: TypeEnv -> [Statement] -> [InvariantPattern] -> SketchResult
+runSketch env stmts patterns =
   let action          = checkStatements stmts
       (_, finalState) = runTCSketch env action
+      -- v0.4: Match each def-logic / letrec against invariant patterns
+      invariants = concatMap (matchStmt (tcEnv finalState)) stmts
   in SketchResult
-       { sketchHoles  = reverse (tcHoles finalState)   -- flip prepend accumulator
-       , sketchErrors = tcErrors finalState
+       { sketchHoles      = reverse (tcHoles finalState)
+       , sketchErrors     = tcErrors finalState
+       , sketchInvariants = invariants
        }
+  where
+    matchStmt env' (SDefLogic name params mRetType _ _) =
+      let paramTypes = map snd params
+          retType    = fromMaybe (TCustom "_") mRetType
+          fnType     = TFn paramTypes retType
+      in matchPatterns name fnType patterns
+    matchStmt env' (SLetrec name params mRetType _ _ _) =
+      let paramTypes = map snd params
+          retType    = fromMaybe (TCustom "_") mRetType
+          fnType     = TFn paramTypes retType
+      in matchPatterns name fnType patterns
+    matchStmt _ _ = []
