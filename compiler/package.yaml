@@ -96,6 +96,8 @@ library:
     - LLMLL.WeaknessCheck
     # v0.4: invariant pattern registry
     - LLMLL.InvariantRegistry
+    # v0.4: downstream obligation mining
+    - LLMLL.ObligationMining
 
 executables:
   llmll:

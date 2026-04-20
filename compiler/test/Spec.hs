@@ -10,6 +10,8 @@ import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
+import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..))
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
@@ -2903,3 +2905,75 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "classifyImport recognizes haskell.aeson as HackageImport" $ do
       classifyImport (Import "haskell.aeson" Nothing Nothing) `shouldBe` HackageImport "aeson"
+
+  -- =========================================================================
+  -- v0.4 Task 8: Downstream Obligation Mining
+  -- =========================================================================
+  describe "Obligation Mining" $ do
+
+    it "SAFE result produces no suggestions" $ do
+      let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
+                    (Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)]))
+                              (Just (EApp ">" [EVar "result", ELit (LitInt 0)])))
+                    (EVar "x")]
+          table = Map.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0)
+      mineObligations table FQSafe report stmts `shouldBe` []
+
+    it "UNSAFE with unknown constraint ID produces no suggestion" $ do
+      let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
+                    (Contract Nothing Nothing) (EVar "x")]
+          table = Map.empty  -- empty: no origin for constraint 42
+          report = TrustReport [] (TrustSummary 0 0 0 0 0)
+      mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
+
+    it "UNSAFE with known origin produces self-suggestion" $ do
+      let stmts = [SDefLogic "addPos" [("x", TInt), ("y", TInt)] (Just TInt)
+                    (Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)]))
+                              (Just (EApp ">" [EVar "result", ELit (LitInt 0)])))
+                    (EApp "+" [EVar "x", EVar "y"])]
+          table = Map.fromList
+            [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
+          report = TrustReport [] (TrustSummary 0 0 0 0 0)
+          results = mineObligations table (FQUnsafe [0]) report stmts
+      length results `shouldBe` 1
+      osCaller (head results) `shouldBe` "addPos"
+      osCallee (head results) `shouldBe` "addPos"  -- self-suggestion (no callees)
+
+    it "QF-LIA postcondition gets Verified strength" $ do
+      let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
+                    (Contract Nothing
+                              (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])))
+                    (EVar "x")]
+          table = Map.fromList
+            [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
+          report = TrustReport [] (TrustSummary 0 0 0 0 0)
+          results = mineObligations table (FQUnsafe [0]) report stmts
+      length results `shouldBe` 1
+      osStrength (head results) `shouldBe` Verified
+
+    it "non-linear postcondition gets Advisory strength" $ do
+      -- (> (* x x) 0) is non-linear (uses *), outside QF-LIA
+      let stmts = [SDefLogic "g" [("x", TInt)] (Just TInt)
+                    (Contract Nothing
+                              (Just (EApp ">" [EApp "*" [EVar "x", EVar "x"], ELit (LitInt 0)])))
+                    (EVar "x")]
+          table = Map.fromList
+            [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
+          report = TrustReport [] (TrustSummary 0 0 0 0 0)
+          results = mineObligations table (FQUnsafe [0]) report stmts
+      length results `shouldBe` 1
+      osStrength (head results) `shouldBe` Advisory
+
+    it "JSON output includes strength field" $ do
+      let stmts = [SDefLogic "h" [("x", TInt)] (Just TInt)
+                    (Contract Nothing
+                              (Just (EApp ">" [EVar "result", ELit (LitInt 0)])))
+                    (EVar "x")]
+          table = Map.fromList
+            [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
+          report = TrustReport [] (TrustSummary 0 0 0 0 0)
+          results = mineObligations table (FQUnsafe [0]) report stmts
+          jsonOut = formatObligationsJson results
+      jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
+      jsonOut `shouldSatisfy` T.isInfixOf "obligation_suggestions"
