@@ -34,6 +34,8 @@ module LLMLL.Diagnostic
   , mkTrustGapWarning
   -- * v0.3.5: Weakness check
   , mkSpecWeakness
+  -- * v0.4: Capability enforcement (CAP-1)
+  , mkMissingCapability
   ) where
 
 import Data.Text (Text)
@@ -231,6 +233,26 @@ mkSpecWeakness funcName trivialLabel mPre mPost =
             <> "\n  " <> suggestion
   in (mkWarning Nothing msg)
        { diagKind       = Just "spec-weakness"
+       , diagSuggestion = Just suggestion
+       }
+
+-- ---------------------------------------------------------------------------
+-- v0.4: Capability Enforcement Diagnostics (CAP-1)
+-- ---------------------------------------------------------------------------
+
+-- | Emit a missing-capability error when a wasi.* function is called
+-- without a matching (import wasi.<namespace> (capability ...)) in the module.
+-- CAP-1: capabilities are module-local (non-transitive).
+mkMissingCapability
+  :: Text         -- ^ function name (e.g. "wasi.io.stdout")
+  -> Text         -- ^ required namespace (e.g. "wasi.io")
+  -> Diagnostic
+mkMissingCapability func namespace =
+  let suggestion = "Add: (import " <> namespace <> " (capability ...))"
+      msg = func <> " requires (import " <> namespace <> " (capability ...)) "
+            <> "\x2014 wasi.* functions need an explicit capability import in each module"
+  in (mkError Nothing msg)
+       { diagKind       = Just "missing-capability"
        , diagSuggestion = Just suggestion
        }
 

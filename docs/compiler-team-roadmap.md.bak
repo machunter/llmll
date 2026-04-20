@@ -1,0 +1,1056 @@
+# LLMLL Compiler Team Implementation Roadmap
+
+> **Status:** Active — v0.3.5 shipped (context-aware checkout + weakness checking + orchestrator E2E); 225 Haskell + 12 Python tests passing  
+> **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
+>
+> **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
+>
+> **Relationship to `LLMLL.md §14`:** The two documents are **complementary, not competing**. `LLMLL.md §14` is the *language-visible feature list* (what users and AI agents see). This document is the *engineering backlog* — implementation tickets, acceptance criteria, decision records, and bug tracking. When a feature ships it is marked complete here and the user-visible description is kept in `LLMLL.md §14`.
+
+---
+
+## Versioning Conventions
+
+- Items marked **[CT]** are compiler team implementation tasks.
+- Items marked **[SPEC]** are language specification changes that must land in `LLMLL.md` before or alongside the implementation.
+- Items marked **[DESIGN]** are design decisions resolved by the joint team, recorded here as implementation constraints.
+
+---
+
+## v0.3.3 — Agent Orchestration (Shipped 2026-04-16)
+
+**Theme:** First end-to-end multi-agent coordination demo. Validates the checkout/patch primitives shipped in v0.3.
+
+> **Note:** The orchestrator ships as a separate package (`llmll-orchestra`), not as part of the compiler binary. M2 is a compiler deliverable; M1 is an external tool that consumes the compiler's CLI/HTTP contract.
+
+**[CT]** ✅ M2 — `llmll holes --json --deps` flag:
+- Added annotated `depends_on` edges per hole entry: `{pointer, via, reason}`
+- Dependency = "hole B's enclosing function calls a function whose body contains hole A" (`calls-hole-body`)
+- Cycle detection via Tarjan's SCC with deterministic back-edge removal; `cycle_warning` flag per hole
+- P0 fix: rewrote pointer generation to produce RFC 6901-compatible structural paths (`/statements/N/body`)
+- Scope exclusions: `?proof-required` holes and contract-position holes excluded from dependency graph
+- New `--deps-out FILE` flag persists the dependency graph to a file
+- Implementation in `HoleAnalysis.hs` — `computeHoleDeps`, `detectCycles`, `extractCalls`, `buildCallGraph`
+
+**[EXT]** ☐ M1 — Python orchestrator (`llmll-orchestra` v0.1):
+- ~200-line Python script validating the two-agent auth module exercise
+- Reads `llmll holes --json --deps`, calls `llmll checkout` + `llmll patch` via CLI
+- Sends hole context + LLMLL.md to Claude (Anthropic SDK), submits returned JSON-Patches
+- Reports success/failure per hole, handles retry with diagnostics (max 3 attempts)
+- Ships as a separate `pip` package with the compiler as a prerequisite
+
+**Acceptance criteria:**
+
+- ✅ `llmll holes --json --deps` returns annotated `depends_on` edges per hole entry; empty array for independent holes
+- ✅ Pointers in `llmll holes --json` match RFC 6901 format compatible with `llmll checkout`
+- ✅ `?proof-required` and contract-position holes excluded from dependency graph
+- ✅ Dependency cycles detected via SCC, broken deterministically, flagged with `cycle_warning: true`
+- ✅ `--deps-out FILE` writes the dependency graph to a file
+- ☐ `llmll-orchestra` fills both `?delegate @crypto-agent` holes in the auth module exercise end-to-end
+- ☐ A deliberately malformed patch triggers retry with diagnostics fed back to the agent
+- ☐ Lock expiry (checkout TTL) is handled gracefully (re-queue, not crash)
+
+**[CT]** ✅ M3 — Agent Prompt Semantic Reference (Phase A):
+
+> **Source:** [`docs/design/agent-prompt-semantics-gap.md`](design/agent-prompt-semantics-gap.md) — reviewed and approved by Language Team and Professor.
+
+Single-file edit to `llmll_orchestra/agent.py`. Adds ~950 tokens to the agent system prompt:
+
+| # | Action | Status |
+|---|--------|--------|
+| A1 | Add `pair`/`first`/`second` signatures to prompt reference | ✅ Shipped |
+| A2 | Fix comparison operators: `< > <= >=` are `int → int → bool`, not polymorphic | ✅ Shipped |
+| A3 | Add `regex-match`, `seq-commands` to prompt reference | ✅ Shipped |
+| A4 | `string-empty?` now in `builtinEnv` — added to prompt reference | ✅ Shipped |
+| A5 | Add `pair` and `fn-type` type nodes | ✅ Shipped |
+| A6 | Add ok/err vs Success/Error explicit callout block | ✅ Shipped |
+| A7 | Add fixed-arity operator rule and parametricity note | ✅ Shipped |
+| A9 | Add minimal `letrec` note (2 lines) | ✅ Shipped |
+| A10 | Exclude `is-valid?` and `wasi.*` from reference | ✅ Shipped |
+
+**[CT]** ✅ M3-pre — Pre-requisite compiler fixes for Phase A:
+
+| # | Action | Location | Status |
+|---|--------|----------|--------|
+| A8a | Implement `string-empty?` in type checker | `TypeCheck.hs` `builtinEnv`: `("string-empty?", TFn [TString] TBool)` | ✅ Shipped |
+| A8b | Implement `string-empty?` in runtime preamble | `CodegenHs.hs` `runtimePreamble`: `string_empty' s = null s` | ✅ Shipped |
+| A8c | Document `string-empty?` in language spec | `LLMLL.md` §13.6 | ✅ Shipped |
+| A11 | Remove `is-valid?` from `builtinEnv` | `TypeCheck.hs`: one-line delete | ✅ Shipped |
+| A12 | Implement `regex-match` preamble | `CodegenHs.hs` `runtimePreamble`: `regex_match pattern subject = pattern \`isInfixOf\` subject` | ✅ Shipped |
+
+**Open questions (from [`docs/design/agent-orchestration.md`](design/agent-orchestration.md) and [`docs/design/agent-prompt-semantics-gap.md`](design/agent-prompt-semantics-gap.md)):**
+
+- Q2 resolved: `--json --deps` adds the annotated dependency graph (shipped)
+- Q3 deferred: orchestration events reusing the Event Log format — decide in v0.3.4 or later
+- Q5 deferred: MCP client/server dual role — Python v1 is CLI-only, MCP integration comes with self-hosted rewrite
+- `domain_hints` deferred to v0.3.4: existing hole metadata sufficient for orchestrator routing
+- `type-reference` edges deferred to v0.3.4: only `calls-hole-body` edges shipped
+- `?delegate-async` fire-and-forget filtering deferred to v0.3.4: requires data-flow analysis
+
+---
+
+## v0.3.4 — Agent Spec + Orchestrator Hardening (Shipped 2026-04-19)
+
+**Theme:** Compiler-emitted agent prompt spec (Phase B from agent-prompt-semantics-gap.md) — eliminates hand-maintained prompt references by generating the spec directly from `builtinEnv`.
+
+> **Source:** [`docs/design/agent-prompt-semantics-gap.md §4 Option B`](design/agent-prompt-semantics-gap.md)
+
+**[CT]** ✅ B1 — New module `LLMLL/AgentSpec.hs`:
+- Imports `LLMLL.TypeCheck (builtinEnv)` and serializes it directly
+- Partitions functions vs operators via `operatorNames` set (matches `CodegenHs.emitOp` exactly)
+- Excludes `wasi.*` functions (capability-gated)
+- Uses LLMLL type notation (`int`, `string`, `Result[ok, err]`)
+- Deterministic alphabetical output (36 builtins + 14 operators)
+- JSON output includes constructors, evaluation model, pattern kinds, type nodes
+- Text output is token-dense for direct system prompt inclusion
+
+**[CT]** ✅ B2 — `llmll spec [--json]` CLI command:
+- Emits the agent spec to stdout (text by default, JSON with `--json`)
+- No source file argument required — reads from compiled-in `builtinEnv`
+
+**[CT]** ✅ B3 — Spec Faithfulness property tests (7 tests):
+- `covers all non-excluded builtinEnv entries` — sort(specNames) = sort(builtinKeys - wasi.*)
+- `does not contain entries absent from builtinEnv` — all specNames ∈ builtinEnv
+- `partition is disjoint` — builtins ∩ operators = ∅
+- `handles unary operator (not) with 1 param`
+- `output is deterministically ordered`
+- `excludes all wasi.* functions`
+- `includes seq-commands` — verifies preamble-implemented functions included
+
+**[EXT]** ✅ B4 — Orchestrator integration (`agent.py` + `compiler.py` + `orchestrator.py`):
+- `compiler.spec()` wraps `llmll spec` with backward-compat fallback (returns None for pre-v0.3.4)
+- `build_system_prompt(compiler_spec)` injects spec into prompt; falls back to `_LEGACY_BUILTINS_REF`
+- `orchestrator.py` calls `compiler.spec()` at start of `run()`, before hole scanning
+
+**Acceptance criteria:**
+
+- ✅ `llmll spec` output is a superset of the Phase A prompt reference (36 builtins + 14 operators + constructors + pattern kinds)
+- ✅ All 7 faithfulness property tests pass
+- ✅ Adding a new builtin to `builtinEnv` without corresponding spec entry is caught automatically
+- ✅ `llmll-orchestra` uses `llmll spec` output instead of hardcoded prompt text (with legacy fallback)
+- ✅ 211 tests passing (194 → 211: +7 AgentSpec + 10 other)
+
+**Open questions resolved:**
+
+- Q3 (from v0.3.3): orchestration events — **deferred to v0.4**. Orchestrator must stabilize first. Define JSONL schema in v0.3.5 as a placeholder.
+- `domain_hints` — **deferred**. Existing hole metadata sufficient for orchestrator routing.
+- `type-reference` edges — **deferred**. Only `calls-hole-body` edges needed for v0.3 orchestration.
+- `?delegate-async` fire-and-forget filtering — **deferred**. Requires data-flow analysis.
+
+---
+
+## v0.3.2 — Trust Hardening + WASM PoC (Shipped 2026-04-16)
+
+**Theme:** Prove the compositionality story works (trust propagation) and de-risk v0.4 (WASM PoC).
+
+> **Source:** [`docs/design/verification-debate-action-items.md`](design/verification-debate-action-items.md) — items surfaced by external formal methods review.
+
+**[CT]** ☑ Cross-module trust propagation test:
+- Write a multi-module test: Module A exports a function with `VLAsserted` contract, Module B imports it and calls it from a function with `VLProven` contract
+- Verify that Module B's effective verification level is capped at `VLAsserted`, not `VLProven`
+- Test the inverse: Module A has `VLProven`, Module B inherits `VLProven` correctly
+- Test `(trust foo.bar :level asserted)` silences the downstream warning
+- **Result:** 7 test cases covering asserted/tested/proven matrix, mixed levels, trust declaration suppression (181 → 188 tests)
+
+**[CT]** ☑ `llmll verify --trust-report` flag:
+- New output mode on `llmll verify` that prints a trust summary after verification
+- Per-function: contract name, verification level (proven/tested/asserted)
+- Transitive closure: which `proven` conclusions depend on `asserted` assumptions upstream
+- Flags epistemic drift: "Function `withdraw` is proven, but depends on `auth.verify-token` which is asserted"
+- JSON output with `--json` for tooling consumption
+- **Result:** New `LLMLL.TrustReport` module + CLI integration + 6 tests (188 → 194 tests)
+
+**[CT]** ☑ GHC WASM proof-of-concept:
+- Analyzed generated `hangman_json_verifier` Haskell output for WASM compatibility
+- Document all blockers: toolchain installation, Stack vs Cabal, QuickCheck/random shim
+- Write up a go/no-go assessment for v0.4 WASM hardening
+- **Result:** Conditional GO — see [`docs/wasm-poc-report.md`](wasm-poc-report.md). ~6-7 days engineering for v0.4.
+
+**Acceptance criteria:**
+
+- ☑ Multi-module trust propagation tests pass (7 test cases covering the matrix)
+- ☑ `llmll verify --trust-report` on a multi-module program outputs the transitive trust graph
+- ☑ WASM PoC report written with go/no-go recommendation for v0.4
+
+---
+
+## v0.3.1 — Event Log + Leanstral MCP (Shipped 2026-04-11)
+
+**Theme:** Deterministic replay via JSONL event log and mock-first Leanstral proof integration.
+
+> **Note:** The `?delegate` checkout/patch *compiler primitives* (`Checkout.hs`, `PatchApply.hs`, `JsonPointer.hs`, `llmll checkout`, `llmll patch`) shipped in v0.3. The agent orchestrator (`llmll-orchestra`) is scoped separately — see [`docs/design/agent-orchestration.md`](design/agent-orchestration.md).
+
+**[CT]** ✅ Event Log — JSONL format with stdout capture:
+- Generated `Main.hs` writes `.event-log.jsonl` (true JSONL, crash-safe)
+- `captureStdout` via `hDuplicate`/`hDupTo` captures actual program output
+- `llmll replay <source> <log>` builds program, feeds inputs step-by-step, compares outputs
+- `Replay.hs` — line-by-line parser with crash tolerance + `runReplay` execution engine
+
+**[CT]** ✅ Leanstral MCP integration (mock-only for v0.3.1):
+- `LeanTranslate.hs` — LLMLL contract AST → Lean 4 `theorem` obligation
+- `MCPClient.hs` — `--leanstral-mock` returns `ProofFound "by sorry"`
+- `ProofCache.hs` — per-file `.proof-cache.json` sidecar (SHA-256 invalidation via `computeObligationHash`)
+- `holeComplexity` field + `normalizeComplexity` in `HoleAnalysis.hs`
+- `inferHole (HProofRequired)` added to `TypeCheck.hs`
+- `--leanstral-mock` / `--leanstral-cmd` / `--leanstral-timeout` CLI flags on `llmll verify`
+- `runLeanstralPipeline` — scans `[Statement]` directly for proof-required holes
+
+**Acceptance criteria:** ✅ All met (mock mode)
+
+- ✅ `?proof-required` holes classified with complexity hints (`:simple`/`:inductive`/`:unknown`)
+- ✅ Mock proof pipeline: translate → mock-prove → cache → verify roundtrip works
+- ✅ Console programs produce `.event-log.jsonl` with input **and** output
+- ✅ `llmll replay` parses event logs and reports events
+- ⏸ Real Leanstral integration deferred until `lean-lsp-mcp` available
+- ⏸ NaN guard infrastructure present but NOOP (no float sources in v0.3.1)
+
+**Tests:** 145 → 181 (36 new)
+
+### v0.3 Verification (validates shipped checkout/patch infrastructure)
+
+- Two-agent demo: Agent A writes a module with `?delegate`, Agent B submits a JSON-Patch via `llmll checkout` + `llmll patch`; compiler accepts the merge.
+
+
+
+## v0.3 — Agent Coordination + Interactive Proofs ✅ Shipped
+
+### Shipped: Do-Notation (PRs 1–3, 2026-04-05 – 2026-04-08)
+
+> **One-shot impact:** Eliminates deeply nested `let`/`seq-commands` boilerplate for stateful action sequences. Type checker enforces state-type consistency across all steps.
+
+**[CT]** ~~`TPair` type system foundation~~ ✅ **PR 1 (2026-04-05)** — new `TPair Type Type` constructor in `Syntax.hs`. `EPair` expressions typed `TPair a b`, replacing the unsound `TResult a b` approximation. Fixes JSON-AST round-trip (`"result-type"` → `"pair-type"`) and `match` exhaustiveness (no longer cites `Success`/`Error` for pairs). Surface syntax unchanged.
+
+**[CT]** ~~`DoStep` collapse~~ ✅ **PR 2 (2026-04-06)** — unified `DoStep (Maybe Name) Expr` replaces `DoBind`/`DoExpr` split. Type checker enforces pair-thread: every step returns `(S, Command)` with identical `S`. JSON parser rejects old `"bind-step"`/`"expr-step"` kinds.
+
+**[CT]** ~~`emitDo` rewrite~~ ✅ **PR 3 (2026-04-08)** — pure `let`-chain codegen. Named steps `[s <- expr]` bind state via `let`; anonymous steps discard it. `seq-commands` folds accumulated commands. No Haskell `do` or monads emitted.
+
+**Acceptance criteria — all met:**
+
+- ✅ `(do [s1 <- (action1 state)] [s2 <- (action2 s1)] (action3 s2))` parses, type-checks, and compiles
+- ✅ Mismatched state type `S` across steps produces a `"type-mismatch"` diagnostic
+- ✅ Anonymous step `(expr)` with non-matching state emits state-loss warning
+- ✅ `llmll build --emit json-ast` round-trips `do`-blocks with `"do-step"` nodes
+- ✅ All 47 existing tests still pass
+
+---
+
+### ✅ Shipped: Pair Destructuring (PR 4)
+
+**[CT]** Pair destructuring in `let` bindings — `(let [((pair s cmd) expr)] body)` pattern. `ELet` binding target extended from `Name` to `Pattern`. Shipped across Syntax, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, and JSON schema. All 7 acceptance criteria verified; 69/69 tests pass.
+
+---
+
+### ✅ Shipped: Stratified Verification + Feature Completion (2026-04-11)
+
+**[CT]** ~~`string-concat` parse-level variadic sugar~~ ✅ **Shipped (2026-04-11)** — In the S-expression parser, `(string-concat e1 e2 e3 …)` with 3+ arguments is desugared to `(string-concat-many [e1 e2 e3 …])` at parse time. `Parser.hs` L713-719. Type checker never sees a 3-arg `string-concat`. JSON-AST unaffected.
+
+> **Decision record:** Type-checker variadic special-casing rejected (breaks fixed-arity invariant; JSON-AST complexity). Binary `string-concat` deprecation rejected (breaks partial application). Parse-level sugar is the minimal, correct resolution.
+
+**Acceptance criteria (v0.3):**
+
+- `(string-concat "a" "b" "c")` in S-expression compiles to the same Haskell as `(string-concat-many ["a" "b" "c"])`.
+- `(string-concat prefix)` partial application still type-checks as `string → string`.
+- JSON-AST `{"fn": "string-concat", "args": [a, b, c]}` produces a clear arity error (unchanged behavior — sugar is parse-time S-expression only).
+
+**[CT]** ~~`?scaffold` CLI~~ ✅ **Shipped (2026-04-11)** — Hole kind fully implemented across Syntax, Lexer, Parser, ParserJSON, TypeCheck, CodegenHs, AstEmit, HoleAnalysis. CLI: `llmll hub scaffold <template> [--output DIR]` resolves from `~/.llmll/templates/`, copies scaffold file, parses and reports holes via `analyzeHoles`. `Hub.hs` adds `scaffoldCacheRoot`, `resolveScaffold`. Hub command upgraded to `fetch`/`scaffold` subcommand group.
+
+**[CT]** ~~Stratified Verification (Item 7b)~~ ✅ **Shipped (2026-04-11)** — `VerificationLevel` ADT (`VLAsserted`, `VLTested n`, `VLProven prover`) with custom `Ord` instance. `ContractStatus` tracks per-function pre/post levels. Trust-gap warnings for cross-module unproven calls. `(trust ...)` declaration silences warnings.
+
+**[CT]** ~~`--contracts` CLI flag (Item 8)~~ ✅ **Shipped (2026-04-11)** — `llmll build --contracts=full|unproven|none`. Strips contract clauses by mode.
+
+**[CT]** ~~`.verified.json` sidecar write (Item 9)~~ ✅ **Shipped (2026-04-11)** — `llmll verify` writes per-function `ContractStatus` with `VLProven "liquid-fixpoint"` to sidecar. Subsequent builds read sidecar to strip proven assertions.
+
+**[CT]** ~~`Promise[t]` upgrade: `IO t` → `Async t` (Item 14)~~ ✅ **Shipped (2026-04-11)** — `TPromise` emits `Async.Async`, `EAwait` emits `try (Async.wait ...)` with `SomeException` catch-all. Generated preamble imports `Control.Concurrent.Async` + `Control.Exception`. `package.yaml` includes `async` dependency. 10 regression tests.
+
+**[CT]** ~~`do`-notation sugar~~ ✅ **Shipped (PRs 1–3)** — see "Shipped" section above.
+
+---
+
+## v0.2 — Module System + Compile-Time Verification
+
+**Theme:** Make multi-file composition real and make contracts compile-time verified.
+
+### Internal Ordering (design team requirement)
+
+```text
+Phase 2a: Module System  →  Phase 2b: liquid-fixpoint verification  →  Phase 2c: Type System Fixes + Sketch API
+```
+
+Rationale: `def-invariant` + Z3 verification requires multi-file resolution as substrate. Cross-module invariant checking is meaningless without cross-module compilation.
+
+---
+
+### Phase 2a — Module System
+
+**[CT]** Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent. Compiler maintains a module cache; circular imports are a compile error with cycle listed in the diagnostic.
+
+**[CT]** Namespace isolation: each source file has its own top-level scope. Names from imported modules are prefixed by module path unless opened with `(open foo.bar)`.
+
+**[CT]** Cross-module `def-interface` enforcement: when module A imports module B and relies on B's implementation of an interface, the compiler verifies structural compatibility at import time.
+
+**[CT]** `llmll-hub` registry — `llmll hub fetch <package>@<version>` downloads a package and its `.ast.json` to the local cache. The compiler resolves `(import hub.<package>.<module> ...)` from the cache.
+
+**Acceptance criteria:**
+
+- A two-file program (A defines `def-interface`, B implements it) compiles and links.
+- Circular imports produce a diagnostic naming the import cycle.
+
+---
+
+### Phase 2b — Compile-Time Verification via liquid-fixpoint ✅ Shipped (2026-03-27)
+
+> **One-shot impact:** `pre`/`post` violations in the linear arithmetic fragment become compile-time errors. ~80% of practical contracts are decidable.
+
+**Design pivot (approved by language team):** Rather than integrating LiquidHaskell as a GHC plugin (fragile, version-locked), Phase 2b uses a **decoupled backend**: the compiler emits `.fq` constraint files directly from the LLMLL typed AST, then invokes `liquid-fixpoint` (the stable Z3-backed solver engine that LH sits on top of) as a standalone binary.
+
+#### D1 — Static `match` Exhaustiveness ✅
+
+**[CT]** Post-inference pass `checkExhaustive` — collects all ADT definitions from `STypeDef`, checks every `EMatch` covers all constructors, emits `DiagError` with kind `"non-exhaustive-match"` if any arm is missing.
+
+**Acceptance criteria — met:** `match` on `Color` with missing arm rejected at compile time. `Result[t,e]` with both arms accepted. Wildcard `_` satisfies exhaustiveness.
+
+#### D2 — `letrec` + `:decreases` Termination Annotation ✅
+
+**[CT]** `SLetrec` statement variant in `Syntax.hs`. Parser (`Parser.hs` + `ParserJSON.hs`) parse `(letrec name [params] :decreases expr body)` / JSON `{"kind": "letrec", "decreases": ...}`. Codegen emits `:decreases` comment marker. Self-recursive `def-logic` emits a non-blocking self-recursion warning.
+
+**Acceptance criteria — met:** `letrec` with `:decreases` parses and type-checks. Recursive `def-logic` emits warning.
+
+#### D3 — `?proof-required` Holes ✅
+
+**[CT]** `HProofRequired Text` constructor added to `HoleKind` in `Syntax.hs`. Auto-detection in `HoleAnalysis.hs`: non-linear contracts emit `?proof-required(non-linear-contract)`; complex `letrec :decreases` emit `?proof-required(complex-decreases)`. Codegen emits `error "proof-required"` — non-blocking.
+
+**Acceptance criteria — met:** `llmll holes` reports `?proof-required` with correct hint. `?proof-required` parses in S-expression form. JSON-AST `{"kind": "hole-proof-required"}` accepted.
+
+#### D4 — Decoupled `.fq` Verification Backend ✅
+
+**[CT]** Three new modules:
+
+| Module | Role |
+| ------ | ---- |
+| `LLMLL.FixpointIR` | ADT for `.fq` constraint language (sorts, predicates, refinements, binders, constraints, qualifiers) + text emitter |
+| `LLMLL.FixpointEmit` | Walks typed AST → `FQFile` + `ConstraintTable` (constraint ID → JSON Pointer). Covers QF linear integer arithmetic. Auto-synthesizes qualifiers from `pre`/`post`. |
+| `LLMLL.DiagnosticFQ` | Parses `fixpoint` stdout (SAFE / UNSAFE) → `[Diagnostic]` with `diagPointer` (RFC 6901 JSON Pointer) using `ConstraintTable`. |
+
+**[CT]** `llmll verify <file> [--fq-out FILE]` subcommand in `Main.hs`. Tries `fixpoint` and `liquid-fixpoint` binary names. Graceful degradation when not installed.
+
+**Prerequisites:** `stack install liquid-fixpoint` + `brew install z3`.
+
+**Acceptance criteria — met:**
+
+- `llmll verify hangman_sexp/hangman.llmll` → `✅ SAFE (liquid-fixpoint)`
+- JSON `--json verify` returns `{"success": true}`
+- Contract violation returns diagnostic with `diagPointer` referencing original `pre`/`post` clause
+- All 47 existing tests still pass
+
+---
+
+### Phase 2c — Type System Fixes + Sketch API ✅ Shipped (2026-03-28)
+
+**[SPEC]** and **[CT]** ~~Lift `pair-type` in `typed-param` limitation~~ ✅ **Shipped (2026-03-27)** — `[acc: (int, string)]` accepted in `def-logic` params, lambda params, and `for-all` bindings. Parsed as `TPair A B` (v0.3 PR 1 introduced `TPair` — the `TResult` approximation is obsolete). Workaround note removed from `LLMLL.md §3.2` and `getting-started.md §4.7`.
+
+**[CT]** ~~`llmll typecheck --sketch <file>`~~ ✅ **Shipped (2026-03-28)** — accepts a partial LLMLL program (holes allowed everywhere). Runs constraint-propagation type inference. Returns a JSON object mapping each hole's JSON Pointer to its inferred type (`null` if indeterminate) plus `holeSensitive`-annotated errors.
+
+**[CT]** ~~HTTP interface for agent use~~ ✅ **Shipped (2026-03-28)** — `llmll serve [--host H] [--port P] [--token T]`. Default: `127.0.0.1:7777`. Stateless per request; `--token` enables `Authorization: Bearer` auth; TLS delegated to reverse proxy.
+
+**[CT]** `--sketch` hole-constraint propagation (*language team design, 2026-03-27*) — `--sketch` must propagate checking types to hole expressions at all three sites where a peer expression provides the constraint:
+
+| Site | Constraint source | Implementation |
+| ---- | ----------------- | -------------- |
+| `EIf` then/else | sibling branch synthesises type `T`; hole branch checked against `T` | `inferExpr (EIf ...)` — try-and-fallback |
+| `EMatch` arms | non-hole arms unified to `T`; hole arms checked against `T` | two-pass arm loop (see below) |
+| `EApp` arguments | function signature via `unify` | ✅ already handled |
+| `ELet` binding RHS | explicit annotation | ✅ already handled |
+| `fn` / lambda body | outer checking context propagates inward | ✅ already handled |
+
+`EMatch` requires a **two-pass arm loop** in `inferExpr (EMatch ...)`:
+
+- Pass 1 — synthesise all non-hole arm bodies → unify to `T` (or emit type-mismatch error as today)
+- Pass 2 — check all hole arm bodies against `T`; record `T` as `inferredType` in sketch output
+
+If pass 1 unification fails (arm type conflict), `T` is indeterminate. `--sketch` reports the conflict as an `errors` entry with `"kind": "ambiguous-hole"` and records `inferredType: null` for hole arms — it does not fall silent.
+
+**[CT]** ~~N2 — `string-concat` arity hint~~ ✅ **Shipped (2026-03-27)** — arity mismatch on `string-concat` with actual > 2 now appends `— use string-concat-many for joining more than 2 strings`.
+
+**[CT]** ~~N3 — Strict key validation for JSON-AST `let` binding objects~~ ✅ **Shipped (2026-03-27)** — `parseLet1Binding` now fails explicitly on unexpected keys, emitting a clear error naming the offending key.
+
+**Acceptance criteria:**
+
+- `[acc: (int, string)]` in a lambda parameter list parses and type-checks without a workaround.
+- Given a partial program with three holes, `llmll typecheck --sketch` returns each hole's inferred type.
+- A type conflict in a partial program is reported even when the surrounding program is incomplete.
+- A hole in the `then` (or `else`) branch of an `if`, where the sibling branch synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
+- A hole in a `match` arm body, where at least one other arm synthesises type `T`, is reported by `--sketch` as `inferredType: T`.
+- A `match` where non-hole arms have conflicting types reports the conflict as an `errors` entry; hole arms in that `match` report `inferredType: "<conflict>"` rather than being omitted.
+- `(string-concat a b c)` arity error includes the `string-concat-many` hint.
+- A JSON-AST `let` binding object with an extra key produces a clear parse error naming the offending key.
+
+---
+
+## v0.1.3 — Type Alias Expansion ✅ Shipped (2026-03-21)
+
+**Theme:** Close the last spurious type-checker errors affecting every real program using dependent type aliases, and fix where-clause binding variable scope.
+
+### Deliverable — Structural Type Alias Resolution
+
+**Implemented in `TypeCheck.hs` (commit `9931a77`):**
+
+Instead of fixing `collectTopLevel` (which would break forward-reference resolution in function signatures), we took a lower-risk approach:
+
+- **Added `tcAliasMap :: Map Name Type` to `TCState`** — populated from all `STypeDef` bodies at the start of each type-check run.
+- **Added `expandAlias :: Type -> TC Type`** — looks up `TCustom n` in the alias map and returns the structural body; leaves all other types unchanged.
+- **`unify` now calls `expandAlias` on both `expected` and `actual`** before `compatibleWith`. The existing `compatibleWith (TDependent _ a _) b = compatibleWith a b` rule handles the rest automatically.
+
+`collectTopLevel` is unchanged — function signatures still register `TCustom name` for forward references, which is correct.
+
+**Also shipped alongside (commit `fa008b1`):**
+
+- **`where`-clause binding variable scope** — `TDependent` now carries the binding name; `TypeCheck.hs` uses `withEnv [(bindName, base)]` before inferring the constraint, eliminating `unbound variable 's'` / `'n'` false warnings.
+- **Parser**: `_foo` treated as a single `PVar` binder (not `PWildcard` + `foo`).
+- **Codegen**: `Error`→`Left`, `Success`→`Right` rewrite in `emitPat`; exhaustive `Left`+`Right` match suppresses redundant GHC warning.
+
+**Acceptance criteria — all met:**
+
+- ✅ `llmll check hangman_json`: **0 errors** (was 10: `expected GuessCount, got int` etc.)
+- ✅ `llmll check hangman_sexp`: **0 errors** (was ~10)
+- ✅ `llmll check tictactoe_json` / `tictactoe_sexp`: unaffected, still OK
+- ✅ `stack test`: **25 examples, 0 failures** (was 21; 4 new tests added)
+- ✅ `LLMLL.md §3.4` limitation block removed; replaced with accurate v0.1.2 description
+
+#### Post-ship bug fixes — round 1 (discovered via `examples/hangman_json/WALKTHROUGH.md`, 2026-03-21)
+
+| Bug | Location | Fix | Status |
+| --- | -------- | --- | ------ |
+| **P1** — `first`/`second` reject any explicitly-typed pair parameter with `expected Result[a,b], got <T>`; agent forced to use `"untyped": true` workaround on all state accessor params | `TypeCheck.hs`, `builtinEnv` | Changed `first`/`second` input from `TResult (TVar "a") (TVar "b")` to `TVar "p"` (fully polymorphic). Without a dedicated pair type in the AST, `TResult` was the wrong constraint — TVar unifies with any argument. | ✅ Fixed (`ef6f41c`) |
+| **P2** — `post` clause on a pair-returning function cannot project `result` via `first`/`second` (same root cause as P1) | Derived from P1 | Same fix | ✅ Fixed (`ef6f41c`) |
+| **P3** — `llmll test` skipped properties show opaque "requires full runtime evaluation" with no reason; agent cannot distinguish Command-skip from non-constant-skip | `PBT.hs`, `runProperty` | Added `bodyMentionsCommand` heuristic walk; skip message now names the specific cause | ✅ Fixed (`ef6f41c`) |
+
+#### Post-ship bug fixes — round 2 (discovered via hangman/tictactoe walkthroughs, 2026-03-22)
+
+| Bug | Location | Fix | Status |
+| --- | -------- | --- | ------ |
+| **B1** — `check` block labels with special chars (`(`, `)`, `+`, `?`) produce invalid Haskell `prop_*` identifiers; `stack build` fails with `Invalid type signature` | `CodegenHs.hs`, `emitCheck` | Added `sanitizeCheckLabel` — replaces all non-`[a-zA-Z0-9]` with `_`, collapses runs | ✅ Fixed (`880a8ad`) |
+| **B2** — `[a b c]` in S-expression expression position rejected with `unexpected '['`; agents read §13.5 list-literal docs and try this syntax | `Parser.hs`, `pExpr` | Added `pListLitExpr` — desugars `[expr ...]` to `foldr list-prepend (list-empty)`, symmetric with JSON-AST `lit-list` | ✅ Fixed (`880a8ad`) |
+| **N1** — `bodyMentionsCommand` prefix list included `"step"`, `"done"`, `"command"` — too broad, caused false-positive "Command-producing" skip reason for user-defined functions | `PBT.hs`, `bodyMentionsCommand` | Narrowed prefix list to `wasi./console./http./fs.` only | ✅ Fixed (`880a8ad`) |
+| **P2** — `ok`/`err` not in scope in generated `Lib.hs`; preamble only defined `llmll_ok`/`llmll_err` but codegen emits bare `ok`/`err` | `CodegenHs.hs`, preamble | Added `ok = Right` and `err = Left` short aliases to preamble | ✅ Fixed (`db8f7a6`) |
+| **P3** — Extra step rendered after game over; console harness checked `:done?` after `:step`, not before; one extra stdin read triggered a final render | `CodegenHs.hs`, `emitMainBody` | Restructured generated loop: `done? s` checked at top before `getLine` | ✅ Fixed (`db8f7a6`) |
+| **P1** — `llmll build` deadlocks when called from inside a running `stack exec llmll -- repl` session (Stack project lock contention) | `Main.hs`, `doBuild`/`doBuildFromJson` | Added `--emit-only` flag: writes Haskell files, skips internal `stack build` | ✅ Fixed (`38265af`) |
+| **C1** — `schemaVersion: "0.1.3"` in JSON-AST sources rejected with `schema-version-mismatch`; docs showed `0.1.3` but parser gated on `0.1.2` | `ParserJSON.hs`, `expectedSchemaVersion`; `docs/llmll-ast.schema.json` | Bumped `expectedSchemaVersion` and schema `const` from `"0.1.2"` to `"0.1.3"` | ✅ Fixed (`012b048`) |
+| **C2** — `:on-done` in S-expression `def-main` generated `show_result state0` after the `where` clause — a GHC parse error | `CodegenHs.hs`, `emitMainBody` | `doneGuard` now pattern-matches on `(mDone, mOnDone)` pair; when both present emits `if done? s then onDone s else do` inside the loop | ✅ Fixed (`012b048`) |
+| **C3** — `:on-done` in JSON-AST `def-main` silently omitted from generated `Main.hs` (same root cause as C2) | `CodegenHs.hs`, `emitMainBody` | Same fix as C2 — removed `onDoneBlock` list item that was erroneously placed after `where` | ✅ Fixed (`012b048`) |
+
+#### Post-ship bug fixes — round 3 (discovered via hangman re-implementation, 2026-03-23)
+
+| Bug | Location | Fix | Status |
+| --- | -------- | --- | ------ |
+| **B3** — `[...]` list literal in S-expression fails with `unexpected ']'` when used as a function argument inside an `if` branch body. Top-level `let` bindings and direct expressions work fine; the failure is specific to the nested call-inside-if position. `pListLitExpr` was added in B2 for expression position but the `pExpr` grammar inside if-`then`/`else` branches does not correctly disambiguate `]` from a surrounding parameter-list close when nesting is deep. | `Parser.hs`, `pExpr` / `pIf` | Fix: ensure `pListLitExpr` is tried with the correct bracket-depth context inside `pIf`. Alternatively, disambiguate by requiring list literals to be wrapped in parens when nested: `([ a b c ])`. Workaround: hoist list literals into `let` bindings before the `if` (see `getting-started.md §4.7`). JSON-AST is unaffected. | ⚠️ Cannot reproduce — retested 2026-03-23 against all developer-reported patterns (`hangman.llmll`, `tictactoe.llmll`, `wasi.io.stdout (string-concat-many [...])` inside `if`, nested `let`+`if`) — all pass ✅. May have been fixed as part of B2. Workaround in §4.7 is still good practice; bug remains documented in case it resurfaces. |
+| **N2** — `string-concat` arity errors (2 args required, >2 given) now suggest `string-concat-many`. | `TypeCheck.hs`, arity error path | Appended `— use string-concat-many for joining more than 2 strings` to the arity mismatch error when `func == "string-concat"` and `actual > expected`. | ✅ Fixed (2026-03-27) |
+| **N3** — JSON-AST `let` binding objects with extra keys silently accepted despite schema declaring `additionalProperties: false`. | `ParserJSON.hs`, `parseLet1Binding` | Added `Data.Aeson.KeyMap` key-whitelist check; fails with `let binding has unexpected keys: [...]` on any key outside `{"name", "expr"}`. | ✅ Fixed (2026-03-27) |
+
+---
+
+## v0.1.2 — Machine-First Foundation
+
+**Theme:** Close the two highest-priority one-shot failure modes: structural invalidity (parentheses drift) and codegen semantic drift (Rust impedance mismatch). No new language semantics.
+
+### Decision Record
+
+| Decision | Resolution |
+| -------- | ---------- |
+| Primary AI interface | JSON-AST (S-expressions remain, human-facing only) |
+| Codegen target | Switch from Rust to Haskell |
+| Algebraic effects library | `effectful` — committed, not revisited |
+| `Command` model | Move from opaque type to typed effect row (`Eff '[...]`) |
+| Python FFI tier | Dropped from formal spec |
+| Sandboxing | Docker + `seccomp-bpf` + `-XSafe` (WASM deferred to v0.4) |
+
+---
+
+### Deliverable 1 — JSON-AST Parser and Schema
+
+> **One-shot impact:** Eliminates structural invalidity as a failure mode entirely.
+
+**[CT]** `ParserJSON.hs` — new module. Ingests a `.ast.json` file validated against `docs/llmll-ast.schema.json` and produces the same `[Statement]` AST as `Parser.hs`. The two parsers must agree on every construct; any divergence is a bug.
+
+**[CT]** `llmll build --emit json-ast` — round-trip flag. Compiles an `.llmll` source and emits the equivalent validated JSON-AST. Used for S-expression ↔ JSON conversion and regression testing.
+
+**[CT]** JSON diagnostics — every compiler error becomes a JSON object with:
+
+- `"kind"`: error class (e.g., `"type-mismatch"`, `"undefined-name"`)
+- `"pointer"`: RFC 6901 JSON Pointer to the offending AST node
+- `"message"`: human-readable description
+- `"inferred-type"`: inferred type at the error site, if available
+
+**[CT]** `llmll holes --json` — lists all unresolved `?` holes as a JSON array. Each entry includes: hole kind, inferred type, module path, agent target (for `?delegate`), and (in v0.2) `?proof-required` complexity hint.
+
+**[CT]** Hole-density validator *(design team addition)* — a post-parse pass emitting a `WARNING` when a `def-logic` body is entirely a single `?name` hole. Threshold TBD; suggested starting value: warn when the hole-to-construct ratio across the entire body is 1.0. Nudges agents toward targeted holes rather than wholesale stubs.
+
+**[CT]** Round-trip regression suite — every `.llmll` example in `examples/` is run through `s-expr → JSON → s-expr → compile` and asserted semantically equivalent. Must pass before v0.1.2 ships.
+
+**[CT]** JSON Schema versioning — introduce `"schemaVersion"` field to `llmll-ast.schema.json`. The compiler rejects `.ast.json` files with an unrecognized version.
+
+**[SPEC]** Update `LLMLL.md §2` to document JSON-AST as a first-class source format.
+
+**Acceptance criteria:**
+
+- An LLM generating JSON against the schema cannot produce a structurally invalid LLMLL program.
+- `llmll build` and `llmll build --from-json` produce identical binaries for all examples.
+- `llmll holes --json` output is a valid JSON array parseable by `jq`.
+
+#### Post-ship bug fixes (discovered via `examples/hangman/walkthrough.md`)
+
+Three bugs were found by an AI developer during the Hangman JSON-AST implementation and fixed before v0.1.2 was considered complete:
+
+| Bug | Location | Fix | Status |
+| --- | -------- | --- | ------ |
+| **P1** — `build-json` passes `hangman.ast` (with dot) as Cargo crate name; `cargo` rejects it immediately | `Main.hs`, `doBuildFromJson` | Strip `.ast` suffix from `rawName` **before** passing `modName` to `generateRust` | ✅ Fixed |
+| **P2** — `builtinEnv` in `TypeCheck.hs` contained only 8 operator entries; all §13 stdlib calls (`string-length`, `list-map`, `first`, `second`, `range`, …) produced false-positive "unknown function" warnings, causing exit code 1 on every real program | `TypeCheck.hs`, `builtinEnv` | Seeded all ~25 §13 stdlib function signatures; polymorphic positions use `TVar "a"`/`TVar "b"` | ✅ Fixed |
+| **P4** — `llmll test` always read the file as `Text` and called the S-expression parser regardless of extension; `test hangman.ast.json` silently produced a parse error | `Main.hs`, `doTest` | Replace inline `TIO.readFile` + `parseSrc` with `loadStatements json fp` (same dispatcher used by `check`, `holes`, `build`) | ✅ Fixed |
+
+---
+
+### Deliverable 2 — Haskell Codegen Target
+
+> **One-shot impact:** Eliminates codegen semantic drift; makes v0.2 liquid-fixpoint verification a 2-week integration instead of a 3-month Z3 binding project.
+
+**[DESIGN — COMMITTED]** Effects library: `effectful`. Effect rows are type-visible in function signatures — AI agents can inspect what capabilities a function requires. This is a direct one-shot correctness gain, not merely an implementation preference.
+
+**[DESIGN — COMMITTED]** `Command` becomes a typed effect row. A function calling `wasi.http.response` without declaring the HTTP capability is a **type error** in generated Haskell, caught at compile time. This closes the v0.1.1 gap where missing capability declarations were silently accepted.
+
+**[CT]** Rename `Codegen.hs` → `CodegenHs.hs` (new module `LLMLL.CodegenHs`). Public symbol `generateRust` → `generateHaskell`; `CodegenResult` fields renamed (`cgRustSource` → `cgHsSource`, `cgCargoToml` → `cgPackageYaml`, etc.). Old `Codegen.hs` deprecated re-export shim deleted.
+
+**[CT]** Generated file layout **(v0.1.2 — single-module)**:
+
+> **Design decision:** For v0.1.2, all `def-logic`, type declarations, and interface definitions are emitted into a single `src/Lib.hs`. The multi-module split (`Logic.hs`, `Types.hs`, `Interfaces.hs`, `Capabilities.hs`) requires cross-module resolution and is deferred to v0.2 when the module system ships — tracked as a [CT] item in Phase 2c below.
+
+| File | Contents |
+| ---- | -------- |
+| `src/Lib.hs` | All `def-logic` functions, type declarations, `def-interface` type classes, and §13 stdlib preamble |
+| `src/Main.hs` | `def-main` harness (only if `SDefMain` present) |
+| `src/FFI/<Name>.hs` | `foreign import ccall` stubs, generated on demand for `c.*` imports |
+| `package.yaml` | hpack descriptor (replaces `Cargo.toml`) |
+
+**[CT]** LLMLL construct → generated Haskell (normative mapping):
+
+| LLMLL | Generated Haskell |
+| ----- | ----------------- |
+| `(def-logic f [x: int y: string] body)` | `f :: Int -> String -> <inferred>; f x y = body` |
+| `(type T (\| A int) (\| B string))` | `data T = A Int \| B String deriving (Eq, Show)` |
+| `Result[t,e]` | `Either e t` |
+| `Promise[t]` | `IO t` (upgraded to `Async t` in v0.3) |
+| `(def-interface I [m fn-type])` | `class I a where m :: fn-type` |
+| `Command` (effect) | `Eff '[<capability-row>] r` |
+| `(pre pred)` / `(post pred)` | liquid-fixpoint `.fq` constraints (v0.2); runtime `assert` wrappers (v0.1.2) |
+| `(check "..." (for-all [...] e))` | `QuickCheck.property $ \... -> e` |
+| `(import haskell.aeson ...)` | `import Data.Aeson` — no stub |
+| `(import c.libsodium ...)` | `foreign import ccall ...` in `src/FFI/Libsodium.hs` |
+| `?name` hole | `error "hole: ?name"` + inline `{- HOLE -}` comment with inferred type |
+| `?delegate @agent "..." -> T` | `error "delegate: @agent"` + JSON hole record in `llmll holes --json` |
+
+**[CT]** Revised two-tier FFI (Python tier excluded from spec):
+
+| Tier | Prefix | Mechanism | Stub? |
+| ---- | ------ | --------- | ----- |
+| 1 — Hackage | `haskell.*` | Regular `import`; added to `package.yaml` | No |
+| 2 — C | `c.*` | `foreign import ccall`; GHC FFI template generated | Yes |
+
+**[CT]** Sandboxing:
+
+```bash
+.llmll / .ast.json
+     │  llmll build
+     ▼
+Generated .hs  {-# LANGUAGE Safe #-}
+     │  GHC
+     ▼
+Native binary
+     │
+     ▼
+Docker container
+  ├── seccomp-bpf (syscall whitelist per declared capabilities)
+  ├── Read-only filesystem (writable only at declared paths)
+  ├── Network policy (declared URLs only)
+  └── LLMLL host runtime (interprets Eff commands, enforces capability list)
+```
+
+**[CT]** WASM compatibility proof-of-concept — compile the Hangman and Todo service generated `.hs` files with `ghc --target=wasm32-wasi`. Resolve any blockers before shipping. This validates that WASM remains on track for v0.4.
+
+**[SPEC]** Update `LLMLL.md §7`, `§9`, `§10`, `§14` to reflect Haskell target, typed effect row, and Docker sandbox. Add explicit language to `§14`: *"WASM-WASI is the primary long-term deployment target. Docker + seccomp-bpf is the v0.1.2–v0.3 sandbox. WASM is deferred to v0.4, not abandoned."*
+
+**Acceptance criteria:**
+
+- `llmll build examples/hangman.llmll` produces a runnable GHC binary that passes all `check` blocks.
+- A function calling `wasi.http.response` without the HTTP capability import produces a type error.
+- The WASM proof-of-concept report shows no structural blockers.
+
+---
+
+### Deliverable 3 — Minimal Surface Syntax Fixes
+
+> **One-shot impact:** Low — AI agents use JSON-AST. Fixes human ergonomics for test authors.
+
+**[SPEC]** and **[CT]**:
+
+| Current | Fixed |
+| ------- | ----- |
+| `(let [[x e1] [y e2]] body)` | `(let [(x e1) (y e2)] body)` |
+| `(list-empty)` / `(list-append l e)` | `[]` / `[a b c]` list literals |
+| `(pair a b)` | **unchanged** — current syntax is unambiguous |
+
+**[CT]** Parser disambiguation: `[...]` in *expression position* = list literal; `[...]` in *parameter-list position* (after function name in `def-logic` or `fn`) = parameter list. Rule documented in `LLMLL.md §12`.
+
+**[CT]** ~~Old `(let [[x 1] ...])` syntax emits a clear error with a migration message.~~ **Not implemented** — both `(x e)` and `[x e]` binding forms are accepted for backward compatibility (see `Parser.hs` `pLetBinding`).
+
+---
+
+## v0.3.5 — Agent Effectiveness (Shipped 2026-04-19)
+
+**Theme:** Make the existing multi-agent pipeline actually work end-to-end with high first-attempt success rates.
+
+> **Rationale:** All the compiler primitives exist (checkout, patch, holes, spec, verify). But no real orchestration session runs without heavy manual intervention. This release closes that gap.
+>
+> **Source:** Language team roadmap proposal (2026-04-19), approved with compiler team adjustments.
+
+### Parallel Track A: Orchestrator End-to-End (`llmll-orchestra` fill mode) — ~3 days
+
+> **Source:** [agent-orchestration.md](design/agent-orchestration.md), existing `tools/llmll-orchestra/`
+
+Complete the Python orchestrator to the point where it fills the auth module exercise without manual intervention.
+
+| # | Action | Status |
+|---|--------|--------|
+| O1 | `llmll-orchestra --mode fill auth_module.ast.json` fills both `?delegate @crypto-agent` holes | ✅ |
+| O2 | Retry with diagnostics (max 3 attempts, structured error feedback) | ✅ |
+| O3 | Lock expiry handling (re-queue, not crash) | ✅ |
+| O4 | Integration test: malformed patch → retry with diagnostics → success | ✅ |
+
+**Acceptance criteria:**
+
+- Two-agent auth module exercise completes end-to-end
+- Deliberately malformed patch triggers retry with diagnostics fed back to the agent
+- Report shows per-hole success/failure with attempt count
+
+### Parallel Track B: Context-Aware Checkout (Phase C) — ~5 days (C5 deferred)
+
+> **Source:** [`docs/design/agent-prompt-semantics-gap.md §4 Option C`](design/agent-prompt-semantics-gap.md)
+
+`llmll checkout` returns the local typing context alongside the lock token. This is the single highest-impact change for agent accuracy.
+
+| # | Action | Module | Status |
+|---|--------|--------|--------|
+| C1 | Extend `SketchHole` with `shEnv :: Map Name ScopeBinding` | `TypeCheck.hs` | ✅ |
+| C2 | Snapshot `gets tcEnv` in `recordHole` with provenance tagging | `TypeCheck.hs` | ✅ |
+| C3 | Serialize delta (`tcEnv \ builtinEnv`) in checkout response via `Main.hs` threading | `Checkout.hs`, `Main.hs` | ✅ |
+| C4 | Include `tcAliasMap` entries for `TCustom` types referenced by Γ or τ (`collectTypeDefinitions`) | `Checkout.hs` | ✅ |
+| C6 | `truncateScope` with priority-based retention + shadowing-safety invariant (INV-3) | `Checkout.hs` | ✅ |
+
+> [!NOTE]
+> **C5 (monomorphize polymorphic Σ signatures) included in v0.3.5.** C5 can be implemented as a `Map Name Type` substitution pass over the `available_functions` list in the checkout response: when Γ contains `xs : list[int]`, rewrite `list-head : list[a] → Result[a, string]` to `list-head : list[int] → Result[int, string]`. This is a straightforward find-and-replace, not unification. Implement after C1–C4 land. (~1 day)
+
+| # | Action | Module | Status |
+|---|--------|--------|--------|
+| C5 | Monomorphize polymorphic Σ signatures against concrete Γ types in checkout response via `Map Name Type` substitution (`monomorphizeFunctions`). INV-2: presentation-only, no `builtinEnv` mutation. | `Checkout.hs` | ✅ |
+
+**Acceptance criteria:**
+
+- `llmll checkout` response includes `in_scope`, `expected_return_type`, and `available_functions` fields
+- `available_functions` entries are monomorphized against concrete Γ types (e.g., `list-head : list[int] → Result[int, string]` when `xs : list[int]` is in scope)
+- Shadowed bindings are never exposed by truncation
+- Orchestrator agent prompt includes typing context from checkout
+
+### Integration Track: O5 — Checkout Context in Orchestrator (~1 day, after tracks A+B)
+
+| # | Action | Status |
+|---|--------|--------|
+| O5 | Context-aware checkout integration — consume C1–C4+C6 output in agent prompt | ✅ |
+
+### Counter-Example Display for Weak Specs — ~4 days
+
+> **Source:** [invariant-discovery.md §6](design/invariant-discovery.md)
+
+When a spec admits trivial implementations, show the trivial implementation as evidence.
+
+```
+⚠ Spec weakness detected for `sort-list`:
+  Your contract: (post (= (length result) (length input)))
+  Trivial valid implementation: (lambda [xs] xs)
+  Consider adding: (post (sorted result))
+```
+
+| # | Action | Module | Status |
+|---|--------|--------|--------|
+| W1 | `llmll verify --weakness-check` — after SAFE result, attempt trivial fills (identity, constant-zero, empty-string, true, empty-list) | New `WeaknessCheck.hs` | ✅ |
+| W2 | Emit structured diagnostic with the trivial implementation and `spec-weakness` kind (`mkSpecWeakness`) | `Diagnostic.hs` | ✅ |
+
+**Design note:** `WeaknessCheck.hs` constructs a synthetic `SDefLogic` (same params, same contract, trivial body e.g. `EVar "xs"` for identity), calls `emitFixpoint` on `[syntheticStmt]`, and checks for SAFE. `emitFixpoint :: FilePath -> [Statement] -> IO EmitResult` accepts a full statement list — the synthetic single-statement list is valid input. This does NOT require modifications to `FixpointEmit.hs`.
+
+**Acceptance criteria:**
+
+- `llmll verify --weakness-check` on `sort-list` with only `length-preserving` post detects identity as valid
+- Structured JSON diagnostic includes `trivial_implementation` and `suggested_postcondition` fields
+- WeaknessCheck does not require modifications to `FixpointEmit.hs`
+
+### Deferred items resolved
+
+| Item | Decision |
+|------|----------|
+| Q3 (orchestration events reusing Event Log) | Defer to v0.4 — orchestrator must stabilize first |
+| E1 (orchestration event JSONL schema) | Defer to v0.4 — no consumer until orchestrator stabilizes |
+| `domain_hints` on holes | Defer — existing metadata sufficient |
+| `type-reference` dependency edges | Defer — `calls-hole-body` sufficient for v0.3 orchestration |
+| `?delegate-async` fire-and-forget filtering | Defer — requires data-flow analysis |
+
+**Actual tests:** 211 → 225 Haskell (+14), 12 Python integration tests (all new)
+
+---
+
+## v0.4 — Lead Agent + U-Lite Soundness
+
+**Theme:** Close the last manual step (skeleton authoring) and fix the most visible soundness gap in unification.
+
+> **Source:** Language team roadmap proposal (2026-04-19). Algorithm W split into U-lite (v0.4) and U-full (v0.5) per compiler team review.
+
+### Lead Agent — Automated Skeleton Generation (~10 days, incremental)
+
+> **Source:** [lead-agent.md](design/lead-agent.md)
+
+Phased delivery shipping incrementally within v0.4:
+
+| Phase | Deliverable | Effort | Status |
+|-------|-------------|--------|--------|
+| Phase 0 | `--mode plan` — intent → structured architecture plan (JSON) | ~3 days | ☐ |
+| Phase 1 | `--mode lead` — plan → JSON-AST skeleton, validated by `llmll check`, quality heuristics | ~4 days | ☐ |
+| Phase 2 | `--mode auto` — lead → fill → verify in sequence | ~3 days | ☐ |
+
+**Acceptance criteria:**
+
+- `llmll-orchestra --mode auto --intent "Build an auth module..."` produces a filled, verified program
+- Quality heuristics flag: low parallelism, all-string types, missing contracts, unassigned agents
+- Lead Agent uses `llmll spec` output in its system prompt
+
+**Open questions (from lead-agent.md, to resolve during implementation):**
+
+- Q1: Same or different model for lead vs specialist? (Affects spec format — `llmll spec` is model-agnostic, JSON output may not be)
+- Q3: How to evaluate skeleton quality beyond type-correctness?
+- Q4: When quality heuristics fire (low parallelism, all-string types, missing contracts, unassigned agents), what does the Lead Agent do? Options: **(a)** reject and re-prompt with the specific heuristic failure (bounded to 2 retries), **(b)** accept with structured warnings in skeleton metadata, **(c)** auto-repair (e.g., add `(post true)` for missing contracts, assign `@general-agent` for unassigned holes). Decide during Phase 0 implementation.
+
+### U-Lite — Concrete Type Unification (~5 days)
+
+> **Source:** [agent-prompt-semantics-gap.md §1](design/agent-prompt-semantics-gap.md) — parametricity gap
+>
+> **Decision:** Algorithm W split into two phases (compiler team review, 2026-04-19). U-lite catches obvious type errors. U-full (v0.5) adds occurs check and let-generalization.
+>
+> **TDependent resolution (Language Team, 2026-04-19):** Strip-then-Unify (Option A). Unification strips `TDependent` to its base type; refinement constraints are NOT propagated through substitution. This formalizes existing `compatibleWith` behavior and preserves the two-layer architecture (types = structure, contracts = behavior). Full analysis: `algorithm_w_tdependent_resolution.md`.
+
+Replace `compatibleWith (TVar _) _ = True` with substitution-based unification **for concrete types only**. `TVar` still wildcards against other `TVar` to preserve existing polymorphic builtin behavior.
+
+#### Pre-implementation: Regression triage (P0-3)
+
+Before starting U-lite implementation:
+
+| # | Task |
+|---|------|
+| 1 | Run the full test suite with a **diagnostic-only** version of U-lite that logs substitution failures but doesn't change `compatibleWith` behavior. Count divergences. |
+| 2 | Classify each divergence: **(a)** true bug (currently silently accepted, will now correctly error), or **(b)** cosmetic (different message, same outcome). |
+| 3 | Produce an explicit list: "The following N programs currently type-check incorrectly. U-lite fixes them." This is the acceptance criterion. |
+| 4 | No `--legacy-compat` flag. If U-lite surfaces true bugs, those are bugs — not options. |
+
+#### Implementation steps
+
+| # | Action | Status |
+|---|--------|--------|
+| U1-lite | Add substitution map to unification: when `TVar "a"` first unifies with a concrete type `T`, record `a → T`. Subsequent uses of `TVar "a"` check against `T`. | ☐ |
+| U2-lite | Re-type `first`/`second` from `TVar "p" → TVar "a"` to `TPair a b → a` / `TPair a b → b` in `builtinEnv` | ☐ |
+| U3-lite | Ensure all 240+ existing tests still pass (divergence list from triage step) | ☐ |
+| U4-lite | Add tests for currently-silent type errors: `list-head 42`, `list-map 5 f` | ☐ |
+
+> [!WARNING]
+> **U2-lite (`first`/`second` retype) is prerequisite.** The current `TVar "p"` hack exists because the old unifier couldn't express the pair constraint. With substitution tracking, `first : TPair a b → a` works correctly.
+
+#### `letrec` handling
+
+> LLMLL's `letrec` has explicit type annotations. Under U-lite, the self-call unifies against the declared signature — no special treatment needed. Under U-full, `letrec` is not let-generalized (standard monomorphic recursion). The fixpoint emitter is unaffected — it emits constraints for the function boundary, not for recursive call sites.
+
+#### Alias-through-substitution ordering
+
+Under U-lite, the `unify` function must apply the current substitution before alias expansion:
+
+```haskell
+unify ctx expected actual = do
+    s <- getSubst
+    let expected' = applySubst s expected
+        actual'   = applySubst s actual
+    expected'' <- expandAlias expected'
+    actual''   <- expandAlias actual'
+    -- strip TDependent, then structural unify
+    unifyStructural ctx (stripDep expected'') (stripDep actual'')
+```
+
+> **Regression test:** Define `(type PositiveInt (where [x: int] (> x 0)))`. Call `list-head` on a `list[PositiveInt]`. Verify the result type is `Result[int, string]` (not `Result[PositiveInt, string]` — the dependent wrapper is stripped after alias expansion).
+
+**Acceptance criteria:**
+
+- `list-head 42` produces a type error (currently silently accepted)
+- `first (pair 1 "hello")` infers type `int` (not `TVar "a"`)
+- All existing examples and tests pass
+- Parametricity prompt note remains in agent prompt
+- Regression triage list reviewed and all true bugs documented
+
+**Explicitly deferred to U-full (v0.5):**
+
+- Occurs check
+- Let-generalization
+
+### CAP-1 — Capability Enforcement in TypeCheck.hs (~2 days)
+
+> **Source:** Professor critique P0-1 (2026-04-19). The spec (LLMLL.md §3.2, §10.7, §14) claimed `effectful` typed effect rows enforce capability safety at compile time. Verified false: `wasi.*` functions are unconditionally in `builtinEnv` and type-check without a matching `import`.
+
+When `wasi.*` functions are called, check that a matching `SImport` with a `Capability` is present in the module's statements. Emit a type error if not. This does NOT require `effectful` — it's a simple presence check.
+
+| # | Action | Status |
+|---|--------|--------|
+| CAP-1a | In `checkStatement (SExpr (EApp func args))`, if `func` starts with `wasi.`, verify a matching `SImport` exists in the module's statement list. | ☐ |
+| CAP-1b | Emit structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"` | ☐ |
+| CAP-1c | Test: program with `wasi.io.stdout` call and no `(import wasi.io ...)` → compile error | ☐ |
+
+### Invariant Pattern Registry (~3 days)
+
+> **Source:** [invariant-discovery-review.md §9](design/invariant-discovery-review.md)
+
+Extend `llmll typecheck --sketch` to emit invariant suggestions from a pattern registry keyed by `(type signature × function name pattern)`.
+
+| Pattern | Trigger | Suggested invariant |
+|---------|---------|---------------------|
+| `list[a] → list[a]` | Same element type | `(= (list-length result) (list-length input))` |
+| `encode`/`decode` pair | Complementary names | `(= (decode (encode x)) x)` |
+| Name contains "sort" | Semantic signal | `(sorted result)` ∧ `(permutation input result)` |
+| Idempotent operations | `f(f(x)) = f(x)` pattern | `(= (f (f x)) (f x))` |
+| Subset operations | `filter`, `take`, `drop` | `(<= (list-length result) (list-length input))` |
+
+**Acceptance criteria:**
+
+- `llmll typecheck --sketch` on a function with signature `list[a] → list[a]` emits at least one invariant suggestion
+- Suggestions are keyed by `(type signature, function name pattern)` and returned in a structured JSON field `invariant_suggestions`
+- Registry contains ≥5 patterns at launch (list-preserving, sorted, round-trip, subset, idempotent)
+- Adding a new pattern to the registry does not require recompilation — patterns stored as data, not code
+
+### Downstream Obligation Mining (~6 days)
+
+> **Source:** [invariant-discovery-review.md §4](design/invariant-discovery-review.md)
+
+When `llmll verify` reports UNSAFE at a cross-function boundary, extract the unsatisfied constraint and suggest a postcondition strengthening on the callee.
+
+```
+✗ Caller requires: uniqueIds(result)
+  Producer normalizeUsers does not guarantee this.
+  Candidate strengthening: postcondition uniqueIds(output)
+```
+
+Leverages existing `TrustReport.hs` transitive closure infrastructure.
+
+### JSON Parsing via Aeson FFI (~2 days)
+
+> **Source:** [agent-orchestration.md](design/agent-orchestration.md)
+
+Unblocks self-hosted orchestrator experimentation. Uses Haskell FFI tier:
+
+```lisp
+(import haskell.aeson Data.Aeson)
+```
+
+Codegen emits `import Data.Aeson` in `Lib.hs`, adds `aeson` to `package.yaml`. No new compiler module needed.
+
+> **Scoping note (P2-2):** v0.4 Aeson FFI requires a manual Haskell bridge file for JSON instance derivation (developer writes `FromJSON`/`ToJSON` instances). Auto-generation of `deriving (FromJSON, ToJSON)` from LLMLL type declarations is a **v0.7 codegen change**, not part of the v0.4 scope.
+
+### Orchestration Event Log Format (Q3 resolution)
+
+Formalize the orchestration event JSONL format defined as draft in v0.3.5:
+
+| # | Action | Status |
+|---|--------|--------|
+| EV1 | Finalize `orchestration-events-schema.json` | ☐ |
+| EV2 | `llmll-orchestra` emits events in the finalized format | ☐ |
+| EV3 | Add replay support for orchestration events (extend `llmll replay`) | ☐ |
+
+---
+
+## v0.5 — WASM Sandboxing + U-Full
+
+**Theme:** Replace Docker with WASM-WASI as the primary sandbox. Complete sound unification.
+
+> **Source:** [wasm-poc-report.md](wasm-poc-report.md) — conditional GO (v0.3.2 assessment). Isolated from the automation-loop work so external toolchain dependencies can't block v0.4.
+
+### WASM Build Target (~7 days)
+
+| Phase | Work | Effort | Status |
+|-------|------|--------|--------|
+| Phase 0 | Install `ghc-wasm-meta` + `wasmtime`, manual compile of hangman. **Must include `effectful` compatibility test.** | 1 day | ☐ |
+| Phase 1 | `--target wasm` flag, generate `.cabal` file, invoke `wasm32-wasi-cabal` | 2–3 days | ☐ |
+| Phase 2 | Strip check blocks for WASM, WASI capability import mapping | 2 days | ☐ |
+| Phase 3 | CI integration, setup script, docs | 1 day | ☐ |
+
+> [!WARNING]
+> **`effectful` library compatibility with GHC WASM backend is untested.** The v0.3.2 PoC compiled `hangman_json_verifier` which doesn't use `effectful`. A real WASM build with typed effect rows needs Phase 0 to explicitly validate `effectful`'s C shims under `wasm32-wasi`. If this fails, typed effect rows must be shimmed or deferred.
+
+**Acceptance criteria:**
+
+- `llmll build --target wasm examples/hangman_sexp/hangman.llmll` produces a `.wasm` binary
+- `wasmtime hangman.wasm` runs the game correctly
+- WASI capability imports align with LLMLL capability declarations
+- Typed effect rows (`effectful`) integrate with WASI import enforcement
+
+**Risk:** `ghc-wasm-meta` toolchain maintenance is low-bus-factor. If it falls behind GHC releases, this version slips without affecting anything else.
+
+### U-Full — Sound Unification (~5 days)
+
+> **TDependent resolution applied:** Strip-then-Unify (Option A, Language Team 2026-04-19). `TDependent` strips to base type during unification — no constraint propagation, no proof obligations. This is consistent with the two-layer architecture.
+
+Complete Algorithm W with occurs check and let-generalization.
+
+| # | Action | Status |
+|---|--------|--------|
+| U1-full | Occurs check in unification (`TVar "a"` cannot unify with `TList (TVar "a")`) | ☐ |
+| U2-full | Let-generalization for `def-logic` / `letrec` signatures | ☐ |
+| U3-full | Regression test sweep (all examples + tests) | ☐ |
+
+---
+
+## v0.6 — Specification Quality + Training
+
+**Theme:** Attack the acknowledged bottleneck — specification coverage and quality.
+
+> *"LLMLL does not require models to produce complete formal specifications. The remaining challenge is specification coverage — what gets specified at all."* — [strategic-positioning.md](design/strategic-positioning.md)
+
+### Synthetic Training Corpus (Hackage Back-Translation)
+
+> **Source:** [specification-sources.md §5](design/specification-sources.md)
+
+| Phase | Work |
+|-------|------|
+| 1 | Haskell-to-LLMLL transpiler for a subset of Hackage (type sigs, QuickCheck props, LH annotations) |
+| 2 | Spec lifting: infer contracts from implementations + tests |
+| 3 | Benchmark: measure agent hole-fill accuracy before/after fine-tuning |
+
+### Differential Implementation Pressure
+
+> **Source:** [invariant-discovery-review.md §3](design/invariant-discovery-review.md)
+
+`llmll checkout --multi` allows N agents to independently fill the same hole. Divergence analysis generates distinguishing inputs.
+
+### `def-interface :laws`
+
+> **Source:** [invariant-discovery-review.md §10](design/invariant-discovery-review.md)
+
+```lisp
+(def-interface Codec
+  [encode (fn [a] → string)]
+  [decode (fn [string] → Result[a, string])]
+  :laws [(for-all [x: a] (= (decode (encode x)) (ok x)))])
+```
+
+Algebraic law enforcement as a first-class language feature.
+
+### Spec-from-RFC Pipeline
+
+> **Source:** [specification-sources.md §1](design/specification-sources.md)
+
+For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts.
+
+---
+
+## v0.7 — Type-Driven + Self-Hosted (Research)
+
+**Theme:** Explore whether richer types fundamentally improve agent accuracy, and whether LLMLL can build itself.
+
+### Type-Driven Development (Minimal Experiment)
+
+> **Source:** [type-driven-development.md](design/type-driven-development.md)
+
+| Step | Work |
+|------|------|
+| 1 | Add `Vect n a` as a built-in indexed type |
+| 2 | Add `llmll split ?hole <variable>` CLI command |
+| 3 | Run an agent through 3-step type-driven fill of `safe-head` |
+| 4 | Compare accuracy vs contract-based approach |
+
+### Self-Hosted Orchestrator
+
+> **Source:** [agent-orchestration.md §Option B](design/agent-orchestration.md)
+
+Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisites: JSON parsing (v0.4), stable orchestration protocol, sufficient agent accuracy.
+
+---
+
+## Cross-Cutting Concerns
+
+### Items Tracked Across Versions
+
+| Item | Current Status | Next Action |
+|------|---------------|-------------|
+| Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Define schema and formalize in v0.4 |
+| MCP integration (Q5 from v0.3.3) | Deferred | Python v1 is CLI-only; MCP with self-hosted rewrite |
+| Real Leanstral integration | Mock-only since v0.3.1 | Blocked on `lean-lsp-mcp` availability |
+| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in TypeCheck.hs). v0.5: validate `effectful` WASM compat; align with WASI enforcement |
+| Spec coverage metric (`--spec-coverage`) | Proposed in invariant-discovery.md | Ship alongside invariant pattern registry in v0.4 |
+| Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
+| Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full may proceed. Revisit if v0.6 type-driven development changes architecture. |
+
+### What's NOT on this Roadmap (and why)
+
+| Item | Reason |
+|------|--------|
+| Rust codegen backend | Dropped in v0.1.2; Haskell is the permanent target |
+| Python FFI tier | Breaks WASM compatibility; dynamically typed |
+| Full Lean 4 proof agent from scratch | Replaced by Leanstral MCP integration |
+| UI/web frontend | LLMLL's target domains are backend, not UI |
+| IDE plugins (VS Code, etc.) | Premature — stabilize the CLI/HTTP interface first |
+
+---
+
+## Summary: Version Plan and Critical Path
+
+```
+v0.3.5 (NOW)       v0.4 (~6-8 wk)     v0.5 (~2 wk)    v0.6 (~3 mo)
+─────────────      ──────────────      ────────────    ────────────
+Context-aware      Lead Agent          WASM build      Synthetic corpus
+checkout (C1-C6)   (skeleton gen)      target          (Hackage back-
+                                                        translation)
+Orchestrator       U-lite              U-full
+end-to-end         (concrete type      (Algorithm W)   Differential impl.
+                   unification)                         pressure
+Weak-spec
+counter-examples   CAP-1 (capability   effectful       def-interface :laws
+                   enforcement)        WASI compat
+
+C5 (monomorphize)  Invariant registry
+                   Obligation mining                   Spec-from-RFC
+                   JSON parsing
+```
+
+The critical path is: **context-aware checkout → working orchestrator → Lead Agent**. WASM ships independently when the toolchain is ready — it can't block the automation pipeline. Algorithm W is split: U-lite (v0.4) catches the visible type errors; U-full (v0.5) adds occurs check and let-generalization. `TDependent` is resolved (Strip-then-Unify, Option A).
+
+### What Changed from LLMLL.md §14
+
+| Version | Original | Revised |
+| ------- | -------- | ------- |
+| **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + hole-density validator + Docker sandbox. `effectful` typed effect row **[UNIMPLEMENTED]** — `Command` emitted as plain `IO`. |
+| **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
+| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ + checkout/patch primitives ✅ — **12/12 shipped** |
+| **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **shipped** |
+| **v0.3.2** | 2026-04-16 | Trust hardening (`--trust-report`, cross-module propagation tests) + GHC WASM PoC — **shipped** |
+| **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) + **agent prompt semantic reference** (Phase A) — **shipped** |
+| **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec` (Phase B) + Spec Faithfulness property tests — **shipped** |
+| **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **planned** |
+| **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **planned** |
+| **v0.5** | *(new)* | WASM build target + **U-full Algorithm W** — **planned** |
+| **v0.6** | *(new)* | Spec quality: synthetic corpus, differential impl., `def-interface :laws` — **research** |
+| **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator — **research** |
+
+### Items Removed from Scope
+
+| Item | Reason |
+| ---- | ------ |
+| Rust FFI stdlib (`serde_json`, `clap`, etc.) | Replaced by native Hackage imports |
+| Z3 binding layer (build from scratch) | Replaced by decoupled liquid-fixpoint backend (no GHC plugin) |
+| Lean 4 proof agent (build from scratch) | Replaced by Leanstral MCP integration |
+| Python FFI tier | Breaks WASM compatibility; dynamically typed; dropped from spec |
+| Opaque `Command` type | Replaced by typed effect row (`Eff '[...]`) |

@@ -191,6 +191,8 @@ data TCState = TCState
   , tcTrusts         :: Map Name VerificationLevel -- ^ acknowledged trust declarations
   -- v0.3.5: Scope provenance tracking (Phase C)
   , tcProvenance     :: Map Name ScopeSource  -- ^ per-binding source classification for checkout context
+  -- v0.4: CAP-1 capability enforcement
+  , tcModuleStmts    :: [Statement]  -- ^ module's top-level statements, for capability import checks
   } deriving (Show)
 
 type TC a = State TCState a
@@ -279,13 +281,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [])
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode — collects hole types.
 runTCSketch :: TypeEnv -> TC a -> (a, TCState)
 runTCSketch env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty)
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [])
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -381,7 +383,7 @@ typeCheckWithCache cache baseEnv stmts =
       -- v0.3: merge contract status from all cached modules (qualified names)
       seededCS  = Map.foldlWithKey' seedStatus Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty)
+        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [])
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -412,7 +414,8 @@ checkStatements stmts = do
       -- v0.3: collect trust declarations into tcTrusts
       trustMap  = Map.fromList [(trustTarget s, trustLevel s) | s@STrust{} <- stmts]
   -- Populate alias map so expandAlias can resolve TCustom aliases in unify
-  modify $ \s -> s { tcAliasMap = aliasMap, tcTrusts = Map.union trustMap (tcTrusts s) }
+  -- v0.4 CAP-1: store top-level statements for capability checks in inferExpr
+  modify $ \s -> s { tcAliasMap = aliasMap, tcTrusts = Map.union trustMap (tcTrusts s), tcModuleStmts = stmts }
   withEnv topLevel $ do
     -- Second pass: check each statement with its RFC 6901 pointer context.
     -- Each segment is one RFC 6901 token: "statements" and "N" are separate.
@@ -574,6 +577,32 @@ checkStatement (SDefMain { defMainStep = stepE, defMainDone = doneE }) = do
         tcWarn ":done? should return bool; found non-bool type (ignored in v0.2)"
 
 -- ---------------------------------------------------------------------------
+-- v0.4 CAP-1: Capability Enforcement Helpers
+-- ---------------------------------------------------------------------------
+
+-- | Extract the WASI namespace from a fully-qualified function name.
+-- e.g., "wasi.io.stdout" → "wasi.io", "wasi.fs.write" → "wasi.fs"
+-- Takes the first two segments of the dotted path.
+extractWasiNamespace :: Name -> Name
+extractWasiNamespace func =
+  T.intercalate "." (take 2 (T.splitOn "." func))
+
+-- | CAP-1: Verify that a wasi.* function call has a matching capability import
+-- in the current module's statement list. Capabilities are non-transitive:
+-- module B importing module A does NOT inherit A's wasi capabilities.
+-- Emits a structured missing-capability error if no matching import is found.
+checkWasiCapability :: Name -> TC ()
+checkWasiCapability func = do
+  stmts <- gets tcModuleStmts
+  let namespace = extractWasiNamespace func
+      hasImport = any (matchesWasiImport namespace) stmts
+  unless hasImport $
+    modify $ \s -> s { tcErrors = tcErrors s ++ [mkMissingCapability func namespace] }
+  where
+    matchesWasiImport ns (SImport imp) = importPath imp == ns
+    matchesWasiImport _ _ = False
+
+-- ---------------------------------------------------------------------------
 -- Expression Type Inference
 -- ---------------------------------------------------------------------------
 
@@ -715,6 +744,10 @@ inferExpr (EMatch expr cases) = do
   pure $ if mConflict /= Nothing then TVar "?" else armT
 
 inferExpr (EApp func args) = do
+  -- v0.4 CAP-1: capability enforcement for wasi.* calls.
+  -- Check is here (in inferExpr, not checkStatement) because EApp can appear
+  -- in any nesting context: let RHS, if branches, match arms, do steps, contracts.
+  when ("wasi." `T.isPrefixOf` func) $ checkWasiCapability func
   mFuncTy <- tcLookup func
   let nArgs = length args
   -- D2: warn when a plain def-logic calls itself recursively without :decreases

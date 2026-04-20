@@ -2627,3 +2627,95 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case candidates of
         []    -> expectationFailure "expected at least one candidate"
         (c:_) -> wcPrecondition c `shouldBe` pre
+
+  -- =========================================================================
+  -- v0.4 CAP-1: Capability Enforcement Tests
+  -- =========================================================================
+  describe "CAP-1 capability enforcement" $ do
+
+    -- CAP-1c: wasi.io.stdout with no import → compile error
+    it "CAP-1c: wasi.io.stdout with no import produces missing-capability error" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic greet [name: string]"
+            , "  (wasi.io.stdout name))"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+              capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                                 (reportDiagnostics report)
+          length capErrors `shouldBe` 1
+          diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io.stdout"
+          diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io"
+
+    -- CAP-1d: wasi.io.stdout inside a let binding with no import → error
+    it "CAP-1d: wasi.io.stdout nested in let binding still caught" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic greet [name: string]"
+            , "  (let [(msg (wasi.io.stdout name))]"
+            , "    msg))"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+              capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                                 (reportDiagnostics report)
+          length capErrors `shouldBe` 1
+
+    -- CAP-1e: wasi.io.stdout with matching import → OK
+    it "CAP-1e: wasi.io.stdout with (import wasi.io ...) succeeds" $ do
+      -- Construct the import + function AST directly
+      let stmts =
+            [ SImport (Import "wasi.io" Nothing (Just (Capability CapWrite "*" True)))
+            , SDefLogic "greet" [("name", TString)] (Just (TCustom "Command"))
+                (Contract Nothing Nothing) (EApp "wasi.io.stdout" [EVar "name"])
+            ]
+          report = typeCheck emptyEnv stmts
+          capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                             (reportDiagnostics report)
+      capErrors `shouldBe` []
+
+    -- CAP-1f: wasi.fs.write with wasi.io import only → error (per-namespace)
+    it "CAP-1f: wasi.fs.write with only wasi.io import is per-namespace error" $ do
+      let stmts =
+            [ SImport (Import "wasi.io" Nothing (Just (Capability CapWrite "*" True)))
+            , SDefLogic "write-file" [("path", TString), ("content", TString)] (Just (TCustom "Command"))
+                (Contract Nothing Nothing) (EApp "wasi.fs.write" [EVar "path", EVar "content"])
+            ]
+          report = typeCheck emptyEnv stmts
+          capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                             (reportDiagnostics report)
+      length capErrors `shouldBe` 1
+      diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.fs"
+
+    -- CAP-1g: Cross-module non-transitive capability enforcement
+    it "CAP-1g: cross-module wasi call without own import is error (non-transitive)" $ do
+      -- Module A has wasi.io import and exports a helper
+      let modAStmts =
+            [ SImport (Import "wasi.io" Nothing (Just (Capability CapRead "*" True)))
+            , SDefLogic "print-msg" [("msg", TString)] (Just (TCustom "Command"))
+                (Contract Nothing Nothing) (EApp "wasi.io.stdout" [EVar "msg"])
+            , SExport ["print-msg"]
+            ]
+          modAEnv = ModuleEnv
+            { meExports = DM.fromList [("print-msg", TFn [TString] (TCustom "Command"))]
+            , meStatements = modAStmts
+            , meInterfaces = DM.empty
+            , meAliasMap = DM.empty
+            , mePath = ["helpers"]
+            , meContractStatus = DM.empty
+            }
+          cache = DM.fromList [( ["helpers"], modAEnv)]
+          -- Module B imports helpers, calls wasi.io.stdout directly without own import
+          callerStmts =
+            [ SDefLogic "caller" [("s", TString)] (Just (TCustom "Command"))
+                (Contract Nothing Nothing) (EApp "wasi.io.stdout" [EVar "s"])
+            ]
+          report = typeCheckWithCache cache emptyEnv callerStmts
+          capErrors = filter (\d -> diagKind d == Just "missing-capability")
+                             (reportDiagnostics report)
+      -- Module B has no wasi.io import → error (non-transitive)
+      length capErrors `shouldBe` 1
+      diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io"
