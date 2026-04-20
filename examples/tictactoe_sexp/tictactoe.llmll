@@ -5,6 +5,8 @@
 ;; State accessors
 ;; ---------------------------------------------------------------------------
 
+(import wasi.io (capability stdout :deterministic false))
+
 (def-logic state-board [s]
   (first s))
 

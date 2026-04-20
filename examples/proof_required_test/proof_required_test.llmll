@@ -11,6 +11,8 @@
 ;;   3. llmll verify proof_required_test.llmll (second run)
 ;;      → verify certificate read from cache, no re-call
 
+(import wasi.io (capability stdout :deterministic false))
+
 (def-logic safe-div [n: int d: int]
   ?proof-required)
 

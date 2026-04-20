@@ -4,6 +4,9 @@
 ;;   guessed     : list[string] — letters guessed so far (1-char strings)
 ;;   wrong-count : int          — number of wrong guesses
 ;;   max-wrong   : int          — maximum allowed wrong guesses (6)
+;; ─── Capability imports (v0.4 CAP-1) ────────────────────────────────────────
+
+(import wasi.io (capability stdout :deterministic false))
 
 ;; ─── Dependent types ───────────────────────────────────────────────────────
 
@@ -17,17 +20,22 @@
   (where [n: int] (>= n 0)))
 
 ;; ─── State accessors ───────────────────────────────────────────────────────
+;; State = (string, (list[string], (int, int)))
+;;   word : first
+;;   guessed : first . second
+;;   wrong-count : first . second . second
+;;   max-wrong : second . second . second
 
-(def-logic state-word [s: string]
+(def-logic state-word [s: (string, (list[string], (int, int)))]
   (first s))
 
-(def-logic state-guessed [s: string]
+(def-logic state-guessed [s: (string, (list[string], (int, int)))]
   (first (second s)))
 
-(def-logic state-wrong [s: string]
+(def-logic state-wrong [s: (string, (list[string], (int, int)))]
   (first (second (second s))))
 
-(def-logic state-max [s: string]
+(def-logic state-max [s: (string, (list[string], (int, int)))]
   (second (second (second s))))
 
 ;; ─── State constructor ─────────────────────────────────────────────────────
@@ -73,18 +81,18 @@
         (letters (list-map indices (fn [i: int] (string-char-at word i))))]
     (list-fold letters true (fn [acc c] (and acc (list-contains guessed c))))))
 
-(def-logic game-won? [s: string]
+(def-logic game-won? [s: (string, (list[string], (int, int)))]
   (all-guessed? (state-word s) (state-guessed s)))
 
-(def-logic game-lost? [s: string]
+(def-logic game-lost? [s: (string, (list[string], (int, int)))]
   (>= (state-wrong s) (state-max s)))
 
-(def-logic is-game-over? [s: string]
+(def-logic is-game-over? [s: (string, (list[string], (int, int)))]
   (or (game-won? s) (game-lost? s)))
 
 ;; ─── Render current board ──────────────────────────────────────────────────
 
-(def-logic render-board [s: string]
+(def-logic render-board [s: (string, (list[string], (int, int)))]
   (let [(art    (gallows-art (state-wrong s)))
         (disp   (display-word (state-word s) (state-guessed s)))
         (wrong  (state-wrong s))
@@ -107,7 +115,7 @@
 
 ;; ─── Step ──────────────────────────────────────────────────────────────────
 
-(def-logic game-loop [s: string input: string]
+(def-logic game-loop [s: (string, (list[string], (int, int))) input: string]
   (let [(trimmed (string-trim input))
         (letter  (if (> (string-length trimmed) 0)
                      (string-char-at trimmed 0)
@@ -135,7 +143,7 @@
 
 ;; ─── On-done ───────────────────────────────────────────────────────────────
 
-(def-logic show-result [s: string]
+(def-logic show-result [s: (string, (list[string], (int, int)))]
   (let [(won    (game-won? s))
         (prefix (if won "You won! The word was: " "Game over! The word was: "))
         (msg    (string-concat prefix (string-concat (state-word s) "\n")))]

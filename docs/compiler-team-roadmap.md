@@ -59,6 +59,8 @@ Phased delivery shipping incrementally within v0.4:
 
 Replace `compatibleWith (TVar _) _ = True` with substitution-based unification **for concrete types only**. `TVar` still wildcards against other `TVar` to preserve existing polymorphic builtin behavior.
 
+> **Substitution scope (Language Team review, 2026-04-20):** Per-call-site with fresh type variable instantiation at each `EApp`. Each call to a polymorphic function gets its own α-renamed type variables and a local substitution map. The substitution does NOT escape the `EApp` boundary. This prevents cross-call conflicts (e.g., `list-head xs` binding `a → int` would incorrectly block `list-head ys` where `ys : list[string]` if scoping were per-function).
+
 #### Pre-implementation: Regression triage (P0-3)
 
 Before starting U-lite implementation:
@@ -68,16 +70,20 @@ Before starting U-lite implementation:
 | 1 | Run the full test suite with a **diagnostic-only** version of U-lite that logs substitution failures but doesn't change `compatibleWith` behavior. Count divergences. |
 | 2 | Classify each divergence: **(a)** true bug (currently silently accepted, will now correctly error), or **(b)** cosmetic (different message, same outcome). |
 | 3 | Produce an explicit list: "The following N programs currently type-check incorrectly. U-lite fixes them." This is the acceptance criterion. |
-| 4 | No `--legacy-compat` flag. If U-lite surfaces true bugs, those are bugs — not options. |
+| 4 | Assess `TSumType` wildcarding impact: `compatibleWith (TSumType _) (TSumType _) = True` conflates all sum types. Run with fix, count breakage. If no breakage, include in U-lite. If breakage, defer to U-full with documented test case. (Language Team §6.1, 2026-04-20) |
+| 5 | No `--legacy-compat` flag. If U-lite surfaces true bugs, those are bugs — not options. |
 
 #### Implementation steps
 
 | # | Action | Status |
 |---|--------|--------|
-| U1-lite | Add substitution map to unification: when `TVar "a"` first unifies with a concrete type `T`, record `a → T`. Subsequent uses of `TVar "a"` check against `T`. | ☐ |
+| U1-lite | Per-call-site substitution with fresh type variable instantiation at each `EApp`: α-rename all `TVar`s in the looked-up function signature, create a local substitution map, unify arguments against freshened parameter types. Substitution map does NOT escape the `EApp` boundary. | ☐ |
 | U2-lite | Re-type `first`/`second` from `TVar "p" → TVar "a"` to `TPair a b → a` / `TPair a b → b` in `builtinEnv` | ☐ |
-| U3-lite | Ensure all 240+ existing tests still pass (divergence list from triage step) | ☐ |
+| U3-lite | Ensure all 225+ existing tests still pass (divergence list from triage step) | ☐ |
 | U4-lite | Add tests for currently-silent type errors: `list-head 42`, `list-map 5 f` | ☐ |
+| U5-lite | Test per-call-site scoping: `list-map [1,2,3] (fn [x: string] x)` → type error (element type mismatch caught by per-call-site substitution). (Language Team verification requirement, 2026-04-20) | ☐ |
+| U6-lite | Regression test: `(type PositiveInt (where [x: int] (>= x 0)))`, `list-head` on `list[PositiveInt]` → `Result[int, string]` (alias expansion + stripDep). | ☐ |
+| U7-lite | If TSumType triage (pre-implementation step 4) shows no breakage: fix `TSumType` wildcarding in `compatibleWith`. | ☐ |
 
 > [!WARNING]
 > **U2-lite (`first`/`second` retype) is prerequisite.** The current `TVar "p"` hack exists because the old unifier couldn't express the pair constraint. With substitution tracking, `first : TPair a b → a` works correctly.
@@ -107,6 +113,7 @@ unify ctx expected actual = do
 
 - `list-head 42` produces a type error (currently silently accepted)
 - `first (pair 1 "hello")` infers type `int` (not `TVar "a"`)
+- `list-map [1,2,3] (fn [x: string] x)` produces a type error (per-call-site substitution)
 - All existing examples and tests pass
 - Parametricity prompt note remains in agent prompt
 - Regression triage list reviewed and all true bugs documented
@@ -115,18 +122,27 @@ unify ctx expected actual = do
 
 - Occurs check
 - Let-generalization
+- `TVar-TVar` wildcard closure (accepted for U-lite per Language Team review 2026-04-20; must close in U-full)
 
 ### CAP-1 — Capability Enforcement in TypeCheck.hs (~2 days)
 
 > **Source:** Professor critique P0-1 (2026-04-19). The spec (LLMLL.md §3.2, §10.7, §14) claimed `effectful` typed effect rows enforce capability safety at compile time. Verified false: `wasi.*` functions are unconditionally in `builtinEnv` and type-check without a matching `import`.
+>
+> **Check location (Language Team review, 2026-04-20):** The check must go in `inferExpr (EApp ...)` — the single convergence point for all function calls. Placing it in `checkStatement (SExpr (EApp ...))` would miss `wasi.*` calls nested inside `let`, `if`, `match`, `do`, or contract expressions.
+>
+> **Capability propagation (Language Team review, 2026-04-20):** Non-transitive (module-local). Module B must re-declare `(import wasi.io ...)` even if it only calls `wasi.*` via a function imported from module A. This matches the principle of least authority. Requires LLMLL.md §7 update.
 
-When `wasi.*` functions are called, check that a matching `SImport` with a `Capability` is present in the module's statements. Emit a type error if not. This does NOT require `effectful` — it's a simple presence check.
+When `wasi.*` functions are called, check that a matching `SImport` with a `Capability` is present in the module's statements. Emit a type error if not. This does NOT require `effectful` — it's a simple presence check. Thread module statements through `TCState` so `inferExpr` can access them.
 
 | # | Action | Status |
 |---|--------|--------|
-| CAP-1a | In `checkStatement (SExpr (EApp func args))`, if `func` starts with `wasi.`, verify a matching `SImport` exists in the module's statement list. | ☐ |
+| CAP-1a | In `inferExpr (EApp func args)`, if `func` starts with `wasi.`, verify a matching `SImport` exists in the module's statement list (accessed via `TCState`). Covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, contract expressions. | ☐ |
 | CAP-1b | Emit structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"` | ☐ |
-| CAP-1c | Test: program with `wasi.io.stdout` call and no `(import wasi.io ...)` → compile error | ☐ |
+| CAP-1c | Test: `wasi.io.stdout` call with no `(import wasi.io ...)` → compile error | ☐ |
+| CAP-1d | Test: `wasi.io.stdout` inside a `let` binding with no import → error (nested call coverage) | ☐ |
+| CAP-1e | Test: `wasi.io.stdout` with `(import wasi.io ...)` → OK (positive case) | ☐ |
+| CAP-1f | Test: `wasi.fs.write` with `(import wasi.io ...)` but no `wasi.fs` import → error (per-namespace) | ☐ |
+| CAP-1g | Test: Module A imports `wasi.io`; Module B imports Module A, calls `wasi.io.stdout` → error (non-transitive) | ☐ |
 
 ### Invariant Pattern Registry (~3 days)
 
@@ -990,13 +1006,14 @@ Docker container
 
 | Item | Current Status | Next Action |
 |------|---------------|-------------|
-| Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Define schema and formalize in v0.4 |
+| Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Deferred to v0.4.1 or v0.5 — let orchestrator stabilize before formalizing schema (compiler + language team, 2026-04-20) |
 | MCP integration (Q5 from v0.3.3) | Deferred | Python v1 is CLI-only; MCP with self-hosted rewrite |
 | Real Leanstral integration | Mock-only since v0.3.1 | Blocked on `lean-lsp-mcp` availability |
-| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in TypeCheck.hs). v0.5: validate `effectful` WASM compat; align with WASI enforcement |
+| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: validate `effectful` WASM compat; align with WASI enforcement |
 | Spec coverage metric (`--spec-coverage`) | Proposed in invariant-discovery.md | Ship alongside invariant pattern registry in v0.4 |
 | Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
 | Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full may proceed. Revisit if v0.6 type-driven development changes architecture. |
+| `TSumType` wildcarding in `compatibleWith` | Unsound: any sum type compatible with any other sum type (Language Team §6.1, 2026-04-20) | Triage during U-Lite regression analysis. Fix in U-Lite if no breakage; defer to U-Full otherwise. |
 
 ### What's NOT on this Roadmap (and why)
 
