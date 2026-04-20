@@ -1,0 +1,51 @@
+[
+  {
+    "id": "list-preserving",
+    "description": "Functions that transform a list but preserve its length",
+    "type_signature": {
+      "params": [{"kind": "list", "elem": "a"}],
+      "returns": {"kind": "list", "elem": "a"}
+    },
+    "name_pattern": ".*",
+    "suggestion": "(= (list-length result) (list-length input))",
+    "valid_for": ">=0.4"
+  },
+  {
+    "id": "sorted",
+    "description": "Sorting functions should produce sorted output",
+    "type_signature": {
+      "params": [{"kind": "list", "elem": "a"}],
+      "returns": {"kind": "list", "elem": "a"}
+    },
+    "name_pattern": ".*sort.*",
+    "suggestion": "(sorted result)",
+    "valid_for": ">=0.4"
+  },
+  {
+    "id": "round-trip",
+    "description": "Encode/decode pairs should round-trip",
+    "type_signature": null,
+    "name_pattern": "^(encode|serialize|compress|marshal|pack)$",
+    "suggestion": "(= (decode (encode x)) x)",
+    "valid_for": ">=0.4"
+  },
+  {
+    "id": "subset",
+    "description": "Filtering/slicing functions produce a subset",
+    "type_signature": {
+      "params": [{"kind": "list", "elem": "a"}],
+      "returns": {"kind": "list", "elem": "a"}
+    },
+    "name_pattern": ".*(filter|take|drop|slice|remove).*",
+    "suggestion": "(<= (list-length result) (list-length input))",
+    "valid_for": ">=0.4"
+  },
+  {
+    "id": "idempotent",
+    "description": "Normalization/deduplication should be idempotent",
+    "type_signature": null,
+    "name_pattern": ".*(normalize|canonicalize|dedupe|dedup|unique|trim|clean).*",
+    "suggestion": "(= (f (f x)) (f x))",
+    "valid_for": ">=0.4"
+  }
+]

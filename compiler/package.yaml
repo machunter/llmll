@@ -94,6 +94,8 @@ library:
     - LLMLL.AgentSpec
     # v0.3.5: weak-spec counter-example generation
     - LLMLL.WeaknessCheck
+    # v0.4: invariant pattern registry
+    - LLMLL.InvariantRegistry
 
 executables:
   llmll:

@@ -56,6 +56,7 @@ import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
+import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
 import LLMLL.Contracts (ContractsMode(..), applyContractsMode)
@@ -1116,7 +1117,7 @@ doTypecheck json fp True  = do
     Right (ss, cache, _) -> do
       -- Seed env with cross-module names then run sketch inference
       let seededEnv = Map.foldlWithKey' seedModule emptyEnv cache
-          result    = runSketch seededEnv ss
+          result    = runSketch seededEnv ss defaultPatterns
       -- encodeSketchResult produces schemaVersion + sorted errors + structured fields
       BLC.putStrLn (encodeSketchResult result)
       exitSuccess

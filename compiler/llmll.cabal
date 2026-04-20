@@ -44,6 +44,7 @@ library
       LLMLL.TrustReport
       LLMLL.AgentSpec
       LLMLL.WeaknessCheck
+      LLMLL.InvariantRegistry
   other-modules:
       Main
       Paths_llmll
@@ -101,6 +102,7 @@ executable llmll
       LLMLL.FixpointIR
       LLMLL.HoleAnalysis
       LLMLL.Hub
+      LLMLL.InvariantRegistry
       LLMLL.JsonPointer
       LLMLL.LeanTranslate
       LLMLL.Lexer

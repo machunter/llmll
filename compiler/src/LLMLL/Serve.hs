@@ -49,6 +49,7 @@ import System.Random (randomRIO)
 import LLMLL.Parser (parseStatements)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch)
+import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (DiagnosticReport(..), Diagnostic(..))
 import LLMLL.Sketch (encodeSketchResult, SketchResult(..))
 import LLMLL.Syntax (Statement)
@@ -202,7 +203,7 @@ handleSketch req = do
         Left msg -> pure $ respond400 msg
         Right stmts ->
           -- Fresh runSketch call per request; trivially concurrent (no shared state)
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts defaultPatterns
           in pure $ respondOK (encodeSketchResult result)
 
 -- ---------------------------------------------------------------------------

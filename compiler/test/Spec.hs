@@ -8,7 +8,8 @@ import qualified Data.Text.IO as TIO
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
+import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole, emitEventLogPreamble)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
@@ -757,7 +758,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case findHole "?informal" result of
             Nothing -> expectationFailure "?informal hole not recorded"
             Just h  -> do
@@ -772,7 +773,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case findHole "?zero_case" result of
             Nothing -> expectationFailure "?zero_case hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleTyped TInt
@@ -789,7 +790,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case findHole "?blue_label" result of
             Nothing -> expectationFailure "?blue_label hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleTyped TString
@@ -806,7 +807,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case findHole "?conflict_arm" result of
             Nothing -> expectationFailure "?conflict_arm hole not recorded"
             Just h  -> case shStatus h of
@@ -825,7 +826,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           let ambigErrs = filter (T.isInfixOf "ambiguous-hole" . diagMessage) (sketchErrors result)
           ambigErrs `shouldSatisfy` (not . null)
 
@@ -837,7 +838,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case findHole "?arg" result of
             Nothing -> expectationFailure "?arg hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleTyped TInt
@@ -848,7 +849,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case findHole "?isolated" result of
             Nothing -> expectationFailure "?isolated hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleUnknown
@@ -863,7 +864,7 @@ main = hspec $ do
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
           reportSuccess report `shouldBe` True
-          let skRes = runSketch emptyEnv stmts
+          let skRes = runSketch emptyEnv stmts []
           sketchHoles skRes `shouldBe` []
 
   -- -----------------------------------------------------------------------
@@ -897,7 +898,7 @@ main = hspec $ do
           -- the synthesis produces no type mismatch.  Verify at least that
           -- holeSensitive = False errors are NOT emitted here (no spurious
           -- certain errors should appear for a well-typed partial program).
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           let certainErrs = filter (\d -> diagSeverity d == SevError && not (diagHoleSensitive d)) (sketchErrors result)
           certainErrs `shouldBe` []
 
@@ -909,7 +910,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           -- ?impl should be recorded as HoleUnknown (synthesis context)
           let holes = sketchHoles result
           holes `shouldSatisfy` (not . null)
@@ -928,7 +929,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case filter ((== "?informal") . shName) (sketchHoles result) of
             []    -> expectationFailure "?informal hole not recorded"
             (h:_) -> shPointer h `shouldBe` "/statements/0/body/else"
@@ -945,7 +946,7 @@ main = hspec $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case filter ((== "?blue_label") . shName) (sketchHoles result) of
             []    -> expectationFailure "?blue_label hole not recorded"
             (h:_) -> shPointer h `shouldBe` "/statements/1/body/arms/2/body"
@@ -960,7 +961,7 @@ main = hspec $ do
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
           reportSuccess report `shouldBe` True
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           sketchHoles result `shouldBe` []
 
 
@@ -2450,7 +2451,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case filter ((== "?else_hole") . shName) (sketchHoles result) of
             []    -> expectationFailure "?else_hole not recorded"
             (h:_) -> do
@@ -2467,7 +2468,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case filter ((== "?greeting") . shName) (sketchHoles result) of
             []    -> expectationFailure "?greeting not recorded"
             (h:_) -> do
@@ -2485,7 +2486,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           case filter ((== "?body") . shName) (sketchHoles result) of
             []    -> expectationFailure "?body not recorded"
             (h:_) -> do
@@ -2506,7 +2507,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts
+          let result = runSketch emptyEnv stmts []
           -- The Blue arm's hole should have a match-arm env (the constructor pattern)
           -- Note: Blue is a nullary constructor, so no pattern bindings are introduced.
           -- The important thing is that the hole is correctly recorded.
@@ -2833,3 +2834,49 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
           report = typeCheck emptyEnv stmts
       reportSuccess report `shouldBe` True
+
+  -- =========================================================================
+  -- v0.4 Task 7: Invariant Pattern Registry
+  -- =========================================================================
+  describe "Invariant Pattern Registry" $ do
+
+    it "list[a] -> list[a] function gets list-preserving suggestion" $ do
+      let ty = TFn [TList TInt] (TList TInt)
+      let results = matchPatterns "my-transform" ty defaultPatterns
+      let ids = map isPatternId results
+      ids `shouldSatisfy` elem "list-preserving"
+
+    it "sort-items with list[a] -> list[a] gets sorted + list-preserving" $ do
+      let ty = TFn [TList TString] (TList TString)
+      let results = matchPatterns "sort-items" ty defaultPatterns
+      let ids = map isPatternId results
+      ids `shouldSatisfy` elem "sorted"
+      ids `shouldSatisfy` elem "list-preserving"
+
+    it "filter-by with list[a] -> list[a] gets subset + list-preserving" $ do
+      let ty = TFn [TList TInt] (TList TInt)
+      let results = matchPatterns "filter-by" ty defaultPatterns
+      let ids = map isPatternId results
+      ids `shouldSatisfy` elem "subset"
+      ids `shouldSatisfy` elem "list-preserving"
+
+    it "int -> int function gets no suggestions" $ do
+      let ty = TFn [TInt] TInt
+      let results = matchPatterns "add-one" ty defaultPatterns
+      results `shouldBe` []
+
+    it "encode function gets round-trip suggestion" $ do
+      let ty = TFn [TString] TString
+      let results = matchPatterns "encode" ty defaultPatterns
+      let ids = map isPatternId results
+      ids `shouldSatisfy` elem "round-trip"
+
+    it "runSketch with defaultPatterns returns invariant suggestions" $ do
+      let stmts =
+            [ SDefLogic "my-sort" [("xs", TList TInt)] (Just (TList TInt))
+                (Contract Nothing Nothing) (EVar "xs")
+            ]
+          result = runSketch emptyEnv stmts defaultPatterns
+          ids = map isPatternId (sketchInvariants result)
+      ids `shouldSatisfy` elem "sorted"
+      ids `shouldSatisfy` elem "list-preserving"
