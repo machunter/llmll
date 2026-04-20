@@ -249,9 +249,72 @@ class TestJsonParsing:
 
 class TestLeadAgentDryRun:
 
-    def test_dry_run_call_llm(self):
-        """DryRunAgent._call_llm returns stub JSON."""
+    def test_dry_run_call_llm_fill_mode(self):
+        """DryRunAgent.call_llm returns stub patch array for hole-filling prompts."""
         agent = DryRunAgent()
-        raw = agent._call_llm("system", "user prompt")
+        raw = agent.call_llm("You are a code filler.", "Fill this hole")
         result = json.loads(raw)
         assert isinstance(result, list)
+
+    def test_dry_run_call_llm_plan_mode(self):
+        """DryRunAgent.call_llm returns stub plan dict for plan generation prompts.
+        Fixes Issue #1 from Language Team review."""
+        agent = DryRunAgent()
+        raw = agent.call_llm("You are the LLMLL Lead Agent. Your job is to decompose a software intent into a structured architecture plan.", "Build an auth module")
+        result = json.loads(raw)
+        assert isinstance(result, dict)
+        assert "modules" in result
+        assert len(result["modules"]) > 0
+        # Verify the stub plan passes quality checks
+        from llmll_orchestra.quality import check_plan_quality
+        blocking = [q for q in check_plan_quality(result) if q.blocking]
+        assert len(blocking) == 0, f"Stub plan has blocking issues: {blocking}"
+
+    def test_plan_to_ast_with_contracts(self):
+        """Plan with contracts generates AST with contract field."""
+        plan = {
+            "modules": [{
+                "name": "validated",
+                "functions": [{
+                    "name": "positive-add",
+                    "params": [{"name": "x", "type": "int"}, {"name": "y", "type": "int"}],
+                    "returns": "int",
+                    "agent": "@filler",
+                    "contracts": {"pre": "(> x 0)", "post": "(> result 0)"},
+                    "description": "Add positive numbers",
+                }],
+                "imports": [],
+                "exports": [],
+            }],
+        }
+        ast = _plan_to_ast(plan)
+        defn = [s for s in ast["statements"] if s["kind"] == "def-logic"][0]
+        assert "contract" in defn
+        assert defn["contract"]["pre"] == "(> x 0)"
+        assert defn["contract"]["post"] == "(> result 0)"
+
+    def test_wasi_io_capability_is_stdout(self):
+        """wasi.io import gets 'stdout' capability, not a generic name."""
+        plan = {"modules": [{"name": "io", "functions": [], "imports": ["wasi.io"]}]}
+        ast = _plan_to_ast(plan)
+        imp = [s for s in ast["statements"] if s["kind"] == "import"][0]
+        assert imp["capability"]["name"] == "stdout"
+
+    def test_wasi_fs_capability_is_filesystem(self):
+        """wasi.fs import gets 'filesystem' capability, not 'stdout'.
+        Fixes Issue #3 from Language Team review."""
+        plan = {"modules": [{"name": "fs", "functions": [], "imports": ["wasi.fs"]}]}
+        ast = _plan_to_ast(plan)
+        imp = [s for s in ast["statements"] if s["kind"] == "import"][0]
+        assert imp["capability"]["name"] == "filesystem"
+
+    def test_generate_plan_dry_run(self):
+        """DryRunAgent + LeadAgent.generate_plan succeeds (E2E dry-run)."""
+        from unittest.mock import MagicMock
+        agent = DryRunAgent()
+        compiler = MagicMock()
+        compiler.spec.return_value = None
+        lead = LeadAgent(agent=agent, compiler=compiler)
+        plan = lead.generate_plan("Build a calculator")
+        assert isinstance(plan, dict)
+        assert "modules" in plan

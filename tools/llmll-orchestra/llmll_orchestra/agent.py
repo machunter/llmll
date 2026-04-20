@@ -283,8 +283,11 @@ class Agent:
                 )
         return self._client
 
-    def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        """Low-level LLM call. Returns raw text response."""
+    def call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Send a prompt to Claude and return the raw text response.
+
+        Public API used by both fill_hole() and LeadAgent.generate_plan().
+        """
         client = self._get_client()
         try:
             message = client.messages.create(
@@ -305,7 +308,7 @@ class Agent:
         """Send a hole to Claude and parse the response as a JSON-Patch."""
         prompt = build_prompt(hole, context)
         try:
-            raw = self._call_llm(self.system_prompt, prompt)
+            raw = self.call_llm(self.system_prompt, prompt)
         except AgentError as e:
             return AgentResponse(success=False, raw_response="", error=str(e))
         return _parse_patch_response(raw)
@@ -342,8 +345,11 @@ class OpenAIAgent:
                 )
         return self._client
 
-    def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        """Low-level LLM call. Returns raw text response."""
+    def call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Send a prompt to OpenAI and return the raw text response.
+
+        Public API used by both fill_hole() and LeadAgent.generate_plan().
+        """
         client = self._get_client()
         try:
             response = client.chat.completions.create(
@@ -366,7 +372,7 @@ class OpenAIAgent:
         """Send a hole to OpenAI and parse the response as a JSON-Patch."""
         prompt = build_prompt(hole, context)
         try:
-            raw = self._call_llm(self.system_prompt, prompt)
+            raw = self.call_llm(self.system_prompt, prompt)
         except AgentError as e:
             return AgentResponse(success=False, raw_response="", error=str(e))
         return _parse_patch_response(raw)
@@ -382,9 +388,35 @@ class DryRunAgent:
     def __init__(self, system_prompt: str | None = None):
         self.system_prompt = system_prompt or SYSTEM_PROMPT
 
-    def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        """Dry-run: returns a stub JSON response."""
-        return '[{"op": "replace", "path": "/stub", "value": {"kind": "lit-string", "value": "<stub>"}}]'
+    _STUB_PLAN = json.dumps({
+        "modules": [{
+            "name": "stub",
+            "functions": [{
+                "name": "stub-fn",
+                "params": [{"name": "x", "type": "int"}],
+                "returns": "int",
+                "agent": "@stub",
+                "description": "Stub function for dry-run mode",
+            }],
+            "imports": [],
+            "exports": ["stub-fn"],
+        }],
+        "metadata": {"intent": "dry-run", "version": "0.4"},
+    })
+
+    _STUB_PATCH = '[{"op": "replace", "path": "/stub", "value": {"kind": "lit-string", "value": "<stub>"}}]'
+
+    def call_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Dry-run: returns context-aware stub response.
+
+        Returns a stub plan dict when the system prompt mentions 'plan' or
+        'architecture' (Lead Agent mode), otherwise returns a stub patch array
+        (hole-filling mode). Fixes Issue #1 from Language Team review.
+        """
+        prompt_lower = system_prompt.lower()
+        if "plan" in prompt_lower or "architecture" in prompt_lower:
+            return self._STUB_PLAN
+        return self._STUB_PATCH
 
     def fill_hole(
         self,

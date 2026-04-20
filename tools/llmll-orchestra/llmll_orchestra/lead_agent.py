@@ -122,7 +122,7 @@ class LeadAgent:
         for attempt in range(1, max_retries + 2):  # +2 because range is exclusive
             self._log(f"Plan generation attempt {attempt}")
 
-            raw = self.agent._call_llm(system, user_prompt)
+            raw = self.agent.call_llm(system, user_prompt)
 
             # Parse JSON (strip markdown fences if present)
             plan = _parse_json_response(raw)
@@ -208,7 +208,10 @@ def _plan_to_ast(plan: dict) -> dict:
         for imp in module.get("imports", []):
             stmt: dict[str, Any] = {"kind": "import", "path": imp}
             if imp.startswith("wasi."):
-                stmt["capability"] = {"name": "stdout", "deterministic": False}
+                # Derive capability name from import path: wasi.io → stdout, wasi.fs → filesystem
+                cap_map = {"wasi.io": "stdout", "wasi.fs": "filesystem", "wasi.http": "http"}
+                cap_name = cap_map.get(imp, imp.split(".")[-1])
+                stmt["capability"] = {"name": cap_name, "deterministic": False}
             statements.append(stmt)
 
         # Add exports
