@@ -65,9 +65,10 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson)
+import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..))
 import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
+import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -87,7 +88,7 @@ data Command
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -218,6 +219,8 @@ optionsParser = info (helper <*> opts) $
             <> help "v0.3.2: Print transitive trust summary instead of running fixpoint")
       <*> switch (long "weakness-check"
             <> help "v0.3.5: After SAFE, check if trivial implementations also satisfy contracts")
+      <*> switch (long "obligations"
+            <> help "v0.4: On UNSAFE, suggest postcondition strengthenings on callees")
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -294,7 +297,7 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck -> doVerify json fp mFqOut lsOpts trustRpt weakCheck
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -909,8 +912,8 @@ doHubScaffold json template mOutDir = do
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> IO ()
-doVerify json fp mFqOut lsOpts trustReport weaknessCheck = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> IO ()
+doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -973,8 +976,15 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck = do
             else case fqResult of
               FQSafe ->
                 TIO.putStrLn $ "\x2705 " <> T.pack fp <> " \8212 SAFE (liquid-fixpoint)"
-              FQUnsafe _ ->
+              FQUnsafe _ -> do
                 mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
+                -- v0.4: --obligations mode
+                when obligations $ do
+                  let trustRpt = buildTrustReport _cache stmts
+                      oblSugs  = mineObligations table fqResult trustRpt stmts
+                  if json
+                    then TIO.putStrLn (formatObligationsJson oblSugs)
+                    else TIO.putStr (formatObligations oblSugs)
               FQError e ->
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
 

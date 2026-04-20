@@ -38,6 +38,8 @@ module LLMLL.CodegenHs
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.List (nub, intercalate)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 
 import LLMLL.Syntax
 
@@ -171,8 +173,26 @@ emitLibHs _modName hackagePkgs stmts = T.unlines $
   ] ++
   map emitStmt (filter (not . isDefMain) stmts)
 
+-- | Map haskell.<pkg> short names to their actual Haskell module paths.
+-- Unknown packages fall back to capitalize-and-join.
+hackageModuleMap :: Map Text Text
+hackageModuleMap = Map.fromList
+  [ ("aeson",       "Data.Aeson")
+  , ("text",        "Data.Text")
+  , ("bytestring",  "Data.ByteString")
+  , ("containers",  "Data.Map.Strict")
+  , ("vector",      "Data.Vector")
+  , ("time",        "Data.Time")
+  , ("directory",   "System.Directory")
+  , ("filepath",    "System.FilePath")
+  , ("process",     "System.Process")
+  ]
+
 hackageImportLine :: Text -> Text
-hackageImportLine pkg = "import " <> pkgToModule pkg
+hackageImportLine pkg =
+  case Map.lookup pkg hackageModuleMap of
+    Just modPath -> "import " <> modPath
+    Nothing      -> "import " <> pkgToModule pkg  -- fallback: capitalize segments
   where
     pkgToModule p = T.intercalate "." (map capitalise (T.splitOn "." p))
     capitalise t  = case T.uncons t of

@@ -1200,12 +1200,12 @@ runSketch env stmts patterns =
        , sketchInvariants = invariants
        }
   where
-    matchStmt env' (SDefLogic name params mRetType _ _) =
+    matchStmt _ (SDefLogic name params mRetType _ _) =
       let paramTypes = map snd params
           retType    = fromMaybe (TCustom "_") mRetType
           fnType     = TFn paramTypes retType
       in matchPatterns name fnType patterns
-    matchStmt env' (SLetrec name params mRetType _ _ _) =
+    matchStmt _ (SLetrec name params mRetType _ _ _) =
       let paramTypes = map snd params
           retType    = fromMaybe (TCustom "_") mRetType
           fnType     = TFn paramTypes retType
