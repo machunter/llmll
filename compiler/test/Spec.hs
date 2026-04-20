@@ -11,7 +11,7 @@ import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, emitExpr, toHsType, emitHole, emitEventLogPreamble)
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
@@ -2880,3 +2880,26 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           ids = map isPatternId (sketchInvariants result)
       ids `shouldSatisfy` elem "sorted"
       ids `shouldSatisfy` elem "list-preserving"
+
+  -- =========================================================================
+  -- v0.4 Task 9: Aeson FFI codegen
+  -- =========================================================================
+  describe "Aeson FFI Codegen" $ do
+
+    it "haskell.aeson generates 'import Data.Aeson' in Lib.hs" $ do
+      let stmts = [SImport (Import "haskell.aeson" Nothing Nothing)]
+          result = generateHaskell "test" stmts
+      cgHsSource result `shouldSatisfy` T.isInfixOf "import Data.Aeson"
+
+    it "haskell.aeson adds aeson to package.yaml dependencies" $ do
+      let stmts = [SImport (Import "haskell.aeson" Nothing Nothing)]
+          result = generateHaskell "test" stmts
+      cgPackageYaml result `shouldSatisfy` T.isInfixOf "aeson"
+
+    it "unknown haskell.foo falls back to 'import Foo'" $ do
+      let stmts = [SImport (Import "haskell.foo" Nothing Nothing)]
+          result = generateHaskell "test" stmts
+      cgHsSource result `shouldSatisfy` T.isInfixOf "import Foo"
+
+    it "classifyImport recognizes haskell.aeson as HackageImport" $ do
+      classifyImport (Import "haskell.aeson" Nothing Nothing) `shouldBe` HackageImport "aeson"
