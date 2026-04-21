@@ -346,7 +346,7 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 
 ---
 
-# Shipped Releases
+# Earlier Releases
 
 ## v0.3.5 — Agent Effectiveness ✅ (Shipped 2026-04-19)
 
