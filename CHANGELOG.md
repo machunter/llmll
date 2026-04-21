@@ -2,6 +2,69 @@
 
 ---
 
+## v0.5.0 — U-Full Soundness (2026-04-21)
+
+### Compiler
+
+- **Occurs check** — `TVar "a"` cannot unify with a type that contains itself (e.g., `list[TVar "a"]`). Prevents infinite type construction. `occursIn` helper is structurally total over the `Type` ADT, including `TSumType`.
+- **Let-generalization** — Top-level `def-logic` and `letrec` functions are let-generalized: each call site gets fresh type variable instantiation. Inner `let`-bound lambdas are not generalized (deferred to v0.7).
+- **TVar-TVar wildcard closure** — Type variable bindings now propagate through chains. Closes the gap where `TVar "a" ~ TVar "b"` followed by `TVar "b" ~ int` would leave `TVar "a"` unresolved.
+- **Bound-TVar consistency fix** — Recursive `structuralUnify` replaces `compatibleWith` at L1044 for bound type variable comparison (Language Team Issue 2).
+- **L1055 asymmetric wildcard** — Documented as safe under per-call-site scoping (Language Team Issue 3). Each `EApp` gets fresh type variables, so the asymmetry does not leak across call boundaries.
+
+### Spec (LLMLL.md)
+
+- §3.2 — U-Full type variable note added
+- §4.17 — New section in `getting-started.md` documenting occurs check and let-generalization with examples
+- §10.7 — Pipeline notes updated with v0.5.0 entry
+- §14 — v0.5.0 roadmap section marked ✅ Shipped
+
+**Tests:** 257 → 264 Haskell (+7 U-Full), 37 Python (unchanged).
+
+---
+
+## v0.4.0 — Lead Agent + U-Lite Soundness (2026-04-20)
+
+### Compiler — Lead Agent
+
+- **`llmll-orchestra --mode plan`** — Intent-to-architecture-plan generation. Produces structured JSON plan from natural language intent.
+- **`llmll-orchestra --mode lead`** — Plan-to-skeleton generation. Produces validated JSON-AST skeleton with typed `def-interface` boundaries and `?` holes.
+- **`llmll-orchestra --mode auto`** — End-to-end pipeline: plan → skeleton → fill → verify in sequence.
+- **Quality heuristics** — Skeleton quality checks flag: low parallelism, all-string types, missing contracts, unassigned agents.
+
+### Compiler — U-Lite Soundness
+
+- **Per-call-site substitution-based unification** — Each `EApp` gets fresh type variable instantiation via α-renaming. Substitution map does not escape the `EApp` boundary. `list-head 42` is now correctly rejected as a type error.
+- **`first`/`second` retyped** — From `TVar "p" → TVar "a"` to `TPair a b → a` / `TPair a b → b` in `builtinEnv`. `first 42` is now a type error.
+- **TDependent resolution** — Strip-then-Unify (Option A). `TDependent` strips to base type during unification — no constraint propagation, no proof obligations. Formalizes existing `compatibleWith` behavior.
+
+### Compiler — CAP-1 Capability Enforcement
+
+- **Compile-time capability check** — `wasi.*` function calls without a matching `(import wasi.* (capability ...))` in the module's statement list produce a type error. Check is in `inferExpr (EApp ...)`, covering all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, contract expressions.
+- **Non-transitive propagation** — Each module must declare its own capability imports. Module B cannot inherit Module A's capabilities.
+
+### Compiler — Invariant Pattern Registry
+
+- **`InvariantRegistry.hs`** — New module. Pattern database keyed by `(type signature, function name pattern)`. ≥5 patterns: list-preserving, sorted, round-trip, subset, idempotent.
+- **`llmll typecheck --sketch`** — Now emits `invariant_suggestions` field from the pattern registry.
+
+### Compiler — Downstream Obligation Mining
+
+- **`ObligationMining.hs`** — New module. When `llmll verify` reports UNSAFE at a cross-function boundary, suggests postcondition strengthening on the callee. Leverages `TrustReport.hs` transitive closure infrastructure.
+
+### Compiler — Aeson FFI
+
+- **`(import haskell.aeson Data.Aeson)`** — Codegen emits `import Data.Aeson` + adds `aeson` to `package.yaml`. Manual Haskell bridge file required for JSON instance derivation.
+
+### Orchestrator
+
+- **`lead_agent.py`** — Lead Agent skeleton generation with plan/lead/auto modes.
+- **`quality.py`** — Skeleton quality heuristics module.
+
+**Tests:** 225 → 257 Haskell (+32), 12 → 37 Python (+25).
+
+---
+
 ## v0.3.5 — Agent Effectiveness (2026-04-19)
 
 ### Track B: Context-Aware Checkout (C1–C6)
