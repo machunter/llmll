@@ -25,7 +25,7 @@
 
 > *"LLMLL does not require models to produce complete formal specifications. The remaining challenge is specification coverage — what gets specified at all."* — [strategic-positioning.md](design/strategic-positioning.md)
 >
-> **External review (2026-04-21):** Five items added to v0.6 based on reviewer feedback. Items 1–2 (spec coverage gate, frozen benchmark) are P0 — they close the gap between "interesting compiler" and "credible system." Items 3–5 (provenance, hub query, Leanstral claim) are P1/P2. Total added effort: ~15 days across 6 weeks, parallelizable with existing v0.6 research items.
+> **External review (2026-04-21):** Five items added to v0.6 based on reviewer feedback, plus four hardening items from follow-up review. P0 items (spec coverage gate, frozen benchmarks) close the gap between "interesting compiler" and "credible system." P1/P2 items (provenance, hub query, Leanstral claim, suppression governance, claim-to-evidence table) tighten accountability. Total added effort: ~21 days across 6 weeks, parallelizable with existing v0.6 research items.
 
 ### Spec Coverage Gate (P0, ~2.5 days) — NEW
 
@@ -40,12 +40,26 @@
 | SC-3 | Make coverage threshold a parameter in `--mode lead` / `--mode auto` (default: 80%, overridable via `--min-spec-coverage`). | 0.5 day | ☐ |
 | SC-4 | Blocking behavior: `--mode auto` fails if effective coverage < threshold. `--mode lead` emits structured warning with list of unspecified functions. | 0.5 day | ☐ |
 
+#### Suppression Governance (`weakness-ok`) — NEW
+
+> **Source:** External reviewer follow-up (2026-04-21). Without accountability, teams can game the coverage gate by marking away the hard parts. Every `(weakness-ok ...)` suppression must carry a reason and appear prominently in trust output.
+
+**Policy (enforced by SC-1 implementation):**
+
+1. `(weakness-ok fn-name "reason")` — the reason string is **required** (parser rejects bare `weakness-ok` without reason).
+2. `--spec-coverage` output lists all `weakness-ok` suppressions with their reasons under a separate "Intentional Underspecification" heading.
+3. `--trust-report` output includes a `suppressions` section listing all `weakness-ok` declarations with reasons.
+4. `weakness-ok` functions count toward `effective_coverage` numerator but are visually distinguished (e.g., `⊘` marker vs `✓` for contracted functions).
+5. CI-gated benchmarks (BM-4, BM2-4) must include at least one `weakness-ok` function and verify it appears correctly in trust output.
+
 **Acceptance criteria:**
 
 - `llmll verify --spec-coverage` on a program with 7 functions (4 contracted, 1 `weakness-ok`, 2 unspecified) reports `effective_coverage: 71%`
 - `llmll-orchestra --mode auto` with `--min-spec-coverage 80` fails on the above program
 - `llmll-orchestra --mode auto` with `--min-spec-coverage 70` succeeds
 - Unspecified functions are listed by name in the coverage report
+- `weakness-ok` suppressions are listed with reasons in both `--spec-coverage` and `--trust-report` output
+- A `(weakness-ok fn-name)` without a reason string is a parse error
 
 ### Frozen ERC-20 Benchmark (P0, ~5 days) — NEW
 
@@ -59,7 +73,7 @@
 | BM-4 | Add CI gate: `make benchmark-erc20` runs `--weakness-check`, `--spec-coverage`, `--trust-report`, compares against frozen expected output | 1 day | ☐ |
 | BM-5 | Write `examples/erc20_token/WALKTHROUGH.md` — end-to-end: external spec → LLMLL contracts → verified code → weakness detection → downstream obligation → strengthened contract → re-verification | 1 day | ☐ |
 
-**Verification scoping (honest labeling per spec-adequacy-closure.md §Risk 2):**
+**Verification-Scope Matrix (mandatory artifact — see policy below):**
 
 | ERC-20 property | Verification level | Why |
 |---|---|---|
@@ -78,6 +92,57 @@
 - SC-4: `balance-of` (pure accessor) not falsely flagged by `--weakness-check`
 - SC-6: Walkthrough documents the full pipeline end-to-end
 - SC-7: `--weakness-check` completes in under 30 seconds
+- **SC-8: Verification-scope matrix is included as a published artifact in `EXPECTED_RESULTS.json` and `WALKTHROUGH.md`** (see verification-scope policy below)
+
+### Second Frozen Benchmark: RFC 6238 TOTP (P1, ~5 days) — NEW
+
+> **Source:** External reviewer follow-up (2026-04-21). One benchmark can look cherry-picked. The one-pager lists encryption, financial compliance, and protocol implementation as target domains. A second benchmark from a non-token domain strengthens the evaluation story.
+
+**Domain:** Time-based One-Time Password (TOTP) per [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238). This exercises:
+- **Cryptographic standard translation** — HMAC-SHA1 truncation, time-step computation
+- **Protocol compliance** — test vectors from RFC 6238 §A.1 serve as external ground truth
+- **Mixed verification levels** — arithmetic (time step division, modular truncation) is provable; HMAC correctness is asserted (outside QF-LIA)
+
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| BM2-1 | Implement `examples/totp_rfc6238/totp.ast.json` — TOTP skeleton with contracts derived from RFC 6238 | 1.5 days | ☐ |
+| BM2-2 | Implement `examples/totp_rfc6238/totp_filled.ast.json` — filled version with verified contracts | 1 day | ☐ |
+| BM2-3 | Add `examples/totp_rfc6238/EXPECTED_RESULTS.json` — frozen ground truth including verification-scope matrix | 0.5 day | ☐ |
+| BM2-4 | Add CI gate: `make benchmark-totp` runs `--weakness-check`, `--spec-coverage`, `--trust-report`, compares against frozen expected output | 1 day | ☐ |
+| BM2-5 | Write `examples/totp_rfc6238/WALKTHROUGH.md` — RFC clause traceability via `:source` annotations | 1 day | ☐ |
+
+**Verification-Scope Matrix (mandatory artifact):**
+
+| TOTP property | Verification level | Why |
+|---|---|---|
+| Time step computation (`floor((T - T0) / X)`) | **Proven** (QF-LIA) | Integer division |
+| Dynamic truncation offset (`result mod 10^d`) | **Proven** (QF-LIA) | Modular arithmetic |
+| HMAC-SHA1 correctness | **Asserted** | Cryptographic hash — outside decidable fragment |
+| RFC 6238 §A.1 test vectors | **Tested** (QuickCheck) | Known-answer tests from the standard |
+
+**Acceptance criteria:**
+
+- All RFC 6238 §A.1 test vectors pass
+- `--spec-coverage` reports 100% contract coverage
+- `--trust-report` shows mixed verification levels (proven + asserted + tested)
+- `:source` annotations trace each contract to a specific RFC 6238 section
+- Verification-scope matrix is a published artifact
+
+### Verification-Scope Matrix Policy — NEW
+
+> **Source:** External reviewer follow-up (2026-04-21). The one-pager's credibility depends on proven/asserted/tested distinctions staying concrete and visible. Every flagship example must publish what is actually verified.
+
+**Policy (applies to all examples in `examples/` and all walkthroughs in `docs/`):**
+
+1. Every example directory containing verified contracts must include a **verification-scope matrix** — a table listing each property, its verification level (Proven/Tested/Asserted), and why.
+2. The matrix must be included in both `EXPECTED_RESULTS.json` (machine-readable, CI-checked) and `WALKTHROUGH.md` (human-readable).
+3. New walkthroughs and examples that include `llmll verify` results will not be merged without the matrix.
+4. Existing shipped examples (`hangman_json_verifier/`, `tictactoe_json_verifier/`, `conways_life_json_verifier/`) should be backfilled with matrices as a v0.6 housekeeping task.
+
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| VSM-1 | Add verification-scope matrices to all three existing verifier examples | 0.5 day | ☐ |
+| VSM-2 | Document the policy in `docs/getting-started.md` under a new "Verification-Scope Matrix" section | 0.5 day | ☐ |
 
 ### Clause-Level Provenance for Spec-from-RFC (P1, ~3 days) — NEW
 
@@ -169,7 +234,7 @@ Algebraic law enforcement as a first-class language feature.
 
 | # | Action | Effort | Status |
 |---|--------|--------|--------|
-| CLAIM-1 | Revise `one-pager.md` to distinguish shipped verification (SMT/Z3) from designed-but-mock (Leanstral/Lean 4) | 0.5 day | ☐ |
+| CLAIM-1 | Revise `one-pager.md` to distinguish shipped verification (SMT/Z3) from designed-but-mock (Leanstral/Lean 4). Add claim-to-evidence appendix. | 0.5 day | ☐ |
 | CLAIM-2 | Add `Verification Scope` subsection to `LLMLL.md §5.3` that precisely defines what is proven vs. what is asserted outside the SMT fragment | 0.5 day | ☐ |
 
 **Decision:** Narrow the product claim now (Option B). Schedule real Leanstral integration (Option A) when `lean-lsp-mcp` becomes available. If `lean-lsp-mcp` is more than 3 months out, move Leanstral from "blocked" to "deferred to v0.8" and adjust documentation.
@@ -248,6 +313,10 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test, **GO**). Full WASI enforcement deferred to WASM build target (unversioned future). |
 | Spec coverage metric (`--spec-coverage`) | Designed in spec-adequacy-closure.md §1b but **never shipped** (planned for v0.4, dropped) | **Promoted to v0.6 P0** (SC-1..SC-4, 2026-04-21). Blocking gate in `--mode lead` / `--mode auto`. |
 | Spec-adequacy benchmark (ERC-20) | Fully designed in spec-adequacy-closure.md §Track 2, planned for v0.4, **never shipped** | **Promoted to v0.6 P0** (BM-1..BM-5, 2026-04-21). Frozen benchmark with CI gate. |
+| Spec-adequacy benchmark (TOTP) | Not previously tracked | **Added to v0.6 P1** (BM2-1..BM2-5, 2026-04-21). Second frozen benchmark (RFC 6238) for cross-domain credibility. |
+| Verification-scope matrix policy | Not previously tracked | **Added to v0.6** (VSM-1..VSM-2, 2026-04-21). Mandatory per-example artifact. |
+| Suppression governance (`weakness-ok`) | Not previously tracked | **Added to v0.6** (enforced by SC-1, 2026-04-21). Reason required, shown in `--trust-report`. |
+| Claim-to-evidence appendix | Not previously tracked | **Added to one-pager** (2026-04-21). Maps each claim to shipped command + verification level. |
 | Contract clause-level provenance | Not previously tracked | **Added to v0.6 P1** (PROV-1..PROV-4, 2026-04-21). `:source` annotation on pre/post contracts. |
 | Hub query-by-signature | Designed in specification-sources.md §4 and component-hub.md | **Added to v0.6 P2** (HUB-1..HUB-3, 2026-04-21). Exact structural match, no contract matching. |
 | Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
@@ -269,24 +338,24 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 # Summary: Version Plan and Critical Path
 
 ```
-v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (SHIPPED)    v0.6 (~3 mo)                Future
-──────────────     ──────────────      ──────────────    ──────────────────          ──────
-Context-aware      Lead Agent          U-full            P0: Spec coverage gate      WASM build
-checkout (C1-C6)   (skeleton gen)      (Algorithm W)     P0: ERC-20 frozen benchmark target
-                                                         P1: Clause-level provenance
-Orchestrator       U-lite              effectful         P1: Leanstral claim narrow  WASI capability
-end-to-end         (concrete type      WASM compat       P2: Hub query-by-signature  enforcement
-                   unification)        spike (GO)          + Synthetic corpus
-Weak-spec                                                   + Differential impl.
-counter-examples   CAP-1 (capability                       + def-interface :laws
-                   enforcement)                             + Spec-from-RFC
-
-C5 (monomorphize)  Invariant registry
-                   Obligation mining
-                   JSON parsing
+v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (SHIPPED)    v0.6 (~3 mo)                  Future
+──────────────     ──────────────      ──────────────    ────────────────────          ──────
+Context-aware      Lead Agent          U-full            P0: Spec coverage gate        WASM build
+checkout (C1-C6)   (skeleton gen)      (Algorithm W)        + suppression governance   target
+                                                         P0: ERC-20 frozen benchmark
+Orchestrator       U-lite              effectful         P1: TOTP frozen benchmark     WASI capability
+end-to-end         (concrete type      WASM compat       P1: Clause-level provenance   enforcement
+                   unification)        spike (GO)        P1: Leanstral claim narrow
+Weak-spec                                                P2: Hub query-by-signature
+counter-examples   CAP-1 (capability                      + Verification-scope policy
+                   enforcement)                            + Claim-to-evidence table
+                                                           + Synthetic corpus
+C5 (monomorphize)  Invariant registry                      + Differential impl.
+                   Obligation mining                       + def-interface :laws
+                   JSON parsing                            + Spec-from-RFC
 ```
 
-The critical path through v0.5 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → shipped**. v0.6 shifts focus from compiler correctness to specification quality. The two P0 items — spec coverage gate and frozen benchmark — are the shortest path from "interesting compiler" to "credible system." WASM is a confirmed future direction, not pinned to a version.
+The critical path through v0.5 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → shipped**. v0.6 shifts focus from compiler correctness to specification quality and evaluation credibility. The P0 items (spec coverage gate + ERC-20 benchmark) plus the hardening items (suppression governance, verification-scope matrices, TOTP benchmark, claim-to-evidence table) are the path from "interesting compiler" to "credible, auditable system." WASM is a confirmed future direction, not pinned to a version.
 
 ### What Changed from LLMLL.md §14
 
@@ -302,7 +371,7 @@ The critical path through v0.5 is complete: **context-aware checkout → working
 | **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **shipped** |
 | **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
 | **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) + `effectful` WASM compat spike (**GO**) — **shipped** |
-| **v0.6** | *(revised 2026-04-21)* | Spec quality: **spec coverage gate (P0)** + **frozen ERC-20 benchmark (P0)** + clause-level provenance (P1) + Leanstral claim narrowing (P1) + hub query-by-signature (P2) + synthetic corpus + differential impl. + `def-interface :laws` + Spec-from-RFC — **planned (~15 days new + existing research)** |
+| **v0.6** | *(revised 2026-04-21)* | Spec quality: **spec coverage gate + suppression governance (P0)** + **frozen ERC-20 benchmark (P0)** + TOTP benchmark (P1) + verification-scope matrix policy + clause-level provenance (P1) + Leanstral claim narrowing (P1) + hub query-by-signature (P2) + claim-to-evidence appendix + synthetic corpus + differential impl. + `def-interface :laws` + Spec-from-RFC — **planned (~21 days new + existing research)** |
 | **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
