@@ -228,16 +228,16 @@ Complete Algorithm W with occurs check and let-generalization.
 | U2-full | Let-generalization for top-level `def-logic` / `letrec` via TVar-TVar wildcard closure + bound-TVar consistency fix (recursive `structuralUnify` replaces `compatibleWith` at L1044, Language Team Issue 2). Inner `let`-bound lambdas deferred to v0.7. L1055 asymmetric wildcard documented as safe under per-call-site scoping (Language Team Issue 3). | ✅ |
 | U3-full | Regression test sweep: 264 tests (257 existing + 7 new U-Full), 0 failures | ✅ |
 
-### `effectful` WASM Compatibility Spike (~1 day)
+### `effectful` WASM Compatibility Spike ✅ shipped
 
 > **Source:** Extracted from WASM Phase 0 as a standalone risk-reduction item (2026-04-21).
 
-Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result informs the typed effect row design regardless of when the full WASM build target ships.
+Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result: **GO** — no C shims, no linker errors, correct execution. See [`docs/effectful-wasm-spike.md`](effectful-wasm-spike.md).
 
 | # | Action | Status |
 |---|--------|--------|
-| EFF-1 | Install `ghc-wasm-meta` + `wasmtime`, compile a minimal `effectful` program under `wasm32-wasi` | ☐ |
-| EFF-2 | Document result: GO / NO-GO / SHIM-REQUIRED | ☐ |
+| EFF-1 | Install `ghc-wasm-meta` (GHC 9.12.4) + `wasmtime` (v44.0.0), compile a minimal `effectful` (v2.6.1.0) program under `wasm32-wasi` | ✅ |
+| EFF-2 | Document result: **GO** — `effectful-core` and `effectful` compile with zero C shim failures. Binary executes correctly in wasmtime. | ✅ |
 
 ---
 
@@ -1096,7 +1096,7 @@ The critical path is: **context-aware checkout → working orchestrator → Lead
 | **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec` (Phase B) + Spec Faithfulness property tests — **shipped** |
 | **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **planned** |
 | **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
-| **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) — **shipped**. `effectful` WASM compat spike — **pending** |
+| **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) + `effectful` WASM compat spike (**GO**) — **shipped** |
 | **v0.6** | *(new)* | Spec quality: synthetic corpus, differential impl., `def-interface :laws` — **research** |
 | **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator — **research** |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |

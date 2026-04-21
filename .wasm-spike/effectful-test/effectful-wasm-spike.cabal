@@ -1,0 +1,12 @@
+cabal-version: 3.0
+name:          effectful-wasm-spike
+version:       0.1.0.0
+build-type:    Simple
+
+executable effectful-wasm-spike
+  main-is:          Main.hs
+  build-depends:
+    , base       >= 4.18
+    , effectful  >= 2.3
+  default-language: GHC2021
+  ghc-options:      -Wall

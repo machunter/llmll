@@ -1584,7 +1584,7 @@ Complete sound unification — closes the last known unsoundness in the type che
 | Area | Feature |
 |------|---------|
 | U-full (Algorithm W) | ✅ Occurs check prevents infinite types (`a ~ list[a]` is rejected). TVar-TVar wildcard closure ensures type variable bindings propagate through chains. Bound-TVar consistency uses recursive `structuralUnify` instead of `compatibleWith` (Language Team Issue 2). `TDependent` strips to base type (two-layer architecture preserved). 7 new tests (264 total). |
-| `effectful` WASM spike | Binary compatibility test: do `effectful`'s C shims compile under `wasm32-wasi`? Standalone 1-day risk-reduction item. Result informs typed effect row design. |
+| `effectful` WASM spike | ✅ **GO.** `effectful` 2.6.1.0 compiles, links, and executes under `wasm32-wasi` (GHC 9.12.4, wasmtime 44.0.0). No C shim failures. Typed effect row design is WASM-compatible. See [`docs/effectful-wasm-spike.md`](docs/effectful-wasm-spike.md). |
 
 > [!NOTE]
 > **Known limitation (v0.5):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
