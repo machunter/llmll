@@ -938,7 +938,7 @@
     },
 
     "PatchOp": {
-      "description": "A single RFC 6902 JSON-Patch operation (v0.3). Supported ops: replace, add, remove, test. 'move' and 'copy' are deferred to v0.4.",
+      "description": "A single RFC 6902 JSON-Patch operation (v0.3). Supported ops: replace, add, remove, test. 'move' and 'copy' are deferred to a future release.",
       "type": "object",
       "required": ["op", "path"],
       "additionalProperties": false,

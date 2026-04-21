@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.4.0)
+# LLMLL: Large Language Model Logical Language (v0.5.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.4.0 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 257 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.5.0 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 264 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
-<details><summary><strong>Release history (v0.1.1 → v0.4.0)</strong></summary>
+<details><summary><strong>Release history (v0.1.1 → v0.5.0)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.5.0** | U-Full Soundness: occurs check prevents infinite types. Let-generalization for top-level `def-logic`/`letrec` via TVar-TVar wildcard closure and bound-TVar consistency fix. Closes the last known unsoundness in the type checker. 264 total tests $+$ 7 new U-Full. |
 | **v0.4.0** | Lead Agent (`llmll-orchestra --mode plan\|lead\|auto`). U-Lite: substitution-based unification for concrete types (`list-head 42` is a type error; `first`/`second` typed `TPair a b → a`/`b`). CAP-1: capability imports enforced at compile time (non-transitive, module-local). Invariant pattern registry via `--sketch`. Downstream obligation mining. Aeson FFI codegen. |
 | **v0.3.5** | Context-aware `llmll checkout` returns local typing context (Γ, τ, Σ). `llmll verify --weakness-check` detects trivial-body spec weaknesses. Orchestrator E2E with diagnostic-driven retry, lock expiry handling, and context-aware prompts. |
 | **v0.3.4** | `llmll spec` emits agent prompt specification from `builtinEnv` (36 builtins + 14 operators). 7 faithfulness property tests. Orchestrator integration with backward-compat fallback. Phase A prompt enrichment. New builtins: `string-empty?`, `regex-match`. `is-valid?` removed. |
@@ -859,6 +860,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 > **v0.2 (shipped):** Step 2 includes compile-time contract verification via `llmll verify` (decoupled liquid-fixpoint backend). Contracts outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
 > **v0.3:** `?proof-required :inductive` holes are resolved by Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds without re-calling Leanstral.
 > **v0.4.0:** CAP-1 capability enforcement is active — `wasi.*` calls require matching capability imports. Lead Agent ships as `llmll-orchestra --mode plan|lead|auto`. Docker sandbox remains; WASM-WASI is a planned future deployment target.
+> **v0.5.0:** U-Full sound unification completes Algorithm W. Occurs check, let-generalization, and TVar-TVar wildcard closure close the last known unsoundness in the type checker.
 
 ---
 
@@ -1028,7 +1030,7 @@ In v0.3, `?delegate` holes can be resolved programmatically by agents through th
 
 **Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot be used to modify `/statements/0/body` — this prevents lateral hole theft between agents.
 
-**Supported RFC 6902 operations:** `replace`, `add`, `remove`, `test`. The `test` operation is the agent's guard against stale patches — it asserts that the hole hasn't been modified since checkout. `move` and `copy` are deferred to v0.5.
+**Supported RFC 6902 operations:** `replace`, `add`, `remove`, `test`. The `test` operation is the agent's guard against stale patches — it asserts that the hole hasn't been modified since checkout. `move` and `copy` are deferred to a future release.
 
 **CLI commands:**
 
@@ -1042,7 +1044,7 @@ In v0.3, `?delegate` holes can be resolved programmatically by agents through th
 **HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
 
 > [!NOTE]
-> Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling in v0.3; general AST mutation is planned for v0.5.
+> Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling in v0.3; general AST mutation is planned for a future release.
 
 #### Context-Aware Checkout (v0.3.5)
 
