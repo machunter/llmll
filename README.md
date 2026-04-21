@@ -179,7 +179,7 @@ tools/
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
 | [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |
 | [`docs/design/INDEX.md`](docs/design/INDEX.md) | Reading guide for all active design documents |
-| [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md) | v0.3.2 GHC WASM feasibility assessment (conditional GO for v0.5) |
+| [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md) | v0.3.2 GHC WASM feasibility assessment (conditional GO — feasibility confirmed) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes by version |
 
 ---

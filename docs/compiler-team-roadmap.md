@@ -33,9 +33,9 @@ Phased delivery shipping incrementally within v0.4:
 
 | Phase | Deliverable | Effort | Status |
 |-------|-------------|--------|--------|
-| Phase 0 | `--mode plan` — intent → structured architecture plan (JSON) | ~3 days | ☐ |
-| Phase 1 | `--mode lead` — plan → JSON-AST skeleton, validated by `llmll check`, quality heuristics | ~4 days | ☐ |
-| Phase 2 | `--mode auto` — lead → fill → verify in sequence | ~3 days | ☐ |
+| Phase 0 | `--mode plan` — intent → structured architecture plan (JSON) | ~3 days | ✅ |
+| Phase 1 | `--mode lead` — plan → JSON-AST skeleton, validated by `llmll check`, quality heuristics | ~4 days | ✅ |
+| Phase 2 | `--mode auto` — lead → fill → verify in sequence | ~3 days | ✅ |
 
 **Acceptance criteria:**
 
@@ -77,13 +77,13 @@ Before starting U-lite implementation:
 
 | # | Action | Status |
 |---|--------|--------|
-| U1-lite | Per-call-site substitution with fresh type variable instantiation at each `EApp`: α-rename all `TVar`s in the looked-up function signature, create a local substitution map, unify arguments against freshened parameter types. Substitution map does NOT escape the `EApp` boundary. | ☐ |
-| U2-lite | Re-type `first`/`second` from `TVar "p" → TVar "a"` to `TPair a b → a` / `TPair a b → b` in `builtinEnv` | ☐ |
-| U3-lite | Ensure all 225+ existing tests still pass (divergence list from triage step) | ☐ |
-| U4-lite | Add tests for currently-silent type errors: `list-head 42`, `list-map 5 f` | ☐ |
-| U5-lite | Test per-call-site scoping: `list-map [1,2,3] (fn [x: string] x)` → type error (element type mismatch caught by per-call-site substitution). (Language Team verification requirement, 2026-04-20) | ☐ |
-| U6-lite | Regression test: `(type PositiveInt (where [x: int] (>= x 0)))`, `list-head` on `list[PositiveInt]` → `Result[int, string]` (alias expansion + stripDep). | ☐ |
-| U7-lite | If TSumType triage (pre-implementation step 4) shows no breakage: fix `TSumType` wildcarding in `compatibleWith`. | ☐ |
+| U1-lite | Per-call-site substitution with fresh type variable instantiation at each `EApp`: α-rename all `TVar`s in the looked-up function signature, create a local substitution map, unify arguments against freshened parameter types. Substitution map does NOT escape the `EApp` boundary. | ✅ |
+| U2-lite | Re-type `first`/`second` from `TVar "p" → TVar "a"` to `TPair a b → a` / `TPair a b → b` in `builtinEnv` | ✅ |
+| U3-lite | Ensure all 225+ existing tests still pass (divergence list from triage step) | ✅ |
+| U4-lite | Add tests for currently-silent type errors: `list-head 42`, `list-map 5 f` | ✅ |
+| U5-lite | Test per-call-site scoping: `list-map [1,2,3] (fn [x: string] x)` → type error (element type mismatch caught by per-call-site substitution). (Language Team verification requirement, 2026-04-20) | ✅ |
+| U6-lite | Regression test: `(type PositiveInt (where [x: int] (>= x 0)))`, `list-head` on `list[PositiveInt]` → `Result[int, string]` (alias expansion + stripDep). | ✅ |
+| U7-lite | If TSumType triage (pre-implementation step 4) shows no breakage: fix `TSumType` wildcarding in `compatibleWith`. | ✅ |
 
 > [!WARNING]
 > **U2-lite (`first`/`second` retype) is prerequisite.** The current `TVar "p"` hack exists because the old unifier couldn't express the pair constraint. With substitution tracking, `first : TPair a b → a` works correctly.
@@ -136,13 +136,13 @@ When `wasi.*` functions are called, check that a matching `SImport` with a `Capa
 
 | # | Action | Status |
 |---|--------|--------|
-| CAP-1a | In `inferExpr (EApp func args)`, if `func` starts with `wasi.`, verify a matching `SImport` exists in the module's statement list (accessed via `TCState`). Covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, contract expressions. | ☐ |
-| CAP-1b | Emit structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"` | ☐ |
-| CAP-1c | Test: `wasi.io.stdout` call with no `(import wasi.io ...)` → compile error | ☐ |
-| CAP-1d | Test: `wasi.io.stdout` inside a `let` binding with no import → error (nested call coverage) | ☐ |
-| CAP-1e | Test: `wasi.io.stdout` with `(import wasi.io ...)` → OK (positive case) | ☐ |
-| CAP-1f | Test: `wasi.fs.write` with `(import wasi.io ...)` but no `wasi.fs` import → error (per-namespace) | ☐ |
-| CAP-1g | Test: Module A imports `wasi.io`; Module B imports Module A, calls `wasi.io.stdout` → error (non-transitive) | ☐ |
+| CAP-1a | In `inferExpr (EApp func args)`, if `func` starts with `wasi.`, verify a matching `SImport` exists in the module's statement list (accessed via `TCState`). Covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, contract expressions. | ✅ |
+| CAP-1b | Emit structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"` | ✅ |
+| CAP-1c | Test: `wasi.io.stdout` call with no `(import wasi.io ...)` → compile error | ✅ |
+| CAP-1d | Test: `wasi.io.stdout` inside a `let` binding with no import → error (nested call coverage) | ✅ |
+| CAP-1e | Test: `wasi.io.stdout` with `(import wasi.io ...)` → OK (positive case) | ✅ |
+| CAP-1f | Test: `wasi.fs.write` with `(import wasi.io ...)` but no `wasi.fs` import → error (per-namespace) | ✅ |
+| CAP-1g | Test: Module A imports `wasi.io`; Module B imports Module A, calls `wasi.io.stdout` → error (non-transitive) | ✅ |
 
 ### Invariant Pattern Registry (~3 days)
 
@@ -208,32 +208,13 @@ Codegen emits `import Data.Aeson` in `Lib.hs`, adds `aeson` to `package.yaml`. N
 
 ---
 
-## v0.5 — WASM Sandboxing + U-Full
+## v0.5 — U-Full Soundness
 
-**Theme:** Replace Docker with WASM-WASI as the primary sandbox. Complete sound unification.
+**Theme:** Complete sound unification — close the last known unsoundness in the type checker.
 
-> **Source:** [wasm-poc-report.md](wasm-poc-report.md) — conditional GO (v0.3.2 assessment). Isolated from the automation-loop work so external toolchain dependencies can't block v0.4.
-
-### WASM Build Target (~7 days)
-
-| Phase | Work | Effort | Status |
-|-------|------|--------|--------|
-| Phase 0 | Install `ghc-wasm-meta` + `wasmtime`, manual compile of hangman. **Must include `effectful` compatibility test.** | 1 day | ☐ |
-| Phase 1 | `--target wasm` flag, generate `.cabal` file, invoke `wasm32-wasi-cabal` | 2–3 days | ☐ |
-| Phase 2 | Strip check blocks for WASM, WASI capability import mapping | 2 days | ☐ |
-| Phase 3 | CI integration, setup script, docs | 1 day | ☐ |
-
-> [!WARNING]
-> **`effectful` library compatibility with GHC WASM backend is untested.** The v0.3.2 PoC compiled `hangman_json_verifier` which doesn't use `effectful`. A real WASM build with typed effect rows needs Phase 0 to explicitly validate `effectful`'s C shims under `wasm32-wasi`. If this fails, typed effect rows must be shimmed or deferred.
-
-**Acceptance criteria:**
-
-- `llmll build --target wasm examples/hangman_sexp/hangman.llmll` produces a `.wasm` binary
-- `wasmtime hangman.wasm` runs the game correctly
-- WASI capability imports align with LLMLL capability declarations
-- Typed effect rows (`effectful`) integrate with WASI enforcement
-
-**Risk:** `ghc-wasm-meta` toolchain maintenance is low-bus-factor. If it falls behind GHC releases, this version slips without affecting anything else.
+> **Source:** Language team roadmap proposal (2026-04-19). Algorithm W split into U-lite (v0.4) and U-full (v0.5) per compiler team review.
+>
+> **Decision (2026-04-21):** WASM build target removed from v0.5 and moved to unversioned future work. U-Full is a type-system correctness obligation that directly services one-shot correctness. WASM is an operational deployment concern — Docker + CAP-1 provide two functional enforcement layers for the current threat model.
 
 ### U-Full — Sound Unification (~5 days)
 
@@ -246,6 +227,17 @@ Complete Algorithm W with occurs check and let-generalization.
 | U1-full | Occurs check in unification (`TVar "a"` cannot unify with `TList (TVar "a")`) | ☐ |
 | U2-full | Let-generalization for `def-logic` / `letrec` signatures | ☐ |
 | U3-full | Regression test sweep (all examples + tests) | ☐ |
+
+### `effectful` WASM Compatibility Spike (~1 day)
+
+> **Source:** Extracted from WASM Phase 0 as a standalone risk-reduction item (2026-04-21).
+
+Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result informs the typed effect row design regardless of when the full WASM build target ships.
+
+| # | Action | Status |
+|---|--------|--------|
+| EFF-1 | Install `ghc-wasm-meta` + `wasmtime`, compile a minimal `effectful` program under `wasm32-wasi` | ☐ |
+| EFF-2 | Document result: GO / NO-GO / SHIM-REQUIRED | ☐ |
 
 ---
 
@@ -312,6 +304,43 @@ For LLMLL's target domains (financial, protocol, encryption), specs already exis
 > **Source:** [agent-orchestration.md §Option B](design/agent-orchestration.md)
 
 Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisites: JSON parsing (v0.4), stable orchestration protocol, sufficient agent accuracy.
+
+---
+
+## Future — WASM Sandboxing (unversioned)
+
+**Theme:** Replace Docker with WASM-WASI as the primary sandbox.
+
+> **Source:** [wasm-poc-report.md](wasm-poc-report.md) — conditional GO (v0.3.2 assessment).
+>
+> **Decision (2026-04-21):** WASM is a confirmed future direction but not pinned to a release version. Docker + CAP-1 provide two functional enforcement layers (compile-time capability gating + OS-level container isolation). WASM adds a third layer (hardware-enforced capability boundary) and becomes a priority when there are real users running untrusted agent code in production. The v0.3.2 PoC confirmed feasibility; the `effectful` compatibility spike (v0.5) will determine whether the typed effect row design needs changes.
+
+### WASM Build Target (~7 days)
+
+| Phase | Work | Effort | Status |
+|-------|------|--------|--------|
+| Phase 0 | Install `ghc-wasm-meta` + `wasmtime`, manual compile of hangman | 1 day | ☐ |
+| Phase 1 | `--target wasm` flag, generate `.cabal` file, invoke `wasm32-wasi-cabal` | 2–3 days | ☐ |
+| Phase 2 | Strip check blocks for WASM, WASI capability import mapping | 2 days | ☐ |
+| Phase 3 | CI integration, setup script, docs | 1 day | ☐ |
+
+> [!WARNING]
+> **`effectful` library compatibility with GHC WASM backend is untested.** The v0.3.2 PoC compiled `hangman_json_verifier` which doesn't use `effectful`. A real WASM build with typed effect rows needs the v0.5 `effectful` spike to validate `effectful`'s C shims under `wasm32-wasi`. If this fails, typed effect rows must be shimmed or deferred.
+
+**Acceptance criteria:**
+
+- `llmll build --target wasm examples/hangman_sexp/hangman.llmll` produces a `.wasm` binary
+- `wasmtime hangman.wasm` runs the game correctly
+- WASI capability imports align with LLMLL capability declarations
+- Typed effect rows (`effectful`) integrate with WASI enforcement
+
+**Risk:** `ghc-wasm-meta` toolchain maintenance is low-bus-factor. If it falls behind GHC releases, this work slips without affecting anything else.
+
+**Trigger criteria — when to schedule this:**
+
+- Real users running untrusted agent code outside development environments
+- Docker proving insufficient as a sandbox (capability granularity, startup latency, distribution)
+- `effectful` WASM compatibility spike (v0.5) returns GO
 
 ---
 
@@ -862,7 +891,7 @@ Instead of fixing `collectTopLevel` (which would break forward-reference resolut
 | Algebraic effects library | `effectful` — committed, not revisited |
 | `Command` model | Move from opaque type to typed effect row (`Eff '[...]`) |
 | Python FFI tier | Dropped from formal spec |
-| Sandboxing | Docker + `seccomp-bpf` + `-XSafe` (WASM deferred to v0.4) |
+| Sandboxing | Docker + `seccomp-bpf` + `-XSafe` (WASM is a future direction, not version-pinned) |
 
 ---
 
@@ -973,9 +1002,9 @@ Docker container
   └── LLMLL host runtime (interprets Eff commands, enforces capability list)
 ```
 
-**[CT]** WASM compatibility proof-of-concept — compile the Hangman and Todo service generated `.hs` files with `ghc --target=wasm32-wasi`. Resolve any blockers before shipping. This validates that WASM remains on track for v0.4.
+**[CT]** WASM compatibility proof-of-concept — compile the Hangman and Todo service generated `.hs` files with `ghc --target=wasm32-wasi`. Resolve any blockers before shipping. This validates that WASM remains feasible as a future deployment target.
 
-**[SPEC]** Update `LLMLL.md §7`, `§9`, `§10`, `§14` to reflect Haskell target, typed effect row, and Docker sandbox. Add explicit language to `§14`: *"WASM-WASI is the primary long-term deployment target. Docker + seccomp-bpf is the v0.1.2–v0.3 sandbox. WASM is deferred to v0.4, not abandoned."*
+**[SPEC]** Update `LLMLL.md §7`, `§9`, `§10`, `§14` to reflect Haskell target, typed effect row, and Docker sandbox. Add explicit language to `§14`: *"WASM-WASI is the long-term deployment target. Docker + seccomp-bpf is the current sandbox. WASM is a confirmed future direction, not version-pinned."*
 
 **Acceptance criteria:**
 
@@ -1012,7 +1041,7 @@ Docker container
 | Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Deferred to v0.4.1 or v0.5 — let orchestrator stabilize before formalizing schema (compiler + language team, 2026-04-20) |
 | MCP integration (Q5 from v0.3.3) | Deferred | Python v1 is CLI-only; MCP with self-hosted rewrite |
 | Real Leanstral integration | Mock-only since v0.3.1 | Blocked on `lean-lsp-mcp` availability |
-| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: validate `effectful` WASM compat; align with WASI enforcement |
+| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test). Full WASI enforcement deferred to WASM build target (unversioned future). |
 | Spec coverage metric (`--spec-coverage`) | Proposed in invariant-discovery.md | Ship alongside invariant pattern registry in v0.4 |
 | Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
 | Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full may proceed. Revisit if v0.6 type-driven development changes architecture. |
@@ -1033,24 +1062,24 @@ Docker container
 # Summary: Version Plan and Critical Path
 
 ```
-v0.3.5 (NOW)       v0.4 (~6-8 wk)     v0.5 (~2 wk)    v0.6 (~3 mo)
-─────────────      ──────────────      ────────────    ────────────
-Context-aware      Lead Agent          WASM build      Synthetic corpus
-checkout (C1-C6)   (skeleton gen)      target          (Hackage back-
+v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (~1 wk)    v0.6 (~3 mo)      Future
+──────────────     ──────────────      ────────────    ────────────      ──────
+Context-aware      Lead Agent          U-full          Synthetic corpus  WASM build
+checkout (C1-C6)   (skeleton gen)      (Algorithm W)   (Hackage back-    target
                                                         translation)
-Orchestrator       U-lite              U-full
-end-to-end         (concrete type      (Algorithm W)   Differential impl.
-                   unification)                         pressure
+Orchestrator       U-lite              effectful                         WASI capability
+end-to-end         (concrete type      WASM compat     Differential      enforcement
+                   unification)        spike (1 day)    impl. pressure
 Weak-spec
-counter-examples   CAP-1 (capability   effectful       def-interface :laws
-                   enforcement)        WASI compat
+counter-examples   CAP-1 (capability                   def-interface
+                   enforcement)                         :laws
 
 C5 (monomorphize)  Invariant registry
                    Obligation mining                   Spec-from-RFC
                    JSON parsing
 ```
 
-The critical path is: **context-aware checkout → working orchestrator → Lead Agent**. WASM ships independently when the toolchain is ready — it can't block the automation pipeline. Algorithm W is split: U-lite (v0.4) catches the visible type errors; U-full (v0.5) adds occurs check and let-generalization. `TDependent` is resolved (Strip-then-Unify, Option A).
+The critical path is: **context-aware checkout → working orchestrator → Lead Agent → U-Full**. WASM is a confirmed future direction, not pinned to a version — it ships when there is real deployment pressure beyond Docker. Algorithm W is split: U-lite (v0.4) catches the visible type errors; U-full (v0.5) adds occurs check and let-generalization. `TDependent` is resolved (Strip-then-Unify, Option A).
 
 ### What Changed from LLMLL.md §14
 
@@ -1064,10 +1093,11 @@ The critical path is: **context-aware checkout → working orchestrator → Lead
 | **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) + **agent prompt semantic reference** (Phase A) — **shipped** |
 | **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec` (Phase B) + Spec Faithfulness property tests — **shipped** |
 | **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **planned** |
-| **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **planned** |
-| **v0.5** | *(new)* | WASM build target + **U-full Algorithm W** — **planned** |
+| **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
+| **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** + `effectful` WASM compat spike — **planned** |
 | **v0.6** | *(new)* | Spec quality: synthetic corpus, differential impl., `def-interface :laws` — **research** |
 | **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator — **research** |
+| **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
 ### Items Removed from Scope
 

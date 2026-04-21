@@ -12,7 +12,7 @@
 | **v0.3.5** | Context-aware `llmll checkout` returns local typing context (Γ, τ, Σ). `llmll verify --weakness-check` detects trivial-body spec weaknesses. Orchestrator E2E with diagnostic-driven retry, lock expiry handling, and context-aware prompts. |
 | **v0.3.4** | `llmll spec` emits agent prompt specification from `builtinEnv` (36 builtins + 14 operators). 7 faithfulness property tests. Orchestrator integration with backward-compat fallback. Phase A prompt enrichment. New builtins: `string-empty?`, `regex-match`. `is-valid?` removed. |
 | **v0.3.3** | Agent orchestration compiler support — `llmll holes --json --deps` with Tarjan's SCC cycle detection; `--deps-out FILE`. |
-| **v0.3.2** | Trust hardening — `llmll verify --trust-report` with epistemic drift detection; cross-module trust propagation. GHC WASM PoC (conditional GO for v0.5). |
+| **v0.3.2** | Trust hardening — `llmll verify --trust-report` with epistemic drift detection; cross-module trust propagation. GHC WASM PoC (conditional GO — feasibility confirmed). |
 | **v0.3.1** | JSONL event log with deterministic replay (`llmll replay`). Leanstral MCP proof integration (mock-first, `--leanstral-mock`). SHA-256 proof cache (`.proof-cache.json`). |
 | **v0.3** | `do`-notation (PRs 1–4). Stratified verification, `--contracts` flag, `.verified.json` sidecar. `string-concat` variadic sugar. `?scaffold` CLI. `Promise[t]` → `Async t`. |
 | **Phase 2c** | Pair-type in typed parameters. `llmll typecheck --sketch` partial-program type inference. `llmll serve` HTTP sketch endpoint. |
@@ -33,7 +33,7 @@
 2. **Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`). A program with holes can be analyzed and type-checked but not executed until the holes are filled. Always prefer a typed hole over a hallucinated implementation.
 3. **Typed Logic:** Every expression has a type. The type system prevents null pointer dereferences, type mismatches, and unguarded IO. Return types are inferred — never annotate them explicitly.
 4. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications. These contracts are the trust interface between agents. Verification is stratified: contracts in the decidable arithmetic fragment are proven at compile time (liquid-fixpoint / Z3); contracts requiring induction are routed to interactive proof (Leanstral); contracts outside both fragments are enforced as runtime assertions and flagged with `?proof-required`. A caller can inspect a contract's *verification level* — proven, tested, or asserted — without reading the implementation.
-5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.4.0; WASM-WASI in v0.5). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. Since v0.4.0 (CAP-1), capability imports are enforced at compile time.
+5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.4.0; WASM-WASI planned as a future deployment target). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. Since v0.4.0 (CAP-1), capability imports are enforced at compile time.
 
 ---
 
@@ -131,7 +131,7 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
 > Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
 
-> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function’s required capabilities visible in its type signature. **Currently (v0.4.0):** `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statement list — missing imports are compile-time type errors (checked in `inferExpr (EApp ...)`). Propagation is non-transitive: each module must declare its own capability imports. `effectful` typed effect row integration is planned for v0.5 alongside WASM-WASI enforcement.
+> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function’s required capabilities visible in its type signature. **Currently (v0.4.0):** `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statement list — missing imports are compile-time type errors (checked in `inferExpr (EApp ...)`). Propagation is non-transitive: each module must declare its own capability imports. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned).
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -453,7 +453,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.4.0, and WASM-WASI in v0.5.
+`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.4.0, with WASM-WASI planned as a future deployment target.
 
 > [!IMPORTANT]
 > **v0.4.0 (CAP-1):** Capability enforcement is now active at compile time. When a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"`. **Propagation is non-transitive (module-local):** Module B must re-declare `(import wasi.io ...)` even if it only calls `wasi.*` via a function imported from Module A. This matches the principle of least authority.
@@ -853,12 +853,12 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 4. **Transpilation:** Validated `.llmll` is converted to **Haskell** (`.hs` + `package.yaml`). Generated modules are compiled with `{-# LANGUAGE Safe #-}`, preventing any IO outside the declared capability model.
 5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
 6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
-7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module's declared capabilities (v0.1.2–v0.4.0). In v0.5 this is replaced by a WASM-WASI VM. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statements — missing imports are compile-time type errors.
+7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities (v0.1.2–v0.4.0). WASM-WASI is planned as a future replacement. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statements — missing imports are compile-time type errors.
 8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
 
 > **v0.2 (shipped):** Step 2 includes compile-time contract verification via `llmll verify` (decoupled liquid-fixpoint backend). Contracts outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
 > **v0.3:** `?proof-required :inductive` holes are resolved by Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds without re-calling Leanstral.
-> **v0.4.0:** CAP-1 capability enforcement is active — `wasi.*` calls require matching capability imports. Lead Agent ships as `llmll-orchestra --mode plan|lead|auto`. Docker sandbox remains; WASM-WASI replaces it in v0.5.
+> **v0.4.0:** CAP-1 capability enforcement is active — `wasi.*` calls require matching capability imports. Lead Agent ships as `llmll-orchestra --mode plan|lead|auto`. Docker sandbox remains; WASM-WASI is a planned future deployment target.
 
 ---
 
@@ -870,7 +870,7 @@ Correct replay is the foundation of fault tolerance, audit trails, and (in v0.2)
 
 | Source | Problem | Runtime Fix |
 |--------|---------|-------------|
-| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules in v0.1.2–v0.4.0; `wasm-determinism` extension in v0.5) |
+| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules in v0.1.2–v0.4.0; `wasm-determinism` extension with WASM target) |
 | **Monotonic clock** | Wall-clock calls diverge across replay runs | Virtualize via `:deterministic true`; log return value |
 | **PRNG** | Non-seeded random generation diverges on replay | Log seed + call sequence; replay re-seeds from log |
 
@@ -1512,7 +1512,7 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 |------|---------|
 | Cross-module trust propagation | ✅ 7 test cases covering the asserted/tested/proven matrix, mixed verification levels, and `(trust ...)` declaration suppression. Validates that a `VLProven` function importing a `VLAsserted` dependency is correctly capped at `VLAsserted`. |
 | `llmll verify --trust-report` | ✅ Per-function trust summary with transitive closure analysis. Reports verification level (proven/tested/asserted) for every contract. Flags epistemic drift: “Function `withdraw` is proven, but depends on `auth.verify-token` which is asserted.” JSON output with `--json`. New `LLMLL.TrustReport` module. |
-| GHC WASM PoC | ✅ Analyzed generated Haskell output for WASM compatibility. Conditional GO verdict — pure logic compiles cleanly; ~6-7 days engineering for v0.4. See [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md). |
+| GHC WASM PoC | ✅ Analyzed generated Haskell output for WASM compatibility. Conditional GO verdict — pure logic compiles cleanly; ~6-7 days engineering. See [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md). |
 
 ### v0.3.3 — Agent Orchestration ✅ Shipped
 
@@ -1575,16 +1575,24 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 | Downstream obligation mining | ✅ Cross-module UNSAFE results suggest postcondition strengthening on callee. Leverages `TrustReport.hs` transitive closure infrastructure. |
 | Aeson FFI | ✅ `(import haskell.aeson Data.Aeson)` codegen emits `import Data.Aeson` + adds `aeson` to `package.yaml`. Manual Haskell bridge file for JSON instance derivation. |
 
-### v0.5 — WASM Sandboxing + Sound Unification
+### v0.5 — U-Full Soundness
 
-WASM-WASI is the primary long-term deployment target. Docker + `seccomp-bpf` remains the sandbox through v0.4.0; v0.5 replaces it.
+Complete sound unification — close the last known unsoundness in the type checker. WASM build target moved to unversioned future work (2026-04-21).
+
+| Area | Feature |
+|------|---------|
+| U-full (Algorithm W) | Occurs check, let-generalization. `TDependent` strips to base type (two-layer architecture preserved). |
+| `effectful` WASM spike | Binary compatibility test: do `effectful`'s C shims compile under `wasm32-wasi`? Standalone 1-day risk-reduction item. Result informs typed effect row design. |
+
+### Future — WASM Sandboxing (unversioned)
+
+WASM-WASI is the long-term deployment target. Docker + `seccomp-bpf` remains the sandbox until WASM is scheduled. Confirmed future direction, not pinned to a release version.
 
 | Area | Feature |
 |------|---------|
 | `llmll build --target wasm` | Generated Haskell compiled with GHC's `--target=wasm32-wasi` backend |
 | WASM VM | Wasmtime (or equivalent) replaces Docker as the default sandbox |
 | WASI capability enforcement | WASI import declarations replace Docker network/filesystem policy layers |
-| U-full (Algorithm W) | Occurs check, let-generalization. `TDependent` strips to base type (two-layer architecture preserved). |
 | `{-# LANGUAGE Safe #-}` | Already enforced from v0.1.2; guarantees generated code is structurally WASM-compatible from day one |
 
 ### v0.2 — Module System + Compile-Time Verification ✅ Shipped
@@ -1598,7 +1606,7 @@ The module system shipped **first within v0.2** (Phase 2a) because cross-module 
 | **Module system (Phase 2a)** | `open` / `export` — selective unprefixing and visibility control (see §8.6, §8.7) |
 | **Module system (Phase 2a)** | Cross-module `def-interface` enforcement — structural compatibility checked at import time (see §8.8) |
 | **Module system (Phase 2a)** | `llmll-hub` read-only registry: `llmll hub fetch <pkg>@<ver>` + `hub.` import prefix (see §8.9) |
-| **Capability enforcement** | ✅ **Shipped in v0.4.0 (CAP-1).** Capability declarations are enforced at compile time: `wasi.*` calls without a matching capability import produce a type error. Check is in `inferExpr (EApp ...)`. Non-transitive module-local propagation. `effectful` typed effect row integration is planned for v0.5 alongside WASM-WASI enforcement. |
+| **Capability enforcement** | ✅ **Shipped in v0.4.0 (CAP-1).** Capability declarations are enforced at compile time: `wasi.*` calls without a matching capability import produce a type error. Check is in `inferExpr (EApp ...)`. Non-transitive module-local propagation. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned). |
 | **Compile-time contracts (Phase 2b)** | `llmll verify` emits `.fq` constraints from the typed AST and runs `liquid-fixpoint` + Z3 as a standalone binary. Covers quantifier-free linear integer arithmetic. Reports SAFE or contract-violation diagnostics with JSON Pointers. No GHC plugin required. |
 | **`?proof-required` holes (Phase 2b)** | Auto-emitted for predicates outside the QF fragment or complex `letrec` `:decreases` measures. Complexity hints: `complex-decreases` or `non-linear-contract`. Non-blocking — runtime assertion remains active. |
 | **`letrec` (Phase 2b)** | Bounded recursion with mandatory `:decreases` termination annotation. Simple variable measures are verified by `llmll verify`. |
@@ -1618,13 +1626,13 @@ New language-visible features: JSON-AST as a first-class source format, Haskell 
 | Diagnostics | Every compiler error is a JSON object with an RFC 6901 JSON Pointer to the offending AST node |
 | Holes CLI | `llmll holes --json` lists all `?` holes with inferred type, module path, and agent target |
 | **Codegen target** | Generated code is **Haskell** (`.hs` + `package.yaml`), replacing Rust. `Codegen.hs` rewritten as `CodegenHs.hs` (`generateHaskell`) |
-| **`Command` model** | `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` calls without matching capability import are compile-time type errors. `effectful` typed effect row integration (`Eff '[HTTP, FS, ...] r`) is planned for v0.5 alongside WASM-WASI. |
+| **`Command` model** | `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` calls without matching capability import are compile-time type errors. `effectful` typed effect row integration (`Eff '[HTTP, FS, ...] r`) is planned alongside WASM-WASI (future, not version-pinned). |
 | **FFI tiers** | Two tiers: (1) Hackage — `(import haskell.* ...)` resolves to a native GHC import, no stub generated; (2) C — `(import c.* ...)` generates a `foreign import ccall` stub in `src/FFI/*.hs`. The legacy `rust.*` namespace and Rust FFI stdlib are retired |
-| **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM deferred to v0.5) |
+| **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM is a confirmed future direction, not version-pinned) |
 | `let` syntax | `(let [(x e1) (y e2)] body)` — canonical v0.1.2 form; `(let [[x e1] [y e2]] body)` also accepted (v0.1.1 backward compat) |
 | List literals | `[]` and `[a b c]` list literals added; `(list-empty)` and `(list-append ...)` remain valid |
 
-> **Rationale — Haskell target:** LLMLL's concepts (pure functions, ADTs, algebraic effects, liquid types) map directly onto Haskell's native semantics. The Haskell target eliminates codegen semantic drift, makes v0.2 compile-time verification a liquid-fixpoint integration task (weeks, not months), and shares the compiler's own type universe with generated programs. WASM-WASI remains the long-term deployment target (v0.5); Docker is the research-stage sandbox.
+> **Rationale — Haskell target:** LLMLL's concepts (pure functions, ADTs, algebraic effects, liquid types) map directly onto Haskell's native semantics. The Haskell target eliminates codegen semantic drift, makes v0.2 compile-time verification a liquid-fixpoint integration task (weeks, not months), and shares the compiler's own type universe with generated programs. WASM-WASI remains the long-term deployment target; Docker is the current sandbox.
 
 > **Rationale — JSON-AST:** LLMs generating S-expressions suffer parentheses drift — a structural error whose rate is a function of generation length vs. nesting depth, not model quality. JSON schema-constrained generation (via OpenAI Structured Outputs, Gemini schema parameters, etc.) provides mathematical structural validity guarantees before the compiler runs.
 
