@@ -248,6 +248,115 @@ Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result: **GO*
 **Theme:** Attack the acknowledged bottleneck — specification coverage and quality.
 
 > *"LLMLL does not require models to produce complete formal specifications. The remaining challenge is specification coverage — what gets specified at all."* — [strategic-positioning.md](design/strategic-positioning.md)
+>
+> **External review (2026-04-21):** Five items added to v0.6 based on reviewer feedback. Items 1–2 (spec coverage gate, frozen benchmark) are P0 — they close the gap between "interesting compiler" and "credible system." Items 3–5 (provenance, hub query, Leanstral claim) are P1/P2. Total added effort: ~15 days across 6 weeks, parallelizable with existing v0.6 research items.
+
+### Spec Coverage Gate (P0, ~2.5 days) — NEW
+
+> **Source:** External reviewer feedback item 1 (2026-04-21). `--spec-coverage` was designed in [spec-adequacy-closure.md §1b](design/spec-adequacy-closure.md) and planned for v0.4 but never shipped. The Lead Agent's quality heuristics are advisory, not blocking — a skeleton with no contracts can proceed to hole-filling.
+>
+> **Rationale:** The project's thesis — "verification is the coordination protocol" — requires that unspecified functions cannot progress to filling without explicit acknowledgment.
+
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| SC-1 | Implement `llmll verify --spec-coverage` per spec-adequacy-closure.md §1b. Walk `[Statement]`, count `SDefLogic` with/without `pre`/`post`, cross-reference `.verified.json`. Emit coverage report with per-function breakdown. | 1 day | ☐ |
+| SC-2 | Add `effective_coverage` metric to `quality.py` heuristics. Formula: `(contracted + weakness_ok) / total_functions`. | 0.5 day | ☐ |
+| SC-3 | Make coverage threshold a parameter in `--mode lead` / `--mode auto` (default: 80%, overridable via `--min-spec-coverage`). | 0.5 day | ☐ |
+| SC-4 | Blocking behavior: `--mode auto` fails if effective coverage < threshold. `--mode lead` emits structured warning with list of unspecified functions. | 0.5 day | ☐ |
+
+**Acceptance criteria:**
+
+- `llmll verify --spec-coverage` on a program with 7 functions (4 contracted, 1 `weakness-ok`, 2 unspecified) reports `effective_coverage: 71%`
+- `llmll-orchestra --mode auto` with `--min-spec-coverage 80` fails on the above program
+- `llmll-orchestra --mode auto` with `--min-spec-coverage 70` succeeds
+- Unspecified functions are listed by name in the coverage report
+
+### Frozen ERC-20 Benchmark (P0, ~5 days) — NEW
+
+> **Source:** External reviewer feedback item 2 (2026-04-21). The ERC-20 benchmark was fully designed in [spec-adequacy-closure.md §Track 2](design/spec-adequacy-closure.md) and planned for v0.4 but silently dropped. The project needs at least one stable benchmark with external ground truth, deliberately weakened specs, false-positive checks, and published pass criteria.
+
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| BM-1 | Implement `examples/erc20_token/erc20.ast.json` — full ERC-20 skeleton with `?delegate` holes, types, and contracts derived from ERC-20 standard | 1.5 days | ☐ |
+| BM-2 | Implement `examples/erc20_token/erc20_filled.ast.json` — filled version with verified contracts | 1 day | ☐ |
+| BM-3 | Add `examples/erc20_token/EXPECTED_RESULTS.json` — frozen ground truth for all 7 success criteria from spec-adequacy-closure.md §7 | 0.5 day | ☐ |
+| BM-4 | Add CI gate: `make benchmark-erc20` runs `--weakness-check`, `--spec-coverage`, `--trust-report`, compares against frozen expected output | 1 day | ☐ |
+| BM-5 | Write `examples/erc20_token/WALKTHROUGH.md` — end-to-end: external spec → LLMLL contracts → verified code → weakness detection → downstream obligation → strengthened contract → re-verification | 1 day | ☐ |
+
+**Verification scoping (honest labeling per spec-adequacy-closure.md §Risk 2):**
+
+| ERC-20 property | Verification level | Why |
+|---|---|---|
+| `total-supply` conservation | **Proven** (QF-LIA) | Integer arithmetic |
+| Balance debit/credit | **Proven** (QF-LIA) | Integer arithmetic |
+| Allowance deduction | **Proven** (QF-LIA) | Integer arithmetic |
+| Non-negative balance | **Proven** (QF-LIA) | Simple comparison |
+| Map key membership / absence | **Asserted** | Outside decidable fragment |
+| Transfer-to-self edge case | **Tested** (QuickCheck) | Conditional logic |
+
+**Acceptance criteria (from spec-adequacy-closure.md §7, promoted to roadmap):**
+
+- SC-1: `--weakness-check` detects money-printing when conservation invariant is removed from `transfer`
+- SC-2: `--spec-coverage` reports 100% contract coverage with all arithmetic contracts proven
+- SC-3: At least one downstream obligation suggestion demonstrated
+- SC-4: `balance-of` (pure accessor) not falsely flagged by `--weakness-check`
+- SC-6: Walkthrough documents the full pipeline end-to-end
+- SC-7: `--weakness-check` completes in under 30 seconds
+
+### Clause-Level Provenance for Spec-from-RFC (P1, ~3 days) — NEW
+
+> **Source:** External reviewer feedback item 3 (2026-04-21). In the target domains (financial compliance, protocol implementation, cryptographic standards), auditors require per-clause traceability to the originating standard. Without provenance, the Spec-from-RFC pipeline produces contracts that are plausibly correct but not auditable.
+
+**[SPEC]** Add `:source` annotation to `pre`/`post` contracts — pure metadata, no effect on type checking or verification:
+
+```lisp
+(def-logic handshake-key-schedule [psk: bytes[32] ecdhe: bytes[32]]
+  (pre  (>= (bytes-length psk) 32)
+    :source "RFC 8446 §7.1 — PSK must be at least HashLen bytes")
+  (post (= (bytes-length result) 32)
+    :source "RFC 8446 §7.1 — HKDF-Expand-Label output length = HashLen")
+  (hkdf-expand-label (hkdf-extract psk ecdhe) "derived" "" 32))
+```
+
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| PROV-1 | Add `sourceRef :: Maybe Text` field to contract representation in `Syntax.hs` | 0.5 day | ☐ |
+| PROV-2 | Parse `:source "..."` annotation in `Parser.hs` and `ParserJSON.hs` | 1 day | ☐ |
+| PROV-3 | Thread `sourceRef` through `--trust-report` output and `.verified.json` sidecar | 1 day | ☐ |
+| PROV-4 | Document `:source` annotation in `LLMLL.md §4.1` and `getting-started.md` | 0.5 day | ☐ |
+
+**Design decision:** v0.6 uses free-form text (`:source "RFC 8446 §7.1"`). Structured references (`{standard, section, clause}`) deferred to v0.7.
+
+**Acceptance criteria:**
+
+- `:source` annotation accepted on `pre` and `post` in both S-expression and JSON-AST
+- `--trust-report` output includes source references when present
+- `.verified.json` sidecar includes `sourceRef` field per contract
+- `:source` has no effect on type checking, verification, or codegen
+
+### Spec-from-RFC Pipeline
+
+> **Source:** [specification-sources.md §1](design/specification-sources.md)
+
+For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts. **v0.6 addition:** generated contracts must include `:source` annotations (PROV-1..4) linking each clause to the originating standard.
+
+### Hub Query-by-Signature (P2, ~3.5 days) — NEW
+
+> **Source:** External reviewer feedback item 4 (2026-04-21). [specification-sources.md §4](design/specification-sources.md) and [component-hub.md](design/component-hub.md) describe query-by-signature as a roadmap item, but it was not scheduled. Without reuse, each new project pays the full cost of spec generation from scratch.
+
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| HUB-1 | `llmll hub query --signature "<type>"` — exact structural type match against hub cache (`~/.llmll/modules/`) | 2 days | ☐ |
+| HUB-2 | Output includes function name, contract summary, verification level, source module | 0.5 day | ☐ |
+| HUB-3 | Integrate with `llmll checkout` — when a hole's type matches a hub component, emit suggestion in checkout response | 1 day | ☐ |
+
+**Explicitly deferred to v0.7:** Contract-aware matching (subsumption, equivalence), fuzzy `TDependent` compatibility.
+
+**Acceptance criteria:**
+
+- `llmll hub query --signature "list[int] -> list[int]"` returns matching components from the hub cache
+- Query results include verification level and contract summary
+- `llmll checkout` response includes `hub_suggestions` field when matches exist
 
 ### Synthetic Training Corpus (Hackage Back-Translation)
 
@@ -278,11 +387,16 @@ Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result: **GO*
 
 Algebraic law enforcement as a first-class language feature.
 
-### Spec-from-RFC Pipeline
+### Leanstral Claim Narrowing (P1, ~1 day) — NEW
 
-> **Source:** [specification-sources.md §1](design/specification-sources.md)
+> **Source:** External reviewer feedback item 5 (2026-04-21). The one-pager presents SMT + Leanstral as two working verification paths. In reality, Leanstral is mock-only since v0.3.1 and blocked on `lean-lsp-mcp`. This is misleading and should be corrected immediately.
 
-For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts.
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| CLAIM-1 | Revise `one-pager.md` to distinguish shipped verification (SMT/Z3) from designed-but-mock (Leanstral/Lean 4) | 0.5 day | ☐ |
+| CLAIM-2 | Add `Verification Scope` subsection to `LLMLL.md §5.3` that precisely defines what is proven vs. what is asserted outside the SMT fragment | 0.5 day | ☐ |
+
+**Decision:** Narrow the product claim now (Option B). Schedule real Leanstral integration (Option A) when `lean-lsp-mcp` becomes available. If `lean-lsp-mcp` is more than 3 months out, move Leanstral from "blocked" to "deferred to v0.8" and adjust documentation.
 
 ---
 
@@ -1042,12 +1156,15 @@ Docker container
 |------|---------------|-------------|
 | Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Deferred to v0.4.1 or v0.5 — let orchestrator stabilize before formalizing schema (compiler + language team, 2026-04-20) |
 | MCP integration (Q5 from v0.3.3) | Deferred | Python v1 is CLI-only; MCP with self-hosted rewrite |
-| Real Leanstral integration | Mock-only since v0.3.1 | Blocked on `lean-lsp-mcp` availability |
-| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test). Full WASI enforcement deferred to WASM build target (unversioned future). |
-| Spec coverage metric (`--spec-coverage`) | Proposed in invariant-discovery.md | Ship alongside invariant pattern registry in v0.4 |
+| Real Leanstral integration | Mock-only since v0.3.1. **Product claim narrowed (v0.6 CLAIM-1..2, 2026-04-21)** — one-pager and LLMLL.md now distinguish shipped SMT verification from designed-but-mock Lean 4 path. | Blocked on `lean-lsp-mcp` availability. If >3 months, move to deferred-v0.8. |
+| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test, **GO**). Full WASI enforcement deferred to WASM build target (unversioned future). |
+| Spec coverage metric (`--spec-coverage`) | Designed in spec-adequacy-closure.md §1b but **never shipped** (planned for v0.4, dropped) | **Promoted to v0.6 P0** (SC-1..SC-4, 2026-04-21). Blocking gate in `--mode lead` / `--mode auto`. |
+| Spec-adequacy benchmark (ERC-20) | Fully designed in spec-adequacy-closure.md §Track 2, planned for v0.4, **never shipped** | **Promoted to v0.6 P0** (BM-1..BM-5, 2026-04-21). Frozen benchmark with CI gate. |
+| Contract clause-level provenance | Not previously tracked | **Added to v0.6 P1** (PROV-1..PROV-4, 2026-04-21). `:source` annotation on pre/post contracts. |
+| Hub query-by-signature | Designed in specification-sources.md §4 and component-hub.md | **Added to v0.6 P2** (HUB-1..HUB-3, 2026-04-21). Exact structural match, no contract matching. |
 | Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
-| Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full may proceed. Revisit if v0.6 type-driven development changes architecture. |
-| `TSumType` wildcarding in `compatibleWith` | Unsound: any sum type compatible with any other sum type (Language Team §6.1, 2026-04-20) | Triage during U-Lite regression analysis. Fix in U-Lite if no breakage; defer to U-Full otherwise. |
+| Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full shipped. Revisit if v0.6 type-driven development changes architecture. |
+| `TSumType` wildcarding in `compatibleWith` | **Fixed** in U-Lite (v0.4, U7-lite) | Resolved. |
 
 ### What's NOT on this Roadmap (and why)
 
@@ -1064,24 +1181,24 @@ Docker container
 # Summary: Version Plan and Critical Path
 
 ```
-v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (~1 wk)    v0.6 (~3 mo)      Future
-──────────────     ──────────────      ────────────    ────────────      ──────
-Context-aware      Lead Agent          U-full          Synthetic corpus  WASM build
-checkout (C1-C6)   (skeleton gen)      (Algorithm W)   (Hackage back-    target
-                                                        translation)
-Orchestrator       U-lite              effectful                         WASI capability
-end-to-end         (concrete type      WASM compat     Differential      enforcement
-                   unification)        spike (1 day)    impl. pressure
-Weak-spec
-counter-examples   CAP-1 (capability                   def-interface
-                   enforcement)                         :laws
+v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (SHIPPED)    v0.6 (~3 mo)                Future
+──────────────     ──────────────      ──────────────    ──────────────────          ──────
+Context-aware      Lead Agent          U-full            P0: Spec coverage gate      WASM build
+checkout (C1-C6)   (skeleton gen)      (Algorithm W)     P0: ERC-20 frozen benchmark target
+                                                         P1: Clause-level provenance
+Orchestrator       U-lite              effectful         P1: Leanstral claim narrow  WASI capability
+end-to-end         (concrete type      WASM compat       P2: Hub query-by-signature  enforcement
+                   unification)        spike (GO)          + Synthetic corpus
+Weak-spec                                                   + Differential impl.
+counter-examples   CAP-1 (capability                       + def-interface :laws
+                   enforcement)                             + Spec-from-RFC
 
 C5 (monomorphize)  Invariant registry
-                   Obligation mining                   Spec-from-RFC
+                   Obligation mining
                    JSON parsing
 ```
 
-The critical path is: **context-aware checkout → working orchestrator → Lead Agent → U-Full**. WASM is a confirmed future direction, not pinned to a version — it ships when there is real deployment pressure beyond Docker. Algorithm W is split: U-lite (v0.4) catches the visible type errors; U-full (v0.5) adds occurs check and let-generalization. `TDependent` is resolved (Strip-then-Unify, Option A).
+The critical path through v0.5 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → shipped**. v0.6 shifts focus from compiler correctness to specification quality. The two P0 items — spec coverage gate and frozen benchmark — are the shortest path from "interesting compiler" to "credible system." WASM is a confirmed future direction, not pinned to a version.
 
 ### What Changed from LLMLL.md §14
 
@@ -1094,11 +1211,11 @@ The critical path is: **context-aware checkout → working orchestrator → Lead
 | **v0.3.2** | 2026-04-16 | Trust hardening (`--trust-report`, cross-module propagation tests) + GHC WASM PoC — **shipped** |
 | **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) + **agent prompt semantic reference** (Phase A) — **shipped** |
 | **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec` (Phase B) + Spec Faithfulness property tests — **shipped** |
-| **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **planned** |
+| **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **shipped** |
 | **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
 | **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) + `effectful` WASM compat spike (**GO**) — **shipped** |
-| **v0.6** | *(new)* | Spec quality: synthetic corpus, differential impl., `def-interface :laws` — **research** |
-| **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator — **research** |
+| **v0.6** | *(revised 2026-04-21)* | Spec quality: **spec coverage gate (P0)** + **frozen ERC-20 benchmark (P0)** + clause-level provenance (P1) + Leanstral claim narrowing (P1) + hub query-by-signature (P2) + synthetic corpus + differential impl. + `def-interface :laws` + Spec-from-RFC — **planned (~15 days new + existing research)** |
+| **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
 ### Items Removed from Scope

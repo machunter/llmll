@@ -30,9 +30,11 @@ LLMLL is a system — a programming language, compiler, and verification pipelin
 
 ## The Type System
 
-Drawing from type-driven development (as pioneered in Idris and Lean), types in LLMLL can carry constraints directly — a `PositiveInt` is not just an `int`, it's an `int` where the compiler has proven `x > 0`. For richer properties like "returns a list of exactly n items," dependent types express that at the type level. For behavioral properties that go further — like "the list is sorted" — the system has two verification paths: an SMT solver (Z3) handles the decidable arithmetic fragment automatically, and an interactive prover (Lean 4, via Leanstral) handles inductive properties that require structural reasoning.
+Drawing from type-driven development (as pioneered in Idris and Lean), types in LLMLL can carry constraints directly — a `PositiveInt` is not just an `int`, it's an `int` where the compiler has proven `x > 0`. For richer properties like "returns a list of exactly n items," dependent types express that at the type level. For behavioral properties that go further — like "the list is sorted" — the system's **shipped** verification path is an SMT solver (Z3 via liquid-fixpoint) that handles the decidable quantifier-free linear arithmetic fragment automatically. Contracts outside this fragment — those requiring induction or non-linear reasoning — are tracked as `asserted` or `tested` and explicitly flagged with `?proof-required` holes.
 
-> Types handle structural guarantees; contracts handle behavioral ones; the proof system handles what's beyond both.
+> **Verification scope (v0.5.0):** The SMT path (Z3) covers quantifier-free linear integer arithmetic: `+`, `-`, `=`, `<`, `<=`, `>=`, `>`. This handles ~80% of practical contracts (numeric bounds, conservation invariants, length preservation). An interactive proof path (Lean 4, via Leanstral MCP) is designed and the translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`), but real proof integration is blocked on `lean-lsp-mcp` availability — the current pipeline runs in mock mode only. Contracts outside the SMT fragment are not silently dropped; they are tracked as `asserted` with explicit verification level propagation through dependencies.
+
+> Types handle structural guarantees; contracts handle behavioral ones; the SMT solver handles the decidable arithmetic fragment; inductive properties are tracked as open proof obligations.
 
 ---
 
@@ -42,7 +44,7 @@ Drawing from type-driven development (as pioneered in Idris and Lean), types in 
 
 Every function carries a typed specification. When Agent B calls Agent A's function, it reads the type signature and contract — never the implementation. The compiler checks compatibility against declared contracts. Agents trust each other's contracts, not each other's code.
 
-*A natural question: can today's AI models actually write good type signatures and contracts?* Current reasoning models (o3, Gemini 2.5 Pro) can produce Haskell type signatures and Liquid Haskell refinements — they've been trained on this material. Whether they produce contracts that are *meaningful enough* to catch real bugs is an open question. But LLMLL's stratified verification gives a feedback signal: if a contract is too weak, the verification level stays at "asserted" rather than "proven," visibly flagging it. The system doesn't assume agents write perfect specs — it makes the quality of specs transparent.
+*A natural question: can today's AI models actually write good type signatures and contracts?* Current reasoning models (o3, Gemini 2.5 Pro) can produce Haskell type signatures and Liquid Haskell refinements — they've been trained on this material. Whether they produce contracts that are *meaningful enough* to catch real bugs is an open question. But LLMLL has two feedback mechanisms: stratified verification flags unproven contracts as "asserted" rather than "proven," and the weakness checker (`llmll verify --weakness-check`, shipped v0.3.5) actively tests whether a trivial implementation (identity function, constant zero, empty string) satisfies the contract — if so, the spec is flagged as under-specified. The system doesn't assume agents write perfect specs — it makes the quality of specs transparent and *actively detects* when a spec is too weak to be useful.
 
 ### Multi-agent orchestration
 
@@ -60,7 +62,7 @@ Agents don't write source code files that get merged with git-style diffs. They 
 
 ## Status
 
-The compiler is completed through **v0.3.4** (April 2026) with all planned features: Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch, async code generation, trust hardening (`--trust-report`), dependency-aware hole analysis for agent orchestration, and compiler-emitted agent specifications (`llmll spec`). An end-to-end orchestrator (`llmll-orchestra`) dispatches typed holes to specialist agents, retries with compiler diagnostics, and produces verified Haskell packages.
+The compiler is at **v0.5.0** (April 2026): Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report`), compiler-emitted agent specifications (`llmll spec`), and a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end. The type checker implements sound unification (Algorithm W with occurs check and let-generalization) — the last known unsoundness was closed in v0.5.0. 264 Haskell + 37 Python tests passing.
 
 Early stage — the compiler infrastructure works, validation on increasingly complex sample programs is ongoing. Open source (GPLv3). Solo project, supported by AI tools.
 
@@ -74,7 +76,7 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 **What's hard — and not as hard as it sounds.** The real challenge is not writing code but writing good *specifications*. However, this concern is often overstated. LLMs are empirically better at writing constraints ("length preserved," "no duplicates," "result is positive") than at writing correct algorithms — because constraints are local and descriptive, not constructive. And agents don't write specs in isolation: typed holes like `?hole : List Int -> SortedList Int` already encode structure and partial invariants. The agent only needs to add *incremental refinements*, not invent specs from scratch. The remaining challenge is not specification correctness but **specification coverage** (what gets specified at all) and **decomposition quality** (choosing the right boundaries).
 
-**What helps.** The compiler gives precise, structured feedback — errors point to exact AST nodes (JSON Pointers, not line numbers), and the verify-on-merge loop lets agents iterate quickly. More importantly, **the system makes specification weakness visible rather than hiding it.** In normal AI code generation, a weak specification is invisible — the code silently does the wrong thing. In LLMLL, weak specs surface as "asserted" rather than "proven" contracts, and trivial implementations that satisfy a too-weak spec are detectable.
+**What helps.** The compiler gives precise, structured feedback — errors point to exact AST nodes (JSON Pointers, not line numbers), and the verify-on-merge loop lets agents iterate quickly. More importantly, **the system makes specification weakness visible rather than hiding it.** In normal AI code generation, a weak specification is invisible — the code silently does the wrong thing. In LLMLL, weak specs surface in two ways: unproven contracts are tracked as "asserted" rather than "proven" (with trust-level propagation through dependencies), and the weakness checker (`--weakness-check`) actively constructs trivial candidate implementations and tests whether they satisfy the contract — if they do, the spec is flagged as under-specified with the specific trivial body that passed.
 
 **Where specifications come from.** In the target domains — encryption, financial compliance, protocol implementation — specifications already exist as external documents (RFCs, regulatory requirements, algorithm standards). The agent's task is to *translate* existing specifications into LLMLL contracts, not to *invent* them. For novel software, specification quality will depend on model capability and is expected to improve with domain-specific fine-tuning and synthetic training data.
 
@@ -84,10 +86,13 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 | Milestone | Description |
 |-----------|-------------|
-| **Agent prompt enrichment** (v0.3.4) ✅ | Compiler-emitted agent specification (`llmll spec`) generated directly from `builtinEnv`. Eliminates hand-maintained prompt references. Phase A prompt enrichment shipped in the orchestrator (pair/Result/letrec/fixed-arity). |
-| **Lead Agent** (v0.4.0) ✅ | Automated skeleton generation from natural-language intent. The Lead Agent architects programs (function decomposition, type signatures, agent assignments, contracts) and submits skeletons to the compiler for validation. Closes the last manual step in the pipeline. |
+| **U-Full soundness** (v0.5.0) ✅ | Occurs check prevents infinite types. Let-generalization for top-level polymorphic functions via TVar-TVar wildcard closure. Closes the last known unsoundness in the type checker. |
+| **Lead Agent** (v0.4.0) ✅ | Automated skeleton generation from natural-language intent. The Lead Agent architects programs end-to-end (decomposition, types, contracts, agent assignment). Closes the last manual step in the pipeline. |
+| **Spec weakness detection** (v0.3.5) ✅ | `llmll verify --weakness-check` constructs trivial candidate implementations and tests whether they satisfy the contract. Flags under-specified contracts with the specific trivial body that passed. |
 | **Context-aware checkout** (v0.3.5) ✅ | `llmll checkout` returns Γ (in-scope bindings), τ (expected type), and Σ (sibling signatures) alongside the lock token. Reduces agent hallucination by providing exact typing context. |
-| **WASM sandboxing** (planned) | Contracts cover *correctness*; WASM covers *capability abuse*. Server-side runtimes (Wasmtime, WasmEdge) enforce that programs cannot access resources beyond their declared capabilities. Confirmed future direction, not version-pinned. |
+| **Spec coverage gate** (v0.6, planned) | `llmll verify --spec-coverage` computes per-function contract coverage; `--mode lead` / `--mode auto` gate on coverage threshold. Makes specification gaps a blocking concern, not advisory. |
+| **Frozen ERC-20 benchmark** (v0.6, planned) | First real-domain benchmark with external ground truth (ERC-20 standard), deliberately weakened specs, false-positive checks, and published pass criteria. CI-gated. |
+| **WASM sandboxing** (planned) | Contracts cover *correctness*; WASM covers *capability abuse*. Server-side runtimes (Wasmtime, WasmEdge) enforce that programs cannot access resources beyond their declared capabilities. `effectful` WASM compatibility confirmed (v0.5.0 spike). |
 | **Synthetic training corpus** | Haskell-to-LLMLL back-translation from Hackage for fine-tuning and benchmarking. |
 
 ---
