@@ -1066,6 +1066,17 @@ structuralUnify func subst expected actual =
         -- will extend the substitution with b → TString. Using compatibleWith
         -- here would silently wildcard (TVar _ matches anything) and defeat
         -- the substitution mechanism.
+        --
+        -- SUBSTITUTION CYCLE RISK (Language Team, 2026-04-21): If subst
+        -- contains a → TVar "b" AND b → TVar "a", this recursive call will
+        -- loop forever (a → b → a → ...). The occurs check (occursIn) does
+        -- NOT cover this — it inspects structural occurrence in the Type AST,
+        -- not cycles in the substitution map. Currently safe because:
+        --   (1) The reflexive guard at L1076 blocks a → TVar "a".
+        --   (2) Per-call-site scoping means subst is fresh per EApp, limiting
+        --       the window for transitive TVar chains.
+        -- If global substitution or cross-EApp constraint sharing is ever
+        -- introduced, add a visited-set parameter or path-compression pass.
         Just bound -> structuralUnify func subst bound actual
         Nothing ->
           case actual of
