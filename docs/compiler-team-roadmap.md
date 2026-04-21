@@ -208,15 +208,15 @@ Codegen emits `import Data.Aeson` in `Lib.hs`, adds `aeson` to `package.yaml`. N
 
 ---
 
-## v0.5 — U-Full Soundness
+## v0.5 — U-Full Soundness ✅ SHIPPED
 
-**Theme:** Complete sound unification — close the last known unsoundness in the type checker.
+**Theme:** Complete sound unification — closes the last known unsoundness in the type checker.
 
 > **Source:** Language team roadmap proposal (2026-04-19). Algorithm W split into U-lite (v0.4) and U-full (v0.5) per compiler team review.
 >
 > **Decision (2026-04-21):** WASM build target removed from v0.5 and moved to unversioned future work. U-Full is a type-system correctness obligation that directly services one-shot correctness. WASM is an operational deployment concern — Docker + CAP-1 provide two functional enforcement layers for the current threat model.
 
-### U-Full — Sound Unification (~5 days)
+### U-Full — Sound Unification ✅ shipped
 
 > **TDependent resolution applied:** Strip-then-Unify (Option A, Language Team 2026-04-19). `TDependent` strips to base type during unification — no constraint propagation, no proof obligations. This is consistent with the two-layer architecture.
 
@@ -224,9 +224,9 @@ Complete Algorithm W with occurs check and let-generalization.
 
 | # | Action | Status |
 |---|--------|--------|
-| U1-full | Occurs check in unification (`TVar "a"` cannot unify with `TList (TVar "a")`) | ☐ |
-| U2-full | Let-generalization for `def-logic` / `letrec` signatures | ☐ |
-| U3-full | Regression test sweep (all examples + tests) | ☐ |
+| U1-full | Occurs check in unification (`TVar "a"` cannot unify with `TList (TVar "a")`). `occursIn` helper is structurally total over the `Type` ADT (including `TSumType`). | ✅ |
+| U2-full | Let-generalization for top-level `def-logic` / `letrec` via TVar-TVar wildcard closure + bound-TVar consistency fix (recursive `structuralUnify` replaces `compatibleWith` at L1044, Language Team Issue 2). Inner `let`-bound lambdas deferred to v0.7. L1055 asymmetric wildcard documented as safe under per-call-site scoping (Language Team Issue 3). | ✅ |
+| U3-full | Regression test sweep: 264 tests (257 existing + 7 new U-Full), 0 failures | ✅ |
 
 ### `effectful` WASM Compatibility Spike (~1 day)
 
@@ -1094,7 +1094,7 @@ The critical path is: **context-aware checkout → working orchestrator → Lead
 | **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec` (Phase B) + Spec Faithfulness property tests — **shipped** |
 | **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **planned** |
 | **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
-| **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** + `effectful` WASM compat spike — **planned** |
+| **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) — **shipped**. `effectful` WASM compat spike — **pending** |
 | **v0.6** | *(new)* | Spec quality: synthetic corpus, differential impl., `def-interface :laws` — **research** |
 | **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator — **research** |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |

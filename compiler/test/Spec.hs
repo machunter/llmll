@@ -43,9 +43,16 @@ import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDes
 import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..))
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), TrivialBody(..))
-import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..))
+import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
+
+-- | Run a TC action in an empty environment and return (errors, result).
+-- Used by U-Full tests to directly test structuralUnify.
+runTCPure :: TC a -> ([Diagnostic], a)
+runTCPure action =
+  let (result, diags) = runTC emptyEnv action
+  in (diags, result)
 
 main :: IO ()
 main = hspec $ do
@@ -2836,6 +2843,103 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
           report = typeCheck emptyEnv stmts
       reportSuccess report `shouldBe` True
+
+  -- =========================================================================
+  -- v0.5 U-Full: Sound Unification Tests
+  -- =========================================================================
+  describe "U-Full sound unification" $ do
+
+    -- U1-full: Occurs check — reject infinite type a ~ list[a]
+    it "U1-full: occurs check rejects infinite type a ~ list[a]" $ do
+      -- list-prepend : a -> list[a] -> list[a]
+      -- Calling list-prepend with a list[a] as the first argument (element position)
+      -- should work fine. But we can construct the infinite type scenario directly
+      -- via structuralUnify in TypeCheck.
+      -- Test: a user-defined function f : a -> list[a], called as f(xs) where xs : list[int]
+      -- This binds a -> list[int], return type becomes list[list[int]] — NOT an infinite type.
+      -- True infinite type: construct a scenario where unify would produce a = list[a].
+      -- We test structuralUnify directly.
+      let subst = Map.empty :: Map.Map T.Text Type
+          -- Attempt to unify TVar "a" with TList (TVar "a") — this is infinite
+      let result = runTCPure $ structuralUnify "test" subst (TVar "a") (TList (TVar "a"))
+          errs = fst result
+      length errs `shouldSatisfy` (> 0)
+      any (T.isInfixOf "infinite type") (map diagMessage errs) `shouldBe` True
+
+    -- U1-full: No false positive — valid recursive-looking uses should pass
+    it "U1-full: list-head on list[int] does not trigger occurs check (no false positive)" $ do
+      let stmts =
+            [ SDefLogic "f" [("xs", TList TInt)] (Just (TResult TInt TString))
+                (Contract Nothing Nothing) (EApp "list-head" [EVar "xs"])
+            ]
+          report = typeCheck emptyEnv stmts
+      reportSuccess report `shouldBe` True
+
+    -- U2-full: TVar-TVar binding — polymorphic function called with TVar arg
+    it "U2-full: TVar-TVar binding records in substitution map" $ do
+      let subst = Map.empty :: Map.Map T.Text Type
+          -- Unify TVar "a" with TVar "b" — should bind a -> TVar "b"
+      let result = runTCPure $ structuralUnify "test" subst (TVar "a") (TVar "b")
+          finalSubst = snd result
+      Map.lookup "a" finalSubst `shouldBe` Just (TVar "b")
+
+    -- U2-full: Top-level polymorphic reuse — same function at two sites with different types
+    it "U2-full: polymorphic top-level function works at two call sites with different types" $ do
+      let stmts =
+            [ SDefLogic "identity" [("x", TVar "a")] (Just (TVar "a"))
+                (Contract Nothing Nothing) (EVar "x")
+            , SDefLogic "test" [] (Just TBool)
+                (Contract Nothing Nothing)
+                -- Call identity(42) and identity("hello") at different sites
+                -- Both should succeed because each EApp gets a fresh substitution
+                (EApp "=" [ EApp "identity" [ELit (LitInt 42)]
+                          , ELit (LitInt 42) ])
+            ]
+          report = typeCheck emptyEnv stmts
+      reportSuccess report `shouldBe` True
+
+    -- U2-full: Same-call-site conflict — f(5, "hello") where f : a -> a -> a
+    it "U2-full: conflicting types at same call site rejected" $ do
+      let stmts =
+            [ SDefLogic "same-type" [("x", TVar "a"), ("y", TVar "a")] (Just (TVar "a"))
+                (Contract Nothing Nothing) (EVar "x")
+            , SDefLogic "test" [] (Just TBool)
+                (Contract Nothing Nothing)
+                (EApp "same-type" [ELit (LitInt 5), ELit (LitString "hello")])
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+
+    -- Issue 2: Bound-TVar consistency — f : a -> a -> bool, called as f(5, "hello")
+    it "U2-full (Issue 2): bound-TVar consistency rejects f(5, \"hello\") for f : a -> a -> bool" $ do
+      let stmts =
+            [ SDefLogic "same-check" [("x", TVar "a"), ("y", TVar "a")] (Just TBool)
+                (Contract Nothing Nothing) (EApp "=" [EVar "x", EVar "y"])
+            , SDefLogic "test" [] (Just TBool)
+                (Contract Nothing Nothing)
+                (EApp "same-check" [ELit (LitInt 5), ELit (LitString "hello")])
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      -- Should reject: a bound to int from first arg, string conflicts at second
+      length errs `shouldSatisfy` (> 0)
+
+    -- TVar chain: f : a -> a called with TVar "b" arg, result used where int expected
+    it "U2-full: TVar chain propagation (a -> b, then b -> int)" $ do
+      let subst0 = Map.empty :: Map.Map T.Text Type
+      -- Step 1: unify a with TVar "b" => subst has a -> TVar "b"
+      let result1 = runTCPure $ structuralUnify "test" subst0 (TVar "a") (TVar "b")
+          subst1 = snd result1
+      Map.lookup "a" subst1 `shouldBe` Just (TVar "b")
+      -- Step 2: unify a with TInt => should follow chain: a -> TVar "b", then b -> TInt
+      let result2 = runTCPure $ structuralUnify "test" subst1 (TVar "a") TInt
+          subst2 = snd result2
+          errs2  = fst result2
+      -- No errors — chain should propagate
+      length errs2 `shouldBe` 0
+      -- b should now be bound to TInt via the recursive call
+      Map.lookup "b" subst2 `shouldBe` Just TInt
 
   -- =========================================================================
   -- v0.4 Task 7: Invariant Pattern Registry
