@@ -32,6 +32,11 @@ module LLMLL.TypeCheck
   , ScopeBinding(..)
     -- * v0.4: Invariant pattern registry (re-export)
   , InvariantSuggestion(..)
+    -- * v0.5: U-Full internal exports (for direct unit testing)
+  , structuralUnify
+  , runTC
+  , occursIn
+  , TC
   ) where
 
 import Data.Map.Strict (Map)
@@ -1007,7 +1012,7 @@ checkPattern (PConstructor ctor subPats) scrutTy = do
       pure (concat bindings)
 
 -- ---------------------------------------------------------------------------
--- v0.4 U-Lite: Per-Call-Site Substitution Helpers
+-- v0.4 U-Lite / v0.5 U-Full: Per-Call-Site Substitution Helpers
 -- ---------------------------------------------------------------------------
 
 -- | Apply a type variable substitution map to a type, recursively.
@@ -1027,31 +1032,63 @@ stripDep :: Type -> Type
 stripDep (TDependent _ base _) = base
 stripDep t = t
 
+-- | v0.5 U1-full: Check if a type variable occurs in a type (infinite type guard).
+-- Must be structurally total over the Type ADT (Language Team review, 2026-04-21).
+occursIn :: Name -> Type -> Bool
+occursIn a (TVar b)           = a == b
+occursIn a (TList t)          = occursIn a t
+occursIn a (TResult x y)      = occursIn a x || occursIn a y
+occursIn a (TPair x y)        = occursIn a x || occursIn a y
+occursIn a (TFn ps r)         = any (occursIn a) ps || occursIn a r
+occursIn a (TPromise t)       = occursIn a t
+occursIn a (TMap k v)         = occursIn a k || occursIn a v
+occursIn a (TDependent _ b _) = occursIn a b
+occursIn a (TSumType ctors)   = any (\(_, mT) -> maybe False (occursIn a) mT) ctors
+occursIn _ _                  = False  -- TInt, TString, TBool, TUnit, TBytes, TCustom, TFloat, TDelegationError
+
 -- | Structural unification with substitution tracking.
 -- When a TVar in the expected type first encounters a concrete actual type,
 -- it's bound in the substitution map. If the same TVar is encountered again
 -- with a different concrete type, a type-mismatch error is emitted.
 --
--- TVar-TVar is preserved as wildcard (U-Lite does not track TVar-to-TVar bindings).
+-- v0.5 U-Full: TVar-TVar now binds (wildcard closure). Occurs check prevents
+-- infinite types. Bound-TVar consistency uses recursive structuralUnify
+-- instead of compatibleWith (Language Team Issue 2, 2026-04-21).
 structuralUnify :: Name -> Map Name Type -> Type -> Type -> TC (Map Name Type)
 structuralUnify func subst expected actual =
   case (expected, actual) of
     -- TVar expected: check or bind in substitution
     (TVar a, _) ->
       case Map.lookup a subst of
-        Just bound ->
-          -- Already bound: check compatibility with actual
-          if compatibleWith bound actual
-            then pure subst
-            else do
-              tcTypeMismatch func bound actual
-              pure subst
+        -- v0.5 U2-full (Issue 2): Already bound — recursively unify the bound
+        -- type against the actual. This ensures that TVar-TVar bindings are
+        -- enforced: if a → TVar "b" and actual = TString, the recursive call
+        -- will extend the substitution with b → TString. Using compatibleWith
+        -- here would silently wildcard (TVar _ matches anything) and defeat
+        -- the substitution mechanism.
+        Just bound -> structuralUnify func subst bound actual
         Nothing ->
           case actual of
-            TVar _ -> pure subst  -- TVar-TVar wildcard preserved
-            _      -> pure (Map.insert a actual subst)  -- bind
+            -- v0.5 U2-full: TVar-TVar wildcard closure.
+            -- Bind TVar to TVar so constraints propagate through chains.
+            -- Reflexive case (a == b) produces no new information.
+            TVar b
+              | a == b    -> pure subst  -- reflexive: no new info
+              | otherwise -> pure (Map.insert a actual subst)  -- bind TVar to TVar
+            -- v0.5 U1-full: Occurs check before binding.
+            -- Prevents infinite types like a ~ list[a].
+            _      -> if occursIn a actual
+                        then do
+                          tcError $ "infinite type: " <> a <> " occurs in " <> typeLabel actual
+                          pure subst
+                        else pure (Map.insert a actual subst)  -- bind
 
-    -- TVar actual: wildcard (can't constrain)
+    -- TVar actual: wildcard (can't constrain from the expected-type side).
+    -- SAFETY (Language Team review, 2026-04-21): This is correct only because
+    -- substitution scope is per-call-site. The substitution map created in
+    -- inferExpr (EApp ...) does NOT escape the EApp boundary. If we ever move
+    -- to global substitution, this line becomes a soundness hole — actual TVars
+    -- from return types would need to participate in the global constraint set.
     (_, TVar _) -> pure subst
 
     -- Structural recursion for compound types

@@ -1575,14 +1575,17 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
 | Downstream obligation mining | ✅ Cross-module UNSAFE results suggest postcondition strengthening on callee. Leverages `TrustReport.hs` transitive closure infrastructure. |
 | Aeson FFI | ✅ `(import haskell.aeson Data.Aeson)` codegen emits `import Data.Aeson` + adds `aeson` to `package.yaml`. Manual Haskell bridge file for JSON instance derivation. |
 
-### v0.5 — U-Full Soundness
+### v0.5 — U-Full Soundness ✅ Shipped
 
-Complete sound unification — close the last known unsoundness in the type checker. WASM build target moved to unversioned future work (2026-04-21).
+Complete sound unification — closes the last known unsoundness in the type checker. WASM build target moved to unversioned future work (2026-04-21).
 
 | Area | Feature |
 |------|---------|
-| U-full (Algorithm W) | Occurs check, let-generalization. `TDependent` strips to base type (two-layer architecture preserved). |
+| U-full (Algorithm W) | ✅ Occurs check prevents infinite types (`a ~ list[a]` is rejected). TVar-TVar wildcard closure ensures type variable bindings propagate through chains. Bound-TVar consistency uses recursive `structuralUnify` instead of `compatibleWith` (Language Team Issue 2). `TDependent` strips to base type (two-layer architecture preserved). 7 new tests (264 total). |
 | `effectful` WASM spike | Binary compatibility test: do `effectful`'s C shims compile under `wasm32-wasi`? Standalone 1-day risk-reduction item. Result informs typed effect row design. |
+
+> [!NOTE]
+> **Known limitation (v0.5):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
 
 ### Future — WASM Sandboxing (unversioned)
 
