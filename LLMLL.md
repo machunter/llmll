@@ -34,7 +34,7 @@
 2. **Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`). A program with holes can be analyzed and type-checked but not executed until the holes are filled. Always prefer a typed hole over a hallucinated implementation.
 3. **Typed Logic:** Every expression has a type. The type system prevents null pointer dereferences, type mismatches, and unguarded IO. Return types are inferred — never annotate them explicitly.
 4. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications. These contracts are the trust interface between agents. Verification is stratified: contracts in the decidable arithmetic fragment are proven at compile time (liquid-fixpoint / Z3); contracts requiring induction are routed to interactive proof (Leanstral); contracts outside both fragments are enforced as runtime assertions and flagged with `?proof-required`. A caller can inspect a contract's *verification level* — proven, tested, or asserted — without reading the implementation.
-5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.4.0; WASM-WASI planned as a future deployment target). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. Since v0.4.0 (CAP-1), capability imports are enforced at compile time.
+5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.5.0; WASM-WASI planned as a future deployment target). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. Since v0.4.0 (CAP-1), capability imports are enforced at compile time.
 
 ---
 
@@ -132,7 +132,7 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
 > Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
 
-> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function’s required capabilities visible in its type signature. **Currently (v0.4.0):** `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statement list — missing imports are compile-time type errors (checked in `inferExpr (EApp ...)`). Propagation is non-transitive: each module must declare its own capability imports. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned).
+> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function’s required capabilities visible in its type signature. **Currently (v0.5.0):** `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statement list — missing imports are compile-time type errors (checked in `inferExpr (EApp ...)`). Propagation is non-transitive: each module must declare its own capability imports. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned).
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -454,7 +454,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.4.0, with WASM-WASI planned as a future deployment target.
+`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.5.0, with WASM-WASI planned as a future deployment target.
 
 > [!IMPORTANT]
 > **v0.4.0 (CAP-1):** Capability enforcement is now active at compile time. When a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"`. **Propagation is non-transitive (module-local):** Module B must re-declare `(import wasi.io ...)` even if it only calls `wasi.*` via a function imported from Module A. This matches the principle of least authority.
@@ -854,7 +854,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 4. **Transpilation:** Validated `.llmll` is converted to **Haskell** (`.hs` + `package.yaml`). Generated modules are compiled with `{-# LANGUAGE Safe #-}`, preventing any IO outside the declared capability model.
 5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
 6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
-7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities (v0.1.2–v0.4.0). WASM-WASI is planned as a future replacement. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statements — missing imports are compile-time type errors.
+7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities (v0.1.2–v0.5.0). WASM-WASI is planned as a future replacement. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statements — missing imports are compile-time type errors.
 8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
 
 > **v0.2 (shipped):** Step 2 includes compile-time contract verification via `llmll verify` (decoupled liquid-fixpoint backend). Contracts outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
@@ -872,7 +872,7 @@ Correct replay is the foundation of fault tolerance, audit trails, and (in v0.2)
 
 | Source | Problem | Runtime Fix |
 |--------|---------|-------------|
-| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules in v0.1.2–v0.4.0; `wasm-determinism` extension with WASM target) |
+| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules in v0.1.2–v0.5.0; `wasm-determinism` extension with WASM target) |
 | **Monotonic clock** | Wall-clock calls diverge across replay runs | Virtualize via `:deterministic true`; log return value |
 | **PRNG** | Non-seeded random generation diverges on replay | Log seed + call sequence; replay re-seeds from log |
 

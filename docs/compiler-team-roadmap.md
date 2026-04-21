@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.3.5 shipped (context-aware checkout + weakness checking + orchestrator E2E); 225 Haskell + 12 Python tests passing  
+> **Status:** Active — v0.5.0 shipped (U-Full soundness); 264 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -17,9 +17,9 @@
 
 ---
 
-# Upcoming Releases
+# Shipped Releases
 
-## v0.4 — Lead Agent + U-Lite Soundness
+## v0.4 — Lead Agent + U-Lite Soundness ✅ SHIPPED
 
 **Theme:** Close the last manual step (skeleton authoring) and fix the most visible soundness gap in unification.
 
@@ -193,7 +193,7 @@ Codegen emits `import Data.Aeson` in `Lib.hs`, adds `aeson` to `package.yaml`. N
 
 > **Scoping note (P2-2):** v0.4 Aeson FFI requires a manual Haskell bridge file for JSON instance derivation (developer writes `FromJSON`/`ToJSON` instances). Auto-generation of `deriving (FromJSON, ToJSON)` from LLMLL type declarations is a **v0.7 codegen change**, not part of the v0.4 scope.
 
-### Orchestration Event Log Format (Q3 resolution) — DEFERRED to v0.4.1/v0.5
+### Orchestration Event Log Format (Q3 resolution) — DEFERRED
 
 > Both teams agreed (2026-04-20) to defer until the Lead Agent ships and real
 > orchestration event patterns are observable. The Lead Agent (Sprint 2) adds new
@@ -240,6 +240,8 @@ Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result inform
 | EFF-2 | Document result: GO / NO-GO / SHIM-REQUIRED | ☐ |
 
 ---
+
+# Upcoming Releases
 
 ## v0.6 — Specification Quality + Training
 
@@ -490,7 +492,7 @@ When a spec admits trivial implementations, show the trivial implementation as e
 
 **Open questions resolved:**
 
-- Q3 (from v0.3.3): orchestration events — **deferred to v0.4**. Orchestrator must stabilize first. Define JSONL schema in v0.3.5 as a placeholder.
+- Q3 (from v0.3.3): orchestration events — **deferred to v0.4.1 or later**. Orchestrator must stabilize first. Define JSONL schema in v0.3.5 as a placeholder.
 - `domain_hints` — **deferred**. Existing hole metadata sufficient for orchestrator routing.
 - `type-reference` edges — **deferred**. Only `calls-hole-body` edges needed for v0.3 orchestration.
 - `?delegate-async` fire-and-forget filtering — **deferred**. Requires data-flow analysis.
