@@ -17,230 +17,6 @@
 
 ---
 
-# Shipped Releases
-
-## v0.4 — Lead Agent + U-Lite Soundness ✅ SHIPPED
-
-**Theme:** Close the last manual step (skeleton authoring) and fix the most visible soundness gap in unification.
-
-> **Source:** Language team roadmap proposal (2026-04-19). Algorithm W split into U-lite (v0.4) and U-full (v0.5) per compiler team review.
-
-### Lead Agent — Automated Skeleton Generation (~10 days, incremental)
-
-> **Source:** [lead-agent.md](design/lead-agent.md)
-
-Phased delivery shipping incrementally within v0.4:
-
-| Phase | Deliverable | Effort | Status |
-|-------|-------------|--------|--------|
-| Phase 0 | `--mode plan` — intent → structured architecture plan (JSON) | ~3 days | ✅ |
-| Phase 1 | `--mode lead` — plan → JSON-AST skeleton, validated by `llmll check`, quality heuristics | ~4 days | ✅ |
-| Phase 2 | `--mode auto` — lead → fill → verify in sequence | ~3 days | ✅ |
-
-**Acceptance criteria:**
-
-- `llmll-orchestra --mode auto --intent "Build an auth module..."` produces a filled, verified program
-- Quality heuristics flag: low parallelism, all-string types, missing contracts, unassigned agents
-- Lead Agent uses `llmll spec` output in its system prompt
-
-**Open questions (from lead-agent.md, to resolve during implementation):**
-
-- Q1: Same or different model for lead vs specialist? (Affects spec format — `llmll spec` is model-agnostic, JSON output may not be)
-- Q3: How to evaluate skeleton quality beyond type-correctness?
-- Q4: When quality heuristics fire (low parallelism, all-string types, missing contracts, unassigned agents), what does the Lead Agent do? Options: **(a)** reject and re-prompt with the specific heuristic failure (bounded to 2 retries), **(b)** accept with structured warnings in skeleton metadata, **(c)** auto-repair (e.g., add `(post true)` for missing contracts, assign `@general-agent` for unassigned holes). Decide during Phase 0 implementation.
-
-### U-Lite — Concrete Type Unification (~5 days)
-
-> **Source:** [agent-prompt-semantics-gap.md §1](design/agent-prompt-semantics-gap.md) — parametricity gap
->
-> **Decision:** Algorithm W split into two phases (compiler team review, 2026-04-19). U-lite catches obvious type errors. U-full (v0.5) adds occurs check and let-generalization.
->
-> **TDependent resolution (Language Team, 2026-04-19):** Strip-then-Unify (Option A). Unification strips `TDependent` to its base type; refinement constraints are NOT propagated through substitution. This formalizes existing `compatibleWith` behavior and preserves the two-layer architecture (types = structure, contracts = behavior). Full analysis: `algorithm_w_tdependent_resolution.md`.
-
-Replace `compatibleWith (TVar _) _ = True` with substitution-based unification **for concrete types only**. `TVar` still wildcards against other `TVar` to preserve existing polymorphic builtin behavior.
-
-> **Substitution scope (Language Team review, 2026-04-20):** Per-call-site with fresh type variable instantiation at each `EApp`. Each call to a polymorphic function gets its own α-renamed type variables and a local substitution map. The substitution does NOT escape the `EApp` boundary. This prevents cross-call conflicts (e.g., `list-head xs` binding `a → int` would incorrectly block `list-head ys` where `ys : list[string]` if scoping were per-function).
-
-#### Pre-implementation: Regression triage (P0-3)
-
-Before starting U-lite implementation:
-
-| # | Task |
-|---|------|
-| 1 | Run the full test suite with a **diagnostic-only** version of U-lite that logs substitution failures but doesn't change `compatibleWith` behavior. Count divergences. |
-| 2 | Classify each divergence: **(a)** true bug (currently silently accepted, will now correctly error), or **(b)** cosmetic (different message, same outcome). |
-| 3 | Produce an explicit list: "The following N programs currently type-check incorrectly. U-lite fixes them." This is the acceptance criterion. |
-| 4 | Assess `TSumType` wildcarding impact: `compatibleWith (TSumType _) (TSumType _) = True` conflates all sum types. Run with fix, count breakage. If no breakage, include in U-lite. If breakage, defer to U-full with documented test case. (Language Team §6.1, 2026-04-20) |
-| 5 | No `--legacy-compat` flag. If U-lite surfaces true bugs, those are bugs — not options. |
-
-#### Implementation steps
-
-| # | Action | Status |
-|---|--------|--------|
-| U1-lite | Per-call-site substitution with fresh type variable instantiation at each `EApp`: α-rename all `TVar`s in the looked-up function signature, create a local substitution map, unify arguments against freshened parameter types. Substitution map does NOT escape the `EApp` boundary. | ✅ |
-| U2-lite | Re-type `first`/`second` from `TVar "p" → TVar "a"` to `TPair a b → a` / `TPair a b → b` in `builtinEnv` | ✅ |
-| U3-lite | Ensure all 225+ existing tests still pass (divergence list from triage step) | ✅ |
-| U4-lite | Add tests for currently-silent type errors: `list-head 42`, `list-map 5 f` | ✅ |
-| U5-lite | Test per-call-site scoping: `list-map [1,2,3] (fn [x: string] x)` → type error (element type mismatch caught by per-call-site substitution). (Language Team verification requirement, 2026-04-20) | ✅ |
-| U6-lite | Regression test: `(type PositiveInt (where [x: int] (>= x 0)))`, `list-head` on `list[PositiveInt]` → `Result[int, string]` (alias expansion + stripDep). | ✅ |
-| U7-lite | If TSumType triage (pre-implementation step 4) shows no breakage: fix `TSumType` wildcarding in `compatibleWith`. | ✅ |
-
-> [!WARNING]
-> **U2-lite (`first`/`second` retype) is prerequisite.** The current `TVar "p"` hack exists because the old unifier couldn't express the pair constraint. With substitution tracking, `first : TPair a b → a` works correctly.
-
-#### `letrec` handling
-
-> LLMLL's `letrec` has explicit type annotations. Under U-lite, the self-call unifies against the declared signature — no special treatment needed. Under U-full, `letrec` is not let-generalized (standard monomorphic recursion). The fixpoint emitter is unaffected — it emits constraints for the function boundary, not for recursive call sites.
-
-#### Alias-through-substitution ordering
-
-Under U-lite, the `unify` function must apply the current substitution before alias expansion:
-
-```haskell
-unify ctx expected actual = do
-    s <- getSubst
-    let expected' = applySubst s expected
-        actual'   = applySubst s actual
-    expected'' <- expandAlias expected'
-    actual''   <- expandAlias actual'
-    -- strip TDependent, then structural unify
-    unifyStructural ctx (stripDep expected'') (stripDep actual'')
-```
-
-> **Regression test:** Define `(type PositiveInt (where [x: int] (> x 0)))`. Call `list-head` on a `list[PositiveInt]`. Verify the result type is `Result[int, string]` (not `Result[PositiveInt, string]` — the dependent wrapper is stripped after alias expansion).
-
-**Acceptance criteria:**
-
-- `list-head 42` produces a type error (currently silently accepted)
-- `first (pair 1 "hello")` infers type `int` (not `TVar "a"`)
-- `list-map [1,2,3] (fn [x: string] x)` produces a type error (per-call-site substitution)
-- All existing examples and tests pass
-- Parametricity prompt note remains in agent prompt
-- Regression triage list reviewed and all true bugs documented
-
-**Explicitly deferred to U-full (v0.5):**
-
-- Occurs check
-- Let-generalization
-- `TVar-TVar` wildcard closure (accepted for U-lite per Language Team review 2026-04-20; must close in U-full)
-
-### CAP-1 — Capability Enforcement in TypeCheck.hs (~2 days)
-
-> **Source:** Professor critique P0-1 (2026-04-19). The spec (LLMLL.md §3.2, §10.7, §14) claimed `effectful` typed effect rows enforce capability safety at compile time. Verified false: `wasi.*` functions are unconditionally in `builtinEnv` and type-check without a matching `import`.
->
-> **Check location (Language Team review, 2026-04-20):** The check must go in `inferExpr (EApp ...)` — the single convergence point for all function calls. Placing it in `checkStatement (SExpr (EApp ...))` would miss `wasi.*` calls nested inside `let`, `if`, `match`, `do`, or contract expressions.
->
-> **Capability propagation (Language Team review, 2026-04-20):** Non-transitive (module-local). Module B must re-declare `(import wasi.io ...)` even if it only calls `wasi.*` via a function imported from module A. This matches the principle of least authority. Requires LLMLL.md §7 update.
-
-When `wasi.*` functions are called, check that a matching `SImport` with a `Capability` is present in the module's statements. Emit a type error if not. This does NOT require `effectful` — it's a simple presence check. Thread module statements through `TCState` so `inferExpr` can access them.
-
-| # | Action | Status |
-|---|--------|--------|
-| CAP-1a | In `inferExpr (EApp func args)`, if `func` starts with `wasi.`, verify a matching `SImport` exists in the module's statement list (accessed via `TCState`). Covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, contract expressions. | ✅ |
-| CAP-1b | Emit structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"` | ✅ |
-| CAP-1c | Test: `wasi.io.stdout` call with no `(import wasi.io ...)` → compile error | ✅ |
-| CAP-1d | Test: `wasi.io.stdout` inside a `let` binding with no import → error (nested call coverage) | ✅ |
-| CAP-1e | Test: `wasi.io.stdout` with `(import wasi.io ...)` → OK (positive case) | ✅ |
-| CAP-1f | Test: `wasi.fs.write` with `(import wasi.io ...)` but no `wasi.fs` import → error (per-namespace) | ✅ |
-| CAP-1g | Test: Module A imports `wasi.io`; Module B imports Module A, calls `wasi.io.stdout` → error (non-transitive) | ✅ |
-
-### Invariant Pattern Registry (~3 days)
-
-> **Source:** [invariant-discovery-review.md §9](design/invariant-discovery-review.md)
-
-Extend `llmll typecheck --sketch` to emit invariant suggestions from a pattern registry keyed by `(type signature × function name pattern)`.
-
-| Pattern | Trigger | Suggested invariant |
-|---------|---------|---------------------|
-| `list[a] → list[a]` | Same element type | `(= (list-length result) (list-length input))` |
-| `encode`/`decode` pair | Complementary names | `(= (decode (encode x)) x)` |
-| Name contains "sort" | Semantic signal | `(sorted result)` ∧ `(permutation input result)` |
-| Idempotent operations | `f(f(x)) = f(x)` pattern | `(= (f (f x)) (f x))` |
-| Subset operations | `filter`, `take`, `drop` | `(<= (list-length result) (list-length input))` |
-
-**Acceptance criteria:**
-
-- `llmll typecheck --sketch` on a function with signature `list[a] → list[a]` emits at least one invariant suggestion
-- Suggestions are keyed by `(type signature, function name pattern)` and returned in a structured JSON field `invariant_suggestions`
-- Registry contains ≥5 patterns at launch (list-preserving, sorted, round-trip, subset, idempotent)
-- Adding a new pattern to the registry does not require recompilation — patterns stored as data, not code
-
-### Downstream Obligation Mining (~6 days)
-
-> **Source:** [invariant-discovery-review.md §4](design/invariant-discovery-review.md)
-
-When `llmll verify` reports UNSAFE at a cross-function boundary, extract the unsatisfied constraint and suggest a postcondition strengthening on the callee.
-
-```
-✗ Caller requires: uniqueIds(result)
-  Producer normalizeUsers does not guarantee this.
-  Candidate strengthening: postcondition uniqueIds(output)
-```
-
-Leverages existing `TrustReport.hs` transitive closure infrastructure.
-
-### JSON Parsing via Aeson FFI (~2 days)
-
-> **Source:** [agent-orchestration.md](design/agent-orchestration.md)
-
-Unblocks self-hosted orchestrator experimentation. Uses Haskell FFI tier:
-
-```lisp
-(import haskell.aeson Data.Aeson)
-```
-
-Codegen emits `import Data.Aeson` in `Lib.hs`, adds `aeson` to `package.yaml`. No new compiler module needed.
-
-> **Scoping note (P2-2):** v0.4 Aeson FFI requires a manual Haskell bridge file for JSON instance derivation (developer writes `FromJSON`/`ToJSON` instances). Auto-generation of `deriving (FromJSON, ToJSON)` from LLMLL type declarations is a **v0.7 codegen change**, not part of the v0.4 scope.
-
-### Orchestration Event Log Format (Q3 resolution) — DEFERRED
-
-> Both teams agreed (2026-04-20) to defer until the Lead Agent ships and real
-> orchestration event patterns are observable. The Lead Agent (Sprint 2) adds new
-> event types (plan_generated, skeleton_validated, quality_check) that would force
-> a schema revision if formalized now.
-
-| # | Action | Status |
-|---|--------|--------|
-| EV1 | Finalize `orchestration-events-schema.json` | ☐ deferred |
-| EV2 | `llmll-orchestra` emits events in the finalized format | ☐ deferred |
-| EV3 | Add replay support for orchestration events (extend `llmll replay`) | ☐ deferred |
-
----
-
-## v0.5 — U-Full Soundness ✅ SHIPPED
-
-**Theme:** Complete sound unification — closes the last known unsoundness in the type checker.
-
-> **Source:** Language team roadmap proposal (2026-04-19). Algorithm W split into U-lite (v0.4) and U-full (v0.5) per compiler team review.
->
-> **Decision (2026-04-21):** WASM build target removed from v0.5 and moved to unversioned future work. U-Full is a type-system correctness obligation that directly services one-shot correctness. WASM is an operational deployment concern — Docker + CAP-1 provide two functional enforcement layers for the current threat model.
-
-### U-Full — Sound Unification ✅ shipped
-
-> **TDependent resolution applied:** Strip-then-Unify (Option A, Language Team 2026-04-19). `TDependent` strips to base type during unification — no constraint propagation, no proof obligations. This is consistent with the two-layer architecture.
-
-Complete Algorithm W with occurs check and let-generalization.
-
-| # | Action | Status |
-|---|--------|--------|
-| U1-full | Occurs check in unification (`TVar "a"` cannot unify with `TList (TVar "a")`). `occursIn` helper is structurally total over the `Type` ADT (including `TSumType`). | ✅ |
-| U2-full | Let-generalization for top-level `def-logic` / `letrec` via TVar-TVar wildcard closure + bound-TVar consistency fix (recursive `structuralUnify` replaces `compatibleWith` at L1044, Language Team Issue 2). Inner `let`-bound lambdas deferred to v0.7. L1055 asymmetric wildcard documented as safe under per-call-site scoping (Language Team Issue 3). | ✅ |
-| U3-full | Regression test sweep: 264 tests (257 existing + 7 new U-Full), 0 failures | ✅ |
-
-### `effectful` WASM Compatibility Spike ✅ shipped
-
-> **Source:** Extracted from WASM Phase 0 as a standalone risk-reduction item (2026-04-21).
-
-Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result: **GO** — no C shims, no linker errors, correct execution. See [`docs/effectful-wasm-spike.md`](effectful-wasm-spike.md).
-
-| # | Action | Status |
-|---|--------|--------|
-| EFF-1 | Install `ghc-wasm-meta` (GHC 9.12.4) + `wasmtime` (v44.0.0), compile a minimal `effectful` (v2.6.1.0) program under `wasm32-wasi` | ✅ |
-| EFF-2 | Document result: **GO** — `effectful-core` and `effectful` compile with zero C shim failures. Binary executes correctly in wasmtime. | ✅ |
-
----
-
 # Upcoming Releases
 
 ## v0.6 — Specification Quality + Training
@@ -460,8 +236,313 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 
 ---
 
-# Earlier Releases
+# Cross-Cutting Concerns
 
+### Items Tracked Across Versions
+
+| Item | Current Status | Next Action |
+|------|---------------|-------------|
+| Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Deferred to v0.4.1 or v0.5 — let orchestrator stabilize before formalizing schema (compiler + language team, 2026-04-20) |
+| MCP integration (Q5 from v0.3.3) | Deferred | Python v1 is CLI-only; MCP with self-hosted rewrite |
+| Real Leanstral integration | Mock-only since v0.3.1. **Product claim narrowed (v0.6 CLAIM-1..2, 2026-04-21)** — one-pager and LLMLL.md now distinguish shipped SMT verification from designed-but-mock Lean 4 path. | Blocked on `lean-lsp-mcp` availability. If >3 months, move to deferred-v0.8. |
+| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test, **GO**). Full WASI enforcement deferred to WASM build target (unversioned future). |
+| Spec coverage metric (`--spec-coverage`) | Designed in spec-adequacy-closure.md §1b but **never shipped** (planned for v0.4, dropped) | **Promoted to v0.6 P0** (SC-1..SC-4, 2026-04-21). Blocking gate in `--mode lead` / `--mode auto`. |
+| Spec-adequacy benchmark (ERC-20) | Fully designed in spec-adequacy-closure.md §Track 2, planned for v0.4, **never shipped** | **Promoted to v0.6 P0** (BM-1..BM-5, 2026-04-21). Frozen benchmark with CI gate. |
+| Contract clause-level provenance | Not previously tracked | **Added to v0.6 P1** (PROV-1..PROV-4, 2026-04-21). `:source` annotation on pre/post contracts. |
+| Hub query-by-signature | Designed in specification-sources.md §4 and component-hub.md | **Added to v0.6 P2** (HUB-1..HUB-3, 2026-04-21). Exact structural match, no contract matching. |
+| Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
+| Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full shipped. Revisit if v0.6 type-driven development changes architecture. |
+| `TSumType` wildcarding in `compatibleWith` | **Fixed** in U-Lite (v0.4, U7-lite) | Resolved. |
+
+### What's NOT on this Roadmap (and why)
+
+| Item | Reason |
+|------|--------|
+| Rust codegen backend | Dropped in v0.1.2; Haskell is the permanent target |
+| Python FFI tier | Breaks WASM compatibility; dynamically typed |
+| Full Lean 4 proof agent from scratch | Replaced by Leanstral MCP integration |
+| UI/web frontend | LLMLL's target domains are backend, not UI |
+| IDE plugins (VS Code, etc.) | Premature — stabilize the CLI/HTTP interface first |
+
+---
+
+# Summary: Version Plan and Critical Path
+
+```
+v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (SHIPPED)    v0.6 (~3 mo)                Future
+──────────────     ──────────────      ──────────────    ──────────────────          ──────
+Context-aware      Lead Agent          U-full            P0: Spec coverage gate      WASM build
+checkout (C1-C6)   (skeleton gen)      (Algorithm W)     P0: ERC-20 frozen benchmark target
+                                                         P1: Clause-level provenance
+Orchestrator       U-lite              effectful         P1: Leanstral claim narrow  WASI capability
+end-to-end         (concrete type      WASM compat       P2: Hub query-by-signature  enforcement
+                   unification)        spike (GO)          + Synthetic corpus
+Weak-spec                                                   + Differential impl.
+counter-examples   CAP-1 (capability                       + def-interface :laws
+                   enforcement)                             + Spec-from-RFC
+
+C5 (monomorphize)  Invariant registry
+                   Obligation mining
+                   JSON parsing
+```
+
+The critical path through v0.5 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → shipped**. v0.6 shifts focus from compiler correctness to specification quality. The two P0 items — spec coverage gate and frozen benchmark — are the shortest path from "interesting compiler" to "credible system." WASM is a confirmed future direction, not pinned to a version.
+
+### What Changed from LLMLL.md §14
+
+| Version | Original | Revised |
+| ------- | -------- | ------- |
+| **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + hole-density validator + Docker sandbox. `effectful` typed effect row **[UNIMPLEMENTED]** — `Command` emitted as plain `IO`. |
+| **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
+| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ + checkout/patch primitives ✅ — **12/12 shipped** |
+| **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **shipped** |
+| **v0.3.2** | 2026-04-16 | Trust hardening (`--trust-report`, cross-module propagation tests) + GHC WASM PoC — **shipped** |
+| **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) + **agent prompt semantic reference** (Phase A) — **shipped** |
+| **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec` (Phase B) + Spec Faithfulness property tests — **shipped** |
+| **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **shipped** |
+| **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
+| **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) + `effectful` WASM compat spike (**GO**) — **shipped** |
+| **v0.6** | *(revised 2026-04-21)* | Spec quality: **spec coverage gate (P0)** + **frozen ERC-20 benchmark (P0)** + clause-level provenance (P1) + Leanstral claim narrowing (P1) + hub query-by-signature (P2) + synthetic corpus + differential impl. + `def-interface :laws` + Spec-from-RFC — **planned (~15 days new + existing research)** |
+| **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
+| **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
+
+### Items Removed from Scope
+
+| Item | Reason |
+| ---- | ------ |
+| Rust FFI stdlib (`serde_json`, `clap`, etc.) | Replaced by native Hackage imports |
+| Z3 binding layer (build from scratch) | Replaced by decoupled liquid-fixpoint backend (no GHC plugin) |
+| Lean 4 proof agent (build from scratch) | Replaced by Leanstral MCP integration |
+| Python FFI tier | Breaks WASM compatibility; dynamically typed; dropped from spec |
+| Opaque `Command` type | Replaced by typed effect row (`Eff '[...]`) |
+
+# Shipped Releases
+
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.5.0)</strong></summary>
+
+
+## v0.5 — U-Full Soundness ✅ SHIPPED
+
+**Theme:** Complete sound unification — closes the last known unsoundness in the type checker.
+
+> **Source:** Language team roadmap proposal (2026-04-19). Algorithm W split into U-lite (v0.4) and U-full (v0.5) per compiler team review.
+>
+> **Decision (2026-04-21):** WASM build target removed from v0.5 and moved to unversioned future work. U-Full is a type-system correctness obligation that directly services one-shot correctness. WASM is an operational deployment concern — Docker + CAP-1 provide two functional enforcement layers for the current threat model.
+
+### U-Full — Sound Unification ✅ shipped
+
+> **TDependent resolution applied:** Strip-then-Unify (Option A, Language Team 2026-04-19). `TDependent` strips to base type during unification — no constraint propagation, no proof obligations. This is consistent with the two-layer architecture.
+
+Complete Algorithm W with occurs check and let-generalization.
+
+| # | Action | Status |
+|---|--------|--------|
+| U1-full | Occurs check in unification (`TVar "a"` cannot unify with `TList (TVar "a")`). `occursIn` helper is structurally total over the `Type` ADT (including `TSumType`). | ✅ |
+| U2-full | Let-generalization for top-level `def-logic` / `letrec` via TVar-TVar wildcard closure + bound-TVar consistency fix (recursive `structuralUnify` replaces `compatibleWith` at L1044, Language Team Issue 2). Inner `let`-bound lambdas deferred to v0.7. L1055 asymmetric wildcard documented as safe under per-call-site scoping (Language Team Issue 3). | ✅ |
+| U3-full | Regression test sweep: 264 tests (257 existing + 7 new U-Full), 0 failures | ✅ |
+
+### `effectful` WASM Compatibility Spike ✅ shipped
+
+> **Source:** Extracted from WASM Phase 0 as a standalone risk-reduction item (2026-04-21).
+
+Binary test: do `effectful`'s C shims compile under `wasm32-wasi`? Result: **GO** — no C shims, no linker errors, correct execution. See [`docs/effectful-wasm-spike.md`](effectful-wasm-spike.md).
+
+| # | Action | Status |
+|---|--------|--------|
+| EFF-1 | Install `ghc-wasm-meta` (GHC 9.12.4) + `wasmtime` (v44.0.0), compile a minimal `effectful` (v2.6.1.0) program under `wasm32-wasi` | ✅ |
+| EFF-2 | Document result: **GO** — `effectful-core` and `effectful` compile with zero C shim failures. Binary executes correctly in wasmtime. | ✅ |
+
+---
+
+
+## v0.4 — Lead Agent + U-Lite Soundness ✅ SHIPPED
+
+**Theme:** Close the last manual step (skeleton authoring) and fix the most visible soundness gap in unification.
+
+> **Source:** Language team roadmap proposal (2026-04-19). Algorithm W split into U-lite (v0.4) and U-full (v0.5) per compiler team review.
+
+### Lead Agent — Automated Skeleton Generation (~10 days, incremental)
+
+> **Source:** [lead-agent.md](design/lead-agent.md)
+
+Phased delivery shipping incrementally within v0.4:
+
+| Phase | Deliverable | Effort | Status |
+|-------|-------------|--------|--------|
+| Phase 0 | `--mode plan` — intent → structured architecture plan (JSON) | ~3 days | ✅ |
+| Phase 1 | `--mode lead` — plan → JSON-AST skeleton, validated by `llmll check`, quality heuristics | ~4 days | ✅ |
+| Phase 2 | `--mode auto` — lead → fill → verify in sequence | ~3 days | ✅ |
+
+**Acceptance criteria:**
+
+- `llmll-orchestra --mode auto --intent "Build an auth module..."` produces a filled, verified program
+- Quality heuristics flag: low parallelism, all-string types, missing contracts, unassigned agents
+- Lead Agent uses `llmll spec` output in its system prompt
+
+**Open questions (from lead-agent.md, to resolve during implementation):**
+
+- Q1: Same or different model for lead vs specialist? (Affects spec format — `llmll spec` is model-agnostic, JSON output may not be)
+- Q3: How to evaluate skeleton quality beyond type-correctness?
+- Q4: When quality heuristics fire (low parallelism, all-string types, missing contracts, unassigned agents), what does the Lead Agent do? Options: **(a)** reject and re-prompt with the specific heuristic failure (bounded to 2 retries), **(b)** accept with structured warnings in skeleton metadata, **(c)** auto-repair (e.g., add `(post true)` for missing contracts, assign `@general-agent` for unassigned holes). Decide during Phase 0 implementation.
+
+### U-Lite — Concrete Type Unification (~5 days)
+
+> **Source:** [agent-prompt-semantics-gap.md §1](design/agent-prompt-semantics-gap.md) — parametricity gap
+>
+> **Decision:** Algorithm W split into two phases (compiler team review, 2026-04-19). U-lite catches obvious type errors. U-full (v0.5) adds occurs check and let-generalization.
+>
+> **TDependent resolution (Language Team, 2026-04-19):** Strip-then-Unify (Option A). Unification strips `TDependent` to its base type; refinement constraints are NOT propagated through substitution. This formalizes existing `compatibleWith` behavior and preserves the two-layer architecture (types = structure, contracts = behavior). Full analysis: `algorithm_w_tdependent_resolution.md`.
+
+Replace `compatibleWith (TVar _) _ = True` with substitution-based unification **for concrete types only**. `TVar` still wildcards against other `TVar` to preserve existing polymorphic builtin behavior.
+
+> **Substitution scope (Language Team review, 2026-04-20):** Per-call-site with fresh type variable instantiation at each `EApp`. Each call to a polymorphic function gets its own α-renamed type variables and a local substitution map. The substitution does NOT escape the `EApp` boundary. This prevents cross-call conflicts (e.g., `list-head xs` binding `a → int` would incorrectly block `list-head ys` where `ys : list[string]` if scoping were per-function).
+
+#### Pre-implementation: Regression triage (P0-3)
+
+Before starting U-lite implementation:
+
+| # | Task |
+|---|------|
+| 1 | Run the full test suite with a **diagnostic-only** version of U-lite that logs substitution failures but doesn't change `compatibleWith` behavior. Count divergences. |
+| 2 | Classify each divergence: **(a)** true bug (currently silently accepted, will now correctly error), or **(b)** cosmetic (different message, same outcome). |
+| 3 | Produce an explicit list: "The following N programs currently type-check incorrectly. U-lite fixes them." This is the acceptance criterion. |
+| 4 | Assess `TSumType` wildcarding impact: `compatibleWith (TSumType _) (TSumType _) = True` conflates all sum types. Run with fix, count breakage. If no breakage, include in U-lite. If breakage, defer to U-full with documented test case. (Language Team §6.1, 2026-04-20) |
+| 5 | No `--legacy-compat` flag. If U-lite surfaces true bugs, those are bugs — not options. |
+
+#### Implementation steps
+
+| # | Action | Status |
+|---|--------|--------|
+| U1-lite | Per-call-site substitution with fresh type variable instantiation at each `EApp`: α-rename all `TVar`s in the looked-up function signature, create a local substitution map, unify arguments against freshened parameter types. Substitution map does NOT escape the `EApp` boundary. | ✅ |
+| U2-lite | Re-type `first`/`second` from `TVar "p" → TVar "a"` to `TPair a b → a` / `TPair a b → b` in `builtinEnv` | ✅ |
+| U3-lite | Ensure all 225+ existing tests still pass (divergence list from triage step) | ✅ |
+| U4-lite | Add tests for currently-silent type errors: `list-head 42`, `list-map 5 f` | ✅ |
+| U5-lite | Test per-call-site scoping: `list-map [1,2,3] (fn [x: string] x)` → type error (element type mismatch caught by per-call-site substitution). (Language Team verification requirement, 2026-04-20) | ✅ |
+| U6-lite | Regression test: `(type PositiveInt (where [x: int] (>= x 0)))`, `list-head` on `list[PositiveInt]` → `Result[int, string]` (alias expansion + stripDep). | ✅ |
+| U7-lite | If TSumType triage (pre-implementation step 4) shows no breakage: fix `TSumType` wildcarding in `compatibleWith`. | ✅ |
+
+> [!WARNING]
+> **U2-lite (`first`/`second` retype) is prerequisite.** The current `TVar "p"` hack exists because the old unifier couldn't express the pair constraint. With substitution tracking, `first : TPair a b → a` works correctly.
+
+#### `letrec` handling
+
+> LLMLL's `letrec` has explicit type annotations. Under U-lite, the self-call unifies against the declared signature — no special treatment needed. Under U-full, `letrec` is not let-generalized (standard monomorphic recursion). The fixpoint emitter is unaffected — it emits constraints for the function boundary, not for recursive call sites.
+
+#### Alias-through-substitution ordering
+
+Under U-lite, the `unify` function must apply the current substitution before alias expansion:
+
+```haskell
+unify ctx expected actual = do
+    s <- getSubst
+    let expected' = applySubst s expected
+        actual'   = applySubst s actual
+    expected'' <- expandAlias expected'
+    actual''   <- expandAlias actual'
+    -- strip TDependent, then structural unify
+    unifyStructural ctx (stripDep expected'') (stripDep actual'')
+```
+
+> **Regression test:** Define `(type PositiveInt (where [x: int] (> x 0)))`. Call `list-head` on a `list[PositiveInt]`. Verify the result type is `Result[int, string]` (not `Result[PositiveInt, string]` — the dependent wrapper is stripped after alias expansion).
+
+**Acceptance criteria:**
+
+- `list-head 42` produces a type error (currently silently accepted)
+- `first (pair 1 "hello")` infers type `int` (not `TVar "a"`)
+- `list-map [1,2,3] (fn [x: string] x)` produces a type error (per-call-site substitution)
+- All existing examples and tests pass
+- Parametricity prompt note remains in agent prompt
+- Regression triage list reviewed and all true bugs documented
+
+**Explicitly deferred to U-full (v0.5):**
+
+- Occurs check
+- Let-generalization
+- `TVar-TVar` wildcard closure (accepted for U-lite per Language Team review 2026-04-20; must close in U-full)
+
+### CAP-1 — Capability Enforcement in TypeCheck.hs (~2 days)
+
+> **Source:** Professor critique P0-1 (2026-04-19). The spec (LLMLL.md §3.2, §10.7, §14) claimed `effectful` typed effect rows enforce capability safety at compile time. Verified false: `wasi.*` functions are unconditionally in `builtinEnv` and type-check without a matching `import`.
+>
+> **Check location (Language Team review, 2026-04-20):** The check must go in `inferExpr (EApp ...)` — the single convergence point for all function calls. Placing it in `checkStatement (SExpr (EApp ...))` would miss `wasi.*` calls nested inside `let`, `if`, `match`, `do`, or contract expressions.
+>
+> **Capability propagation (Language Team review, 2026-04-20):** Non-transitive (module-local). Module B must re-declare `(import wasi.io ...)` even if it only calls `wasi.*` via a function imported from module A. This matches the principle of least authority. Requires LLMLL.md §7 update.
+
+When `wasi.*` functions are called, check that a matching `SImport` with a `Capability` is present in the module's statements. Emit a type error if not. This does NOT require `effectful` — it's a simple presence check. Thread module statements through `TCState` so `inferExpr` can access them.
+
+| # | Action | Status |
+|---|--------|--------|
+| CAP-1a | In `inferExpr (EApp func args)`, if `func` starts with `wasi.`, verify a matching `SImport` exists in the module's statement list (accessed via `TCState`). Covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, contract expressions. | ✅ |
+| CAP-1b | Emit structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"` | ✅ |
+| CAP-1c | Test: `wasi.io.stdout` call with no `(import wasi.io ...)` → compile error | ✅ |
+| CAP-1d | Test: `wasi.io.stdout` inside a `let` binding with no import → error (nested call coverage) | ✅ |
+| CAP-1e | Test: `wasi.io.stdout` with `(import wasi.io ...)` → OK (positive case) | ✅ |
+| CAP-1f | Test: `wasi.fs.write` with `(import wasi.io ...)` but no `wasi.fs` import → error (per-namespace) | ✅ |
+| CAP-1g | Test: Module A imports `wasi.io`; Module B imports Module A, calls `wasi.io.stdout` → error (non-transitive) | ✅ |
+
+### Invariant Pattern Registry (~3 days)
+
+> **Source:** [invariant-discovery-review.md §9](design/invariant-discovery-review.md)
+
+Extend `llmll typecheck --sketch` to emit invariant suggestions from a pattern registry keyed by `(type signature × function name pattern)`.
+
+| Pattern | Trigger | Suggested invariant |
+|---------|---------|---------------------|
+| `list[a] → list[a]` | Same element type | `(= (list-length result) (list-length input))` |
+| `encode`/`decode` pair | Complementary names | `(= (decode (encode x)) x)` |
+| Name contains "sort" | Semantic signal | `(sorted result)` ∧ `(permutation input result)` |
+| Idempotent operations | `f(f(x)) = f(x)` pattern | `(= (f (f x)) (f x))` |
+| Subset operations | `filter`, `take`, `drop` | `(<= (list-length result) (list-length input))` |
+
+**Acceptance criteria:**
+
+- `llmll typecheck --sketch` on a function with signature `list[a] → list[a]` emits at least one invariant suggestion
+- Suggestions are keyed by `(type signature, function name pattern)` and returned in a structured JSON field `invariant_suggestions`
+- Registry contains ≥5 patterns at launch (list-preserving, sorted, round-trip, subset, idempotent)
+- Adding a new pattern to the registry does not require recompilation — patterns stored as data, not code
+
+### Downstream Obligation Mining (~6 days)
+
+> **Source:** [invariant-discovery-review.md §4](design/invariant-discovery-review.md)
+
+When `llmll verify` reports UNSAFE at a cross-function boundary, extract the unsatisfied constraint and suggest a postcondition strengthening on the callee.
+
+```
+✗ Caller requires: uniqueIds(result)
+  Producer normalizeUsers does not guarantee this.
+  Candidate strengthening: postcondition uniqueIds(output)
+```
+
+Leverages existing `TrustReport.hs` transitive closure infrastructure.
+
+### JSON Parsing via Aeson FFI (~2 days)
+
+> **Source:** [agent-orchestration.md](design/agent-orchestration.md)
+
+Unblocks self-hosted orchestrator experimentation. Uses Haskell FFI tier:
+
+```lisp
+(import haskell.aeson Data.Aeson)
+```
+
+Codegen emits `import Data.Aeson` in `Lib.hs`, adds `aeson` to `package.yaml`. No new compiler module needed.
+
+> **Scoping note (P2-2):** v0.4 Aeson FFI requires a manual Haskell bridge file for JSON instance derivation (developer writes `FromJSON`/`ToJSON` instances). Auto-generation of `deriving (FromJSON, ToJSON)` from LLMLL type declarations is a **v0.7 codegen change**, not part of the v0.4 scope.
+
+### Orchestration Event Log Format (Q3 resolution) — DEFERRED
+
+> Both teams agreed (2026-04-20) to defer until the Lead Agent ships and real
+> orchestration event patterns are observable. The Lead Agent (Sprint 2) adds new
+> event types (plan_generated, skeleton_validated, quality_check) that would force
+> a schema revision if formalized now.
+
+| # | Action | Status |
+|---|--------|--------|
+| EV1 | Finalize `orchestration-events-schema.json` | ☐ deferred |
+| EV2 | `llmll-orchestra` emits events in the finalized format | ☐ deferred |
+| EV3 | Add replay support for orchestration events (extend `llmll replay`) | ☐ deferred |
+
+---
 ## v0.3.5 — Agent Effectiveness ✅ (Shipped 2026-04-19)
 
 **Theme:** Make the existing multi-agent pipeline actually work end-to-end with high first-attempt success rates.
@@ -1148,82 +1229,4 @@ Docker container
 
 ---
 
-# Cross-Cutting Concerns
-
-### Items Tracked Across Versions
-
-| Item | Current Status | Next Action |
-|------|---------------|-------------|
-| Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Deferred to v0.4.1 or v0.5 — let orchestrator stabilize before formalizing schema (compiler + language team, 2026-04-20) |
-| MCP integration (Q5 from v0.3.3) | Deferred | Python v1 is CLI-only; MCP with self-hosted rewrite |
-| Real Leanstral integration | Mock-only since v0.3.1. **Product claim narrowed (v0.6 CLAIM-1..2, 2026-04-21)** — one-pager and LLMLL.md now distinguish shipped SMT verification from designed-but-mock Lean 4 path. | Blocked on `lean-lsp-mcp` availability. If >3 months, move to deferred-v0.8. |
-| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test, **GO**). Full WASI enforcement deferred to WASM build target (unversioned future). |
-| Spec coverage metric (`--spec-coverage`) | Designed in spec-adequacy-closure.md §1b but **never shipped** (planned for v0.4, dropped) | **Promoted to v0.6 P0** (SC-1..SC-4, 2026-04-21). Blocking gate in `--mode lead` / `--mode auto`. |
-| Spec-adequacy benchmark (ERC-20) | Fully designed in spec-adequacy-closure.md §Track 2, planned for v0.4, **never shipped** | **Promoted to v0.6 P0** (BM-1..BM-5, 2026-04-21). Frozen benchmark with CI gate. |
-| Contract clause-level provenance | Not previously tracked | **Added to v0.6 P1** (PROV-1..PROV-4, 2026-04-21). `:source` annotation on pre/post contracts. |
-| Hub query-by-signature | Designed in specification-sources.md §4 and component-hub.md | **Added to v0.6 P2** (HUB-1..HUB-3, 2026-04-21). Exact structural match, no contract matching. |
-| Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
-| Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full shipped. Revisit if v0.6 type-driven development changes architecture. |
-| `TSumType` wildcarding in `compatibleWith` | **Fixed** in U-Lite (v0.4, U7-lite) | Resolved. |
-
-### What's NOT on this Roadmap (and why)
-
-| Item | Reason |
-|------|--------|
-| Rust codegen backend | Dropped in v0.1.2; Haskell is the permanent target |
-| Python FFI tier | Breaks WASM compatibility; dynamically typed |
-| Full Lean 4 proof agent from scratch | Replaced by Leanstral MCP integration |
-| UI/web frontend | LLMLL's target domains are backend, not UI |
-| IDE plugins (VS Code, etc.) | Premature — stabilize the CLI/HTTP interface first |
-
----
-
-# Summary: Version Plan and Critical Path
-
-```
-v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (SHIPPED)    v0.6 (~3 mo)                Future
-──────────────     ──────────────      ──────────────    ──────────────────          ──────
-Context-aware      Lead Agent          U-full            P0: Spec coverage gate      WASM build
-checkout (C1-C6)   (skeleton gen)      (Algorithm W)     P0: ERC-20 frozen benchmark target
-                                                         P1: Clause-level provenance
-Orchestrator       U-lite              effectful         P1: Leanstral claim narrow  WASI capability
-end-to-end         (concrete type      WASM compat       P2: Hub query-by-signature  enforcement
-                   unification)        spike (GO)          + Synthetic corpus
-Weak-spec                                                   + Differential impl.
-counter-examples   CAP-1 (capability                       + def-interface :laws
-                   enforcement)                             + Spec-from-RFC
-
-C5 (monomorphize)  Invariant registry
-                   Obligation mining
-                   JSON parsing
-```
-
-The critical path through v0.5 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → shipped**. v0.6 shifts focus from compiler correctness to specification quality. The two P0 items — spec coverage gate and frozen benchmark — are the shortest path from "interesting compiler" to "credible system." WASM is a confirmed future direction, not pinned to a version.
-
-### What Changed from LLMLL.md §14
-
-| Version | Original | Revised |
-| ------- | -------- | ------- |
-| **v0.1.2** | JSON-AST + FFI stdlib | JSON-AST + **Haskell codegen** + hole-density validator + Docker sandbox. `effectful` typed effect row **[UNIMPLEMENTED]** — `Command` emitted as plain `IO`. |
-| **v0.2** | Module system (unscheduled) + Z3 liquid types | Module system **first** → **decoupled liquid-fixpoint** (replaces Z3 binding project) → pair-type fix + `--sketch` API |
-| **v0.3** | Agent coordination + Lean 4 agent *(to be built)* | Agent coordination + **Leanstral MCP integration** + `do`-notation ✅ (PRs 1–3) + pair destructuring ✅ (PR 4) + stratified verification ✅ + scaffold CLI ✅ + async codegen ✅ + checkout/patch primitives ✅ — **12/12 shipped** |
-| **v0.3.1** | *(split from v0.3)* | Leanstral MCP integration + Event Log spec — **shipped** |
-| **v0.3.2** | 2026-04-16 | Trust hardening (`--trust-report`, cross-module propagation tests) + GHC WASM PoC — **shipped** |
-| **v0.3.3** | *(new)* | Agent orchestration: `--json --deps` hole flag (compiler) + Python orchestrator `llmll-orchestra` v0.1 (external) + **agent prompt semantic reference** (Phase A) — **shipped** |
-| **v0.3.4** | *(new)* | Compiler-emitted agent spec: `llmll spec` (Phase B) + Spec Faithfulness property tests — **shipped** |
-| **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **shipped** |
-| **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
-| **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) + `effectful` WASM compat spike (**GO**) — **shipped** |
-| **v0.6** | *(revised 2026-04-21)* | Spec quality: **spec coverage gate (P0)** + **frozen ERC-20 benchmark (P0)** + clause-level provenance (P1) + Leanstral claim narrowing (P1) + hub query-by-signature (P2) + synthetic corpus + differential impl. + `def-interface :laws` + Spec-from-RFC — **planned (~15 days new + existing research)** |
-| **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
-| **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
-
-### Items Removed from Scope
-
-| Item | Reason |
-| ---- | ------ |
-| Rust FFI stdlib (`serde_json`, `clap`, etc.) | Replaced by native Hackage imports |
-| Z3 binding layer (build from scratch) | Replaced by decoupled liquid-fixpoint backend (no GHC plugin) |
-| Lean 4 proof agent (build from scratch) | Replaced by Leanstral MCP integration |
-| Python FFI tier | Breaks WASM compatibility; dynamically typed; dropped from spec |
-| Opaque `Command` type | Replaced by typed effect row (`Eff '[...]`) |
+</details>
