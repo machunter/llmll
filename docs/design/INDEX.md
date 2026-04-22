@@ -18,6 +18,7 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 | [algorithm_w_tdependent_resolution.md](algorithm_w_tdependent_resolution.md) | Language Team resolution for Algorithm W × TDependent interaction. Decision: Strip-then-Unify (Option A). Unification operates on structural base types; refinement constraints are not propagated. Preserves the two-layer architecture (types = structure, contracts = behavior). | **Resolved** (2026-04-19) |
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |
+| [contract-clause-refactor.md](contract-clause-refactor.md) | Deferred design: `ContractClause` type to replace flat `Maybe Expr` fields in `Contract`. Richer per-clause metadata (source, severity, ownership). Option A (sibling fields) chosen for v0.6; Option B captured here with migration path and revisit triggers. | **Deferred** (2026-04-22) |
 
 ---
 

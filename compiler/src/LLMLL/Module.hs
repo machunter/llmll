@@ -33,6 +33,7 @@ import Data.Maybe (mapMaybe, fromMaybe)
 import System.FilePath ((</>), (<.>), takeExtension)
 import System.Directory (doesFileExist, getHomeDirectory)
 import Control.Monad (foldM)
+import Control.Applicative ((<|>))
 import qualified Data.ByteString.Lazy as BL
 
 import LLMLL.Syntax
@@ -253,7 +254,7 @@ buildModuleEnv path stmts _env =
     toExport (SLetrec name params mRet _ _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
-    toExport (SDefInterface name _) = Just (name, TCustom name)
+    toExport (SDefInterface name _ _) = Just (name, TCustom name)
     toExport (STypeDef name body)   = Just (name, body)
     toExport _                      = Nothing
 
@@ -267,6 +268,8 @@ buildModuleEnv path stmts _env =
           Just (name, ContractStatus
             { csPreLevel  = fmap (const VLAsserted) (contractPre contract)
             , csPostLevel = fmap (const VLAsserted) (contractPost contract)
+            , csPreSource  = contractPreSource contract
+            , csPostSource = contractPostSource contract
             })
       | otherwise = Nothing
 
@@ -277,6 +280,8 @@ mergeCS :: ContractStatus -> ContractStatus -> ContractStatus
 mergeCS sidecar base = ContractStatus
   { csPreLevel  = pickHigher (csPreLevel sidecar) (csPreLevel base)
   , csPostLevel = pickHigher (csPostLevel sidecar) (csPostLevel base)
+  , csPreSource  = csPreSource sidecar <|> csPreSource base
+  , csPostSource = csPostSource sidecar <|> csPostSource base
   }
   where
     pickHigher (Just a) (Just b) = Just (max a b)

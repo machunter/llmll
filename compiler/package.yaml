@@ -98,6 +98,8 @@ library:
     - LLMLL.InvariantRegistry
     # v0.4: downstream obligation mining
     - LLMLL.ObligationMining
+    # v0.6: spec coverage metric
+    - LLMLL.SpecCoverage
 
 executables:
   llmll:

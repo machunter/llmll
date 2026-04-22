@@ -60,13 +60,21 @@ vlFromJSON _ = Nothing
 csToJSON :: ContractStatus -> Value
 csToJSON cs = object $
   maybe [] (\v -> ["pre" .= vlToJSON v]) (csPreLevel cs) ++
-  maybe [] (\v -> ["post" .= vlToJSON v]) (csPostLevel cs)
+  maybe [] (\v -> ["post" .= vlToJSON v]) (csPostLevel cs) ++
+  maybe [] (\s -> ["pre_source" .= s]) (csPreSource cs) ++
+  maybe [] (\s -> ["post_source" .= s]) (csPostSource cs)
 
 csFromJSON :: Value -> Maybe ContractStatus
 csFromJSON (Object o) =
   let pre  = KM.lookup "pre" o >>= vlFromJSON
       post = KM.lookup "post" o >>= vlFromJSON
-  in Just $ ContractStatus pre post
+      preS = case KM.lookup "pre_source" o of
+               Just (String s) -> Just s
+               _               -> Nothing
+      postS = case KM.lookup "post_source" o of
+               Just (String s) -> Just s
+               _               -> Nothing
+  in Just $ ContractStatus pre post preS postS
 csFromJSON _ = Nothing
 
 -- ---------------------------------------------------------------------------

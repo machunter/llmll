@@ -46,6 +46,7 @@ library
       LLMLL.WeaknessCheck
       LLMLL.InvariantRegistry
       LLMLL.ObligationMining
+      LLMLL.SpecCoverage
   other-modules:
       Main
       Paths_llmll
@@ -118,6 +119,7 @@ executable llmll
       LLMLL.Replay
       LLMLL.Serve
       LLMLL.Sketch
+      LLMLL.SpecCoverage
       LLMLL.Syntax
       LLMLL.TrustReport
       LLMLL.TypeCheck

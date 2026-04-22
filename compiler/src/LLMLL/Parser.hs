@@ -17,6 +17,7 @@ module LLMLL.Parser
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
+import Control.Monad (when)
 import Text.Megaparsec hiding (ParseError)
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -141,6 +142,7 @@ pStatement = choice
   , pOpenDecl
   , pExportDecl
   , pTrustDecl
+  , pWeaknessOkDecl
   , SExpr <$> pExpr
   ]
 
@@ -152,14 +154,18 @@ pDefLogic = do
   name <- pIdent
   params <- brackets (many pDefParam)
   preClauses <- many (try pPreClause)
-  mPost <- optional (try pPostClause)
+  postClause <- optional (try pPostClause)
   body <- pExpr
   _ <- symbol ")"
-  let mPre = case preClauses of
-               []  -> Nothing
-               [p] -> Just p
-               ps  -> Just (foldl1 (\a b -> EApp "and" [a, b]) ps)
-  pure $ SDefLogic name params Nothing (Contract mPre mPost) body
+  let (mPre, mPreSrc) = case preClauses of
+               []       -> (Nothing, Nothing)
+               [(p, s)] -> (Just p, s)
+               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
+                            Nothing)  -- multiple pre clauses: source is ambiguous
+      (mPost, mPostSrc) = case postClause of
+               Nothing     -> (Nothing, Nothing)
+               Just (p, s) -> (Just p, s)
+  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc) body
 
 -- | Parse (letrec name [params] :decreases measure body)
 -- Introduces an explicitly recursive function with a termination measure.
@@ -171,15 +177,19 @@ pLetrec = do
   name    <- pIdent
   params  <- brackets (many pDefParam)
   preClauses <- many (try pPreClause)
-  mPost   <- optional (try pPostClause)
+  postClause <- optional (try pPostClause)
   dec     <- symbol ":decreases" *> pExpr
   body    <- pExpr
   _       <- symbol ")"
-  let mPre = case preClauses of
-               []  -> Nothing
-               [p] -> Just p
-               ps  -> Just (foldl1 (\a b -> EApp "and" [a, b]) ps)
-  pure $ SLetrec name params Nothing (Contract mPre mPost) dec body
+  let (mPre, mPreSrc) = case preClauses of
+               []       -> (Nothing, Nothing)
+               [(p, s)] -> (Just p, s)
+               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
+                            Nothing)
+      (mPost, mPostSrc) = case postClause of
+               Nothing     -> (Nothing, Nothing)
+               Just (p, s) -> (Just p, s)
+  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc) dec body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -197,7 +207,7 @@ pDefInterface = do
   name <- pIdent
   fns <- many (try pInterfaceFn)
   _ <- symbol ")"
-  pure $ SDefInterface name fns
+  pure $ SDefInterface name fns []
 
 -- | Parse a function signature in a def-interface:
 --   [name (fn [arg-types] -> ret-type)]
@@ -336,6 +346,18 @@ pTrustDecl = do
   _ <- symbol ")"
   pure $ STrust target level
 
+-- | Parse (weakness-ok name "reason") — v0.6.
+-- Suppresses weakness warnings for the named function, requiring a non-empty reason.
+pWeaknessOkDecl :: Parser Statement
+pWeaknessOkDecl = do
+  _ <- try (symbol "(" *> symbol "weakness-ok")
+  name <- pIdent
+  reason <- pStringLiteral
+  when (T.null reason) $
+    fail "weakness-ok requires a non-empty reason string"
+  _ <- symbol ")"
+  pure $ SWeaknessOk name reason
+
 -- | Parse a trust level keyword.
 pTrustLevel :: Parser VerificationLevel
 pTrustLevel = choice
@@ -407,11 +429,23 @@ pDeterministicFlag = do
 -- Contracts
 -- ---------------------------------------------------------------------------
 
-pPreClause :: Parser Expr
-pPreClause = parens $ symbol "pre" *> pExpr
+-- | Parse (pre expr) or (pre expr :source "...").
+-- v0.6: optional :source annotation for per-clause provenance.
+pPreClause :: Parser (Expr, Maybe Text)
+pPreClause = parens $ do
+  _ <- symbol "pre"
+  expr <- pExpr
+  src <- optional (try $ symbol ":source" *> pStringLiteral)
+  pure (expr, src)
 
-pPostClause :: Parser Expr
-pPostClause = parens $ symbol "post" *> pExpr
+-- | Parse (post expr) or (post expr :source "...").
+-- v0.6: optional :source annotation for per-clause provenance.
+pPostClause :: Parser (Expr, Maybe Text)
+pPostClause = parens $ do
+  _ <- symbol "post"
+  expr <- pExpr
+  src <- optional (try $ symbol ":source" *> pStringLiteral)
+  pure (expr, src)
 
 -- ---------------------------------------------------------------------------
 -- Types

@@ -232,9 +232,12 @@ data DelegateSpec = DelegateSpec
 -- ---------------------------------------------------------------------------
 
 -- | Pre/post conditions for a def-logic function.
+-- v0.6: :source annotations provide clause-level provenance (per-clause, not per-contract).
 data Contract = Contract
-  { contractPre  :: Maybe Expr   -- ^ Precondition (must evaluate to bool)
-  , contractPost :: Maybe Expr   -- ^ Postcondition (must evaluate to bool)
+  { contractPre        :: Maybe Expr   -- ^ Precondition (must evaluate to bool)
+  , contractPreSource  :: Maybe Text   -- ^ v0.6: :source annotation for pre clause
+  , contractPost       :: Maybe Expr   -- ^ Postcondition (must evaluate to bool)
+  , contractPostSource :: Maybe Text   -- ^ v0.6: :source annotation for post clause
   } deriving (Show, Eq, Generic)
 
 -- ---------------------------------------------------------------------------
@@ -259,9 +262,12 @@ instance Ord VerificationLevel where
   compare a b = compare (vlTier a) (vlTier b)
 
 -- | Per-function contract verification status.
+-- v0.6: source provenance tracked per-clause alongside verification level.
 data ContractStatus = ContractStatus
-  { csPreLevel  :: Maybe VerificationLevel  -- ^ Nothing if no pre clause
-  , csPostLevel :: Maybe VerificationLevel  -- ^ Nothing if no post clause
+  { csPreLevel   :: Maybe VerificationLevel  -- ^ Nothing if no pre clause
+  , csPostLevel  :: Maybe VerificationLevel  -- ^ Nothing if no post clause
+  , csPreSource  :: Maybe Text               -- ^ v0.6: :source annotation for pre clause
+  , csPostSource :: Maybe Text               -- ^ v0.6: :source annotation for post clause
   } deriving (Show, Eq, Generic)
 
 -- ---------------------------------------------------------------------------
@@ -303,6 +309,7 @@ data Statement
   | SDefInterface
     { defInterfaceName :: Name
     , defInterfaceFns  :: [(Name, Type)]  -- ^ Function signatures
+    , defInterfaceLaws :: [Expr]          -- ^ v0.6: optional :laws clauses (tested, not proven)
     }
   | STypeDef
     { typeDefName :: Name
@@ -329,6 +336,11 @@ data Statement
   | STrust
     { trustTarget :: Name              -- ^ Flat dotted qualified name, e.g. "crypto.hash.pbkdf2"
     , trustLevel  :: VerificationLevel -- ^ Acknowledged trust level
+    }
+  -- v0.6 suppression governance
+  | SWeaknessOk
+    { weaknessTarget :: Name           -- ^ Function name to suppress weakness warnings for
+    , weaknessReason :: Text           -- ^ Mandatory reason string (non-empty)
     }
   deriving (Show, Eq, Generic)
 

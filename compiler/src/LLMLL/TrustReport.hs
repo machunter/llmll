@@ -50,8 +50,9 @@ data TrustDependency = TrustDependency
 
 -- | The complete trust report.
 data TrustReport = TrustReport
-  { trEntries   :: [TrustEntry]
-  , trSummary   :: TrustSummary
+  { trEntries      :: [TrustEntry]
+  , trSummary      :: TrustSummary
+  , trSuppressions :: [(Name, Text)]  -- ^ v0.6: (function name, reason) from SWeaknessOk
   } deriving (Show, Eq)
 
 data TrustSummary = TrustSummary
@@ -83,9 +84,17 @@ buildTrustReport cache entryStmts =
         buildModuleEntries (T.intercalate "." path <> ".") (meStatements menv) allCS
         ) (Map.toList cache)
       allEntries = entryModule ++ cacheEntries
+      -- v0.6: collect weakness-ok suppressions
+      suppressions = extractSuppressions entryStmts
       -- Compute summary
       summary = computeSummary allEntries
-  in TrustReport allEntries summary
+  in TrustReport allEntries summary suppressions
+
+-- | v0.6: Extract weakness-ok suppressions from statements.
+-- Deduplicates by name (WO-3 idempotence).
+extractSuppressions :: [Statement] -> [(Name, Text)]
+extractSuppressions stmts = nubBy' [(n, r) | SWeaknessOk n r <- stmts]
+  where nubBy' = nub
 
 -- | Collect contract statuses from all cached modules + entry statements.
 collectAllContractStatus :: ModuleCache -> [Statement] -> Map Name ContractStatus
@@ -105,6 +114,8 @@ collectAllContractStatus cache entryStmts =
           Just (name, ContractStatus
             { csPreLevel  = fmap (const VLAsserted) (contractPre c)
             , csPostLevel = fmap (const VLAsserted) (contractPost c)
+            , csPreSource  = contractPreSource c
+            , csPostSource = contractPostSource c
             })
       | otherwise = Nothing
 
@@ -132,7 +143,7 @@ buildEntry prefix allCS stmt = case stmt of
 
 mkEntry :: Name -> Contract -> Expr -> Map Name ContractStatus -> TrustEntry
 mkEntry qname contract body allCS =
-  let ownCS = Map.findWithDefault (ContractStatus Nothing Nothing) qname allCS
+  let ownCS = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) qname allCS
       -- Find all function calls in the body
       callees = nub $ extractCalls body
       -- Build dependencies for cross-module callees that have contract status
@@ -176,7 +187,7 @@ computeDrifts fname ownCS deps =
        Just (VLProven _) ->
          -- Check each dependency: is any callee below proven?
          concatMap (\dep ->
-           let calleeLevel = effectiveLevel (ContractStatus (tdPreLevel dep) (tdPostLevel dep))
+           let calleeLevel = effectiveLevel (ContractStatus (tdPreLevel dep) (tdPostLevel dep) Nothing Nothing)
            in case calleeLevel of
                 Just (VLProven _) -> []
                 Just vl -> [fname <> " is proven, but depends on " <> tdName dep
@@ -206,7 +217,7 @@ vlLabel (VLProven p)  = "proven (" <> p <> ")"
 
 computeSummary :: [TrustEntry] -> TrustSummary
 computeSummary entries =
-  let classify e = effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e))
+  let classify e = effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e) Nothing Nothing)
       proven   = length [e | e <- entries, isProven (classify e)]
       tested   = length [e | e <- entries, isTested (classify e)]
       asserted = length [e | e <- entries, isAsserted (classify e)]
@@ -230,8 +241,9 @@ formatTrustReport report =
   let header = "Trust Report"
       separator = T.replicate 60 "─"
       entryLines = concatMap formatEntry (sortOn teName (trEntries report))
+      suppressionLines = formatSuppressions (trSuppressions report)
       summaryLines = formatSummary (trSummary report)
-  in T.unlines ([header, separator] ++ entryLines ++ [separator] ++ summaryLines)
+  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ [separator] ++ summaryLines)
 
 formatEntry :: TrustEntry -> [Text]
 formatEntry e =
@@ -257,6 +269,13 @@ formatSummary s =
        then ["  ⚠ epistemic drifts: " <> tshow (tsDrifts s)]
        else []
 
+-- | v0.6: Format weakness-ok suppressions section.
+formatSuppressions :: [(Name, Text)] -> [Text]
+formatSuppressions [] = []
+formatSuppressions supps =
+  ["", "Intentional Underspecification:"]
+  ++ map (\(name, reason) -> "  ⊘ " <> name <> " — \"" <> reason <> "\"") supps
+
 -- ---------------------------------------------------------------------------
 -- Formatting (JSON)
 -- ---------------------------------------------------------------------------
@@ -266,6 +285,7 @@ formatTrustReportJson report =
   T.pack . BLC.unpack . encode $ object
     [ "entries" .= map entryJson (trEntries report)
     , "summary" .= summaryJson (trSummary report)
+    , "suppressions" .= map suppJson (trSuppressions report)
     ]
   where
     entryJson e = object
@@ -286,6 +306,10 @@ formatTrustReportJson report =
       , "asserted"    .= tsAsserted s
       , "no_contract" .= tsNone s
       , "drifts"      .= tsDrifts s
+      ]
+    suppJson (name, reason) = object
+      [ "name"   .= name
+      , "reason" .= reason
       ]
 
 -- ---------------------------------------------------------------------------

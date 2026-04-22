@@ -1,0 +1,102 @@
+{
+  "benchmark": "erc20-token",
+  "schema_version": "0.3.0",
+  "description": "Frozen ground truth for the ERC-20 token benchmark. All values are expected outputs from the LLMLL compiler toolchain.",
+  "verification_scope": {
+    "total_functions": 6,
+    "contracted": 6,
+    "suppressed": 0,
+    "unspecified": 0,
+    "effective_coverage": 1.0,
+    "matrix": [
+      {
+        "property": "total-supply non-negative",
+        "function": "total-supply",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "result >= 0 is pure integer comparison"
+      },
+      {
+        "property": "balance-of non-negative",
+        "function": "balance-of",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "result >= 0 is pure integer comparison"
+      },
+      {
+        "property": "transfer conservation",
+        "function": "transfer",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "total-supply(result) = total-supply(state) — integer addition/subtraction"
+      },
+      {
+        "property": "transfer non-negative amount",
+        "function": "transfer",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "amount >= 0 precondition"
+      },
+      {
+        "property": "approve non-negative amount",
+        "function": "approve",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "amount >= 0 precondition"
+      },
+      {
+        "property": "allowance non-negative",
+        "function": "allowance",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "result >= 0 is pure integer comparison"
+      },
+      {
+        "property": "transfer-from conservation",
+        "function": "transfer-from",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "total-supply(result) = total-supply(state) — integer arithmetic"
+      },
+      {
+        "property": "transfer-from allowance check",
+        "function": "transfer-from",
+        "level": "Proven",
+        "theory": "QF-LIA",
+        "rationale": "allowance >= amount precondition — integer comparison"
+      },
+      {
+        "property": "map key membership/absence",
+        "function": "balance-of",
+        "level": "Asserted",
+        "theory": "outside-fragment",
+        "rationale": "Map operations are outside the SMT theory"
+      },
+      {
+        "property": "transfer-to-self edge case",
+        "function": "transfer",
+        "level": "Tested",
+        "theory": "QuickCheck",
+        "rationale": "Conditional branch logic, not a linear arithmetic property"
+      }
+    ]
+  },
+  "expected_spec_coverage": {
+    "contracted": 6,
+    "suppressed": 0,
+    "unspecified": 0,
+    "total": 6,
+    "effective_coverage": 1.0
+  },
+  "expected_weakness_check": {
+    "weak_functions": [],
+    "note": "All functions have meaningful contracts — no trivially satisfiable specifications"
+  },
+  "expected_trust_report": {
+    "proven": 6,
+    "tested": 0,
+    "asserted": 0,
+    "no_contract": 0,
+    "suppressions": []
+  }
+}
