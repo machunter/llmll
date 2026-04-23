@@ -61,6 +61,7 @@ import LLMLL.JsonPointer (resolvePointer, isHoleNode, findDescendantHoles)
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..))
 import LLMLL.Syntax (Span(..), Type(..), Name, typeLabel)
 import LLMLL.TypeCheck (ScopeBinding(..), ScopeSource(..))
+import LLMLL.HubQuery (QueryResult(..))
 
 -- ---------------------------------------------------------------------------
 -- Data Types
@@ -148,6 +149,8 @@ data CheckoutToken = CheckoutToken
   , ctAvailableFunctions :: Maybe [FuncEntry]     -- ^ Σ (relevant signatures)
   , ctTypeDefinitions   :: Maybe [TypeDefEntry]   -- ^ alias/sum type definitions
   , ctScopeTruncated    :: Bool                   -- ^ C6: true if scope was truncated
+  -- v0.6.1: Hub query integration (HUB-3)
+  , ctHubSuggestions    :: Maybe [QueryResult]     -- ^ matching hub functions
   } deriving (Show, Eq, Generic)
 
 instance ToJSON CheckoutToken where
@@ -162,7 +165,16 @@ instance ToJSON CheckoutToken where
     maybe [] (\rt -> ["expected_return_type"  .= rt]) (ctExpectedReturn ct) ++
     maybe [] (\fs -> ["available_functions"   .= fs]) (ctAvailableFunctions ct) ++
     maybe [] (\td -> ["type_definitions"      .= td]) (ctTypeDefinitions ct) ++
-    ["scope_truncated" .= True | ctScopeTruncated ct]
+    ["scope_truncated" .= True | ctScopeTruncated ct] ++
+    maybe [] (\hs -> ["hub_suggestions" .= map hubSugToJson hs]) (ctHubSuggestions ct)
+
+hubSugToJson :: QueryResult -> Value
+hubSugToJson qr = object
+  [ "module"       .= qrModulePath qr
+  , "function"     .= qrFuncName qr
+  , "signature"    .= qrSignature qr
+  , "has_contract" .= qrHasContract qr
+  ]
 
 instance FromJSON CheckoutToken where
   parseJSON = withObject "CheckoutToken" $ \o -> do
@@ -189,6 +201,7 @@ instance FromJSON CheckoutToken where
       , ctAvailableFunctions = funcs
       , ctTypeDefinitions   = tdefs
       , ctScopeTruncated    = maybe False id trunc
+      , ctHubSuggestions    = Nothing  -- populated at checkout time, not deserialization
       }
 
 data CheckoutLock = CheckoutLock
@@ -331,6 +344,7 @@ checkoutHoleWithContext fp astVal rawPointer mScope mExpRet mFuncs mTypeDefs = d
                     , ctAvailableFunctions = mFuncs
                     , ctTypeDefinitions   = mTypeDefs
                     , ctScopeTruncated    = False  -- C6 will set this
+                    , ctHubSuggestions    = Nothing  -- HUB-3: populated by caller
                     }
                   newLock = cleanLock { lockTokens = lockTokens cleanLock ++ [ct] }
               saveLock fp newLock
