@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.6.0
+# LLMLL Getting Started — v0.6.1
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -41,7 +41,7 @@ Available commands:
   serve      HTTP sketch endpoint for agent swarms
   checkout   Lock a hole for exclusive agent editing (v0.3; context-aware in v0.3.5)
   patch      Apply an RFC 6902 JSON-Patch to a checked-out hole (v0.3)
-  hub        llmll-hub package registry (fetch, scaffold)
+  hub        llmll-hub package registry (fetch, scaffold, query)
   replay     Deterministic replay from event log (v0.3.1)
   repl       Start an interactive LLMLL REPL
 ```
@@ -188,6 +188,24 @@ llmll hub scaffold web-api-server --output ./my-project
 ```
 
 Import fetched packages using the `hub.` prefix (see §4.8).
+
+```bash
+# Query the hub for functions matching a type signature (v0.6.1)
+llmll hub query --signature "int -> int -> int"
+# Results:
+#   llmll-math.arithmetic.add : int -> int -> int [contracted]
+#   llmll-math.arithmetic.mul : int -> int -> int [contracted]
+
+# JSON output for tooling:
+llmll hub query --signature "list[int] -> int" --json
+# {"query": "list[int] -> int", "results": [{"module": "...", ...}]}
+```
+
+> [!NOTE]
+> **Type matching semantics (v0.6.1):** Query type variables (single letters like `a`, `b`) act as wildcards — `list[a] -> a` matches `list[int] -> int`. `TDependent` constraints are stripped before matching. Parameter order is significant: `int -> string` does not match `string -> int`.
+
+> [!NOTE]
+> **Known limitation:** The CLI signature parser handles base types (`int`, `string`, `bool`), `bytes[N]`, `list[T]`, and single-letter type variables. Compound types like `Result[T, E]` and `map[K, V]` are not supported in query signatures — use simpler queries and filter results manually. Compound types in shell arguments may need quoting: `--signature "map[string, int]"`.
 
 ### `verify` — liquid-fixpoint contract verification
 
@@ -566,6 +584,8 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `string-trim` | `string → string` | Strip leading/trailing whitespace, `\t`, `\n`, `\r` |
 | `string-concat-many` | `list[string] → string` | Concat list of strings |
 | `list-nth` | `list[a] int → Result[a, string]` | Safe indexed access |
+| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 HMAC-SHA1 (v0.6.1, §13.11). Opaque — trust level is `asserted`. |
+| `sha1` | `bytes[20] → bytes[20]` | SHA-1 hash (v0.6.1, §13.11). Preamble is a stub — see LLMLL.md §13.11. |
 
 ### 4.6 `def-main` Initialisation and Termination
 
@@ -1043,6 +1063,32 @@ Top-level `def-logic` and `letrec` functions are let-generalized: each call site
 
 > [!NOTE]
 > **L1055 asymmetric wildcard:** The asymmetric wildcard at line 1055 of `TypeCheck.hs` is documented as safe under per-call-site scoping (Language Team Issue 3). Each `EApp` gets fresh type variables, so the asymmetry does not leak across call boundaries.
+
+---
+
+### §4.18 Benchmark CI Gates (v0.6.1)
+
+Two frozen benchmarks have CI gate scripts that verify compiler output against expected results. Use these to guard against regressions.
+
+```bash
+# Run the ERC-20 benchmark gate (11 assertions):
+make benchmark-erc20
+
+# Run the TOTP benchmark gate (14 assertions):
+make benchmark-totp
+
+# Run all benchmark gates:
+make benchmark-all
+```
+
+| Target | Script | Assertions | What it checks |
+|--------|--------|-----------|----------------|
+| `benchmark-erc20` | `scripts/benchmark-erc20.sh` | 11 | Parse, spec coverage (100%), trust report, verification-scope matrix, weakness check |
+| `benchmark-totp` | `scripts/benchmark-totp.sh` | 14 | Parse, spec coverage (100%), trust report, provenance (`:source` annotations), verification-scope matrix, check blocks (RFC 6238 test vectors) |
+| `benchmark-all` | Both scripts | 25 | Runs ERC-20 then TOTP |
+
+> [!NOTE]
+> Benchmark gates compare **frozen JSON output** against `EXPECTED_RESULTS.json` in each benchmark's directory. If you modify a benchmark's contracts, update the expected results file and re-freeze. The scripts exit non-zero on any divergence.
 
 ---
 

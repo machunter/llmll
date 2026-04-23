@@ -32,7 +32,7 @@ LLMLL is a system — a programming language, compiler, and verification pipelin
 
 Drawing from type-driven development (as pioneered in Idris and Lean), types in LLMLL can carry constraints directly — a `PositiveInt` is not just an `int`, it's an `int` where the compiler has proven `x > 0`. For richer properties like "returns a list of exactly n items," dependent types express that at the type level. For behavioral properties that go further — like "the list is sorted" — the system's **shipped** verification path is an SMT solver (Z3 via liquid-fixpoint) that handles the decidable quantifier-free linear arithmetic fragment automatically. Contracts outside this fragment — those requiring induction or non-linear reasoning — are tracked as `asserted` or `tested` and explicitly flagged with `?proof-required` holes.
 
-> **Verification scope (v0.5.0):** The SMT path (Z3) covers quantifier-free linear integer arithmetic: `+`, `-`, `=`, `<`, `<=`, `>=`, `>`. This handles ~80% of practical contracts (numeric bounds, conservation invariants, length preservation). An interactive proof path (Lean 4, via Leanstral MCP) is designed and the translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`), but real proof integration is blocked on `lean-lsp-mcp` availability — the current pipeline runs in mock mode only. Contracts outside the SMT fragment are not silently dropped; they are tracked as `asserted` with explicit verification level propagation through dependencies.
+> **Verification scope (v0.6.0):** The **shipped** verification path is SMT (Z3 via liquid-fixpoint), covering quantifier-free linear integer arithmetic: `+`, `-`, `=`, `<`, `<=`, `>=`, `>`. This handles ~80% of practical contracts (numeric bounds, conservation invariants, length preservation). An interactive proof path (Lean 4, via Leanstral MCP) is **designed but not shipped** — translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`), but real proof integration is blocked on `lean-lsp-mcp` availability and the current pipeline runs in mock mode only (`--leanstral-mock`). Contracts outside the SMT fragment are not silently dropped; they are tracked as `asserted` with explicit verification level propagation through dependencies.
 
 > Types handle structural guarantees; contracts handle behavioral ones; the SMT solver handles the decidable arithmetic fragment; inductive properties are tracked as open proof obligations.
 
@@ -62,7 +62,7 @@ Agents don't write source code files that get merged with git-style diffs. They 
 
 ## Status
 
-The compiler is at **v0.5.0** (April 2026): Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report`), compiler-emitted agent specifications (`llmll spec`), and a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end. The type checker implements sound unification (Algorithm W with occurs check and let-generalization) — the last known unsoundness was closed in v0.5.0. 264 Haskell + 37 Python tests passing.
+The compiler is at **v0.6.0** (April 2026): Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report`), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, and a specification quality layer — `--spec-coverage` gate with `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts, and a frozen ERC-20 benchmark with verification-scope matrix. The type checker implements sound unification (Algorithm W with occurs check and let-generalization) — the last known unsoundness was closed in v0.5.0. 279 Haskell + 37 Python tests passing.
 
 Early stage — the compiler infrastructure works, validation on increasingly complex sample programs is ongoing. Open source (GPLv3). Solo project, supported by AI tools.
 
@@ -86,15 +86,16 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 | Milestone | Description |
 |-----------|-------------|
+| **Spec coverage gate + suppression governance** (v0.6.0) ✅ | `llmll verify --spec-coverage` classifies every function as contracted, suppressed, or unspecified and computes effective coverage. `(weakness-ok fn "reason")` requires mandatory reason strings. Suppressions surfaced in `--trust-report`. Governance warnings W601–W603. |
+| **Frozen ERC-20 benchmark** (v0.6.0) ✅ | First real-domain benchmark with external ground truth (ERC-20 standard). Frozen skeleton, filled version, expected results, verification-scope matrix (10 properties), and end-to-end walkthrough. |
+| **Clause-level provenance** (v0.6.0) ✅ | `:source` annotation on `pre`/`post` contracts provides per-clause traceability to originating standards. Threaded through `--trust-report` and `.verified.json` sidecars. |
 | **U-Full soundness** (v0.5.0) ✅ | Occurs check prevents infinite types. Let-generalization for top-level polymorphic functions via TVar-TVar wildcard closure. Closes the last known unsoundness in the type checker. |
 | **Lead Agent** (v0.4.0) ✅ | Automated skeleton generation from natural-language intent. The Lead Agent architects programs end-to-end (decomposition, types, contracts, agent assignment). Closes the last manual step in the pipeline. |
 | **Spec weakness detection** (v0.3.5) ✅ | `llmll verify --weakness-check` constructs trivial candidate implementations and tests whether they satisfy the contract. Flags under-specified contracts with the specific trivial body that passed. |
 | **Context-aware checkout** (v0.3.5) ✅ | `llmll checkout` returns Γ (in-scope bindings), τ (expected type), and Σ (sibling signatures) alongside the lock token. Reduces agent hallucination by providing exact typing context. |
-| **Spec coverage gate** (v0.6, planned) | `llmll verify --spec-coverage` computes per-function contract coverage; `--mode lead` / `--mode auto` gate on coverage threshold. Makes specification gaps a blocking concern, not advisory. |
-| **Frozen ERC-20 benchmark** (v0.6, planned) | First real-domain benchmark with external ground truth (ERC-20 standard), deliberately weakened specs, false-positive checks, and published pass criteria. CI-gated. |
-| **Frozen TOTP benchmark** (v0.6, planned) | Second real-domain benchmark (RFC 6238 TOTP). Exercises cryptographic standard translation, mixed verification levels, and `:source` provenance. |
+| **Frozen TOTP benchmark** (v0.6.1, planned) | Second real-domain benchmark (RFC 6238 TOTP). Exercises cryptographic standard translation, mixed verification levels, and `:source` provenance. |
 | **WASM sandboxing** (planned) | Contracts cover *correctness*; WASM covers *capability abuse*. Server-side runtimes (Wasmtime, WasmEdge) enforce that programs cannot access resources beyond their declared capabilities. `effectful` WASM compatibility confirmed (v0.5.0 spike). |
-| **Synthetic training corpus** | Haskell-to-LLMLL back-translation from Hackage for fine-tuning and benchmarking. |
+| **Synthetic training corpus** (planned) | Haskell-to-LLMLL back-translation from Hackage for fine-tuning and benchmarking. |
 
 ---
 
@@ -105,18 +106,20 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 | Claim | Evidence | Verification level | Command / artifact |
 |---|---|---|---|
 | "Compiler accepts or rejects code against contracts" | All shipped examples type-check and verify | **Proven** (within QF-LIA) | `llmll check`, `llmll verify` |
-| "Contracts are verified by SMT solver (Z3)" | liquid-fixpoint integration, 264 tests | **Proven** (QF-LIA) | `llmll verify examples/hangman_json_verifier/` |
+| "Contracts are verified by SMT solver (Z3)" | liquid-fixpoint integration, 279 Haskell + 37 Python tests | **Proven** (QF-LIA) | `llmll verify examples/hangman_json_verifier/` |
 | "Leanstral handles inductive properties" | Translation infrastructure exists; mock-only | **Not shipped** — mock pipeline | `llmll verify --leanstral-mock` |
 | "Trust levels propagate through dependencies" | `--trust-report` emits transitive trust closure | **Shipped** (v0.3.2) | `llmll verify --trust-report` |
 | "Weakness checker detects under-specified contracts" | Trivial-implementation construction | **Shipped** (v0.3.5) | `llmll verify --weakness-check` |
 | "Lead Agent architects programs end-to-end" | Skeleton generation from intent | **Shipped** (v0.4.0) | `llmll-orchestra --mode auto` |
 | "Context-aware checkout reduces hallucination" | Γ, τ, Σ in checkout response | **Shipped** (v0.3.5) | `llmll checkout --json` |
-| "Sound unification (Algorithm W)" | Occurs check + let-generalization | **Shipped** (v0.5.0) | 264 Haskell tests, 0 failures |
+| "Sound unification (Algorithm W)" | Occurs check + let-generalization | **Shipped** (v0.5.0) | 279 Haskell tests, 0 failures |
 | "Capability enforcement at compile time" | `wasi.*` calls rejected without matching import | **Shipped** (v0.4.0, CAP-1) | `llmll check` on `wasi.*` without import → error |
-| "Spec coverage is a blocking gate" | Coverage metric + orchestrator integration | **Planned** (v0.6 P0) | `llmll verify --spec-coverage` |
-| "ERC-20 benchmark with external ground truth" | Frozen benchmark, CI-gated | **Planned** (v0.6 P0) | `make benchmark-erc20` |
-| "TOTP benchmark with RFC traceability" | Frozen benchmark, `:source` annotations | **Planned** (v0.6 P1) | `make benchmark-totp` |
-| "WASM sandboxing" | `effectful` compat spike GO; Docker is current sandbox | **Confirmed future** | `.wasm-spike/` PoC |
+| "Spec coverage is a blocking gate" | `--spec-coverage` classifies functions, computes effective coverage, gates `--mode auto` | **Shipped** (v0.6.0) | `llmll verify --spec-coverage` |
+| "Suppression governance for intentional underspecification" | `(weakness-ok fn "reason")` with mandatory reason, surfaced in trust report | **Shipped** (v0.6.0) | `llmll verify --spec-coverage`, `--trust-report` |
+| "ERC-20 benchmark with external ground truth" | Frozen benchmark with verification-scope matrix, walkthrough, expected results | **Shipped** (v0.6.0) | `examples/erc20_token/` |
+| "Clause-level provenance (`:source`)" | Per-clause `:source` annotation on `pre`/`post` contracts | **Shipped** (v0.6.0) | `(pre expr :source "RFC §...")` |
+| "TOTP benchmark with RFC traceability" | Frozen benchmark, `:source` annotations | **Planned** (v0.6.1) | `examples/totp_rfc6238/` |
+| "WASM sandboxing" | `effectful` compat spike GO; Docker is current sandbox | **Confirmed future** | `docs/effectful-wasm-spike.md` |
 
 > [!NOTE]
 > Items marked **Planned** or **Confirmed future** are not shipped. They are included in this table to prevent overreading — the distinction between "shipped" and "planned" must remain visible.

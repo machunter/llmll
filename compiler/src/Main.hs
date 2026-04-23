@@ -39,6 +39,7 @@ import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
+import LLMLL.HubQuery (queryBySignature, QueryResult(..))
 import LLMLL.HoleAnalysis
   ( analyzeHoles, analyzeHolesWithDeps, HoleReport, HoleStatus(..)
   , totalHoles, blockingHoles, holeEntries
@@ -89,6 +90,7 @@ data Command
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
+  | CmdHubQuery T.Text                                      -- v0.6.1: hub query --signature <sig>
   | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
@@ -197,6 +199,8 @@ optionsParser = info (helper <*> opts) $
            (progDesc "Install a .tar.gz package into the local hub cache"))
       <> command "scaffold" (info hubScaffoldCmd
            (progDesc "v0.3: Copy a scaffold template to the current directory"))
+      <> command "query" (info hubQueryCmd
+           (progDesc "v0.6.1: Query hub for functions matching a type signature"))
       )
 
     hubFetchCmd = CmdHub
@@ -209,6 +213,11 @@ optionsParser = info (helper <*> opts) $
       <*> optional (strOption
             (short 'o' <> long "output" <> metavar "DIR"
             <> help "Output directory (default: ./<template>/)"))
+
+    hubQueryCmd = CmdHubQuery
+      <$> (T.pack <$> strOption
+            (long "signature" <> short 's' <> metavar "SIG"
+            <> help "Type signature to search for (e.g. 'int -> int -> int')"))
 
     verifyCmd = CmdVerify
       <$> fileArg
@@ -300,6 +309,7 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
+    CmdHubQuery sig           -> doHubQuery json sig
     CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
@@ -910,6 +920,74 @@ doHubScaffold json template mOutDir = do
               TIO.putStrLn $ "   " <> tshow (totalHoles report) <> " holes ("
                 <> tshow (blockingHoles report) <> " blocking)"
           exitSuccess
+
+-- ---------------------------------------------------------------------------
+-- v0.6.1: hub query
+-- ---------------------------------------------------------------------------
+
+doHubQuery :: Bool -> T.Text -> IO ()
+doHubQuery json sigText = do
+  -- Parse the signature text into a Type for matching.
+  -- Simple format: "int -> int -> int" for a 2-arg function returning int.
+  let queryType = parseSigText sigText
+  results <- queryBySignature queryType
+  if json
+    then TIO.putStrLn . T.pack . BLC.unpack . encode $
+           object
+             [ "query"   .= sigText
+             , "results" .= map resultToJson results
+             ]
+    else do
+      if null results
+        then TIO.putStrLn $ "No hub modules match signature: " <> sigText
+        else do
+          TIO.putStrLn $ "Hub query: " <> sigText
+          TIO.putStrLn $ T.replicate 50 "─"
+          mapM_ printResult results
+          TIO.putStrLn $ T.replicate 50 "─"
+          TIO.putStrLn $ tshow (length results) <> " match(es) found"
+  where
+    resultToJson r = object
+      [ "module"      .= qrModulePath r
+      , "function"    .= qrFuncName r
+      , "signature"   .= qrSignature r
+      , "has_contract" .= qrHasContract r
+      ]
+    printResult r = do
+      let contractMark = if qrHasContract r then " ✅" else ""
+      TIO.putStrLn $ "  " <> qrModulePath r <> "." <> qrFuncName r
+        <> " : " <> qrSignature r <> contractMark
+
+-- | Parse a simplified type signature string into a Type.
+-- Supports: "int", "string", "bool", "bytes[N]", "a -> b -> c" (function),
+-- and "list[T]", "Result[T, E]".
+-- TVars: any single lowercase letter is treated as a wildcard TVar.
+parseSigText :: T.Text -> Type
+parseSigText sig =
+  let parts = map T.strip (T.splitOn "->" sig)
+  in case parts of
+    []  -> TVar "?"
+    [t] -> parseOneType t
+    _   -> let args = map parseOneType (init parts)
+               ret  = parseOneType (last parts)
+           in TFn args ret
+
+parseOneType :: T.Text -> Type
+parseOneType t
+  | t == "int"    = TInt
+  | t == "float"  = TFloat
+  | t == "string" = TString
+  | t == "bool"   = TBool
+  | t == "unit"   = TUnit
+  | "bytes[" `T.isPrefixOf` t && "]" `T.isSuffixOf` t =
+      let nText = T.drop 6 (T.dropEnd 1 t)
+      in case reads (T.unpack nText) of
+           [(n, "")] -> TBytes n
+           _         -> TCustom t
+  | "list[" `T.isPrefixOf` t && "]" `T.isSuffixOf` t =
+      TList (parseOneType (T.drop 5 (T.dropEnd 1 t)))
+  | T.length t == 1 && T.all (\c -> c >= 'a' && c <= 'z') t = TVar t
+  | otherwise = TCustom t
 
 -- ---------------------------------------------------------------------------
 -- D4: verify (liquid-fixpoint)

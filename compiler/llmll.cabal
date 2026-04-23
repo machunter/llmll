@@ -28,6 +28,7 @@ library
       LLMLL.Diagnostic
       LLMLL.Module
       LLMLL.Hub
+      LLMLL.HubQuery
       LLMLL.FixpointIR
       LLMLL.FixpointEmit
       LLMLL.DiagnosticFQ
@@ -104,6 +105,7 @@ executable llmll
       LLMLL.FixpointIR
       LLMLL.HoleAnalysis
       LLMLL.Hub
+      LLMLL.HubQuery
       LLMLL.InvariantRegistry
       LLMLL.JsonPointer
       LLMLL.LeanTranslate

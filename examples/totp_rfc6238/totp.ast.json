@@ -1,0 +1,208 @@
+{
+  "schemaVersion": "0.3.0",
+  "module": "totp-rfc6238",
+  "types": [],
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "compute-time-step",
+      "params": [
+        { "name": "t", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "t0", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">", "args": [
+            { "kind": "var", "name": "x" },
+            { "kind": "lit-int", "value": 0 }
+          ]},
+          { "kind": "op", "op": ">=", "args": [
+            { "kind": "var", "name": "t" },
+            { "kind": "var", "name": "t0" }
+          ]}
+        ]
+      },
+      "pre_source": "RFC 6238 §4.2 — time step computation",
+      "post": {
+        "kind": "op", "op": ">=",
+        "args": [
+          { "kind": "var", "name": "result" },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "post_source": "RFC 6238 §4.2 — time step is non-negative",
+      "body": { "kind": "hole-named", "name": "?compute-time-step-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "dynamic-truncate",
+      "params": [
+        { "name": "hmac-result", "param_type": { "kind": "bytes", "length": 20 } },
+        { "name": "digits", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">", "args": [
+            { "kind": "var", "name": "digits" },
+            { "kind": "lit-int", "value": 0 }
+          ]},
+          { "kind": "op", "op": "<=", "args": [
+            { "kind": "var", "name": "digits" },
+            { "kind": "lit-int", "value": 10 }
+          ]}
+        ]
+      },
+      "pre_source": "RFC 4226 §5.3 — dynamic truncation",
+      "post": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [
+            { "kind": "var", "name": "result" },
+            { "kind": "lit-int", "value": 0 }
+          ]},
+          { "kind": "op", "op": "<", "args": [
+            { "kind": "var", "name": "result" },
+            { "kind": "op", "op": "*", "args": [
+              { "kind": "lit-int", "value": 10 },
+              { "kind": "op", "op": "*", "args": [
+                { "kind": "lit-int", "value": 10 },
+                { "kind": "op", "op": "*", "args": [
+                  { "kind": "lit-int", "value": 10 },
+                  { "kind": "op", "op": "*", "args": [
+                    { "kind": "lit-int", "value": 10 },
+                    { "kind": "op", "op": "*", "args": [
+                      { "kind": "lit-int", "value": 10 },
+                      { "kind": "op", "op": "*", "args": [
+                        { "kind": "lit-int", "value": 10 },
+                        { "kind": "op", "op": "*", "args": [
+                          { "kind": "lit-int", "value": 10 },
+                          { "kind": "op", "op": "*", "args": [
+                            { "kind": "lit-int", "value": 10 },
+                            { "kind": "op", "op": "*", "args": [
+                              { "kind": "lit-int", "value": 10 },
+                              { "kind": "lit-int", "value": 10 }
+                            ]}
+                          ]}
+                        ]}
+                      ]}
+                    ]}
+                  ]}
+                ]}
+              ]}
+            ]}
+          ]}
+        ]
+      },
+      "post_source": "RFC 4226 §5.3 — truncated result is bounded",
+      "body": { "kind": "hole-named", "name": "?dynamic-truncate-impl" }
+    },
+    {
+      "kind": "weakness-ok",
+      "name": "hmac-sha1-wrap",
+      "reason": "Cryptographic hash correctness is outside QF-LIA; asserted per RFC 2104"
+    },
+    {
+      "kind": "def-logic",
+      "name": "hmac-sha1-wrap",
+      "params": [
+        { "name": "key", "param_type": { "kind": "bytes", "length": 20 } },
+        { "name": "message", "param_type": { "kind": "bytes", "length": 20 } }
+      ],
+      "returns": { "kind": "bytes", "length": 20 },
+      "pre": null,
+      "post": null,
+      "pre_source": "RFC 2104 — HMAC",
+      "post_source": "RFC 2104 — HMAC output is 20 bytes (SHA-1)",
+      "body": { "kind": "hole-named", "name": "?hmac-sha1-wrap-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "generate-totp",
+      "params": [
+        { "name": "key", "param_type": { "kind": "bytes", "length": 20 } },
+        { "name": "time", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "time-step", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "digits", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">", "args": [
+            { "kind": "var", "name": "time-step" },
+            { "kind": "lit-int", "value": 0 }
+          ]},
+          { "kind": "op", "op": "and", "args": [
+            { "kind": "op", "op": ">", "args": [
+              { "kind": "var", "name": "digits" },
+              { "kind": "lit-int", "value": 0 }
+            ]},
+            { "kind": "op", "op": "<=", "args": [
+              { "kind": "var", "name": "digits" },
+              { "kind": "lit-int", "value": 10 }
+            ]}
+          ]}
+        ]
+      },
+      "pre_source": "RFC 6238 §4 — TOTP algorithm preconditions",
+      "post": {
+        "kind": "op", "op": ">=",
+        "args": [
+          { "kind": "var", "name": "result" },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "post_source": "RFC 6238 §4 — TOTP code is non-negative",
+      "body": { "kind": "hole-named", "name": "?generate-totp-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "validate-totp",
+      "params": [
+        { "name": "expected", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "actual", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "bool" },
+      "pre": {
+        "kind": "op", "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [
+            { "kind": "var", "name": "expected" },
+            { "kind": "lit-int", "value": 0 }
+          ]},
+          { "kind": "op", "op": ">=", "args": [
+            { "kind": "var", "name": "actual" },
+            { "kind": "lit-int", "value": 0 }
+          ]}
+        ]
+      },
+      "pre_source": "RFC 6238 §5.2 — validation inputs are non-negative OTP codes",
+      "post": null,
+      "body": { "kind": "hole-named", "name": "?validate-totp-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "pad-otp",
+      "params": [
+        { "name": "otp", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "d", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "string" },
+      "pre": null,
+      "post": {
+        "kind": "op", "op": "=",
+        "args": [
+          { "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "result" }] },
+          { "kind": "var", "name": "d" }
+        ]
+      },
+      "post_source": "RFC 4226 §5.4 — zero-padded OTP has exactly d digits",
+      "body": { "kind": "hole-named", "name": "?pad-otp-impl" }
+    }
+  ]
+}

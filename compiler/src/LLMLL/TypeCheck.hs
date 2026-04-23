@@ -132,6 +132,11 @@ builtinEnv = Map.fromList $
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
   , ("seq-commands",       TFn [TCustom "Command", TCustom "Command"] (TCustom "Command"))
+  -- §13.11 Cryptographic operations (v0.6.1)
+  -- Opaque primitives backed by real Haskell crypto in preamble.
+  -- Correctness is outside the decidable fragment — classified as Asserted.
+  , ("hmac-sha1",          TFn [TBytes 20, TBytes 20] (TBytes 20))
+  , ("sha1",               TFn [TBytes 20] (TBytes 20))
   ]
 
 emptyEnv :: TypeEnv

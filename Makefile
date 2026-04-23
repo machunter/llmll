@@ -1,32 +1,24 @@
 # LLMLL Benchmarks Makefile
-# v0.6.0: Frozen benchmark CI gates
+# v0.6.1: Frozen benchmark CI gates
 
-LLMLL := cd compiler && stack run --
-
-.PHONY: benchmark-erc20 benchmark-all
+.PHONY: benchmark-erc20 benchmark-totp benchmark-all
 
 # ─────────────────────────────────────────────────────────────────────
-# ERC-20 Token Benchmark (v0.6.0)
+# ERC-20 Token Benchmark (v0.6.0, CI gate v0.6.1)
 # ─────────────────────────────────────────────────────────────────────
 
 benchmark-erc20:
-	@echo "═══ ERC-20 Benchmark ═══"
-	@echo "--- Check skeleton (holes) ---"
-	$(LLMLL) -- check ../examples/erc20_token/erc20.ast.json
-	@echo ""
-	@echo "--- Check filled version ---"
-	$(LLMLL) -- check ../examples/erc20_token/erc20_filled.ast.json
-	@echo ""
-	@echo "--- Spec coverage ---"
-	$(LLMLL) -- verify ../examples/erc20_token/erc20_filled.ast.json --spec-coverage
-	@echo ""
-	@echo "--- Spec coverage (JSON) ---"
-	$(LLMLL) -- verify ../examples/erc20_token/erc20_filled.ast.json --spec-coverage --json
-	@echo ""
-	@echo "═══ ERC-20 Benchmark PASSED ═══"
+	@./scripts/benchmark-erc20.sh
+
+# ─────────────────────────────────────────────────────────────────────
+# TOTP RFC 6238 Benchmark (v0.6.1)
+# ─────────────────────────────────────────────────────────────────────
+
+benchmark-totp:
+	@./scripts/benchmark-totp.sh
 
 # ─────────────────────────────────────────────────────────────────────
 # Run all benchmarks
 # ─────────────────────────────────────────────────────────────────────
 
-benchmark-all: benchmark-erc20
+benchmark-all: benchmark-erc20 benchmark-totp
