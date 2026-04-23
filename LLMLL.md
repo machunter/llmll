@@ -495,7 +495,7 @@ Use `--spec-coverage --json` for machine-readable output (fields: `entries`, `su
 
 **Governance guardrails:** See §4.5 for WO-1, WO-2, and D10 warning rules.
 
-#### 5.3.3 Verification Scope (v0.6.0)
+#### 5.3.3 Verification Scope (v0.6.0, extended v0.6.1)
 
 The following table precisely defines what `llmll verify` can prove, what it tracks but cannot prove, and what is designed but not yet operational:
 
@@ -505,6 +505,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 | **Termination** (`:decreases` measures) | **Shipped** (v0.2+) | liquid-fixpoint | Simple variable measures (`:decreases n`) are verified automatically. Complex measures emit `?proof-required(complex-decreases)`. |
 | **Property-based testing** | **Shipped** (v0.1.1+) | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Inductive properties** | **Designed, not shipped** | Lean 4 via Leanstral MCP | Translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`). Currently runs in **mock mode only** (`--leanstral-mock`). Real proof integration is blocked on `lean-lsp-mcp` availability. |
+| **Cryptographic primitives** (v0.6.1) | **Asserted** | _(opaque — outside any decidable fragment)_ | `hmac-sha1` and `sha1` builtins are treated as axiomatically correct. Contracts on functions that use them are capped at `asserted` in the trust report. The TOTP benchmark (`examples/totp_rfc6238/`) is the second frozen benchmark demonstrating mixed verification levels (Proven + Asserted + Tested) across a single module. |
 
 **What is NOT silently dropped:** Contracts outside the QF-LIA fragment are not ignored. They are:
 1. Enforced as **runtime assertions** (unless stripped via `--contracts=none`)
@@ -1607,6 +1608,33 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
    ```
    This resolves to `import System.Posix.Files` and `atomicWriteFile` — no stub required.
 
+### 13.11 Cryptographic Operations (v0.6.1)
+
+Cryptographic builtins are **opaque primitives** — the compiler does not attempt to verify their correctness. Their results are classified as `asserted` in the trust report. Downstream contracts that depend on these builtins are capped at the `asserted` verification level.
+
+| Function | Signature | RFC Reference | Notes |
+|----------|-----------|---------------|-------|
+| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 (HMAC) | Key and message are both `bytes[20]`. Returns 20-byte MAC. |
+| `sha1` | `bytes[20] → bytes[20]` | FIPS 180-4 (SHA-1) | Input is `bytes[20]`, output is 20-byte hash. |
+
+> [!IMPORTANT]
+> **Implementation note:** The preamble SHA-1 implementation in `CodegenHs.hs` is a **simplified stub** (polynomial hash, not a faithful SHA-1). The trust report correctly classifies all functions depending on these builtins as `asserted`. For production use, replace the preamble with a real Haskell crypto library (`crypton` or `cryptohash-sha1`). The comment at `CodegenHs.hs` line 370 marks this.
+
+> [!NOTE]
+> **Extensible namespace.** `§13.11` is designed as an extensible section. Future builtins (`sha256`, `aes-128-cbc`, etc.) follow the same pattern: opaque primitive with concrete `bytes[N]` types, backed by a real Haskell crypto library in the preamble. Variable-length byte types (`bytes` without a length parameter) are deferred to v0.7.
+
+**Usage in TOTP benchmark:**
+
+```lisp
+(def-logic hmac-sha1-wrap [key: bytes[20] msg: bytes[20]]
+  :source "RFC 2104"
+  (hmac-sha1 key msg))
+
+(weakness-ok hmac-sha1-wrap "wrapper around opaque crypto primitive")
+```
+
+The `weakness-ok` declaration acknowledges that the wrapper has no meaningful contract — its correctness rests entirely on the axiomatically assumed `hmac-sha1` builtin.
+
 ---
 
 ## 14. Version Roadmap
@@ -1693,6 +1721,19 @@ Complete sound unification — closes the last known unsoundness in the type che
 
 > [!NOTE]
 > **Known limitation (v0.5):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
+
+### v0.6.1 — TOTP Benchmark & Hub Query ✅ Shipped
+
+Second frozen benchmark (RFC 6238 TOTP), hub query-by-signature, and v0.6.0 carryover closure.
+
+| Area | Feature |
+|------|---------|
+| Cryptographic builtins (§13.11) | ✅ `hmac-sha1 : bytes[20] → bytes[20] → bytes[20]` and `sha1 : bytes[20] → bytes[20]`. Opaque primitives — correctness is `asserted`. Preamble implementation in `CodegenHs.hs`. |
+| TOTP benchmark | ✅ Frozen benchmark in `examples/totp_rfc6238/` — skeleton, filled version, `EXPECTED_RESULTS.json` with verification-scope matrix (5 properties across 3 levels: Proven, Asserted, Tested). RFC clause traceability via `:source`. CI gate: `make benchmark-totp` (14 assertions). |
+| Hub query-by-signature | ✅ `llmll hub query --signature "int → int → int"` — brute-force scan of `~/.llmll/modules/`. `structuralMatch` with TVar wildcards, TDependent stripping, order-sensitive parameter matching. New `LLMLL.HubQuery` module. |
+| PROV-3 closure | ✅ `:source` annotations now displayed in `--trust-report` text and JSON output. `TrustEntry` gains `tePreSource`/`tePostSource` fields. |
+| ERC-20 CI gate (BM-4) | ✅ `make benchmark-erc20` — 11 frozen assertions. `make benchmark-all` runs both benchmarks. |
+| Checkout hub suggestions (HUB-3) | ✅ `CheckoutToken.ctHubSuggestions` field scaffolded (always `Nothing` in v0.6.1 — populated by future orchestrator wiring). |
 
 ### v0.6 — Specification Quality ✅ Shipped
 

@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.6.0 shipped (Spec Coverage Gate + ERC-20 Benchmark); 279 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.6.1 shipped (TOTP Benchmark, Hub Query, Crypto Builtins); 279 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -19,185 +19,21 @@
 
 # Upcoming Releases
 
-## v0.6 — Specification Quality + Training (P0 SHIPPED, remaining items in progress)
+## v0.6.2 — Specification Quality Housekeeping
 
-**Theme:** Attack the acknowledged bottleneck — specification coverage and quality.
+**Theme:** Remaining items from the v0.6 specification quality initiative not prioritized for v0.6.0 or v0.6.1.
 
-> *"LLMLL does not require models to produce complete formal specifications. The remaining challenge is specification coverage — what gets specified at all."* — [strategic-positioning.md](design/strategic-positioning.md)
->
-> **External review (2026-04-21):** Five items added to v0.6 based on reviewer feedback, plus four hardening items from follow-up review. P0 items (spec coverage gate, frozen ERC-20 benchmark, suppression governance, clause-level provenance) **shipped as v0.6.0 (2026-04-22)**. Remaining items: TOTP benchmark (moved to v0.6.1), hub query-by-signature, verification-scope matrix backfill, CI gates, and Leanstral claim narrowing.
-
-### Spec Coverage Gate (P0, ~2.5 days) — NEW
-
-> **Source:** External reviewer feedback item 1 (2026-04-21). `--spec-coverage` was designed in [spec-adequacy-closure.md §1b](design/spec-adequacy-closure.md) and planned for v0.4 but never shipped. The Lead Agent's quality heuristics are advisory, not blocking — a skeleton with no contracts can proceed to hole-filling.
->
-> **Rationale:** The project's thesis — "verification is the coordination protocol" — requires that unspecified functions cannot progress to filling without explicit acknowledgment.
+> v0.6.0 shipped the P0 items (spec coverage gate, ERC-20 benchmark, suppression governance, clause-level provenance, Leanstral claim narrowing). v0.6.1 shipped the TOTP benchmark, hub query-by-signature, crypto builtins (§13.11), and v0.6.0 carryover (PROV-3, BM-4). See **Shipped Releases** for full ticket details.
 
 | # | Action | Effort | Status |
 |---|--------|--------|--------|
-| SC-1 | Implement `llmll verify --spec-coverage` per spec-adequacy-closure.md §1b. Walk `[Statement]`, count `SDefLogic` with/without `pre`/`post`, cross-reference `.verified.json`. Emit coverage report with per-function breakdown. | 1 day | ✅ |
-| SC-2 | Add `effective_coverage` metric to `quality.py` heuristics. Formula: `(contracted + weakness_ok) / total_functions`. | 0.5 day | ✅ |
-| SC-3 | Make coverage threshold a parameter in `--mode lead` / `--mode auto` (default: 80%, overridable via `--min-spec-coverage`). | 0.5 day | ✅ |
-| SC-4 | Blocking behavior: `--mode auto` fails if effective coverage < threshold. `--mode lead` emits structured warning with list of unspecified functions. | 0.5 day | ✅ |
-
-#### Suppression Governance (`weakness-ok`) — NEW
-
-> **Source:** External reviewer follow-up (2026-04-21). Without accountability, teams can game the coverage gate by marking away the hard parts. Every `(weakness-ok ...)` suppression must carry a reason and appear prominently in trust output.
-
-**Policy (enforced by SC-1 implementation):**
-
-1. `(weakness-ok fn-name "reason")` — the reason string is **required** (parser rejects bare `weakness-ok` without reason).
-2. `--spec-coverage` output lists all `weakness-ok` suppressions with their reasons under a separate "Intentional Underspecification" heading.
-3. `--trust-report` output includes a `suppressions` section listing all `weakness-ok` declarations with reasons.
-4. `weakness-ok` functions count toward `effective_coverage` numerator but are visually distinguished (e.g., `⊘` marker vs `✓` for contracted functions).
-5. CI-gated benchmarks (BM-4, BM2-4) must include at least one `weakness-ok` function and verify it appears correctly in trust output.
-
-**Acceptance criteria:**
-
-- `llmll verify --spec-coverage` on a program with 7 functions (4 contracted, 1 `weakness-ok`, 2 unspecified) reports `effective_coverage: 71%`
-- `llmll-orchestra --mode auto` with `--min-spec-coverage 80` fails on the above program
-- `llmll-orchestra --mode auto` with `--min-spec-coverage 70` succeeds
-- Unspecified functions are listed by name in the coverage report
-- `weakness-ok` suppressions are listed with reasons in both `--spec-coverage` and `--trust-report` output
-- A `(weakness-ok fn-name)` without a reason string is a parse error
-
-### Frozen ERC-20 Benchmark (P0, ~5 days) — NEW
-
-> **Source:** External reviewer feedback item 2 (2026-04-21). The ERC-20 benchmark was fully designed in [spec-adequacy-closure.md §Track 2](design/spec-adequacy-closure.md) and planned for v0.4 but silently dropped. The project needs at least one stable benchmark with external ground truth, deliberately weakened specs, false-positive checks, and published pass criteria.
-
-| # | Action | Effort | Status |
-|---|--------|--------|--------|
-| BM-1 | Implement `examples/erc20_token/erc20.ast.json` — full ERC-20 skeleton with `?delegate` holes, types, and contracts derived from ERC-20 standard | 1.5 days | ✅ |
-| BM-2 | Implement `examples/erc20_token/erc20_filled.ast.json` — filled version with verified contracts | 1 day | ✅ |
-| BM-3 | Add `examples/erc20_token/EXPECTED_RESULTS.json` — frozen ground truth for all 7 success criteria from spec-adequacy-closure.md §7 | 0.5 day | ✅ |
-| BM-4 | Add CI gate: `make benchmark-erc20` runs `--weakness-check`, `--spec-coverage`, `--trust-report`, compares against frozen expected output | 1 day | ☐ |
-| BM-5 | Write `examples/erc20_token/WALKTHROUGH.md` — end-to-end: external spec → LLMLL contracts → verified code → weakness detection → downstream obligation → strengthened contract → re-verification | 1 day | ✅ |
-
-**Verification-Scope Matrix (mandatory artifact — see policy below):**
-
-| ERC-20 property | Verification level | Why |
-|---|---|---|
-| `total-supply` conservation | **Proven** (QF-LIA) | Integer arithmetic |
-| Balance debit/credit | **Proven** (QF-LIA) | Integer arithmetic |
-| Allowance deduction | **Proven** (QF-LIA) | Integer arithmetic |
-| Non-negative balance | **Proven** (QF-LIA) | Simple comparison |
-| Map key membership / absence | **Asserted** | Outside decidable fragment |
-| Transfer-to-self edge case | **Tested** (QuickCheck) | Conditional logic |
-
-**Acceptance criteria (from spec-adequacy-closure.md §7, promoted to roadmap):**
-
-- SC-1: `--weakness-check` detects money-printing when conservation invariant is removed from `transfer`
-- SC-2: `--spec-coverage` reports 100% contract coverage with all arithmetic contracts proven
-- SC-3: At least one downstream obligation suggestion demonstrated
-- SC-4: `balance-of` (pure accessor) not falsely flagged by `--weakness-check`
-- SC-6: Walkthrough documents the full pipeline end-to-end
-- SC-7: `--weakness-check` completes in under 30 seconds
-- **SC-8: Verification-scope matrix is included as a published artifact in `EXPECTED_RESULTS.json` and `WALKTHROUGH.md`** (see verification-scope policy below)
-
-### Second Frozen Benchmark: RFC 6238 TOTP (~5 days) — MOVED TO v0.6.1
-
-> **Source:** External reviewer follow-up (2026-04-21). One benchmark can look cherry-picked. The one-pager lists encryption, financial compliance, and protocol implementation as target domains. A second benchmark from a non-token domain strengthens the evaluation story.
-
-**Domain:** Time-based One-Time Password (TOTP) per [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238). This exercises:
-- **Cryptographic standard translation** — HMAC-SHA1 truncation, time-step computation
-- **Protocol compliance** — test vectors from RFC 6238 §A.1 serve as external ground truth
-- **Mixed verification levels** — arithmetic (time step division, modular truncation) is provable; HMAC correctness is asserted (outside QF-LIA)
-
-| # | Action | Effort | Status |
-|---|--------|--------|--------|
-| BM2-1 | Implement `examples/totp_rfc6238/totp.ast.json` — TOTP skeleton with contracts derived from RFC 6238 | 1.5 days | ☐ |
-| BM2-2 | Implement `examples/totp_rfc6238/totp_filled.ast.json` — filled version with verified contracts | 1 day | ☐ |
-| BM2-3 | Add `examples/totp_rfc6238/EXPECTED_RESULTS.json` — frozen ground truth including verification-scope matrix | 0.5 day | ☐ |
-| BM2-4 | Add CI gate: `make benchmark-totp` runs `--weakness-check`, `--spec-coverage`, `--trust-report`, compares against frozen expected output | 1 day | ☐ |
-| BM2-5 | Write `examples/totp_rfc6238/WALKTHROUGH.md` — RFC clause traceability via `:source` annotations | 1 day | ☐ |
-
-**Verification-Scope Matrix (mandatory artifact):**
-
-| TOTP property | Verification level | Why |
-|---|---|---|
-| Time step computation (`floor((T - T0) / X)`) | **Proven** (QF-LIA) | Integer division |
-| Dynamic truncation offset (`result mod 10^d`) | **Proven** (QF-LIA) | Modular arithmetic |
-| HMAC-SHA1 correctness | **Asserted** | Cryptographic hash — outside decidable fragment |
-| RFC 6238 §A.1 test vectors | **Tested** (QuickCheck) | Known-answer tests from the standard |
-
-**Acceptance criteria:**
-
-- All RFC 6238 §A.1 test vectors pass
-- `--spec-coverage` reports 100% contract coverage
-- `--trust-report` shows mixed verification levels (proven + asserted + tested)
-- `:source` annotations trace each contract to a specific RFC 6238 section
-- Verification-scope matrix is a published artifact
-
-### Verification-Scope Matrix Policy — NEW
-
-> **Source:** External reviewer follow-up (2026-04-21). The one-pager's credibility depends on proven/asserted/tested distinctions staying concrete and visible. Every flagship example must publish what is actually verified.
-
-**Policy (applies to all examples in `examples/` and all walkthroughs in `docs/`):**
-
-1. Every example directory containing verified contracts must include a **verification-scope matrix** — a table listing each property, its verification level (Proven/Tested/Asserted), and why.
-2. The matrix must be included in both `EXPECTED_RESULTS.json` (machine-readable, CI-checked) and `WALKTHROUGH.md` (human-readable).
-3. New walkthroughs and examples that include `llmll verify` results will not be merged without the matrix.
-4. Existing shipped examples (`hangman_json_verifier/`, `tictactoe_json_verifier/`, `conways_life_json_verifier/`) should be backfilled with matrices as a v0.6 housekeeping task.
-
-| # | Action | Effort | Status |
-|---|--------|--------|--------|
-| VSM-1 | Add verification-scope matrices to all three existing verifier examples | 0.5 day | ☐ |
-| VSM-2 | Document the policy in `docs/getting-started.md` under a new "Verification-Scope Matrix" section | 0.5 day | ✅ |
-
-### Clause-Level Provenance for Spec-from-RFC (P1, ~3 days) — NEW
-
-> **Source:** External reviewer feedback item 3 (2026-04-21). In the target domains (financial compliance, protocol implementation, cryptographic standards), auditors require per-clause traceability to the originating standard. Without provenance, the Spec-from-RFC pipeline produces contracts that are plausibly correct but not auditable.
-
-**[SPEC]** Add `:source` annotation to `pre`/`post` contracts — pure metadata, no effect on type checking or verification:
-
-```lisp
-(def-logic handshake-key-schedule [psk: bytes[32] ecdhe: bytes[32]]
-  (pre  (>= (bytes-length psk) 32)
-    :source "RFC 8446 §7.1 — PSK must be at least HashLen bytes")
-  (post (= (bytes-length result) 32)
-    :source "RFC 8446 §7.1 — HKDF-Expand-Label output length = HashLen")
-  (hkdf-expand-label (hkdf-extract psk ecdhe) "derived" "" 32))
-```
-
-| # | Action | Effort | Status |
-|---|--------|--------|--------|
-| PROV-1 | Add `sourceRef :: Maybe Text` field to contract representation in `Syntax.hs` | 0.5 day | ✅ |
-| PROV-2 | Parse `:source "..."` annotation in `Parser.hs` and `ParserJSON.hs` | 1 day | ✅ |
-| PROV-3 | Thread `sourceRef` through `--trust-report` output and `.verified.json` sidecar | 1 day | ☐ |
-| PROV-4 | Document `:source` annotation in `LLMLL.md §4.1` and `getting-started.md` | 0.5 day | ✅ |
-
-**Design decision:** v0.6 uses free-form text (`:source "RFC 8446 §7.1"`). Structured references (`{standard, section, clause}`) deferred to v0.7.
-
-**Acceptance criteria:**
-
-- `:source` annotation accepted on `pre` and `post` in both S-expression and JSON-AST
-- `--trust-report` output includes source references when present
-- `.verified.json` sidecar includes `sourceRef` field per contract
-- `:source` has no effect on type checking, verification, or codegen
+| VSM-1 | Add verification-scope matrices to all three existing verifier examples (`hangman_json_verifier/`, `tictactoe_json_verifier/`, `conways_life_json_verifier/`) | 0.5 day | ☐ |
 
 ### Spec-from-RFC Pipeline
 
 > **Source:** [specification-sources.md §1](design/specification-sources.md)
 
-For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts. **v0.6 addition:** generated contracts must include `:source` annotations (PROV-1..4) linking each clause to the originating standard.
-
-### Hub Query-by-Signature (P2, ~3.5 days) — NEW
-
-> **Source:** External reviewer feedback item 4 (2026-04-21). [specification-sources.md §4](design/specification-sources.md) and [component-hub.md](design/component-hub.md) describe query-by-signature as a roadmap item, but it was not scheduled. Without reuse, each new project pays the full cost of spec generation from scratch.
-
-| # | Action | Effort | Status |
-|---|--------|--------|--------|
-| HUB-1 | `llmll hub query --signature "<type>"` — exact structural type match against hub cache (`~/.llmll/modules/`) | 2 days | ☐ |
-| HUB-2 | Output includes function name, contract summary, verification level, source module | 0.5 day | ☐ |
-| HUB-3 | Integrate with `llmll checkout` — when a hole's type matches a hub component, emit suggestion in checkout response | 1 day | ☐ |
-
-**Explicitly deferred to v0.7:** Contract-aware matching (subsumption, equivalence), fuzzy `TDependent` compatibility.
-
-**Acceptance criteria:**
-
-- `llmll hub query --signature "list[int] -> list[int]"` returns matching components from the hub cache
-- Query results include verification level and contract summary
-- `llmll checkout` response includes `hub_suggestions` field when matches exist
+For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts. Generated contracts must include `:source` annotations (PROV-1..4) linking each clause to the originating standard.
 
 ### Synthetic Training Corpus (Hackage Back-Translation)
 
@@ -227,17 +63,6 @@ For LLMLL's target domains (financial, protocol, encryption), specs already exis
 ```
 
 Algebraic law enforcement as a first-class language feature.
-
-### Leanstral Claim Narrowing (P1, ~1 day) — NEW
-
-> **Source:** External reviewer feedback item 5 (2026-04-21). The one-pager presents SMT + Leanstral as two working verification paths. In reality, Leanstral is mock-only since v0.3.1 and blocked on `lean-lsp-mcp`. This is misleading and should be corrected immediately.
-
-| # | Action | Effort | Status |
-|---|--------|--------|--------|
-| CLAIM-1 | Revise `one-pager.md` to distinguish shipped verification (SMT/Z3) from designed-but-mock (Leanstral/Lean 4). Add claim-to-evidence appendix. | 0.5 day | ✅ |
-| CLAIM-2 | Add `Verification Scope` subsection to `LLMLL.md §5.3` that precisely defines what is proven vs. what is asserted outside the SMT fragment | 0.5 day | ✅ |
-
-**Decision:** Narrow the product claim now (Option B). Schedule real Leanstral integration (Option A) when `lean-lsp-mcp` becomes available. If `lean-lsp-mcp` is more than 3 months out, move Leanstral from "blocked" to "deferred to v0.8" and adjust documentation.
 
 ---
 
@@ -312,13 +137,13 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 | Real Leanstral integration | Mock-only since v0.3.1. **Product claim narrowed (v0.6 CLAIM-1..2, 2026-04-21)** — one-pager and LLMLL.md now distinguish shipped SMT verification from designed-but-mock Lean 4 path. | Blocked on `lean-lsp-mcp` availability. If >3 months, move to deferred-v0.8. |
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test, **GO**). Full WASI enforcement deferred to WASM build target (unversioned future). |
 | Spec coverage metric (`--spec-coverage`) | **Shipped** (v0.6.0, SC-1..SC-4). Classifies functions as contracted/suppressed/unspecified, computes effective coverage, gates `--mode auto`. | Resolved. |
-| Spec-adequacy benchmark (ERC-20) | **Shipped** (v0.6.0, BM-1..BM-3, BM-5). Frozen benchmark with verification-scope matrix and walkthrough. | BM-4 (CI gate `make benchmark-erc20`) still open. |
-| Spec-adequacy benchmark (TOTP) | Not shipped | **Moved to v0.6.1** (BM2-1..BM2-5, 2026-04-23). Second frozen benchmark (RFC 6238) for cross-domain credibility. |
-| Verification-scope matrix policy | VSM-2 shipped (policy documented in getting-started.md) | VSM-1 (backfill existing examples) still open. |
+| Spec-adequacy benchmark (ERC-20) | **Shipped** (v0.6.0 BM-1..3/5, v0.6.1 BM-4). Frozen benchmark with CI gate (11 assertions). | Resolved. |
+| Spec-adequacy benchmark (TOTP) | **Shipped** (v0.6.1, BM2-1..BM2-5). Frozen benchmark with CI gate (14 assertions). | Resolved. |
+| Verification-scope matrix policy | VSM-2 shipped (policy documented in getting-started.md) | VSM-1 (backfill existing examples) remains open — moved to v0.6.2. |
 | Suppression governance (`weakness-ok`) | **Shipped** (v0.6.0). `SWeaknessOk` AST node, mandatory reason, governance warnings W601–W603, trust report integration. | Resolved. |
 | Claim-to-evidence appendix | **Shipped** in one-pager (2026-04-23). Maps each claim to shipped command + verification level. Updated for v0.6.0. | Resolved. |
-| Contract clause-level provenance | **Shipped** (v0.6.0, PROV-1..PROV-2, PROV-4). `:source` annotation on pre/post contracts, parser + AST + trust-report. | PROV-3 (thread through `.verified.json` sidecar) still open. |
-| Hub query-by-signature | Designed in specification-sources.md §4 and component-hub.md | **Remains v0.6 P2** (HUB-1..HUB-3). Exact structural match, no contract matching. |
+| Contract clause-level provenance | **Shipped** (v0.6.0 PROV-1/2/4, v0.6.1 PROV-3). `:source` annotation threaded through trust report and `.verified.json`. | Resolved. |
+| Hub query-by-signature | **Shipped** (v0.6.1, HUB-1..HUB-3). `LLMLL.HubQuery` module, `structuralMatch` with TVar wildcards, CLI `hub query --signature`. | Resolved. |
 | Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
 | Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full shipped. Revisit if v0.6 type-driven development changes architecture. |
 | `TSumType` wildcarding in `compatibleWith` | **Fixed** in U-Lite (v0.4, U7-lite) | Resolved. |
@@ -338,25 +163,17 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 # Summary: Version Plan and Critical Path
 
 ```
-v0.3.5 (SHIPPED)   v0.4 (SHIPPED)      v0.5 (SHIPPED)    v0.6.0 (SHIPPED)              v0.6.1 (planned)    Future
-──────────────     ──────────────      ──────────────    ────────────────────          ────────────────    ──────
-Context-aware      Lead Agent          U-full            Spec coverage gate ✅         TOTP frozen         WASM build
-checkout (C1-C6)   (skeleton gen)      (Algorithm W)     + suppression governance ✅   benchmark           target
-                                                         ERC-20 frozen benchmark ✅
-Orchestrator       U-lite              effectful         Clause-level provenance ✅    Hub query-by-       WASI capability
-end-to-end         (concrete type      WASM compat       Claim narrowing ✅            signature           enforcement
-                   unification)        spike (GO)        Claim-to-evidence table ✅
-Weak-spec                                                ─── remaining ───
-counter-examples   CAP-1 (capability                     BM-4 (ERC-20 CI gate)
-                   enforcement)                          VSM-1 (backfill matrices)
-                                                         PROV-3 (sidecar threading)
-C5 (monomorphize)  Invariant registry                    Synthetic corpus
-                   Obligation mining                     Differential impl.
-                   JSON parsing                          def-interface :laws
-                                                         Spec-from-RFC
+v0.5 (SHIPPED)    v0.6.0 (SHIPPED)              v0.6.1 (SHIPPED)              v0.6.2 (planned)    v0.7 (research)    Future
+──────────────    ────────────────────          ────────────────────          ────────────────    ───────────────    ──────
+U-full            Spec coverage gate ✅         TOTP benchmark ✅              VSM-1 (backfill)   Type-driven dev    WASM build
+(Algorithm W)     + suppression governance ✅   Crypto builtins (§13.11) ✅    Spec-from-RFC      Self-hosted orch   target
+                  ERC-20 frozen benchmark ✅    Hub query-by-sig ✅            Synthetic corpus
+effectful         Clause-level provenance ✅    PROV-3 closure ✅              Differential impl  Contract-aware     WASI capability
+WASM compat       Claim narrowing ✅            BM-4 ERC-20 CI gate ✅         def-interface      hub matching       enforcement
+spike (GO)        Claim-to-evidence table ✅                                  :laws
 ```
 
-The critical path through v0.6.0 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → shipped**. v0.6.0 shipped the P0 items (spec coverage gate, ERC-20 benchmark, suppression governance, clause-level provenance) plus the Leanstral claim narrowing and claim-to-evidence table. Remaining v0.6 items (CI gates, sidecar threading, matrix backfill) are housekeeping. v0.6.1 adds the TOTP benchmark and hub query-by-signature. WASM is a confirmed future direction, not pinned to a version.
+The critical path through v0.6.1 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → shipped**. v0.6.0 shipped the P0 items (spec coverage gate, ERC-20 benchmark, suppression governance, clause-level provenance, Leanstral claim narrowing). v0.6.1 shipped the TOTP benchmark, crypto builtins, hub query-by-signature, and v0.6.0 carryover (PROV-3, BM-4). v0.6.2 collects remaining housekeeping (VSM-1) and research-track items. WASM is a confirmed future direction, not pinned to a version.
 
 ### What Changed from LLMLL.md §14
 
@@ -372,8 +189,9 @@ The critical path through v0.6.0 is complete: **context-aware checkout → worki
 | **v0.3.5** | *(new)* | Context-aware checkout (Phase C, C1–C6) + C5 monomorphization + orchestrator E2E + weak-spec counter-examples — **shipped** |
 | **v0.4** | *(was: WASM + checkout)* | Lead Agent (skeleton gen) + **U-lite soundness** + **CAP-1** (capability enforcement) + invariant registry + obligation mining + JSON parsing — **shipped** |
 | **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) + `effectful` WASM compat spike (**GO**) — **shipped** |
-| **v0.6.0** | *(revised 2026-04-23)* | Spec quality: **spec coverage gate + suppression governance (P0) ✅** + **frozen ERC-20 benchmark (P0) ✅** + **clause-level provenance (P1) ✅** + **Leanstral claim narrowing ✅** + **claim-to-evidence table ✅** — **shipped (2026-04-22)**. Remaining: BM-4 (CI gate), VSM-1 (matrix backfill), PROV-3 (sidecar threading). |
-| **v0.6.1** | *(new, 2026-04-23)* | TOTP frozen benchmark (BM2-1..5) + hub query-by-signature (HUB-1..3) + verification-scope matrix policy + synthetic corpus + differential impl. + `def-interface :laws` + Spec-from-RFC — **planned** |
+| **v0.6.0** | *(revised 2026-04-23)* | Spec quality: **spec coverage gate + suppression governance (P0) ✅** + **frozen ERC-20 benchmark (P0) ✅** + **clause-level provenance (P1) ✅** + **Leanstral claim narrowing ✅** + **claim-to-evidence table ✅** — **shipped (2026-04-22)**. |
+| **v0.6.1** | *(shipped, 2026-04-23)* | TOTP frozen benchmark (BM2-1..5) ✅ + hub query-by-signature (HUB-1..3) ✅ + crypto builtins (§13.11) ✅ + v0.6.0 carryover (PROV-3, BM-4) ✅ — **shipped (2026-04-23)**. |
+| **v0.6.2** | *(new, 2026-04-23)* | Housekeeping: VSM-1 (matrix backfill) + Spec-from-RFC + synthetic corpus + differential impl + `def-interface :laws` — **planned** |
 | **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
@@ -389,8 +207,97 @@ The critical path through v0.6.0 is complete: **context-aware checkout → worki
 
 # Shipped Releases
 
-<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.5.0)</strong></summary>
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.6.1)</strong></summary>
 
+
+## v0.6.1 — TOTP Benchmark & Hub Query ✅ SHIPPED
+
+**Theme:** Second frozen benchmark (RFC 6238 TOTP), hub query-by-signature, and v0.6.0 carryover closure.
+
+### Cryptographic Builtins (§13.11)
+
+- `hmac-sha1 : bytes[20] → bytes[20] → bytes[20]` — RFC 2104 HMAC. Preamble in `CodegenHs.hs` using `Data.Bits.xor`. ✅
+- `sha1 : bytes[20] → bytes[20]` — Simplified SHA-1 stub. Trust level: `asserted`. ✅
+
+### TOTP RFC 6238 Benchmark
+
+| # | Action | Status |
+|---|--------|--------|
+| BM2-1 | `examples/totp_rfc6238/totp.ast.json` — TOTP skeleton with contracts derived from RFC 6238 | ✅ |
+| BM2-2 | `examples/totp_rfc6238/totp_filled.ast.json` — filled version with 4 check blocks | ✅ |
+| BM2-3 | `examples/totp_rfc6238/EXPECTED_RESULTS.json` — frozen ground truth with verification-scope matrix | ✅ |
+| BM2-4 | CI gate: `make benchmark-totp` (14 assertions) | ✅ |
+| BM2-5 | `examples/totp_rfc6238/WALKTHROUGH.md` — RFC clause traceability via `:source` annotations | ✅ |
+
+### Hub Query-by-Signature
+
+| # | Action | Status |
+|---|--------|--------|
+| HUB-1 | `LLMLL.HubQuery` module — brute-force scan of `~/.llmll/modules/` with `structuralMatch` (TVar wildcards, TDependent stripping, order-sensitive) | ✅ |
+| HUB-2 | `llmll hub query --signature` CLI subcommand (text + JSON output) | ✅ |
+| HUB-3 | `CheckoutToken.ctHubSuggestions` field scaffolded (always `Nothing` — populated by future orchestrator wiring) | ✅ |
+
+### v0.6.0 Carryover
+
+| # | Action | Status |
+|---|--------|--------|
+| PROV-3 | `:source` annotations threaded through `--trust-report` text and JSON output (`formatEntry`, `entryJson`) | ✅ |
+| BM-4 | ERC-20 CI gate: `scripts/benchmark-erc20.sh` (11 assertions), `make benchmark-erc20` | ✅ |
+
+---
+
+## v0.6.0 — Specification Quality ✅ SHIPPED
+
+**Theme:** Attack the acknowledged bottleneck — specification coverage and quality.
+
+> P0 items (spec coverage gate, frozen ERC-20 benchmark, suppression governance, clause-level provenance) **shipped 2026-04-22**. Leanstral claim narrowing and claim-to-evidence table also shipped.
+
+### Spec Coverage Gate (SC-1..SC-4) ✅
+
+| # | Action | Status |
+|---|--------|--------|
+| SC-1 | `llmll verify --spec-coverage` — walk `[Statement]`, count functions, emit coverage report | ✅ |
+| SC-2 | `effective_coverage` metric in `quality.py` | ✅ |
+| SC-3 | Coverage threshold parameter in `--mode lead` / `--mode auto` | ✅ |
+| SC-4 | Blocking behavior: `--mode auto` fails below threshold | ✅ |
+
+### Suppression Governance (`weakness-ok`) ✅
+
+- `SWeaknessOk` AST node with mandatory reason string. ✅
+- Governance warnings: WO-1 (`W601`), WO-2 (`W602`), D10 (`W603`). ✅
+- Trust report integration ("Intentional Underspecification" section). ✅
+
+### Frozen ERC-20 Benchmark (BM-1..BM-3, BM-5) ✅
+
+| # | Action | Status |
+|---|--------|--------|
+| BM-1 | `examples/erc20_token/erc20.ast.json` — skeleton | ✅ |
+| BM-2 | `examples/erc20_token/erc20_filled.ast.json` — filled | ✅ |
+| BM-3 | `examples/erc20_token/EXPECTED_RESULTS.json` — frozen ground truth with verification-scope matrix | ✅ |
+| BM-5 | `examples/erc20_token/WALKTHROUGH.md` | ✅ |
+
+### Clause-Level Provenance (PROV-1, PROV-2, PROV-4) ✅
+
+| # | Action | Status |
+|---|--------|--------|
+| PROV-1 | `sourceRef :: Maybe Text` field in `Syntax.hs` | ✅ |
+| PROV-2 | Parse `:source` in `Parser.hs` and `ParserJSON.hs` | ✅ |
+| PROV-4 | Document in `LLMLL.md §4.1` and `getting-started.md` | ✅ |
+
+### Leanstral Claim Narrowing (CLAIM-1..2) ✅
+
+| # | Action | Status |
+|---|--------|--------|
+| CLAIM-1 | Revise `one-pager.md` — distinguish shipped SMT from designed-but-mock Lean 4 | ✅ |
+| CLAIM-2 | Add `Verification Scope` subsection to `LLMLL.md §5.3` | ✅ |
+
+### Verification-Scope Matrix Policy (VSM-2) ✅
+
+| # | Action | Status |
+|---|--------|--------|
+| VSM-2 | Document policy in `docs/getting-started.md` | ✅ |
+
+---
 
 ## v0.5 — U-Full Soundness ✅ SHIPPED
 
