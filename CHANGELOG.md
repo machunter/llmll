@@ -2,6 +2,36 @@
 
 ---
 
+## v0.6.1 — TOTP Benchmark & Hub Query (2026-04-23)
+
+### Compiler — Cryptographic Builtins (§13.11)
+
+- **`hmac-sha1`** — New builtin: `bytes[20] → bytes[20] → bytes[20]`. RFC 2104 HMAC with SHA-1. Preamble implementation in `CodegenHs.hs` using `Data.Bits.xor`.
+- **`sha1`** — New builtin: `bytes[20] → bytes[20]`. Simplified SHA-1 stub. Returns 20 bytes derived from input.
+- **Agent spec** — Both builtins auto-reflected in `llmll spec` output.
+
+### Compiler — TOTP RFC 6238 Benchmark
+
+- **`examples/totp_rfc6238/totp.ast.json`** — Skeleton with 6 functions (all holes), RFC `:source` annotations, 100% effective spec coverage.
+- **`examples/totp_rfc6238/totp_filled.ast.json`** — Complete implementation with 4 check blocks (RFC 6238 §A.1 test vectors, reflexive validation, padding).
+- **`examples/totp_rfc6238/EXPECTED_RESULTS.json`** — Frozen expected results for CI regression.
+- **`scripts/benchmark-totp.sh`** — CI gate script (14 assertions: parse, spec coverage, trust report, provenance, scope matrix, check blocks).
+- **`make benchmark-totp`** — Makefile target. `make benchmark-all` now runs both ERC-20 (11) and TOTP (14) gates.
+
+### Compiler — Hub Query-by-Signature
+
+- **`LLMLL.HubQuery`** — New module. Brute-force scan of `~/.llmll/modules/` for functions matching a type signature.
+- **`structuralMatch`** — Structural type matching: TVar wildcards, TDependent stripping, order-sensitive parameter matching.
+- **`llmll hub query --signature "int -> int -> int"`** — New CLI subcommand (text + JSON output).
+- **`CheckoutToken.ctHubSuggestions`** — New `Maybe [QueryResult]` field for checkout-time hub suggestions (HUB-3).
+
+### Compiler — v0.6.0 Carryover
+
+- **PROV-3** — `:source` annotations now displayed in `--trust-report` text output (`formatEntry`) and JSON output (`entryJson`).
+- **BM-4** — ERC-20 CI gate (`scripts/benchmark-erc20.sh`, `make benchmark-erc20`) with 11 frozen assertions.
+
+---
+
 ## v0.6.0 — Specification Quality (2026-04-22)
 
 ### Compiler — Spec Coverage Gate

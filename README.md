@@ -1,10 +1,10 @@
-# LLMLL — v0.6.0
+# LLMLL — v0.6.1
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.6.0 is shipped.** Specification Quality: `--spec-coverage` gate classifies every function as contracted/suppressed/unspecified and computes effective coverage. `(weakness-ok fn "reason")` suppression governance with mandatory reason strings. `:source` clause-level provenance annotations on `pre`/`post` contracts. Frozen ERC-20 benchmark with verification-scope matrix. 279 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.6.1 is shipped.** TOTP RFC 6238 benchmark with 100% spec coverage (4 check blocks, 6 functions). `hmac-sha1`/`sha1` crypto builtins (§13.11). `llmll hub query --signature` for type-driven package search. Provenance display in `--trust-report`. Both benchmark CI gates pass (25/25). 279 tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -25,6 +25,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll patch <file.ast.json> <patch.json>` | **v0.3** — apply an RFC 6902 JSON-Patch to a checked-out hole. Re-verifies type safety before committing. |
 | `llmll hub fetch <pkg>@<ver>` | Download a package into the hub cache (`~/.llmll/modules/`). |
 | `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
+| `llmll hub query --signature <sig>` | **v0.6.1** — search hub cache for functions matching a type signature (e.g. `"int -> int -> int"`). |
 | `llmll replay <source> <log>` | **v0.3.1** — rebuild program, replay event log inputs, compare outputs for determinism verification. |
 | `llmll spec [--json]` | **v0.3.4** — emit agent prompt specification from compiler builtins. Text (default) or JSON output. |
 | `llmll repl` | Start an interactive LLMLL REPL |
@@ -92,6 +93,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 | `examples/event_log_test/` | S-expression | v0.3.1 event log codegen validation |
 | `examples/proof_required_test/` | S-expression | v0.3.1 Leanstral proof pipeline validation |
 | `examples/erc20_token/` | JSON-AST | v0.6.0 ERC-20 benchmark — frozen ground truth with verification-scope matrix |
+| `examples/totp_rfc6238/` | JSON-AST | v0.6.1 TOTP RFC 6238 benchmark — crypto builtins, RFC `:source` provenance |
 
 ---
 
@@ -144,6 +146,7 @@ examples/
   tictactoe_json_verifier/  ← Tic-Tac-Toe with verified contracts
   conways_life_json_verifier/ ← Life with verified contracts
   erc20_token/              ← v0.6.0 ERC-20 benchmark (frozen ground truth)
+  totp_rfc6238/             ← v0.6.1 TOTP RFC 6238 benchmark
   pair_type_test/           ← TPair + do-notation test fixtures
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
