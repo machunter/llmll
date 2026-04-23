@@ -34,11 +34,13 @@ import LLMLL.Syntax
 
 -- | A single function's trust entry in the report.
 data TrustEntry = TrustEntry
-  { teName      :: Name                  -- ^ Fully-qualified function name
-  , tePreLevel  :: Maybe VerificationLevel
-  , tePostLevel :: Maybe VerificationLevel
-  , teDeps      :: [TrustDependency]     -- ^ Cross-module calls with their trust levels
-  , teDrifts    :: [Text]                -- ^ Epistemic drift warnings
+  { teName       :: Name                  -- ^ Fully-qualified function name
+  , tePreLevel   :: Maybe VerificationLevel
+  , tePostLevel  :: Maybe VerificationLevel
+  , tePreSource  :: Maybe Text            -- ^ v0.6.1: :source provenance on pre clause
+  , tePostSource :: Maybe Text            -- ^ v0.6.1: :source provenance on post clause
+  , teDeps       :: [TrustDependency]     -- ^ Cross-module calls with their trust levels
+  , teDrifts     :: [Text]                -- ^ Epistemic drift warnings
   } deriving (Show, Eq)
 
 -- | A dependency on another function with its trust level.
@@ -155,11 +157,13 @@ mkEntry qname contract body allCS =
       -- Compute epistemic drift: this function is "proven" but depends on non-proven
       drifts = computeDrifts qname ownCS deps
   in TrustEntry
-       { teName      = qname
-       , tePreLevel  = csPreLevel ownCS
-       , tePostLevel = csPostLevel ownCS
-       , teDeps      = deps
-       , teDrifts    = drifts
+       { teName       = qname
+       , tePreLevel   = csPreLevel ownCS
+       , tePostLevel  = csPostLevel ownCS
+       , tePreSource  = csPreSource ownCS
+       , tePostSource = csPostSource ownCS
+       , teDeps       = deps
+       , teDrifts     = drifts
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -217,7 +221,7 @@ vlLabel (VLProven p)  = "proven (" <> p <> ")"
 
 computeSummary :: [TrustEntry] -> TrustSummary
 computeSummary entries =
-  let classify e = effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e) Nothing Nothing)
+  let classify e = effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e) (tePreSource e) (tePostSource e))
       proven   = length [e | e <- entries, isProven (classify e)]
       tested   = length [e | e <- entries, isTested (classify e)]
       asserted = length [e | e <- entries, isAsserted (classify e)]
@@ -251,12 +255,16 @@ formatEntry e =
       postLbl = maybe "—" vlLabel (tePostLevel e)
       line1   = "  " <> teName e <> ":"
       line2   = "    pre:  " <> preLbl <> "  |  post: " <> postLbl
+      sourceLines = catMaybes
+        [ fmap (\s -> "    source (pre):  " <> s) (tePreSource e)
+        , fmap (\s -> "    source (post): " <> s) (tePostSource e)
+        ]
       depLines = map (\d -> "    ↳ calls " <> tdName d <> " (pre: "
                            <> maybe "—" vlLabel (tdPreLevel d)
                            <> ", post: " <> maybe "—" vlLabel (tdPostLevel d) <> ")")
                      (teDeps e)
       driftLines = map ("    ⚠ " <>) (teDrifts e)
-  in [line1, line2] ++ depLines ++ driftLines
+  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines
 
 formatSummary :: TrustSummary -> [Text]
 formatSummary s =
@@ -288,13 +296,15 @@ formatTrustReportJson report =
     , "suppressions" .= map suppJson (trSuppressions report)
     ]
   where
-    entryJson e = object
+    entryJson e = object $
       [ "name"       .= teName e
       , "pre_level"  .= fmap vlLabel (tePreLevel e)
       , "post_level" .= fmap vlLabel (tePostLevel e)
       , "dependencies" .= map depJson (teDeps e)
       , "drifts"     .= teDrifts e
-      ]
+      ] ++
+      maybe [] (\s -> ["pre_source" .= s]) (tePreSource e) ++
+      maybe [] (\s -> ["post_source" .= s]) (tePostSource e)
     depJson d = object
       [ "name"       .= tdName d
       , "pre_level"  .= fmap vlLabel (tdPreLevel d)

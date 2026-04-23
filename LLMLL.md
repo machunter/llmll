@@ -495,6 +495,26 @@ Use `--spec-coverage --json` for machine-readable output (fields: `entries`, `su
 
 **Governance guardrails:** See §4.5 for WO-1, WO-2, and D10 warning rules.
 
+#### 5.3.3 Verification Scope (v0.6.0)
+
+The following table precisely defines what `llmll verify` can prove, what it tracks but cannot prove, and what is designed but not yet operational:
+
+| Fragment | Status | Prover | What it covers |
+|----------|--------|--------|----------------|
+| **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** (v0.2+) | Z3 via liquid-fixpoint | `+`, `-`, `=`, `<`, `<=`, `>=`, `>` over `int`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
+| **Termination** (`:decreases` measures) | **Shipped** (v0.2+) | liquid-fixpoint | Simple variable measures (`:decreases n`) are verified automatically. Complex measures emit `?proof-required(complex-decreases)`. |
+| **Property-based testing** | **Shipped** (v0.1.1+) | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
+| **Inductive properties** | **Designed, not shipped** | Lean 4 via Leanstral MCP | Translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`). Currently runs in **mock mode only** (`--leanstral-mock`). Real proof integration is blocked on `lean-lsp-mcp` availability. |
+
+**What is NOT silently dropped:** Contracts outside the QF-LIA fragment are not ignored. They are:
+1. Enforced as **runtime assertions** (unless stripped via `--contracts=none`)
+2. Tracked as **`asserted`** verification level
+3. Flagged with `?proof-required` holes when the predicate is detected as non-linear or requiring induction
+4. Propagated through the **trust report** — downstream `proven` conclusions that depend on `asserted` assumptions are flagged as epistemic drift
+
+> [!IMPORTANT]
+> **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of "proven" correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
+
 ---
 
 ## 6. Hole-Driven Development (`?`)
