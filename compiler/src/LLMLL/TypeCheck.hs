@@ -440,7 +440,7 @@ collectTopLevel (SLetrec name params mRet _contract _dec _body) =
   let argTypes = map snd params
       retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
-collectTopLevel (SDefInterface name fns) =
+collectTopLevel (SDefInterface name fns _laws) =
   Just (name, TCustom name)  -- interfaces register as custom types
 collectTopLevel (STypeDef name body) =
   Just (name, TCustom name)  -- type aliases register as custom types
@@ -504,7 +504,7 @@ checkStatement (SLetrec name params mRet contract dec body) = do
         unless (compatibleWith postType TBool) $
           tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
 
-checkStatement (SDefInterface name fns) = do
+checkStatement (SDefInterface name fns _laws) = do
   -- Register interface function signatures
   forM_ fns $ \(fname, ftype) ->
     case ftype of
@@ -512,6 +512,13 @@ checkStatement (SDefInterface name fns) = do
       other -> tcError $
         "interface '" <> name <> "' function '" <> fname
         <> "' must have fn type, got " <> typeLabel other
+  -- v0.6: type-check :laws expressions (must be Bool under interface context)
+  -- Laws are parsed but not tested in v0.6 (LAWS-PO-1)
+  forM_ _laws $ \lawExpr -> do
+    let ifaceBindings = fns  -- interface method signatures as env
+    lawType <- withEnv ifaceBindings (inferExpr lawExpr)
+    unless (compatibleWith lawType TBool) $
+      tcError $ "interface '" <> name <> "' :laws clause must be bool, got " <> typeLabel lawType
 
 checkStatement (STypeDef name body) = do
   -- Check that dependent type constraints are well-formed
@@ -569,6 +576,9 @@ checkStatement (SExport _) = pure ()
 
 -- | v0.3: STrust is already collected in checkStatements; no per-statement action.
 checkStatement (STrust _ _) = pure ()
+
+-- | v0.6: SWeaknessOk is collected by SpecCoverage; no per-statement type-check action.
+checkStatement (SWeaknessOk _ _) = pure ()
 
 checkStatement (SExpr expr) = do
   _ <- inferExpr expr

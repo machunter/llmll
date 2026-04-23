@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.5.0
+# LLMLL Getting Started — v0.6.0
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -236,9 +236,79 @@ stack exec llmll -- verify file.llmll --weakness-check
 #   Your contract: (post (= (list-length result) (list-length input)))
 #   Trivial valid implementation: (def-logic sort-list [input: list[int]] input)
 #   Consider strengthening the postcondition.
+
+# v0.6: Spec coverage — how much of your module is under contract:
+stack exec llmll -- verify file.llmll --spec-coverage
+# Spec Coverage Report
+# ────────────────────────────────────────────
+#   Functions with contracts:     4 / 7   (57%)
+#     Proven:                     2
+#     Tested:                     1
+#     Asserted:                   1
+#   Intentional Underspecification:
+#     ⊘ cache-evict — "eviction policy is unspecified by design"
+#   Unspecified:                  2
+#     sort-list, validate-input
+# ────────────────────────────────────────────
+#   Effective coverage: 71% (5/7)
+
+# JSON spec coverage (for CI gates / quality.py):
+stack exec llmll -- verify file.llmll --spec-coverage --json
 ```
 
 `--weakness-check` runs **after** a SAFE verification result. For each contracted function, it constructs trivial bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, the spec is flagged as potentially weak. This is advisory — it does not affect the verification outcome.
+
+#### Spec coverage and the Verification-Scope Matrix (v0.6.0)
+
+`--spec-coverage` classifies every function in a module as **contracted**, **suppressed** (via `weakness-ok`), or **unspecified**, then computes:
+
+```
+effective_coverage = (contracted + suppressed) / total_functions
+```
+
+| Classification | Meaning | Example |
+|---|---|---|
+| **Contracted** | Has at least one `pre` or `post` clause | `transfer` with conservation invariant |
+| **Suppressed** | Has a `(weakness-ok name "reason")` declaration and no contracts | `cache-evict` — intentionally unspecified |
+| **Unspecified** | No contract, no suppression | `render-board` — pure string rendering |
+
+**Governance guardrails:**
+
+| Rule | Warning code | Trigger |
+|------|-------------|--------|
+| WO-1 | `W601` | `weakness-ok` target doesn't match any function |
+| WO-2 | `W602` | Function has contracts AND `weakness-ok` (contracts take priority) |
+| D10 | `W603` | More than 50% of functions are suppressed |
+
+**Quality gate thresholds** (in `quality.py`):
+
+| Mode | Threshold | Effect |
+|------|----------|--------|
+| `--mode auto` | 60% | Blocking failure |
+| `--mode lead` | 40% fail, 60% warn | Tiered response |
+
+Tightening roadmap: 60% in v0.6, 70% in v0.7, 80% in v0.8.
+
+Each example with a JSON-AST verifier includes a `VERIFICATION_SCOPE.md` file documenting the per-function classification and verification boundary. See `examples/erc20_token/WALKTHROUGH.md` for the full end-to-end benchmark.
+
+#### Clause-level provenance (`:source` annotation, v0.6.0)
+
+Contracts can carry a `:source` annotation linking each clause to an external standard or specification:
+
+```lisp
+(def-logic transfer [from: string to: string amount: int]
+  (pre (>= amount 0)
+    :source "ERC-20 §transfer — amount must be non-negative")
+  (post (= (total-supply result) (total-supply state))
+    :source "ERC-20 §transfer — conservation invariant")
+  ?transfer-impl)
+```
+
+The annotation is pure metadata — no effect on type checking, verification, or codegen. It appears in `--trust-report` output and `.verified.json` sidecars.
+
+JSON-AST equivalent: add `"pre_source"` / `"post_source"` optional string fields to the contract object.
+
+When multiple `(pre ...)` clauses are combined (via `and`), the `:source` annotation is dropped (ambiguous provenance). Use a single `(pre ...)` with a combined expression when source traceability is needed.
 
 #### Downstream obligation mining (v0.4.0)
 
@@ -420,8 +490,8 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.2.0",
-  "llmll_version": "0.2.0",
+  "schemaVersion": "0.3.0",
+  "llmll_version": "0.3.0",
   "statements": [ ... ]
 }
 ```
@@ -429,7 +499,7 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted.
 
 > [!IMPORTANT]
-> **Migrating from v0.1.3:** Files with `"schemaVersion": "0.1.3"` are **rejected** by the v0.2 compiler. The fix is a one-line update: change both `schemaVersion` and `llmll_version` from `"0.1.3"` to `"0.2.0"`. No other structural changes are required for files that do not use the new `open`/`export` nodes.
+> **Migrating from v0.2.0:** Files with `"schemaVersion": "0.2.0"` are **rejected** by the v0.3+ compiler. Update both `schemaVersion` and `llmll_version` to `"0.3.0"`. The `Contract` type now has per-clause source provenance fields; existing files without these fields parse correctly (they default to `null`).
 
 | Field | Meaning |
 |-------|---------|

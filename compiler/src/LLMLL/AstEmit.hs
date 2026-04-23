@@ -49,7 +49,7 @@ emitJsonAST stmts =
 -- ---------------------------------------------------------------------------
 
 stmtToJson :: Statement -> Value
-stmtToJson (SDefLogic name params _ret (Contract mPre mPost) body) =
+stmtToJson (SDefLogic name params _ret (Contract mPre _preSource mPost _postSource) body) =
   object $
     [ "kind"   .= ("def-logic" :: Text)
     , "name"   .= name
@@ -57,9 +57,11 @@ stmtToJson (SDefLogic name params _ret (Contract mPre mPost) body) =
     , "body"   .= exprToJson body
     ] ++
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
-    maybe [] (\e -> ["post" .= exprToJson e]) mPost
+    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
+    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
+    maybe [] (\s -> ["post_source" .= s]) _postSource
 
-stmtToJson (SLetrec name params _ret (Contract mPre mPost) dec body) =
+stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource) dec body) =
   object $
     [ "kind"      .= ("letrec" :: Text)
     , "name"      .= name
@@ -68,14 +70,17 @@ stmtToJson (SLetrec name params _ret (Contract mPre mPost) dec body) =
     , "body"      .= exprToJson body
     ] ++
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
-    maybe [] (\e -> ["post" .= exprToJson e]) mPost
+    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
+    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
+    maybe [] (\s -> ["post_source" .= s]) _postSource
 
-stmtToJson (SDefInterface name fns) =
-  object
+stmtToJson (SDefInterface name fns laws) =
+  object $
     [ "kind"    .= ("def-interface" :: Text)
     , "name"    .= name
     , "methods" .= map ifaceMethodToJson fns
-    ]
+    ] ++
+    if null laws then [] else ["laws" .= map exprToJson laws]
   where
     ifaceMethodToJson (n, ty) =
       object ["name" .= n, "fn_type" .= typeToJson ty]
@@ -144,6 +149,26 @@ stmtToJson (SExport names) =
   object
     [ "kind"  .= ("export" :: Text)
     , "names" .= names
+    ]
+
+-- v0.3 stratified verification
+stmtToJson (STrust target level) =
+  object
+    [ "kind"   .= ("trust" :: Text)
+    , "target" .= target
+    , "level"  .= vlLabel level
+    ]
+  where
+    vlLabel VLAsserted    = "asserted" :: Text
+    vlLabel (VLTested n)  = "tested"
+    vlLabel (VLProven p)  = "proven"
+
+-- v0.6 suppression governance
+stmtToJson (SWeaknessOk name reason) =
+  object
+    [ "kind"   .= ("weakness-ok" :: Text)
+    , "name"   .= name
+    , "reason" .= reason
     ]
 
 -- ---------------------------------------------------------------------------
@@ -298,7 +323,8 @@ holeToJson (HDelegatePending t)  = object
   , "description" .= ("pending" :: Text)
   , "return_type" .= typeToJson t
   ]
-holeToJson HConflictResolution   = object ["kind" .= ("hole-named" :: Text), "name" .= ("conflict" :: Text)]
+holeToJson (HConflictResolution)   = object ["kind" .= ("hole-named" :: Text), "name" .= ("conflict" :: Text)]
+holeToJson (HProofRequired reason) = object ["kind" .= ("hole-proof-required" :: Text), "reason" .= reason]
 
 delegateToJson :: Text -> DelegateSpec -> Value
 delegateToJson kindStr spec =

@@ -148,7 +148,7 @@ collectHolesStmtIdx idx (SDefLogic name _params _ret contract body) =
                   else []) (contractPost contract)
   in bodyHoles ++ preHoles ++ postHoles ++ nlPreH ++ nlPostH
 
-collectHolesStmtIdx _idx (SDefInterface _ _) = []
+collectHolesStmtIdx _idx (SDefInterface _ _ _) = []
 
 collectHolesStmtIdx idx (SLetrec name _params _ret contract dec body) =
   let base = "statements/" <> tshow idx
@@ -184,6 +184,8 @@ collectHolesStmtIdx idx  (SExpr expr) =
   collectHolesExprPath ("statements/" <> tshow idx) "expr" expr
 collectHolesStmtIdx _idx (SOpen _ _)  = []
 collectHolesStmtIdx _idx (SExport _)  = []
+collectHolesStmtIdx _idx (STrust _ _) = []
+collectHolesStmtIdx _idx (SWeaknessOk _ _) = []
 
 collectHolesStmtIdx idx (SDefMain _ mInit step _mRead mDone mOnDone) =
   let base = "statements/" <> tshow idx

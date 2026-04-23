@@ -2,6 +2,51 @@
 
 ---
 
+## v0.6.0 — Specification Quality (2026-04-22)
+
+### Compiler — Spec Coverage Gate
+
+- **`SpecCoverage.hs`** — New module. Classifies every function in a module as **contracted** (has `pre`/`post`), **suppressed** (has `weakness-ok`), or **unspecified**, then computes the effective coverage ratio. Used by `llmll verify --spec-coverage`.
+- **`llmll verify --spec-coverage`** — New flag. Walks `[Statement]`, counts `SDefLogic`/`SLetrec` with/without contracts, cross-references `.verified.json` sidecar for verification levels. Emits coverage report with per-function breakdown (text and JSON).
+- **`effective_coverage` metric** — Formula: `(contracted + suppressed) / total_functions`. SC-PO-1: division guard — 0 functions → 100%.
+- **Governance guardrails** — WO-1 (`W601`): `weakness-ok` target doesn't match any function. WO-2 (`W602`): function has contracts AND `weakness-ok` (contracts take priority). D10 (`W603`): more than 50% of functions are suppressed.
+
+### Compiler — Suppression Governance (`weakness-ok`)
+
+- **`SWeaknessOk` AST node** — New `Statement` constructor: `SWeaknessOk { weaknessTarget :: Name, weaknessReason :: Text }`.
+- **`(weakness-ok fn-name "reason")`** — S-expression parser support. Mandatory non-empty reason string (empty reason is a parse error).
+- **JSON-AST support** — `ParserJSON.hs` accepts `{"kind": "weakness-ok", "name": "...", "reason": "..."}`.
+- **Integration** — Handled in `TypeCheck.hs` (no-op), `CodegenHs.hs` (no-op), `AstEmit.hs` (round-trip), `HoleAnalysis.hs` (excluded from hole analysis).
+- **TrustReport integration** — `--trust-report` output includes an "Intentional Underspecification" section listing all `weakness-ok` declarations with reasons. JSON output includes `suppressions` array.
+
+### Compiler — Clause-Level Provenance (`:source`)
+
+- **`:source` annotation** — S-expression syntax: `(pre expr :source "RFC 8446 §7.1")` and `(post expr :source "safety invariant")`. JSON-AST: `"pre_source"` / `"post_source"` optional string fields.
+- **`contractPreSource` / `contractPostSource`** — New `Maybe Text` fields in `Contract` (`Syntax.hs`). Per-clause provenance, not per-contract.
+- **`csPreSource` / `csPostSource`** — New `Maybe Text` fields in `ContractStatus` for sidecar persistence and trust report threading.
+- **Multiple pre clauses** — When multiple `(pre ...)` clauses are combined with `and`, the `:source` annotation is dropped (ambiguous provenance).
+- **Backward compatible** — Omitting `:source` yields `Nothing`. No effect on type checking, verification, or codegen.
+
+### Compiler — ERC-20 Benchmark
+
+- **`examples/erc20_token/`** — Frozen benchmark with 4 files:
+  - `erc20.ast.json` — Full ERC-20 skeleton with 6 typed functions and contracts
+  - `erc20_filled.ast.json` — Filled version with implementations
+  - `EXPECTED_RESULTS.json` — Ground truth: verification-scope matrix (10 properties), expected spec coverage (100%), weakness check (no weak functions), trust report
+  - `WALKTHROUGH.md` — End-to-end: external spec → LLMLL contracts → verified code → weakness detection → spec coverage
+
+### Spec (LLMLL.md)
+
+- §4.5 — New section: `weakness-ok` syntax and governance rules
+- §5.4 — New section: `--spec-coverage` command and effective coverage formula
+- §4.1 — `:source` annotation documented in contract syntax
+- §14 — v0.6.0 roadmap section marked ✅ Shipped
+- Release history table — v0.6.0 entry added
+
+**Tests:** 264 → 279 Haskell (+15: 4 `:source` annotation, 11 spec coverage + weakness-ok), 37 Python (unchanged).
+
+---
+
 ## v0.5.0 — U-Full Soundness (2026-04-21)
 
 ### Compiler

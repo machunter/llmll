@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.5.0)
+# LLMLL: Large Language Model Logical Language (v0.6.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.5.0 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 264 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.6.0 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 279 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
-<details><summary><strong>Release history (v0.1.1 → v0.5.0)</strong></summary>
+<details><summary><strong>Release history (v0.1.1 → v0.6.0)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.6.0** | Specification Quality: `--spec-coverage` gate classifies functions as contracted/suppressed/unspecified and computes effective coverage. `(weakness-ok fn "reason")` suppression governance. `:source` clause-level provenance on `pre`/`post` contracts. Frozen ERC-20 benchmark with verification-scope matrix. 279 total tests $+$ 15 new. |
 | **v0.5.0** | U-Full Soundness: occurs check prevents infinite types. Let-generalization for top-level `def-logic`/`letrec` via TVar-TVar wildcard closure and bound-TVar consistency fix. Closes the last known unsoundness in the type checker. 264 total tests $+$ 7 new U-Full. |
 | **v0.4.0** | Lead Agent (`llmll-orchestra --mode plan\|lead\|auto`). U-Lite: substitution-based unification for concrete types (`list-head 42` is a type error; `first`/`second` typed `TPair a b → a`/`b`). CAP-1: capability imports enforced at compile time (non-transitive, module-local). Invariant pattern registry via `--sketch`. Downstream obligation mining. Aeson FFI codegen. |
 | **v0.3.5** | Context-aware `llmll checkout` returns local typing context (Γ, τ, Σ). `llmll verify --weakness-check` detects trivial-body spec weaknesses. Orchestrator E2E with diagnostic-driven retry, lock expiry handling, and context-aware prompts. |
@@ -34,7 +35,7 @@
 2. **Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`). A program with holes can be analyzed and type-checked but not executed until the holes are filled. Always prefer a typed hole over a hallucinated implementation.
 3. **Typed Logic:** Every expression has a type. The type system prevents null pointer dereferences, type mismatches, and unguarded IO. Return types are inferred — never annotate them explicitly.
 4. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications. These contracts are the trust interface between agents. Verification is stratified: contracts in the decidable arithmetic fragment are proven at compile time (liquid-fixpoint / Z3); contracts requiring induction are routed to interactive proof (Leanstral); contracts outside both fragments are enforced as runtime assertions and flagged with `?proof-required`. A caller can inspect a contract's *verification level* — proven, tested, or asserted — without reading the implementation.
-5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.5.0; WASM-WASI planned as a future deployment target). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. Since v0.4.0 (CAP-1), capability imports are enforced at compile time.
+5. **Capability-Based Security:** LLMLL programs run in a sandboxed environment (Docker + `seccomp-bpf` + `-XSafe` Haskell in v0.1.2–v0.6.0; WASM-WASI planned as a future deployment target). Programs have zero access to the system unless explicitly granted via a `capability` import. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. Since v0.4.0 (CAP-1), capability imports are enforced at compile time.
 
 ---
 
@@ -132,7 +133,7 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 > Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
 > Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
 
-> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function’s required capabilities visible in its type signature. **Currently (v0.5.0):** `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statement list — missing imports are compile-time type errors (checked in `inferExpr (EApp ...)`). Propagation is non-transitive: each module must declare its own capability imports. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned).
+> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function’s required capabilities visible in its type signature. **Currently (v0.6.0):** `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statement list — missing imports are compile-time type errors (checked in `inferExpr (EApp ...)`). Propagation is non-transitive: each module must declare its own capability imports. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned).
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -335,6 +336,52 @@ Use `--trust-report --json` for machine-readable JSON output suitable for CI or 
 
 The report walks the full module cache (entry-point module plus all imported modules) and computes the transitive trust closure. An agent auditing a module can use the trust report to identify all points where the formal verification chain breaks down.
 
+### 4.5 Suppression Governance (`weakness-ok`) — v0.6.0
+
+When a function is intentionally left without contracts (e.g., pure rendering logic, FFI wrappers, or configuration constants), the `weakness-ok` declaration acknowledges the gap and prevents the spec coverage gate from flagging it as unspecified:
+
+```lisp
+(weakness-ok render-board "pure string rendering — no meaningful postcondition")
+(weakness-ok cache-evict "eviction policy is unspecified by design")
+```
+
+**Syntax:** `(weakness-ok fn-name "reason")`. Both arguments are required — the parser rejects bare `weakness-ok` without a reason string.
+
+**Governance rules:**
+
+| Rule | Code | Behavior |
+|------|------|----------|
+| WO-1 | `W601` | `weakness-ok` target doesn't match any function in the module → warning |
+| WO-2 | `W602` | Function has contracts AND `weakness-ok` → contracts take priority; `weakness-ok` is redundant (warning) |
+| D10 | `W603` | More than 50% of functions are suppressed → warning (bulk suppression guardrail) |
+
+`weakness-ok` functions count toward `effective_coverage` (see §5.4) but are visually distinguished with a `⊘` marker in `--spec-coverage` output.
+
+JSON-AST equivalent: `{"kind": "weakness-ok", "name": "render-board", "reason": "pure string rendering"}`.
+
+### 4.6 Clause-Level Provenance (`:source`) — v0.6.0
+
+In LLMLL's target domains (financial compliance, protocol implementation, cryptographic standards), auditors require per-clause traceability to the originating standard. The `:source` annotation provides free-form provenance metadata on `pre` and `post` clauses:
+
+```lisp
+(def-logic transfer [from: string to: string amount: int]
+  (pre (>= amount 0)
+    :source "ERC-20 §transfer — amount must be non-negative")
+  (post (= (total-supply result) (total-supply state))
+    :source "ERC-20 §transfer — conservation invariant")
+  ?transfer-impl)
+```
+
+**Semantics:** Pure metadata — no effect on type checking, verification, or codegen. The `:source` string is stored per-clause (`contractPreSource` / `contractPostSource`) and threaded through `--trust-report` output and `.verified.json` sidecars.
+
+**Backward compatible:** Omitting `:source` yields `Nothing` — all pre-v0.6.0 programs parse and compile unchanged.
+
+**Multiple pre clauses:** When multiple `(pre ...)` clauses are combined with `and`, the `:source` annotation is dropped (ambiguous provenance across combined clauses).
+
+JSON-AST fields: `"pre_source"` / `"post_source"` (optional string).
+
+> **Design note (v0.6):** `:source` uses free-form text. Structured references (`{standard, section, clause}`) are planned for v0.7.
+
 ---
 
 ## 5. Native Testing & Verification
@@ -410,6 +457,44 @@ This diagnostic is **non-blocking**: the function remains SAFE. It is an *adviso
 
 Weakness checking does not modify `FixpointEmit.hs` — it constructs synthetic single-statement programs and calls the existing `emitFixpoint` pipeline.
 
+#### 5.3.2 Spec Coverage Gate (v0.6.0)
+
+`llmll verify --spec-coverage` classifies every function in a module and computes the **effective specification coverage**:
+
+```
+effective_coverage = (contracted + suppressed) / total_functions
+```
+
+| Classification | Meaning |
+|---|---|
+| **Contracted** | Has at least one `pre` or `post` clause |
+| **Suppressed** | Has a `(weakness-ok name "reason")` declaration and no contracts |
+| **Unspecified** | No contract, no suppression |
+
+Example output:
+
+```bash
+stack exec llmll -- verify program.llmll --spec-coverage
+# Spec Coverage Report
+# ────────────────────────────────────────────
+#   Functions with contracts:     4 / 7   (57%)
+#     Proven:                     2
+#     Tested:                     1
+#     Asserted:                   1
+#   Intentional Underspecification:
+#     ⊘ cache-evict — "eviction policy is unspecified by design"
+#   Unspecified:                  2
+#     sort-list, validate-input
+# ────────────────────────────────────────────
+#   Effective coverage: 71% (5/7)
+```
+
+Use `--spec-coverage --json` for machine-readable output (fields: `entries`, `summary`, `warnings`).
+
+**Division guard (SC-PO-1):** A module with 0 functions has `effective_coverage = 100%`.
+
+**Governance guardrails:** See §4.5 for WO-1, WO-2, and D10 warning rules.
+
 ---
 
 ## 6. Hole-Driven Development (`?`)
@@ -454,7 +539,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.5.0, with WASM-WASI planned as a future deployment target.
+`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.6.0, with WASM-WASI planned as a future deployment target.
 
 > [!IMPORTANT]
 > **v0.4.0 (CAP-1):** Capability enforcement is now active at compile time. When a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"`. **Propagation is non-transitive (module-local):** Module B must re-declare `(import wasi.io ...)` even if it only calls `wasi.*` via a function imported from Module A. This matches the principle of least authority.
@@ -854,7 +939,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 4. **Transpilation:** Validated `.llmll` is converted to **Haskell** (`.hs` + `package.yaml`). Generated modules are compiled with `{-# LANGUAGE Safe #-}`, preventing any IO outside the declared capability model.
 5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
 6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
-7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities (v0.1.2–v0.5.0). WASM-WASI is planned as a future replacement. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statements — missing imports are compile-time type errors.
+7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities (v0.1.2–v0.6.0). WASM-WASI is planned as a future replacement. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statements — missing imports are compile-time type errors.
 8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
 
 > **v0.2 (shipped):** Step 2 includes compile-time contract verification via `llmll verify` (decoupled liquid-fixpoint backend). Contracts outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
@@ -872,7 +957,7 @@ Correct replay is the foundation of fault tolerance, audit trails, and (in v0.2)
 
 | Source | Problem | Runtime Fix |
 |--------|---------|-------------|
-| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules in v0.1.2–v0.5.0; `wasm-determinism` extension with WASM target) |
+| **IEEE 754 floats** | NaN canonicalization differs across host platforms | Reject non-canonical floats at the sandbox boundary (GHC NaN rules in v0.1.2–v0.6.0; `wasm-determinism` extension with WASM target) |
 | **Monotonic clock** | Wall-clock calls diverge across replay runs | Virtualize via `:deterministic true`; log return value |
 | **PRNG** | Non-seeded random generation diverges on replay | Log seed + call sequence; replay re-seeds from log |
 
@@ -1588,6 +1673,18 @@ Complete sound unification — closes the last known unsoundness in the type che
 
 > [!NOTE]
 > **Known limitation (v0.5):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
+
+### v0.6 — Specification Quality ✅ Shipped
+
+The specification coverage and quality gate — the acknowledged bottleneck since v0.4.0. Functions without contracts can no longer silently proceed through the pipeline.
+
+| Area | Feature |
+|------|---------|
+| Spec coverage gate (`--spec-coverage`) | ✅ `llmll verify --spec-coverage` classifies every function as contracted, suppressed (`weakness-ok`), or unspecified. Computes `effective_coverage = (contracted + suppressed) / total`. Text and JSON output. `SpecCoverage.hs` module. |
+| Suppression governance (`weakness-ok`) | ✅ `(weakness-ok fn-name "reason")` — top-level declaration. Mandatory non-empty reason string. Parser support in S-expression and JSON-AST. Governance warnings: WO-1 (`W601`), WO-2 (`W602`), D10 (`W603`). |
+| Clause-level provenance (`:source`) | ✅ `(pre expr :source "RFC 8446 §7.1")` — per-clause metadata on `pre`/`post`. Parsed in S-expression and JSON-AST (`pre_source`/`post_source`). Threaded through `--trust-report` and `.verified.json`. No effect on type checking or codegen. |
+| ERC-20 benchmark | ✅ Frozen benchmark in `examples/erc20_token/` — skeleton, filled version, `EXPECTED_RESULTS.json` with verification-scope matrix (10 properties), end-to-end `WALKTHROUGH.md`. |
+| TrustReport suppressions | ✅ `--trust-report` output includes "Intentional Underspecification" section listing all `weakness-ok` declarations with reasons. JSON output includes `suppressions` array. |
 
 ### Future — WASM Sandboxing (unversioned)
 

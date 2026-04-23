@@ -363,7 +363,7 @@ runtimePreamble =
 
 emitStmt :: Statement -> Text
 emitStmt (STypeDef name body)             = emitTypeDef name body
-emitStmt (SDefInterface name fns)         = emitInterface name fns
+emitStmt (SDefInterface name fns _laws)     = emitInterface name fns
 emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
 -- D2: SLetrec emits as a regular Haskell function.
 -- The {- letrec :decreases ... -} marker is a breadcrumb for the D4 LH annotation pass.
@@ -376,6 +376,8 @@ emitStmt (SExpr _)                        = ""  -- top-level exprs not represent
 emitStmt SDefMain{}                       = ""  -- goes to Main.hs
 emitStmt (SOpen _ _)                      = ""  -- compile-time namespace annotation
 emitStmt (SExport _)                      = ""  -- compile-time export annotation
+emitStmt (STrust _ _)                     = ""  -- trust declaration (compile-time)
+emitStmt (SWeaknessOk _ _)                = ""  -- weakness suppression (compile-time)
 
 -- | Emit a type declaration as newtype / data / type alias.
 emitTypeDef :: Name -> Type -> Text

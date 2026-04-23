@@ -36,7 +36,7 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 
 -- | The schema version this parser accepts. Compiler rejects any other value.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.2.0"
+expectedSchemaVersion = "0.3.0"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -123,6 +123,8 @@ parseStatement = withObject "Statement" $ \o -> do
     "export"       -> parseExportDecl o
     -- v0.3 stratified verification
     "trust"        -> parseTrustDecl o
+    -- v0.6 suppression governance
+    "weakness-ok"  -> parseWeaknessOkDecl o
     _              -> fail $ "unknown Statement kind: " ++ T.unpack kind
 
 parseDefLogic :: Object -> Parser Statement
@@ -130,15 +132,18 @@ parseDefLogic o = do
   name   <- o .: "name"
   params <- o .: "params" >>= mapM parseTypedParam
   mPre   <- o .:? "pre"   >>= mapM parseExpr
+  mPreSrc <- o .:? "pre_source"
   mPost  <- o .:? "post"  >>= mapM parseExpr
+  mPostSrc <- o .:? "post_source"
   body   <- o .: "body"   >>= parseExpr
-  pure $ SDefLogic name params Nothing (Contract mPre mPost) body
+  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc) body
 
 parseDefInterface :: Object -> Parser Statement
 parseDefInterface o = do
   name    <- o .: "name"
   methods <- o .: "methods" >>= mapM parseIfaceMethod
-  pure $ SDefInterface name methods
+  laws    <- o .:? "laws" .!= [] >>= mapM parseExpr
+  pure $ SDefInterface name methods laws
 
 parseIfaceMethod :: Value -> Parser (Name, Type)
 parseIfaceMethod = withObject "IfaceMethod" $ \o -> do
@@ -152,7 +157,7 @@ parseDefInvariant o = do
   param <- o .: "param" >>= parseTypedParam
   body  <- o .: "body"  >>= parseExpr
   -- def-invariant stored as SDefLogic (full node deferred to v0.2)
-  pure $ SDefLogic name [param] Nothing (Contract Nothing Nothing) body
+  pure $ SDefLogic name [param] Nothing (Contract Nothing Nothing Nothing Nothing) body
 
 parseTypeDecl :: Object -> Parser Statement
 parseTypeDecl o = do
@@ -165,10 +170,12 @@ parseLetrec o = do
   name     <- o .: "name"
   params   <- o .: "params" >>= mapM parseTypedParam
   mPre     <- o .:? "pre"      >>= mapM parseExpr
+  mPreSrc  <- o .:? "pre_source"
   mPost    <- o .:? "post"     >>= mapM parseExpr
+  mPostSrc <- o .:? "post_source"
   dec      <- o .: "decreases" >>= parseExpr
   body     <- o .: "body"      >>= parseExpr
-  pure $ SLetrec name params Nothing (Contract mPre mPost) dec body
+  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc) dec body
 
 parseTypeBody :: Value -> Parser Type
 parseTypeBody = withObject "TypeBody" $ \o -> do
@@ -270,6 +277,13 @@ parseTrustDecl o = do
     "asserted" -> pure VLAsserted
     _          -> fail $ "unknown trust level: " ++ T.unpack lvl
   pure $ STrust target vl
+
+-- | Parse {"kind":"weakness-ok","name":"fn","reason":"..."} — v0.6.
+parseWeaknessOkDecl :: Object -> Parser Statement
+parseWeaknessOkDecl o = do
+  name   <- o .: "name"   :: Parser Name
+  reason <- o .: "reason" :: Parser Text
+  pure $ SWeaknessOk name reason
 
 parseDefMain :: Object -> Parser Statement
 parseDefMain o = do

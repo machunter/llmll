@@ -140,7 +140,7 @@ instrumentContracts mode statusMap = map go
     lookupStatus (SDefLogic n _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus (SLetrec n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus _                     = defaultCS
-    defaultCS = ContractStatus Nothing Nothing
+    defaultCS = ContractStatus Nothing Nothing Nothing Nothing
 
 -- | Instrument a single statement.
 instrumentStatement :: ContractsMode -> ContractStatus -> Statement -> Statement
@@ -173,14 +173,16 @@ filterContracts cs contract = Contract
   { contractPre = case csPreLevel cs of
       Just (VLProven _) -> Nothing
       _                 -> contractPre contract
+  , contractPreSource = contractPreSource contract
   , contractPost = case csPostLevel cs of
       Just (VLProven _) -> Nothing
       _                 -> contractPost contract
+  , contractPostSource = contractPostSource contract
   }
 
 -- | Empty contract — contracts moved into body as assertions.
 noContract :: Contract
-noContract = Contract Nothing Nothing
+noContract = Contract Nothing Nothing Nothing Nothing
 
 -- | Pre-process statements for codegen: strip contract clauses based on mode.
 -- Full: keep all contracts (codegen emits them as runtime assertions).
@@ -192,10 +194,10 @@ applyContractsMode ContractsNone _ stmts = map clearContracts stmts
 applyContractsMode ContractsUnproven statusMap stmts = map stripProven stmts
   where
     stripProven (SDefLogic n p r c b) =
-      let cs = Map.findWithDefault (ContractStatus Nothing Nothing) n statusMap
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) n statusMap
       in SDefLogic n p r (filterContracts cs c) b
     stripProven (SLetrec n p r c d b) =
-      let cs = Map.findWithDefault (ContractStatus Nothing Nothing) n statusMap
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) n statusMap
       in SLetrec n p r (filterContracts cs c) d b
     stripProven s = s
 

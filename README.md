@@ -1,10 +1,10 @@
-# LLMLL — v0.5.0
+# LLMLL — v0.6.0
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.5.0 is shipped.** U-Full Soundness: occurs check prevents infinite types (`TVar "a"` cannot unify with `list[TVar "a"]`). Let-generalization for top-level `def-logic`/`letrec` via TVar-TVar wildcard closure and bound-TVar consistency fix. This closes the last known unsoundness in the type checker. 264 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.6.0 is shipped.** Specification Quality: `--spec-coverage` gate classifies every function as contracted/suppressed/unspecified and computes effective coverage. `(weakness-ok fn "reason")` suppression governance with mandatory reason strings. `:source` clause-level provenance annotations on `pre`/`post` contracts. Frozen ERC-20 benchmark with verification-scope matrix. 279 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -18,7 +18,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll holes <file> [--deps] [--deps-out FILE]` | List all `?hole` expressions. With `--deps`: include dependency graph in `--json` output. With `--deps-out`: persist graph to file. |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
-| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report] [--weakness-check]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure and epistemic drift warnings. With `--weakness-check`, detects specs that admit trivial implementations. v0.4.0: downstream obligation mining suggests postcondition strengthening when UNSAFE at cross-function boundaries. |
+| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report] [--weakness-check] [--obligations] [--spec-coverage]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure, epistemic drift warnings, and `weakness-ok` suppressions. With `--weakness-check`, detects specs that admit trivial implementations. With `--obligations`, suggests postcondition strengthening when UNSAFE at cross-function boundaries. With `--spec-coverage` (v0.6.0), classifies every function and computes effective specification coverage ratio. |
 | `llmll typecheck --sketch <file>` | **Phase 2c** — partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors. v0.4.0: emits `invariant_suggestions` from pattern registry. |
 | `llmll serve [--host H] [--port P] [--token T]` | **Phase 2c** — expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll checkout <file.ast.json> <pointer>` | **v0.3** — lock a `?hole` for exclusive agent editing. Returns a checkout token with local typing context (Γ, τ, Σ) since v0.3.5. Use `--release` to abandon, `--status` to query TTL. v0.4.0: CAP-1 capability enforcement active — checkout context reflects capability requirements. |
@@ -91,13 +91,14 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 | `examples/pair_type_test/` | Mixed | TPair type system and do-notation test fixtures |
 | `examples/event_log_test/` | S-expression | v0.3.1 event log codegen validation |
 | `examples/proof_required_test/` | S-expression | v0.3.1 Leanstral proof pipeline validation |
+| `examples/erc20_token/` | JSON-AST | v0.6.0 ERC-20 benchmark — frozen ground truth with verification-scope matrix |
 
 ---
 
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.5.0)
+LLMLL.md                    ← canonical language specification (v0.6.0)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -128,6 +129,7 @@ compiler/                   ← Haskell compiler (stack project)
     WeaknessCheck.hs        ← v0.3.5: trivial-body spec weakness detection
     InvariantRegistry.hs    ← v0.4.0: pattern-based invariant suggestion database
     ObligationMining.hs     ← v0.4.0: downstream postcondition strengthening suggestions
+    SpecCoverage.hs         ← v0.6.0: specification coverage metric + governance guardrails
     JsonPointer.hs          ← RFC 6901 pointer resolution + descendant hole search
   package.yaml / stack.yaml
 examples/
@@ -141,11 +143,12 @@ examples/
   hangman_json_verifier/    ← Hangman with verified contracts
   tictactoe_json_verifier/  ← Tic-Tac-Toe with verified contracts
   conways_life_json_verifier/ ← Life with verified contracts
+  erc20_token/              ← v0.6.0 ERC-20 benchmark (frozen ground truth)
   pair_type_test/           ← TPair + do-notation test fixtures
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
-  compiler-team-roadmap.md  ← Engineering backlog (v0.5.0 shipped, v0.6–v0.7 planned)
+  compiler-team-roadmap.md  ← Engineering backlog (v0.6.0 shipped, v0.7 planned)
   llmll-ast.schema.json     ← JSON-AST schema v0.2.0 (use with AI agents; CheckoutToken v0.3.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
@@ -174,7 +177,7 @@ tools/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.5.0 shipped, v0.6–v0.7 planned |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.6.0 shipped, v0.7 planned |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
 | [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |

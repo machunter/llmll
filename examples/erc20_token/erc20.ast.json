@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "0.3.0",
+  "module": "erc20-token",
+  "types": [
+    {
+      "kind": "type",
+      "name": "Address",
+      "body": { "kind": "primitive", "name": "string" }
+    },
+    {
+      "kind": "type",
+      "name": "Balance",
+      "body": { "kind": "primitive", "name": "int" }
+    }
+  ],
+  "statements": [
+    {
+      "kind": "def-logic",
+      "name": "total-supply",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": null,
+      "post": {
+        "kind": "op",
+        "op": ">=",
+        "args": [
+          { "kind": "var", "name": "result" },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "body": { "kind": "hole-named", "name": "?total-supply-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "balance-of",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "owner", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": null,
+      "post": {
+        "kind": "op",
+        "op": ">=",
+        "args": [
+          { "kind": "var", "name": "result" },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "body": { "kind": "hole-named", "name": "?balance-of-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "transfer",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "from", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "to", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "amount", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": {
+        "kind": "op",
+        "op": ">=",
+        "args": [
+          { "kind": "var", "name": "amount" },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "post": {
+        "kind": "op",
+        "op": "=",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "total-supply",
+            "args": [{ "kind": "var", "name": "result" }]
+          },
+          {
+            "kind": "app",
+            "fn": "total-supply",
+            "args": [{ "kind": "var", "name": "state" }]
+          }
+        ]
+      },
+      "body": { "kind": "hole-named", "name": "?transfer-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "approve",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "owner", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "spender", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "amount", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": {
+        "kind": "op",
+        "op": ">=",
+        "args": [
+          { "kind": "var", "name": "amount" },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "post": null,
+      "body": { "kind": "hole-named", "name": "?approve-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "allowance",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "owner", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "spender", "param_type": { "kind": "primitive", "name": "string" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": null,
+      "post": {
+        "kind": "op",
+        "op": ">=",
+        "args": [
+          { "kind": "var", "name": "result" },
+          { "kind": "lit-int", "value": 0 }
+        ]
+      },
+      "body": { "kind": "hole-named", "name": "?allowance-impl" }
+    },
+    {
+      "kind": "def-logic",
+      "name": "transfer-from",
+      "params": [
+        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
+        { "name": "caller", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "from", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "to", "param_type": { "kind": "primitive", "name": "string" } },
+        { "name": "amount", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "returns": { "kind": "primitive", "name": "int" },
+      "pre": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              { "kind": "var", "name": "amount" },
+              { "kind": "lit-int", "value": 0 }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "app",
+                "fn": "allowance",
+                "args": [
+                  { "kind": "var", "name": "state" },
+                  { "kind": "var", "name": "from" },
+                  { "kind": "var", "name": "caller" }
+                ]
+              },
+              { "kind": "var", "name": "amount" }
+            ]
+          }
+        ]
+      },
+      "post": {
+        "kind": "op",
+        "op": "=",
+        "args": [
+          {
+            "kind": "app",
+            "fn": "total-supply",
+            "args": [{ "kind": "var", "name": "result" }]
+          },
+          {
+            "kind": "app",
+            "fn": "total-supply",
+            "args": [{ "kind": "var", "name": "state" }]
+          }
+        ]
+      },
+      "body": { "kind": "hole-named", "name": "?transfer-from-impl" }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.5.0 shipped (U-Full soundness); 264 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.6.0 shipped (Spec Coverage Gate + ERC-20 Benchmark); 279 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -35,10 +35,10 @@
 
 | # | Action | Effort | Status |
 |---|--------|--------|--------|
-| SC-1 | Implement `llmll verify --spec-coverage` per spec-adequacy-closure.md §1b. Walk `[Statement]`, count `SDefLogic` with/without `pre`/`post`, cross-reference `.verified.json`. Emit coverage report with per-function breakdown. | 1 day | ☐ |
-| SC-2 | Add `effective_coverage` metric to `quality.py` heuristics. Formula: `(contracted + weakness_ok) / total_functions`. | 0.5 day | ☐ |
-| SC-3 | Make coverage threshold a parameter in `--mode lead` / `--mode auto` (default: 80%, overridable via `--min-spec-coverage`). | 0.5 day | ☐ |
-| SC-4 | Blocking behavior: `--mode auto` fails if effective coverage < threshold. `--mode lead` emits structured warning with list of unspecified functions. | 0.5 day | ☐ |
+| SC-1 | Implement `llmll verify --spec-coverage` per spec-adequacy-closure.md §1b. Walk `[Statement]`, count `SDefLogic` with/without `pre`/`post`, cross-reference `.verified.json`. Emit coverage report with per-function breakdown. | 1 day | ✅ |
+| SC-2 | Add `effective_coverage` metric to `quality.py` heuristics. Formula: `(contracted + weakness_ok) / total_functions`. | 0.5 day | ✅ |
+| SC-3 | Make coverage threshold a parameter in `--mode lead` / `--mode auto` (default: 80%, overridable via `--min-spec-coverage`). | 0.5 day | ✅ |
+| SC-4 | Blocking behavior: `--mode auto` fails if effective coverage < threshold. `--mode lead` emits structured warning with list of unspecified functions. | 0.5 day | ✅ |
 
 #### Suppression Governance (`weakness-ok`) — NEW
 
@@ -67,11 +67,11 @@
 
 | # | Action | Effort | Status |
 |---|--------|--------|--------|
-| BM-1 | Implement `examples/erc20_token/erc20.ast.json` — full ERC-20 skeleton with `?delegate` holes, types, and contracts derived from ERC-20 standard | 1.5 days | ☐ |
-| BM-2 | Implement `examples/erc20_token/erc20_filled.ast.json` — filled version with verified contracts | 1 day | ☐ |
-| BM-3 | Add `examples/erc20_token/EXPECTED_RESULTS.json` — frozen ground truth for all 7 success criteria from spec-adequacy-closure.md §7 | 0.5 day | ☐ |
+| BM-1 | Implement `examples/erc20_token/erc20.ast.json` — full ERC-20 skeleton with `?delegate` holes, types, and contracts derived from ERC-20 standard | 1.5 days | ✅ |
+| BM-2 | Implement `examples/erc20_token/erc20_filled.ast.json` — filled version with verified contracts | 1 day | ✅ |
+| BM-3 | Add `examples/erc20_token/EXPECTED_RESULTS.json` — frozen ground truth for all 7 success criteria from spec-adequacy-closure.md §7 | 0.5 day | ✅ |
 | BM-4 | Add CI gate: `make benchmark-erc20` runs `--weakness-check`, `--spec-coverage`, `--trust-report`, compares against frozen expected output | 1 day | ☐ |
-| BM-5 | Write `examples/erc20_token/WALKTHROUGH.md` — end-to-end: external spec → LLMLL contracts → verified code → weakness detection → downstream obligation → strengthened contract → re-verification | 1 day | ☐ |
+| BM-5 | Write `examples/erc20_token/WALKTHROUGH.md` — end-to-end: external spec → LLMLL contracts → verified code → weakness detection → downstream obligation → strengthened contract → re-verification | 1 day | ✅ |
 
 **Verification-Scope Matrix (mandatory artifact — see policy below):**
 
@@ -142,7 +142,7 @@
 | # | Action | Effort | Status |
 |---|--------|--------|--------|
 | VSM-1 | Add verification-scope matrices to all three existing verifier examples | 0.5 day | ☐ |
-| VSM-2 | Document the policy in `docs/getting-started.md` under a new "Verification-Scope Matrix" section | 0.5 day | ☐ |
+| VSM-2 | Document the policy in `docs/getting-started.md` under a new "Verification-Scope Matrix" section | 0.5 day | ✅ |
 
 ### Clause-Level Provenance for Spec-from-RFC (P1, ~3 days) — NEW
 
@@ -161,10 +161,10 @@
 
 | # | Action | Effort | Status |
 |---|--------|--------|--------|
-| PROV-1 | Add `sourceRef :: Maybe Text` field to contract representation in `Syntax.hs` | 0.5 day | ☐ |
-| PROV-2 | Parse `:source "..."` annotation in `Parser.hs` and `ParserJSON.hs` | 1 day | ☐ |
+| PROV-1 | Add `sourceRef :: Maybe Text` field to contract representation in `Syntax.hs` | 0.5 day | ✅ |
+| PROV-2 | Parse `:source "..."` annotation in `Parser.hs` and `ParserJSON.hs` | 1 day | ✅ |
 | PROV-3 | Thread `sourceRef` through `--trust-report` output and `.verified.json` sidecar | 1 day | ☐ |
-| PROV-4 | Document `:source` annotation in `LLMLL.md §4.1` and `getting-started.md` | 0.5 day | ☐ |
+| PROV-4 | Document `:source` annotation in `LLMLL.md §4.1` and `getting-started.md` | 0.5 day | ✅ |
 
 **Design decision:** v0.6 uses free-form text (`:source "RFC 8446 §7.1"`). Structured references (`{standard, section, clause}`) deferred to v0.7.
 

@@ -69,6 +69,7 @@ import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReport
 import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
+import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -88,7 +89,7 @@ data Command
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -221,6 +222,8 @@ optionsParser = info (helper <*> opts) $
             <> help "v0.3.5: After SAFE, check if trivial implementations also satisfy contracts")
       <*> switch (long "obligations"
             <> help "v0.4: On UNSAFE, suggest postcondition strengthenings on callees")
+      <*> switch (long "spec-coverage"
+            <> help "v0.6: Print specification coverage report")
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -297,7 +300,7 @@ main = do
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -912,8 +915,8 @@ doHubScaffold json template mOutDir = do
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> IO ()
-doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> IO ()
+doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -925,6 +928,13 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations = do
         if json
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)
+        exitSuccess
+      -- v0.6: --spec-coverage mode — print coverage report and exit
+      when specCoverage $ do
+        let coverageReport = runCoverage stmts Map.empty  -- TODO: load sidecar in Sprint 3
+        if json
+          then TIO.putStrLn (formatCoverageJson coverageReport)
+          else TIO.putStr (formatCoverageText coverageReport)
         exitSuccess
       -- 2. Emit .fq constraints + build ConstraintTable
       emitR <- emitFixpoint fp stmts
@@ -995,6 +1005,8 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations = do
                     [ (n, ContractStatus
                         { csPreLevel  = fmap (const (VLProven "liquid-fixpoint")) (contractPre c)
                         , csPostLevel = fmap (const (VLProven "liquid-fixpoint")) (contractPost c)
+                        , csPreSource  = contractPreSource c
+                        , csPostSource = contractPostSource c
                         })
                     | s <- stmts
                     , Just (n, c) <- [extractContract s]

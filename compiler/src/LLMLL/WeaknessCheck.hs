@@ -110,7 +110,7 @@ generateForStmt _ = []
 
 -- | Does this contract have at least one clause?
 hasContracts :: Contract -> Bool
-hasContracts (Contract pre post) = pre /= Nothing || post /= Nothing
+hasContracts (Contract pre _ post _) = pre /= Nothing || post /= Nothing
 
 -- | Generate the catalog of trivial bodies applicable to this function signature.
 trivialCatalog :: [(Name, Type)] -> Maybe Type -> [TrivialBody]
