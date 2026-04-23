@@ -1,0 +1,80 @@
+{
+  "benchmark": "totp-rfc6238",
+  "version": "0.6.1",
+  "rfc": "RFC 6238 (TOTP: Time-Based One-Time Password Algorithm)",
+  "frozen_date": "2026-04-23",
+  "expected_spec_coverage": {
+    "contracted": 5,
+    "suppressed": 1,
+    "unspecified": 0,
+    "total": 6,
+    "effective_coverage": 1
+  },
+  "expected_trust_report": {
+    "proven": 0,
+    "asserted": 5,
+    "no_contract": 1,
+    "drifts": 0,
+    "suppressions": [
+      {
+        "name": "hmac-sha1-wrap",
+        "reason": "Cryptographic hash correctness is outside QF-LIA; asserted per RFC 2104"
+      }
+    ]
+  },
+  "check_blocks": {
+    "total": 4,
+    "labels": [
+      "RFC 6238 §A.1 — time step T=59 X=30 yields step 1",
+      "RFC 6238 §A.1 — time step T=1111111109 X=30 yields step 37037036",
+      "validate-totp reflexive",
+      "pad-otp 42 6 yields 000042"
+    ]
+  },
+  "verification_scope": {
+    "matrix": [
+      {
+        "function": "compute-time-step",
+        "pre": "contracted",
+        "post": "contracted",
+        "body": "implemented",
+        "rfc_source": "RFC 6238 §4.2"
+      },
+      {
+        "function": "dynamic-truncate",
+        "pre": "contracted",
+        "post": "contracted",
+        "body": "implemented",
+        "rfc_source": "RFC 4226 §5.3"
+      },
+      {
+        "function": "hmac-sha1-wrap",
+        "pre": "weakness-ok",
+        "post": "weakness-ok",
+        "body": "implemented (delegates to hmac-sha1 builtin)",
+        "rfc_source": "RFC 2104"
+      },
+      {
+        "function": "generate-totp",
+        "pre": "contracted",
+        "post": "contracted",
+        "body": "implemented",
+        "rfc_source": "RFC 6238 §4"
+      },
+      {
+        "function": "validate-totp",
+        "pre": "contracted",
+        "post": "none",
+        "body": "implemented",
+        "rfc_source": "RFC 6238 §5.2"
+      },
+      {
+        "function": "pad-otp",
+        "pre": "none",
+        "post": "contracted",
+        "body": "implemented",
+        "rfc_source": "RFC 4226 §5.4"
+      }
+    ]
+  }
+}
