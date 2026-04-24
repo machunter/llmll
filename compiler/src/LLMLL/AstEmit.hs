@@ -80,10 +80,15 @@ stmtToJson (SDefInterface name fns laws) =
     , "name"    .= name
     , "methods" .= map ifaceMethodToJson fns
     ] ++
-    if null laws then [] else ["laws" .= map exprToJson laws]
+    if null laws then [] else ["laws" .= map lawToJson laws]
   where
     ifaceMethodToJson (n, ty) =
       object ["name" .= n, "fn_type" .= typeToJson ty]
+    lawToJson (Property desc bindings body) = object $
+      [ "kind"     .= ("for-all" :: Text)
+      , "bindings" .= map typedParamToJson bindings
+      , "body"     .= exprToJson body
+      ] ++ if T.null desc then [] else ["description" .= desc]
 
 stmtToJson (STypeDef name ty) =
   object

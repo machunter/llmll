@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.6.1 shipped (TOTP Benchmark, Hub Query, Crypto Builtins); 279 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.6.2 shipped (Interface Laws); 289 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -19,21 +19,45 @@
 
 # Upcoming Releases
 
-## v0.6.2 — Specification Quality Housekeeping
+## v0.6.2 — Algebraic Interface Laws ✅
 
-**Theme:** Remaining items from the v0.6 specification quality initiative not prioritized for v0.6.0 or v0.6.1.
+**Theme:** First-class algebraic law enforcement for `def-interface`.
 
-> v0.6.0 shipped the P0 items (spec coverage gate, ERC-20 benchmark, suppression governance, clause-level provenance, Leanstral claim narrowing). v0.6.1 shipped the TOTP benchmark, hub query-by-signature, crypto builtins (§13.11), and v0.6.0 carryover (PROV-3, BM-4). See **Shipped Releases** for full ticket details.
+> v0.6.2 is a single-feature release. VSM-1 was completed during v0.6.1 (all three verifier examples already had `VERIFICATION_SCOPE.md` files). Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to **Research Track (unversioned)** below.
 
 | # | Action | Effort | Status |
 |---|--------|--------|--------|
-| VSM-1 | Add verification-scope matrices to all three existing verifier examples (`hangman_json_verifier/`, `tictactoe_json_verifier/`, `conways_life_json_verifier/`) | 0.5 day | ☐ |
+| VSM-1 | Add verification-scope matrices to verifier examples | 0.5 day | ✅ (already complete) |
+| LAWS-1 | `Syntax.hs`: `defInterfaceLaws :: [Expr]` → `[Property]` | 0.5 hr | ✅ |
+| LAWS-2 | `Parser.hs`: `:laws [(for-all ...)]` clause parsing | 1 hr | ✅ |
+| LAWS-3 | `ParserJSON.hs`: JSON-AST law parsing (`parseLawProperty`) | 0.5 hr | ✅ |
+| LAWS-4 | `TypeCheck.hs`: for-all scoping (methods + bindings in scope) | 1 hr | ✅ |
+| LAWS-5 | `CodegenHs.hs`: QuickCheck `prop_` emission | 2 hr | ✅ |
+| LAWS-6 | `AstEmit.hs`: JSON-AST law emission (round-trip compat) | 0.5 hr | ✅ |
+| LAWS-7 | `SpecCoverage.hs`: separate "Interface laws" section in report | 1 hr | ✅ |
+| LAWS-PBT | `PBT.hs`: wire interface laws into `runPropertyTests` | 0.5 hr | ✅ |
+| LAWS-8 | Tests: 10 new tests (T1–T10), 279 existing tests pass | 2 hr | ✅ |
+
+**Test count:** 289 Haskell + 37 Python
+
+```lisp
+;; Example: idempotent normalizer
+(def-interface Normalizer
+  [normalize (fn [x: string] -> string)]
+  :laws [(for-all [x: string] (= (normalize (normalize x)) (normalize x)))])
+```
+
+---
+
+## Research Track (unversioned)
+
+> Items below lack engineering specs comparable to `interface-laws-spec.md`. Each is promoted to a versioned release only when a full spec exists.
 
 ### Spec-from-RFC Pipeline
 
 > **Source:** [specification-sources.md §1](design/specification-sources.md)
 
-For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts. Generated contracts must include `:source` annotations (PROV-1..4) linking each clause to the originating standard.
+For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts.
 
 ### Synthetic Training Corpus (Hackage Back-Translation)
 
@@ -50,19 +74,6 @@ For LLMLL's target domains (financial, protocol, encryption), specs already exis
 > **Source:** [invariant-discovery-review.md §3](design/invariant-discovery-review.md)
 
 `llmll checkout --multi` allows N agents to independently fill the same hole. Divergence analysis generates distinguishing inputs.
-
-### `def-interface :laws`
-
-> **Source:** [invariant-discovery-review.md §10](design/invariant-discovery-review.md)
-
-```lisp
-(def-interface Codec
-  [encode (fn [a] → string)]
-  [decode (fn [string] → Result[a, string])]
-  :laws [(for-all [x: a] (= (decode (encode x)) (ok x)))])
-```
-
-Algebraic law enforcement as a first-class language feature.
 
 ---
 

@@ -15,6 +15,7 @@ module LLMLL.SpecCoverage
   , FunctionClass(..)
   , FunctionEntry(..)
   , CoverageSummary(..)
+  , LawEntry(..)
     -- * Core API
   , runCoverage
   , classifyFunction
@@ -66,10 +67,17 @@ data CoverageSummary = CoverageSummary
   , csEffective    :: Double  -- ^ effective_coverage in [0, 1]
   } deriving (Show, Eq)
 
+-- | v0.6.2: Per-interface law summary for coverage reporting.
+data LawEntry = LawEntry
+  { leName      :: Name       -- ^ Interface name
+  , leLawCount  :: Int        -- ^ Number of laws declared
+  } deriving (Show, Eq)
+
 -- | The full coverage report.
 data CoverageReport = CoverageReport
   { crEntries    :: [FunctionEntry]
   , crSummary    :: CoverageSummary
+  , crLaws       :: [LawEntry]       -- ^ v0.6.2: interface law counts
   , crWarnings   :: [Diagnostic]     -- ^ WO-1, WO-2, D10 warnings
   } deriving (Show)
 
@@ -106,6 +114,12 @@ runCoverage stmts csMap =
       -- Classify each function
       entries = map (classifyEntry suppMap csMap) functions
 
+      -- v0.6.2: Extract interface law counts
+      lawEntries = [ LawEntry ifName (length laws)
+                   | SDefInterface ifName _ laws <- stmts
+                   , not (null laws)
+                   ]
+
       -- WO-1: Check for weakness-ok targets that don't match any function
       functionNames = map fst functions
       wo1Warnings = [ mkWO1Warning name reason
@@ -129,7 +143,7 @@ runCoverage stmts csMap =
                     then [mkD10Warning (csSuppressed summary) (csTotal summary)]
                     else []
 
-  in CoverageReport entries summary (wo1Warnings ++ wo2Warnings ++ d10Warnings)
+  in CoverageReport entries summary lawEntries (wo1Warnings ++ wo2Warnings ++ d10Warnings)
 
 -- ---------------------------------------------------------------------------
 -- Internal: function extraction and classification
@@ -255,6 +269,14 @@ formatCoverageText report =
         in if null suppEntries then []
            else ["  Intentional Underspecification:"]
                 ++ map (\e -> "    ⊘ " <> feName e <> " — \"" <> maybe "" id (feReason e) <> "\"") suppEntries
+      -- v0.6.2: Interface law counts (separate section, does NOT inflate effective_coverage)
+      lawLines =
+        let laws = crLaws report
+            totalLaws = sum (map leLawCount laws)
+        in if null laws then []
+           else [ "  Interface laws:               " <> tshow totalLaws <> " / " <> tshow totalLaws <> " tested" ]
+                ++ map (\le -> "    " <> leName le <> ":" <> T.replicate (max 1 (25 - T.length (leName le))) " "
+                              <> tshow (leLawCount le) <> if leLawCount le == 1 then " law (tested)" else " laws (tested)") laws
       unspecLines =
         let unspecs = [feName e | e <- crEntries report, feClass e == FCUnspecified]
         in if null unspecs then []
@@ -269,7 +291,7 @@ formatCoverageText report =
                       ]
       warningLines = if null (crWarnings report) then []
                      else [""] ++ map (\d -> "  ⚠ " <> diagMessage d) (crWarnings report)
-  in T.unlines ([header, separator] ++ contracted ++ suppressionLines ++ unspecLines ++ effectiveLine ++ warningLines)
+  in T.unlines ([header, separator] ++ contracted ++ suppressionLines ++ lawLines ++ unspecLines ++ effectiveLine ++ warningLines)
 
 -- ---------------------------------------------------------------------------
 -- Formatting (JSON)
@@ -280,6 +302,7 @@ formatCoverageJson report =
   T.pack . BLC.unpack . encode $ object
     [ "entries"   .= map entryJson (sortOn feName (crEntries report))
     , "summary"   .= summaryJson (crSummary report)
+    , "laws"      .= map lawJson (crLaws report)
     , "warnings"  .= map warnJson (crWarnings report)
     ]
   where
@@ -303,6 +326,10 @@ formatCoverageJson report =
     warnJson d = object
       [ "code"    .= diagCode d
       , "message" .= diagMessage d
+      ]
+    lawJson le = object
+      [ "interface" .= leName le
+      , "law_count" .= leLawCount le
       ]
 
 classLabel :: FunctionClass -> Text

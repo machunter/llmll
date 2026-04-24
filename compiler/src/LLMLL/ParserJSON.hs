@@ -142,8 +142,18 @@ parseDefInterface :: Object -> Parser Statement
 parseDefInterface o = do
   name    <- o .: "name"
   methods <- o .: "methods" >>= mapM parseIfaceMethod
-  laws    <- o .:? "laws" .!= [] >>= mapM parseExpr
+  laws    <- o .:? "laws" .!= [] >>= mapM parseLawProperty
   pure $ SDefInterface name methods laws
+
+-- | Parse a law from JSON-AST:
+-- { "kind": "for-all", "bindings": [...], "body": {...} }
+-- Optional "description" field for named laws (v0.7 extension).
+parseLawProperty :: Value -> Parser Property
+parseLawProperty = withObject "LawProperty" $ \o -> do
+  bindings <- o .: "bindings" >>= mapM parseTypedParam
+  body     <- o .: "body"     >>= parseExpr
+  desc     <- o .:? "description" .!= ""
+  pure $ Property desc bindings body
 
 parseIfaceMethod :: Value -> Parser (Name, Type)
 parseIfaceMethod = withObject "IfaceMethod" $ \o -> do

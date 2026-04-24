@@ -17,7 +17,7 @@ import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, em
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
-import LLMLL.AstEmit (stmtToJson)
+import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
@@ -43,7 +43,7 @@ import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDes
 import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..))
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), TrivialBody(..))
-import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), runCoverage, formatCoverageJson)
+import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, formatCoverageJson, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
@@ -3253,3 +3253,185 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                    ]
           report = runCoverage stmts emptyCS
       csTotal (crSummary report) `shouldBe` 1
+
+  -- =========================================================================
+  -- v0.6.2: Interface Laws Tests (LAWS-8)
+  -- =========================================================================
+  describe "v0.6.2 Interface Laws" $ do
+    let emptyCS = Map.empty :: Map.Map T.Text ContractStatus
+
+    -- T1: S-expr parsing of a single law
+    it "T1: laws_parse_basic — single law parses to [Property]" $ do
+      let src = T.pack $ unlines
+            [ "(def-interface Normalizer"
+            , "  [normalize (fn [x: string] -> string)]"
+            , "  :laws"
+            , "  [(for-all [x: string]"
+            , "    (= (normalize (normalize x)) (normalize x)))])"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          length stmts `shouldBe` 1
+          case head stmts of
+            SDefInterface name fns laws -> do
+              name `shouldBe` "Normalizer"
+              length fns `shouldBe` 1
+              length laws `shouldBe` 1
+              let Property desc bindings _body = head laws
+              desc `shouldBe` ""
+              length bindings `shouldBe` 1
+              fst (head bindings) `shouldBe` "x"
+            _ -> expectationFailure "expected SDefInterface"
+
+    -- T2: S-expr without :laws parses to empty list
+    it "T2: laws_parse_empty — no :laws clause → []" $ do
+      let src = T.pack $ unlines
+            [ "(def-interface Serializable"
+            , "  [serialize (fn [x: int] -> string)]"
+            , "  [deserialize (fn [x: string] -> int)])"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          case head stmts of
+            SDefInterface _ _ laws -> laws `shouldBe` []
+            _ -> expectationFailure "expected SDefInterface"
+
+    -- T3: Multiple laws parse correctly
+    it "T3: laws_parse_multiple — 3 laws → 3 Property entries" $ do
+      let src = T.pack $ unlines
+            [ "(def-interface Codec"
+            , "  [encode (fn [x: int] -> string)]"
+            , "  [decode (fn [x: string] -> int)]"
+            , "  :laws"
+            , "  [(for-all [x: int]"
+            , "    (= (decode (encode x)) x))"
+            , "   (for-all [s: string]"
+            , "    (= (encode (decode s)) s))"
+            , "   (for-all [x: int]"
+            , "    (= (encode x) (encode x)))])"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          case head stmts of
+            SDefInterface _ _ laws -> length laws `shouldBe` 3
+            _ -> expectationFailure "expected SDefInterface"
+
+    -- T4: Type-checking with valid law referencing interface methods
+    it "T4: laws_typecheck_ok — law referencing interface methods type-checks" $ do
+      let src = T.pack $ unlines
+            [ "(def-interface Normalizer"
+            , "  [normalize (fn [x: string] -> string)]"
+            , "  :laws"
+            , "  [(for-all [x: string]"
+            , "    (= (normalize (normalize x)) (normalize x)))])"
+            ]
+      case parseStatements "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    -- T5: Law body returning non-bool → type error
+    it "T5: laws_typecheck_nonbool — non-bool law body → error" $ do
+      let stmts =
+            [ SDefInterface "BadIface"
+                [("f", TFn [TInt] TInt)]
+                [Property "" [("x", TInt)] (EApp "f" [EVar "x"])]  -- returns int, not bool
+            ]
+          report = typeCheck emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldSatisfy` (> 0)
+      any (T.isInfixOf ":laws clause must be bool") (map diagMessage errs) `shouldBe` True
+
+    -- T6: Law referencing undefined name → warning/error
+    it "T6: laws_typecheck_unbound — undefined name in law body" $ do
+      let stmts =
+            [ SDefInterface "BadIface2"
+                [("f", TFn [TInt] TBool)]
+                [Property "" [("x", TInt)] (EApp "undefined-fn" [EVar "x"])]
+            ]
+          report = typeCheck emptyEnv stmts
+          diags = reportDiagnostics report
+      -- Should produce a diagnostic about undefined-fn
+      length diags `shouldSatisfy` (> 0)
+
+    -- T7: JSON-AST round-trip (emit → parse → compare)
+    it "T7: laws_json_roundtrip — emit then parse recovers same AST" $ do
+      let laws = [ Property "" [("x", TString)]
+                     (EOp "=" [ EApp "normalize" [EApp "normalize" [EVar "x"]]
+                              , EApp "normalize" [EVar "x"]
+                              ])
+                 ]
+          original = [ SDefInterface "Normalizer"
+                         [("normalize", TFn [TString] TString)]
+                         laws
+                     ]
+          emitted = emitJsonAST original
+      case parseJSONAST "<test>" emitted of
+        Left err    -> expectationFailure (show err)
+        Right parsed -> do
+          length parsed `shouldBe` 1
+          case head parsed of
+            SDefInterface name fns parsedLaws -> do
+              name `shouldBe` "Normalizer"
+              length fns `shouldBe` 1
+              length parsedLaws `shouldBe` 1
+              propBindings (head parsedLaws) `shouldBe` propBindings (head laws)
+            _ -> expectationFailure "expected SDefInterface after round-trip"
+
+    -- T8: Codegen emits prop_ function for a single law
+    it "T8: laws_codegen_prop — single law → prop_ function" $ do
+      let stmts = [ SDefInterface "Normalizer"
+                      [("normalize", TFn [TString] TString)]
+                      [Property "" [("x", TString)]
+                        (EOp "=" [ EApp "normalize" [EApp "normalize" [EVar "x"]]
+                                 , EApp "normalize" [EVar "x"]])]
+                  ]
+          result = generateHaskell "test" stmts
+          source = cgHsSource result
+      source `shouldSatisfy` T.isInfixOf "prop_Normalizer_law_1"
+      source `shouldSatisfy` T.isInfixOf "Bool"
+
+    -- T9: Codegen emits multiple prop_ functions for multiple laws
+    it "T9: laws_codegen_multi — 3 laws → 3 prop_ functions" $ do
+      let mkLaw body = Property "" [("x", TInt)] body
+          stmts = [ SDefInterface "Codec"
+                      [("encode", TFn [TInt] TString), ("decode", TFn [TString] TInt)]
+                      [ mkLaw (EOp "=" [EApp "decode" [EApp "encode" [EVar "x"]], EVar "x"])
+                      , mkLaw (EOp "=" [EApp "encode" [EVar "x"], EApp "encode" [EVar "x"]])
+                      , mkLaw (EOp "=" [EVar "x", EVar "x"])
+                      ]
+                  ]
+          result = generateHaskell "test" stmts
+          source = cgHsSource result
+      source `shouldSatisfy` T.isInfixOf "prop_Codec_law_1"
+      source `shouldSatisfy` T.isInfixOf "prop_Codec_law_2"
+      source `shouldSatisfy` T.isInfixOf "prop_Codec_law_3"
+
+    -- T10: SpecCoverage reports interface laws in separate section
+    it "T10: laws_coverage — interface laws appear in coverage report" $ do
+      let stmts = [ SDefLogic "f" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                      (EVar "x")
+                  , SDefInterface "Normalizer"
+                      [("normalize", TFn [TString] TString)]
+                      [Property "" [("x", TString)]
+                        (EOp "=" [ EApp "normalize" [EApp "normalize" [EVar "x"]]
+                                 , EApp "normalize" [EVar "x"]])]
+                  ]
+          report = runCoverage stmts emptyCS
+      -- Laws should appear in crLaws, not inflate effective_coverage
+      length (crLaws report) `shouldBe` 1
+      leName (head (crLaws report)) `shouldBe` "Normalizer"
+      leLawCount (head (crLaws report)) `shouldBe` 1
+      -- Only the SDefLogic function counts toward effective_coverage
+      csTotal (crSummary report) `shouldBe` 1
+      -- Text output should mention "Interface laws"
+      let textReport = formatCoverageText report
+      textReport `shouldSatisfy` T.isInfixOf "Interface laws"
+      -- JSON output should include "laws" key
+      let jsonReport = formatCoverageJson report
+      jsonReport `shouldSatisfy` T.isInfixOf "law_count"

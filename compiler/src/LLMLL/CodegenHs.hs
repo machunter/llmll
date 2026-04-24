@@ -385,7 +385,7 @@ runtimePreamble =
 
 emitStmt :: Statement -> Text
 emitStmt (STypeDef name body)             = emitTypeDef name body
-emitStmt (SDefInterface name fns _laws)     = emitInterface name fns
+emitStmt (SDefInterface name fns laws)      = emitInterface name fns laws
 emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
 -- D2: SLetrec emits as a regular Haskell function.
 -- The {- letrec :decreases ... -} marker is a breadcrumb for the D4 LH annotation pass.
@@ -453,15 +453,34 @@ emitDataCtor t =
     [c]    -> toHsIdent c
     (c:ts) -> toHsIdent c <> " " <> T.unwords (map (toHsType . TCustom) ts)
 
--- | Emit a def-interface as a Haskell typeclass.
-emitInterface :: Name -> [(Name, Type)] -> Text
-emitInterface name fns = T.unlines $
+-- | Emit a def-interface as a Haskell typeclass + law properties.
+emitInterface :: Name -> [(Name, Type)] -> [Property] -> Text
+emitInterface name fns laws = T.unlines $
   [ "class " <> toHsIdent name <> " t where" ]
   ++ map emitMethod fns
   ++ [ "" ]
+  ++ concatMap (emitLaw name) (zip [1..] laws)
   where
     emitMethod (fname, ftype) =
       "  " <> toHsIdent fname <> " :: t -> " <> emitFnType ftype
+
+-- | Emit a single interface law as a QuickCheck property.
+-- Naming convention: prop_InterfaceName_law_N (auto-numbered).
+emitLaw :: Name -> (Int, Property) -> [Text]
+emitLaw ifaceName (idx, Property _desc bindings body) =
+  let propName = "prop_" <> toHsIdent ifaceName <> "_law_" <> tshow idx
+      paramNames = T.unwords (map (toHsIdent . fst) bindings)
+      paramTypes = map (toHsType . snd) bindings
+      sig = propName <> " :: " <> T.intercalate " -> " (paramTypes ++ ["Bool"])
+      def = propName <> " " <> paramNames <> " = " <> emitExpr body
+  in [ "-- " <> toHsIdent ifaceName <> " law " <> tshow idx
+     , sig
+     , def
+     , ""
+     ]
+  where
+    tshow :: Show a => a -> Text
+    tshow = T.pack . show
 
 emitFnType :: Type -> Text
 emitFnType (TFn args ret) =

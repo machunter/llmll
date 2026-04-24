@@ -200,14 +200,29 @@ pDefParam = do
       ty <- pType
       pure (n, ty)) <|> pure (n, TCustom "_")
 
--- | Parse (def-interface Name [fn-sig ...])
+-- | Parse (def-interface Name [fn-sig ...] [:laws [(for-all ...) ...]])
 pDefInterface :: Parser Statement
 pDefInterface = do
   _ <- try (symbol "(" *> symbol "def-interface")
   name <- pIdent
   fns <- many (try pInterfaceFn)
+  laws <- option [] pLawsClause
   _ <- symbol ")"
-  pure $ SDefInterface name fns []
+  pure $ SDefInterface name fns laws
+
+-- | Parse :laws [(for-all [...] body) ...]
+pLawsClause :: Parser [Property]
+pLawsClause = do
+  _ <- symbol ":laws"
+  brackets (many pLawForAll)
+
+-- | Parse a single law: (for-all [bindings] body) or (∀ [bindings] body)
+pLawForAll :: Parser Property
+pLawForAll = parens $ do
+  _ <- try (symbol "for-all") <|> (T.singleton <$> char '\x2200' <* sc)
+  bindings <- brackets (many pTypedParam)
+  body <- pExpr
+  pure $ Property "" bindings body
 
 -- | Parse a function signature in a def-interface:
 --   [name (fn [arg-types] -> ret-type)]

@@ -509,7 +509,7 @@ checkStatement (SLetrec name params mRet contract dec body) = do
         unless (compatibleWith postType TBool) $
           tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
 
-checkStatement (SDefInterface name fns _laws) = do
+checkStatement (SDefInterface name fns laws) = do
   -- Register interface function signatures
   forM_ fns $ \(fname, ftype) ->
     case ftype of
@@ -517,13 +517,13 @@ checkStatement (SDefInterface name fns _laws) = do
       other -> tcError $
         "interface '" <> name <> "' function '" <> fname
         <> "' must have fn type, got " <> typeLabel other
-  -- v0.6: type-check :laws expressions (must be Bool under interface context)
-  -- Laws are parsed but not tested in v0.6 (LAWS-PO-1)
-  forM_ _laws $ \lawExpr -> do
+  -- v0.6.2: type-check :laws as Properties (for-all bindings + bool body)
+  forM_ laws $ \(Property _desc bindings body) -> do
     let ifaceBindings = fns  -- interface method signatures as env
-    lawType <- withEnv ifaceBindings (inferExpr lawExpr)
-    unless (compatibleWith lawType TBool) $
-      tcError $ "interface '" <> name <> "' :laws clause must be bool, got " <> typeLabel lawType
+    withEnv ifaceBindings $ withEnv bindings $ do
+      bodyType <- inferExpr body
+      unless (compatibleWith bodyType TBool) $
+        tcError $ "interface '" <> name <> "' :laws clause must be bool, got " <> typeLabel bodyType
 
 checkStatement (STypeDef name body) = do
   -- Check that dependent type constraints are well-formed

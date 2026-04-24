@@ -67,16 +67,22 @@ data PBTResult = PBTResult
 -- Entry Points
 -- ---------------------------------------------------------------------------
 
--- | Run all check blocks in a list of statements (pure, symbolic evaluation).
+-- | Run all check blocks and interface laws in a list of statements (pure, symbolic evaluation).
 runPropertyTests :: [Statement] -> IO PBTResult
 runPropertyTests stmts = do
   let checks = [prop | SCheck prop <- stmts]
-  runs <- mapM runProperty checks
+      -- v0.6.2: extract interface laws as properties (auto-numbered descriptions)
+      lawProps = [ prop { propDescription = ifName <> "_law_" <> T.pack (show idx) }
+                 | SDefInterface ifName _ laws <- stmts
+                 , (idx, prop) <- zip [(1::Int)..] laws
+                 ]
+      allProps = checks ++ lawProps
+  runs <- mapM runProperty allProps
   let passed  = length [() | r <- runs, pbtStatus r == PBTPassed]
       failed  = length [() | r <- runs, pbtStatus r == PBTFailed]
       skipped = length [() | r <- runs, pbtStatus r == PBTSkipped]
   pure $ PBTResult
-    { pbtTotal   = length checks
+    { pbtTotal   = length allProps
     , pbtPassed  = passed
     , pbtFailed  = failed
     , pbtSkipped = skipped

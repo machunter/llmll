@@ -309,7 +309,7 @@ data Statement
   | SDefInterface
     { defInterfaceName :: Name
     , defInterfaceFns  :: [(Name, Type)]  -- ^ Function signatures
-    , defInterfaceLaws :: [Expr]          -- ^ v0.6: optional :laws clauses (tested, not proven)
+    , defInterfaceLaws :: [Property]      -- ^ v0.6.2: for-all properties (tested via QuickCheck)
     }
   | STypeDef
     { typeDefName :: Name

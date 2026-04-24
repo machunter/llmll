@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-04-19  
+> **Last updated:** 2026-04-24  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -19,6 +19,7 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |
 | [contract-clause-refactor.md](contract-clause-refactor.md) | Deferred design: `ContractClause` type to replace flat `Maybe Expr` fields in `Contract`. Richer per-clause metadata (source, severity, ownership). Option A (sibling fields) chosen for v0.6; Option B captured here with migration path and revisit triggers. | **Deferred** (2026-04-22) |
+| [interface-laws-spec.md](interface-laws-spec.md) | Formal specification for `def-interface :laws` — algebraic law enforcement. Inference rules, grammar extensions (S-expr + JSON-AST), code generation (QuickCheck properties), spec-coverage interaction, proof obligations for Leanstral, and test plan. AST change: `defInterfaceLaws :: [Expr] → [Property]`. ~15 hours estimated. | **Proposed** (v0.6.2) |
 
 ---
 
