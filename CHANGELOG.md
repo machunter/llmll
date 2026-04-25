@@ -2,6 +2,33 @@
 
 ---
 
+## v0.6.2 — Algebraic Interface Laws (2026-04-24)
+
+### Compiler — Interface Laws (`def-interface :laws`)
+
+- **`:laws` clause** — `def-interface` gains an optional `:laws` section containing `(for-all ...)` algebraic properties. Laws are first-class: parsed, type-checked (methods + bindings in scope), and enforced via QuickCheck codegen.
+- **`Syntax.hs`** — `defInterfaceLaws` field changed from `[Expr]` to `[Property]` (LAWS-1).
+- **`Parser.hs`** — `:laws [(for-all [x: T] expr)]` clause parsing (LAWS-2).
+- **`ParserJSON.hs`** — `parseLawProperty` for JSON-AST law round-trip (LAWS-3).
+- **`TypeCheck.hs`** — `for-all` law expressions type-checked with interface methods and bindings in scope (LAWS-4).
+- **`CodegenHs.hs`** — QuickCheck `prop_` function emission for each law property (LAWS-5).
+- **`AstEmit.hs`** — JSON-AST law emission for round-trip compatibility (LAWS-6).
+- **`SpecCoverage.hs`** — Separate "Interface laws" section in spec coverage report (LAWS-7).
+- **`PBT.hs`** — Interface laws wired into `runPropertyTests` (LAWS-PBT).
+
+### Compiler — Verification-Scope Matrix Backfill
+
+- **VSM-1** — All three verifier examples (`hangman_json_verifier`, `tictactoe_json_verifier`, `conways_life_json_verifier`) now have `VERIFICATION_SCOPE.md` files documenting per-function classification and verification boundary.
+
+### Spec (LLMLL.md)
+
+- §8.8.1 — New section: `def-interface :laws` syntax and semantics
+- §14 — v0.6.2 roadmap section marked ✅ Shipped
+
+**Tests:** 279 → 289 Haskell (+10: T1–T10 interface laws), 37 Python (unchanged).
+
+---
+
 ## v0.6.1 — TOTP Benchmark & Hub Query (2026-04-23)
 
 ### Compiler — Cryptographic Builtins (§13.11)

@@ -19,33 +19,7 @@
 
 # Upcoming Releases
 
-## v0.6.2 — Algebraic Interface Laws ✅
-
-**Theme:** First-class algebraic law enforcement for `def-interface`.
-
-> v0.6.2 is a single-feature release. VSM-1 was completed during v0.6.1 (all three verifier examples already had `VERIFICATION_SCOPE.md` files). Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to **Research Track (unversioned)** below.
-
-| # | Action | Effort | Status |
-|---|--------|--------|--------|
-| VSM-1 | Add verification-scope matrices to verifier examples | 0.5 day | ✅ (already complete) |
-| LAWS-1 | `Syntax.hs`: `defInterfaceLaws :: [Expr]` → `[Property]` | 0.5 hr | ✅ |
-| LAWS-2 | `Parser.hs`: `:laws [(for-all ...)]` clause parsing | 1 hr | ✅ |
-| LAWS-3 | `ParserJSON.hs`: JSON-AST law parsing (`parseLawProperty`) | 0.5 hr | ✅ |
-| LAWS-4 | `TypeCheck.hs`: for-all scoping (methods + bindings in scope) | 1 hr | ✅ |
-| LAWS-5 | `CodegenHs.hs`: QuickCheck `prop_` emission | 2 hr | ✅ |
-| LAWS-6 | `AstEmit.hs`: JSON-AST law emission (round-trip compat) | 0.5 hr | ✅ |
-| LAWS-7 | `SpecCoverage.hs`: separate "Interface laws" section in report | 1 hr | ✅ |
-| LAWS-PBT | `PBT.hs`: wire interface laws into `runPropertyTests` | 0.5 hr | ✅ |
-| LAWS-8 | Tests: 10 new tests (T1–T10), 279 existing tests pass | 2 hr | ✅ |
-
-**Test count:** 289 Haskell + 37 Python
-
-```lisp
-;; Example: idempotent normalizer
-(def-interface Normalizer
-  [normalize (fn [x: string] -> string)]
-  :laws [(for-all [x: string] (= (normalize (normalize x)) (normalize x)))])
-```
+*(No upcoming releases — v0.6.2 shipped. See Research Track and v0.7 below.)*
 
 ---
 
@@ -150,7 +124,7 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 | Spec coverage metric (`--spec-coverage`) | **Shipped** (v0.6.0, SC-1..SC-4). Classifies functions as contracted/suppressed/unspecified, computes effective coverage, gates `--mode auto`. | Resolved. |
 | Spec-adequacy benchmark (ERC-20) | **Shipped** (v0.6.0 BM-1..3/5, v0.6.1 BM-4). Frozen benchmark with CI gate (11 assertions). | Resolved. |
 | Spec-adequacy benchmark (TOTP) | **Shipped** (v0.6.1, BM2-1..BM2-5). Frozen benchmark with CI gate (14 assertions). | Resolved. |
-| Verification-scope matrix policy | VSM-2 shipped (policy documented in getting-started.md) | VSM-1 (backfill existing examples) remains open — moved to v0.6.2. |
+| Verification-scope matrix policy | **Shipped** (VSM-2 policy in getting-started.md, VSM-1 backfill in v0.6.2). All verifier examples have `VERIFICATION_SCOPE.md`. | Resolved. |
 | Suppression governance (`weakness-ok`) | **Shipped** (v0.6.0). `SWeaknessOk` AST node, mandatory reason, governance warnings W601–W603, trust report integration. | Resolved. |
 | Claim-to-evidence appendix | **Shipped** in one-pager (2026-04-23). Maps each claim to shipped command + verification level. Updated for v0.6.0. | Resolved. |
 | Contract clause-level provenance | **Shipped** (v0.6.0 PROV-1/2/4, v0.6.1 PROV-3). `:source` annotation threaded through trust report and `.verified.json`. | Resolved. |
@@ -174,17 +148,17 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 # Summary: Version Plan and Critical Path
 
 ```
-v0.5 (SHIPPED)    v0.6.0 (SHIPPED)              v0.6.1 (SHIPPED)              v0.6.2 (planned)    v0.7 (research)    Future
+v0.5 (SHIPPED)    v0.6.0 (SHIPPED)              v0.6.1 (SHIPPED)              v0.6.2 (SHIPPED)    v0.7 (research)    Future
 ──────────────    ────────────────────          ────────────────────          ────────────────    ───────────────    ──────
-U-full            Spec coverage gate ✅         TOTP benchmark ✅              VSM-1 (backfill)   Type-driven dev    WASM build
-(Algorithm W)     + suppression governance ✅   Crypto builtins (§13.11) ✅    Spec-from-RFC      Self-hosted orch   target
-                  ERC-20 frozen benchmark ✅    Hub query-by-sig ✅            Synthetic corpus
-effectful         Clause-level provenance ✅    PROV-3 closure ✅              Differential impl  Contract-aware     WASI capability
-WASM compat       Claim narrowing ✅            BM-4 ERC-20 CI gate ✅         def-interface      hub matching       enforcement
-spike (GO)        Claim-to-evidence table ✅                                  :laws
+U-full            Spec coverage gate ✅         TOTP benchmark ✅              Interface laws ✅   Type-driven dev    WASM build
+(Algorithm W)     + suppression governance ✅   Crypto builtins (§13.11) ✅    VSM-1 backfill ✅   Self-hosted orch   target
+                  ERC-20 frozen benchmark ✅    Hub query-by-sig ✅
+effectful         Clause-level provenance ✅    PROV-3 closure ✅                                 Contract-aware     WASI capability
+WASM compat       Claim narrowing ✅            BM-4 ERC-20 CI gate ✅                            hub matching       enforcement
+spike (GO)        Claim-to-evidence table ✅
 ```
 
-The critical path through v0.6.1 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → shipped**. v0.6.0 shipped the P0 items (spec coverage gate, ERC-20 benchmark, suppression governance, clause-level provenance, Leanstral claim narrowing). v0.6.1 shipped the TOTP benchmark, crypto builtins, hub query-by-signature, and v0.6.0 carryover (PROV-3, BM-4). v0.6.2 collects remaining housekeeping (VSM-1) and research-track items. WASM is a confirmed future direction, not pinned to a version.
+The critical path through v0.6.2 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → shipped**. v0.6.0 shipped the P0 items (spec coverage gate, ERC-20 benchmark, suppression governance, clause-level provenance, Leanstral claim narrowing). v0.6.1 shipped the TOTP benchmark, crypto builtins, hub query-by-signature, and v0.6.0 carryover (PROV-3, BM-4). v0.6.2 shipped algebraic interface laws (`def-interface :laws`) and VSM-1 backfill (289 Haskell + 37 Python tests). Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) are unversioned — promoted when full specs exist. WASM is a confirmed future direction, not pinned to a version.
 
 ### What Changed from LLMLL.md §14
 
@@ -202,7 +176,7 @@ The critical path through v0.6.1 is complete: **context-aware checkout → worki
 | **v0.5** | *(revised 2026-04-21)* | **U-full Algorithm W** (occurs check + TVar-TVar closure + bound-TVar consistency) + `effectful` WASM compat spike (**GO**) — **shipped** |
 | **v0.6.0** | *(revised 2026-04-23)* | Spec quality: **spec coverage gate + suppression governance (P0) ✅** + **frozen ERC-20 benchmark (P0) ✅** + **clause-level provenance (P1) ✅** + **Leanstral claim narrowing ✅** + **claim-to-evidence table ✅** — **shipped (2026-04-22)**. |
 | **v0.6.1** | *(shipped, 2026-04-23)* | TOTP frozen benchmark (BM2-1..5) ✅ + hub query-by-signature (HUB-1..3) ✅ + crypto builtins (§13.11) ✅ + v0.6.0 carryover (PROV-3, BM-4) ✅ — **shipped (2026-04-23)**. |
-| **v0.6.2** | *(new, 2026-04-23)* | Housekeeping: VSM-1 (matrix backfill) + Spec-from-RFC + synthetic corpus + differential impl + `def-interface :laws` — **planned** |
+| **v0.6.2** | *(shipped, 2026-04-24)* | Algebraic interface laws: `def-interface :laws` with `for-all` property syntax + QuickCheck codegen + VSM-1 backfill — **shipped (2026-04-24)**. Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to unversioned Research Track. |
 | **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
@@ -218,8 +192,38 @@ The critical path through v0.6.1 is complete: **context-aware checkout → worki
 
 # Shipped Releases
 
-<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.6.1)</strong></summary>
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.6.2)</strong></summary>
 
+
+## v0.6.2 — Algebraic Interface Laws ✅ SHIPPED
+
+**Theme:** First-class algebraic law enforcement for `def-interface`.
+
+> v0.6.2 is a single-feature release. VSM-1 was completed during v0.6.1 (all three verifier examples already had `VERIFICATION_SCOPE.md` files). Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to **Research Track (unversioned)** above.
+
+| # | Action | Effort | Status |
+|---|--------|--------|--------|
+| VSM-1 | Add verification-scope matrices to verifier examples | 0.5 day | ✅ (already complete) |
+| LAWS-1 | `Syntax.hs`: `defInterfaceLaws :: [Expr]` → `[Property]` | 0.5 hr | ✅ |
+| LAWS-2 | `Parser.hs`: `:laws [(for-all ...)]` clause parsing | 1 hr | ✅ |
+| LAWS-3 | `ParserJSON.hs`: JSON-AST law parsing (`parseLawProperty`) | 0.5 hr | ✅ |
+| LAWS-4 | `TypeCheck.hs`: for-all scoping (methods + bindings in scope) | 1 hr | ✅ |
+| LAWS-5 | `CodegenHs.hs`: QuickCheck `prop_` emission | 2 hr | ✅ |
+| LAWS-6 | `AstEmit.hs`: JSON-AST law emission (round-trip compat) | 0.5 hr | ✅ |
+| LAWS-7 | `SpecCoverage.hs`: separate "Interface laws" section in report | 1 hr | ✅ |
+| LAWS-PBT | `PBT.hs`: wire interface laws into `runPropertyTests` | 0.5 hr | ✅ |
+| LAWS-8 | Tests: 10 new tests (T1–T10), 279 existing tests pass | 2 hr | ✅ |
+
+**Test count:** 289 Haskell + 37 Python
+
+```lisp
+;; Example: idempotent normalizer
+(def-interface Normalizer
+  [normalize (fn [x: string] -> string)]
+  :laws [(for-all [x: string] (= (normalize (normalize x)) (normalize x)))])
+```
+
+---
 
 ## v0.6.1 — TOTP Benchmark & Hub Query ✅ SHIPPED
 

@@ -1,13 +1,15 @@
-# LLMLL: Large Language Model Logical Language (v0.6.0)
+# LLMLL: Large Language Model Logical Language (v0.6.2)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.6.0 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 279 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.6.2 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 289 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
-<details><summary><strong>Release history (v0.1.1 → v0.6.0)</strong></summary>
+<details><summary><strong>Release history (v0.1.1 → v0.6.2)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.6.2** | Algebraic Interface Laws: `def-interface :laws` with `(for-all ...)` property syntax, QuickCheck `prop_` codegen, spec coverage integration, PBT wiring. VSM-1 backfill complete. 289 total tests $+$ 10 new. |
+| **v0.6.1** | TOTP Benchmark & Hub Query: `hmac-sha1`/`sha1` crypto builtins (§13.11). Frozen TOTP RFC 6238 benchmark (14 CI assertions). `llmll hub query --signature` for type-driven package search. Provenance display in `--trust-report`. 279 total tests $+$ 0 Haskell $+$ 0 Python. |
 | **v0.6.0** | Specification Quality: `--spec-coverage` gate classifies functions as contracted/suppressed/unspecified and computes effective coverage. `(weakness-ok fn "reason")` suppression governance. `:source` clause-level provenance on `pre`/`post` contracts. Frozen ERC-20 benchmark with verification-scope matrix. 279 total tests $+$ 15 new. |
 | **v0.5.0** | U-Full Soundness: occurs check prevents infinite types. Let-generalization for top-level `def-logic`/`letrec` via TVar-TVar wildcard closure and bound-TVar consistency fix. Closes the last known unsoundness in the type checker. 264 total tests $+$ 7 new U-Full. |
 | **v0.4.0** | Lead Agent (`llmll-orchestra --mode plan\|lead\|auto`). U-Lite: substitution-based unification for concrete types (`list-head 42` is a type error; `first`/`second` typed `TPair a b → a`/`b`). CAP-1: capability imports enforced at compile time (non-transitive, module-local). Invariant pattern registry via `--sketch`. Downstream obligation mining. Aeson FFI codegen. |
@@ -741,6 +743,55 @@ When module B imports module A and calls a function declared under A's `def-inte
   "pointer":   "/statements/2/body"
 }
 ```
+
+### 8.8.1 Algebraic Laws for Interfaces (`:laws`) — v0.6.2
+
+Interfaces can declare **algebraic laws** that any conforming implementation must satisfy. Laws are `(for-all ...)` properties attached to a `def-interface` via the `:laws` clause. The compiler type-checks law expressions with interface methods and bindings in scope, and generates QuickCheck `prop_` functions for automated enforcement.
+
+```lisp
+;; Idempotent normalizer: normalizing twice is the same as normalizing once
+(def-interface Normalizer
+  [normalize (fn [x: string] -> string)]
+  :laws [(for-all [x: string] (= (normalize (normalize x)) (normalize x)))])
+
+;; Monoid laws: identity and associativity
+(def-interface Monoid
+  [mempty   string]
+  [mappend  (fn [a: string b: string] -> string)]
+  :laws [(for-all [x: string] (= (mappend mempty x) x))
+         (for-all [x: string] (= (mappend x mempty) x))
+         (for-all [a: string b: string c: string]
+           (= (mappend (mappend a b) c) (mappend a (mappend b c))))])
+```
+
+**Syntax:** `:laws` is an optional clause after the method list. It contains a list of `(for-all [bindings] expr)` properties. Each `for-all` binding follows standard typed-parameter syntax.
+
+**Type checking (LAWS-4):** Law expressions are type-checked in a scope where all interface methods are available as bound variables. The `for-all` bindings are added to this scope. The body expression must have type `bool`.
+
+**Codegen (LAWS-5):** Each law property generates a QuickCheck `prop_` function in the emitted Haskell. The properties are wired into `runPropertyTests` (LAWS-PBT) and appear as a separate "Interface laws" section in `--spec-coverage` reports (LAWS-7).
+
+**JSON-AST:** Laws are represented as an array of property objects in the `def-interface` node. `parseLawProperty` (LAWS-3) and `AstEmit.hs` law emission (LAWS-6) ensure round-trip compatibility.
+
+```json
+{
+  "kind": "def-interface",
+  "name": "Normalizer",
+  "methods": [
+    { "name": "normalize", "type": { "kind": "fn-type", "params": [{"name": "x", "param_type": {"kind": "primitive", "name": "string"}}], "return_type": {"kind": "primitive", "name": "string"} } }
+  ],
+  "laws": [
+    { "kind": "for-all",
+      "bindings": [{"name": "x", "param_type": {"kind": "primitive", "name": "string"}}],
+      "body": { "kind": "app", "fn": "=", "args": [
+        { "kind": "app", "fn": "normalize", "args": [{ "kind": "app", "fn": "normalize", "args": [{ "kind": "var", "name": "x" }] }] },
+        { "kind": "app", "fn": "normalize", "args": [{ "kind": "var", "name": "x" }] }
+      ] }
+    }
+  ]
+}
+```
+
+**Backward compatible:** Omitting `:laws` is valid — all pre-v0.6.2 `def-interface` declarations parse and compile unchanged.
 
 ### 8.9 `llmll-hub` Registry
 
@@ -1721,6 +1772,20 @@ Complete sound unification — closes the last known unsoundness in the type che
 
 > [!NOTE]
 > **Known limitation (v0.5):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
+
+### v0.6.2 — Algebraic Interface Laws ✅ Shipped
+
+First-class algebraic law enforcement for `def-interface`. Single-feature release.
+
+| Area | Feature |
+|------|---------|
+| `def-interface :laws` | ✅ `:laws` clause with `(for-all ...)` algebraic properties. Laws are first-class: parsed, type-checked (methods + bindings in scope), and enforced via QuickCheck `prop_` codegen. See §8.8.1. |
+| Parser | ✅ S-expression: `:laws [(for-all [x: T] expr)]` clause. JSON-AST: `parseLawProperty` for law round-trip (LAWS-2, LAWS-3). |
+| Type checker | ✅ `for-all` law expressions type-checked with interface methods and bindings in scope (LAWS-4). |
+| Codegen | ✅ QuickCheck `prop_` function emission for each law property (LAWS-5). Interface laws wired into `runPropertyTests` (LAWS-PBT). |
+| Spec coverage | ✅ Separate "Interface laws" section in `--spec-coverage` report (LAWS-7). |
+| JSON-AST | ✅ Law emission in `AstEmit.hs` for round-trip compatibility (LAWS-6). |
+| VSM-1 | ✅ Verification-scope matrices backfilled in all three verifier examples. |
 
 ### v0.6.1 — TOTP Benchmark & Hub Query ✅ Shipped
 
