@@ -474,6 +474,17 @@ effective_coverage = (contracted + suppressed) / total_functions
 | **Suppressed** | Has a `(weakness-ok name "reason")` declaration and no contracts |
 | **Unspecified** | No contract, no suppression |
 
+> [!NOTE]
+> **Suppression accounting rationale.** `effective_coverage` includes suppressed
+> functions because a documented `(weakness-ok "reason")` represents an explicit
+> engineering decision — the team has reviewed the function and determined that a
+> contract is not required at this time. This is qualitatively different from an
+> un-reviewed function with no contract.
+>
+> However, suppression is not specification. The D10 warning (>50% suppressed)
+> guards against gaming. For governance reporting, use `suppression_debt`
+> (= suppressed / total) alongside `effective_coverage`.
+
 Example output:
 
 ```bash
@@ -492,7 +503,21 @@ stack exec llmll -- verify program.llmll --spec-coverage
 #   Effective coverage: 71% (5/7)
 ```
 
-Use `--spec-coverage --json` for machine-readable output (fields: `entries`, `summary`, `warnings`).
+Use `--spec-coverage --json` for machine-readable output:
+
+```json
+{
+  "effective_coverage": 0.85,
+  "spec_coverage": 0.60,
+  "suppression_debt": 0.25,
+  "total": 20,
+  "contracted": 12,
+  "suppressed": 5,
+  "unspecified": 3
+}
+```
+
+`spec_coverage` (= contracted / total, excluding suppressions) is the stricter metric for teams that want to track specification completeness without counting governance decisions. `suppression_debt` (= suppressed / total) tracks the proportion of functions covered by explicit engineering decisions rather than formal contracts.
 
 **Division guard (SC-PO-1):** A module with 0 functions has `effective_coverage = 100%`.
 
@@ -518,6 +543,14 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 
 > [!IMPORTANT]
 > **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of "proven" correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
+
+#### 5.3.4 Faithfulness Gap (Current Limitation)
+
+The current `.fq` emitter checks that a contract's pre/post predicates are logically consistent within the QF-LIA fragment. It does **not** encode the function body's computation into the verification condition. This means the verifier proves "the contract is self-consistent," not "the implementation satisfies the contract."
+
+Consequently, `VLProven` currently means "solver accepted the contract obligation," not "the implementation has been verified against its specification."
+
+Until body-faithful verification conditions are implemented (v0.7 research track), the `--contracts=unproven` stripping mode preserves all runtime assertions as a conservative default — no assertions are stripped regardless of proof status.
 
 ---
 
