@@ -36,7 +36,7 @@ import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), VerificationLevel(..), Name, Expr(..), HoleKind(..))
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrict, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
@@ -60,7 +60,7 @@ import LLMLL.Sketch (encodeSketchResult)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
-import LLMLL.Contracts (ContractsMode(..), applyContractsMode)
+import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (saveVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
@@ -81,11 +81,11 @@ import qualified Data.Map.Strict as Map
 -- ---------------------------------------------------------------------------
 
 data Command
-  = CmdCheck    FilePath
+  = CmdCheck    FilePath Bool                                -- file, --strict
   | CmdHoles    FilePath Bool (Maybe FilePath)  -- file, --deps, --deps-out
   | CmdTest     FilePath Bool                               -- file, --emit-only
   | CmdBuild    FilePath (Maybe FilePath) Bool Bool Bool ContractsMode  -- file, outdir, --wasm, --emit-json-ast, --emit-only, --contracts
-  | CmdBuildFromJson FilePath (Maybe FilePath) Bool         -- file, outdir, --emit-only
+  | CmdBuildFromJson FilePath (Maybe FilePath) Bool ContractsMode  -- file, outdir, --emit-only, contracts mode
   | CmdRun      FilePath [String]                           -- file, extra args
   | CmdRepl
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
@@ -125,7 +125,7 @@ optionsParser = info (helper <*> opts) $
       <*> switch (long "json" <> help "Output diagnostics as JSON")
 
     commandParser = subparser
-      ( command "check" (info (CmdCheck <$> fileArg)
+      ( command "check" (info (CmdCheck <$> fileArg <*> switch (long "strict" <> help "v0.6.3: Treat warnings (unbound vars, unknown fns) as hard errors"))
           (progDesc "Parse and type-check a .llmll or .ast.json file"))
       <> command "holes" (info holesCmd
           (progDesc "List and classify all holes in a .llmll file"))
@@ -185,6 +185,7 @@ optionsParser = info (helper <*> opts) $
             (short 'o' <> long "output" <> metavar "DIR"
             <> help "Output directory (default: generated/<name>)"))
       <*> switch (long "emit-only" <> help "Write Haskell files but skip the internal stack build")
+      <*> contractsOpt
 
     testCmd = CmdTest
       <$> fileArg
@@ -300,11 +301,11 @@ main = do
   opts <- execParser optionsParser
   let json = optJson opts
   case optCommand opts of
-    CmdCheck fp               -> doCheck  json fp
+    CmdCheck fp strict            -> doCheck  json fp strict
     CmdHoles fp deps mDepsOut  -> doHoles  json fp deps mDepsOut
     CmdTest  fp emitOnly         -> doTest   json fp emitOnly
     CmdBuild fp mOut wasm emitJson emitOnly contracts -> doBuild json fp mOut wasm emitJson emitOnly contracts
-    CmdBuildFromJson fp mOut emitOnly       -> doBuildFromJson json fp mOut emitOnly
+    CmdBuildFromJson fp mOut emitOnly contracts -> doBuildFromJson json fp mOut emitOnly contracts
     CmdRun   fp args          -> doRun    json fp args
     CmdRepl                   -> doRepl
     CmdHub   tarball          -> doHubFetch json tarball
@@ -418,13 +419,15 @@ takeDirectory = reverse . dropWhile (\c -> c /= '/' && c /= '\\') . drop 1 . rev
 -- check
 -- ---------------------------------------------------------------------------
 
-doCheck :: Bool -> FilePath -> IO ()
-doCheck json fp = do
+doCheck :: Bool -> FilePath -> Bool -> IO ()
+doCheck json fp strict = do
   mResult <- loadStatementsMulti json fp
   case mResult of
     Left ()                      -> pure ()
     Right (ss, cache, _loadOrder) -> do
-      let report = typeCheckWithCache cache emptyEnv ss
+      let report = if strict
+                     then typeCheckStrictWithCache cache emptyEnv ss
+                     else typeCheckWithCache cache emptyEnv ss
       if json
         then TIO.putStrLn (formatReportJson report)
         else if reportSuccess report
@@ -550,7 +553,7 @@ doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
     TIO.putStrLn $ "   --contracts=" <> T.pack (show contractsMode)
   -- Auto-detect JSON-AST files and delegate to the JSON build path.
   if takeExtension fp == ".json"
-    then doBuildFromJson json fp mOutDir emitOnly
+    then doBuildFromJson json fp mOutDir emitOnly contractsMode
     else do
       -- --emit json-ast: parse the file directly to round-trip to JSON (no module merge needed)
       when emitJson $ do
@@ -579,11 +582,16 @@ doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
         Right (stmts, cache, loadOrder) -> do
           let modName      = T.pack $ takeBaseName fp
               importedEnvs = topoSortedEnvs cache loadOrder
-              -- v0.3: collect contract statuses and strip contracts per mode
+          -- v0.6.3: typecheck gate (BUG-4) — hard error before codegen
+          let tcReport = typeCheckStrictWithCache cache emptyEnv stmts
+          unless (reportSuccess tcReport) $ do
+            mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+            exitFailure
+          let -- v0.6.3: collect contract statuses and instrument contracts per mode (BUG-2)
               allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
                                 Map.empty cache
-              filteredStmts = applyContractsMode contractsMode allCS stmts
-              result       = generateHaskellMulti modName importedEnvs filteredStmts
+              instrumentedStmts = instrumentContracts contractsMode allCS stmts
+              result       = generateHaskellMulti modName importedEnvs instrumentedStmts
               outDir       = case mOutDir of
                                Just d  -> d
                                Nothing -> "generated/" <> T.unpack modName
@@ -643,8 +651,8 @@ doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
 
     -- | Build from a JSON-AST (.ast.json) file.
 
-doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> Bool -> IO ()
-doBuildFromJson json fp mOutDir emitOnly = do
+doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> Bool -> ContractsMode -> IO ()
+doBuildFromJson json fp mOutDir emitOnly contractsMode = do
   -- P3: use loadStatementsMulti to resolve imports and get load-order
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -654,7 +662,16 @@ doBuildFromJson json fp mOutDir emitOnly = do
           modName = T.replace ".ast" "" rawName
           -- P3: collect imported envs in topo order and call generateHaskellMulti
           importedEnvs = topoSortedEnvs cache loadOrder
-          result  = generateHaskellMulti modName importedEnvs stmts
+      -- v0.6.3: typecheck gate (BUG-4)
+      let tcReport = typeCheckStrictWithCache cache emptyEnv stmts
+      unless (reportSuccess tcReport) $ do
+        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        exitFailure
+      let -- v0.6.3: instrument contracts (BUG-2)
+          allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
+                            Map.empty cache
+          instrumentedStmts = instrumentContracts contractsMode allCS stmts
+          result  = generateHaskellMulti modName importedEnvs instrumentedStmts
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
@@ -698,8 +715,15 @@ doRun json fp extraArgs = do
       emitParseDiag json fp diag
       exitFailure
     Right stmts -> do
+      -- v0.6.3: typecheck gate (BUG-4)
+      let tcReport = typeCheckStrict emptyEnv stmts
+      unless (reportSuccess tcReport) $ do
+        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        exitFailure
       let modNameT = T.pack modName
-          result   = generateHaskell modNameT stmts
+          -- v0.6.3: instrument contracts (BUG-2) — full mode for run
+          instrumentedStmts = instrumentContracts ContractsFull Map.empty stmts
+          result   = generateHaskell modNameT instrumentedStmts
           outDir   = tmpDir
       createDirectoryIfMissing True (outDir <> "/src")
       TIO.writeFile (outDir <> "/src/Lib.hs")   (cgHsSource result)
@@ -834,7 +858,7 @@ replLoop _env = do
       replLoop _env
     _ | T.isPrefixOf ":check " trimmed -> do
         let fp = T.unpack (T.drop 7 trimmed)
-        doCheck False fp
+        doCheck False fp False
         replLoop _env
       | T.isPrefixOf ":holes " trimmed -> do
         let fp = T.unpack (T.drop 7 trimmed)
@@ -1000,6 +1024,11 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
   case mResult of
     Left () -> exitFailure
     Right (stmts, _cache, _) -> do
+      -- v0.6.3: typecheck gate (BUG-4)
+      let tcReport = typeCheckStrictWithCache _cache emptyEnv stmts
+      unless (reportSuccess tcReport) $ do
+        mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
+        exitFailure
       -- v0.3.2: --trust-report mode — print trust summary and exit
       when trustReport $ do
         let report = buildTrustReport _cache stmts
@@ -1188,7 +1217,9 @@ runLeanstralPipeline json fp stmts lsOpts = do
               case result of
                 ProofFound proof -> do
                   unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": proof found"
-                  let entry = ProofEntry hash proof "leanstral" ""
+                  -- v0.6.3: tag mock proofs correctly (BUG-7)
+                  let proverName = if lsMock lsOpts then "mock" else "leanstral"
+                      entry = ProofEntry hash proof proverName ""
                   pure (insertProof ("/post/" <> name) entry cache)
                 ProofTimeout -> do
                   unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": timeout"
@@ -1208,7 +1239,7 @@ runLeanstralPipeline json fp stmts lsOpts = do
 -- ---------------------------------------------------------------------------
 
 doTypecheck :: Bool -> FilePath -> Bool -> IO ()
-doTypecheck json fp False = doCheck json fp   -- non-sketch: identical to check
+doTypecheck json fp False = doCheck json fp False   -- non-sketch: identical to check
 doTypecheck json fp True  = do
   -- Sketch mode: propagate types into holes
   mResult <- loadStatementsMulti json fp

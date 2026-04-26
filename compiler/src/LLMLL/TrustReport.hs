@@ -22,7 +22,9 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, catMaybes)
-import Data.List (nub, sortOn)
+import Data.List (nub, sortOn, foldl')
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Aeson (encode, object, (.=), Value(..))
 import qualified Data.ByteString.Lazy.Char8 as BLC
 
@@ -34,13 +36,14 @@ import LLMLL.Syntax
 
 -- | A single function's trust entry in the report.
 data TrustEntry = TrustEntry
-  { teName       :: Name                  -- ^ Fully-qualified function name
-  , tePreLevel   :: Maybe VerificationLevel
-  , tePostLevel  :: Maybe VerificationLevel
-  , tePreSource  :: Maybe Text            -- ^ v0.6.1: :source provenance on pre clause
-  , tePostSource :: Maybe Text            -- ^ v0.6.1: :source provenance on post clause
-  , teDeps       :: [TrustDependency]     -- ^ Cross-module calls with their trust levels
-  , teDrifts     :: [Text]                -- ^ Epistemic drift warnings
+  { teName           :: Name                  -- ^ Fully-qualified function name
+  , tePreLevel       :: Maybe VerificationLevel
+  , tePostLevel      :: Maybe VerificationLevel
+  , tePreSource      :: Maybe Text            -- ^ v0.6.1: :source provenance on pre clause
+  , tePostSource     :: Maybe Text            -- ^ v0.6.1: :source provenance on post clause
+  , teDeps           :: [TrustDependency]     -- ^ Cross-module calls with their trust levels
+  , teDrifts         :: [Text]                -- ^ Epistemic drift warnings
+  , teEffectiveLevel :: Maybe VerificationLevel  -- ^ v0.6.3: min(self, transitive deps)
   } deriving (Show, Eq)
 
 -- | A dependency on another function with its trust level.
@@ -86,11 +89,17 @@ buildTrustReport cache entryStmts =
         buildModuleEntries (T.intercalate "." path <> ".") (meStatements menv) allCS
         ) (Map.toList cache)
       allEntries = entryModule ++ cacheEntries
+      -- v0.6.3 (BUG-3): build transitive call graph and reachable set
+      callGraph = Map.fromList
+        [ (teName e, map tdName (teDeps e)) | e <- allEntries ]
+      reachable = transitiveClose callGraph
+      -- v0.6.3: recompute drifts and effective levels using transitive deps
+      enrichedEntries = map (enrichEntry allCS reachable) allEntries
       -- v0.6: collect weakness-ok suppressions
       suppressions = extractSuppressions entryStmts
       -- Compute summary
-      summary = computeSummary allEntries
-  in TrustReport allEntries summary suppressions
+      summary = computeSummary enrichedEntries
+  in TrustReport enrichedEntries summary suppressions
 
 -- | v0.6: Extract weakness-ok suppressions from statements.
 -- Deduplicates by name (WO-3 idempotence).
@@ -157,13 +166,14 @@ mkEntry qname contract body allCS =
       -- Compute epistemic drift: this function is "proven" but depends on non-proven
       drifts = computeDrifts qname ownCS deps
   in TrustEntry
-       { teName       = qname
-       , tePreLevel   = csPreLevel ownCS
-       , tePostLevel  = csPostLevel ownCS
-       , tePreSource  = csPreSource ownCS
-       , tePostSource = csPostSource ownCS
-       , teDeps       = deps
-       , teDrifts     = drifts
+       { teName           = qname
+       , tePreLevel       = csPreLevel ownCS
+       , tePostLevel      = csPostLevel ownCS
+       , tePreSource      = csPreSource ownCS
+       , tePostSource     = csPostSource ownCS
+       , teDeps           = deps
+       , teDrifts         = drifts
+       , teEffectiveLevel = Nothing  -- computed later by enrichEntry
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -182,8 +192,7 @@ extractCalls (ELambda _ body)   = extractCalls body
 extractCalls (EDo steps)        = concatMap (\(DoStep _ e) -> extractCalls e) steps
 
 -- | Compute epistemic drift warnings.
--- Drift = a function's own contract is proven, but it depends on a callee
--- whose contract is not proven.
+-- v0.6.3 (BUG-3): Drift now uses the transitive reachable set, not just direct deps.
 computeDrifts :: Name -> ContractStatus -> [TrustDependency] -> [Text]
 computeDrifts fname ownCS deps =
   let ownLevel = effectiveLevel ownCS
@@ -199,6 +208,53 @@ computeDrifts fname ownCS deps =
                 Nothing -> []
            ) deps
        _ -> []  -- Not proven: no drift possible
+
+-- | v0.6.3 (BUG-3): Compute transitive closure of a call graph.
+-- Uses fixed-point iteration. Handles cycles safely.
+transitiveClose :: Map Name [Name] -> Map Name (Set Name)
+transitiveClose graph = fixpoint initial
+  where
+    initial = Map.map Set.fromList graph
+    fixpoint current =
+      let next = Map.mapWithKey (\_ reachable ->
+            Set.foldl' (\acc callee ->
+              case Map.lookup callee current of
+                Nothing      -> acc
+                Just calleeR -> Set.union acc calleeR
+              ) reachable reachable
+            ) current
+      in if next == current then current else fixpoint next
+
+-- | v0.6.3 (BUG-3): Enrich an entry with transitive drift and effective level.
+enrichEntry :: Map Name ContractStatus -> Map Name (Set Name) -> TrustEntry -> TrustEntry
+enrichEntry allCS reachable entry =
+  let qname = teName entry
+      ownCS = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) qname allCS
+      -- Build TrustDependency for each transitively reachable callee
+      transitiveCallees = maybe Set.empty id (Map.lookup qname reachable)
+      transitiveDeps = mapMaybe (\callee ->
+        case Map.lookup callee allCS of
+          Nothing -> Nothing
+          Just cs -> Just (TrustDependency callee (csPreLevel cs) (csPostLevel cs))
+        ) (Set.toList transitiveCallees)
+      -- Recompute drifts using transitive set
+      drifts = computeDrifts qname ownCS transitiveDeps
+      -- Compute effective level = min(self, all transitive callees)
+      selfLevel = effectiveLevel ownCS
+      calleeMinLevel = foldl' minLevel Nothing
+        [ effectiveLevel (ContractStatus (csPreLevel cs) (csPostLevel cs) Nothing Nothing)
+        | callee <- Set.toList transitiveCallees
+        , Just cs <- [Map.lookup callee allCS]
+        ]
+      eff = case (selfLevel, calleeMinLevel) of
+              (Nothing, _) -> Nothing
+              (_, Nothing) -> selfLevel
+              (Just s, Just c) -> Just (min s c)
+  in entry { teDrifts = drifts, teEffectiveLevel = eff }
+  where
+    minLevel Nothing b  = b
+    minLevel a Nothing  = a
+    minLevel (Just a) (Just b) = Just (min a b)
 
 -- | The effective (minimum) verification level for a contract status.
 effectiveLevel :: ContractStatus -> Maybe VerificationLevel
@@ -221,7 +277,10 @@ vlLabel (VLProven p)  = "proven (" <> p <> ")"
 
 computeSummary :: [TrustEntry] -> TrustSummary
 computeSummary entries =
-  let classify e = effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e) (tePreSource e) (tePostSource e))
+  -- v0.6.3: use teEffectiveLevel for classification when available
+  let classify e = case teEffectiveLevel e of
+                     Just lvl -> Just lvl
+                     Nothing  -> effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e) (tePreSource e) (tePostSource e))
       proven   = length [e | e <- entries, isProven (classify e)]
       tested   = length [e | e <- entries, isTested (classify e)]
       asserted = length [e | e <- entries, isAsserted (classify e)]
@@ -304,7 +363,8 @@ formatTrustReportJson report =
       , "drifts"     .= teDrifts e
       ] ++
       maybe [] (\s -> ["pre_source" .= s]) (tePreSource e) ++
-      maybe [] (\s -> ["post_source" .= s]) (tePostSource e)
+      maybe [] (\s -> ["post_source" .= s]) (tePostSource e) ++
+      maybe [] (\l -> ["effective_level" .= vlLabel l]) (teEffectiveLevel e)
     depJson d = object
       [ "name"       .= tdName d
       , "pre_level"  .= fmap vlLabel (tdPreLevel d)

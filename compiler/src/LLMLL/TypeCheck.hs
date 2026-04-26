@@ -16,6 +16,8 @@ module LLMLL.TypeCheck
     typeCheck
   , typeCheckModule
   , typeCheckWithCache
+  , typeCheckStrict
+  , typeCheckStrictWithCache
   , runSketch
     -- * Environment
   , TypeEnv
@@ -206,6 +208,8 @@ data TCState = TCState
   , tcProvenance     :: Map Name ScopeSource  -- ^ per-binding source classification for checkout context
   -- v0.4: CAP-1 capability enforcement
   , tcModuleStmts    :: [Statement]  -- ^ module's top-level statements, for capability import checks
+  -- v0.6.3: strict mode for build/run/verify (BUG-4)
+  , tcStrictMode     :: Bool         -- ^ True when unbound vars / unknown fns are hard errors
   } deriving (Show)
 
 type TC a = State TCState a
@@ -251,6 +255,12 @@ tcWarn :: Text -> TC ()
 tcWarn msg = modify $ \s -> s
   { tcErrors = tcErrors s ++ [mkWarning Nothing msg] }
 
+-- | v0.6.3: Emit a warning in permissive mode, or an error in strict mode (BUG-4).
+tcWarnOrError :: Text -> TC ()
+tcWarnOrError msg = do
+  strict <- gets tcStrictMode
+  if strict then tcError msg else tcWarn msg
+
 -- | Look up a name in the environment.
 tcLookup :: Name -> TC (Maybe Type)
 tcLookup name = gets (Map.lookup name . tcEnv)
@@ -294,13 +304,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [])
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode — collects hole types.
 runTCSketch :: TypeEnv -> TC a -> (a, TCState)
 runTCSketch env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [])
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -390,13 +400,37 @@ typeCheckModule env m = typeCheck env (moduleBody m)
 -- This is the Phase 2a cross-module entry point.
 -- v0.3: also seeds tcContractStatus for trust-gap warnings.
 typeCheckWithCache :: ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
-typeCheckWithCache cache baseEnv stmts =
+typeCheckWithCache = typeCheckWithCacheMode False
+
+-- | v0.6.3: Strict typecheck — unbound vars, unknown fns are hard errors.
+typeCheckStrict :: TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckStrict env stmts =
+  let (_, diags) = runTCStrict env (checkStatements stmts)
+      hasErrors  = any ((== SevError) . diagSeverity) diags
+  in DiagnosticReport
+    { reportPhase       = "typecheck"
+    , reportDiagnostics = diags
+    , reportSuccess     = not hasErrors
+    }
+
+runTCStrict :: TypeEnv -> TC a -> (a, [Diagnostic])
+runTCStrict env action =
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True)
+  in (result, tcErrors st)
+
+-- | v0.6.3: Strict typecheck with module cache.
+typeCheckStrictWithCache :: ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckStrictWithCache = typeCheckWithCacheMode True
+
+-- | Internal: shared implementation for typeCheckWithCache and typeCheckStrictWithCache.
+typeCheckWithCacheMode :: Bool -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckWithCacheMode strict cache baseEnv stmts =
   let -- Inject qualified names from all cached modules
       seededEnv = Map.foldlWithKey' seedModule baseEnv cache
       -- v0.3: merge contract status from all cached modules (qualified names)
       seededCS  = Map.foldlWithKey' seedStatus Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [])
+        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [] strict)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -463,11 +497,13 @@ checkStatement (SDefLogic name params mRet contract body) = do
     case mRet of
       Nothing -> pure ()
       Just retTy -> unify name retTy bodyType
-    -- Check pre-condition is boolean
+    -- Check pre-condition is boolean (result NOT in scope — §4.3)
     case contractPre contract of
       Nothing -> pure ()
       Just pre -> do
-        preType <- withEnv [("result", fromMaybe bodyType mRet)] (inferExpr pre)
+        when (exprContainsVar "result" pre) $
+          tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
+        preType <- inferExpr pre
         unless (compatibleWith preType TBool) $
           tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
     -- Check post-condition is boolean (has access to 'result')
@@ -493,11 +529,13 @@ checkStatement (SLetrec name params mRet contract dec body) = do
     case mRet of
       Nothing -> pure ()
       Just retTy -> unify name retTy bodyType
-    -- Check pre-condition
+    -- Check pre-condition (result NOT in scope — §4.3)
     case contractPre contract of
       Nothing -> pure ()
       Just pre -> do
-        preType <- withEnv [("result", fromMaybe bodyType mRet)] (inferExpr pre)
+        when (exprContainsVar "result" pre) $
+          tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
+        preType <- inferExpr pre
         unless (compatibleWith preType TBool) $
           tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
     -- Check post-condition
@@ -652,8 +690,8 @@ inferExpr (EVar name) = do
   case mTy of
     Just ty -> pure ty
     Nothing -> do
-      tcWarn $ "unbound variable '" <> name <> "' (may be in scope at runtime)"
-      pure (TVar name)  -- Return type variable for unbound — not a hard error
+      tcWarnOrError $ "unbound variable '" <> name <> "' (may be in scope at runtime)"
+      pure (TVar name)  -- Return type variable for unbound
 
 inferExpr (ELet bindings body) = do
   -- EC-1: Save env before processing. The foldM below uses tcInsert to make
@@ -701,7 +739,7 @@ inferExpr (EIf cond thenE elseE) = do
       if compatibleWith thenType elseType
         then pure thenType
         else do
-          tcWarn $ "if branches have different types: " <> typeLabel thenType
+          tcWarnOrError $ "if branches have different types: " <> typeLabel thenType
                     <> " vs " <> typeLabel elseType
           pure thenType
     (False, True) -> do
@@ -791,7 +829,7 @@ inferExpr (EApp func args) = do
          emitTrustGap func trusts (csPostLevel cs)
   case mFuncTy of
     Nothing -> do
-      tcWarn $ "call to unknown function '" <> func <> "'"
+      tcWarnOrError $ "call to unknown function '" <> func <> "'"
       pure (TVar "?")  -- wildcard: don't inject false type mismatch downstream
     Just (TFn paramTypes retType) -> do
       when (nArgs /= length paramTypes) $ do
@@ -831,8 +869,8 @@ inferExpr (EOp op _args) = do
       -- Relax checking for polymorphic operators — just return their result type
       pure retType
     _ -> do
-      -- Unknown operator — warn and return bool (most ops are comparisons)
-      tcWarn $ "unknown operator '" <> op <> "'"
+      -- Unknown operator — warn/error and return bool (most ops are comparisons)
+      tcWarnOrError $ "unknown operator '" <> op <> "'"
       pure TBool
 
 inferExpr (EPair a b) = do
@@ -1274,3 +1312,22 @@ runSketch env stmts patterns =
           fnType     = TFn paramTypes retType
       in matchPatterns name fnType patterns
     matchStmt _ _ = []
+
+-- ---------------------------------------------------------------------------
+-- AST Helpers
+-- ---------------------------------------------------------------------------
+
+-- | Check if an expression contains a free occurrence of the given variable name.
+exprContainsVar :: Name -> Expr -> Bool
+exprContainsVar v (EVar n)          = n == v
+exprContainsVar v (EApp _ args)     = any (exprContainsVar v) args
+exprContainsVar v (EOp _ args)      = any (exprContainsVar v) args
+exprContainsVar v (EIf c t e)       = exprContainsVar v c || exprContainsVar v t || exprContainsVar v e
+exprContainsVar v (ELet binds body) = any (\(_, _, e) -> exprContainsVar v e) binds || exprContainsVar v body
+exprContainsVar v (EMatch e cases)  = exprContainsVar v e || any (\(_, b) -> exprContainsVar v b) cases
+exprContainsVar v (EPair a b)       = exprContainsVar v a || exprContainsVar v b
+exprContainsVar v (ELambda _ body)  = exprContainsVar v body
+exprContainsVar v (EAwait e)        = exprContainsVar v e
+exprContainsVar v (EDo steps)       = any (\(DoStep _ e) -> exprContainsVar v e) steps
+exprContainsVar _ (ELit _)          = False
+exprContainsVar _ (EHole _)         = False

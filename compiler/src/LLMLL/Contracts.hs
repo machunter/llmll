@@ -168,17 +168,28 @@ instrumentStatement ContractsUnproven cs (SLetrec name params mRet contract dec 
 instrumentStatement _ _ stmt = stmt
 
 -- | Strip proven contract clauses, keep unproven ones.
+-- v0.6.3 (BUG-6): Only strip if the proof is body-faithful.
+-- Until the .fq emitter encodes function bodies into verification conditions,
+-- VLProven only means "the formula is self-consistent", not "the body satisfies
+-- the contract". Stripping in that case would be unsound.
 filterContracts :: ContractStatus -> Contract -> Contract
 filterContracts cs contract = Contract
   { contractPre = case csPreLevel cs of
-      Just (VLProven _) -> Nothing
+      Just (VLProven p) | isBodyFaithful p -> Nothing
       _                 -> contractPre contract
   , contractPreSource = contractPreSource contract
   , contractPost = case csPostLevel cs of
-      Just (VLProven _) -> Nothing
+      Just (VLProven p) | isBodyFaithful p -> Nothing
       _                 -> contractPost contract
   , contractPostSource = contractPostSource contract
   }
+
+-- | v0.6.3: Is the proof from a body-faithful prover?
+-- Returns False for all current provers — conservative default.
+-- When the .fq emitter starts encoding function bodies (v0.7+),
+-- this will be updated to return True for those provers.
+isBodyFaithful :: Text -> Bool
+isBodyFaithful _prover = False  -- No body-faithful provers exist yet
 
 -- | Empty contract — contracts moved into body as assertions.
 noContract :: Contract

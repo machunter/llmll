@@ -2,6 +2,36 @@
 
 ---
 
+## v0.6.3 — Trust Model Fixes (2026-04-26)
+
+### Compiler — Trust Model Hardening
+
+Seven critical bugs from the v0.6.3 engineering audit, all resolved:
+
+- **BUG-1** — `result` removed from precondition environments (`TypeCheck.hs`). `result` in a `pre` clause is now a hard error per §4.3. `exprContainsVar` helper validates recursively.
+- **BUG-2** — Contract instrumentation wired into `doBuild`/`doBuildFromJson`/`doRun`. `instrumentContracts` replaces `applyContractsMode` in the build pipeline. `CodegenHs.hs` lowers `(runtime-error msg)` to Haskell `error msg`.
+- **BUG-3** — Transitive trust closure (`TrustReport.hs`). Fixed-point iteration via `transitiveClose` computes the full reachable set. `enrichEntry` recomputes drifts and `teEffectiveLevel = min(self, transitive deps)`. JSON output includes `effective_level`.
+- **BUG-4** — Typecheck gate before codegen. `typeCheckStrict`/`typeCheckStrictWithCache` enforce hard errors on unbound variables, unknown functions, type mismatches, and unknown operators. `doBuild`, `doBuildFromJson`, `doRun`, and `doVerify` all gate on strict typecheck. `llmll check --strict` CLI flag added.
+- **BUG-5** — Termination documentation corrected (`LLMLL.md` §4.2, §5.3.3). Claims of "verified automatically" replaced with accurate "checked for non-negativity (`n ≥ 0`)". Strict descent encoding deferred to v0.7 research track.
+- **BUG-6** — Body-faithfulness guard on contract stripping (`Contracts.hs`). `filterContracts` now only strips `VLProven` clauses when `isBodyFaithful` returns `True` (currently returns `False` for all provers). Prevents unsound assertion removal.
+- **BUG-7** — Proof laundering protection (`ProofCache.hs`). `isTaintedProof` detects `sorry`/`mock`/`admit` in proof text. `proofToLevel` caps tainted proofs at `VLAsserted`. Mock prover tagged `"mock"` instead of `"leanstral"`.
+
+### Compiler — Strict Mode (`tcStrictMode`)
+
+- **`TCState.tcStrictMode`** — New field. When `True`, `tcWarnOrError` emits errors instead of warnings at four permissive sites (unbound variables, unknown functions, unknown operators, branch type mismatch).
+- **`typeCheckStrict`** — Strict counterpart to `typeCheck` (no module cache).
+- **`typeCheckStrictWithCache`** — Strict counterpart to `typeCheckWithCache`.
+- **`llmll check --strict`** — CLI flag for CI gates on completed programs.
+
+### Spec (LLMLL.md)
+
+- §4.2 — Termination claims corrected (non-negativity only, not strict descent)
+- §5.3.3 — Verification-scope matrix updated to reflect actual capability
+
+**Tests:** 289 examples, 0 failures. ERC-20 (11/11) and TOTP (14/14) benchmarks green.
+
+---
+
 ## v0.6.2 — Algebraic Interface Laws (2026-04-24)
 
 ### Compiler — Interface Laws (`def-interface :laws`)

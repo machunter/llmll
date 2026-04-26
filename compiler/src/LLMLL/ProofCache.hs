@@ -16,6 +16,9 @@ module LLMLL.ProofCache
   , saveProofCache
   , lookupProof
   , insertProof
+    -- * Trust Guards (v0.6.3)
+  , isTaintedProof
+  , proofToLevel
     -- * Hashing
   , computeObligationHash
   ) where
@@ -35,6 +38,8 @@ import qualified Data.ByteString as BS
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Numeric (showHex)
+
+import LLMLL.Syntax (VerificationLevel(..))
 
 -- | A cached proof entry.
 data ProofEntry = ProofEntry
@@ -115,4 +120,22 @@ computeObligationHash = T.pack . concatMap toHex . BS.unpack . hash . TE.encodeU
   where
     toHex :: Word8 -> String
     toHex w = let s = showHex w "" in if length s == 1 then '0' : s else s
+
+-- ---------------------------------------------------------------------------
+-- Trust Guards (v0.6.3)
+-- ---------------------------------------------------------------------------
+
+-- | A proof is tainted if it was produced by a mock prover or contains
+-- sorry/axiom/admit markers. Tainted proofs must not raise trust level.
+isTaintedProof :: ProofEntry -> Bool
+isTaintedProof pe =
+  peProver pe == "mock"
+  || any (`T.isInfixOf` peProof pe) ["sorry", "axiom", "mock", "admit"]
+
+-- | Convert a proof cache entry to a VerificationLevel.
+-- Tainted proofs are capped at VLAsserted (cannot be "proven").
+proofToLevel :: ProofEntry -> VerificationLevel
+proofToLevel pe
+  | isTaintedProof pe = VLAsserted
+  | otherwise         = VLProven (peProver pe)
 

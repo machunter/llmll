@@ -1282,11 +1282,12 @@ main = hspec $ do
       -- ContractsNone returns stmt unchanged
       result `shouldBe` stmt
 
-    it "ContractsUnproven strips proven pre, keeps asserted post" $ do
+    it "ContractsUnproven keeps proven pre (BUG-6: no body-faithful provers), keeps asserted post" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
           result = instrumentStatement ContractsUnproven mixedCS stmt
       defLogicContract result `shouldBe` Contract Nothing Nothing Nothing Nothing
-      -- The body should still be instrumented (post is unproven)
+      -- v0.6.3: both pre (proven) and post (asserted) are instrumented
+      -- because no body-faithful provers exist yet
       defLogicBody result `shouldNotBe` body
 
   describe "parseTrustDecl (S-expression)" $ do
@@ -1394,12 +1395,12 @@ main = hspec $ do
       defLogicContract (head result) `shouldBe` Contract Nothing Nothing Nothing Nothing
       defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing Nothing Nothing
 
-    it "ContractsUnproven strips proven, keeps unknown" $ do
-      -- "f" is fully proven → both clauses stripped
-      -- "g" pre is proven → stripped; g has no post → Nothing stays
+    it "ContractsUnproven preserves proven (BUG-6: no body-faithful provers)" $ do
+      -- v0.6.3 (BUG-6): ContractsUnproven no longer strips VLProven contracts
+      -- because no body-faithful provers exist. Contracts are preserved.
       let result = applyContractsMode ContractsUnproven provenMap stmts
-      defLogicContract (head result) `shouldBe` Contract Nothing Nothing Nothing Nothing
-      defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing Nothing Nothing
+      defLogicContract (head result) `shouldBe` Contract pre1 Nothing post1 Nothing
+      defLogicContract (result !! 1) `shouldBe` Contract pre1 Nothing Nothing Nothing
 
   -- =========================================================================
   -- v0.3: #9 — saveVerified / loadVerified round-trip

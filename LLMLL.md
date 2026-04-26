@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.6.2)
+# LLMLL: Large Language Model Logical Language (v0.6.3)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.6.2 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 289 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.6.3 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 289 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
-<details><summary><strong>Release history (v0.1.1 → v0.6.2)</strong></summary>
+<details><summary><strong>Release history (v0.1.1 → v0.6.3)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.6.3** | Trust Model Fixes: 7 critical bugs resolved. `result` removed from pre scope (BUG-1), strict typecheck gate (BUG-4), contract instrumentation in build pipeline (BUG-2), transitive trust closure (BUG-3), body-faithful stripping guard (BUG-6), proof laundering protection (BUG-7), termination docs corrected (BUG-5). `tcStrictMode` + `llmll check --strict`. 289 tests (unchanged count; 2 expectations updated). |
 | **v0.6.2** | Algebraic Interface Laws: `def-interface :laws` with `(for-all ...)` property syntax, QuickCheck `prop_` codegen, spec coverage integration, PBT wiring. VSM-1 backfill complete. 289 total tests $+$ 10 new. |
 | **v0.6.1** | TOTP Benchmark & Hub Query: `hmac-sha1`/`sha1` crypto builtins (§13.11). Frozen TOTP RFC 6238 benchmark (14 CI assertions). `llmll hub query --signature` for type-driven package search. Provenance display in `--trust-report`. 279 total tests $+$ 0 Haskell $+$ 0 Python. |
 | **v0.6.0** | Specification Quality: `--spec-coverage` gate classifies functions as contracted/suppressed/unspecified and computes effective coverage. `(weakness-ok fn "reason")` suppression governance. `:source` clause-level provenance on `pre`/`post` contracts. Frozen ERC-20 benchmark with verification-scope matrix. 279 total tests $+$ 15 new. |
@@ -234,7 +235,7 @@ Self-recursive functions must be declared with `letrec`, not `def-logic`. The `:
   (if (= n 0) 0 (countdown (- n 1))))
 ```
 
-- A **simple variable** measure (`:decreases n`) is verified automatically by `llmll verify`.
+- A **simple variable** measure (`:decreases n`) is checked for well-founded domain membership (`n ≥ 0`) by `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) is not yet verified; it is a v0.7 research-track item.
 - A **complex expression** (`:decreases (- n 1)`) emits a `?proof-required(complex-decreases)` hole — non-blocking, but the solver skips that function.
 - Using `def-logic` for a self-recursive function emits a **self-recursion warning**. `letrec` is the correct verified form.
 
@@ -504,7 +505,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 | Fragment | Status | Prover | What it covers |
 |----------|--------|--------|----------------|
 | **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** (v0.2+) | Z3 via liquid-fixpoint | `+`, `-`, `=`, `<`, `<=`, `>=`, `>` over `int`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
-| **Termination** (`:decreases` measures) | **Shipped** (v0.2+) | liquid-fixpoint | Simple variable measures (`:decreases n`) are verified automatically. Complex measures emit `?proof-required(complex-decreases)`. |
+| **Termination** (`:decreases` measures) | **Shipped** (v0.2+) | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is a v0.7 research-track item. Complex measures emit `?proof-required(complex-decreases)`. |
 | **Property-based testing** | **Shipped** (v0.1.1+) | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Inductive properties** | **Designed, not shipped** | Lean 4 via Leanstral MCP | Translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`). Currently runs in **mock mode only** (`--leanstral-mock`). Real proof integration is blocked on `lean-lsp-mcp` availability. |
 | **Cryptographic primitives** (v0.6.1) | **Asserted** | _(opaque — outside any decidable fragment)_ | `hmac-sha1` and `sha1` builtins are treated as axiomatically correct. Contracts on functions that use them are capped at `asserted` in the trust report. The TOTP benchmark (`examples/totp_rfc6238/`) is the second frozen benchmark demonstrating mixed verification levels (Proven + Asserted + Tested) across a single module. |
@@ -1772,6 +1773,20 @@ Complete sound unification — closes the last known unsoundness in the type che
 
 > [!NOTE]
 > **Known limitation (v0.5):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
+
+### v0.6.3 — Trust Model Fixes ✅ Shipped
+
+Seven critical bugs from the v0.6.3 engineering audit, all resolved. Stabilizes the trust model, enforces type-checking gates, and ensures verifiable correctness.
+
+| Area | Feature |
+|------|---------|
+| BUG-1 | ✅ `result` removed from precondition environments. `result` in a `pre` clause is now a hard error per §4.3. `exprContainsVar` helper validates recursively. |
+| BUG-4 | ✅ `tcStrictMode` typecheck gate. `typeCheckStrict`/`typeCheckStrictWithCache` enforce hard errors. `doBuild`, `doBuildFromJson`, `doRun`, `doVerify` all gate on strict typecheck. `llmll check --strict` CLI flag. |
+| BUG-2 | ✅ Contract instrumentation wired into build pipeline. `instrumentContracts` replaces `applyContractsMode`. `runtime-error` lowered to Haskell `error`. |
+| BUG-6 | ✅ Body-faithfulness guard on contract stripping. `isBodyFaithful` returns `False` for all current provers — no unsound assertion removal. |
+| BUG-7 | ✅ Proof laundering protection. `isTaintedProof` detects `sorry`/`mock`/`admit`. Mock prover tagged `"mock"` instead of `"leanstral"`. |
+| BUG-3 | ✅ Transitive trust closure via `transitiveClose` fixed-point iteration. `teEffectiveLevel = min(self, transitive deps)`. |
+| BUG-5 | ✅ Termination documentation corrected (§4.2, §5.3.3): non-negativity only, not strict descent. |
 
 ### v0.6.2 — Algebraic Interface Laws ✅ Shipped
 

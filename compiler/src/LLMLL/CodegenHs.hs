@@ -549,6 +549,7 @@ emitExpr (EPair a b)       = "(" <> emitExpr a <> ", " <> emitExpr b <> ")"
 emitExpr (EIf c t f)       =
   "(if " <> emitExpr c <> " then " <> emitExpr t <> " else " <> emitExpr f <> ")"
 emitExpr (ELet bs body)    = emitLet bs body
+emitExpr (EApp "runtime-error" [msg])  = "(error " <> emitExpr msg <> ")"  -- v0.6.3: contract assertion (BUG-2)
 emitExpr (EApp func args)  = emitApp func args
 emitExpr (EOp op args)     = emitOp op args
 emitExpr (EMatch scrut cs) = emitMatch scrut cs

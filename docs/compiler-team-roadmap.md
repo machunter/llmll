@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.6.2 shipped (Interface Laws); 289 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.6.3 shipped (Trust Model Fixes); 289 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -19,7 +19,7 @@
 
 # Upcoming Releases
 
-*(No upcoming releases — v0.6.2 shipped. See Research Track and v0.7 below.)*
+*(No upcoming releases — v0.6.3 shipped. See Research Track and v0.7 below.)*
 
 ---
 
@@ -148,17 +148,17 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 # Summary: Version Plan and Critical Path
 
 ```
-v0.5 (SHIPPED)    v0.6.0 (SHIPPED)              v0.6.1 (SHIPPED)              v0.6.2 (SHIPPED)    v0.7 (research)    Future
-──────────────    ────────────────────          ────────────────────          ────────────────    ───────────────    ──────
-U-full            Spec coverage gate ✅         TOTP benchmark ✅              Interface laws ✅   Type-driven dev    WASM build
-(Algorithm W)     + suppression governance ✅   Crypto builtins (§13.11) ✅    VSM-1 backfill ✅   Self-hosted orch   target
-                  ERC-20 frozen benchmark ✅    Hub query-by-sig ✅
-effectful         Clause-level provenance ✅    PROV-3 closure ✅                                 Contract-aware     WASI capability
-WASM compat       Claim narrowing ✅            BM-4 ERC-20 CI gate ✅                            hub matching       enforcement
+v0.5 (SHIPPED)    v0.6.0 (SHIPPED)              v0.6.1 (SHIPPED)              v0.6.2 (SHIPPED)    v0.6.3 (SHIPPED)       v0.7 (research)    Future
+──────────────    ────────────────────          ────────────────────          ────────────────    ────────────────       ───────────────    ──────
+U-full            Spec coverage gate ✅         TOTP benchmark ✅              Interface laws ✅   Trust model fixes ✅    Type-driven dev    WASM build
+(Algorithm W)     + suppression governance ✅   Crypto builtins (§13.11) ✅    VSM-1 backfill ✅   7 bug fixes             Self-hosted orch   target
+                  ERC-20 frozen benchmark ✅    Hub query-by-sig ✅                                tcStrictMode
+effectful         Clause-level provenance ✅    PROV-3 closure ✅                                 Transitive trust       Contract-aware     WASI capability
+WASM compat       Claim narrowing ✅            BM-4 ERC-20 CI gate ✅                            Body-faithful guard    hub matching       enforcement
 spike (GO)        Claim-to-evidence table ✅
 ```
 
-The critical path through v0.6.2 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → shipped**. v0.6.0 shipped the P0 items (spec coverage gate, ERC-20 benchmark, suppression governance, clause-level provenance, Leanstral claim narrowing). v0.6.1 shipped the TOTP benchmark, crypto builtins, hub query-by-signature, and v0.6.0 carryover (PROV-3, BM-4). v0.6.2 shipped algebraic interface laws (`def-interface :laws`) and VSM-1 backfill (289 Haskell + 37 Python tests). Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) are unversioned — promoted when full specs exist. WASM is a confirmed future direction, not pinned to a version.
+The critical path through v0.6.3 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → trust model fixes → shipped**. v0.6.3 resolved 7 critical bugs from the engineering audit: BUG-1 (result scope), BUG-2 (contract instrumentation), BUG-3 (transitive trust), BUG-4 (typecheck gate), BUG-5 (termination docs), BUG-6 (stripping guard), BUG-7 (proof laundering). Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) are unversioned — promoted when full specs exist. WASM is a confirmed future direction, not pinned to a version.
 
 ### What Changed from LLMLL.md §14
 
@@ -177,6 +177,7 @@ The critical path through v0.6.2 is complete: **context-aware checkout → worki
 | **v0.6.0** | *(revised 2026-04-23)* | Spec quality: **spec coverage gate + suppression governance (P0) ✅** + **frozen ERC-20 benchmark (P0) ✅** + **clause-level provenance (P1) ✅** + **Leanstral claim narrowing ✅** + **claim-to-evidence table ✅** — **shipped (2026-04-22)**. |
 | **v0.6.1** | *(shipped, 2026-04-23)* | TOTP frozen benchmark (BM2-1..5) ✅ + hub query-by-signature (HUB-1..3) ✅ + crypto builtins (§13.11) ✅ + v0.6.0 carryover (PROV-3, BM-4) ✅ — **shipped (2026-04-23)**. |
 | **v0.6.2** | *(shipped, 2026-04-24)* | Algebraic interface laws: `def-interface :laws` with `for-all` property syntax + QuickCheck codegen + VSM-1 backfill — **shipped (2026-04-24)**. Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to unversioned Research Track. |
+| **v0.6.3** | *(shipped, 2026-04-26)* | Trust model fixes: 7 critical bugs (BUG-1..7). `tcStrictMode` typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection, contract instrumentation in build pipeline, termination documentation correction — **shipped (2026-04-26)**. |
 | **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
@@ -192,8 +193,29 @@ The critical path through v0.6.2 is complete: **context-aware checkout → worki
 
 # Shipped Releases
 
-<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.6.2)</strong></summary>
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.6.3)</strong></summary>
 
+
+## v0.6.3 — Trust Model Fixes ✅ SHIPPED
+
+**Theme:** Stabilize the trust model, enforce type-checking gates, and ensure verifiable correctness.
+
+> 7 critical bugs from the v0.6.3 engineering audit. All resolved.
+
+| # | Bug | Action | Status |
+|---|-----|--------|--------|
+| 1 | BUG-1 | Remove `result` from precondition environments; hard error on `result` in `pre` | ✅ |
+| 2 | BUG-7 | `isTaintedProof`/`proofToLevel` guards in ProofCache; mock prover tagged `"mock"` | ✅ |
+| 3 | BUG-5 | Termination documentation corrected (§4.2, §5.3.3): non-negativity only, not strict descent | ✅ |
+| 4 | BUG-4 | `tcStrictMode` field + `typeCheckStrict`/`typeCheckStrictWithCache` + gates in `doBuild`/`doBuildFromJson`/`doRun`/`doVerify` + `--strict` CLI flag | ✅ |
+| 5 | BUG-2 | `instrumentContracts` replaces `applyContractsMode` in build pipeline; `runtime-error` lowered to `error` in CodegenHs | ✅ |
+| 6 | BUG-6 | `isBodyFaithful` guard on `filterContracts` (returns `False` for all current provers) | ✅ |
+| 7 | BUG-3 | `transitiveClose` fixed-point iteration; `enrichEntry` with `teEffectiveLevel = min(self, transitive deps)` | ✅ |
+| 8 | — | Regression sweep: 289/289 tests, ERC-20 (11/11), TOTP (14/14) benchmarks green | ✅ |
+
+**Test count:** 289 Haskell + 37 Python (unchanged count; 2 test expectations updated for BUG-6 behavior change)
+
+---
 
 ## v0.6.2 — Algebraic Interface Laws ✅ SHIPPED
 
