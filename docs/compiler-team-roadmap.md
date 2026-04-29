@@ -19,58 +19,114 @@
 
 # Upcoming Releases
 
-*(No upcoming releases — v0.6.3 shipped. See Research Track and v0.7 below.)*
+> **Roadmap reorganization (2026-04-28):** Consensus of language team, professor, and compiler team. The prior v0.7 was a grab-bag of unrelated items. The remaining work now divides into three tiers by readiness and theme: v0.7 (hardening), v0.8.0 (faithfulness core), v0.8.1 (integration). Research items extracted to [research-track.md](research-track.md). Cross-cutting concerns reduced from 15 to 3 active rows.
 
 ---
 
-## Research Track (unversioned)
+## Pre-v0.7 Hygiene (external consultant findings, 2026-04-28)
 
-> Items below lack engineering specs comparable to `interface-laws-spec.md`. Each is promoted to a versioned release only when a full spec exists.
+> Items below are not feature work — they are test drift and documentation drift identified during an independent project evaluation. Fix before starting v0.7.
 
-### Spec-from-RFC Pipeline
-
-> **Source:** [specification-sources.md §1](design/specification-sources.md)
-
-For LLMLL's target domains (financial, protocol, encryption), specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts.
-
-### Synthetic Training Corpus (Hackage Back-Translation)
-
-> **Source:** [specification-sources.md §5](design/specification-sources.md)
-
-| Phase | Work |
-|-------|------|
-| 1 | Haskell-to-LLMLL transpiler for a subset of Hackage (type sigs, QuickCheck props, LH annotations) |
-| 2 | Spec lifting: infer contracts from implementations + tests |
-| 3 | Benchmark: measure agent hole-fill accuracy before/after fine-tuning |
-
-### Differential Implementation Pressure
-
-> **Source:** [invariant-discovery-review.md §3](design/invariant-discovery-review.md)
-
-`llmll checkout --multi` allows N agents to independently fill the same hole. Divergence analysis generates distinguishing inputs.
+| # | ID | Description | Effort | Status |
+|---|-----|-------------|--------|--------|
+| 1 | **TEST-DRIFT** | Fix Python dry-run Lead Agent fixture — stub plan in `agent.py:385` defines `stub-fn` with no contract, rejected by the spec-quality gate added in v0.6.0. Update fixture to include a minimal contract. | 0.5 hr | ☐ |
+| 2 | **DOC-DRIFT** | Reconcile LLMLL.md with `SpecCoverage.hs` JSON output — spec describes `suppression_debt` field but `SpecCoverage.hs:302` only emits `effective_coverage`. Either remove the field from the spec until SUPP-DEBT ships (v0.8.0), or add a stub field now. | 0.5 hr | ☐ |
 
 ---
 
-## v0.7 — Type-Driven + Self-Hosted (Research)
+## v0.7 — Hardening (~6.5 hr, 1 day)
 
-**Theme:** Explore whether richer types fundamentally improve agent accuracy, and whether LLMLL can build itself.
+**Theme:** Close the remaining concrete, fully-spec'd fixes from the external review.
 
-### Type-Driven Development (Minimal Experiment)
+> **Source:** [compiler-team-v07-tier2-activities.md](compiler-team-v07-tier2-activities.md) — full activity steps and implementation details.  
+> **Estimated effort:** ~6.5 hours (1 day)  
+> **Status:** Consensus reached (professor + language team + compiler team, 2026-04-26)
 
-> **Source:** [type-driven-development.md](design/type-driven-development.md)
+| # | ID | Description | Effort | Status |
+|---|-----|-------------|--------|--------|
+| 1 | **BUILTIN-2** | `string-char-at` negative index guard (`i >= 0` check) | 0.5 hr | ☐ |
+| 2 | **BUILTIN-1** | `regex-match` → POSIX ERE via `regex-tdfa` + `isInfixOf` import cleanup | 2 hr | ☐ |
+| 3 | **DO-1** | Warn/error on discarded intermediate `do`-block commands (warning in `check`, error in `build`/`verify` via `tcStrictMode`) | 2 hr | ☐ |
+| 4 | **TRUST-2a** | Add `VLProvenSMT` constructor to `VerificationLevel` — distinguishes SMT proofs from generic `VLProven` in JSON output and trust reports | 2 hr | ☐ |
 
-| Step | Work |
-|------|------|
-| 1 | Add `Vect n a` as a built-in indexed type |
-| 2 | Add `llmll split ?hole <variable>` CLI command |
-| 3 | Run an agent through 3-step type-driven fill of `safe-head` |
-| 4 | Compare accuracy vs contract-based approach |
+**What changed:** Nothing — this is exactly the prior v0.7 engineering backlog. But it's now the *only* thing in v0.7. Research items moved to Research Track.
 
-### Self-Hosted Orchestrator
+---
 
-> **Source:** [agent-orchestration.md §Option B](design/agent-orchestration.md)
+## v0.8.0 — Faithfulness Core (no external blockers)
 
-Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisites: JSON parsing (v0.4), stable orchestration protocol, sufficient agent accuracy.
+**Theme:** Close the faithfulness gap — make `VLProven` mean implementation-verified, not just contract-consistent.
+
+> **Source:** Professor's analysis (2026-04-28) identified the gap documented in [LLMLL.md §5.3.4](../LLMLL.md) and [Contracts.hs:191–192](../compiler/src/LLMLL/Contracts.hs). Currently, `emitFnConstraints` ([FixpointEmit.hs:110](../compiler/src/LLMLL/FixpointEmit.hs)) ignores function bodies entirely — the `.fq` emitter checks contract self-consistency, not implementation correctness. `isBodyFaithful` returns `False` unconditionally (BUG-6 guard).
+>
+> **Consensus:** Language team proposal + professor review + compiler team feedback (2026-04-28).
+
+### BODY-VC — Body-Faithful Verification Conditions
+
+> [!IMPORTANT]
+> BODY-VC needs a design spec before it's implementable. The language team should produce a document comparable to `interface-laws-spec.md`. This is the single most important design task remaining.
+
+**Proof obligations the design spec must address:**
+
+| Obligation | Question |
+|-----------|----------|
+| VC encoding completeness | Which `Expr` constructors can be translated to `.fq` predicates? Current `exprToPred` handles literals, variables, comparisons, linear arithmetic. BODY-VC needs `ELet`, `EIf`, `EApp` (for known pure functions). |
+| Soundness of body translation | Is `bodyToPred` a conservative abstraction — never weaker than the body's actual semantics? |
+| `TDependent` interaction | Should dependent constraints on intermediate let-bindings be re-injected into VCs? Or does the two-layer architecture (types = structure, contracts = behavior) mean they stay out? |
+| Recursive functions | Should BODY-VC be limited to non-recursive `def-logic` initially? `letrec` needs an inductive hypothesis — Lean tier territory. |
+| Coverage fallback | When `bodyToPred` returns `Nothing`, document the fallback behavior explicitly. |
+
+**Coverage boundary:**
+
+- **In scope:** Non-recursive `def-logic` with `ELet`, `EIf`, literal arithmetic, variable references, comparisons
+- **Out of scope:** `letrec` (needs inductive hypothesis), indexed types (`Vect n a`), `EMatch` on sum types (phase 2), `EApp` for user-defined functions (phase 2)
+- **Fallback:** When `bodyToPred` returns `Nothing`, function stays at current `VLProven` with `isBodyFaithful = False`
+
+| # | ID | Description | Prerequisite | Effort |
+|---|-----|-------------|-------------|--------|
+| 1 | **BODY-VC-0** | Design spec: VC encoding rules, soundness argument, coverage boundary, `TDependent` interaction, recursive function handling, `ContractClause` refactor decision, `bodyToPred` placement (new function calling `exprToPred` for leaves — Option B), **concrete `.fq` example for each translation rule** | None | 2–3 days |
+| 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe FQPred` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). +1 day buffer for `EIf` conditional VC encoding (guard-in-LHS-refinement approach per compiler team review) | BODY-VC-0 | 4–6 days |
+| 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just pred`, emit body-faithful VC | BODY-VC-1 | 1–2 days |
+| 4 | **BODY-VC-3** | Update `isBodyFaithful` → `True` for `"liquid-fixpoint"` when body VC is active | BODY-VC-2 | 0.5 day |
+| 5 | **BODY-VC-T** | FixpointEmit golden tests — `.fq` file for every `bodyToPred` translation rule (TCB hardening, per [verification-debate-action-items.md](design/verification-debate-action-items.md)) | BODY-VC-1 | 1–2 days |
+
+**Critical path:** BODY-VC-0 → BODY-VC-1 → BODY-VC-2 → BODY-VC-3. BODY-VC-T can run in parallel with BODY-VC-2.
+
+### Other v0.8.0 Items
+
+| # | ID | Description | Prerequisite | Effort |
+|---|-----|-------------|-------------|--------|
+| 6 | **SUPP-DEBT** | `suppression_debt` field in `SpecCoverage.hs` JSON output | None | 0.5 day |
+| 7 | **EVENT-LOG** | Orchestration event log schema (Q3 from v0.3.3, deferred since v0.3.5) | Lead Agent stabilized (done) | 1–2 days |
+| 8 | **SPEC-FOUNDATION** | Add §0.1 "Semantic Foundation" to LLMLL.md — LLMLL's operational semantics are defined by the generated Haskell program (verification-debate design decision, never landed in spec; see [verification-debate-action-items.md:47](design/verification-debate-action-items.md)) | None | 0.5 day |
+| 9 | **SPEC-EFFECTS** | Add §3.3 "Effect Model" to LLMLL.md — capabilities are static-checked, not algebraic, not row-polymorphic (see [verification-debate-action-items.md:53](design/verification-debate-action-items.md)) | None | 0.5 day |
+| 10 | **SPEC-TRUST** | Elevate `(trust ...)` documentation in LLMLL.md — soundness boundary, propagation, review pressure. BODY-VC changes what "proven" means; trust docs must be updated in the same release (see [verification-debate-action-items.md:63](design/verification-debate-action-items.md)) | BODY-VC-3 | 0.5 day |
+
+### Open Spec Items (Language Team)
+
+> Obligations from [verification-debate-action-items.md](design/verification-debate-action-items.md) that haven't landed in `LLMLL.md`. Tracked here for scheduling.
+
+| # | Item | Priority | Placement |
+|---|------|----------|-----------|
+| 1 | §0.1 "Semantic Foundation" — operational semantics = generated Haskell | High | v0.8.0 (SPEC-FOUNDATION) |
+| 2 | §3.3 "Effect Model" — capabilities are static-checked, not algebraic, not row-polymorphic | Medium | v0.8.0 (SPEC-EFFECTS) — compiler team review: half-day spec edit, no code |
+| 3 | Elevated `(trust ...)` documentation — soundness boundary, propagation, review pressure | High | v0.8.0 (SPEC-TRUST) — compiler team review: BODY-VC changes what "proven" means; trust docs must ship in same release |
+| 4 | §6 spec-adequacy note — user responsibility for specification correctness | Low | Deferred |
+
+---
+
+## v0.8.1 — Faithfulness Integration (external blockers)
+
+**Theme:** Extend body-faithful verification to interactive provers and unlock assertion stripping.
+
+| # | ID | Description | Blocker |
+|---|-----|-------------|---------|
+| 1 | **LEAN-GA** | Real Leanstral integration (non-mock proofs) | `lean-lsp-mcp` availability |
+| 2 | **TRUST-2b** | `VLProvenLean` + `VLTrustedBase` constructors — see [compiler-team-v07-tier2-activities.md](compiler-team-v07-tier2-activities.md) Activity 5 | LEAN-GA |
+| 3 | **STRIP-GA** | Enable `isBodyFaithful → True` for body-faithful provers, unlock assertion stripping | BODY-VC-3 + LEAN-GA |
+| 4 | **MCP** | MCP integration for compiler CLI | Concrete external integration request |
+
+**What changed:** TRUST-2b, Lean integration, and MCP consolidated here from cross-cutting concerns and old v0.7. STRIP-GA is new — it is the item that BUG-6's `isBodyFaithful` guard was designed to gate. Everything flows from BODY-VC as the root unlock.
 
 ---
 
@@ -113,25 +169,33 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 
 # Cross-Cutting Concerns
 
-### Items Tracked Across Versions
+### Active Items
 
 | Item | Current Status | Next Action |
 |------|---------------|-------------|
-| Orchestration event log format (Q3 from v0.3.3) | Deferred from v0.3.5 | Deferred to v0.4.1 or v0.5 — let orchestrator stabilize before formalizing schema (compiler + language team, 2026-04-20) |
-| MCP integration (Q5 from v0.3.3) | Deferred | Python v1 is CLI-only; MCP with self-hosted rewrite |
-| Real Leanstral integration | Mock-only since v0.3.1. **Product claim narrowed (v0.6 CLAIM-1..2, 2026-04-21)** — one-pager and LLMLL.md now distinguish shipped SMT verification from designed-but-mock Lean 4 path. | Blocked on `lean-lsp-mcp` availability. If >3 months, move to deferred-v0.8. |
-| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | v0.4: CAP-1 (capability presence check in `inferExpr`; non-transitive module-local propagation). v0.5: `effectful` WASM compat spike (binary test, **GO**). Full WASI enforcement deferred to WASM build target (unversioned future). |
-| Spec coverage metric (`--spec-coverage`) | **Shipped** (v0.6.0, SC-1..SC-4). Classifies functions as contracted/suppressed/unspecified, computes effective coverage, gates `--mode auto`. | Resolved. |
-| Spec-adequacy benchmark (ERC-20) | **Shipped** (v0.6.0 BM-1..3/5, v0.6.1 BM-4). Frozen benchmark with CI gate (11 assertions). | Resolved. |
-| Spec-adequacy benchmark (TOTP) | **Shipped** (v0.6.1, BM2-1..BM2-5). Frozen benchmark with CI gate (14 assertions). | Resolved. |
-| Verification-scope matrix policy | **Shipped** (VSM-2 policy in getting-started.md, VSM-1 backfill in v0.6.2). All verifier examples have `VERIFICATION_SCOPE.md`. | Resolved. |
-| Suppression governance (`weakness-ok`) | **Shipped** (v0.6.0). `SWeaknessOk` AST node, mandatory reason, governance warnings W601–W603, trust report integration. | Resolved. |
-| Claim-to-evidence appendix | **Shipped** in one-pager (2026-04-23). Maps each claim to shipped command + verification level. Updated for v0.6.0. | Resolved. |
-| Contract clause-level provenance | **Shipped** (v0.6.0 PROV-1/2/4, v0.6.1 PROV-3). `:source` annotation threaded through trust report and `.verified.json`. | Resolved. |
-| Hub query-by-signature | **Shipped** (v0.6.1, HUB-1..HUB-3). `LLMLL.HubQuery` module, `structuralMatch` with TVar wildcards, CLI `hub query --signature`. | Resolved. |
-| Contract discriminative power formalization | Proposed by Professor | Research track for v0.6 |
-| Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) | No blocker — U-full shipped. Revisit if v0.6 type-driven development changes architecture. |
-| `TSumType` wildcarding in `compatibleWith` | **Fixed** in U-Lite (v0.4, U7-lite) | Resolved. |
+| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |
+| TRUST-2b (`VLProvenLean` + `VLTrustedBase`) | **Deferred** (2026-04-26) | v0.8.1 — activate with Lean GA |
+| Contract discriminative power formalization | Proposed by Professor | Research track — best-effort before BODY-VC-0 |
+
+<details><summary><strong>Resolved cross-cutting items (click to expand)</strong></summary>
+
+| Item | Resolution |
+|------|------------|
+| Orchestration event log format (Q3 from v0.3.3) | Moved to v0.8.0 as EVENT-LOG |
+| MCP integration (Q5 from v0.3.3) | Moved to v0.8.1 |
+| Real Leanstral integration | Moved to v0.8.1 as LEAN-GA. Product claim narrowed (v0.6 CLAIM-1..2). |
+| Spec coverage metric (`--spec-coverage`) | **Shipped** (v0.6.0, SC-1..SC-4) |
+| Spec-adequacy benchmark (ERC-20) | **Shipped** (v0.6.0 BM-1..3/5, v0.6.1 BM-4) |
+| Spec-adequacy benchmark (TOTP) | **Shipped** (v0.6.1, BM2-1..BM2-5) |
+| Verification-scope matrix policy | **Shipped** (VSM-2 policy, VSM-1 backfill in v0.6.2) |
+| Suppression governance (`weakness-ok`) | **Shipped** (v0.6.0) |
+| Claim-to-evidence appendix | **Shipped** in one-pager (2026-04-23) |
+| Contract clause-level provenance | **Shipped** (v0.6.0 PROV-1/2/4, v0.6.1 PROV-3) |
+| Hub query-by-signature | **Shipped** (v0.6.1, HUB-1..HUB-3) |
+| Algorithm W `TDependent` interaction | **Resolved** (Strip-then-Unify, Option A, 2026-04-19) |
+| `TSumType` wildcarding in `compatibleWith` | **Fixed** in U-Lite (v0.4, U7-lite) |
+
+</details>
 
 ### What's NOT on this Roadmap (and why)
 
@@ -148,17 +212,27 @@ Write the orchestrator as an LLMLL program with `def-main :mode cli`. Prerequisi
 # Summary: Version Plan and Critical Path
 
 ```
-v0.5 (SHIPPED)    v0.6.0 (SHIPPED)              v0.6.1 (SHIPPED)              v0.6.2 (SHIPPED)    v0.6.3 (SHIPPED)       v0.7 (research)    Future
-──────────────    ────────────────────          ────────────────────          ────────────────    ────────────────       ───────────────    ──────
-U-full            Spec coverage gate ✅         TOTP benchmark ✅              Interface laws ✅   Trust model fixes ✅    Type-driven dev    WASM build
-(Algorithm W)     + suppression governance ✅   Crypto builtins (§13.11) ✅    VSM-1 backfill ✅   7 bug fixes             Self-hosted orch   target
-                  ERC-20 frozen benchmark ✅    Hub query-by-sig ✅                                tcStrictMode
-effectful         Clause-level provenance ✅    PROV-3 closure ✅                                 Transitive trust       Contract-aware     WASI capability
-WASM compat       Claim narrowing ✅            BM-4 ERC-20 CI gate ✅                            Body-faithful guard    hub matching       enforcement
-spike (GO)        Claim-to-evidence table ✅
+v0.6.3 (SHIPPED)       v0.7 (Hardening)    v0.8.0 (Faithfulness Core)    v0.8.1 (Integration)     Future
+────────────────       ────────────────    ──────────────────────────    ────────────────────     ──────
+Trust model fixes ✅    BUILTIN-1/2 ☐      BODY-VC-0 (design spec) ☐     LEAN-GA (blocked)        WASM
+7 bug fixes             DO-1 ☐             BODY-VC-1 (bodyToPred) ☐       TRUST-2b                 target
+tcStrictMode            TRUST-2a ☐         BODY-VC-2 (wire) ☐             STRIP-GA
+Transitive trust                           BODY-VC-3 (unlock) ☐           MCP                      WASI
+Body-faithful guard    ~6.5 hr             BODY-VC-T (golden tests) ☐                              enforcement
+                       1 day              SUPP-DEBT ☐
+                                          EVENT-LOG ☐
+                                          SPEC-FOUNDATION ☐
 ```
 
-The critical path through v0.6.3 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → trust model fixes → shipped**. v0.6.3 resolved 7 critical bugs from the engineering audit: BUG-1 (result scope), BUG-2 (contract instrumentation), BUG-3 (transitive trust), BUG-4 (typecheck gate), BUG-5 (termination docs), BUG-6 (stripping guard), BUG-7 (proof laundering). Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) are unversioned — promoted when full specs exist. WASM is a confirmed future direction, not pinned to a version.
+The critical path through v0.6.3 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → trust model fixes → shipped**. v0.6.3 resolved 7 critical bugs from the engineering audit: BUG-1 (result scope), BUG-2 (contract instrumentation), BUG-3 (transitive trust), BUG-4 (typecheck gate), BUG-5 (termination docs), BUG-6 (stripping guard), BUG-7 (proof laundering).
+
+**v0.7 critical path:** BUILTIN-2 → BUILTIN-1 → DO-1 → TRUST-2a (independent, can be done in any order). ~1 day.
+
+**v0.8.0 critical path:** BODY-VC-0 (design spec) → BODY-VC-1 (`bodyToPred`) → BODY-VC-2 (wire into emitter) → BODY-VC-3 (flip `isBodyFaithful`). BODY-VC-T (golden tests) runs in parallel with BODY-VC-2. SUPP-DEBT, EVENT-LOG, SPEC-FOUNDATION are independent.
+
+**v0.8.1 trigger:** LEAN-GA (blocked on `lean-lsp-mcp`). TRUST-2b and STRIP-GA depend on LEAN-GA. MCP triggered by external demand.
+
+Research-track items are tracked separately in [research-track.md](research-track.md) — not part of the compiler engineering backlog. WASM is a confirmed future direction, not pinned to a version.
 
 ### What Changed from LLMLL.md §14
 
@@ -178,7 +252,9 @@ The critical path through v0.6.3 is complete: **context-aware checkout → worki
 | **v0.6.1** | *(shipped, 2026-04-23)* | TOTP frozen benchmark (BM2-1..5) ✅ + hub query-by-signature (HUB-1..3) ✅ + crypto builtins (§13.11) ✅ + v0.6.0 carryover (PROV-3, BM-4) ✅ — **shipped (2026-04-23)**. |
 | **v0.6.2** | *(shipped, 2026-04-24)* | Algebraic interface laws: `def-interface :laws` with `for-all` property syntax + QuickCheck codegen + VSM-1 backfill — **shipped (2026-04-24)**. Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to unversioned Research Track. |
 | **v0.6.3** | *(shipped, 2026-04-26)* | Trust model fixes: 7 critical bugs (BUG-1..7). `tcStrictMode` typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection, contract instrumentation in build pipeline, termination documentation correction — **shipped (2026-04-26)**. |
-| **v0.7** | *(new)* | Type-driven development + self-hosted orchestrator + contract-aware hub matching — **research** |
+| **v0.7** | *(reorganized, 2026-04-28)* | **Hardening only:** BUILTIN-1/2 (preamble fixes), DO-1 (discarded command warning), TRUST-2a (`VLProvenSMT` constructor). Research items moved to unversioned Research Track. |
+| **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec + `bodyToPred` + emitter integration + `isBodyFaithful` unlock + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. |
+| **v0.8.1** | *(new, 2026-04-28)* | **Faithfulness Integration:** LEAN-GA (real Leanstral) + TRUST-2b (`VLProvenLean` + `VLTrustedBase`) + STRIP-GA (assertion stripping unlock) + MCP. Blocked on external availability. |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
 ### Items Removed from Scope
