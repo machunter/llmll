@@ -44,6 +44,8 @@ module LLMLL.FixpointEmit
   , bodyToPredFrom
   , flattenBodyVC
   , countPathsBounded
+    -- * Contract translation (exported for testing)
+  , exprToPred
   ) where
 
 import Data.Text (Text)
@@ -52,7 +54,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, catMaybes)
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put)
 
 import LLMLL.Syntax
@@ -84,6 +86,8 @@ data EmitResult = EmitResult
   , erBodyFaithful    :: [Text]           -- ^ v0.8.0: functions with successful body VCs
   , erBodyFallback    :: [Text]           -- ^ v0.8.0: functions that fell back
   , erDiagnostics     :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
+  , erEmittedPre      :: [Text]           -- ^ v0.8.0: functions whose pre emitted a constraint
+  , erEmittedPost     :: [Text]           -- ^ v0.8.0: functions whose post emitted a constraint
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -155,6 +159,8 @@ emitFixpointWith opts srcFile stmts = do
   bodyFaithfulRef <- newIORef ([] :: [Text])
   bodyFallbackRef <- newIORef ([] :: [Text])
   diagsRef <- newIORef ([] :: [Diagnostic])
+  emittedPreRef <- newIORef ([] :: [Text])
+  emittedPostRef <- newIORef ([] :: [Text])
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -175,6 +181,8 @@ emitFixpointWith opts srcFile stmts = do
   let addBodyFaithful n = modifyIORef' bodyFaithfulRef (++ [n])
   let addBodyFallback n = modifyIORef' bodyFallbackRef (++ [n])
   let addDiag d = modifyIORef' diagsRef (++ [d])
+  let addEmittedPre n = modifyIORef' emittedPreRef (++ [n])
+  let addEmittedPost n = modifyIORef' emittedPostRef (++ [n])
 
   -- Process each statement
   forM_ (zip [0..] stmts) $ \(idx, stmt) ->
@@ -186,13 +194,13 @@ emitFixpointWith opts srcFile stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          bodyCounterRef
+          addEmittedPre addEmittedPost bodyCounterRef
           name params mRet contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          bodyCounterRef
+          addEmittedPre addEmittedPost bodyCounterRef
           name params mRet contract Nothing (Just dec) idx
 
       _ -> pure ()
@@ -207,6 +215,8 @@ emitFixpointWith opts srcFile stmts = do
   bfaithful <- readIORef bodyFaithfulRef
   bfallback <- readIORef bodyFallbackRef
   diags     <- readIORef diagsRef
+  emPre     <- readIORef emittedPreRef
+  emPost    <- readIORef emittedPostRef
   let fqFile = FQFile dataDecs quals binds consts
   return EmitResult
     { erFQFile          = fqFile
@@ -216,6 +226,8 @@ emitFixpointWith opts srcFile stmts = do
     , erBodyFaithful    = bfaithful
     , erBodyFallback    = bfallback
     , erDiagnostics     = diags
+    , erEmittedPre      = emPre
+    , erEmittedPost     = emPost
     }
 
 -- ---------------------------------------------------------------------------
@@ -235,6 +247,8 @@ emitFnConstraints
   -> (Text -> IO ())       -- record body-faithful function
   -> (Text -> IO ())       -- record body-fallback function
   -> (Diagnostic -> IO ()) -- emit diagnostics
+  -> (Text -> IO ())       -- v0.8.0: record emitted pre clause
+  -> (Text -> IO ())       -- v0.8.0: record emitted post clause
   -> IORef Int             -- body-VC alpha-renaming counter
   -> Name
   -> [(Name, Type)]
@@ -245,153 +259,159 @@ emitFnConstraints
   -> Int                   -- statement index (for JSON Pointer)
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
-    addSkip addOrigin addBodyFaithful addBodyFallback addDiag bodyCounterRef
+    addSkip addOrigin addBodyFaithful addBodyFallback addDiag
+    addEmittedPre addEmittedPost bodyCounterRef
     name params mRet contract mBody mDec stmtIdx = do
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isIntType t ]
-  -- v0.8.0: Fix dead early-exit — `when ... return ()` does NOT short-circuit in IO.
-  -- Use explicit guard to actually skip when nothing to verify.
+  -- v0.8.0: Fix dead early-exit — check condition and exit early if nothing to verify.
   let hasContract = isJust (contractPre contract) || isJust (contractPost contract)
-  when (null intParams && not hasContract) $ return ()
+      hasIntParams = not (null intParams)
+  -- Only proceed if there are int params or contracts to verify
+  if not hasIntParams && not hasContract
+    then pure ()
+    else do
 
-  -- Emit binders for all int-typed params
-  paramBinds <- mapM (emitParamBind freshBid addBind) intParams
-  let envIds = map bindId paramBinds
+    -- Emit binders for all int-typed params
+    paramBinds <- mapM (emitParamBind freshBid addBind) intParams
+    let envIds = map bindId paramBinds
 
-  -- Emit qualifiers extracted from pre/post
-  let preQuals  = maybe [] (extractQualifiers "pre"  name) (contractPre contract)
-      postQuals = maybe [] (extractQualifiers "post" name) (contractPost contract)
-  addQuals (preQuals ++ postQuals)
+    -- Emit qualifiers extracted from pre/post
+    let preQuals  = maybe [] (extractQualifiers "pre"  name) (contractPre contract)
+        postQuals = maybe [] (extractQualifiers "post" name) (contractPost contract)
+    addQuals (preQuals ++ postQuals)
 
-  -- Emit pre-condition constraint
-  case contractPre contract of
-    Nothing  -> pure ()
-    Just pre ->
-      case exprToPred pre of
-        Nothing   -> addSkip name  -- non-linear: skip with note
-        Just pred -> do
-          cid  <- freshCid
-          let lhs = FQReft "v" FQInt FQTrue   -- no lhs restriction
-              rhs = FQReft "v" FQInt pred
-              c   = FQConstraint cid envIds lhs rhs [name, "pre"]
-          addConst c
-          let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/pre"
-          addOrigin cid (ConstraintOrigin name "pre" ptr srcFile)
+    -- Emit pre-condition constraint
+    case contractPre contract of
+      Nothing  -> pure ()
+      Just pre ->
+        case exprToPred pre of
+          Nothing   -> addSkip name  -- non-linear: skip with note
+          Just pred -> do
+            cid  <- freshCid
+            let lhs = FQReft "v" FQInt FQTrue   -- no lhs restriction
+                rhs = FQReft "v" FQInt pred
+                c   = FQConstraint cid envIds lhs rhs [name, "pre"]
+            addConst c
+            addEmittedPre name  -- v0.8.0: track that this pre actually emitted
+            let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/pre"
+            addOrigin cid (ConstraintOrigin name "pre" ptr srcFile)
 
-  -- Emit post-condition constraint
-  case contractPost contract of
-    Nothing   -> pure ()
-    Just post ->
-      case exprToPred post of
-        Nothing   -> addSkip name
-        Just pred -> do
-          cid    <- freshCid
-          -- 'result' binder: type inferred from return annotation
-          let retSort = maybe FQInt typeToSort mRet
-          rbid   <- freshBid
-          let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
-          addBind resultBind
-          let lhs = FQReft "result" retSort FQTrue
-              rhs = FQReft "result" retSort pred
-              c   = FQConstraint cid (envIds ++ [rbid]) lhs rhs [name, "post"]
-          addConst c
-          let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/post"
-          addOrigin cid (ConstraintOrigin name "post" ptr srcFile)
+    -- Emit post-condition constraint
+    case contractPost contract of
+      Nothing   -> pure ()
+      Just post ->
+        case exprToPred post of
+          Nothing   -> addSkip name
+          Just pred -> do
+            cid    <- freshCid
+            -- 'result' binder: type inferred from return annotation
+            let retSort = maybe FQInt typeToSort mRet
+            rbid   <- freshBid
+            let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
+            addBind resultBind
+            let lhs = FQReft "result" retSort FQTrue
+                rhs = FQReft "result" retSort pred
+                c   = FQConstraint cid (envIds ++ [rbid]) lhs rhs [name, "post"]
+            addConst c
+            addEmittedPost name  -- v0.8.0: track that this post actually emitted
+            let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/post"
+            addOrigin cid (ConstraintOrigin name "post" ptr srcFile)
 
-  -- Emit termination constraint for letrec :decreases
-  case mDec of
-    Nothing  -> pure ()
-    Just dec ->
-      case exprToPred dec of
-        Nothing   -> addSkip name  -- complex decrease: D3 already flagged ?proof-required
-        Just decPred -> do
-          cid  <- freshCid
-          -- well-foundedness: decreases >= 0 (necessary condition for termination)
-          let lhs = FQReft "v" FQInt decPred
-              rhs = FQReft "v" FQInt (FQBinPred FQGe (FQVar "v") (FQLit 0))
-              c   = FQConstraint cid envIds lhs rhs [name, "decreases"]
-          addConst c
-          let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
-          addOrigin cid (ConstraintOrigin name "decreases" ptr srcFile)
+    -- Emit termination constraint for letrec :decreases
+    case mDec of
+      Nothing  -> pure ()
+      Just dec ->
+        case exprToPred dec of
+          Nothing   -> addSkip name  -- complex decrease: D3 already flagged ?proof-required
+          Just decPred -> do
+            cid  <- freshCid
+            -- well-foundedness: decreases >= 0 (necessary condition for termination)
+            let lhs = FQReft "v" FQInt decPred
+                rhs = FQReft "v" FQInt (FQBinPred FQGe (FQVar "v") (FQLit 0))
+                c   = FQConstraint cid envIds lhs rhs [name, "decreases"]
+            addConst c
+            let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
+            addOrigin cid (ConstraintOrigin name "decreases" ptr srcFile)
 
-  -- v0.8.0: Emit body-faithful verification conditions
-  -- Body VCs prove: P ∧ (result = ⟦body⟧) ⟹ Q
-  when (emitBodyVCs opts) $ case mBody of
-    Nothing -> pure ()  -- letrec: no body VC (recursive, excluded from BODY-VC-0)
-    Just body -> do
-      -- Fallback policy (§0.7): require translatable post. If pre exists, it must
-      -- also be translatable, otherwise fallback conservatively.
-      let mPostPred = contractPost contract >>= exprToPred
-          mPrePred  = case contractPre contract of
-                        Nothing  -> Just Nothing       -- no pre is fine
-                        Just pre -> case exprToPred pre of
-                                      Nothing -> Nothing    -- pre exists but untranslatable → fallback
-                                      Just p  -> Just (Just p)
-      case (mPostPred, mPrePred) of
-        (Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
-        (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
-        (Just postPred, Just mPre) -> do
-          -- Build SortEnv from int-typed parameters
-          let sortEnv = buildSortEnv params
-          -- Translate body
-          seed <- readIORef bodyCounterRef
-          let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv body
-          writeIORef bodyCounterRef newSeed
-          case mBodyVC of
-            Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
-            Just bvc -> do
-              -- Path count check (bounded)
-              let pathCount = countPathsBounded 4097 bvc  -- stop at 4097
-              if pathCount > 4096
-                then do
-                  -- >4096: fallback, not error
-                  addBodyFallback name
-                  addDiag $ mkWarning Nothing $
-                    "body VC for '" <> name <> "' exceeded 4096 path limit — "
-                    <> "falling back to contract-only verification"
-                else do
-                  -- Warn at 257-4096
-                  when (pathCount > 256) $
+    -- v0.8.0: Emit body-faithful verification conditions
+    -- Body VCs prove: P ∧ (result = ⟦body⟧) ⟹ Q
+    when (emitBodyVCs opts) $ case mBody of
+      Nothing -> pure ()  -- letrec: no body VC (recursive, excluded from BODY-VC-0)
+      Just body -> do
+        -- Fallback policy (§0.7): require translatable post. If pre exists, it must
+        -- also be translatable, otherwise fallback conservatively.
+        let mPostPred = contractPost contract >>= exprToPred
+            mPrePred  = case contractPre contract of
+                          Nothing  -> Just Nothing       -- no pre is fine
+                          Just pre -> case exprToPred pre of
+                                        Nothing -> Nothing    -- pre exists but untranslatable → fallback
+                                        Just p  -> Just (Just p)
+        case (mPostPred, mPrePred) of
+          (Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
+          (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
+          (Just postPred, Just mPre) -> do
+            -- Build SortEnv from int-typed parameters
+            let sortEnv = buildSortEnv params
+            -- Translate body
+            seed <- readIORef bodyCounterRef
+            let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv body
+            writeIORef bodyCounterRef newSeed
+            case mBodyVC of
+              Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
+              Just bvc -> do
+                -- Path count check (bounded)
+                let pathCount = countPathsBounded 4097 bvc  -- stop at 4097
+                if pathCount > 4096
+                  then do
+                    -- >4096: fallback, not error
+                    addBodyFallback name
                     addDiag $ mkWarning Nothing $
-                      "body VC for '" <> name <> "' has "
-                      <> T.pack (show pathCount) <> " paths (high path count may slow solver)"
-                  -- Flatten and emit constraints
-                  let paths = flattenBodyVC bvc
-                      retSort = maybe FQInt typeToSort mRet
-                  forM_ (zip [0::Int ..] paths) $ \(pathIdx, (guard, lbs, resultPred)) -> do
-                    -- Emit binders for each let-binding in this path
-                    lbBindIds <- mapM (\lb -> do
-                      bid <- freshBid
-                      let b = FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
-                                (FQBinPred FQEq (FQVar "v") (lbRhs lb)))
-                      addBind b
-                      return bid) lbs
-                    -- Emit result binder
-                    rbid <- freshBid
-                    let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
-                    addBind resultBind
-                    -- Build LHS: guard ∧ pre ∧ (result = body-result)
-                    let resultEq = FQBinPred FQEq (FQVar "result") resultPred
-                        lhsPred  = conjoinAll $ [guard | guard /= FQTrue]
-                                              ++ maybe [] (:[]) mPre
-                                              ++ [resultEq]
-                        lhs = FQReft "result" retSort lhsPred
-                        rhs = FQReft "result" retSort postPred
-                    -- Determine tag based on guard
-                    let tag = case guard of
-                                FQTrue -> "body-post"
-                                _      -> if pathIdx < length (flattenBodyVC bvc) `div` 2
-                                           then "body-post-then"
-                                           else "body-post-else"
-                    cid <- freshCid
-                    let allEnvIds = envIds ++ lbBindIds ++ [rbid]
-                        c = FQConstraint cid allEnvIds lhs rhs [name, tag]
-                    addConst c
-                    let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
-                    addOrigin cid (ConstraintOrigin name tag ptr srcFile)
-                  -- Mark as body-faithful
-                  addBodyFaithful name
+                      "body VC for '" <> name <> "' exceeded 4096 path limit — "
+                      <> "falling back to contract-only verification"
+                  else do
+                    -- Warn at 257-4096
+                    when (pathCount > 256) $
+                      addDiag $ mkWarning Nothing $
+                        "body VC for '" <> name <> "' has "
+                        <> T.pack (show pathCount) <> " paths (high path count may slow solver)"
+                    -- Flatten and emit constraints
+                    let paths = flattenBodyVC bvc
+                        retSort = maybe FQInt typeToSort mRet
+                    forM_ (zip [0::Int ..] paths) $ \(pathIdx, (guard, lbs, resultPred)) -> do
+                      -- Emit binders for each let-binding in this path
+                      lbBindIds <- mapM (\lb -> do
+                        bid <- freshBid
+                        let b = FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
+                                  (FQBinPred FQEq (FQVar "v") (lbRhs lb)))
+                        addBind b
+                        return bid) lbs
+                      -- Emit result binder
+                      rbid <- freshBid
+                      let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
+                      addBind resultBind
+                      -- Build LHS: guard ∧ pre ∧ (result = body-result)
+                      let resultEq = FQBinPred FQEq (FQVar "result") resultPred
+                          lhsPred  = conjoinAll $ [guard | guard /= FQTrue]
+                                                ++ maybe [] (:[]) mPre
+                                                ++ [resultEq]
+                          lhs = FQReft "result" retSort lhsPred
+                          rhs = FQReft "result" retSort postPred
+                      -- Determine tag based on guard
+                      let tag = case guard of
+                                  FQTrue -> "body-post"
+                                  _      -> if pathIdx < length (flattenBodyVC bvc) `div` 2
+                                             then "body-post-then"
+                                             else "body-post-else"
+                      cid <- freshCid
+                      let allEnvIds = envIds ++ lbBindIds ++ [rbid]
+                          c = FQConstraint cid allEnvIds lhs rhs [name, tag]
+                      addConst c
+                      let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                      addOrigin cid (ConstraintOrigin name tag ptr srcFile)
+                    -- Mark as body-faithful
+                    addBodyFaithful name
 
 emitParamBind :: IO FQBindId -> (FQBind -> IO ()) -> (Name, Type) -> IO FQBind
 emitParamBind freshBid addBind (n, t) = do
@@ -435,7 +455,7 @@ exprToPred (EApp op [l, r])
   | op `elem` ["<=", "≤"] = (\a b -> FQBinPred FQLe  a b) <$> exprToPred l <*> exprToPred r
   | op `elem` ["<"]        = (\a b -> FQBinPred FQLt  a b) <$> exprToPred l <*> exprToPred r
   | op `elem` ["=", "=="]  = (\a b -> FQBinPred FQEq  a b) <$> exprToPred l <*> exprToPred r
-  | op `elem` ["/=", "≠"] = (\a b -> FQBinPred FQNeq a b) <$> exprToPred l <*> exprToPred r
+  | op `elem` ["/=", "!=", "≠"] = (\a b -> FQBinPred FQNeq a b) <$> exprToPred l <*> exprToPred r
   | op == "+"              = (\a b -> FQBinArith FQAdd a b) <$> exprToPred l <*> exprToPred r
   | op == "-"              = (\a b -> FQBinArith FQSub a b) <$> exprToPred l <*> exprToPred r
   -- non-linear ops: reject
@@ -443,6 +463,8 @@ exprToPred (EApp op [l, r])
 exprToPred (EApp "and" args) = FQAnd <$> mapM exprToPred args
 exprToPred (EApp "or"  args) = FQOr  <$> mapM exprToPred args
 exprToPred (EApp "not" [a])  = FQNot <$> exprToPred a
+-- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
+exprToPred (EOp op args)     = exprToPred (EApp op args)
 exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
 
 -- | Extract qualifiers from an expression (auto-synthesis from pre/post).
@@ -615,14 +637,28 @@ bodyToPredM env se (ELet [(PVar v, _mType, rhs)] body) = do
         Just (BranchVC gp tvc evc) ->
           -- Prepend this binding to both branches
           return (Just (BranchVC gp (prependLB lb tvc) (prependLB lb evc)))
-    -- RHS is a branch (EIf in let RHS) — hoist
+    -- RHS is a branch (EIf in let RHS) — hoist via flattening.
+    -- Single-path degenerate branches are handled; multi-path falls back.
     Just bvc@(BranchVC _ _ _) -> do
       renamed <- freshName v
       let env'  = Map.insert v renamed env
-      -- Hoisting: the branch result becomes the bound variable value
-      -- This requires flattening first — fall back for now if RHS is branchy
-      -- TODO: implement full EIf-in-let hoisting per spec §3.4
-      return Nothing
+          se'   = Map.insert renamed FQInt se
+          paths = flattenBodyVC bvc
+      case paths of
+        -- Degenerate single-path: the branch always takes one path
+        [(_, pathLBs, pathResult)] -> do
+          let lb = LetBinding renamed FQInt pathResult
+          mBodyVC <- bodyToPredM env' se' body
+          case mBodyVC of
+            Nothing -> return Nothing
+            Just (SimpleVC lbs resultP) ->
+              return (Just (SimpleVC (pathLBs ++ [lb] ++ lbs) resultP))
+            Just (BranchVC gp tvc evc) ->
+              return (Just (BranchVC gp
+                (prependLBs (pathLBs ++ [lb]) tvc)
+                (prependLBs (pathLBs ++ [lb]) evc)))
+        -- Multi-path: fall back (conservative, sound)
+        _ -> return Nothing
     _ -> return Nothing
 
 -- ELet with multiple bindings: desugar to nested single-binding ELets
@@ -736,6 +772,9 @@ prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
 prependLB lb (BranchVC g t e) = BranchVC g (prependLB lb t) (prependLB lb e)
 
+prependLBs :: [LetBinding] -> BodyVC -> BodyVC
+prependLBs lbs bvc = foldr prependLB bvc lbs
+
 -- | Infer the FQSort of a predicate result.
 -- In BODY-VC-0, we only support int-typed results.
 predSortOf :: FQPred -> FQSort
@@ -776,5 +815,6 @@ lookupPredOp "<"   = Just FQLt
 lookupPredOp "="   = Just FQEq
 lookupPredOp "=="  = Just FQEq
 lookupPredOp "/="  = Just FQNeq
+lookupPredOp "!="  = Just FQNeq
 lookupPredOp "≠"   = Just FQNeq
 lookupPredOp _     = Nothing

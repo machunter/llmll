@@ -12,7 +12,7 @@ import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, run
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..))
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpointWith, EmitOptions(..), defaultEmitOptions)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -3706,4 +3706,56 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- Result references innermost renamed var
             resultPred `shouldBe` FQVar "_bv_x_1"
           _ -> expectationFailure $ "expected SimpleVC with 2 bindings, got: " <> show result
+
+    -- -----------------------------------------------------------------------
+    -- Parsed-source tests (v0.8.0 blocker fix: EOp → exprToPred)
+    -- -----------------------------------------------------------------------
+    describe "Parsed-source (EOp)" $ do
+      it "P01: EOp (= result x) parses and translates via exprToPred" $ do
+        -- The parser emits EOp for operators, not EApp
+        let src = "(def-logic identity [x: int] (post (= result x)) x)"
+        case parseStatements "test" src of
+          Left err -> expectationFailure $ "parse failed: " <> show err
+          Right [SDefLogic _ _ _ contract _] -> do
+            let Just postExpr = contractPost contract
+            -- The critical check: exprToPred must handle this
+            let result = exprToPred postExpr
+            result `shouldBe` Just (FQBinPred FQEq (FQVar "result") (FQVar "x"))
+          Right stmts -> expectationFailure $ "unexpected parse: " <> show stmts
+
+      it "P02: EOp (!= result 0) translates via exprToPred" $ do
+        let src = "(def-logic nonzero [x: int] (post (!= result 0)) x)"
+        case parseStatements "test" src of
+          Left err -> expectationFailure $ "parse failed: " <> show err
+          Right [SDefLogic _ _ _ contract _] -> do
+            let Just postExpr = contractPost contract
+            let result = exprToPred postExpr
+            result `shouldBe` Just (FQBinPred FQNeq (FQVar "result") (FQLit 0))
+          Right stmts -> expectationFailure $ "unexpected parse: " <> show stmts
+
+      it "P03: parsed EOp contracts emit constraints (not skipped)" $ do
+        let src = "(def-logic add1 [x: int] (post (= result (+ x 1))) (+ x 1))"
+        case parseStatements "test" src of
+          Left err -> expectationFailure $ "parse failed: " <> show err
+          Right stmts -> do
+            emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            -- The post should be emitted (not skipped)
+            erEmittedPost emitR `shouldBe` ["add1"]
+            -- Should NOT be in skipped
+            erSkipped emitR `shouldSatisfy` not . elem "add1"
+            -- Body should be faithful
+            erBodyFaithful emitR `shouldBe` ["add1"]
+
+      it "P04: skipped clause NOT marked as emitted" $ do
+        -- Use a non-linear post that exprToPred can't handle
+        let stmts = [ SDefLogic "mul" [("x", TInt), ("y", TInt)] (Just TInt)
+                        (Contract Nothing Nothing
+                          (Just (EApp "*" [EVar "result", ELit (LitInt 2)])) Nothing)
+                        (EVar "x")
+                    ]
+        emitR <- emitFixpoint "test.llmll" stmts
+        -- Non-linear post: should be skipped
+        erSkipped emitR `shouldSatisfy` elem "mul"
+        -- Should NOT be in emittedPost
+        erEmittedPost emitR `shouldSatisfy` not . elem "mul"
 

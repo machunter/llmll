@@ -1128,10 +1128,18 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           case fqResult of
             FQSafe -> do
               let bodyFaithfulSet = Set.fromList (erBodyFaithful emitR)
+                  emittedPreSet   = Set.fromList (erEmittedPre emitR)
+                  emittedPostSet  = Set.fromList (erEmittedPost emitR)
+                  -- v0.8.0: Only mark a clause as proven if its constraint was
+                  -- actually emitted. Skipped clauses remain VLAsserted.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPreLevel  = fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPre c)
-                        , csPostLevel = fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPost c)
+                        { csPreLevel  = if Set.member n emittedPreSet
+                                        then fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPre c)
+                                        else fmap (const VLAsserted) (contractPre c)
+                        , csPostLevel = if Set.member n emittedPostSet
+                                        then fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPost c)
+                                        else fmap (const VLAsserted) (contractPost c)
                         , csPreSource  = contractPreSource c
                         , csPostSource = contractPostSource c
                         , csPostBodyFaithful = Set.member n bodyFaithfulSet
