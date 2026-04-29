@@ -140,7 +140,7 @@ instrumentContracts mode statusMap = map go
     lookupStatus (SDefLogic n _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus (SLetrec n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus _                     = defaultCS
-    defaultCS = ContractStatus Nothing Nothing Nothing Nothing
+    defaultCS = ContractStatus Nothing Nothing Nothing Nothing False
 
 -- | Instrument a single statement.
 instrumentStatement :: ContractsMode -> ContractStatus -> Statement -> Statement
@@ -175,23 +175,21 @@ instrumentStatement _ _ stmt = stmt
 filterContracts :: ContractStatus -> Contract -> Contract
 filterContracts cs contract = Contract
   { contractPre = case csPreLevel cs of
-      Just (VLProven p) | isBodyFaithful p -> Nothing
-      Just (VLProvenSMT p) | isBodyFaithful p -> Nothing
+      -- v0.8.0: preconditions are never stripped — body VCs prove post, not pre.
+      -- A future BODY-VC extension may encode precondition checks into the body,
+      -- but for now all proven preconditions remain as runtime assertions.
       _                 -> contractPre contract
   , contractPreSource = contractPreSource contract
   , contractPost = case csPostLevel cs of
-      Just (VLProven p) | isBodyFaithful p -> Nothing
-      Just (VLProvenSMT p) | isBodyFaithful p -> Nothing
+      -- v0.8.0: strip postcondition only when proven AND body-faithful
+      Just (VLProven _)    | csPostBodyFaithful cs -> Nothing
+      Just (VLProvenSMT _) | csPostBodyFaithful cs -> Nothing
       _                 -> contractPost contract
   , contractPostSource = contractPostSource contract
   }
 
--- | v0.6.3: Is the proof from a body-faithful prover?
--- Returns False for all current provers — conservative default.
--- When the .fq emitter starts encoding function bodies (v0.7+),
--- this will be updated to return True for those provers.
-isBodyFaithful :: Text -> Bool
-isBodyFaithful _prover = False  -- No body-faithful provers exist yet
+-- | v0.8.0: The old prover-string check is retired. Body-faithfulness is now
+-- tracked structurally via csPostBodyFaithful on ContractStatus.
 
 -- | Empty contract — contracts moved into body as assertions.
 noContract :: Contract
@@ -207,10 +205,10 @@ applyContractsMode ContractsNone _ stmts = map clearContracts stmts
 applyContractsMode ContractsUnproven statusMap stmts = map stripProven stmts
   where
     stripProven (SDefLogic n p r c b) =
-      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) n statusMap
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing False) n statusMap
       in SDefLogic n p r (filterContracts cs c) b
     stripProven (SLetrec n p r c d b) =
-      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) n statusMap
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing False) n statusMap
       in SLetrec n p r (filterContracts cs c) d b
     stripProven s = s
 

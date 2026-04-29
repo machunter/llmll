@@ -57,14 +57,16 @@ data FunctionEntry = FunctionEntry
 
 -- | Aggregate summary.
 data CoverageSummary = CoverageSummary
-  { csContracted   :: Int
-  , csSuppressed   :: Int
-  , csUnspecified   :: Int
-  , csTotal        :: Int
-  , csProven       :: Int  -- ^ Functions with all clauses proven
-  , csTested       :: Int  -- ^ Functions with tested (but not proven) clauses
-  , csAsserted     :: Int  -- ^ Functions with asserted clauses
-  , csEffective    :: Double  -- ^ effective_coverage in [0, 1]
+  { csContracted       :: Int
+  , csSuppressed       :: Int
+  , csUnspecified      :: Int
+  , csTotal            :: Int
+  , csProven           :: Int  -- ^ Functions with all clauses proven
+  , csTested           :: Int  -- ^ Functions with tested (but not proven) clauses
+  , csAsserted         :: Int  -- ^ Functions with asserted clauses
+  , csEffective        :: Double  -- ^ effective_coverage in [0, 1]
+  , csSpecCoverage     :: Double  -- ^ v0.8.0 SUPP-DEBT: contracted / total (excludes suppressions)
+  , csSuppressionDebt  :: Double  -- ^ v0.8.0 SUPP-DEBT: suppressed / total
   } deriving (Show, Eq)
 
 -- | v0.6.2: Per-interface law summary for coverage reporting.
@@ -194,6 +196,14 @@ computeSummary entries =
                     then 1.0
                     else fromIntegral (length contracted + length suppressed)
                          / fromIntegral total
+      -- v0.8.0 SUPP-DEBT: spec_coverage = contracted / total (excludes suppressions)
+      specCov     = if total == 0
+                    then 1.0
+                    else fromIntegral (length contracted) / fromIntegral total
+      -- v0.8.0 SUPP-DEBT: suppression_debt = suppressed / total
+      suppDebt    = if total == 0
+                    then 0.0
+                    else fromIntegral (length suppressed) / fromIntegral total
       -- Count by verification level within contracted
       proven   = length [e | e <- contracted, isProven (fePreLevel e) && isProven (fePostLevel e)]
       tested   = length [e | e <- contracted, isTested (fePreLevel e) || isTested (fePostLevel e)
@@ -208,6 +218,8 @@ computeSummary entries =
        , csTested     = tested
        , csAsserted   = asserted
        , csEffective  = effective
+       , csSpecCoverage    = specCov
+       , csSuppressionDebt = suppDebt
        }
   where
     isProven (Just vl) = isProvenLevel vl
@@ -322,6 +334,8 @@ formatCoverageJson report =
       , "tested"             .= csTested s
       , "asserted"           .= csAsserted s
       , "effective_coverage" .= csEffective s
+      , "spec_coverage"      .= csSpecCoverage s
+      , "suppression_debt"   .= csSuppressionDebt s
       ]
     warnJson d = object
       [ "code"    .= diagCode d

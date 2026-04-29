@@ -33,6 +33,9 @@ module LLMLL.FixpointIR
   , emptyFQFile
     -- * Emission to text
   , emitFQFile
+    -- * Predicate emission
+  , emitPred
+  , emitPredParens
   ) where
 
 import Data.Text (Text)
@@ -175,14 +178,22 @@ emitPred FQTrue               = "true"
 emitPred FQFalse              = "false"
 emitPred (FQVar v)            = v
 emitPred (FQLit n)            = T.pack (show n)
-emitPred (FQBinPred op l r)   = "(" <> emitPred l <> " " <> emitOp op <> " " <> emitPred r <> ")"
-emitPred (FQBinArith op l r)  = "(" <> emitPred l <> " " <> emitOp op <> " " <> emitPred r <> ")"
+emitPred (FQBinPred op l r)   = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
+emitPred (FQBinArith op l r)  = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
 emitPred (FQAnd [])           = "true"
-emitPred (FQAnd ps)           = T.intercalate " && " (map emitPred ps)
+emitPred (FQAnd ps)           = T.intercalate " && " (map emitPredParens ps)
 emitPred (FQOr  [])           = "false"
-emitPred (FQOr  ps)           = T.intercalate " || " (map emitPred ps)
-emitPred (FQNot p)            = "(not " <> emitPred p <> ")"
+emitPred (FQOr  ps)           = T.intercalate " || " (map emitPredParens ps)
+emitPred (FQNot p)            = "(not " <> emitPredParens p <> ")"
 emitPred (FQKVar k args)      = "$" <> k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
+
+-- | Wrap compound predicates in parentheses to prevent precedence ambiguity.
+-- FQAnd/FQOr/FQNot sub-expressions must be parenthesized when used as operands.
+emitPredParens :: FQPred -> Text
+emitPredParens p@(FQAnd _) = "(" <> emitPred p <> ")"
+emitPredParens p@(FQOr  _) = "(" <> emitPred p <> ")"
+emitPredParens p@(FQNot _) = "(" <> emitPred p <> ")"
+emitPredParens p            = emitPred p
 
 emitOp :: FQBinOp -> Text
 emitOp FQGe  = ">="
@@ -208,11 +219,13 @@ emitBind b =
 emitConstraint :: FQConstraint -> Text
 emitConstraint c = T.unlines
   [ "constraint:"
-  , "  id " <> T.pack (show (conId c))
-  , "  tag [" <> T.intercalate "; " (conTag c) <> "]"
   , "  env [" <> T.intercalate "; " (map (T.pack . show) (conEnv c)) <> "]"
   , "  lhs " <> emitReft (conLhs c)
   , "  rhs " <> emitReft (conRhs c)
+  , "  id " <> T.pack (show (conId c))
+  -- liquid-fixpoint tagP expects [Int], not [Text]. Emit constraint ID as tag
+  -- for traceability. Human-readable tags live in ConstraintTable (DiagnosticFQ).
+  , "  tag [" <> T.pack (show (conId c)) <> "]"
   ]
 
 emitQualifier :: FQQualifier -> Text

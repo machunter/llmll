@@ -116,7 +116,15 @@ toDiag fp table cid =
     Nothing -> Just $ mkError Nothing $
                "constraint #" <> T.pack (show cid) <> " failed (unknown origin)"
     Just orig ->
-      let msg = coClause orig <> "-condition of '" <> coFunction orig <> "' not verified"
+      let msg = case coClause orig of
+                  "body-post"      -> "body verification of '" <> coFunction orig
+                                      <> "' failed — implementation does not satisfy postcondition"
+                  "body-post-then" -> "body verification of '" <> coFunction orig
+                                      <> "' failed (then-branch does not satisfy postcondition)"
+                  "body-post-else" -> "body verification of '" <> coFunction orig
+                                      <> "' failed (else-branch does not satisfy postcondition)"
+                  _                -> coClause orig <> "-condition of '" <> coFunction orig
+                                      <> "' not verified"
                 <> " (constraint #" <> T.pack (show cid) <> ")"
           d   = mkError Nothing msg
       in Just d { diagPointer = Just (coJsonPtr orig) }

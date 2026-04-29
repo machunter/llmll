@@ -12,6 +12,8 @@ import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, run
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..))
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
@@ -1275,9 +1277,9 @@ main = hspec $ do
         hasPre  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
-        defaultCS = ContractStatus Nothing Nothing Nothing Nothing
-        provenCS  = ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing
-        mixedCS   = ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing
+        defaultCS = ContractStatus Nothing Nothing Nothing Nothing False
+        provenCS  = ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False
+        mixedCS   = ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing False
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -1395,8 +1397,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
-          , ("g", ContractStatus (Just (VLProven "z3")) Nothing Nothing Nothing)
+          [ ("f", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
+          , ("g", ContractStatus (Just (VLProven "z3")) Nothing Nothing Nothing False)
           ]
         emptyMap = DM.empty
 
@@ -1425,8 +1427,8 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (VLProvenSMT "liquid-fixpoint")) (Just (VLProvenSMT "liquid-fixpoint")) Nothing Nothing)
-            , ("mul", ContractStatus (Just VLAsserted) Nothing Nothing Nothing)
+            [ ("add", ContractStatus (Just (VLProvenSMT "liquid-fixpoint")) (Just (VLProvenSMT "liquid-fixpoint")) Nothing Nothing False)
+            , ("mul", ContractStatus (Just VLAsserted) Nothing Nothing Nothing False)
             ]
       saveVerified testFile statuses
       loaded <- loadVerified testFile
@@ -1455,7 +1457,7 @@ main = hspec $ do
           , meAliasMap = DM.empty
           , mePath = modPath
           , meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)]
+              [("safe-add", ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)]
           }
         cache = DM.fromList [(modPath, modEnv)]
 
@@ -1467,7 +1469,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)] }
+              [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache provenCache emptyEnv callerStmts
@@ -1520,28 +1522,28 @@ main = hspec $ do
 
     -- Test 1: Asserted contracts emit trust-gap warnings
     it "asserted contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -1550,7 +1552,7 @@ main = hspec $ do
 
     -- Test 5: Trust declaration at VLTested suppresses VLTested gap
     it "trust declaration at tested level suppresses tested trust-gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" (VLTested 0)
@@ -1564,7 +1566,7 @@ main = hspec $ do
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
     -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
     it "trust at asserted does NOT suppress tested-level gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" VLAsserted  -- asserted < tested
@@ -1585,7 +1587,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)]
+                [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)]
             }
           cryptoEnv = ModuleEnv
             { meExports        = DM.fromList [("hash", TFn [TString] TString)]
@@ -1594,7 +1596,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
-                [("hash", ContractStatus (Just VLAsserted) Nothing Nothing Nothing)]
+                [("hash", ContractStatus (Just VLAsserted) Nothing Nothing Nothing False)]
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
@@ -1648,9 +1650,9 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)
+                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           -- Entry function is proven but calls asserted crypto.hash
           stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
@@ -1668,7 +1670,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing)
@@ -1681,9 +1683,9 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)
+                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing) (EVar "x")
@@ -1715,7 +1717,7 @@ main = hspec $ do
     -- Test 6: Human-readable format contains function names and levels
     it "formatTrustReport contains function names and verification levels" $ do
       let assertedMod = mkModEnv "verify-token" ["auth"]
-                          (ContractStatus (Just VLAsserted) Nothing Nothing Nothing)
+                          (ContractStatus (Just VLAsserted) Nothing Nothing Nothing False)
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
           report = buildTrustReport cache stmts
@@ -3451,3 +3453,310 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- JSON output should include "laws" key
       let jsonReport = formatCoverageJson report
       jsonReport `shouldSatisfy` T.isInfixOf "law_count"
+
+    -- T11: SUPP-DEBT — spec_coverage and suppression_debt fields
+    it "T11: SUPP-DEBT — spec_coverage and suppression_debt computed correctly" $ do
+      let stmts = [ SDefLogic "contracted" [("x", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+                      (EVar "x")
+                  , SDefLogic "unspecified" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing Nothing Nothing)
+                      (EVar "x")
+                  , SWeaknessOk "unspecified" "helper function"
+                  ]
+          report = runCoverage stmts emptyCS
+          s = crSummary report
+      -- 2 functions total: 1 contracted, 1 suppressed
+      csTotal s `shouldBe` 2
+      csContracted s `shouldBe` 1
+      csSuppressed s `shouldBe` 1
+      -- effective_coverage = (contracted + suppressed) / total = 2/2 = 1.0
+      csEffective s `shouldBe` 1.0
+      -- spec_coverage = contracted / total = 1/2 = 0.5
+      csSpecCoverage s `shouldBe` 0.5
+      -- suppression_debt = suppressed / total = 1/2 = 0.5
+      csSuppressionDebt s `shouldBe` 0.5
+      -- JSON should include both new fields
+      let jsonReport = formatCoverageJson report
+      jsonReport `shouldSatisfy` T.isInfixOf "spec_coverage"
+      jsonReport `shouldSatisfy` T.isInfixOf "suppression_debt"
+
+  -- =========================================================================
+  -- BODY-VC (v0.8.0) — bodyToPredFrom golden tests
+  -- =========================================================================
+  describe "BODY-VC" $ do
+    -- Helper: parse a def-logic and extract the body expression
+    let parseBody :: T.Text -> Expr
+        parseBody src = case parseStatements "<test>" src of
+          Left e -> error $ "parse failed: " <> show e
+          Right stmts -> case head stmts of
+            SDefLogic _ _ _ _ body -> body
+            _ -> error "expected SDefLogic"
+
+    -- Helper: build SortEnv from int param names
+    let intSortEnv :: [T.Text] -> SortEnv
+        intSortEnv names = Map.fromList [(n, FQInt) | n <- names]
+
+    describe "Positive (SAFE)" $ do
+      it "T01: literal body 42" $ do
+        let body = ELit (LitInt 42)
+            (_, result) = bodyToPredFrom 0 Map.empty body
+        result `shouldBe` Just (SimpleVC [] (FQLit 42))
+
+      it "T02: bool literal true" $ do
+        let body = ELit (LitBool True)
+            (_, result) = bodyToPredFrom 0 Map.empty body
+        result `shouldBe` Just (SimpleVC [] FQTrue)
+
+      it "T03: arithmetic (+ n 1) with int params" $ do
+        let body = EApp "+" [EVar "n", ELit (LitInt 1)]
+            se = intSortEnv ["n"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Just (SimpleVC [] (FQBinArith FQAdd (FQVar "n") (FQLit 1)))
+
+      it "T04: single ELet with alpha-renaming" $ do
+        let body = ELet [(PVar "s", Nothing, EApp "+" [EVar "a", EVar "b"])] (EApp "+" [EVar "s", EVar "c"])
+            se = intSortEnv ["a", "b", "c"]
+            (counter, result) = bodyToPredFrom 0 se body
+        -- Counter should advance
+        counter `shouldBe` 1
+        case result of
+          Just (SimpleVC [lb] resultPred) -> do
+            -- The let-binding should be alpha-renamed
+            lbName lb `shouldBe` "_bv_s_0"
+            lbRhs lb `shouldBe` FQBinArith FQAdd (FQVar "a") (FQVar "b")
+            -- The result should reference the renamed variable
+            resultPred `shouldBe` FQBinArith FQAdd (FQVar "_bv_s_0") (FQVar "c")
+          _ -> expectationFailure $ "expected SimpleVC with 1 let-binding, got: " <> show result
+
+      it "T05: EIf produces BranchVC" $ do
+        let body = EIf (EApp ">" [EVar "n", ELit (LitInt 0)]) (EVar "n") (ELit (LitInt 0))
+            se = intSortEnv ["n"]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (BranchVC guard tvc evc) -> do
+            guard `shouldBe` FQBinPred FQGt (FQVar "n") (FQLit 0)
+            tvc `shouldBe` SimpleVC [] (FQVar "n")
+            evc `shouldBe` SimpleVC [] (FQLit 0)
+          _ -> expectationFailure $ "expected BranchVC, got: " <> show result
+
+    describe "Alpha-renaming" $ do
+      it "T09: shadowing (let [[x (+ x 1)]] x) renames correctly" $ do
+        let body = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] (EVar "x")
+            se = intSortEnv ["x"]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (SimpleVC [lb] resultPred) -> do
+            lbName lb `shouldBe` "_bv_x_0"
+            lbRhs lb `shouldBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+            resultPred `shouldBe` FQVar "_bv_x_0"  -- body refs renamed var
+          _ -> expectationFailure $ "expected SimpleVC with shadowed binding, got: " <> show result
+
+      it "E08: global counter shared across calls" $ do
+        let body1 = ELet [(PVar "x", Nothing, ELit (LitInt 1))] (EVar "x")
+            body2 = ELet [(PVar "x", Nothing, ELit (LitInt 2))] (EVar "x")
+            se = intSortEnv []
+            (c1, _) = bodyToPredFrom 0 se body1
+            (c2, r2) = bodyToPredFrom c1 se body2
+        c1 `shouldBe` 1
+        c2 `shouldBe` 2
+        case r2 of
+          Just (SimpleVC [lb] _) -> lbName lb `shouldBe` "_bv_x_1"  -- not _bv_x_0
+          _ -> expectationFailure "expected second call to use counter 1"
+
+    describe "SortEnv rejection" $ do
+      it "EVar for non-int param returns Nothing" $ do
+        let body = EVar "s"
+            se = Map.fromList [("s", FQBool)]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+      it "EVar for unknown param returns Nothing" $ do
+        let body = EVar "unknown"
+            (_, result) = bodyToPredFrom 0 Map.empty body
+        result `shouldBe` Nothing
+
+    describe "Fallback" $ do
+      it "F01: match in body returns Nothing" $ do
+        let body = EMatch (EVar "x") [(PVar "y", EVar "y")]
+            se = intSortEnv ["x"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+      it "F02: user-defined function call returns Nothing" $ do
+        let body = EApp "my-func" [EVar "x"]
+            se = intSortEnv ["x"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+      it "F03: non-linear operator * returns Nothing" $ do
+        let body = EApp "*" [EVar "x", EVar "y"]
+            se = intSortEnv ["x", "y"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+    describe "Flattening" $ do
+      it "SimpleVC flattens to 1 path" $ do
+        let bvc = SimpleVC [] (FQLit 42)
+            paths = flattenBodyVC bvc
+        length paths `shouldBe` 1
+
+      it "BranchVC flattens to 2 paths" $ do
+        let bvc = BranchVC (FQVar "g") (SimpleVC [] (FQLit 1)) (SimpleVC [] (FQLit 2))
+            paths = flattenBodyVC bvc
+        length paths `shouldBe` 2
+
+      it "countPathsBounded stops early" $ do
+        -- Build a deep tree that would have 2^20 paths
+        let mkDeep 0 = SimpleVC [] (FQLit 0)
+            mkDeep n = BranchVC (FQVar "g") (mkDeep (n-1)) (mkDeep (n-1))
+            bvc = mkDeep (20 :: Int)
+        countPathsBounded 5000 bvc `shouldBe` 5000  -- capped, not 1048576
+
+    describe "Parenthesization" $ do
+      it "FQAnd [FQOr [a, b], c] parenthesizes correctly" $ do
+        let p = FQAnd [FQOr [FQVar "a", FQVar "b"], FQVar "c"]
+            t = emitPred p
+        t `shouldSatisfy` T.isInfixOf "(a || b)"
+
+      it "FQNot (FQOr [a, b]) parenthesizes correctly" $ do
+        let p = FQNot (FQOr [FQVar "a", FQVar "b"])
+            t = emitPred p
+        t `shouldSatisfy` T.isInfixOf "(not (a || b))"
+
+    describe "Negative (structural UNSAFE)" $ do
+      -- These tests verify that incorrect implementations produce body VCs
+      -- where the result predicate would NOT satisfy the postcondition.
+      -- We verify the constraint structure, not solver output.
+
+      it "N01: wrong body (post says result = x+1, body returns x)" $ do
+        -- (def-logic inc [x: int] (post (= result (+ x 1))) x)
+        -- Body returns x, but post requires result = x+1
+        let body = EVar "x"
+            se = Map.fromList [("x", FQInt)]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (SimpleVC [] resultPred) -> do
+            -- Result pred is just (FQVar "x"), but post would be (+ x 1)
+            -- So the constraint (result = x) ⟹ (result = x+1) is UNSAFE
+            resultPred `shouldBe` FQVar "x"
+            resultPred `shouldNotBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+          _ -> expectationFailure $ "expected SimpleVC, got: " <> show result
+
+      it "N02: off-by-one (post says result = x, body returns x+1)" $ do
+        -- (def-logic id [x: int] (post (= result x)) (+ x 1))
+        let body = EApp "+" [EVar "x", ELit (LitInt 1)]
+            se = Map.fromList [("x", FQInt)]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (SimpleVC [] resultPred) -> do
+            resultPred `shouldBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+            -- Post would bind (result = x), so constraint
+            -- (result = x+1) ⟹ (result = x) is UNSAFE
+            resultPred `shouldNotBe` FQVar "x"
+          _ -> expectationFailure $ "expected SimpleVC, got: " <> show result
+
+      it "N03: wrong branch (if swapped — body returns 0 when n>0)" $ do
+        -- (def-logic abs [n: int] (post (>= result 0))
+        --   (if (> n 0) 0 n))
+        -- This is wrong: returns 0 for positive n (fine), but returns n for
+        -- negative n (UNSAFE since n < 0 violates post >= 0)
+        let body = EIf (EApp ">" [EVar "n", ELit (LitInt 0)])
+                       (ELit (LitInt 0))
+                       (EVar "n")
+            se = Map.fromList [("n", FQInt)]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (BranchVC guard thenVC elseVC) -> do
+            -- The else branch returns n (which could be negative)
+            guard `shouldBe` FQBinPred FQGt (FQVar "n") (FQLit 0)
+            thenVC `shouldBe` SimpleVC [] (FQLit 0)     -- fine: 0 >= 0
+            elseVC `shouldBe` SimpleVC [] (FQVar "n")    -- UNSAFE: n might be < 0
+            -- Flatten and verify the else path
+            let paths = flattenBodyVC (BranchVC guard thenVC elseVC)
+                (elseGuard, _, elseResult) = paths !! 1
+            -- Else guard is ¬(n > 0), else result is n
+            elseGuard `shouldBe` FQNot (FQBinPred FQGt (FQVar "n") (FQLit 0))
+            elseResult `shouldBe` FQVar "n"
+          _ -> expectationFailure $ "expected BranchVC, got: " <> show result
+
+      it "N04: let shadowing encodes correctly (wrong if renaming broken)" $ do
+        -- (def-logic f [x: int] (post (= result (+ x 2)))
+        --   (let [[x (+ x 1)]]   ;; x_0 = x + 1
+        --     (let [[x (+ x 1)]]  ;; x_1 = x_0 + 1 (= x + 2 ✓)
+        --       x)))
+        -- If alpha-renaming is broken, x_1 would still reference original x,
+        -- producing x+1 instead of x+2 (UNSAFE).
+        -- The test verifies correct renaming produces the chain.
+        let innerLet = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] (EVar "x")
+            body = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] innerLet
+            se = Map.fromList [("x", FQInt)]
+            (counter, result) = bodyToPredFrom 0 se body
+        -- Two let bindings → counter advanced by 2
+        counter `shouldBe` 2
+        case result of
+          Just (SimpleVC lbs resultPred) -> do
+            length lbs `shouldBe` 2
+            -- First binding: _bv_x_0 = x + 1
+            lbName (lbs !! 0) `shouldBe` "_bv_x_0"
+            lbRhs  (lbs !! 0) `shouldBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+            -- Second binding: _bv_x_1 = _bv_x_0 + 1 (NOT x + 1)
+            lbName (lbs !! 1) `shouldBe` "_bv_x_1"
+            lbRhs  (lbs !! 1) `shouldBe` FQBinArith FQAdd (FQVar "_bv_x_0") (FQLit 1)
+            -- Result references innermost renamed var
+            resultPred `shouldBe` FQVar "_bv_x_1"
+          _ -> expectationFailure $ "expected SimpleVC with 2 bindings, got: " <> show result
+
+    -- -----------------------------------------------------------------------
+    -- Parsed-source tests (v0.8.0 blocker fix: EOp → exprToPred)
+    -- -----------------------------------------------------------------------
+    describe "Parsed-source (EOp)" $ do
+      it "P01: EOp (= result x) parses and translates via exprToPred" $ do
+        -- The parser emits EOp for operators, not EApp
+        let src = "(def-logic identity [x: int] (post (= result x)) x)"
+        case parseStatements "test" src of
+          Left err -> expectationFailure $ "parse failed: " <> show err
+          Right [SDefLogic _ _ _ contract _] -> do
+            let Just postExpr = contractPost contract
+            -- The critical check: exprToPred must handle this
+            let result = exprToPred postExpr
+            result `shouldBe` Just (FQBinPred FQEq (FQVar "result") (FQVar "x"))
+          Right stmts -> expectationFailure $ "unexpected parse: " <> show stmts
+
+      it "P02: EOp (!= result 0) translates via exprToPred" $ do
+        let src = "(def-logic nonzero [x: int] (post (!= result 0)) x)"
+        case parseStatements "test" src of
+          Left err -> expectationFailure $ "parse failed: " <> show err
+          Right [SDefLogic _ _ _ contract _] -> do
+            let Just postExpr = contractPost contract
+            let result = exprToPred postExpr
+            result `shouldBe` Just (FQBinPred FQNeq (FQVar "result") (FQLit 0))
+          Right stmts -> expectationFailure $ "unexpected parse: " <> show stmts
+
+      it "P03: parsed EOp contracts emit body-faithful VCs (not standalone post)" $ do
+        let src = "(def-logic add1 [x: int] (post (= result (+ x 1))) (+ x 1))"
+        case parseStatements "test" src of
+          Left err -> expectationFailure $ "parse failed: " <> show err
+          Right stmts -> do
+            emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            -- v0.8.0: standalone post is suppressed when body VCs are active.
+            -- Instead, body-faithful VC is the correct proof obligation.
+            erEmittedPost emitR `shouldBe` []  -- standalone post not emitted
+            -- Should NOT be in skipped
+            erSkipped emitR `shouldSatisfy` not . elem "add1"
+            -- Body should be faithful
+            erBodyFaithful emitR `shouldBe` ["add1"]
+
+      it "P04: skipped clause NOT marked as emitted" $ do
+        -- Use a non-linear post that exprToPred can't handle
+        let stmts = [ SDefLogic "mul" [("x", TInt), ("y", TInt)] (Just TInt)
+                        (Contract Nothing Nothing
+                          (Just (EApp "*" [EVar "result", ELit (LitInt 2)])) Nothing)
+                        (EVar "x")
+                    ]
+        emitR <- emitFixpoint "test.llmll" stmts
+        -- Non-linear post: should be skipped
+        erSkipped emitR `shouldSatisfy` elem "mul"
+        -- Should NOT be in emittedPost
+        erEmittedPost emitR `shouldSatisfy` not . elem "mul"
+

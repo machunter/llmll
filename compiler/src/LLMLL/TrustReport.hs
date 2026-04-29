@@ -127,6 +127,7 @@ collectAllContractStatus cache entryStmts =
             , csPostLevel = fmap (const VLAsserted) (contractPost c)
             , csPreSource  = contractPreSource c
             , csPostSource = contractPostSource c
+            , csPostBodyFaithful = False
             })
       | otherwise = Nothing
 
@@ -154,7 +155,7 @@ buildEntry prefix allCS stmt = case stmt of
 
 mkEntry :: Name -> Contract -> Expr -> Map Name ContractStatus -> TrustEntry
 mkEntry qname contract body allCS =
-  let ownCS = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) qname allCS
+  let ownCS = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing False) qname allCS
       -- Find all function calls in the body
       callees = nub $ extractCalls body
       -- Build dependencies for cross-module callees that have contract status
@@ -200,7 +201,7 @@ computeDrifts fname ownCS deps =
        Just vl | isProvenLevel vl ->
          -- Check each dependency: is any callee below proven?
          concatMap (\dep ->
-           let calleeLevel = effectiveLevel (ContractStatus (tdPreLevel dep) (tdPostLevel dep) Nothing Nothing)
+           let calleeLevel = effectiveLevel (ContractStatus (tdPreLevel dep) (tdPostLevel dep) Nothing Nothing False)
            in case calleeLevel of
                 Just vl' | isProvenLevel vl' -> []
                 Just vl' -> [fname <> " is proven, but depends on " <> tdName dep
@@ -229,7 +230,7 @@ transitiveClose graph = fixpoint initial
 enrichEntry :: Map Name ContractStatus -> Map Name (Set Name) -> TrustEntry -> TrustEntry
 enrichEntry allCS reachable entry =
   let qname = teName entry
-      ownCS = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing) qname allCS
+      ownCS = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing False) qname allCS
       -- Build TrustDependency for each transitively reachable callee
       transitiveCallees = maybe Set.empty id (Map.lookup qname reachable)
       transitiveDeps = mapMaybe (\callee ->
@@ -242,7 +243,7 @@ enrichEntry allCS reachable entry =
       -- Compute effective level = min(self, all transitive callees)
       selfLevel = effectiveLevel ownCS
       calleeMinLevel = foldl' minLevel Nothing
-        [ effectiveLevel (ContractStatus (csPreLevel cs) (csPostLevel cs) Nothing Nothing)
+        [ effectiveLevel (ContractStatus (csPreLevel cs) (csPostLevel cs) Nothing Nothing False)
         | callee <- Set.toList transitiveCallees
         , Just cs <- [Map.lookup callee allCS]
         ]
@@ -281,7 +282,7 @@ computeSummary entries =
   -- v0.6.3: use teEffectiveLevel for classification when available
   let classify e = case teEffectiveLevel e of
                      Just lvl -> Just lvl
-                     Nothing  -> effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e) (tePreSource e) (tePostSource e))
+                     Nothing  -> effectiveLevel (ContractStatus (tePreLevel e) (tePostLevel e) (tePreSource e) (tePostSource e) False)
       proven   = length [e | e <- entries, isProven (classify e)]
       tested   = length [e | e <- entries, isTested (classify e)]
       asserted = length [e | e <- entries, isAsserted (classify e)]

@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.7)
+# LLMLL: Large Language Model Logical Language (v0.8.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.7 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 294 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.8.0 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 320 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history (v0.1.1 → v0.6.3)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.8.0** | Faithfulness Core: Body-faithful verification conditions (BODY-VC). EOp delegation + `!=` in `exprToPred`. Clause-level emission tracking (`erEmittedPre`/`erEmittedPost`). EIf-in-let hoisting. SUPP-DEBT (`spec_coverage` + `suppression_debt`). Post-only stripping when body-faithful. 320 tests (+26). |
 | **v0.7** | Hardening: `string-char-at` negative index guard (BUILTIN-2), `regex-match` upgraded to POSIX ERE via `regex-tdfa` (BUILTIN-1), do-block discarded command warning (DO-1), `VLProvenSMT` constructor replaces `Ord` instance on `VerificationLevel` (TRUST-2a). 294 tests (+5 trust-tier). |
 | **v0.6.3** | Trust Model Fixes: 7 critical bugs resolved. `result` removed from pre scope (BUG-1), strict typecheck gate (BUG-4), contract instrumentation in build pipeline (BUG-2), transitive trust closure (BUG-3), body-faithful stripping guard (BUG-6), proof laundering protection (BUG-7), termination docs corrected (BUG-5). `tcStrictMode` + `llmll check --strict`. 289 tests (unchanged count; 2 expectations updated). |
 | **v0.6.2** | Algebraic Interface Laws: `def-interface :laws` with `(for-all ...)` property syntax, QuickCheck `prop_` codegen, spec coverage integration, PBT wiring. VSM-1 backfill complete. 289 total tests $+$ 10 new. |
@@ -30,6 +31,12 @@
 </details>
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
+
+---
+
+## 0.1 Semantic Foundation
+
+LLMLL's operational semantics are defined by the generated Haskell program. The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior. There is no separate formal semantics document. Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics — a proven contract holds for all well-typed inputs of the generated Haskell code.
 
 ---
 
@@ -291,10 +298,11 @@ The verification level is recorded per-contract, per-function in the module's ex
 > `--trust-report` output, and `--spec-coverage` JSON.
 > It does not affect the surface grammar.
 >
-> **Body-faithfulness caveat:** `proven` (or `proven-smt`) currently means
-> "solver accepted the emitted obligation," not "the implementation satisfies
-> the contract." Until body-faithful verification conditions are implemented
-> (v0.8.0, BODY-VC), runtime assertions are preserved regardless of proof status.
+> **Body-faithfulness (v0.8.0).** `proven-smt` with `post_body_faithful = true`
+> means "the solver verified that the implementation satisfies the contract."
+> `proven-smt` without body-faithfulness means "the solver accepted the emitted
+> obligation" (contract self-consistency only). The `.verified.json` sidecar
+> includes the `post_body_faithful` field per function. See §5.3.4.
 
 #### 4.4.2 Runtime Assertion Modes
 
@@ -499,7 +507,7 @@ effective_coverage = (contracted + suppressed) / total_functions
 >
 > However, suppression is not specification. The D10 warning (>50% suppressed)
 > guards against gaming. For governance reporting, `suppression_debt`
-> (= suppressed / total) alongside `effective_coverage` is planned (v0.8.0, SUPP-DEBT).
+> (= suppressed / total) alongside `effective_coverage` was added in v0.8.0 (SUPP-DEBT).
 
 Example output:
 
@@ -541,7 +549,7 @@ Use `--spec-coverage --json` for machine-readable output:
 
 The JSON output includes per-function `entries`, aggregate `summary`, interface `laws`, and governance `warnings`. The `effective_coverage` field in `summary` is `(contracted + suppressed) / total`.
 
-> **Planned (v0.8.0, SUPP-DEBT):** Two additional summary fields — `spec_coverage` (= contracted / total, excluding suppressions) and `suppression_debt` (= suppressed / total) — will be added when SUPP-DEBT ships.
+> **Shipped (v0.8.0, SUPP-DEBT):** Two additional summary fields — `spec_coverage` (= contracted / total, excluding suppressions) and `suppression_debt` (= suppressed / total) — are now included in the JSON output.
 
 **Division guard (SC-PO-1):** A module with 0 functions has `effective_coverage = 100%`.
 
@@ -568,13 +576,26 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 > [!IMPORTANT]
 > **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of "proven" correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
 
-#### 5.3.4 Faithfulness Gap (Current Limitation)
+#### 5.3.4 Body-Faithful Verification (v0.8.0)
 
-The current `.fq` emitter checks that a contract's pre/post predicates are logically consistent within the QF-LIA fragment. It does **not** encode the function body's computation into the verification condition. This means the verifier proves "the contract is self-consistent," not "the implementation satisfies the contract."
+The `.fq` emitter now encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates constraints of the form:
 
-Consequently, `VLProven` currently means "solver accepted the contract obligation," not "the implementation has been verified against its specification."
+```
+P ∧ (result = ⟦B⟧) ⟹ Q
+```
 
-Until body-faithful verification conditions are implemented (v0.7 research track), the `--contracts=unproven` stripping mode preserves all runtime assertions as a conservative default — no assertions are stripped regardless of proof status.
+where ⟦B⟧ is the body's symbolic translation into the liquid-fixpoint constraint language. This closes the faithfulness gap: when both the contract and the body are in the QF-LIA fragment, `VLProvenSMT` means "the implementation satisfies the contract for all well-typed inputs."
+
+**Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, and all QF-LIA operators. `EMatch`, `letrec`, and non-linear expressions fall back conservatively to contract-only verification.
+
+**Path limit:** Functions with >4096 execution paths (from deeply nested `EIf`) fall back to contract-only verification with a diagnostic warning. This prevents solver timeouts while maintaining soundness.
+
+**Contract stripping (v0.8.0):** `--contracts=unproven` now strips postcondition runtime assertions for functions that are both `VLProvenSMT` and body-faithful (`csPostBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
+
+> [!NOTE]
+> **Two-tier verification status.** After v0.8.0:
+> - `VLProvenSMT` + `csPostBodyFaithful = True` = implementation verified against contract. Postcondition assertions can be safely stripped.
+> - `VLProvenSMT` + `csPostBodyFaithful = False` = contract self-consistency verified only. All runtime assertions preserved. This occurs for fallback functions (non-QF-LIA bodies, path-limit exceeded, `letrec`).
 
 ---
 
@@ -1845,6 +1866,19 @@ Seven critical bugs from the v0.6.3 engineering audit, all resolved. Stabilizes 
 | BUG-3 | ✅ Transitive trust closure via `transitiveClose` fixed-point iteration. `teEffectiveLevel = min(self, transitive deps)`. |
 | BUG-5 | ✅ Termination documentation corrected (§4.2, §5.3.3): non-negativity only, not strict descent. |
 
+### v0.8.0 — Faithfulness Core ✅ Shipped
+
+Close the faithfulness gap — make `VLProvenSMT` mean implementation-verified. 320 Haskell tests (was 294; +26).
+
+| Area | Feature |
+|------|---------|
+| BODY-VC | ✅ Body-faithful verification conditions for QF-LIA fragment. `bodyToPred` encodes `ELet`, `EIf`, literal arithmetic as `.fq` constraints. Alpha-renaming for shadowed variables. Path limit (>4096 → fallback). Conservative `Nothing` for unsupported constructs. |
+| EOp soundness | ✅ `exprToPred (EOp op args) = exprToPred (EApp op args)` delegation. `!=` added to `exprToPred` and `lookupPredOp`. Parsed-source round-trip tested. |
+| Emission tracking | ✅ `erEmittedPre`/`erEmittedPost` fields in `EmitResult`. Sidecar generation checks membership before promoting to `VLProvenSMT`; skipped clauses remain `VLAsserted`. |
+| Body-faithful stripping | ✅ `csPostBodyFaithful` field in `ContractStatus`. `--contracts=unproven` strips postconditions only when `VLProvenSMT ∧ csPostBodyFaithful`. Preconditions never stripped. |
+| SUPP-DEBT | ✅ `spec_coverage` + `suppression_debt` fields in `--spec-coverage` JSON output. |
+| Verify JSON | ✅ `body_faithful` / `body_fallback` metadata in verify JSON output. |
+
 ### v0.7 — Hardening ✅ Shipped
 
 Close remaining concrete fixes from the external review. 294 Haskell tests (was 289; +5 trust-tier).
@@ -1853,7 +1887,7 @@ Close remaining concrete fixes from the external review. 294 Haskell tests (was 
 |------|---------|
 | BUILTIN-2 | ✅ `string-char-at` negative index guard. Returns `""` for out-of-bounds indices in both directions. |
 | BUILTIN-1 | ✅ `regex-match` → POSIX ERE via `regex-tdfa`. Replaces `isInfixOf` stub. Invalid patterns return `False` (total). `unsafePerformIO`/`try`/`evaluate` with `PREAMBLE COMPROMISE` comment. Generated `package.yaml` gains `regex-tdfa` dependency. |
-| DO-1 | ✅ Discarded command warning. Intermediate `TCustom "Command"` types in `do`-blocks emit warning: “current codegen discards.” `checkDiscardedCommand` helper in `TypeCheck.hs`. Warning-only; hard error deferred to v0.8 (DO-2). |
+| DO-1 | ✅ Discarded command warning. Intermediate `TCustom "Command"` types in `do`-blocks emit warning: “current codegen discards.” `checkDiscardedCommand` helper in `TypeCheck.hs`. Warning-only; hard error deferred to v0.8.1 (DO-2). |
 | TRUST-2a | ✅ `VLProvenSMT { vlSMTSolver }` constructor. `Ord` instance removed — replaced by `trustCovers`, `trustMin`, `isProvenLevel`, `vlProverName`. 10 consumer files updated. `.verified.json` serializes as `"proven-smt"`. |
 
 ### v0.6.2 — Algebraic Interface Laws ✅ Shipped

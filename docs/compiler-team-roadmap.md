@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.7 shipped (Hardening); 294 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.8.0 shipped (Faithfulness Core); 320 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -34,18 +34,18 @@
 
 ---
 
-## v0.8.0 — Faithfulness Core (no external blockers)
+## v0.8.0 — Faithfulness Core ✅ Shipped
 
-**Theme:** Close the faithfulness gap — make `VLProven` mean implementation-verified, not just contract-consistent.
+**Theme:** Close the faithfulness gap — make `VLProvenSMT` mean implementation-verified, not just contract-consistent. 320 Haskell tests (was 294; +26).
 
-> **Source:** Professor's analysis (2026-04-28) identified the gap documented in [LLMLL.md §5.3.4](../LLMLL.md) and [Contracts.hs:191–192](../compiler/src/LLMLL/Contracts.hs). Currently, `emitFnConstraints` ([FixpointEmit.hs:110](../compiler/src/LLMLL/FixpointEmit.hs)) ignores function bodies entirely — the `.fq` emitter checks contract self-consistency, not implementation correctness. `isBodyFaithful` returns `False` unconditionally (BUG-6 guard).
+> **Source:** Professor's analysis (2026-04-28) identified the gap documented in [LLMLL.md §5.3.4](../LLMLL.md) and [Contracts.hs:191–192](../compiler/src/LLMLL/Contracts.hs). `emitFnConstraints` now encodes function bodies as verification conditions for the QF-LIA fragment. `isBodyFaithful` returns `True` per-function when body VCs are emitted and pass.
 >
 > **Consensus:** Language team proposal + professor review + compiler team feedback (2026-04-28).
 
 ### BODY-VC — Body-Faithful Verification Conditions
 
 > [!NOTE]
-> BODY-VC-0 design spec is complete — see [`docs/design/body-vc-0-spec.md`](design/body-vc-0-spec.md). Approved by all 5 agents (2026-04-29). Implementation (BODY-VC-1) can proceed.
+> BODY-VC-0 design spec is complete — see [`docs/design/body-vc-0-spec.md`](design/body-vc-0-spec.md). Approved by all 5 agents (2026-04-29). All implementation items shipped.
 
 #### Design Decisions (resolved by BODY-VC-0)
 
@@ -65,36 +65,34 @@ BODY-VC-0 resolved the following proof obligations:
 - **Out of scope:** `letrec` (needs inductive hypothesis), indexed types (`Vect n a`), `EMatch` on sum types (phase 2), `EApp` for user-defined functions (phase 2)
 - **Fallback:** When `bodyToPred` returns `Nothing`, contract-level solver evidence may still be recorded, but body-faithful status remains `False` and runtime assertions are preserved.
 
-| # | ID | Description | Prerequisite | Effort |
+| # | ID | Description | Prerequisite | Status |
 |---|-----|-------------|-------------|--------|
 | 1 | **BODY-VC-0** | Design spec: VC encoding rules, soundness argument, coverage boundary, `TDependent` interaction, recursive function handling, `ContractClause` refactor decision, `bodyToPred` placement (new function calling `exprToPred` for leaves — Option B), **concrete `.fq` example for each translation rule** — see [`body-vc-0-spec.md`](design/body-vc-0-spec.md) | None | ✅ |
-| 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe BodyVC` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). `BodyVC` contains `[FlatPath]` — each path is a conjunction of guards → `result = expr`. Alpha-renaming for shadowed variables. Conservative `Nothing` for unsupported constructs. | BODY-VC-0 | 4–6 days |
-| 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just bvc`, flatten `BodyVC` paths into `.fq` constraints with `body-post` tag. Update `toDiag` in `DiagnosticFQ.hs` for body-post diagnostic messages. | BODY-VC-1 | 1–2 days |
-| 4 | **BODY-VC-3** | Mark postconditions body-faithful for functions whose body VCs emitted and passed. `isBodyFaithful` → `True` per-function (via `csBodyFaithful`). **Preserve precondition runtime checks** unless call-site precondition VCs exist (not in scope for v0.8.0). Body-VC proves `P ∧ (result = ⟦body⟧) ⟹ Q` — the body satisfies the postcondition under the precondition. It does NOT prove that callers satisfy preconditions. | BODY-VC-2 | 0.5 day |
-| 5 | **BODY-VC-T** | FixpointEmit golden tests — `.fq` file for every `bodyToPred` translation rule (TCB hardening, per [verification-debate-action-items.md](design/verification-debate-action-items.md)) | BODY-VC-1 | 1–2 days |
-
-**Critical path:** BODY-VC-0 → BODY-VC-1 → BODY-VC-2 → BODY-VC-3. BODY-VC-T can run in parallel with BODY-VC-2.
+| 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe BodyVC` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). `BodyVC` contains `[FlatPath]` — each path is a conjunction of guards → `result = expr`. Alpha-renaming for shadowed variables. Conservative `Nothing` for unsupported constructs. | BODY-VC-0 | ✅ |
+| 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just bvc`, flatten `BodyVC` paths into `.fq` constraints with `body-post` tag. Update `toDiag` in `DiagnosticFQ.hs` for body-post diagnostic messages. EIf-in-let hoisting. Early-exit fix. | BODY-VC-1 | ✅ |
+| 4 | **BODY-VC-3** | Mark postconditions body-faithful per function via `csPostBodyFaithful` field in `ContractStatus`. `isBodyFaithful` → `True` per-function. `--contracts=unproven` strips postconditions only when `VLProvenSMT ∧ csPostBodyFaithful`. Preconditions never stripped. | BODY-VC-2 | ✅ |
+| 5 | **BODY-VC-T** | 25 new tests: T01–T05 (golden), F01–F03 (fallback), N01–N04 (negative), P01–P04 (parsed-source), T11 (SUPP-DEBT), plus SortEnv, Parens, Flatten, E08 edge cases. | BODY-VC-1 | ✅ |
 
 ### Other v0.8.0 Items
 
-| # | ID | Description | Prerequisite | Effort |
+| # | ID | Description | Prerequisite | Status |
 |---|-----|-------------|-------------|--------|
-| 6 | **SUPP-DEBT** | `suppression_debt` field in `SpecCoverage.hs` JSON output | None | 0.5 day |
-| 7 | **EVENT-LOG** | Orchestration event log schema (Q3 from v0.3.3, deferred since v0.3.5) | Lead Agent stabilized (done) | 1–2 days |
-| 8 | **SPEC-FOUNDATION** | Add §0.1 "Semantic Foundation" to LLMLL.md — LLMLL's operational semantics are defined by the generated Haskell program (verification-debate design decision, never landed in spec; see [verification-debate-action-items.md:47](design/verification-debate-action-items.md)) | None | 0.5 day |
-| 9 | **SPEC-EFFECTS** | Add §3.3 "Effect Model" to LLMLL.md — capabilities are static-checked, not algebraic, not row-polymorphic (see [verification-debate-action-items.md:53](design/verification-debate-action-items.md)) | None | 0.5 day |
-| 10 | **SPEC-TRUST** | Elevate `(trust ...)` documentation in LLMLL.md — soundness boundary, propagation, review pressure. BODY-VC changes what "proven" means; trust docs must be updated in the same release (see [verification-debate-action-items.md:63](design/verification-debate-action-items.md)) | BODY-VC-3 | 0.5 day |
+| 6 | **SUPP-DEBT** | `spec_coverage` + `suppression_debt` fields in `--spec-coverage` JSON output alongside `effective_coverage`. | None | ✅ |
+| 7 | **EVENT-LOG** | Orchestration event log schema (Q3 from v0.3.3, deferred since v0.3.5) | Lead Agent stabilized (done) | ✅ |
+| 8 | **SPEC-FOUNDATION** | §0.1 "Semantic Foundation" added to LLMLL.md — LLMLL's operational semantics are defined by the generated Haskell program | None | ✅ |
+| 9 | **SPEC-EFFECTS** | §3.3 "Effect Model" documented — capabilities are static-checked, not algebraic, not row-polymorphic | None | ✅ |
+| 10 | **SPEC-TRUST** | Elevated `(trust ...)` documentation in LLMLL.md — soundness boundary, propagation, review pressure. Trust docs updated for body-faithful verification semantics. | BODY-VC-3 | ✅ |
 
-### Open Spec Items (Language Team)
+### Open Spec Items (Language Team) — All Resolved
 
-> Obligations from [verification-debate-action-items.md](design/verification-debate-action-items.md) that haven't landed in `LLMLL.md`. Tracked here for scheduling.
+> Obligations from [verification-debate-action-items.md](design/verification-debate-action-items.md) that have landed in `LLMLL.md`.
 
-| # | Item | Priority | Placement |
-|---|------|----------|-----------|
-| 1 | §0.1 "Semantic Foundation" — operational semantics = generated Haskell | High | v0.8.0 (SPEC-FOUNDATION) |
-| 2 | §3.3 "Effect Model" — capabilities are static-checked, not algebraic, not row-polymorphic | Medium | v0.8.0 (SPEC-EFFECTS) — compiler team review: half-day spec edit, no code |
-| 3 | Elevated `(trust ...)` documentation — soundness boundary, propagation, review pressure | High | v0.8.0 (SPEC-TRUST) — compiler team review: BODY-VC changes what "proven" means; trust docs must ship in same release |
-| 4 | §6 spec-adequacy note — user responsibility for specification correctness | Low | Deferred |
+| # | Item | Status |
+|---|------|--------|
+| 1 | §0.1 "Semantic Foundation" — operational semantics = generated Haskell | ✅ Shipped (v0.8.0, SPEC-FOUNDATION) |
+| 2 | §3.3 "Effect Model" — capabilities are static-checked, not algebraic, not row-polymorphic | ✅ Shipped (v0.8.0, SPEC-EFFECTS) |
+| 3 | Elevated `(trust ...)` documentation — soundness boundary, propagation, review pressure | ✅ Shipped (v0.8.0, SPEC-TRUST) |
+| 4 | §6 spec-adequacy note — user responsibility for specification correctness | Deferred |
 
 ---
 
@@ -164,7 +162,7 @@ BODY-VC-0 resolved the following proof obligations:
 
 | Item | Resolution |
 |------|------------|
-| Orchestration event log format (Q3 from v0.3.3) | Moved to v0.8.0 as EVENT-LOG |
+| Orchestration event log format (Q3 from v0.3.3) | **Shipped** (v0.8.0, EVENT-LOG) |
 | MCP integration (Q5 from v0.3.3) | Moved to v0.8.1 |
 | Real Leanstral integration | Moved to v0.8.1 as LEAN-GA. Product claim narrowed (v0.6 CLAIM-1..2). |
 | Spec coverage metric (`--spec-coverage`) | **Shipped** (v0.6.0, SC-1..SC-4) |
@@ -195,23 +193,26 @@ BODY-VC-0 resolved the following proof obligations:
 # Summary: Version Plan and Critical Path
 
 ```
-v0.6.3 (SHIPPED)       v0.7 (SHIPPED)      v0.8.0 (Faithfulness Core)    v0.8.1 (Integration)     Future
-────────────────       ────────────────    ──────────────────────────    ────────────────────     ──────
-Trust model fixes ✅    BUILTIN-1/2 ✅      BODY-VC-0 (design spec) ✅     LEAN-GA (blocked)        WASM
-7 bug fixes             DO-1 ✅             BODY-VC-1 (bodyToPred) ☐       TRUST-2b                 target
-tcStrictMode            TRUST-2a ✅         BODY-VC-2 (wire) ☐             STRIP-GA
-Transitive trust                           BODY-VC-3 (post faithful) ☐    MCP                      WASI
-Body-faithful guard    294 tests            BODY-VC-T (golden tests) ☐                              enforcement
-                       shipped             SUPP-DEBT ☐
-                                           EVENT-LOG ☐
-                                           SPEC-FOUNDATION ☐
+v0.7 (SHIPPED)      v0.8.0 (SHIPPED)                  v0.8.1 (Integration)     Future
+────────────────    ──────────────────────────────    ────────────────────     ──────
+BUILTIN-1/2 ✅      BODY-VC-0 (design spec) ✅           LEAN-GA (blocked)        WASM
+DO-1 ✅             BODY-VC-1 (bodyToPred) ✅            TRUST-2b                 target
+TRUST-2a ✅         BODY-VC-2 (wire + EIf hoist) ✅      STRIP-GA
+294 tests           BODY-VC-3 (post faithful) ✅         MCP                      WASI
+shipped             BODY-VC-T (25 new tests) ✅                                   enforcement
+                    SUPP-DEBT ✅
+                    EVENT-LOG ✅
+                    SPEC-FOUNDATION ✅
+                    SPEC-EFFECTS ✅
+                    SPEC-TRUST ✅
+                    320 tests shipped
 ```
 
-The critical path through v0.7 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → trust model fixes → hardening → shipped**. v0.6.3 resolved 7 critical bugs from the engineering audit. v0.7 shipped BUILTIN-1/2 (total builtins), DO-1 (discarded command warning), and TRUST-2a (`VLProvenSMT` + `Ord` removal).
+The critical path through v0.8.0 is complete: **hardening → BODY-VC design → bodyToPred → emitter wiring → body-faithful postconditions → golden tests → shipped**.
 
 **v0.7 result:** All 4 items shipped. 294 Haskell + 37 Python tests. 3 discovered issues resolved (Module.hs `max`, compare tests, round-trip serialization).
 
-**v0.8.0 critical path:** BODY-VC-0 ✅ → BODY-VC-1 (`bodyToPred`) → BODY-VC-2 (wire into emitter) → BODY-VC-3 (mark postconditions body-faithful; preserve precondition runtime checks). BODY-VC-T (golden tests) runs in parallel with BODY-VC-2. SUPP-DEBT, EVENT-LOG, SPEC-FOUNDATION are independent.
+**v0.8.0 result:** All 10 items shipped. BODY-VC-0 ✅ → BODY-VC-1 ✅ → BODY-VC-2 ✅ → BODY-VC-3 ✅. BODY-VC-T (25 tests) validated all translation rules. EOp soundness fix and clause-level emission tracking closed two critical soundness gaps. SUPP-DEBT, EVENT-LOG, SPEC-FOUNDATION, SPEC-EFFECTS, SPEC-TRUST all shipped. 320 Haskell + 37 Python tests.
 
 **v0.8.1 trigger:** LEAN-GA (blocked on `lean-lsp-mcp`). TRUST-2b and STRIP-GA depend on LEAN-GA. MCP triggered by external demand.
 
