@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.7)
+# LLMLL: Large Language Model Logical Language (v0.8.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.7 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 294 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.8.0 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 320 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history (v0.1.1 → v0.6.3)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.8.0** | Faithfulness Core: Body-faithful verification conditions (BODY-VC). EOp delegation + `!=` in `exprToPred`. Clause-level emission tracking (`erEmittedPre`/`erEmittedPost`). EIf-in-let hoisting. SUPP-DEBT (`spec_coverage` + `suppression_debt`). Post-only stripping when body-faithful. 320 tests (+26). |
 | **v0.7** | Hardening: `string-char-at` negative index guard (BUILTIN-2), `regex-match` upgraded to POSIX ERE via `regex-tdfa` (BUILTIN-1), do-block discarded command warning (DO-1), `VLProvenSMT` constructor replaces `Ord` instance on `VerificationLevel` (TRUST-2a). 294 tests (+5 trust-tier). |
 | **v0.6.3** | Trust Model Fixes: 7 critical bugs resolved. `result` removed from pre scope (BUG-1), strict typecheck gate (BUG-4), contract instrumentation in build pipeline (BUG-2), transitive trust closure (BUG-3), body-faithful stripping guard (BUG-6), proof laundering protection (BUG-7), termination docs corrected (BUG-5). `tcStrictMode` + `llmll check --strict`. 289 tests (unchanged count; 2 expectations updated). |
 | **v0.6.2** | Algebraic Interface Laws: `def-interface :laws` with `(for-all ...)` property syntax, QuickCheck `prop_` codegen, spec coverage integration, PBT wiring. VSM-1 backfill complete. 289 total tests $+$ 10 new. |
@@ -1865,6 +1866,19 @@ Seven critical bugs from the v0.6.3 engineering audit, all resolved. Stabilizes 
 | BUG-3 | ✅ Transitive trust closure via `transitiveClose` fixed-point iteration. `teEffectiveLevel = min(self, transitive deps)`. |
 | BUG-5 | ✅ Termination documentation corrected (§4.2, §5.3.3): non-negativity only, not strict descent. |
 
+### v0.8.0 — Faithfulness Core ✅ Shipped
+
+Close the faithfulness gap — make `VLProvenSMT` mean implementation-verified. 320 Haskell tests (was 294; +26).
+
+| Area | Feature |
+|------|---------|
+| BODY-VC | ✅ Body-faithful verification conditions for QF-LIA fragment. `bodyToPred` encodes `ELet`, `EIf`, literal arithmetic as `.fq` constraints. Alpha-renaming for shadowed variables. Path limit (>4096 → fallback). Conservative `Nothing` for unsupported constructs. |
+| EOp soundness | ✅ `exprToPred (EOp op args) = exprToPred (EApp op args)` delegation. `!=` added to `exprToPred` and `lookupPredOp`. Parsed-source round-trip tested. |
+| Emission tracking | ✅ `erEmittedPre`/`erEmittedPost` fields in `EmitResult`. Sidecar generation checks membership before promoting to `VLProvenSMT`; skipped clauses remain `VLAsserted`. |
+| Body-faithful stripping | ✅ `csPostBodyFaithful` field in `ContractStatus`. `--contracts=unproven` strips postconditions only when `VLProvenSMT ∧ csPostBodyFaithful`. Preconditions never stripped. |
+| SUPP-DEBT | ✅ `spec_coverage` + `suppression_debt` fields in `--spec-coverage` JSON output. |
+| Verify JSON | ✅ `body_faithful` / `body_fallback` metadata in verify JSON output. |
+
 ### v0.7 — Hardening ✅ Shipped
 
 Close remaining concrete fixes from the external review. 294 Haskell tests (was 289; +5 trust-tier).
@@ -1873,7 +1887,7 @@ Close remaining concrete fixes from the external review. 294 Haskell tests (was 
 |------|---------|
 | BUILTIN-2 | ✅ `string-char-at` negative index guard. Returns `""` for out-of-bounds indices in both directions. |
 | BUILTIN-1 | ✅ `regex-match` → POSIX ERE via `regex-tdfa`. Replaces `isInfixOf` stub. Invalid patterns return `False` (total). `unsafePerformIO`/`try`/`evaluate` with `PREAMBLE COMPROMISE` comment. Generated `package.yaml` gains `regex-tdfa` dependency. |
-| DO-1 | ✅ Discarded command warning. Intermediate `TCustom "Command"` types in `do`-blocks emit warning: “current codegen discards.” `checkDiscardedCommand` helper in `TypeCheck.hs`. Warning-only; hard error deferred to v0.8 (DO-2). |
+| DO-1 | ✅ Discarded command warning. Intermediate `TCustom "Command"` types in `do`-blocks emit warning: “current codegen discards.” `checkDiscardedCommand` helper in `TypeCheck.hs`. Warning-only; hard error deferred to v0.8.1 (DO-2). |
 | TRUST-2a | ✅ `VLProvenSMT { vlSMTSolver }` constructor. `Ord` instance removed — replaced by `trustCovers`, `trustMin`, `isProvenLevel`, `vlProverName`. 10 consumer files updated. `.verified.json` serializes as `"proven-smt"`. |
 
 ### v0.6.2 — Algebraic Interface Laws ✅ Shipped

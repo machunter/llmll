@@ -2,6 +2,40 @@
 
 ---
 
+## v0.8.0 — Faithfulness Core (2026-04-29)
+
+### Compiler — Body-Faithful Verification Conditions (BODY-VC)
+
+- **BODY-VC-1** — `bodyToPred` for QF-LIA fragment. Encodes `ELet` (with alpha-renaming for shadowed variables), `EIf` (path-sensitive constraint emission), and linear arithmetic as `.fq` body verification conditions. Conservative `Nothing` fallback for unsupported constructs (`letrec`, `EMatch`, non-linear expressions). Path limit: >4096 execution paths trigger fallback with diagnostic warning.
+- **BODY-VC-2** — Wired into `emitFnConstraints` in `FixpointEmit.hs`. When `bodyToPred body = Just bvc`, flattened paths emitted as `.fq` constraints. EIf-in-let hoisting (conservative single-path). Early-exit fix: replaced no-op `when (cond) $ return ()` with actual `if/then/else/do` short-circuit.
+- **BODY-VC-3** — Postconditions marked body-faithful per function via `csPostBodyFaithful` field in `ContractStatus` (`Module.hs`). `Contracts.hs` strips postcondition assertions only when `VLProvenSMT ∧ csPostBodyFaithful = True`. Preconditions never stripped.
+- **BODY-VC-T** — 25 new tests: T01–T05 (body-VC golden), F01–F03 (fallback), N01–N04 (negative), P01–P04 (parsed-source), T11 (SUPP-DEBT), plus SortEnv, Parens, Flatten, E08 edge cases.
+
+### Compiler — Soundness Fixes
+
+- **EOp delegation** — `exprToPred (EOp op args) = exprToPred (EApp op args)`. The parser emits `EOp` for operators, but `exprToPred` only handled `EApp`. Contract clauses using operators were silently skipped and falsely marked as proven.
+- **`!=` operator** — Added to both `exprToPred` and `lookupPredOp` (parser emits `!=`, not `/=`).
+- **Clause-level emission tracking** — `erEmittedPre`/`erEmittedPost` fields in `EmitResult`. Sidecar generation checks membership before promoting to `VLProvenSMT`; skipped clauses remain `VLAsserted`.
+
+### Compiler — Spec Coverage
+
+- **SUPP-DEBT** — `spec_coverage` (contracted / total) and `suppression_debt` (suppressed / total) fields added to `--spec-coverage` JSON output alongside existing `effective_coverage`.
+
+### Compiler — Verify JSON
+
+- Verify JSON output now includes `body_faithful` and `body_fallback` metadata per function.
+
+### Spec (LLMLL.md)
+
+- §0.1 — Semantic foundation section added
+- §4.4.1 — Body-faithfulness caveat added to trust tier documentation
+- §5.3.2 — SUPP-DEBT fields documented in spec coverage JSON example
+- §5.3.4 — New section: Body-Faithful Verification (BODY-VC coverage, path limit, two-tier status)
+
+**Tests:** 320 Haskell (was 294; +26), 37 Python (unchanged).
+
+---
+
 ## v0.7 — Hardening (2026-04-29)
 
 ### Compiler — Builtin Hardening

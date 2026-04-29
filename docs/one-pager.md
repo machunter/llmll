@@ -64,7 +64,7 @@ Agents don't write source code files that get merged with git-style diffs. They 
 
 ## Status
 
-The compiler is at **v0.7** (April 2026): Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report`), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, and a specification quality layer — `--spec-coverage` gate with `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts, frozen ERC-20 and TOTP benchmarks with verification-scope matrices, and algebraic interface laws (`def-interface :laws`). v0.6.3 shipped runtime contract instrumentation, strict typecheck gates on build/verify, transitive trust closure, and conservative assertion-stripping guards. v0.7 hardened builtins (`string-char-at` index guard, `regex-match` upgraded to POSIX ERE via `regex-tdfa`), added do-block discarded command warnings, and refined the trust model (`VLProvenSMT` constructor, `Ord` instance replaced with explicit preorder helpers). The type checker implements sound unification (Algorithm W with occurs check and let-generalization) — the last known unsoundness was closed in v0.5.0. 294 Haskell + 37 Python tests passing.
+The compiler is at **v0.8.0** (April 2026): Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report`), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, and a specification quality layer — `--spec-coverage` gate with `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts, frozen ERC-20 and TOTP benchmarks with verification-scope matrices, and algebraic interface laws (`def-interface :laws`). v0.8.0 shipped **body-faithful verification conditions** — the verifier now encodes function bodies as `.fq` constraints for the QF-LIA fragment, so `VLProvenSMT` means the implementation satisfies the contract, not just that the contract is self-consistent. Postcondition runtime assertions can be safely stripped for body-faithful proven functions; preconditions are always preserved. The type checker implements sound unification (Algorithm W with occurs check and let-generalization) — the last known unsoundness was closed in v0.5.0. 320 Haskell + 37 Python tests passing.
 
 Early stage — the compiler infrastructure works, validation on increasingly complex sample programs is ongoing. Open source (GPLv3). Solo project, supported by AI tools.
 
@@ -99,8 +99,7 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 | **Algebraic interface laws** (v0.6.2) ✅ | `def-interface :laws` with `(for-all ...)` property syntax. Laws are type-checked, QuickCheck `prop_` codegen enforces properties, separate "Interface laws" section in spec coverage. |
 | **Trust model fixes** (v0.6.3) ✅ | 7 critical bugs resolved: strict typecheck gate on `build`/`run`/`verify`, runtime contract instrumentation in build pipeline, transitive trust closure, body-faithful stripping guard, proof laundering protection. |
 | **Hardening** (v0.7) ✅ | `string-char-at` negative index guard, `regex-match` upgraded to POSIX ERE via `regex-tdfa`, do-block discarded command warning, `VLProvenSMT` constructor replaces `Ord` instance on `VerificationLevel`. 294 tests (+5 trust-tier). |
-| **Body-faithful VC design spec** (v0.8.0, BODY-VC-0) ✅ | Approved design specification for body-faithful verification conditions. Closes the faithfulness gap where the verifier checked contract self-consistency but not implementation correctness. Covers `ELet`, `EIf`, `ELit`, `EVar`, `EBinOp` within QF-LIA. Implementation (BODY-VC-1) is next. |
-| **Body-faithful VCs** (v0.8.0, in progress) | `bodyToPred` translates function bodies into verification conditions. When proven, postcondition runtime assertions can be safely stripped. Precondition checks preserved (call-site precondition VCs are future work). |
+| **Body-faithful VCs** (v0.8.0) ✅ | `bodyToPred` translates function bodies into verification conditions for the QF-LIA fragment (`ELet`, `EIf`, `ELit`, `EVar`, linear arithmetic). Alpha-renaming for shadowed variables, path-sensitive constraint emission. When proven, postcondition runtime assertions are safely stripped. Precondition checks preserved (call-site precondition VCs are future work). Closes the faithfulness gap where the verifier checked contract self-consistency but not implementation correctness. 320 tests (+26). |
 | **WASM sandboxing** (planned) | Contracts cover *correctness*; WASM covers *capability abuse*. Server-side runtimes (Wasmtime, WasmEdge) enforce that programs cannot access resources beyond their declared capabilities. `effectful` WASM compatibility confirmed (v0.5.0 spike). |
 | **Synthetic training corpus** (planned) | Haskell-to-LLMLL back-translation from Hackage for fine-tuning and benchmarking. |
 
@@ -113,19 +112,20 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 | Claim | Evidence | Verification level | Command / artifact |
 |---|---|---|---|
 | "Compiler accepts or rejects code against contracts" | All shipped examples type-check and verify | **Proven** (within QF-LIA) | `llmll check`, `llmll verify` |
-| "Contracts are verified by SMT solver (Z3)" | liquid-fixpoint integration, 294 Haskell + 37 Python tests | **Proven** (QF-LIA) | `llmll verify examples/hangman_json_verifier/` |
+| "Contracts are verified by SMT solver (Z3)" | liquid-fixpoint integration, 320 Haskell + 37 Python tests | **Proven** (QF-LIA) | `llmll verify examples/hangman_json_verifier/` |
 | "Leanstral handles inductive properties" | Translation infrastructure exists; mock-only | **Not shipped** — mock pipeline | `llmll verify --leanstral-mock` |
 | "Trust levels propagate through dependencies" | `--trust-report` emits transitive trust closure | **Shipped** (v0.3.2) | `llmll verify --trust-report` |
 | "Weakness checker detects under-specified contracts" | Trivial-implementation construction | **Shipped** (v0.3.5) | `llmll verify --weakness-check` |
 | "Lead Agent architects programs end-to-end" | Skeleton generation from intent | **Shipped** (v0.4.0) | `llmll-orchestra --mode auto` |
 | "Context-aware checkout reduces hallucination" | Γ, τ, Σ in checkout response | **Shipped** (v0.3.5) | `llmll checkout --json` |
-| "Sound unification (Algorithm W)" | Occurs check + let-generalization | **Shipped** (v0.5.0) | 294 Haskell tests, 0 failures |
+| "Sound unification (Algorithm W)" | Occurs check + let-generalization | **Shipped** (v0.5.0) | 320 Haskell tests, 0 failures |
 | "Capability enforcement at compile time" | `wasi.*` calls rejected without matching import | **Shipped** (v0.4.0, CAP-1) | `llmll check` on `wasi.*` without import → error |
 | "Spec coverage is a blocking gate" | `--spec-coverage` classifies functions, computes effective coverage, gates `--mode auto` | **Shipped** (v0.6.0) | `llmll verify --spec-coverage` |
 | "Suppression governance for intentional underspecification" | `(weakness-ok fn "reason")` with mandatory reason, surfaced in trust report | **Shipped** (v0.6.0) | `llmll verify --spec-coverage`, `--trust-report` |
 | "ERC-20 benchmark with external ground truth" | Frozen benchmark with verification-scope matrix, walkthrough, expected results | **Shipped** (v0.6.0) | `examples/erc20_token/` |
 | "Clause-level provenance (`:source`)" | Per-clause `:source` annotation on `pre`/`post` contracts | **Shipped** (v0.6.0) | `(pre expr :source "RFC §...")` |
 | "TOTP benchmark with RFC traceability" | Frozen benchmark, `:source` annotations | **Shipped** (v0.6.1) | `examples/totp_rfc6238/` |
+| "Body-faithful verification" | `bodyToPred` encodes bodies as VCs; body-faithful postconditions can be stripped | **Shipped** (v0.8.0) | `llmll verify` on QF-LIA functions |
 | "WASM sandboxing" | `effectful` compat spike GO; Docker is current sandbox | **Confirmed future** | `docs/effectful-wasm-spike.md` |
 
 > [!NOTE]

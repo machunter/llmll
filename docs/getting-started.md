@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.7
+# LLMLL Getting Started — v0.8.0
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -345,6 +345,35 @@ This leverages existing `TrustReport.hs` transitive closure infrastructure and t
 
 > [!IMPORTANT]
 > `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
+
+#### Body-faithful verification (v0.8.0)
+
+Since v0.8.0, `llmll verify` encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates:
+
+```
+P ∧ (result = ⟦B⟧) ⟹ Q
+```
+
+This means `VLProvenSMT` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent.
+
+**Coverage:** `ELet` (with alpha-renaming), `EIf` (path-sensitive), and QF-LIA operators. `EMatch`, `letrec`, and non-linear expressions fall back to contract-only verification. Functions with >4096 execution paths also fall back with a diagnostic warning.
+
+**JSON output:** `--json verify` includes per-function `body_faithful` and `body_fallback` metadata:
+
+```json
+{
+  "functions": {
+    "withdraw": { "body_faithful": true },
+    "sort-list": { "body_fallback": "letrec" }
+  }
+}
+```
+
+**Contract stripping:** `--contracts=unproven` strips postcondition assertions only for functions that are both `VLProvenSMT` and body-faithful. Preconditions are never stripped — body VCs prove postconditions, not preconditions.
+
+**Spec coverage JSON (SUPP-DEBT):** `--spec-coverage --json` now includes two additional fields in the summary:
+- `spec_coverage` — contracted / total (excludes suppressions)
+- `suppression_debt` — suppressed / total
 
 ### `replay` — deterministic event log replay (v0.3.1)
 
