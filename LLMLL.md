@@ -482,8 +482,8 @@ effective_coverage = (contracted + suppressed) / total_functions
 > un-reviewed function with no contract.
 >
 > However, suppression is not specification. The D10 warning (>50% suppressed)
-> guards against gaming. For governance reporting, use `suppression_debt`
-> (= suppressed / total) alongside `effective_coverage`.
+> guards against gaming. For governance reporting, `suppression_debt`
+> (= suppressed / total) alongside `effective_coverage` is planned (v0.8.0, SUPP-DEBT).
 
 Example output:
 
@@ -507,17 +507,25 @@ Use `--spec-coverage --json` for machine-readable output:
 
 ```json
 {
-  "effective_coverage": 0.85,
-  "spec_coverage": 0.60,
-  "suppression_debt": 0.25,
-  "total": 20,
-  "contracted": 12,
-  "suppressed": 5,
-  "unspecified": 3
+  "summary": {
+    "contracted": 12,
+    "suppressed": 5,
+    "unspecified": 3,
+    "total": 20,
+    "proven": 4,
+    "tested": 3,
+    "asserted": 5,
+    "effective_coverage": 0.85
+  },
+  "entries": ["..."],
+  "laws": [],
+  "warnings": []
 }
 ```
 
-`spec_coverage` (= contracted / total, excluding suppressions) is the stricter metric for teams that want to track specification completeness without counting governance decisions. `suppression_debt` (= suppressed / total) tracks the proportion of functions covered by explicit engineering decisions rather than formal contracts.
+The JSON output includes per-function `entries`, aggregate `summary`, interface `laws`, and governance `warnings`. The `effective_coverage` field in `summary` is `(contracted + suppressed) / total`.
+
+> **Planned (v0.8.0, SUPP-DEBT):** Two additional summary fields — `spec_coverage` (= contracted / total, excluding suppressions) and `suppression_debt` (= suppressed / total) — will be added when SUPP-DEBT ships.
 
 **Division guard (SC-PO-1):** A module with 0 functions has `effective_coverage = 100%`.
 

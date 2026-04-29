@@ -397,6 +397,7 @@ class DryRunAgent:
                 "returns": "int",
                 "agent": "@stub",
                 "description": "Stub function for dry-run mode",
+                "contracts": {"post": "(>= result 0)"},
             }],
             "imports": [],
             "exports": ["stub-fn"],

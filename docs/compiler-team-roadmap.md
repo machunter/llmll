@@ -29,8 +29,8 @@
 
 | # | ID | Description | Effort | Status |
 |---|-----|-------------|--------|--------|
-| 1 | **TEST-DRIFT** | Fix Python dry-run Lead Agent fixture — stub plan in `agent.py:385` defines `stub-fn` with no contract, rejected by the spec-quality gate added in v0.6.0. Update fixture to include a minimal contract. | 0.5 hr | ☐ |
-| 2 | **DOC-DRIFT** | Reconcile LLMLL.md with `SpecCoverage.hs` JSON output — spec describes `suppression_debt` field but `SpecCoverage.hs:302` only emits `effective_coverage`. Either remove the field from the spec until SUPP-DEBT ships (v0.8.0), or add a stub field now. | 0.5 hr | ☐ |
+| 1 | **TEST-DRIFT** | Fix Python dry-run Lead Agent fixture — stub plan in `agent.py:385` defines `stub-fn` with no contract, rejected by the spec-quality gate added in v0.6.0. Update fixture to include a minimal contract. | 0.5 hr | ✅ |
+| 2 | **DOC-DRIFT** | Reconcile LLMLL.md with `SpecCoverage.hs` JSON output — spec describes `suppression_debt` field but `SpecCoverage.hs:302` only emits `effective_coverage`. Either remove the field from the spec until SUPP-DEBT ships (v0.8.0), or add a stub field now. | 0.5 hr | ✅ |
 
 ---
 
