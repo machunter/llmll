@@ -270,6 +270,7 @@ buildModuleEnv path stmts _env =
             , csPostLevel = fmap (const VLAsserted) (contractPost contract)
             , csPreSource  = contractPreSource contract
             , csPostSource = contractPostSource contract
+            , csPostBodyFaithful = False
             })
       | otherwise = Nothing
 
@@ -282,6 +283,7 @@ mergeCS sidecar base = ContractStatus
   , csPostLevel = pickHigher (csPostLevel sidecar) (csPostLevel base)
   , csPreSource  = csPreSource sidecar <|> csPreSource base
   , csPostSource = csPostSource sidecar <|> csPostSource base
+  , csPostBodyFaithful = csPostBodyFaithful sidecar || csPostBodyFaithful base
   }
   where
     pickHigher (Just a) (Just b)

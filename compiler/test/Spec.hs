@@ -1277,9 +1277,9 @@ main = hspec $ do
         hasPre  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
-        defaultCS = ContractStatus Nothing Nothing Nothing Nothing
-        provenCS  = ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing
-        mixedCS   = ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing
+        defaultCS = ContractStatus Nothing Nothing Nothing Nothing False
+        provenCS  = ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False
+        mixedCS   = ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing False
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -1397,8 +1397,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
-          , ("g", ContractStatus (Just (VLProven "z3")) Nothing Nothing Nothing)
+          [ ("f", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
+          , ("g", ContractStatus (Just (VLProven "z3")) Nothing Nothing Nothing False)
           ]
         emptyMap = DM.empty
 
@@ -1427,8 +1427,8 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (VLProvenSMT "liquid-fixpoint")) (Just (VLProvenSMT "liquid-fixpoint")) Nothing Nothing)
-            , ("mul", ContractStatus (Just VLAsserted) Nothing Nothing Nothing)
+            [ ("add", ContractStatus (Just (VLProvenSMT "liquid-fixpoint")) (Just (VLProvenSMT "liquid-fixpoint")) Nothing Nothing False)
+            , ("mul", ContractStatus (Just VLAsserted) Nothing Nothing Nothing False)
             ]
       saveVerified testFile statuses
       loaded <- loadVerified testFile
@@ -1457,7 +1457,7 @@ main = hspec $ do
           , meAliasMap = DM.empty
           , mePath = modPath
           , meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)]
+              [("safe-add", ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)]
           }
         cache = DM.fromList [(modPath, modEnv)]
 
@@ -1469,7 +1469,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)] }
+              [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache provenCache emptyEnv callerStmts
@@ -1522,28 +1522,28 @@ main = hspec $ do
 
     -- Test 1: Asserted contracts emit trust-gap warnings
     it "asserted contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLProven "z3")) (Just VLAsserted) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -1552,7 +1552,7 @@ main = hspec $ do
 
     -- Test 5: Trust declaration at VLTested suppresses VLTested gap
     it "trust declaration at tested level suppresses tested trust-gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" (VLTested 0)
@@ -1566,7 +1566,7 @@ main = hspec $ do
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
     -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
     it "trust at asserted does NOT suppress tested-level gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing)
+      let authEnv = mkAuthModule (ContractStatus (Just (VLTested 100)) (Just (VLTested 100)) Nothing Nothing False)
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" VLAsserted  -- asserted < tested
@@ -1587,7 +1587,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)]
+                [("safe-add", ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)]
             }
           cryptoEnv = ModuleEnv
             { meExports        = DM.fromList [("hash", TFn [TString] TString)]
@@ -1596,7 +1596,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
-                [("hash", ContractStatus (Just VLAsserted) Nothing Nothing Nothing)]
+                [("hash", ContractStatus (Just VLAsserted) Nothing Nothing Nothing False)]
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
@@ -1650,9 +1650,9 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)
+                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           -- Entry function is proven but calls asserted crypto.hash
           stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
@@ -1670,7 +1670,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing)
@@ -1683,9 +1683,9 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing)
+                        (ContractStatus (Just (VLProven "z3")) (Just (VLProven "z3")) Nothing Nothing False)
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing)
+                          (ContractStatus (Just VLAsserted) (Just VLAsserted) Nothing Nothing False)
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing) (EVar "x")
@@ -1717,7 +1717,7 @@ main = hspec $ do
     -- Test 6: Human-readable format contains function names and levels
     it "formatTrustReport contains function names and verification levels" $ do
       let assertedMod = mkModEnv "verify-token" ["auth"]
-                          (ContractStatus (Just VLAsserted) Nothing Nothing Nothing)
+                          (ContractStatus (Just VLAsserted) Nothing Nothing Nothing False)
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
           report = buildTrustReport cache stmts

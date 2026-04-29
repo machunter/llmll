@@ -295,11 +295,13 @@ vlProverName _               = Nothing
 
 -- | Per-function contract verification status.
 -- v0.6: source provenance tracked per-clause alongside verification level.
+-- v0.8.0: csPostBodyFaithful tracks whether body-faithful VCs were generated.
 data ContractStatus = ContractStatus
-  { csPreLevel   :: Maybe VerificationLevel  -- ^ Nothing if no pre clause
-  , csPostLevel  :: Maybe VerificationLevel  -- ^ Nothing if no post clause
-  , csPreSource  :: Maybe Text               -- ^ v0.6: :source annotation for pre clause
-  , csPostSource :: Maybe Text               -- ^ v0.6: :source annotation for post clause
+  { csPreLevel          :: Maybe VerificationLevel  -- ^ Nothing if no pre clause
+  , csPostLevel         :: Maybe VerificationLevel  -- ^ Nothing if no post clause
+  , csPreSource         :: Maybe Text               -- ^ v0.6: :source annotation for pre clause
+  , csPostSource        :: Maybe Text               -- ^ v0.6: :source annotation for post clause
+  , csPostBodyFaithful  :: Bool                     -- ^ v0.8.0: True when body VC was successfully generated
   } deriving (Show, Eq, Generic)
 
 -- ---------------------------------------------------------------------------

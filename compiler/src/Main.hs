@@ -53,7 +53,7 @@ import LLMLL.Diagnostic
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness)
 -- D4: liquid-fixpoint verification backend
-import LLMLL.FixpointEmit (emitFixpoint, EmitResult(..))
+import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions)
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
@@ -1043,8 +1043,9 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           then TIO.putStrLn (formatCoverageJson coverageReport)
           else TIO.putStr (formatCoverageText coverageReport)
         exitSuccess
-      -- 2. Emit .fq constraints + build ConstraintTable
-      emitR <- emitFixpoint fp stmts
+      -- 2. Emit .fq constraints + build ConstraintTable (v0.8.0: body VCs enabled)
+      let emitOpts = defaultEmitOptions { emitBodyVCs = True }
+      emitR <- emitFixpointWith emitOpts fp stmts
       let fqText = erFQText emitR
           table  = erConstraintTable emitR
           skipped = erSkipped emitR
@@ -1059,6 +1060,13 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
         TIO.putStrLn $ "   .fq written to " <> T.pack fqPath
         unless (null skipped) $
           TIO.putStrLn $ "   skipped (non-linear): " <> T.intercalate ", " skipped
+        -- v0.8.0: report body-faithful and fallback functions
+        unless (null (erBodyFaithful emitR)) $
+          TIO.putStrLn $ "   body-faithful: " <> T.intercalate ", " (erBodyFaithful emitR)
+        unless (null (erBodyFallback emitR)) $
+          TIO.putStrLn $ "   body-fallback: " <> T.intercalate ", " (erBodyFallback emitR)
+        -- v0.8.0: surface diagnostics (path-limit warnings etc.)
+        mapM_ (\d -> TIO.putStrLn $ "   ⚠️  " <> diagMessage d) (erDiagnostics emitR)
 
       -- 4. Find liquid-fixpoint binary (installs as "fixpoint" or "liquid-fixpoint")
       mLF <- do
@@ -1108,12 +1116,14 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           -- v0.3: write .verified.json sidecar on SAFE
           case fqResult of
             FQSafe -> do
-              let provenCS = Map.fromList
+              let bodyFaithfulSet = Set.fromList (erBodyFaithful emitR)
+                  provenCS = Map.fromList
                     [ (n, ContractStatus
                         { csPreLevel  = fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPre c)
                         , csPostLevel = fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPost c)
                         , csPreSource  = contractPreSource c
                         , csPostSource = contractPostSource c
+                        , csPostBodyFaithful = Set.member n bodyFaithfulSet
                         })
                     | s <- stmts
                     , Just (n, c) <- [extractContract s]
@@ -1158,8 +1168,9 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
 -- | Check a single weakness candidate: emit .fq, run solver, return diagnostic if SAFE.
 checkWeaknessCandidate :: FilePath -> Bool -> WeaknessCandidate -> IO [Diagnostic]
 checkWeaknessCandidate lfBin _json wc = do
-  -- Emit .fq for the synthetic trivial statement
-  emitR <- emitFixpoint "<weakness-check>" [wcSyntheticStmt wc]
+  -- Emit .fq for the synthetic trivial statement (v0.8.0: body-aware)
+  let weakOpts = defaultEmitOptions { emitBodyVCs = True }
+  emitR <- emitFixpointWith weakOpts "<weakness-check>" [wcSyntheticStmt wc]
   let fqText = erFQText emitR
       fqPath = "/tmp/llmll-weakness-" <> T.unpack (wcFunctionName wc) <> ".fq"
   TIO.writeFile fqPath fqText

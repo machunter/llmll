@@ -68,7 +68,8 @@ csToJSON cs = object $
   maybe [] (\v -> ["pre" .= vlToJSON v]) (csPreLevel cs) ++
   maybe [] (\v -> ["post" .= vlToJSON v]) (csPostLevel cs) ++
   maybe [] (\s -> ["pre_source" .= s]) (csPreSource cs) ++
-  maybe [] (\s -> ["post_source" .= s]) (csPostSource cs)
+  maybe [] (\s -> ["post_source" .= s]) (csPostSource cs) ++
+  ["post_body_faithful" .= csPostBodyFaithful cs | csPostBodyFaithful cs]
 
 csFromJSON :: Value -> Maybe ContractStatus
 csFromJSON (Object o) =
@@ -80,7 +81,10 @@ csFromJSON (Object o) =
       postS = case KM.lookup "post_source" o of
                Just (String s) -> Just s
                _               -> Nothing
-  in Just $ ContractStatus pre post preS postS
+      bodyF = case KM.lookup "post_body_faithful" o of
+                Just (Bool b) -> b
+                _             -> False
+  in Just $ ContractStatus pre post preS postS bodyF
 csFromJSON _ = Nothing
 
 -- ---------------------------------------------------------------------------
