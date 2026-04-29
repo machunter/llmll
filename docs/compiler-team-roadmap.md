@@ -68,7 +68,7 @@
 | 1 | **BODY-VC-0** | Design spec: VC encoding rules, soundness argument, coverage boundary, `TDependent` interaction, recursive function handling, `ContractClause` refactor decision, `bodyToPred` placement (new function calling `exprToPred` for leaves — Option B), **concrete `.fq` example for each translation rule** — see [`body-vc-0-spec.md`](design/body-vc-0-spec.md) | None | ✅ |
 | 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe FQPred` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). +1 day buffer for `EIf` conditional VC encoding (guard-in-LHS-refinement approach per compiler team review) | BODY-VC-0 | 4–6 days |
 | 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just pred`, emit body-faithful VC | BODY-VC-1 | 1–2 days |
-| 4 | **BODY-VC-3** | Update `isBodyFaithful` → `True` for `"liquid-fixpoint"` when body VC is active | BODY-VC-2 | 0.5 day |
+| 4 | **BODY-VC-3** | Mark postconditions body-faithful for functions whose body VCs emitted and passed. `isBodyFaithful` → `True` per-function (via `csBodyFaithful`). **Preserve precondition runtime checks** unless call-site precondition VCs exist (not in scope for v0.8.0). Body-VC proves `P ∧ (result = ⟦body⟧) ⟹ Q` — the body satisfies the postcondition under the precondition. It does NOT prove that callers satisfy preconditions. | BODY-VC-2 | 0.5 day |
 | 5 | **BODY-VC-T** | FixpointEmit golden tests — `.fq` file for every `bodyToPred` translation rule (TCB hardening, per [verification-debate-action-items.md](design/verification-debate-action-items.md)) | BODY-VC-1 | 1–2 days |
 
 **Critical path:** BODY-VC-0 → BODY-VC-1 → BODY-VC-2 → BODY-VC-3. BODY-VC-T can run in parallel with BODY-VC-2.
@@ -195,10 +195,10 @@
 ```
 v0.6.3 (SHIPPED)       v0.7 (SHIPPED)      v0.8.0 (Faithfulness Core)    v0.8.1 (Integration)     Future
 ────────────────       ────────────────    ──────────────────────────    ────────────────────     ──────
-Trust model fixes ✅    BUILTIN-1/2 ✅      BODY-VC-0 (design spec) ☐     LEAN-GA (blocked)        WASM
+Trust model fixes ✅    BUILTIN-1/2 ✅      BODY-VC-0 (design spec) ✅     LEAN-GA (blocked)        WASM
 7 bug fixes             DO-1 ✅             BODY-VC-1 (bodyToPred) ☐       TRUST-2b                 target
 tcStrictMode            TRUST-2a ✅         BODY-VC-2 (wire) ☐             STRIP-GA
-Transitive trust                           BODY-VC-3 (unlock) ☐           MCP                      WASI
+Transitive trust                           BODY-VC-3 (post faithful) ☐    MCP                      WASI
 Body-faithful guard    294 tests            BODY-VC-T (golden tests) ☐                              enforcement
                        shipped             SUPP-DEBT ☐
                                            EVENT-LOG ☐
@@ -209,7 +209,7 @@ The critical path through v0.7 is complete: **context-aware checkout → working
 
 **v0.7 result:** All 4 items shipped. 294 Haskell + 37 Python tests. 3 discovered issues resolved (Module.hs `max`, compare tests, round-trip serialization).
 
-**v0.8.0 critical path:** BODY-VC-0 (design spec) → BODY-VC-1 (`bodyToPred`) → BODY-VC-2 (wire into emitter) → BODY-VC-3 (flip `isBodyFaithful`). BODY-VC-T (golden tests) runs in parallel with BODY-VC-2. SUPP-DEBT, EVENT-LOG, SPEC-FOUNDATION are independent.
+**v0.8.0 critical path:** BODY-VC-0 ✅ → BODY-VC-1 (`bodyToPred`) → BODY-VC-2 (wire into emitter) → BODY-VC-3 (mark postconditions body-faithful; preserve precondition runtime checks). BODY-VC-T (golden tests) runs in parallel with BODY-VC-2. SUPP-DEBT, EVENT-LOG, SPEC-FOUNDATION are independent.
 
 **v0.8.1 trigger:** LEAN-GA (blocked on `lean-lsp-mcp`). TRUST-2b and STRIP-GA depend on LEAN-GA. MCP triggered by external demand.
 
@@ -234,7 +234,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.6.2** | *(shipped, 2026-04-24)* | Algebraic interface laws: `def-interface :laws` with `for-all` property syntax + QuickCheck codegen + VSM-1 backfill — **shipped (2026-04-24)**. Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to unversioned Research Track. |
 | **v0.6.3** | *(shipped, 2026-04-26)* | Trust model fixes: 7 critical bugs (BUG-1..7). `tcStrictMode` typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection, contract instrumentation in build pipeline, termination documentation correction — **shipped (2026-04-26)**. |
 | **v0.7** | *(reorganized, 2026-04-28)* | **Hardening:** BUILTIN-1/2 (total builtins), DO-1 (discarded command warning), TRUST-2a (`VLProvenSMT` + `Ord` removal). 294 tests. — **shipped (2026-04-29)**. |
-| **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec + `bodyToPred` + emitter integration + `isBodyFaithful` unlock + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. |
+| **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. Precondition runtime checks preserved (call-site precondition VCs are out of scope for v0.8.0). |
 | **v0.8.1** | *(new, 2026-04-28)* | **Faithfulness Integration:** LEAN-GA (real Leanstral) + TRUST-2b (`VLProvenLean` + `VLTrustedBase`) + STRIP-GA (assertion stripping unlock) + MCP. Blocked on external availability. |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
