@@ -22,7 +22,7 @@
   42)  ;; WRONG — but verifier says SAFE
 ```
 
-`VLProven "liquid-fixpoint"` means "the contract is satisfiable" — NOT "the body satisfies the contract." [isBodyFaithful](../../compiler/src/LLMLL/Contracts.hs#L191-L192) returns `False` unconditionally (BUG-6, v0.6.3), so runtime assertions are never stripped. The system is conservatively correct but verification is vacuous.
+`VLProvenSMT "liquid-fixpoint"` (SMT proof evidence from liquid-fixpoint) means "the contract is satisfiable" — NOT "the body satisfies the contract." [isBodyFaithful](../../compiler/src/LLMLL/Contracts.hs#L191-L192) returns `False` unconditionally (BUG-6, v0.6.3), so runtime assertions are never stripped. The system is conservatively correct but verification is vacuous.
 
 **What BODY-VC-0 Must Prove:** For `def-logic f [params] (pre P) (post Q) body`:
 

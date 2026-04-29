@@ -106,7 +106,7 @@ BODY-VC-0 resolved the following proof obligations:
 |---|-----|-------------|---------|
 | 1 | **LEAN-GA** | Real Leanstral integration (non-mock proofs) | `lean-lsp-mcp` availability |
 | 2 | **TRUST-2b** | `VLProvenLean` + `VLTrustedBase` constructors — see [compiler-team-v07-tier2-activities.md](compiler-team-v07-tier2-activities.md) Activity 5 | LEAN-GA |
-| 3 | **STRIP-GA** | Enable `isBodyFaithful → True` for body-faithful provers, unlock assertion stripping | BODY-VC-3 + LEAN-GA |
+| 3 | **STRIP-GA** | Enable safe stripping for clauses proven body-faithful; precondition stripping requires call-site precondition VCs or equivalent evidence | BODY-VC-3 + LEAN-GA |
 | 4 | **MCP** | MCP integration for compiler CLI | Concrete external integration request |
 
 **What changed:** TRUST-2b, Lean integration, and MCP consolidated here from cross-cutting concerns and old v0.7. STRIP-GA is new — it is the item that BUG-6's `isBodyFaithful` guard was designed to gate. Everything flows from BODY-VC as the root unlock.
@@ -158,7 +158,7 @@ BODY-VC-0 resolved the following proof obligations:
 |------|---------------|-------------|
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |
 | TRUST-2b (`VLProvenLean` + `VLTrustedBase`) | **Deferred** (2026-04-26) | v0.8.1 — activate with Lean GA |
-| Contract discriminative power formalization | Proposed by Professor | Research track — best-effort before BODY-VC-0 |
+| Contract discriminative power formalization | Proposed by Professor | Research track — best-effort during BODY-VC implementation (before v0.8.0 final) |
 
 <details><summary><strong>Resolved cross-cutting items (click to expand)</strong></summary>
 
