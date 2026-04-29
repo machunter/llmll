@@ -13,7 +13,7 @@
 
 ## 1. Motivation and Current Faithfulness Gap
 
-[emitFnConstraints](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/FixpointEmit.hs#L108-L114) never passes the function body to the constraint generator. The body is silently dropped. The emitter checks that pre/post predicates are self-consistent in QF-LIA, but never encodes the function body:
+[emitFnConstraints](../../compiler/src/LLMLL/FixpointEmit.hs#L108-L114) never passes the function body to the constraint generator. The body is silently dropped. The emitter checks that pre/post predicates are self-consistent in QF-LIA, but never encodes the function body:
 
 ```lisp
 (def-logic withdraw [balance: int amount: int]
@@ -22,7 +22,7 @@
   42)  ;; WRONG — but verifier says SAFE
 ```
 
-`VLProven "liquid-fixpoint"` means "the contract is satisfiable" — NOT "the body satisfies the contract." [isBodyFaithful](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Contracts.hs#L191-L192) returns `False` unconditionally (BUG-6, v0.6.3), so runtime assertions are never stripped. The system is conservatively correct but verification is vacuous.
+`VLProven "liquid-fixpoint"` means "the contract is satisfiable" — NOT "the body satisfies the contract." [isBodyFaithful](../../compiler/src/LLMLL/Contracts.hs#L191-L192) returns `False` unconditionally (BUG-6, v0.6.3), so runtime assertions are never stripped. The system is conservatively correct but verification is vacuous.
 
 **What BODY-VC-0 Must Prove:** For `def-logic f [params] (pre P) (post Q) body`:
 
@@ -30,7 +30,7 @@
 
 Body-VCs are only emitted when a postcondition exists. Functions with only preconditions (or no contracts) produce no body constraints — there is nothing to prove.
 
-**Operational Semantics Anchor:** Per [verification-debate-action-items.md:47](file:///Users/burcsahinoglu/Documents/llmll/docs/design/verification-debate-action-items.md#L47): LLMLL's operational semantics are defined by the generated Haskell program.
+**Operational Semantics Anchor:** Per [verification-debate-action-items.md:47](../../docs/design/verification-debate-action-items.md#L47): LLMLL's operational semantics are defined by the generated Haskell program.
 
 ---
 
@@ -222,14 +222,14 @@ constraint env=(paramIds ++ letIds ++ [rbid])
 
 **`emitBodyVCs` gate:** A `Bool` field in the emitter's config record (threaded through `emitFixpoint`), set to `True` by BODY-VC-2. No CLI flag — purely internal, controlled by compiler version.
 
-**Diagnostic format for body-post tags:** BODY-VC-2 must update `toDiag` in [DiagnosticFQ.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/DiagnosticFQ.hs) to handle body-post tags with a distinct message format. The current `coClause <> "-condition"` pattern produces awkward output for body tags. Required messages:
+**Diagnostic format for body-post tags:** BODY-VC-2 must update `toDiag` in [DiagnosticFQ.hs](../../compiler/src/LLMLL/DiagnosticFQ.hs) to handle body-post tags with a distinct message format. The current `coClause <> "-condition"` pattern produces awkward output for body tags. Required messages:
 - `"body-post"` → `"body verification of '" <> fn <> "' failed"`
 - `"body-post-then"` → `"body verification of '" <> fn <> "' failed (then-branch)"`
 - `"body-post-else"` → `"body verification of '" <> fn <> "' failed (else-branch)"`
 
 **JSON Pointer for body constraints:** `coJsonPtr` should be `/statements/N/body`. Note: the JSON-AST schema may need a `"body"` key added (currently the body is the last positional element of `def-logic`).
 
-**Pre-existing note:** The early-exit guard at [FixpointEmit.hs:158-160](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/FixpointEmit.hs#L158-L160) is dead code (`when ... return ()` doesn't short-circuit in `IO`). BODY-VC-1 should remove or fix it.
+**Pre-existing note:** The early-exit guard at [FixpointEmit.hs:158-160](../../compiler/src/LLMLL/FixpointEmit.hs#L158-L160) is dead code (`when ... return ()` doesn't short-circuit in `IO`). BODY-VC-1 should remove or fix it.
 
 **Solver note:** Let-binder refinements (e.g., `_bv_s_0 = a + b`) are available as axioms in the constraint environment. The solver uses them to propagate equalities into the result predicate. Constraint IDs in examples are illustrative — actual IDs depend on emission order.
 
@@ -473,10 +473,10 @@ BODY-VC-T: Golden tests (30 tests, parallel with BODY-VC-2)
 
 | Module | Change | Phase |
 |--------|--------|-------|
-| [FixpointEmit.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/FixpointEmit.hs) | `bodyToPredM`, `BodyVC`, `flattenBodyVC`, `predSort`, `hoistBranch`, `leafOf`, renaming env, `emitBodyVCs` gate, `erBodyFaithful`/`erBodyFallback` | 1/2 |
-| [FixpointIR.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/FixpointIR.hs) | No changes | — |
-| [Contracts.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Contracts.hs) | `csBodyFaithful`, `isBodyFaithful` | 3 |
-| [DiagnosticFQ.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/DiagnosticFQ.hs) | `body-post*` tags | 2 |
+| [FixpointEmit.hs](../../compiler/src/LLMLL/FixpointEmit.hs) | `bodyToPredM`, `BodyVC`, `flattenBodyVC`, `predSort`, `hoistBranch`, `leafOf`, renaming env, `emitBodyVCs` gate, `erBodyFaithful`/`erBodyFallback` | 1/2 |
+| [FixpointIR.hs](../../compiler/src/LLMLL/FixpointIR.hs) | No changes | — |
+| [Contracts.hs](../../compiler/src/LLMLL/Contracts.hs) | `csBodyFaithful`, `isBodyFaithful` | 3 |
+| [DiagnosticFQ.hs](../../compiler/src/LLMLL/DiagnosticFQ.hs) | `body-post*` tags | 2 |
 
 ### Key Design Decisions
 

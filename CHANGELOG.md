@@ -2,6 +2,36 @@
 
 ---
 
+## v0.7 — Hardening (2026-04-29)
+
+### Compiler — Builtin Hardening
+
+- **BUILTIN-2** — `string-char-at` negative index guard. Added `i >= 0` check to prevent negative index crash. The function now returns `""` for out-of-bounds indices in both directions.
+- **BUILTIN-1** — `regex-match` → POSIX ERE via `regex-tdfa`. Replaces the `isInfixOf` stub with proper regex matching. Invalid patterns are caught via `unsafePerformIO`/`try`/`evaluate` and return `False` (total function). `PREAMBLE COMPROMISE` comment explains the `unsafePerformIO` usage. Import cleanup: removed `isInfixOf`; added `evaluate`, `Text.Regex.TDFA`, `System.IO.Unsafe`. Added `regex-tdfa` to generated `package.yaml` dependencies.
+
+### Compiler — Do-Block Diagnostic
+
+- **DO-1** — Discarded command warning. Intermediate `TCustom "Command"` types in `do`-blocks now emit a warning: "current codegen discards" (blames codegen limitation, not user). Step 0 now binds `cmd0` (was `_`); recursive steps bind `cmdTy` (was `_`). `checkDiscardedCommand` helper in `TypeCheck.hs`. Warning-only in all modes; hard error deferred to v0.8 (DO-2: `(discard expr)`).
+
+### Compiler — Trust Model Refinement
+
+- **TRUST-2a** — `VLProvenSMT` constructor + `Ord` instance removal. Added `VLProvenSMT { vlSMTSolver :: Text }` to `VerificationLevel`. Removed `instance Ord VerificationLevel` — replaced with explicit preorder helpers: `trustCovers` (was `>=`), `trustMin` (was `min`), `isProvenLevel`, `vlProverName`. All four helpers exported from `Syntax`. 10 consumer files updated: `TypeCheck.hs`, `TrustReport.hs`, `SpecCoverage.hs`, `AstEmit.hs`, `Contracts.hs`, `VerifiedCache.hs`, `Main.hs`, `ProofCache.hs`, `Module.hs`. `.verified.json` serializes as `"proven-smt"`.
+
+### Spec (LLMLL.md)
+
+- §4.4.1 — Trust tier vs. evidence provenance note + body-faithfulness caveat added
+- §13.6 — `string-char-at` and `regex-match` documentation updated
+
+### Discovered Issues (not in original plan)
+
+- **Module.hs `mergeCS`** — Used `max` on `VerificationLevel`, which depended on the removed `Ord` instance. Fixed with explicit `vlTier` comparison. Not caught in the original 18 planned consumer sites because it appeared in the module loader.
+- **Spec.hs `compare` tests** — Five tests tested the `Ord` instance via `compare`. Replaced with `vlTier`/`trustCovers`/`isProvenLevel` tests. Added `VLProvenSMT` tier equality test.
+- **Spec.hs round-trip test** — Used `VLProven "liquid-fixpoint"` which now serializes as `"proven-smt"`. Updated to `VLProvenSMT`.
+
+**Tests:** 294 Haskell (was 289; +5 trust-tier tests), 37 Python (unchanged). Build compiles cleanly (`stack build`, no `Ord` residuals).
+
+---
+
 ## Pre-v0.7 Hygiene (2026-04-28)
 
 > Items from the external consultant review (2026-04-28). Not a versioned release — these are test drift and documentation drift fixes applied before starting v0.7.

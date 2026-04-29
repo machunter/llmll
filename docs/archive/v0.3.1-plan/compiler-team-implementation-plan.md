@@ -81,7 +81,7 @@ Each line is independently parseable. Crash → partial log → valid up to last
 
 ### A1. Generated Code Changes
 
-#### [MODIFY] [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs)
+#### [MODIFY] [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs)
 
 **`emitMainBody` (L686–728):**
 
@@ -173,13 +173,13 @@ captureStdout action = do
 
 ### A2. Replay Subcommand
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs)
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs)
 
 - Add `CmdReplay FilePath FilePath` to `Command`
 - Add `"replay"` subcommand
 - Add `doReplay` handler
 
-#### [NEW] [Replay.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Replay.hs)
+#### [NEW] [Replay.hs](../../../compiler/src/LLMLL/Replay.hs)
 
 ~100 lines. Core logic:
 
@@ -223,14 +223,14 @@ data ReplayResult = ReplayResult
 
 ### B1. New Modules
 
-#### [NEW] [LeanTranslate.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/LeanTranslate.hs) (~150 lines)
+#### [NEW] [LeanTranslate.hs](../../../compiler/src/LLMLL/LeanTranslate.hs) (~150 lines)
 
 LLMLL contract AST → Lean 4 `theorem` text.
 
 **Supported:** Linear arithmetic, list structural induction, `for-all` quantifiers.  
 **Unsupported:** `map`, `fold`, custom ADTs → `-- UNSUPPORTED: <reason>`, hole stays `?proof-required`.
 
-#### [NEW] [MCPClient.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/MCPClient.hs) (~120 lines)
+#### [NEW] [MCPClient.hs](../../../compiler/src/LLMLL/MCPClient.hs) (~120 lines)
 
 ```haskell
 data MCPResult
@@ -244,7 +244,7 @@ data MCPResult
 mockProofResult :: Text -> MCPResult
 ```
 
-#### [NEW] [ProofCache.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ProofCache.hs) (~80 lines)
+#### [NEW] [ProofCache.hs](../../../compiler/src/LLMLL/ProofCache.hs) (~80 lines)
 
 Per-file `.proof-cache.json` sidecar. SHA-256 hash for cache invalidation.
 
@@ -308,7 +308,7 @@ Gaps identified after Phase C:
 
 ### D1. Modified Files
 
-#### [MODIFY] [Replay.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Replay.hs)
+#### [MODIFY] [Replay.hs](../../../compiler/src/LLMLL/Replay.hs)
 
 Add `runReplay` — the core comparison loop (~30 lines):
 
@@ -326,7 +326,7 @@ runReplay :: FilePath        -- path to compiled executable
 > **Professor flag (D1): Step-by-step I/O synchronization.**
 > The replay must feed inputs one-at-a-time, synchronized with outputs. The console loop reads one line → processes → outputs → reads again. If `runReplay` writes all inputs to the pipe simultaneously, the output interleaving will be unpredictable. Protocol: write one input → read until output quiesces (e.g. `hReady` loop or timeout) → compare → next input.
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs) — `doReplay`
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs) — `doReplay`
 
 Replace the current log-only handler with full replay:
 
@@ -357,7 +357,7 @@ Replace the current log-only handler with full replay:
 
 ### E1. Modified Files
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs) — CLI parser
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs) — CLI parser
 
 Extend `CmdVerify` with Leanstral options:
 
@@ -371,7 +371,7 @@ data LeanstralOpts = LeanstralOpts
 
 ~~Add `--json` flag to `CmdHoles`:~~ **Removed (professor review):** `doHoles` already respects the global `--json` flag (Main.hs L390–391). No `CmdHoles` change needed.
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs) — `doVerify`
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs) — `doVerify`
 
 Extend the `doVerify` pipeline (after liquid-fixpoint).
 
@@ -431,11 +431,11 @@ Extend the `doVerify` pipeline (after liquid-fixpoint).
 
 ### F1. Modified Files
 
-#### [MODIFY] [package.yaml](file:///Users/burcsahinoglu/Documents/llmll/compiler/package.yaml)
+#### [MODIFY] [package.yaml](../../../compiler/package.yaml)
 
 Add `cryptohash-sha256` dependency.
 
-#### [MODIFY] [ProofCache.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ProofCache.hs)
+#### [MODIFY] [ProofCache.hs](../../../compiler/src/LLMLL/ProofCache.hs)
 
 Add hash utility:
 

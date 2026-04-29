@@ -1,10 +1,10 @@
-# LLMLL — v0.6.3
+# LLMLL — v0.7
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.6.3 is shipped.** Trust model hardening — 7 bugs fixed: `result` removed from precondition scope, strict typecheck gate on `build`/`run`/`verify`, contract instrumentation wired into build pipeline, transitive trust closure, body-faithful stripping guard, proof laundering protection, termination documentation corrected. 289 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.7 is shipped.** Hardening release — `string-char-at` negative index guard (BUILTIN-2), `regex-match` upgraded to POSIX ERE via `regex-tdfa` (BUILTIN-1), do-block discarded command warning (DO-1), `VLProvenSMT` constructor replaces `Ord` instance on `VerificationLevel` (TRUST-2a). 294 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -14,20 +14,20 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 
 | Command | What it does |
 |---------|--------------| 
-| `llmll check <file> [--strict]` | Parse + type-check; emit structured diagnostics. With `--strict` (v0.6.3): unbound variables, unknown functions, unknown operators, and branch type mismatches are hard errors instead of warnings. |
+| `llmll check <file> [--strict]` | Parse + type-check; emit structured diagnostics. With `--strict`: unbound variables, unknown functions, unknown operators, and branch type mismatches are hard errors instead of warnings. |
 | `llmll holes <file> [--deps] [--deps-out FILE]` | List all `?hole` expressions. With `--deps`: include dependency graph in `--json` output. With `--deps-out`: persist graph to file. |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
-| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report] [--weakness-check] [--obligations] [--spec-coverage]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure, epistemic drift warnings, and `weakness-ok` suppressions. With `--weakness-check`, detects specs that admit trivial implementations. With `--obligations`, suggests postcondition strengthening when UNSAFE at cross-function boundaries. With `--spec-coverage` (v0.6.0), classifies every function and computes effective specification coverage ratio. |
-| `llmll typecheck --sketch <file>` | **Phase 2c** — partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors. v0.4.0: emits `invariant_suggestions` from pattern registry. |
-| `llmll serve [--host H] [--port P] [--token T]` | **Phase 2c** — expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
-| `llmll checkout <file.ast.json> <pointer>` | **v0.3** — lock a `?hole` for exclusive agent editing. Returns a checkout token with local typing context (Γ, τ, Σ) since v0.3.5. Use `--release` to abandon, `--status` to query TTL. v0.4.0: CAP-1 capability enforcement active — checkout context reflects capability requirements. |
-| `llmll patch <file.ast.json> <patch.json>` | **v0.3** — apply an RFC 6902 JSON-Patch to a checked-out hole. Re-verifies type safety before committing. |
+| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report] [--weakness-check] [--obligations] [--spec-coverage]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure, epistemic drift warnings, and `weakness-ok` suppressions. With `--weakness-check`, detects specs that admit trivial implementations. With `--obligations`, suggests postcondition strengthening when UNSAFE at cross-function boundaries. With `--spec-coverage`, classifies every function and computes effective specification coverage ratio. |
+| `llmll typecheck --sketch <file>` | Partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors and `invariant_suggestions` from the pattern registry. |
+| `llmll serve [--host H] [--port P] [--token T]` | Expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
+| `llmll checkout <file.ast.json> <pointer>` | Lock a `?hole` for exclusive agent editing. Returns a checkout token with local typing context (Γ, τ, Σ). Use `--release` to abandon, `--status` to query TTL. |
+| `llmll patch <file.ast.json> <patch.json>` | Apply an RFC 6902 JSON-Patch to a checked-out hole. Re-verifies type safety before committing. |
 | `llmll hub fetch <pkg>@<ver>` | Download a package into the hub cache (`~/.llmll/modules/`). |
 | `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
-| `llmll hub query --signature <sig>` | **v0.6.1** — search hub cache for functions matching a type signature (e.g. `"int -> int -> int"`). |
-| `llmll replay <source> <log>` | **v0.3.1** — rebuild program, replay event log inputs, compare outputs for determinism verification. |
-| `llmll spec [--json]` | **v0.3.4** — emit agent prompt specification from compiler builtins. Text (default) or JSON output. |
+| `llmll hub query --signature <sig>` | Search hub cache for functions matching a type signature (e.g. `"int -> int -> int"`). |
+| `llmll replay <source> <log>` | Rebuild program, replay event log inputs, compare outputs for determinism verification. |
+| `llmll spec [--json]` | Emit agent prompt specification from compiler builtins. Text (default) or JSON output. |
 | `llmll repl` | Start an interactive LLMLL REPL |
 
 ### Input formats
@@ -100,7 +100,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.6.3)
+LLMLL.md                    ← canonical language specification (v0.7)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -151,7 +151,7 @@ examples/
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
-  compiler-team-roadmap.md  ← Engineering backlog (v0.6.3 shipped, v0.7 planned)
+  compiler-team-roadmap.md  ← Engineering backlog (v0.7 shipped, v0.8.0 planned)
   llmll-ast.schema.json     ← JSON-AST schema v0.2.0 (use with AI agents; CheckoutToken v0.3.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
@@ -180,7 +180,7 @@ tools/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.6.3 shipped, v0.7 planned |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.7 shipped, v0.8.0 planned |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
 | [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |

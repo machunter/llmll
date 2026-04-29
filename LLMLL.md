@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.6.3)
+# LLMLL: Large Language Model Logical Language (v0.7)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.6.3 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 289 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.7 (shipped).** Haskell codegen is the only backend. Every construct in this document has fully defined syntax, grammar, and runtime semantics, and compiles with 0 errors in the current compiler. 294 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history (v0.1.1 → v0.6.3)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.7** | Hardening: `string-char-at` negative index guard (BUILTIN-2), `regex-match` upgraded to POSIX ERE via `regex-tdfa` (BUILTIN-1), do-block discarded command warning (DO-1), `VLProvenSMT` constructor replaces `Ord` instance on `VerificationLevel` (TRUST-2a). 294 tests (+5 trust-tier). |
 | **v0.6.3** | Trust Model Fixes: 7 critical bugs resolved. `result` removed from pre scope (BUG-1), strict typecheck gate (BUG-4), contract instrumentation in build pipeline (BUG-2), transitive trust closure (BUG-3), body-faithful stripping guard (BUG-6), proof laundering protection (BUG-7), termination docs corrected (BUG-5). `tcStrictMode` + `llmll check --strict`. 289 tests (unchanged count; 2 expectations updated). |
 | **v0.6.2** | Algebraic Interface Laws: `def-interface :laws` with `(for-all ...)` property syntax, QuickCheck `prop_` codegen, spec coverage integration, PBT wiring. VSM-1 backfill complete. 289 total tests $+$ 10 new. |
 | **v0.6.1** | TOTP Benchmark & Hub Query: `hmac-sha1`/`sha1` crypto builtins (§13.11). Frozen TOTP RFC 6238 benchmark (14 CI assertions). `llmll hub query --signature` for type-driven package search. Provenance display in `--trust-report`. 279 total tests $+$ 0 Haskell $+$ 0 Python. |
@@ -1600,11 +1601,11 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `string-contains` | `string string -> bool` | Substring / character test |
 | `string-concat` | `string string -> string` | Concatenation |
 | `string-slice` | `string int int -> string` | `[start, end)` half-open slice |
-| `string-char-at` | `string int -> string` | Single character at index (as 1-char string) |
+| `string-char-at` | `string int -> string` | Single character at index (as 1-char string). Returns `""` for negative or out-of-bounds indices (v0.7). |
 | `string-split` | `string string -> list[string]` | Split on delimiter |
 | `string-trim` | `string -> string` | Strip leading/trailing whitespace and newlines (`Space`, `\t`, `\n`, `\r`) |
 | `string-concat-many` | `list[string] -> string` | Concatenate a list of strings (variadic join without separator) |
-| `regex-match` | `string string -> bool` | Regex predicate (POSIX ERE) |
+| `regex-match` | `string string -> bool` | POSIX ERE match via `regex-tdfa` (v0.7). Invalid patterns return `False` (total). Replaces `isInfixOf` stub. |
 | `string-empty?` | `string -> bool` | True when string has length 0 |
 
 ### 13.7 Numeric Utilities
@@ -1775,7 +1776,7 @@ The `weakness-ok` declaration acknowledges that the wrapper has no meaningful co
 | Spec Faithfulness tests | ✅ 7 property tests ensure spec is a superset of `builtinEnv`, partition is disjoint, output is deterministic, `wasi.*` functions excluded. Adding a new builtin without a spec entry is caught automatically. |
 | Phase A prompt enrichment | ✅ ~950 tokens added to orchestrator system prompt: pair/first/second, Result construction vs pattern matching (ok/err vs Success/Error), letrec note, fixed-arity operator rule, type nodes (`pair-type`, `fn-type`). |
 | Orchestrator integration | ✅ `compiler.spec()` wraps `llmll spec` with backward-compat fallback. `build_system_prompt()` injects compiler-emitted spec; falls back to static legacy reference for pre-v0.3.4 compilers. |
-| New builtins | ✅ `string-empty?` (`string → bool`) added to `builtinEnv` + runtime preamble. `regex-match` preamble implemented (`isInfixOf`). `is-valid?` removed from `builtinEnv`. |
+| New builtins | ✅ `string-empty?` (`string → bool`) added to `builtinEnv` + runtime preamble. `regex-match` preamble stub (`isInfixOf`); upgraded to POSIX ERE in v0.7. `is-valid?` removed from `builtinEnv`. |
 
 ### v0.3.5 — Agent Effectiveness ✅ Shipped
 
@@ -1843,6 +1844,17 @@ Seven critical bugs from the v0.6.3 engineering audit, all resolved. Stabilizes 
 | BUG-7 | ✅ Proof laundering protection. `isTaintedProof` detects `sorry`/`mock`/`admit`. Mock prover tagged `"mock"` instead of `"leanstral"`. |
 | BUG-3 | ✅ Transitive trust closure via `transitiveClose` fixed-point iteration. `teEffectiveLevel = min(self, transitive deps)`. |
 | BUG-5 | ✅ Termination documentation corrected (§4.2, §5.3.3): non-negativity only, not strict descent. |
+
+### v0.7 — Hardening ✅ Shipped
+
+Close remaining concrete fixes from the external review. 294 Haskell tests (was 289; +5 trust-tier).
+
+| Area | Feature |
+|------|---------|
+| BUILTIN-2 | ✅ `string-char-at` negative index guard. Returns `""` for out-of-bounds indices in both directions. |
+| BUILTIN-1 | ✅ `regex-match` → POSIX ERE via `regex-tdfa`. Replaces `isInfixOf` stub. Invalid patterns return `False` (total). `unsafePerformIO`/`try`/`evaluate` with `PREAMBLE COMPROMISE` comment. Generated `package.yaml` gains `regex-tdfa` dependency. |
+| DO-1 | ✅ Discarded command warning. Intermediate `TCustom "Command"` types in `do`-blocks emit warning: “current codegen discards.” `checkDiscardedCommand` helper in `TypeCheck.hs`. Warning-only; hard error deferred to v0.8 (DO-2). |
+| TRUST-2a | ✅ `VLProvenSMT { vlSMTSolver }` constructor. `Ord` instance removed — replaced by `trustCovers`, `trustMin`, `isProvenLevel`, `vlProverName`. 10 consumer files updated. `.verified.json` serializes as `"proven-smt"`. |
 
 ### v0.6.2 — Algebraic Interface Laws ✅ Shipped
 

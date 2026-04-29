@@ -29,7 +29,7 @@ TRUST-2b (VLProvenLean+TrustedBase)← DEFERRED to Lean integration milestone
 
 **File:** `CodegenHs.hs`
 
-**Problem:** [Line 273](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs#L273) in `runtimePreamble`:
+**Problem:** [Line 273](../compiler/src/LLMLL/CodegenHs.hs#L273) in `runtimePreamble`:
 ```haskell
 string_char_at s i = if i < length s then [s !! i] else ""
 ```
@@ -38,7 +38,7 @@ Checks `i < length s` but not `i >= 0`. Negative indices reach Haskell's partial
 
 | Step | Action |
 |------|--------|
-| 1.1 | At [CodegenHs.hs:273](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs#L273), replace the guard: |
+| 1.1 | At [CodegenHs.hs:273](../compiler/src/LLMLL/CodegenHs.hs#L273), replace the guard: |
 
 ```diff
 - "string_char_at s i = if i < length s then [s !! i] else \"\""
@@ -59,7 +59,7 @@ Checks `i < length s` but not `i >= 0`. Negative indices reach Haskell's partial
 
 **File:** `CodegenHs.hs`, `package.yaml` template
 
-**Problem:** [Line 294–295](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs#L294-L295) in `runtimePreamble`:
+**Problem:** [Line 294–295](../compiler/src/LLMLL/CodegenHs.hs#L294-L295) in `runtimePreamble`:
 ```haskell
 regex_match pattern subject = pattern `isInfixOf` subject
 ```
@@ -68,7 +68,7 @@ The spec (`LLMLL.md §13`) says `regex-match` is "Regex predicate (POSIX ERE)." 
 
 | Step | Action |
 |------|--------|
-| 2.1 | Add `regex-tdfa` to the generated `package.yaml` dependencies. In [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) `emitPackageYaml`, add `"regex-tdfa"` to the base dependencies list |
+| 2.1 | Add `regex-tdfa` to the generated `package.yaml` dependencies. In [CodegenHs.hs](../compiler/src/LLMLL/CodegenHs.hs) `emitPackageYaml`, add `"regex-tdfa"` to the base dependencies list |
 | 2.2 | Add `import Text.Regex.TDFA ((=~))` to the generated `Lib.hs` imports. In `emitLibHs`, add to the standard import block |
 | 2.3 | Replace the `regex_match` preamble entry: |
 
@@ -82,11 +82,11 @@ The spec (`LLMLL.md §13`) says `regex-match` is "Regex predicate (POSIX ERE)." 
 | Step | Action |
 |------|--------|
 | 2.4 | Remove `isInfixOf` from the `regex_match` definition (it's used for `string_contains` separately — confirm `string_contains` still uses its own `isInfixOf`) |
-| 2.4a | Remove `isInfixOf` from the generated `import Data.List (isPrefixOf, isInfixOf, ...)` at [line 154](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs#L154). After this fix, `isInfixOf` is unused in generated code — `string_contains` uses `isPrefixOf`/`tails` directly. Leaving it causes `-Wunused-imports` warnings in generated projects. |
+| 2.4a | Remove `isInfixOf` from the generated `import Data.List (isPrefixOf, isInfixOf, ...)` at [line 154](../compiler/src/LLMLL/CodegenHs.hs#L154). After this fix, `isInfixOf` is unused in generated code — `string_contains` uses `isPrefixOf`/`tails` directly. Leaving it causes `-Wunused-imports` warnings in generated projects. |
 | 2.5 | Add test: `(regex-match "^[0-9]+$" "12345")` → `True` |
 | 2.6 | Add test: `(regex-match "^[0-9]+$" "abc123")` → `False` |
 | 2.7 | Add test: `(regex-match "hello" "say hello world")` → `True` (backward compat with simple patterns) |
-| 2.8 | Verify `string_contains` is unaffected — it has its own `isPrefixOf`/`tails` implementation at [line 263](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs#L263) |
+| 2.8 | Verify `string_contains` is unaffected — it has its own `isPrefixOf`/`tails` implementation at [line 263](../compiler/src/LLMLL/CodegenHs.hs#L263) |
 
 **Verify:** `stack build && stack test`. Then build a sample LLMLL program using `regex-match` and confirm the generated Haskell compiles and runs with `regex-tdfa`.
 
@@ -99,15 +99,15 @@ The spec (`LLMLL.md §13`) says `regex-match` is "Regex predicate (POSIX ERE)." 
 
 **File:** `TypeCheck.hs`
 
-**Problem:** [inferDoSteps](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs#L941-L961) processes anonymous do-steps (where `mName = Nothing`) by binding the state to a synthetic `_s_N` variable, but does not warn or error when the command component of a non-final step is discarded.
+**Problem:** [inferDoSteps](../compiler/src/LLMLL/TypeCheck.hs#L941-L961) processes anonymous do-steps (where `mName = Nothing`) by binding the state to a synthetic `_s_N` variable, but does not warn or error when the command component of a non-final step is discarded.
 
-The `do` block emitter ([CodegenHs.hs:642–659](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs#L642-L659)) destructures each step as `(state, _cmdN)` and only returns the final step's command. Intermediate `_cmdN` bindings are dead code — the IO actions are silently dropped.
+The `do` block emitter ([CodegenHs.hs:642–659](../compiler/src/LLMLL/CodegenHs.hs#L642-L659)) destructures each step as `(state, _cmdN)` and only returns the final step's command. Intermediate `_cmdN` bindings are dead code — the IO actions are silently dropped.
 
 The spec warns about this (`LLMLL.md §9.6`), but the external reviewer argues that a verification-oriented language should make this a hard error, not a documentation footnote.
 
 | Step | Action |
 |------|--------|
-| 3.1 | In [TypeCheck.hs:955](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs#L955), change the destructuring pattern to bind the command type (currently discarded as `_`): |
+| 3.1 | In [TypeCheck.hs:955](../compiler/src/LLMLL/TypeCheck.hs#L955), change the destructuring pattern to bind the command type (currently discarded as `_`): |
 
 ```diff
 - (si, _) <- expectPairType ("do-block step " <> tshow i) t
@@ -148,13 +148,13 @@ The spec warns about this (`LLMLL.md §9.6`), but the external reviewer argues t
 
 **Files:** `Syntax.hs`, `Main.hs`, `VerifiedCache.hs`, `TrustReport.hs`, `SpecCoverage.hs`, `AstEmit.hs`, `ProofCache.hs`
 
-**Problem:** The current `VerificationLevel` type ([Syntax.hs:248–252](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Syntax.hs#L248-L252)) uses `VLProven "liquid-fixpoint"` for SMT proofs — the same constructor used for generic/legacy proofs. JSON output and trust reports cannot distinguish "SMT solver verified this" from "some prover verified this."
+**Problem:** The current `VerificationLevel` type ([Syntax.hs:248–252](../compiler/src/LLMLL/Syntax.hs#L248-L252)) uses `VLProven "liquid-fixpoint"` for SMT proofs — the same constructor used for generic/legacy proofs. JSON output and trust reports cannot distinguish "SMT solver verified this" from "some prover verified this."
 
 **Scope:** Add `VLProvenSMT` only. Keep `VLProven` as the legacy fallback. No `VLProvenLean` or `VLTrustedBase` — those are deferred to TRUST-2b.
 
 | Step | Action |
 |------|---------|
-| 4.1 | In [Syntax.hs:248–252](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Syntax.hs#L248-L252), add `VLProvenSMT`: |
+| 4.1 | In [Syntax.hs:248–252](../compiler/src/LLMLL/Syntax.hs#L248-L252), add `VLProvenSMT`: |
 
 ```haskell
 data VerificationLevel
@@ -178,15 +178,15 @@ vlTier VLProvenSMT{} = 2
 
 | Step | Action |
 |------|---------|
-| 4.3 | In `Main.hs` [line 1113–1114](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs#L1113-L1114) (`doVerify`): change `VLProven "liquid-fixpoint"` → `VLProvenSMT "liquid-fixpoint"`. This is the **only emission site** that changes. |
-| 4.4 | In `VerifiedCache.hs` [line 41](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/VerifiedCache.hs#L41) (`vlToJSON`): add `VLProvenSMT solver -> object ["level" .= ("proven-smt" :: Text), "prover" .= solver]` |
-| 4.5 | In `VerifiedCache.hs` [line 56](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/VerifiedCache.hs#L56) (`vlFromJSON`): add `"proven-smt" -> VLProvenSMT p`. Keep `"proven"` → `VLProven` for backward compat. |
-| 4.6 | In `TrustReport.hs` [line 272](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TrustReport.hs#L272): add `vlLabel (VLProvenSMT p) = "proven-smt (" <> p <> ")"` |
-| 4.7 | In `TrustReport.hs` [line 291](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TrustReport.hs#L291): add `VLProvenSMT{}` to `isProven` |
-| 4.8 | In `SpecCoverage.hs` [line 213](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/SpecCoverage.hs#L213) and [line 347](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/SpecCoverage.hs#L347): add `VLProvenSMT{}` arms to `isProven` and `vlLabel` |
-| 4.9 | In `AstEmit.hs` [line 169](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/AstEmit.hs#L169): add `vlLabel (VLProvenSMT _) = "proven-smt"` |
-| 4.10 | In `Contracts.hs` [line 178](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Contracts.hs#L178): add `VLProvenSMT p | isBodyFaithful p -> Nothing` arm (same behavior as `VLProven`) |
-| 4.11 | In `ProofCache.hs` [line 140](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ProofCache.hs#L140) (`proofToLevel`): change `VLProven (peProver pe)` → `VLProvenSMT (peProver pe)` when prover is `"liquid-fixpoint"`, keep `VLProven` for other provers |
+| 4.3 | In `Main.hs` [line 1113–1114](../compiler/src/Main.hs#L1113-L1114) (`doVerify`): change `VLProven "liquid-fixpoint"` → `VLProvenSMT "liquid-fixpoint"`. This is the **only emission site** that changes. |
+| 4.4 | In `VerifiedCache.hs` [line 41](../compiler/src/LLMLL/VerifiedCache.hs#L41) (`vlToJSON`): add `VLProvenSMT solver -> object ["level" .= ("proven-smt" :: Text), "prover" .= solver]` |
+| 4.5 | In `VerifiedCache.hs` [line 56](../compiler/src/LLMLL/VerifiedCache.hs#L56) (`vlFromJSON`): add `"proven-smt" -> VLProvenSMT p`. Keep `"proven"` → `VLProven` for backward compat. |
+| 4.6 | In `TrustReport.hs` [line 272](../compiler/src/LLMLL/TrustReport.hs#L272): add `vlLabel (VLProvenSMT p) = "proven-smt (" <> p <> ")"` |
+| 4.7 | In `TrustReport.hs` [line 291](../compiler/src/LLMLL/TrustReport.hs#L291): add `VLProvenSMT{}` to `isProven` |
+| 4.8 | In `SpecCoverage.hs` [line 213](../compiler/src/LLMLL/SpecCoverage.hs#L213) and [line 347](../compiler/src/LLMLL/SpecCoverage.hs#L347): add `VLProvenSMT{}` arms to `isProven` and `vlLabel` |
+| 4.9 | In `AstEmit.hs` [line 169](../compiler/src/LLMLL/AstEmit.hs#L169): add `vlLabel (VLProvenSMT _) = "proven-smt"` |
+| 4.10 | In `Contracts.hs` [line 178](../compiler/src/LLMLL/Contracts.hs#L178): add `VLProvenSMT p | isBodyFaithful p -> Nothing` arm (same behavior as `VLProven`) |
+| 4.11 | In `ProofCache.hs` [line 140](../compiler/src/LLMLL/ProofCache.hs#L140) (`proofToLevel`): change `VLProven (peProver pe)` → `VLProvenSMT (peProver pe)` when prover is `"liquid-fixpoint"`, keep `VLProven` for other provers |
 | 4.12 | Update `Syntax.hs` module exports to include `VLProvenSMT` |
 | 4.13 | Compile with `-Wincomplete-patterns` — GHC will flag any missed match sites |
 | 4.14 | Write tests: JSON round-trip for `"proven-smt"`, trust report labels correctly, legacy `"proven"` sidecars still parse |

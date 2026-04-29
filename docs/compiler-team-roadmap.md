@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.6.3 shipped (Trust Model Fixes); 289 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.7 shipped (Hardening); 294 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md`
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -31,25 +31,6 @@
 |---|-----|-------------|--------|--------|
 | 1 | **TEST-DRIFT** | Fix Python dry-run Lead Agent fixture — stub plan in `agent.py:385` defines `stub-fn` with no contract, rejected by the spec-quality gate added in v0.6.0. Update fixture to include a minimal contract. | 0.5 hr | ✅ |
 | 2 | **DOC-DRIFT** | Reconcile LLMLL.md with `SpecCoverage.hs` JSON output — spec describes `suppression_debt` field but `SpecCoverage.hs:302` only emits `effective_coverage`. Either remove the field from the spec until SUPP-DEBT ships (v0.8.0), or add a stub field now. | 0.5 hr | ✅ |
-
----
-
-## v0.7 — Hardening (~6.5 hr, 1 day)
-
-**Theme:** Close the remaining concrete, fully-spec'd fixes from the external review.
-
-> **Source:** [compiler-team-v07-tier2-activities.md](compiler-team-v07-tier2-activities.md) — full activity steps and implementation details.  
-> **Estimated effort:** ~6.5 hours (1 day)  
-> **Status:** Consensus reached (professor + language team + compiler team, 2026-04-26)
-
-| # | ID | Description | Effort | Status |
-|---|-----|-------------|--------|--------|
-| 1 | **BUILTIN-2** | `string-char-at` negative index guard (`i >= 0` check) | 0.5 hr | ☐ |
-| 2 | **BUILTIN-1** | `regex-match` → POSIX ERE via `regex-tdfa` + `isInfixOf` import cleanup | 2 hr | ☐ |
-| 3 | **DO-1** | Warn/error on discarded intermediate `do`-block commands (warning in `check`, error in `build`/`verify` via `tcStrictMode`) | 2 hr | ☐ |
-| 4 | **TRUST-2a** | Add `VLProvenSMT` constructor to `VerificationLevel` — distinguishes SMT proofs from generic `VLProven` in JSON output and trust reports | 2 hr | ☐ |
-
-**What changed:** Nothing — this is exactly the prior v0.7 engineering backlog. But it's now the *only* thing in v0.7. Research items moved to Research Track.
 
 ---
 
@@ -212,21 +193,21 @@
 # Summary: Version Plan and Critical Path
 
 ```
-v0.6.3 (SHIPPED)       v0.7 (Hardening)    v0.8.0 (Faithfulness Core)    v0.8.1 (Integration)     Future
+v0.6.3 (SHIPPED)       v0.7 (SHIPPED)      v0.8.0 (Faithfulness Core)    v0.8.1 (Integration)     Future
 ────────────────       ────────────────    ──────────────────────────    ────────────────────     ──────
-Trust model fixes ✅    BUILTIN-1/2 ☐      BODY-VC-0 (design spec) ☐     LEAN-GA (blocked)        WASM
-7 bug fixes             DO-1 ☐             BODY-VC-1 (bodyToPred) ☐       TRUST-2b                 target
-tcStrictMode            TRUST-2a ☐         BODY-VC-2 (wire) ☐             STRIP-GA
+Trust model fixes ✅    BUILTIN-1/2 ✅      BODY-VC-0 (design spec) ☐     LEAN-GA (blocked)        WASM
+7 bug fixes             DO-1 ✅             BODY-VC-1 (bodyToPred) ☐       TRUST-2b                 target
+tcStrictMode            TRUST-2a ✅         BODY-VC-2 (wire) ☐             STRIP-GA
 Transitive trust                           BODY-VC-3 (unlock) ☐           MCP                      WASI
-Body-faithful guard    ~6.5 hr             BODY-VC-T (golden tests) ☐                              enforcement
-                       1 day              SUPP-DEBT ☐
-                                          EVENT-LOG ☐
-                                          SPEC-FOUNDATION ☐
+Body-faithful guard    294 tests            BODY-VC-T (golden tests) ☐                              enforcement
+                       shipped             SUPP-DEBT ☐
+                                           EVENT-LOG ☐
+                                           SPEC-FOUNDATION ☐
 ```
 
-The critical path through v0.6.3 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → trust model fixes → shipped**. v0.6.3 resolved 7 critical bugs from the engineering audit: BUG-1 (result scope), BUG-2 (contract instrumentation), BUG-3 (transitive trust), BUG-4 (typecheck gate), BUG-5 (termination docs), BUG-6 (stripping guard), BUG-7 (proof laundering).
+The critical path through v0.7 is complete: **context-aware checkout → working orchestrator → Lead Agent → U-Full → spec quality layer → benchmarks + hub query → interface laws → trust model fixes → hardening → shipped**. v0.6.3 resolved 7 critical bugs from the engineering audit. v0.7 shipped BUILTIN-1/2 (total builtins), DO-1 (discarded command warning), and TRUST-2a (`VLProvenSMT` + `Ord` removal).
 
-**v0.7 critical path:** BUILTIN-2 → BUILTIN-1 → DO-1 → TRUST-2a (independent, can be done in any order). ~1 day.
+**v0.7 result:** All 4 items shipped. 294 Haskell + 37 Python tests. 3 discovered issues resolved (Module.hs `max`, compare tests, round-trip serialization).
 
 **v0.8.0 critical path:** BODY-VC-0 (design spec) → BODY-VC-1 (`bodyToPred`) → BODY-VC-2 (wire into emitter) → BODY-VC-3 (flip `isBodyFaithful`). BODY-VC-T (golden tests) runs in parallel with BODY-VC-2. SUPP-DEBT, EVENT-LOG, SPEC-FOUNDATION are independent.
 
@@ -252,7 +233,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.6.1** | *(shipped, 2026-04-23)* | TOTP frozen benchmark (BM2-1..5) ✅ + hub query-by-signature (HUB-1..3) ✅ + crypto builtins (§13.11) ✅ + v0.6.0 carryover (PROV-3, BM-4) ✅ — **shipped (2026-04-23)**. |
 | **v0.6.2** | *(shipped, 2026-04-24)* | Algebraic interface laws: `def-interface :laws` with `for-all` property syntax + QuickCheck codegen + VSM-1 backfill — **shipped (2026-04-24)**. Research-track items (Spec-from-RFC, Synthetic Corpus, Differential Impl) moved to unversioned Research Track. |
 | **v0.6.3** | *(shipped, 2026-04-26)* | Trust model fixes: 7 critical bugs (BUG-1..7). `tcStrictMode` typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection, contract instrumentation in build pipeline, termination documentation correction — **shipped (2026-04-26)**. |
-| **v0.7** | *(reorganized, 2026-04-28)* | **Hardening only:** BUILTIN-1/2 (preamble fixes), DO-1 (discarded command warning), TRUST-2a (`VLProvenSMT` constructor). Research items moved to unversioned Research Track. |
+| **v0.7** | *(reorganized, 2026-04-28)* | **Hardening:** BUILTIN-1/2 (total builtins), DO-1 (discarded command warning), TRUST-2a (`VLProvenSMT` + `Ord` removal). 294 tests. — **shipped (2026-04-29)**. |
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec + `bodyToPred` + emitter integration + `isBodyFaithful` unlock + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. |
 | **v0.8.1** | *(new, 2026-04-28)* | **Faithfulness Integration:** LEAN-GA (real Leanstral) + TRUST-2b (`VLProvenLean` + `VLTrustedBase`) + STRIP-GA (assertion stripping unlock) + MCP. Blocked on external availability. |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
@@ -269,8 +250,28 @@ Research-track items are tracked separately in [research-track.md](research-trac
 
 # Shipped Releases
 
-<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.6.3)</strong></summary>
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.7)</strong></summary>
 
+
+## v0.7 — Hardening ✅ SHIPPED
+
+**Theme:** Close the remaining concrete, fully-spec'd fixes from the external review.
+
+> Shipped 2026-04-29. 4 items, 3 discovered issues resolved.
+
+| # | ID | Description | Status |
+|---|-----|-------------|--------|
+| 1 | BUILTIN-2 | `string-char-at` negative index guard (`i >= 0` check, returns `""`) | ✅ |
+| 2 | BUILTIN-1 | `regex-match` → POSIX ERE via `regex-tdfa`. Invalid patterns return `False` (total). `isInfixOf` import removed. `regex-tdfa` added to generated `package.yaml`. | ✅ |
+| 3 | DO-1 | Discarded command warning. Intermediate `TCustom "Command"` in do-blocks. `checkDiscardedCommand` helper. Warning-only; hard error deferred to v0.8 (DO-2). | ✅ |
+| 4 | TRUST-2a | `VLProvenSMT { vlSMTSolver }` constructor. `Ord` instance removed. `trustCovers`/`trustMin`/`isProvenLevel`/`vlProverName` helpers. 10 consumer files updated. `.verified.json` serializes as `"proven-smt"`. | ✅ |
+| 5 | — | Discovered: `Module.hs:mergeCS` used `max` on removed `Ord`. Fixed with `vlTier`. | ✅ |
+| 6 | — | Discovered: 5 `compare` tests replaced with `vlTier`/`trustCovers`/`isProvenLevel` + `VLProvenSMT` tier equality test. | ✅ |
+| 7 | — | Discovered: round-trip test updated for `"proven-smt"` serialization. | ✅ |
+
+**Test count:** 294 Haskell (was 289; +5 trust-tier), 37 Python (unchanged).
+
+---
 
 ## v0.6.3 — Trust Model Fixes ✅ SHIPPED
 

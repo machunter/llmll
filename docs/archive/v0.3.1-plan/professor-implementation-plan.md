@@ -55,7 +55,7 @@ The Event Log records every `(Input, CommandResult, captures)` triple during exe
 
 ### A2. Implementation: Generated Code Changes
 
-#### [MODIFY] [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs)
+#### [MODIFY] [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs)
 
 The console and CLI loops in `emitMainBody` (L682–757) currently read stdin and execute commands directly. The event log wraps this loop:
 
@@ -115,7 +115,7 @@ emitEventLogPreamble =
 
 ### A3. Implementation: Replay Subcommand
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs)
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs)
 
 Add `CmdReplay FilePath FilePath` to the `Command` ADT (L70–87). Source file + event log file.
 
@@ -126,7 +126,7 @@ Add `"replay"` to the subparser (L104–131):
     (progDesc "v0.3.1: Replay an event log against a compiled program"))
 ```
 
-#### [NEW] [Replay.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Replay.hs)
+#### [NEW] [Replay.hs](../../../compiler/src/LLMLL/Replay.hs)
 
 New module. ~80 lines. Core logic:
 
@@ -186,7 +186,7 @@ Resolve `?proof-required :inductive` and `:unknown` holes by translating the pro
 
 ### B2. Implementation: Lean Translation
 
-#### [NEW] [LeanTranslate.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/LeanTranslate.hs)
+#### [NEW] [LeanTranslate.hs](../../../compiler/src/LLMLL/LeanTranslate.hs)
 
 Translates LLMLL proof obligations to Lean 4 theorem statements.
 
@@ -237,7 +237,7 @@ Complex predicates (e.g., involving `map`, `fold`, custom ADTs) produce a `-- UN
 
 ### B3. Implementation: MCP Client
 
-#### [NEW] [MCPClient.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/MCPClient.hs)
+#### [NEW] [MCPClient.hs](../../../compiler/src/LLMLL/MCPClient.hs)
 
 Minimal MCP client. ~120 lines. Communicates with `lean-lsp-mcp` via JSON-RPC over stdio (process spawn) or HTTP.
 
@@ -274,7 +274,7 @@ data MCPResult
 
 ### B4. Implementation: Proof Cache
 
-#### [NEW] [ProofCache.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ProofCache.hs)
+#### [NEW] [ProofCache.hs](../../../compiler/src/LLMLL/ProofCache.hs)
 
 Stores verified proof certificates as a sidecar file (`.proof-cache.json`), following the same pattern as `VerifiedCache.hs`.
 
@@ -302,20 +302,20 @@ Stores verified proof certificates as a sidecar file (`.proof-cache.json`), foll
 
 ### B5. Integration Points
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs)
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs)
 
 - `doVerify` (the `llmll verify` handler) is extended: after liquid-fixpoint runs, check for `?proof-required` holes in the AST. For each, check the proof cache. If cache miss → call Leanstral. If proof found → write to cache + report `VLProven "leanstral"`. If unavailable → report `?delegate-pending`.
 
 - Add `--leanstral-cmd` and `--leanstral-timeout` options to `CmdVerify`.
 
-#### [MODIFY] [HoleAnalysis.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/HoleAnalysis.hs)
+#### [MODIFY] [HoleAnalysis.hs](../../../compiler/src/LLMLL/HoleAnalysis.hs)
 
 - Add `holeComplexity :: HoleEntry -> Maybe Text` field extracting the `:simple`/`:inductive`/`:unknown` hint from `HProofRequired`. Currently the reason text is free-form ("non-linear-contract", "complex-decreases"). Normalize these to the three spec-defined tiers:
   - `"non-linear-contract"` → `:unknown` (might be solvable by Leanstral, might not)
   - `"complex-decreases"` → `:inductive` (structural induction — Leanstral's strength)
   - `"manual"` → `:unknown`
 
-#### [MODIFY] [formatHoleReportJson](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/HoleAnalysis.hs#L372-L398) in HoleAnalysis.hs
+#### [MODIFY] [formatHoleReportJson](../../../compiler/src/LLMLL/HoleAnalysis.hs#L372-L398) in HoleAnalysis.hs
 
 Add `"complexity"` field to JSON output for `proof-required` holes:
 
@@ -333,7 +333,7 @@ Add `"complexity"` field to JSON output for `proof-required` holes:
 
 ### B7. Dependencies
 
-#### [MODIFY] [package.yaml](file:///Users/burcsahinoglu/Documents/llmll/compiler/package.yaml)
+#### [MODIFY] [package.yaml](../../../compiler/package.yaml)
 
 ```yaml
 dependencies:

@@ -2,7 +2,7 @@
 
 Branch: `feature/delegate-lifecycle-spec`
 
-The compiler team's [Item 6 plan](file:///Users/burcsahinoglu/Documents/llmll/docs/archive/analysis/v0.3%20plan/Item%206:%20%3Fdelegate%20JSON-Patch%20Lifecycle.md) assigns five spec artifacts to the language team. Two are deferred (formal inference rules, Z3 encoding). Three are actionable now and block the compiler team's implementation.
+The compiler team's [Item 6 plan](../../../docs/archive/analysis/v0.3%20plan/Item%206:%20%3Fdelegate%20JSON-Patch%20Lifecycle.md) assigns five spec artifacts to the language team. Two are deferred (formal inference rules, Z3 encoding). Three are actionable now and block the compiler team's implementation.
 
 ---
 
@@ -24,7 +24,7 @@ This plan covers D1–D3. D4 and D5 are out of scope.
 
 ### D1: `await` Type Change (LLMLL.md §11.2)
 
-#### [MODIFY] [LLMLL.md](file:///Users/burcsahinoglu/Documents/llmll/LLMLL.md)
+#### [MODIFY] [LLMLL.md](../../../LLMLL.md)
 
 **§11.2 "Async Delegation"** (L869–889): Rewrite to document:
 
@@ -56,7 +56,7 @@ This plan covers D1–D3. D4 and D5 are out of scope.
 
 ### D2: Checkout/Patch Workflow (LLMLL.md §11.2)
 
-#### [MODIFY] [LLMLL.md](file:///Users/burcsahinoglu/Documents/llmll/LLMLL.md)
+#### [MODIFY] [LLMLL.md](../../../LLMLL.md)
 
 **§11.2** — add a new subsection "Hole Resolution via JSON-Patch (v0.3)" after the Delegation Outcome Table (~L889). Content:
 
@@ -76,11 +76,11 @@ This plan covers D1–D3. D4 and D5 are out of scope.
 
 8. **NOTE alert** — `.ast.json` only; S-expression rejection message; hole-filling only in v0.3.
 
-#### [MODIFY] [README.md](file:///Users/burcsahinoglu/Documents/llmll/README.md)
+#### [MODIFY] [README.md](../../../README.md)
 
 Add `checkout` and `patch` to the CLI command table (L15–25). These are new v0.3 commands.
 
-#### [MODIFY] [getting-started.md](file:///Users/burcsahinoglu/Documents/llmll/docs/getting-started.md)
+#### [MODIFY] [getting-started.md](../../../docs/getting-started.md)
 
 Add `§2.x checkout` and `§2.x patch` command documentation sections following the pattern of existing command docs (check, holes, test, build, verify, etc.).
 
@@ -88,7 +88,7 @@ Add `§2.x checkout` and `§2.x patch` command documentation sections following 
 
 ### D3: JSON-AST Schema Updates
 
-#### [MODIFY] [llmll-ast.schema.json](file:///Users/burcsahinoglu/Documents/llmll/docs/llmll-ast.schema.json)
+#### [MODIFY] [llmll-ast.schema.json](../../../docs/llmll-ast.schema.json)
 
 1. **`ExprAwait` description** (L690–699) — update from `"Await a Promise[t]: (await promise-expr)."` to document that the expression's type is `Result[t, DelegationError]`, not bare `t`.
 
@@ -146,11 +146,11 @@ Add `§2.x checkout` and `§2.x patch` command documentation sections following 
 
 | File | Change |
 |------|--------|
-| [LLMLL.md](file:///Users/burcsahinoglu/Documents/llmll/LLMLL.md) | §11.2: `await` return type + checkout/patch workflow |
-| [CHANGELOG.md](file:///Users/burcsahinoglu/Documents/llmll/CHANGELOG.md) | v0.3 breaking change entry for `await` return type (professor's review §5) |
-| [README.md](file:///Users/burcsahinoglu/Documents/llmll/README.md) | CLI command table: add `checkout`, `patch` |
-| [getting-started.md](file:///Users/burcsahinoglu/Documents/llmll/docs/getting-started.md) | New command docs for `checkout` and `patch` |
-| [llmll-ast.schema.json](file:///Users/burcsahinoglu/Documents/llmll/docs/llmll-ast.schema.json) | `ExprAwait` description + `PatchEnvelope`/`PatchOp`/`CheckoutToken` defs |
+| [LLMLL.md](../../../LLMLL.md) | §11.2: `await` return type + checkout/patch workflow |
+| [CHANGELOG.md](../../../CHANGELOG.md) | v0.3 breaking change entry for `await` return type (professor's review §5) |
+| [README.md](../../../README.md) | CLI command table: add `checkout`, `patch` |
+| [getting-started.md](../../../docs/getting-started.md) | New command docs for `checkout` and `patch` |
+| [llmll-ast.schema.json](../../../docs/llmll-ast.schema.json) | `ExprAwait` description + `PatchEnvelope`/`PatchOp`/`CheckoutToken` defs |
 
 No new files. No compiler source changes — those belong to the compiler team's branch.
 

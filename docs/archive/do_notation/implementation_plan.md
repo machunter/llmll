@@ -51,7 +51,7 @@
 
 | File | Change |
 | ---- | ------ |
-| [TypeCheck.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs) | Replace `inferExpr (EOp op _args)` with full argument-type checking |
+| [TypeCheck.hs](../../../compiler/src/LLMLL/TypeCheck.hs) | Replace `inferExpr (EOp op _args)` with full argument-type checking |
 
 #### Proposed Implementation
 
@@ -117,12 +117,12 @@ inferExpr (EOp op args) = do
 
 | File | Change |
 | ---- | ------ |
-| [Syntax.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Syntax.hs) | Add `ProofHint` data type; change `HProofRequired Text` → `HProofRequired ProofHint Text` |
-| [HoleAnalysis.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/HoleAnalysis.hs) | Update `holeKindLabel`, `holeDesc`, `holeStatus'` for new type |
-| [Parser.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Parser.hs) | Update `pProofRequiredHole` to emit structured hint |
-| [ParserJSON.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ParserJSON.hs) | Update JSON-AST `hole-proof-required` node parsing |
-| [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) | Update `emitHole (HProofRequired ...)` |
-| [LLMLL.md](file:///Users/burcsahinoglu/Documents/llmll/LLMLL.md) | Update §6 to document new JSON-AST `hint` field |
+| [Syntax.hs](../../../compiler/src/LLMLL/Syntax.hs) | Add `ProofHint` data type; change `HProofRequired Text` → `HProofRequired ProofHint Text` |
+| [HoleAnalysis.hs](../../../compiler/src/LLMLL/HoleAnalysis.hs) | Update `holeKindLabel`, `holeDesc`, `holeStatus'` for new type |
+| [Parser.hs](../../../compiler/src/LLMLL/Parser.hs) | Update `pProofRequiredHole` to emit structured hint |
+| [ParserJSON.hs](../../../compiler/src/LLMLL/ParserJSON.hs) | Update JSON-AST `hole-proof-required` node parsing |
+| [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs) | Update `emitHole (HProofRequired ...)` |
+| [LLMLL.md](../../../LLMLL.md) | Update §6 to document new JSON-AST `hint` field |
 
 #### Proposed ADT
 
@@ -192,7 +192,7 @@ The `"hint"` field is **required** in v0.3. The parser should reject nodes missi
 
 | File | Change |
 | ---- | ------ |
-| [Parser.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Parser.hs) | Modify `pSExprApp` to desugar `string-concat` with 3+ args |
+| [Parser.hs](../../../compiler/src/LLMLL/Parser.hs) | Modify `pSExprApp` to desugar `string-concat` with 3+ args |
 
 #### Proposed Implementation
 
@@ -231,7 +231,7 @@ desugarStringConcat func args = (func, args)
 
 | File | Change |
 | ---- | ------ |
-| [Parser.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Parser.hs) | Add `opens <- many (try pOpenDecl <|> try pExportDecl)` to `pModule` between imports and body |
+| [Parser.hs](../../../compiler/src/LLMLL/Parser.hs) | Add `opens <- many (try pOpenDecl <|> try pExportDecl)` to `pModule` between imports and body |
 
 #### Acceptance Criteria
 
@@ -254,7 +254,7 @@ desugarStringConcat func args = (func, args)
 
 | File | Change |
 | ---- | ------ |
-| [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) | Replace `splitOn "__"` approach with a `go`-loop that collapses any underscore run |
+| [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs) | Replace `splitOn "__"` approach with a `go`-loop that collapses any underscore run |
 
 #### Proposed Implementation
 
@@ -290,10 +290,10 @@ sanitizeCheckLabel lbl =
 | File | Change |
 | ---- | ------ |
 | [NEW] `compiler/src/LLMLL/Version.hs` | Define `currentSchemaVersion :: Text = "0.2.0"` and `compilerVersion :: Text = "0.2.0"` |
-| [Sketch.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Sketch.hs) | Import `Version` and replace literal `"0.2.0"` |
-| [ParserJSON.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ParserJSON.hs) | Import `Version` and replace `expectedSchemaVersion` literal |
-| [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) | Import `Version` and replace banner string |
-| [compiler/package.yaml](file:///Users/burcsahinoglu/Documents/llmll/compiler/package.yaml) | Ensure `LLMLL.Version` is in `exposed-modules` |
+| [Sketch.hs](../../../compiler/src/LLMLL/Sketch.hs) | Import `Version` and replace literal `"0.2.0"` |
+| [ParserJSON.hs](../../../compiler/src/LLMLL/ParserJSON.hs) | Import `Version` and replace `expectedSchemaVersion` literal |
+| [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs) | Import `Version` and replace banner string |
+| [compiler/package.yaml](../../../compiler/package.yaml) | Ensure `LLMLL.Version` is in `exposed-modules` |
 
 ---
 
@@ -343,7 +343,7 @@ Codegen must emit pair-threading Haskell instead of `do`-blocks.
 
 | File | Change |
 | ---- | ------ |
-| [HoleAnalysis.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/HoleAnalysis.hs) | Add pointer tracking to `collectHolesExpr` (see options in Open Questions) |
+| [HoleAnalysis.hs](../../../compiler/src/LLMLL/HoleAnalysis.hs) | Add pointer tracking to `collectHolesExpr` (see options in Open Questions) |
 
 #### Proposed approach (Option A — reuse sketch pass)
 
@@ -371,7 +371,7 @@ Expose a `runSketchHoles :: TypeEnv -> [Statement] -> [SketchHole]` function fro
 
 | File | Change |
 | ---- | ------ |
-| [TypeCheck.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs) | Gate `tcWarn "unresolved named hole"` on `not <$> gets tcSketchMode` |
+| [TypeCheck.hs](../../../compiler/src/LLMLL/TypeCheck.hs) | Gate `tcWarn "unresolved named hole"` on `not <$> gets tcSketchMode` |
 
 ```haskell
 inferHole (HNamed name) = do
@@ -398,8 +398,8 @@ inferHole (HNamed name) = do
 
 | File | Change |
 | ---- | ------ |
-| [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) | Wire `System.Random.randomRIO (minBound, maxBound)` in the preamble and add `System.Random` to default dependencies |
-| [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) | Add `random` to `hackagePkgNames` default list so it doesn't require an explicit `(import haskell.random)` |
+| [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs) | Wire `System.Random.randomRIO (minBound, maxBound)` in the preamble and add `System.Random` to default dependencies |
+| [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs) | Add `random` to `hackagePkgNames` default list so it doesn't require an explicit `(import haskell.random)` |
 
 ---
 
@@ -417,7 +417,7 @@ inferHole (HNamed name) = do
 
 | File | Change |
 | ---- | ------ |
-| [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs) | Replace literal `v0.1.3` with `compilerVersion` from `Version.hs` |
+| [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs) | Replace literal `v0.1.3` with `compilerVersion` from `Version.hs` |
 
 ---
 

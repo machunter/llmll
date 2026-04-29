@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.6.3
+# LLMLL Getting Started — v0.7
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -584,6 +584,8 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `string-trim` | `string → string` | Strip leading/trailing whitespace, `\t`, `\n`, `\r` |
 | `string-concat-many` | `list[string] → string` | Concat list of strings |
 | `list-nth` | `list[a] int → Result[a, string]` | Safe indexed access |
+| `string-char-at` | `string int → string` | Single character at index. Returns `""` for negative or out-of-bounds indices (v0.7). |
+| `regex-match` | `string string → bool` | POSIX ERE match via `regex-tdfa` (v0.7). Invalid patterns return `False` (total). Replaces the `isInfixOf` stub from v0.3.4. |
 | `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 HMAC-SHA1 (v0.6.1, §13.11). Opaque — trust level is `asserted`. |
 | `sha1` | `bytes[20] → bytes[20]` | SHA-1 hash (v0.6.1, §13.11). Preamble is a stub — see LLMLL.md §13.11. |
 

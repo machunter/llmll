@@ -6,9 +6,9 @@ Three JSON-AST example programs were created to exercise the Phase 2b `llmll ver
 
 | Game | AST source | Generated |
 |---|---|---|
-| Tic-Tac-Toe | [tictactoe.ast.json](file:///Users/burcsahinoglu/Documents/llmll/examples/tictactoe_json_verifier/tictactoe.ast.json) | `generated/tictactoe_json_verifier/` |
-| Conway's Life | [life.ast.json](file:///Users/burcsahinoglu/Documents/llmll/examples/conways_life_json_verifier/life.ast.json) | `generated/conways_life_json_verifier/` |
-| Hangman | [hangman.ast.json](file:///Users/burcsahinoglu/Documents/llmll/examples/hangman_json_verifier/hangman.ast.json) | `generated/hangman_json_verifier/` |
+| Tic-Tac-Toe | [tictactoe.ast.json](../../../examples/tictactoe_json_verifier/tictactoe.ast.json) | `generated/tictactoe_json_verifier/` |
+| Conway's Life | [life.ast.json](../../../examples/conways_life_json_verifier/life.ast.json) | `generated/conways_life_json_verifier/` |
+| Hangman | [hangman.ast.json](../../../examples/hangman_json_verifier/hangman.ast.json) | `generated/hangman_json_verifier/` |
 
 ---
 

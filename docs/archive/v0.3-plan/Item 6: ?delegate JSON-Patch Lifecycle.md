@@ -14,7 +14,7 @@ The opening commit. Mechanically trivial, untestable in isolation, but required 
 
 ### Changes
 
-#### [MODIFY] [CodegenHs.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/CodegenHs.hs)
+#### [MODIFY] [CodegenHs.hs](../../../compiler/src/LLMLL/CodegenHs.hs)
 
 | Line | Current | Target |
 |------|---------|--------|
@@ -26,9 +26,9 @@ The opening commit. Mechanically trivial, untestable in isolation, but required 
 > [!IMPORTANT]
 > The `async` dependency belongs in the **generated** Haskell project, not the compiler's own `package.yaml`. The compiler never imports `Control.Concurrent.Async` — it only emits code that references it. Same pattern as `QuickCheck` in the generated test harness.
 
-#### [MODIFY] [TypeCheck.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs) (Language Team R2 §2)
+#### [MODIFY] [TypeCheck.hs](../../../compiler/src/LLMLL/TypeCheck.hs) (Language Team R2 §2)
 
-The type checker must agree with codegen on `EAwait`'s return type. Currently ([L662–668](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs#L662-L668)):
+The type checker must agree with codegen on `EAwait`'s return type. Currently ([L662–668](../../../compiler/src/LLMLL/TypeCheck.hs#L662-L668)):
 
 ```haskell
 inferExpr (EAwait expr) = do
@@ -51,7 +51,7 @@ inferExpr (EAwait expr) = do
 Without this, any program that `await`s a delegate and pattern-matches the result (`match result (Success v) ... (Error e) ...`) gets a false type-mismatch: the type checker infers bare `t` but codegen produces `Result[t, DelegationError]`.
 
 > [!NOTE]
-> `inferHole (HDelegateAsync spec)` at [L703](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/TypeCheck.hs#L703) correctly returns `TPromise t` — no change needed there. The `Result` wrapping only occurs at the `await` point, which is where the exception can arise. An un-`await`ed `Promise[t]` remains `Promise[t]`.
+> `inferHole (HDelegateAsync spec)` at [L703](../../../compiler/src/LLMLL/TypeCheck.hs#L703) correctly returns `TPromise t` — no change needed there. The `Result` wrapping only occurs at the `await` point, which is where the exception can arise. An un-`await`ed `Promise[t]` remains `Promise[t]`.
 
 #### `EAwait` Codegen — Exception-Safe Result Wrapping (§3.2)
 
@@ -94,7 +94,7 @@ An agent calls `llmll checkout program.ast.json /statements/2/body` to lock a ho
 
 ### Changes
 
-#### [NEW] [JsonPointer.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/JsonPointer.hs) (§2.1)
+#### [NEW] [JsonPointer.hs](../../../compiler/src/LLMLL/JsonPointer.hs) (§2.1)
 
 Dedicated ~60-line module for RFC 6901 operations on `Data.Aeson.Value`. Cleanly separated from domain logic. Both `Checkout.hs` and `PatchApply.hs` import this — no circular dependency.
 
@@ -130,7 +130,7 @@ isHoleNode :: Value -> Bool
 findDescendantHoles :: Text -> Value -> [Text]
 ```
 
-#### [NEW] [Checkout.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Checkout.hs)
+#### [NEW] [Checkout.hs](../../../compiler/src/LLMLL/Checkout.hs)
 
 ```haskell
 import LLMLL.JsonPointer (resolvePointer, isHoleNode, findDescendantHoles)
@@ -175,13 +175,13 @@ expireStale :: UTCTime -> CheckoutLock -> CheckoutLock
 4. If locked → reject: `"hole at <pointer> is already checked out"`
 5. If unlocked → generate token, append to lock file under advisory `flock`, return token
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs)
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs)
 
 - Add `CmdCheckout FilePath Text` and `CmdCheckoutRelease FilePath Text` and `CmdCheckoutStatus FilePath Text` to `Command` ADT
 - Add top-level `"checkout"` subcommand with `--release` and `--status` flags
 - Guard: reject non-`.ast.json` / non-`.json` file extensions
 
-#### [MODIFY] [package.yaml](file:///Users/burcsahinoglu/Documents/llmll/compiler/package.yaml)
+#### [MODIFY] [package.yaml](../../../compiler/package.yaml)
 
 - Add `LLMLL.JsonPointer` and `LLMLL.Checkout` to `exposed-modules`
 - Add `time >= 1.12` and `filelock >= 0.1` dependencies
@@ -215,11 +215,11 @@ The core feature. Agent submits an RFC 6902 JSON-Patch in an LLMLL envelope. Com
 
 ### Changes
 
-#### [MODIFY] [ParserJSON.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/ParserJSON.hs)
+#### [MODIFY] [ParserJSON.hs](../../../compiler/src/LLMLL/ParserJSON.hs)
 
 Refactor: extract `parseJSONASTValue :: Value -> Either [Diagnostic] [Statement]`. The existing `parseJSONAST` becomes a thin wrapper: decode `ByteString` → `Value`, delegate to `parseJSONASTValue`, collapse `[Diagnostic]` to the first one for backward compat.
 
-#### [NEW] [PatchApply.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/PatchApply.hs)
+#### [NEW] [PatchApply.hs](../../../compiler/src/LLMLL/PatchApply.hs)
 
 ```haskell
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer)
@@ -276,12 +276,12 @@ validateScope checkoutPtr ops = ...
 parsePatchOp :: Value -> Either Text PatchOp
 ```
 
-#### [MODIFY] [Main.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/Main.hs)
+#### [MODIFY] [Main.hs](../../../compiler/src/Main.hs)
 
 - Add `CmdPatch FilePath FilePath` to `Command`
 - Add top-level `"patch"` subcommand: `llmll patch <source.ast.json> <patch-request.json>`
 
-#### [MODIFY] [Serve.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Serve.hs)
+#### [MODIFY] [Serve.hs](../../../compiler/src/LLMLL/Serve.hs)
 
 Add routes governed by existing `withAuth` middleware:
 
@@ -291,7 +291,7 @@ Add routes governed by existing `withAuth` middleware:
 
 File paths must be **absolute** (§3.5) — resolves working directory ambiguity.
 
-#### [MODIFY] [package.yaml](file:///Users/burcsahinoglu/Documents/llmll/compiler/package.yaml)
+#### [MODIFY] [package.yaml](../../../compiler/package.yaml)
 
 - Add `LLMLL.PatchApply` to `exposed-modules`
 
@@ -332,7 +332,7 @@ When a patch fails type-checking, error pointers reference the patch's own opera
 
 ### Changes
 
-#### [MODIFY] [Diagnostic.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/Diagnostic.hs)
+#### [MODIFY] [Diagnostic.hs](../../../compiler/src/LLMLL/Diagnostic.hs)
 
 Refined signature (§3.4):
 
@@ -355,7 +355,7 @@ data PatchOpInfo = PatchOpInfo
 rebaseToPatch :: [PatchOpInfo] -> Diagnostic -> Diagnostic
 ```
 
-#### [MODIFY] [PatchApply.hs](file:///Users/burcsahinoglu/Documents/llmll/compiler/src/LLMLL/PatchApply.hs)
+#### [MODIFY] [PatchApply.hs](../../../compiler/src/LLMLL/PatchApply.hs)
 
 After re-typecheck, build `[PatchOpInfo]` from the patch ops and pipe diagnostics through `rebaseToPatch`.
 
@@ -491,4 +491,4 @@ Required fields: `pointer`, `token`, `ttl`. Optional: `hole_kind`.
 
 Phase 1 must also update:
 
-- **[CHANGELOG.md](file:///Users/burcsahinoglu/Documents/llmll/CHANGELOG.md)** — add v0.3 breaking change entry: `"await now returns Result[t, DelegationError] instead of bare t. Programs that use await must pattern-match on Success/Error."`
+- **[CHANGELOG.md](../../../CHANGELOG.md)** — add v0.3 breaking change entry: `"await now returns Result[t, DelegationError] instead of bare t. Programs that use await must pattern-match on Success/Error."`
