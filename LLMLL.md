@@ -297,10 +297,11 @@ The verification level is recorded per-contract, per-function in the module's ex
 > `--trust-report` output, and `--spec-coverage` JSON.
 > It does not affect the surface grammar.
 >
-> **Body-faithfulness caveat:** `proven` (or `proven-smt`) currently means
-> "solver accepted the emitted obligation," not "the implementation satisfies
-> the contract." Until body-faithful verification conditions are implemented
-> (v0.8.0, BODY-VC), runtime assertions are preserved regardless of proof status.
+> **Body-faithfulness (v0.8.0).** `proven-smt` with `post_body_faithful = true`
+> means "the solver verified that the implementation satisfies the contract."
+> `proven-smt` without body-faithfulness means "the solver accepted the emitted
+> obligation" (contract self-consistency only). The `.verified.json` sidecar
+> includes the `post_body_faithful` field per function. See §5.3.4.
 
 #### 4.4.2 Runtime Assertion Modes
 
@@ -574,13 +575,26 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 > [!IMPORTANT]
 > **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of "proven" correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
 
-#### 5.3.4 Faithfulness Gap (Current Limitation)
+#### 5.3.4 Body-Faithful Verification (v0.8.0)
 
-The current `.fq` emitter checks that a contract's pre/post predicates are logically consistent within the QF-LIA fragment. It does **not** encode the function body's computation into the verification condition. This means the verifier proves "the contract is self-consistent," not "the implementation satisfies the contract."
+The `.fq` emitter now encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates constraints of the form:
 
-Consequently, `VLProven` currently means "solver accepted the contract obligation," not "the implementation has been verified against its specification."
+```
+P ∧ (result = ⟦B⟧) ⟹ Q
+```
 
-Until body-faithful verification conditions are implemented (v0.7 research track), the `--contracts=unproven` stripping mode preserves all runtime assertions as a conservative default — no assertions are stripped regardless of proof status.
+where ⟦B⟧ is the body's symbolic translation into the liquid-fixpoint constraint language. This closes the faithfulness gap: when both the contract and the body are in the QF-LIA fragment, `VLProvenSMT` means "the implementation satisfies the contract for all well-typed inputs."
+
+**Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, and all QF-LIA operators. `EMatch`, `letrec`, and non-linear expressions fall back conservatively to contract-only verification.
+
+**Path limit:** Functions with >4096 execution paths (from deeply nested `EIf`) fall back to contract-only verification with a diagnostic warning. This prevents solver timeouts while maintaining soundness.
+
+**Contract stripping (v0.8.0):** `--contracts=unproven` now strips postcondition runtime assertions for functions that are both `VLProvenSMT` and body-faithful (`csPostBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
+
+> [!NOTE]
+> **Two-tier verification status.** After v0.8.0:
+> - `VLProvenSMT` + `csPostBodyFaithful = True` = implementation verified against contract. Postcondition assertions can be safely stripped.
+> - `VLProvenSMT` + `csPostBodyFaithful = False` = contract self-consistency verified only. All runtime assertions preserved. This occurs for fallback functions (non-QF-LIA bodies, path-limit exceeded, `letrec`).
 
 ---
 
