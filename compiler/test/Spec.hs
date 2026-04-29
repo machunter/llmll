@@ -3597,3 +3597,86 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             t = emitPred p
         t `shouldSatisfy` T.isInfixOf "(not (a || b))"
 
+    describe "Negative (structural UNSAFE)" $ do
+      -- These tests verify that incorrect implementations produce body VCs
+      -- where the result predicate would NOT satisfy the postcondition.
+      -- We verify the constraint structure, not solver output.
+
+      it "N01: wrong body (post says result = x+1, body returns x)" $ do
+        -- (def-logic inc [x: int] (post (= result (+ x 1))) x)
+        -- Body returns x, but post requires result = x+1
+        let body = EVar "x"
+            se = Map.fromList [("x", FQInt)]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (SimpleVC [] resultPred) -> do
+            -- Result pred is just (FQVar "x"), but post would be (+ x 1)
+            -- So the constraint (result = x) ⟹ (result = x+1) is UNSAFE
+            resultPred `shouldBe` FQVar "x"
+            resultPred `shouldNotBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+          _ -> expectationFailure $ "expected SimpleVC, got: " <> show result
+
+      it "N02: off-by-one (post says result = x, body returns x+1)" $ do
+        -- (def-logic id [x: int] (post (= result x)) (+ x 1))
+        let body = EApp "+" [EVar "x", ELit (LitInt 1)]
+            se = Map.fromList [("x", FQInt)]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (SimpleVC [] resultPred) -> do
+            resultPred `shouldBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+            -- Post would bind (result = x), so constraint
+            -- (result = x+1) ⟹ (result = x) is UNSAFE
+            resultPred `shouldNotBe` FQVar "x"
+          _ -> expectationFailure $ "expected SimpleVC, got: " <> show result
+
+      it "N03: wrong branch (if swapped — body returns 0 when n>0)" $ do
+        -- (def-logic abs [n: int] (post (>= result 0))
+        --   (if (> n 0) 0 n))
+        -- This is wrong: returns 0 for positive n (fine), but returns n for
+        -- negative n (UNSAFE since n < 0 violates post >= 0)
+        let body = EIf (EApp ">" [EVar "n", ELit (LitInt 0)])
+                       (ELit (LitInt 0))
+                       (EVar "n")
+            se = Map.fromList [("n", FQInt)]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (BranchVC guard thenVC elseVC) -> do
+            -- The else branch returns n (which could be negative)
+            guard `shouldBe` FQBinPred FQGt (FQVar "n") (FQLit 0)
+            thenVC `shouldBe` SimpleVC [] (FQLit 0)     -- fine: 0 >= 0
+            elseVC `shouldBe` SimpleVC [] (FQVar "n")    -- UNSAFE: n might be < 0
+            -- Flatten and verify the else path
+            let paths = flattenBodyVC (BranchVC guard thenVC elseVC)
+                (elseGuard, _, elseResult) = paths !! 1
+            -- Else guard is ¬(n > 0), else result is n
+            elseGuard `shouldBe` FQNot (FQBinPred FQGt (FQVar "n") (FQLit 0))
+            elseResult `shouldBe` FQVar "n"
+          _ -> expectationFailure $ "expected BranchVC, got: " <> show result
+
+      it "N04: let shadowing encodes correctly (wrong if renaming broken)" $ do
+        -- (def-logic f [x: int] (post (= result (+ x 2)))
+        --   (let [[x (+ x 1)]]   ;; x_0 = x + 1
+        --     (let [[x (+ x 1)]]  ;; x_1 = x_0 + 1 (= x + 2 ✓)
+        --       x)))
+        -- If alpha-renaming is broken, x_1 would still reference original x,
+        -- producing x+1 instead of x+2 (UNSAFE).
+        -- The test verifies correct renaming produces the chain.
+        let innerLet = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] (EVar "x")
+            body = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] innerLet
+            se = Map.fromList [("x", FQInt)]
+            (counter, result) = bodyToPredFrom 0 se body
+        -- Two let bindings → counter advanced by 2
+        counter `shouldBe` 2
+        case result of
+          Just (SimpleVC lbs resultPred) -> do
+            length lbs `shouldBe` 2
+            -- First binding: _bv_x_0 = x + 1
+            lbName (lbs !! 0) `shouldBe` "_bv_x_0"
+            lbRhs  (lbs !! 0) `shouldBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+            -- Second binding: _bv_x_1 = _bv_x_0 + 1 (NOT x + 1)
+            lbName (lbs !! 1) `shouldBe` "_bv_x_1"
+            lbRhs  (lbs !! 1) `shouldBe` FQBinArith FQAdd (FQVar "_bv_x_0") (FQLit 1)
+            -- Result references innermost renamed var
+            resultPred `shouldBe` FQVar "_bv_x_1"
+          _ -> expectationFailure $ "expected SimpleVC with 2 bindings, got: " <> show result
+
