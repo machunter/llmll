@@ -1234,21 +1234,36 @@ main = hspec $ do
   -- v0.3: Stratified Verification tests
   -- =========================================================================
 
-  describe "VerificationLevel Ord" $ do
-    it "VLAsserted < VLTested" $
-      compare VLAsserted (VLTested 50) `shouldBe` LT
+  describe "VerificationLevel trust-tier (v0.7: Ord removed, use vlTier/trustCovers)" $ do
+    it "VLAsserted < VLTested (by tier)" $
+      vlTier VLAsserted < vlTier (VLTested 50) `shouldBe` True
 
-    it "VLTested < VLProven" $
-      compare (VLTested 100) (VLProven "z3") `shouldBe` LT
+    it "VLTested < VLProven (by tier)" $
+      vlTier (VLTested 100) < vlTier (VLProven "z3") `shouldBe` True
 
-    it "VLTested 50 == VLTested 1000 (sample count ignored)" $
-      compare (VLTested 50) (VLTested 1000) `shouldBe` EQ
+    it "VLTested 50 == VLTested 1000 (sample count ignored in tier)" $
+      vlTier (VLTested 50) == vlTier (VLTested 1000) `shouldBe` True
 
-    it "VLProven z3 == VLProven leanstral (prover name ignored)" $
-      compare (VLProven "z3") (VLProven "leanstral") `shouldBe` EQ
+    it "VLProven z3 == VLProven leanstral (prover name ignored in tier)" $
+      vlTier (VLProven "z3") == vlTier (VLProven "leanstral") `shouldBe` True
 
-    it "VLAsserted < VLProven" $
-      compare VLAsserted (VLProven "z3") `shouldBe` LT
+    it "VLAsserted < VLProven (by tier)" $
+      vlTier VLAsserted < vlTier (VLProven "z3") `shouldBe` True
+
+    it "VLProvenSMT is at the same tier as VLProven" $
+      vlTier (VLProvenSMT "liquid-fixpoint") == vlTier (VLProven "z3") `shouldBe` True
+
+    it "trustCovers: proven covers tested" $
+      trustCovers (VLProven "z3") (VLTested 100) `shouldBe` True
+
+    it "trustCovers: tested does NOT cover proven" $
+      trustCovers (VLTested 100) (VLProven "z3") `shouldBe` False
+
+    it "isProvenLevel: VLProvenSMT is proven" $
+      isProvenLevel (VLProvenSMT "liquid-fixpoint") `shouldBe` True
+
+    it "isProvenLevel: VLAsserted is not proven" $
+      isProvenLevel VLAsserted `shouldBe` False
 
   describe "ContractsMode: instrumentStatement" $ do
     let mkDefLogic name preE postE bodyE =
@@ -1410,7 +1425,7 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (VLProven "liquid-fixpoint")) (Just (VLProven "liquid-fixpoint")) Nothing Nothing)
+            [ ("add", ContractStatus (Just (VLProvenSMT "liquid-fixpoint")) (Just (VLProvenSMT "liquid-fixpoint")) Nothing Nothing)
             , ("mul", ContractStatus (Just VLAsserted) Nothing Nothing Nothing)
             ]
       saveVerified testFile statuses

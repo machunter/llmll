@@ -176,10 +176,12 @@ filterContracts :: ContractStatus -> Contract -> Contract
 filterContracts cs contract = Contract
   { contractPre = case csPreLevel cs of
       Just (VLProven p) | isBodyFaithful p -> Nothing
+      Just (VLProvenSMT p) | isBodyFaithful p -> Nothing
       _                 -> contractPre contract
   , contractPreSource = contractPreSource contract
   , contractPost = case csPostLevel cs of
       Just (VLProven p) | isBodyFaithful p -> Nothing
+      Just (VLProvenSMT p) | isBodyFaithful p -> Nothing
       _                 -> contractPost contract
   , contractPostSource = contractPostSource contract
   }

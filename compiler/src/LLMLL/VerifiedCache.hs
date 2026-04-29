@@ -39,6 +39,7 @@ vlToJSON :: VerificationLevel -> Value
 vlToJSON VLAsserted      = object ["level" .= ("asserted" :: Text)]
 vlToJSON (VLTested n)    = object ["level" .= ("tested" :: Text), "samples" .= n]
 vlToJSON (VLProven prov) = object ["level" .= ("proven" :: Text), "prover" .= prov]
+vlToJSON (VLProvenSMT solver) = object ["level" .= ("proven-smt" :: Text), "prover" .= solver]
 
 vlFromJSON :: Value -> Maybe VerificationLevel
 vlFromJSON (Object o) =
@@ -54,6 +55,11 @@ vlFromJSON (Object o) =
                 Just (String t) -> t
                 _               -> ""
       in Just (VLProven p)
+    Just (String "proven-smt") ->
+      let p = case KM.lookup "prover" o of
+                Just (String t) -> t
+                _               -> ""
+      in Just (VLProvenSMT p)
     _ -> Nothing
 vlFromJSON _ = Nothing
 

@@ -197,14 +197,14 @@ computeDrifts :: Name -> ContractStatus -> [TrustDependency] -> [Text]
 computeDrifts fname ownCS deps =
   let ownLevel = effectiveLevel ownCS
   in case ownLevel of
-       Just (VLProven _) ->
+       Just vl | isProvenLevel vl ->
          -- Check each dependency: is any callee below proven?
          concatMap (\dep ->
            let calleeLevel = effectiveLevel (ContractStatus (tdPreLevel dep) (tdPostLevel dep) Nothing Nothing)
            in case calleeLevel of
-                Just (VLProven _) -> []
-                Just vl -> [fname <> " is proven, but depends on " <> tdName dep
-                           <> " which is " <> vlLabel vl]
+                Just vl' | isProvenLevel vl' -> []
+                Just vl' -> [fname <> " is proven, but depends on " <> tdName dep
+                           <> " which is " <> vlLabel vl']
                 Nothing -> []
            ) deps
        _ -> []  -- Not proven: no drift possible
@@ -249,12 +249,12 @@ enrichEntry allCS reachable entry =
       eff = case (selfLevel, calleeMinLevel) of
               (Nothing, _) -> Nothing
               (_, Nothing) -> selfLevel
-              (Just s, Just c) -> Just (min s c)
+              (Just s, Just c) -> Just (trustMin s c)
   in entry { teDrifts = drifts, teEffectiveLevel = eff }
   where
     minLevel Nothing b  = b
     minLevel a Nothing  = a
-    minLevel (Just a) (Just b) = Just (min a b)
+    minLevel (Just a) (Just b) = Just (trustMin a b)
 
 -- | The effective (minimum) verification level for a contract status.
 effectiveLevel :: ContractStatus -> Maybe VerificationLevel
@@ -263,13 +263,14 @@ effectiveLevel cs =
     (Nothing, Nothing) -> Nothing
     (Just a, Nothing)  -> Just a
     (Nothing, Just b)  -> Just b
-    (Just a, Just b)   -> Just (min a b)
+    (Just a, Just b)   -> Just (trustMin a b)
 
 -- | Human label for a verification level.
 vlLabel :: VerificationLevel -> Text
 vlLabel VLAsserted    = "asserted"
 vlLabel (VLTested n)  = "tested (" <> tshow n <> " samples)"
 vlLabel (VLProven p)  = "proven (" <> p <> ")"
+vlLabel (VLProvenSMT p) = "proven-smt (" <> p <> ")"
 
 -- ---------------------------------------------------------------------------
 -- Summary
@@ -288,8 +289,8 @@ computeSummary entries =
       drifts   = sum (map (length . teDrifts) entries)
   in TrustSummary proven tested asserted none drifts
   where
-    isProven (Just (VLProven _)) = True
-    isProven _                   = False
+    isProven (Just vl) = isProvenLevel vl
+    isProven _         = False
     isTested (Just (VLTested _)) = True
     isTested _                   = False
     isAsserted (Just VLAsserted) = True

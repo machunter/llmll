@@ -316,10 +316,10 @@ runTCSketch env action =
 -- not covered by a (trust ...) declaration.
 emitTrustGap :: Name -> Map Name VerificationLevel -> Maybe VerificationLevel -> TC ()
 emitTrustGap _ _ Nothing = pure ()
-emitTrustGap _ _ (Just (VLProven _)) = pure ()  -- proven: no gap
+emitTrustGap _ _ (Just vl) | isProvenLevel vl = pure ()  -- proven: no gap
 emitTrustGap func trusts (Just vl) =
   case Map.lookup func trusts of
-    Just tl | tl >= vl -> pure ()  -- trust level sufficient
+    Just tl | trustCovers tl vl -> pure ()  -- trust level sufficient
     _ -> do
       ptr <- gets tcPointerStack
       let ptrText = "/" <> T.intercalate "/" (reverse ptr)
@@ -938,12 +938,16 @@ inferHole (HProofRequired reason) = do
 -- | Infer type from do-steps with pair-thread enforcement (PR 2).
 -- Every step must return (S, Command) i.e. TPair S (TCustom "Command").
 -- The state type S is unified across all steps.
+-- DO-1: non-final steps that produce a Command emit a warning.
 inferDoSteps :: [DoStep] -> TC Type
 inferDoSteps [] = pure TUnit
 inferDoSteps steps = do
   let (DoStep mName0 e0) = head steps
   t0 <- withSegment "steps" $ withSegment "0" $ inferExpr e0
-  (s0, _) <- expectPairType "do-block step 0" t0
+  (s0, cmd0) <- expectPairType "do-block step 0" t0
+  -- DO-1: check step 0 if it is not the final step
+  when (length steps > 1) $
+    checkDiscardedCommand 0 cmd0
   let binding0 = case mName0 of
         Just n  -> [(n, s0)]
         Nothing -> [("_s_0", s0)]
@@ -952,13 +956,27 @@ inferDoSteps steps = do
     go sType _ [] = pure (TPair sType (TCustom "Command"))
     go sType i (DoStep mName e : rest) = do
       t <- withSegment "steps" $ withSegment (tshow i) $ inferExpr e
-      (si, _) <- expectPairType ("do-block step " <> tshow i) t
+      (si, cmdTy) <- expectPairType ("do-block step " <> tshow i) t
       -- Unify S: all steps must thread the same state type
       unify ("do-block step " <> tshow i) sType si
+      -- DO-1: check non-final steps
+      when (not (null rest)) $
+        checkDiscardedCommand i cmdTy
       let bindName = case mName of
             Just n  -> n
             Nothing -> "_s_" <> tshow i
       withEnv [(bindName, si)] $ go sType (i + 1) rest
+
+-- | DO-1: Emit warning when an intermediate step produces a Command
+-- that the current codegen will silently discard.
+-- v0.7: Warning-only in all modes. Hard error deferred to v0.8
+-- when (discard expr) provides an explicit opt-out.
+checkDiscardedCommand :: Int -> Type -> TC ()
+checkDiscardedCommand i cmdTy =
+  when (cmdTy == TCustom "Command") $
+    tcWarn $ "do-block step " <> tshow i
+             <> ": current codegen discards this intermediate command. "
+             <> "Use `seq-commands` to sequence IO actions explicitly."
 
 -- | Expect a TPair; emit "do-step-type-error" and return wildcard components
 -- on failure so one bad step doesn't cascade and suppress subsequent errors.

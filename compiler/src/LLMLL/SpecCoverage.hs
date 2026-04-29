@@ -210,8 +210,8 @@ computeSummary entries =
        , csEffective  = effective
        }
   where
-    isProven (Just (VLProven _)) = True
-    isProven _                   = False
+    isProven (Just vl) = isProvenLevel vl
+    isProven _         = False
     isTested (Just (VLTested _)) = True
     isTested _                   = False
 
@@ -345,6 +345,7 @@ vlLabel :: VerificationLevel -> Text
 vlLabel VLAsserted    = "asserted"
 vlLabel (VLTested n)  = "tested (" <> tshow n <> " samples)"
 vlLabel (VLProven p)  = "proven (" <> p <> ")"
+vlLabel (VLProvenSMT p) = "proven-smt (" <> p <> ")"
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show

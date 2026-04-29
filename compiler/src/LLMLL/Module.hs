@@ -284,7 +284,9 @@ mergeCS sidecar base = ContractStatus
   , csPostSource = csPostSource sidecar <|> csPostSource base
   }
   where
-    pickHigher (Just a) (Just b) = Just (max a b)
+    pickHigher (Just a) (Just b)
+      | vlTier a >= vlTier b = Just a
+      | otherwise            = Just b
     pickHigher a        Nothing  = a
     pickHigher Nothing  b        = b
 

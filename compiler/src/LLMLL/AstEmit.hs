@@ -167,6 +167,7 @@ stmtToJson (STrust target level) =
     vlLabel VLAsserted    = "asserted" :: Text
     vlLabel (VLTested n)  = "tested"
     vlLabel (VLProven p)  = "proven"
+    vlLabel (VLProvenSMT _) = "proven-smt"
 
 -- v0.6 suppression governance
 stmtToJson (SWeaknessOk name reason) =

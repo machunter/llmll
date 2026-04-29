@@ -280,6 +280,21 @@ Every `pre` and `post` clause carries a **verification level** that describes ho
 
 The verification level is recorded per-contract, per-function in the module's exported metadata (see §8 — `ModuleEnv` extensions).
 
+> **Trust tier vs. evidence provenance (v0.7).** The three trust tiers above
+> (`proven`, `tested`, `asserted`) are the user-facing trust model and the only
+> values accepted in `(trust ...)` declarations. Internally, the compiler
+> distinguishes *how* a `proven` result was obtained:
+> `proven-smt (liquid-fixpoint)` for SMT evidence vs.
+> `proven (leanstral)` for generic or interactive proof evidence.
+> This distinction appears in `.verified.json` sidecars (as `"proven-smt"`),
+> `--trust-report` output, and `--spec-coverage` JSON.
+> It does not affect the surface grammar.
+>
+> **Body-faithfulness caveat:** `proven` (or `proven-smt`) currently means
+> "solver accepted the emitted obligation," not "the implementation satisfies
+> the contract." Until body-faithful verification conditions are implemented
+> (v0.8.0, BODY-VC), runtime assertions are preserved regardless of proof status.
+
 #### 4.4.2 Runtime Assertion Modes
 
 The `--contracts` flag controls which runtime assertions are compiled into the output:

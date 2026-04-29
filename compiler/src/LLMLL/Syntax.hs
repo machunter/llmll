@@ -45,6 +45,10 @@ module LLMLL.Syntax
     -- * Verification Levels (v0.3)
   , VerificationLevel(..)
   , vlTier
+  , trustCovers
+  , trustMin
+  , isProvenLevel
+  , vlProverName
   , ContractStatus(..)
 
     -- * Properties (check blocks)
@@ -248,18 +252,46 @@ data Contract = Contract
 data VerificationLevel
   = VLAsserted                        -- ^ Runtime assertion only; no evidence
   | VLTested   { vlSamples :: Int }   -- ^ QuickCheck passed N samples without falsification
-  | VLProven   { vlProver  :: Text }  -- ^ Formally verified by named prover
+  | VLProven   { vlProver  :: Text }  -- ^ Formally verified by named prover (generic / legacy)
+  | VLProvenSMT { vlSMTSolver :: Text }  -- ^ SMT solver proof (e.g. "liquid-fixpoint")
   deriving (Show, Eq, Generic)
 
 -- | Trust-tier ordering: Asserted < Tested < Proven.
+-- This is a trust-tier preorder, NOT a lawful Ord.
+-- VLProven and VLProvenSMT are at the same tier.
 -- Internal metadata (samples, prover name) is NOT compared.
 vlTier :: VerificationLevel -> Int
-vlTier VLAsserted  = 0
-vlTier VLTested{}  = 1
-vlTier VLProven{}  = 2
+vlTier VLAsserted    = 0
+vlTier VLTested{}    = 1
+vlTier VLProven{}    = 2
+vlTier VLProvenSMT{} = 2
 
-instance Ord VerificationLevel where
-  compare a b = compare (vlTier a) (vlTier b)
+-- | Does trust level @tl@ cover the requirement @req@?
+-- A trust level covers a requirement when its tier is >= the required tier.
+-- Use this instead of @(>=)@ on VerificationLevel.
+trustCovers :: VerificationLevel -> VerificationLevel -> Bool
+trustCovers tl req = vlTier tl >= vlTier req
+
+-- | The lower of two trust levels (by tier).
+-- When tiers are equal, prefers the first argument (arbitrary but deterministic).
+trustMin :: VerificationLevel -> VerificationLevel -> VerificationLevel
+trustMin a b
+  | vlTier a <= vlTier b = a
+  | otherwise            = b
+
+-- | Central predicate: is this a proven-level verification?
+-- Covers both legacy VLProven and new VLProvenSMT.
+-- Use this instead of ad-hoc pattern matches.
+isProvenLevel :: VerificationLevel -> Bool
+isProvenLevel VLProven{}    = True
+isProvenLevel VLProvenSMT{} = True
+isProvenLevel _             = False
+
+-- | Extract the prover name from a proven-level verification, if any.
+vlProverName :: VerificationLevel -> Maybe Text
+vlProverName (VLProven p)    = Just p
+vlProverName (VLProvenSMT p) = Just p
+vlProverName _               = Nothing
 
 -- | Per-function contract verification status.
 -- v0.6: source provenance tracked per-clause alongside verification level.

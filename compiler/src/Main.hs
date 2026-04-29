@@ -1110,8 +1110,8 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
             FQSafe -> do
               let provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPreLevel  = fmap (const (VLProven "liquid-fixpoint")) (contractPre c)
-                        , csPostLevel = fmap (const (VLProven "liquid-fixpoint")) (contractPost c)
+                        { csPreLevel  = fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPre c)
+                        , csPostLevel = fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPost c)
                         , csPreSource  = contractPreSource c
                         , csPostSource = contractPostSource c
                         })

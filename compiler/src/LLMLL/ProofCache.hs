@@ -137,5 +137,6 @@ isTaintedProof pe =
 proofToLevel :: ProofEntry -> VerificationLevel
 proofToLevel pe
   | isTaintedProof pe = VLAsserted
-  | otherwise         = VLProven (peProver pe)
+  | peProver pe == "liquid-fixpoint" = VLProvenSMT (peProver pe)
+  | otherwise                        = VLProven (peProver pe)
 
