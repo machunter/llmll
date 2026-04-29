@@ -1097,7 +1097,18 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
 
           -- 6. Report
           if json
-            then TIO.putStrLn (formatReportJson report)
+            then do
+              -- v0.8.0: augment JSON with body-faithful metadata
+              let reportJson = formatReportJson report
+                  bodyMeta = T.pack . BLC.unpack . encode $ object
+                    [ "body_faithful" .= erBodyFaithful emitR
+                    , "body_fallback" .= erBodyFallback emitR
+                    ]
+              -- Merge by stripping closing } from report and appending body_meta fields
+              let augmented = case (T.stripSuffix "}" reportJson, T.stripPrefix "{" bodyMeta) of
+                    (Just base, Just extra) -> base <> "," <> extra
+                    _ -> reportJson  -- fallback: just emit original
+              TIO.putStrLn augmented
             else case fqResult of
               FQSafe ->
                 TIO.putStrLn $ "\x2705 " <> T.pack fp <> " \8212 SAFE (liquid-fixpoint)"

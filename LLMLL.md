@@ -506,7 +506,7 @@ effective_coverage = (contracted + suppressed) / total_functions
 >
 > However, suppression is not specification. The D10 warning (>50% suppressed)
 > guards against gaming. For governance reporting, `suppression_debt`
-> (= suppressed / total) alongside `effective_coverage` is planned (v0.8.0, SUPP-DEBT).
+> (= suppressed / total) alongside `effective_coverage` was added in v0.8.0 (SUPP-DEBT).
 
 Example output:
 
@@ -548,7 +548,7 @@ Use `--spec-coverage --json` for machine-readable output:
 
 The JSON output includes per-function `entries`, aggregate `summary`, interface `laws`, and governance `warnings`. The `effective_coverage` field in `summary` is `(contracted + suppressed) / total`.
 
-> **Planned (v0.8.0, SUPP-DEBT):** Two additional summary fields — `spec_coverage` (= contracted / total, excluding suppressions) and `suppression_debt` (= suppressed / total) — will be added when SUPP-DEBT ships.
+> **Shipped (v0.8.0, SUPP-DEBT):** Two additional summary fields — `spec_coverage` (= contracted / total, excluding suppressions) and `suppression_debt` (= suppressed / total) — are now included in the JSON output.
 
 **Division guard (SC-PO-1):** A module with 0 functions has `effective_coverage = 100%`.
 

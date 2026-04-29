@@ -3454,6 +3454,33 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let jsonReport = formatCoverageJson report
       jsonReport `shouldSatisfy` T.isInfixOf "law_count"
 
+    -- T11: SUPP-DEBT — spec_coverage and suppression_debt fields
+    it "T11: SUPP-DEBT — spec_coverage and suppression_debt computed correctly" $ do
+      let stmts = [ SDefLogic "contracted" [("x", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+                      (EVar "x")
+                  , SDefLogic "unspecified" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing Nothing Nothing)
+                      (EVar "x")
+                  , SWeaknessOk "unspecified" "helper function"
+                  ]
+          report = runCoverage stmts emptyCS
+          s = crSummary report
+      -- 2 functions total: 1 contracted, 1 suppressed
+      csTotal s `shouldBe` 2
+      csContracted s `shouldBe` 1
+      csSuppressed s `shouldBe` 1
+      -- effective_coverage = (contracted + suppressed) / total = 2/2 = 1.0
+      csEffective s `shouldBe` 1.0
+      -- spec_coverage = contracted / total = 1/2 = 0.5
+      csSpecCoverage s `shouldBe` 0.5
+      -- suppression_debt = suppressed / total = 1/2 = 0.5
+      csSuppressionDebt s `shouldBe` 0.5
+      -- JSON should include both new fields
+      let jsonReport = formatCoverageJson report
+      jsonReport `shouldSatisfy` T.isInfixOf "spec_coverage"
+      jsonReport `shouldSatisfy` T.isInfixOf "suppression_debt"
+
   -- =========================================================================
   -- BODY-VC (v0.8.0) — bodyToPredFrom golden tests
   -- =========================================================================
