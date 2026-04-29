@@ -2,6 +2,20 @@
 
 ---
 
+## Pre-v0.7 Hygiene (2026-04-28)
+
+> Items from the external consultant review (2026-04-28). Not a versioned release — these are test drift and documentation drift fixes applied before starting v0.7.
+
+### Test — TEST-DRIFT
+
+- **Python dry-run fixture updated** — Stub plan in `agent.py:385` defined `stub-fn` with no contract, which was rejected by the spec-quality gate added in v0.6.0. Fixture now includes a minimal `(post true)` contract.
+
+### Spec (LLMLL.md) — DOC-DRIFT
+
+- **§5.3.2 JSON example reconciled with `SpecCoverage.hs`** — The spec described `suppression_debt` and `spec_coverage` as current JSON fields, but `SpecCoverage.hs` only emits `effective_coverage`. Fixed: JSON example updated to match the actual `summary`/`entries`/`laws`/`warnings` envelope emitted by `formatCoverageJson`. Deferred fields (`suppression_debt`, `spec_coverage`) moved to a "Planned (v0.8.0, SUPP-DEBT)" note.
+
+---
+
 ## v0.6.3 — Trust Model Fixes (2026-04-26)
 
 ### Compiler — Trust Model Hardening
