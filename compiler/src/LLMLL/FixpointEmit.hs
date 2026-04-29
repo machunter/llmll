@@ -13,16 +13,37 @@
 -- Non-linear sites (HProofRequired holes from D3) are skipped — the compiler
 -- already flagged them; the verifier simply omits them from the .fq output.
 --
--- FAITHFULNESS INVARIANT (v0.3):
+-- FAITHFULNESS INVARIANT (v0.3, updated v0.8.0):
 -- This module's output is trusted by --contracts=unproven. If emitFixpoint
 -- reports SAFE for a contract, the runtime assertion for that contract must
 -- be semantically redundant for all well-typed inputs. Any extension to
 -- exprToPred must preserve this invariant: never translate a contract to a
 -- weaker .fq constraint that the solver accepts trivially.
+--
+-- BODY-VC (v0.8.0):
+-- When EmitOptions.emitBodyVCs is True, function bodies in the supported
+-- QF-LIA fragment are translated to verification conditions via bodyToPredM.
+-- Body VCs prove: P ∧ (result = ⟦body⟧) ⟹ Q (postcondition faithfulness).
+-- Functions outside the fragment fall back to contract-only verification.
 
 module LLMLL.FixpointEmit
-  ( emitFixpoint
+  ( -- * Top-level emitter
+    emitFixpoint
+  , emitFixpointWith
+    -- * Configuration
+  , EmitOptions(..)
+  , defaultEmitOptions
+    -- * Result
   , EmitResult(..)
+    -- * Body-VC types (exported for testing)
+  , BodyVC(..)
+  , LetBinding(..)
+  , FlatPath
+  , SortEnv
+    -- * Body-VC engine (exported for testing)
+  , bodyToPredFrom
+  , flattenBodyVC
+  , countPathsBounded
   ) where
 
 import Data.Text (Text)
@@ -30,12 +51,26 @@ import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.IORef
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, isJust, catMaybes)
 import Control.Monad (forM_, when)
+import Control.Monad.State.Strict (State, evalState, get, put)
 
 import LLMLL.Syntax
 import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
+import LLMLL.Diagnostic (Diagnostic, mkWarning)
+
+-- ---------------------------------------------------------------------------
+-- Configuration (v0.8.0)
+-- ---------------------------------------------------------------------------
+
+-- | Options controlling what the emitter generates.
+data EmitOptions = EmitOptions
+  { emitBodyVCs :: Bool   -- ^ Emit body-faithful verification conditions
+  } deriving (Show, Eq)
+
+defaultEmitOptions :: EmitOptions
+defaultEmitOptions = EmitOptions { emitBodyVCs = False }
 
 -- ---------------------------------------------------------------------------
 -- Result
@@ -46,7 +81,37 @@ data EmitResult = EmitResult
   , erFQText          :: Text             -- ^ .fq text ready to write to disk
   , erConstraintTable :: ConstraintTable  -- ^ ID → origin (for DiagnosticFQ)
   , erSkipped         :: [Text]           -- ^ names of skipped non-linear functions
+  , erBodyFaithful    :: [Text]           -- ^ v0.8.0: functions with successful body VCs
+  , erBodyFallback    :: [Text]           -- ^ v0.8.0: functions that fell back
+  , erDiagnostics     :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
   } deriving (Show)
+
+-- ---------------------------------------------------------------------------
+-- Body-VC types (v0.8.0)
+-- ---------------------------------------------------------------------------
+
+-- | Sort environment: maps variable names to their FQ sorts.
+-- Used by bodyToPredM to reject non-int vars in the QF-LIA fragment.
+type SortEnv = Map Name FQSort
+
+-- | A body verification condition tree.
+data BodyVC
+  = SimpleVC [LetBinding] FQPred
+    -- ^ A straight-line sequence of let-bindings followed by a result predicate
+  | BranchVC FQPred BodyVC BodyVC
+    -- ^ An if-then-else: guard, then-VC, else-VC
+  deriving (Show, Eq)
+
+-- | A single let-binding in the body VC.
+data LetBinding = LetBinding
+  { lbName :: Text     -- ^ Alpha-renamed variable name
+  , lbSort :: FQSort   -- ^ Sort of the binding
+  , lbRhs  :: FQPred   -- ^ RHS predicate (what the variable equals)
+  } deriving (Show, Eq)
+
+-- | A flattened path through the body-VC tree:
+-- (path guard conjunction, accumulated let-bindings, result predicate)
+type FlatPath = (FQPred, [LetBinding], FQPred)
 
 -- ---------------------------------------------------------------------------
 -- Built-in qualifier safety net
@@ -70,8 +135,13 @@ builtinQualifiers =
 -- | Walk a list of top-level statements and emit a .fq constraint file.
 -- The function is pure in terms of result, but uses IORef internally for
 -- the sequential constraint-ID counter and ConstraintTable accumulator.
+-- | Emit constraints using default options (no body VCs).
 emitFixpoint :: FilePath -> [Statement] -> IO EmitResult
-emitFixpoint srcFile stmts = do
+emitFixpoint = emitFixpointWith defaultEmitOptions
+
+-- | Emit constraints with explicit options.
+emitFixpointWith :: EmitOptions -> FilePath -> [Statement] -> IO EmitResult
+emitFixpointWith opts srcFile stmts = do
   ctrRef    <- newIORef (0 :: Int)  -- constraint ID counter
   bindRef   <- newIORef (0 :: Int)  -- binder ID counter
   tableRef  <- newIORef (Map.empty :: ConstraintTable)
@@ -80,6 +150,11 @@ emitFixpoint srcFile stmts = do
   constsRef <- newIORef ([] :: [FQConstraint])
   qualsRef  <- newIORef builtinQualifiers
   dataRef   <- newIORef ([] :: [FQDataDecl])
+  -- v0.8.0: body-VC global alpha-renaming counter (E08: shared across functions)
+  bodyCounterRef <- newIORef (0 :: Int)
+  bodyFaithfulRef <- newIORef ([] :: [Text])
+  bodyFallbackRef <- newIORef ([] :: [Text])
+  diagsRef <- newIORef ([] :: [Diagnostic])
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -97,6 +172,9 @@ emitFixpoint srcFile stmts = do
   let addData  d  = modifyIORef' dataRef  (++ [d])
   let addSkip  n  = modifyIORef' skippedRef (++ [n])
   let addOrigin cid orig = modifyIORef' tableRef (Map.insert cid orig)
+  let addBodyFaithful n = modifyIORef' bodyFaithfulRef (++ [n])
+  let addBodyFallback n = modifyIORef' bodyFallbackRef (++ [n])
+  let addDiag d = modifyIORef' diagsRef (++ [d])
 
   -- Process each statement
   forM_ (zip [0..] stmts) $ \(idx, stmt) ->
@@ -106,12 +184,16 @@ emitFixpoint srcFile stmts = do
         forM_ (typeSorts name body) addData
 
       SDefLogic name params mRet contract body ->
-        emitFnConstraints srcFile freshCid freshBid addBind addConst addQuals addSkip addOrigin
-          name params mRet contract Nothing idx
+        emitFnConstraints opts srcFile freshCid freshBid addBind addConst
+          addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
+          bodyCounterRef
+          name params mRet contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
-        emitFnConstraints srcFile freshCid freshBid addBind addConst addQuals addSkip addOrigin
-          name params mRet contract (Just dec) idx
+        emitFnConstraints opts srcFile freshCid freshBid addBind addConst
+          addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
+          bodyCounterRef
+          name params mRet contract Nothing (Just dec) idx
 
       _ -> pure ()
 
@@ -122,12 +204,18 @@ emitFixpoint srcFile stmts = do
   consts    <- readIORef constsRef
   table     <- readIORef tableRef
   skipped   <- readIORef skippedRef
+  bfaithful <- readIORef bodyFaithfulRef
+  bfallback <- readIORef bodyFallbackRef
+  diags     <- readIORef diagsRef
   let fqFile = FQFile dataDecs quals binds consts
   return EmitResult
     { erFQFile          = fqFile
     , erFQText          = emitFQFile fqFile
     , erConstraintTable = table
     , erSkipped         = skipped
+    , erBodyFaithful    = bfaithful
+    , erBodyFallback    = bfallback
+    , erDiagnostics     = diags
     }
 
 -- ---------------------------------------------------------------------------
@@ -135,7 +223,8 @@ emitFixpoint srcFile stmts = do
 -- ---------------------------------------------------------------------------
 
 emitFnConstraints
-  :: FilePath
+  :: EmitOptions
+  -> FilePath
   -> IO FQConstraintId    -- fresh constraint ID
   -> IO FQBindId          -- fresh binder ID
   -> (FQBind       -> IO ())
@@ -143,21 +232,28 @@ emitFnConstraints
   -> ([FQQualifier] -> IO ())
   -> (Text -> IO ())       -- record skipped function
   -> (FQConstraintId -> ConstraintOrigin -> IO ())
+  -> (Text -> IO ())       -- record body-faithful function
+  -> (Text -> IO ())       -- record body-fallback function
+  -> (Diagnostic -> IO ()) -- emit diagnostics
+  -> IORef Int             -- body-VC alpha-renaming counter
   -> Name
   -> [(Name, Type)]
   -> Maybe Type
   -> Contract
+  -> Maybe Expr            -- Just body = function body (Nothing for letrec)
   -> Maybe Expr            -- Just dec = letrec :decreases
   -> Int                   -- statement index (for JSON Pointer)
   -> IO ()
-emitFnConstraints srcFile freshCid freshBid addBind addConst addQuals addSkip addOrigin
-    name params mRet contract mDec stmtIdx = do
+emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
+    addSkip addOrigin addBodyFaithful addBodyFallback addDiag bodyCounterRef
+    name params mRet contract mBody mDec stmtIdx = do
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isIntType t ]
-  when (null intParams && null (maybeToList (contractPre contract))
-        && null (maybeToList (contractPost contract))) $
-    return ()  -- nothing to verify
+  -- v0.8.0: Fix dead early-exit — `when ... return ()` does NOT short-circuit in IO.
+  -- Use explicit guard to actually skip when nothing to verify.
+  let hasContract = isJust (contractPre contract) || isJust (contractPost contract)
+  when (null intParams && not hasContract) $ return ()
 
   -- Emit binders for all int-typed params
   paramBinds <- mapM (emitParamBind freshBid addBind) intParams
@@ -218,6 +314,84 @@ emitFnConstraints srcFile freshCid freshBid addBind addConst addQuals addSkip ad
           addConst c
           let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
           addOrigin cid (ConstraintOrigin name "decreases" ptr srcFile)
+
+  -- v0.8.0: Emit body-faithful verification conditions
+  -- Body VCs prove: P ∧ (result = ⟦body⟧) ⟹ Q
+  when (emitBodyVCs opts) $ case mBody of
+    Nothing -> pure ()  -- letrec: no body VC (recursive, excluded from BODY-VC-0)
+    Just body -> do
+      -- Fallback policy (§0.7): require translatable post. If pre exists, it must
+      -- also be translatable, otherwise fallback conservatively.
+      let mPostPred = contractPost contract >>= exprToPred
+          mPrePred  = case contractPre contract of
+                        Nothing  -> Just Nothing       -- no pre is fine
+                        Just pre -> case exprToPred pre of
+                                      Nothing -> Nothing    -- pre exists but untranslatable → fallback
+                                      Just p  -> Just (Just p)
+      case (mPostPred, mPrePred) of
+        (Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
+        (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
+        (Just postPred, Just mPre) -> do
+          -- Build SortEnv from int-typed parameters
+          let sortEnv = buildSortEnv params
+          -- Translate body
+          seed <- readIORef bodyCounterRef
+          let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv body
+          writeIORef bodyCounterRef newSeed
+          case mBodyVC of
+            Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
+            Just bvc -> do
+              -- Path count check (bounded)
+              let pathCount = countPathsBounded 4097 bvc  -- stop at 4097
+              if pathCount > 4096
+                then do
+                  -- >4096: fallback, not error
+                  addBodyFallback name
+                  addDiag $ mkWarning Nothing $
+                    "body VC for '" <> name <> "' exceeded 4096 path limit — "
+                    <> "falling back to contract-only verification"
+                else do
+                  -- Warn at 257-4096
+                  when (pathCount > 256) $
+                    addDiag $ mkWarning Nothing $
+                      "body VC for '" <> name <> "' has "
+                      <> T.pack (show pathCount) <> " paths (high path count may slow solver)"
+                  -- Flatten and emit constraints
+                  let paths = flattenBodyVC bvc
+                      retSort = maybe FQInt typeToSort mRet
+                  forM_ (zip [0::Int ..] paths) $ \(pathIdx, (guard, lbs, resultPred)) -> do
+                    -- Emit binders for each let-binding in this path
+                    lbBindIds <- mapM (\lb -> do
+                      bid <- freshBid
+                      let b = FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
+                                (FQBinPred FQEq (FQVar "v") (lbRhs lb)))
+                      addBind b
+                      return bid) lbs
+                    -- Emit result binder
+                    rbid <- freshBid
+                    let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
+                    addBind resultBind
+                    -- Build LHS: guard ∧ pre ∧ (result = body-result)
+                    let resultEq = FQBinPred FQEq (FQVar "result") resultPred
+                        lhsPred  = conjoinAll $ [guard | guard /= FQTrue]
+                                              ++ maybe [] (:[]) mPre
+                                              ++ [resultEq]
+                        lhs = FQReft "result" retSort lhsPred
+                        rhs = FQReft "result" retSort postPred
+                    -- Determine tag based on guard
+                    let tag = case guard of
+                                FQTrue -> "body-post"
+                                _      -> if pathIdx < length (flattenBodyVC bvc) `div` 2
+                                           then "body-post-then"
+                                           else "body-post-else"
+                    cid <- freshCid
+                    let allEnvIds = envIds ++ lbBindIds ++ [rbid]
+                        c = FQConstraint cid allEnvIds lhs rhs [name, tag]
+                    addConst c
+                    let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                    addOrigin cid (ConstraintOrigin name tag ptr srcFile)
+                  -- Mark as body-faithful
+                  addBodyFaithful name
 
 emitParamBind :: IO FQBindId -> (FQBind -> IO ()) -> (Name, Type) -> IO FQBind
 emitParamBind freshBid addBind (n, t) = do
@@ -310,3 +484,297 @@ nubT (x:xs) = x : nubT (filter (/= x) xs)
 -- Simple hash for unique qualifier names (not cryptographic)
 hashPred :: FQPred -> Int
 hashPred = T.length . T.pack . show
+
+-- ---------------------------------------------------------------------------
+-- Body-VC translation engine (v0.8.0 BODY-VC-1)
+-- ---------------------------------------------------------------------------
+
+-- | Pure entry point: translates a function body to a BodyVC tree.
+-- Takes a seed counter value and a sort environment (built from int params).
+-- Returns (updatedCounter, Maybe BodyVC). Nothing = unsupported expression.
+bodyToPredFrom :: Int -> SortEnv -> Expr -> (Int, Maybe BodyVC)
+bodyToPredFrom seed sortEnv expr =
+  let (result, finalCounter) = runStateFrom seed (bodyToPredM Map.empty sortEnv expr)
+  in (finalCounter, result)
+  where
+    -- Run a State Int computation with a given starting value.
+    -- Returns (result, finalState).
+    runStateFrom :: Int -> State Int a -> (a, Int)
+    runStateFrom s action =
+      let go = do { r <- action; c <- get; return (r, c) }
+      in evalState go s
+
+-- | Fresh name generator for alpha-renaming.
+freshName :: Name -> State Int Text
+freshName base = do
+  n <- get
+  put (n + 1)
+  return ("_bv_" <> base <> "_" <> T.pack (show n))
+
+-- | Core body-to-predicate translation. Handles all operators directly
+-- (NOT delegating to exprToPred) to preserve the alpha-renaming environment.
+--
+-- exprToPred does not consult the renaming env — it translates EVar v as
+-- FQVar v using the original name. If a let-bound variable (renamed to
+-- _bv_x_0) appears inside an operator expression and we delegate to
+-- exprToPred, the .fq output will reference the un-renamed name, which
+-- the solver cannot resolve.
+bodyToPredM :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe BodyVC)
+
+-- Literals
+bodyToPredM _ _ (ELit (LitInt n)) = return (Just (SimpleVC [] (FQLit n)))
+bodyToPredM _ _ (ELit (LitBool True))  = return (Just (SimpleVC [] FQTrue))
+bodyToPredM _ _ (ELit (LitBool False)) = return (Just (SimpleVC [] FQFalse))
+
+-- Variables: look up renamed name, check sort env
+bodyToPredM env sortEnv (EVar v) =
+  let renamed = fromMaybe v (Map.lookup v env)
+  in case Map.lookup renamed sortEnv of
+       Just FQInt -> return (Just (SimpleVC [] (FQVar renamed)))
+       _          -> return Nothing  -- non-int or unknown sort → fallback
+
+-- Binary arithmetic operators (+, -)
+bodyToPredM env se (EApp op [l, r])
+  | Just binOp <- lookupArithOp op = do
+      lvc <- bodyToPredM env se l
+      rvc <- bodyToPredM env se r
+      case (lvc, rvc) of
+        (Just (SimpleVC [] lp), Just (SimpleVC [] rp)) ->
+          return . Just $ SimpleVC [] (FQBinArith binOp lp rp)
+        _ -> return Nothing
+
+-- Binary comparison operators (>=, >, <=, <, =, /=, plus Unicode)
+bodyToPredM env se (EApp op [l, r])
+  | Just binOp <- lookupPredOp op = do
+      lvc <- bodyToPredM env se l
+      rvc <- bodyToPredM env se r
+      case (lvc, rvc) of
+        (Just (SimpleVC [] lp), Just (SimpleVC [] rp)) ->
+          return . Just $ SimpleVC [] (FQBinPred binOp lp rp)
+        _ -> return Nothing
+
+-- Non-linear operators: reject
+bodyToPredM _ _ (EApp op [_, _])
+  | op `elem` ["*", "/", "mod", "rem", "^", "**"] = return Nothing
+
+-- Logical operators: not, and, or
+bodyToPredM env se (EApp "not" [a]) = do
+  avc <- bodyToPredM env se a
+  case avc of
+    Just (SimpleVC [] p) -> return . Just $ SimpleVC [] (FQNot p)
+    _ -> return Nothing
+
+bodyToPredM env se (EApp "and" args) = do
+  avcs <- mapM (bodyToPredM env se) args
+  let preds = [p | Just (SimpleVC [] p) <- avcs]
+  if length preds == length args
+    then return . Just $ SimpleVC [] (FQAnd preds)
+    else return Nothing
+
+bodyToPredM env se (EApp "or" args) = do
+  avcs <- mapM (bodyToPredM env se) args
+  let preds = [p | Just (SimpleVC [] p) <- avcs]
+  if length preds == length args
+    then return . Just $ SimpleVC [] (FQOr preds)
+    else return Nothing
+
+-- Normalize EOp to EApp
+bodyToPredM env se (EOp name args) = bodyToPredM env se (EApp name args)
+
+-- EIf: branch into guard + then-VC + else-VC
+bodyToPredM env se (EIf guard thenE elseE) = do
+  mGuard <- guardToPredM env se guard
+  case mGuard of
+    Nothing -> return Nothing
+    Just gp -> do
+      mthen <- bodyToPredM env se thenE
+      melse <- bodyToPredM env se elseE
+      case (mthen, melse) of
+        (Just tvc, Just evc) -> return (Just (BranchVC gp tvc evc))
+        _                    -> return Nothing
+
+-- ELet with single PVar binding: alpha-rename, emit LetBinding, recurse
+bodyToPredM env se (ELet [(PVar v, _mType, rhs)] body) = do
+  -- Translate the RHS
+  mRhsVC <- bodyToPredM env se rhs
+  case mRhsVC of
+    Nothing -> return Nothing
+    Just (SimpleVC [] rhsPred) -> do
+      -- Alpha-rename the bound variable
+      renamed <- freshName v
+      let env'  = Map.insert v renamed env
+          sort  = predSortOf rhsPred
+          se'   = Map.insert renamed sort se
+          lb    = LetBinding renamed sort rhsPred
+      -- Recurse on body with updated env
+      mBodyVC <- bodyToPredM env' se' body
+      case mBodyVC of
+        Nothing -> return Nothing
+        Just (SimpleVC lbs resultP) ->
+          return (Just (SimpleVC (lb : lbs) resultP))
+        Just (BranchVC gp tvc evc) ->
+          -- Prepend this binding to both branches
+          return (Just (BranchVC gp (prependLB lb tvc) (prependLB lb evc)))
+    -- RHS is a branch (EIf in let RHS) — hoist
+    Just bvc@(BranchVC _ _ _) -> do
+      renamed <- freshName v
+      let env'  = Map.insert v renamed env
+      -- Hoisting: the branch result becomes the bound variable value
+      -- This requires flattening first — fall back for now if RHS is branchy
+      -- TODO: implement full EIf-in-let hoisting per spec §3.4
+      return Nothing
+    _ -> return Nothing
+
+-- ELet with multiple bindings: desugar to nested single-binding ELets
+bodyToPredM env se (ELet (b:bs) body) =
+  bodyToPredM env se (ELet [b] (ELet bs body))
+
+-- ELet with no bindings (degenerate): just translate the body
+bodyToPredM env se (ELet [] body) = bodyToPredM env se body
+
+-- Everything else: match, app (user-defined), lambda, etc. → fallback
+bodyToPredM _ _ _ = return Nothing
+
+-- ---------------------------------------------------------------------------
+-- Guard translation (v0.8.0)
+-- ---------------------------------------------------------------------------
+
+-- | Translates guard expressions to FQPred, consulting BOTH the renaming
+-- environment AND SortEnv. Variables are checked against sortEnv; non-int
+-- or unknown vars cause fallback. This prevents the soundness bug where
+-- exprToPred would silently assign FQInt to bool/string variables.
+guardToPredM :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe FQPred)
+guardToPredM env sortEnv (EVar v) =
+  let renamed = fromMaybe v (Map.lookup v env)
+  in case Map.lookup renamed sortEnv of
+       Just FQInt  -> return (Just (FQVar renamed))
+       _           -> return Nothing  -- non-int or unknown → fallback
+
+guardToPredM _ _ (ELit (LitBool True))  = return (Just FQTrue)
+guardToPredM _ _ (ELit (LitBool False)) = return (Just FQFalse)
+guardToPredM _ _ (ELit (LitInt n))      = return (Just (FQLit n))
+
+-- Comparison operators (including Unicode aliases)
+guardToPredM env se (EApp op [l, r])
+  | Just binOp <- lookupPredOp op = do
+      lp <- guardToPredM env se l
+      rp <- guardToPredM env se r
+      return $ FQBinPred binOp <$> lp <*> rp
+
+-- Arithmetic in guards
+guardToPredM env se (EApp op [l, r])
+  | Just binOp <- lookupArithOp op = do
+      lp <- guardToPredM env se l
+      rp <- guardToPredM env se r
+      return $ FQBinArith binOp <$> lp <*> rp
+
+-- Non-linear in guards
+guardToPredM _ _ (EApp op [_, _])
+  | op `elem` ["*", "/", "mod", "rem"] = return Nothing
+
+guardToPredM env se (EApp "not" [a]) = do
+  ap <- guardToPredM env se a
+  return $ FQNot <$> ap
+
+guardToPredM env se (EApp "and" args) = do
+  ps <- mapM (guardToPredM env se) args
+  return $ if all isJust ps then Just (FQAnd (catMaybes ps)) else Nothing
+
+guardToPredM env se (EApp "or" args) = do
+  ps <- mapM (guardToPredM env se) args
+  return $ if all isJust ps then Just (FQOr (catMaybes ps)) else Nothing
+
+-- Normalize EOp
+guardToPredM env se (EOp name args) = guardToPredM env se (EApp name args)
+
+-- Everything else in guard position: ELet, EIf, etc. → fallback
+guardToPredM _ _ _ = return Nothing
+
+-- ---------------------------------------------------------------------------
+-- Flattening and path counting (v0.8.0)
+-- ---------------------------------------------------------------------------
+
+-- | Flatten a BodyVC tree into a list of paths.
+-- Each path is (guard, let-bindings, result predicate).
+-- For SimpleVC, the guard is FQTrue (unconditional).
+-- For BranchVC, each branch produces paths with guard conjunction.
+flattenBodyVC :: BodyVC -> [FlatPath]
+flattenBodyVC (SimpleVC lbs result) = [(FQTrue, lbs, result)]
+flattenBodyVC (BranchVC guard thenVC elseVC) =
+  let thenPaths = [(conjoin guard g, lbs, r) | (g, lbs, r) <- flattenBodyVC thenVC]
+      elsePaths = [(conjoin (FQNot guard) g, lbs, r) | (g, lbs, r) <- flattenBodyVC elseVC]
+  in thenPaths ++ elsePaths
+
+-- | Count paths in a BodyVC tree with an upper bound.
+-- Stops counting once the limit is exceeded (avoids state explosion).
+countPathsBounded :: Int -> BodyVC -> Int
+countPathsBounded limit = go
+  where
+    go (SimpleVC _ _) = 1
+    go (BranchVC _ tvc evc) =
+      let tc = go tvc
+      in if tc >= limit then tc
+         else let ec = go evc
+              in min limit (tc + ec)
+
+-- ---------------------------------------------------------------------------
+-- Predicate helpers (v0.8.0)
+-- ---------------------------------------------------------------------------
+
+-- | Conjoin two predicates, simplifying FQTrue identity.
+conjoin :: FQPred -> FQPred -> FQPred
+conjoin FQTrue q     = q
+conjoin p      FQTrue = p
+conjoin p      q      = FQAnd [p, q]
+
+-- | Conjoin a list of predicates.
+conjoinAll :: [FQPred] -> FQPred
+conjoinAll = foldr conjoin FQTrue
+
+-- | Prepend a let-binding to a BodyVC.
+prependLB :: LetBinding -> BodyVC -> BodyVC
+prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
+prependLB lb (BranchVC g t e) = BranchVC g (prependLB lb t) (prependLB lb e)
+
+-- | Infer the FQSort of a predicate result.
+-- In BODY-VC-0, we only support int-typed results.
+predSortOf :: FQPred -> FQSort
+predSortOf (FQLit _)         = FQInt
+predSortOf (FQVar _)         = FQInt  -- in BODY-VC-0, all vars in SortEnv are FQInt
+predSortOf (FQBinArith _ _ _) = FQInt
+predSortOf (FQBinPred _ _ _) = FQBool  -- comparisons return bool
+predSortOf FQTrue            = FQBool
+predSortOf FQFalse           = FQBool
+predSortOf (FQNot _)         = FQBool
+predSortOf (FQAnd _)         = FQBool
+predSortOf (FQOr _)          = FQBool
+predSortOf (FQKVar _ _)      = FQInt  -- fallback
+
+-- | Build a SortEnv from function parameters (int-typed only for BODY-VC-0).
+buildSortEnv :: [(Name, Type)] -> SortEnv
+buildSortEnv params = Map.fromList
+  [ (n, typeToSort t) | (n, t) <- params, isIntType t ]
+
+-- ---------------------------------------------------------------------------
+-- Operator lookup tables (v0.8.0)
+-- ---------------------------------------------------------------------------
+
+-- | Look up an arithmetic binary operator (including Unicode aliases).
+lookupArithOp :: Name -> Maybe FQBinOp
+lookupArithOp "+" = Just FQAdd
+lookupArithOp "-" = Just FQSub
+lookupArithOp _   = Nothing
+
+-- | Look up a predicate binary operator (including Unicode aliases).
+lookupPredOp :: Name -> Maybe FQBinOp
+lookupPredOp ">="  = Just FQGe
+lookupPredOp "≥"   = Just FQGe
+lookupPredOp ">"   = Just FQGt
+lookupPredOp "<="  = Just FQLe
+lookupPredOp "≤"   = Just FQLe
+lookupPredOp "<"   = Just FQLt
+lookupPredOp "="   = Just FQEq
+lookupPredOp "=="  = Just FQEq
+lookupPredOp "/="  = Just FQNeq
+lookupPredOp "≠"   = Just FQNeq
+lookupPredOp _     = Nothing

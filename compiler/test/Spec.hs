@@ -12,6 +12,8 @@ import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, run
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..))
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpointWith, EmitOptions(..), defaultEmitOptions)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
@@ -3451,3 +3453,147 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- JSON output should include "laws" key
       let jsonReport = formatCoverageJson report
       jsonReport `shouldSatisfy` T.isInfixOf "law_count"
+
+  -- =========================================================================
+  -- BODY-VC (v0.8.0) — bodyToPredFrom golden tests
+  -- =========================================================================
+  describe "BODY-VC" $ do
+    -- Helper: parse a def-logic and extract the body expression
+    let parseBody :: T.Text -> Expr
+        parseBody src = case parseStatements "<test>" src of
+          Left e -> error $ "parse failed: " <> show e
+          Right stmts -> case head stmts of
+            SDefLogic _ _ _ _ body -> body
+            _ -> error "expected SDefLogic"
+
+    -- Helper: build SortEnv from int param names
+    let intSortEnv :: [T.Text] -> SortEnv
+        intSortEnv names = Map.fromList [(n, FQInt) | n <- names]
+
+    describe "Positive (SAFE)" $ do
+      it "T01: literal body 42" $ do
+        let body = ELit (LitInt 42)
+            (_, result) = bodyToPredFrom 0 Map.empty body
+        result `shouldBe` Just (SimpleVC [] (FQLit 42))
+
+      it "T02: bool literal true" $ do
+        let body = ELit (LitBool True)
+            (_, result) = bodyToPredFrom 0 Map.empty body
+        result `shouldBe` Just (SimpleVC [] FQTrue)
+
+      it "T03: arithmetic (+ n 1) with int params" $ do
+        let body = EApp "+" [EVar "n", ELit (LitInt 1)]
+            se = intSortEnv ["n"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Just (SimpleVC [] (FQBinArith FQAdd (FQVar "n") (FQLit 1)))
+
+      it "T04: single ELet with alpha-renaming" $ do
+        let body = ELet [(PVar "s", Nothing, EApp "+" [EVar "a", EVar "b"])] (EApp "+" [EVar "s", EVar "c"])
+            se = intSortEnv ["a", "b", "c"]
+            (counter, result) = bodyToPredFrom 0 se body
+        -- Counter should advance
+        counter `shouldBe` 1
+        case result of
+          Just (SimpleVC [lb] resultPred) -> do
+            -- The let-binding should be alpha-renamed
+            lbName lb `shouldBe` "_bv_s_0"
+            lbRhs lb `shouldBe` FQBinArith FQAdd (FQVar "a") (FQVar "b")
+            -- The result should reference the renamed variable
+            resultPred `shouldBe` FQBinArith FQAdd (FQVar "_bv_s_0") (FQVar "c")
+          _ -> expectationFailure $ "expected SimpleVC with 1 let-binding, got: " <> show result
+
+      it "T05: EIf produces BranchVC" $ do
+        let body = EIf (EApp ">" [EVar "n", ELit (LitInt 0)]) (EVar "n") (ELit (LitInt 0))
+            se = intSortEnv ["n"]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (BranchVC guard tvc evc) -> do
+            guard `shouldBe` FQBinPred FQGt (FQVar "n") (FQLit 0)
+            tvc `shouldBe` SimpleVC [] (FQVar "n")
+            evc `shouldBe` SimpleVC [] (FQLit 0)
+          _ -> expectationFailure $ "expected BranchVC, got: " <> show result
+
+    describe "Alpha-renaming" $ do
+      it "T09: shadowing (let [[x (+ x 1)]] x) renames correctly" $ do
+        let body = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] (EVar "x")
+            se = intSortEnv ["x"]
+            (_, result) = bodyToPredFrom 0 se body
+        case result of
+          Just (SimpleVC [lb] resultPred) -> do
+            lbName lb `shouldBe` "_bv_x_0"
+            lbRhs lb `shouldBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
+            resultPred `shouldBe` FQVar "_bv_x_0"  -- body refs renamed var
+          _ -> expectationFailure $ "expected SimpleVC with shadowed binding, got: " <> show result
+
+      it "E08: global counter shared across calls" $ do
+        let body1 = ELet [(PVar "x", Nothing, ELit (LitInt 1))] (EVar "x")
+            body2 = ELet [(PVar "x", Nothing, ELit (LitInt 2))] (EVar "x")
+            se = intSortEnv []
+            (c1, _) = bodyToPredFrom 0 se body1
+            (c2, r2) = bodyToPredFrom c1 se body2
+        c1 `shouldBe` 1
+        c2 `shouldBe` 2
+        case r2 of
+          Just (SimpleVC [lb] _) -> lbName lb `shouldBe` "_bv_x_1"  -- not _bv_x_0
+          _ -> expectationFailure "expected second call to use counter 1"
+
+    describe "SortEnv rejection" $ do
+      it "EVar for non-int param returns Nothing" $ do
+        let body = EVar "s"
+            se = Map.fromList [("s", FQBool)]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+      it "EVar for unknown param returns Nothing" $ do
+        let body = EVar "unknown"
+            (_, result) = bodyToPredFrom 0 Map.empty body
+        result `shouldBe` Nothing
+
+    describe "Fallback" $ do
+      it "F01: match in body returns Nothing" $ do
+        let body = EMatch (EVar "x") [(PVar "y", EVar "y")]
+            se = intSortEnv ["x"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+      it "F02: user-defined function call returns Nothing" $ do
+        let body = EApp "my-func" [EVar "x"]
+            se = intSortEnv ["x"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+      it "F03: non-linear operator * returns Nothing" $ do
+        let body = EApp "*" [EVar "x", EVar "y"]
+            se = intSortEnv ["x", "y"]
+            (_, result) = bodyToPredFrom 0 se body
+        result `shouldBe` Nothing
+
+    describe "Flattening" $ do
+      it "SimpleVC flattens to 1 path" $ do
+        let bvc = SimpleVC [] (FQLit 42)
+            paths = flattenBodyVC bvc
+        length paths `shouldBe` 1
+
+      it "BranchVC flattens to 2 paths" $ do
+        let bvc = BranchVC (FQVar "g") (SimpleVC [] (FQLit 1)) (SimpleVC [] (FQLit 2))
+            paths = flattenBodyVC bvc
+        length paths `shouldBe` 2
+
+      it "countPathsBounded stops early" $ do
+        -- Build a deep tree that would have 2^20 paths
+        let mkDeep 0 = SimpleVC [] (FQLit 0)
+            mkDeep n = BranchVC (FQVar "g") (mkDeep (n-1)) (mkDeep (n-1))
+            bvc = mkDeep (20 :: Int)
+        countPathsBounded 5000 bvc `shouldBe` 5000  -- capped, not 1048576
+
+    describe "Parenthesization" $ do
+      it "FQAnd [FQOr [a, b], c] parenthesizes correctly" $ do
+        let p = FQAnd [FQOr [FQVar "a", FQVar "b"], FQVar "c"]
+            t = emitPred p
+        t `shouldSatisfy` T.isInfixOf "(a || b)"
+
+      it "FQNot (FQOr [a, b]) parenthesizes correctly" $ do
+        let p = FQNot (FQOr [FQVar "a", FQVar "b"])
+            t = emitPred p
+        t `shouldSatisfy` T.isInfixOf "(not (a || b))"
+

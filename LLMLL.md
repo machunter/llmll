@@ -33,6 +33,12 @@
 
 ---
 
+## 0.1 Semantic Foundation
+
+LLMLL's operational semantics are defined by the generated Haskell program. The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior. There is no separate formal semantics document. Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics — a proven contract holds for all well-typed inputs of the generated Haskell code.
+
+---
+
 ## 1. Core Philosophy
 
 1. **Strict Immutability:** There are no variables, only constants. State is transformed, never mutated. Re-binding the same name in the same scope is a compile error.
