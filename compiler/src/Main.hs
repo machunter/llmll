@@ -1128,18 +1128,19 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           case fqResult of
             FQSafe -> do
               let bodyFaithfulSet = Set.fromList (erBodyFaithful emitR)
-                  emittedPreSet   = Set.fromList (erEmittedPre emitR)
-                  emittedPostSet  = Set.fromList (erEmittedPost emitR)
-                  -- v0.8.0: Only mark a clause as proven if its constraint was
-                  -- actually emitted. Skipped clauses remain VLAsserted.
+                  -- v0.8.0: Post is VLProvenSMT only when body-faithful VC
+                  -- was emitted and solver returned SAFE. This means the solver
+                  -- checked: P ∧ (result = ⟦body⟧) ⟹ Q.
+                  -- Pre remains VLAsserted: preconditions are caller assumptions,
+                  -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPreLevel  = if Set.member n emittedPreSet
-                                        then fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPre c)
-                                        else fmap (const VLAsserted) (contractPre c)
-                        , csPostLevel = if Set.member n emittedPostSet
+                        { csPreLevel  = fmap (const VLAsserted) (contractPre c)
+                            -- Pre remains asserted: no call-site VCs in v0.8.0
+                        , csPostLevel = if Set.member n bodyFaithfulSet
                                         then fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPost c)
                                         else fmap (const VLAsserted) (contractPost c)
+                            -- Post proven only when body-faithful VC succeeded
                         , csPreSource  = contractPreSource c
                         , csPostSource = contractPostSource c
                         , csPostBodyFaithful = Set.member n bodyFaithfulSet

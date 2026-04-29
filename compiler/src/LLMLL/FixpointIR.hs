@@ -219,11 +219,13 @@ emitBind b =
 emitConstraint :: FQConstraint -> Text
 emitConstraint c = T.unlines
   [ "constraint:"
-  , "  id " <> T.pack (show (conId c))
-  , "  tag [" <> T.intercalate "; " (conTag c) <> "]"
   , "  env [" <> T.intercalate "; " (map (T.pack . show) (conEnv c)) <> "]"
   , "  lhs " <> emitReft (conLhs c)
   , "  rhs " <> emitReft (conRhs c)
+  , "  id " <> T.pack (show (conId c))
+  -- liquid-fixpoint tagP expects [Int], not [Text]. Emit constraint ID as tag
+  -- for traceability. Human-readable tags live in ConstraintTable (DiagnosticFQ).
+  , "  tag [" <> T.pack (show (conId c)) <> "]"
   ]
 
 emitQualifier :: FQQualifier -> Text

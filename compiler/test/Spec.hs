@@ -3733,14 +3733,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             result `shouldBe` Just (FQBinPred FQNeq (FQVar "result") (FQLit 0))
           Right stmts -> expectationFailure $ "unexpected parse: " <> show stmts
 
-      it "P03: parsed EOp contracts emit constraints (not skipped)" $ do
+      it "P03: parsed EOp contracts emit body-faithful VCs (not standalone post)" $ do
         let src = "(def-logic add1 [x: int] (post (= result (+ x 1))) (+ x 1))"
         case parseStatements "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right stmts -> do
             emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
-            -- The post should be emitted (not skipped)
-            erEmittedPost emitR `shouldBe` ["add1"]
+            -- v0.8.0: standalone post is suppressed when body VCs are active.
+            -- Instead, body-faithful VC is the correct proof obligation.
+            erEmittedPost emitR `shouldBe` []  -- standalone post not emitted
             -- Should NOT be in skipped
             erSkipped emitR `shouldSatisfy` not . elem "add1"
             -- Body should be faithful

@@ -35,6 +35,10 @@ module LLMLL.FixpointEmit
   , defaultEmitOptions
     -- * Result
   , EmitResult(..)
+    -- * Alias map (v0.8.0)
+  , AliasMap
+  , buildAliasMap
+  , isIntLike
     -- * Body-VC types (exported for testing)
   , BodyVC(..)
   , LetBinding(..)
@@ -146,6 +150,8 @@ emitFixpoint = emitFixpointWith defaultEmitOptions
 -- | Emit constraints with explicit options.
 emitFixpointWith :: EmitOptions -> FilePath -> [Statement] -> IO EmitResult
 emitFixpointWith opts srcFile stmts = do
+  -- v0.8.0: build alias map from STypeDef statements for isIntLike resolution
+  let aliases = buildAliasMap stmts
   ctrRef    <- newIORef (0 :: Int)  -- constraint ID counter
   bindRef   <- newIORef (0 :: Int)  -- binder ID counter
   tableRef  <- newIORef (Map.empty :: ConstraintTable)
@@ -194,13 +200,13 @@ emitFixpointWith opts srcFile stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost bodyCounterRef
+          addEmittedPre addEmittedPost bodyCounterRef aliases
           name params mRet contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost bodyCounterRef
+          addEmittedPre addEmittedPost bodyCounterRef aliases
           name params mRet contract Nothing (Just dec) idx
 
       _ -> pure ()
@@ -250,6 +256,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- v0.8.0: record emitted pre clause
   -> (Text -> IO ())       -- v0.8.0: record emitted post clause
   -> IORef Int             -- body-VC alpha-renaming counter
+  -> AliasMap              -- v0.8.0: type alias map for isIntLike
   -> Name
   -> [(Name, Type)]
   -> Maybe Type
@@ -260,11 +267,11 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost bodyCounterRef
+    addEmittedPre addEmittedPost bodyCounterRef aliases
     name params mRet contract mBody mDec stmtIdx = do
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
-  let intParams = [ (n, t) | (n, t) <- params, isIntType t ]
+  let intParams = [ (n, t) | (n, t) <- params, isIntLike aliases t ]
   -- v0.8.0: Fix dead early-exit — check condition and exit early if nothing to verify.
   let hasContract = isJust (contractPre contract) || isJust (contractPost contract)
       hasIntParams = not (null intParams)
@@ -282,8 +289,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
         postQuals = maybe [] (extractQualifiers "post" name) (contractPost contract)
     addQuals (preQuals ++ postQuals)
 
-    -- Emit pre-condition constraint
-    case contractPre contract of
+    -- Emit standalone pre-condition constraint (legacy, non-body-VC mode only)
+    -- v0.8.0: When body VCs are active, standalone pre/post constraints are
+    -- suppressed. Body VCs encode the correct proof obligation:
+    --   P ∧ (result = ⟦body⟧) ⟹ Q
+    -- Standalone constraints (lhs true, rhs P) are not sound proof obligations.
+    unless (emitBodyVCs opts) $ case contractPre contract of
       Nothing  -> pure ()
       Just pre ->
         case exprToPred pre of
@@ -298,8 +309,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
             let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/pre"
             addOrigin cid (ConstraintOrigin name "pre" ptr srcFile)
 
-    -- Emit post-condition constraint
-    case contractPost contract of
+    -- Emit standalone post-condition constraint (legacy, non-body-VC mode only)
+    unless (emitBodyVCs opts) $ case contractPost contract of
       Nothing   -> pure ()
       Just post ->
         case exprToPred post of
@@ -353,7 +364,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
           (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
           (Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
-            let sortEnv = buildSortEnv params
+            let sortEnv = buildSortEnv aliases params
             -- Translate body
             seed <- readIORef bodyCounterRef
             let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv body
@@ -424,13 +435,29 @@ emitParamBind freshBid addBind (n, t) = do
 -- Helpers
 -- ---------------------------------------------------------------------------
 
-isIntType :: Type -> Bool
-isIntType TInt = True
-isIntType _    = False
+-- | v0.8.0: Type alias map, built from STypeDef statements.
+-- Maps alias names to their structural bodies for isIntLike resolution.
+type AliasMap = Map Name Type
+
+-- | Build an alias map from top-level type definitions.
+buildAliasMap :: [Statement] -> AliasMap
+buildAliasMap stmts = Map.fromList [(n, body) | STypeDef n body <- stmts]
+
+-- | Check if a type is int-like after resolving aliases.
+-- Handles TDependent refinements and TCustom aliases.
+-- Unresolved TCustom falls back to False (sound: rejects unknown types).
+isIntLike :: AliasMap -> Type -> Bool
+isIntLike _  TInt                  = True
+isIntLike am (TDependent _ base _) = isIntLike am base
+isIntLike am (TCustom n)           = case Map.lookup n am of
+                                        Just t  -> isIntLike am t
+                                        Nothing -> False  -- unresolved: reject
+isIntLike _  _                     = False
 
 typeToSort :: Type -> FQSort
 typeToSort TInt  = FQInt
 typeToSort TBool = FQBool
+typeToSort (TDependent _ base _) = typeToSort base
 typeToSort _     = FQInt  -- conservative default
 
 typeSorts :: Name -> Type -> [FQDataDecl]
@@ -790,9 +817,10 @@ predSortOf (FQOr _)          = FQBool
 predSortOf (FQKVar _ _)      = FQInt  -- fallback
 
 -- | Build a SortEnv from function parameters (int-typed only for BODY-VC-0).
-buildSortEnv :: [(Name, Type)] -> SortEnv
-buildSortEnv params = Map.fromList
-  [ (n, typeToSort t) | (n, t) <- params, isIntType t ]
+-- v0.8.0: uses isIntLike with alias map to resolve type aliases.
+buildSortEnv :: AliasMap -> [(Name, Type)] -> SortEnv
+buildSortEnv aliases params = Map.fromList
+  [ (n, typeToSort t) | (n, t) <- params, isIntLike aliases t ]
 
 -- ---------------------------------------------------------------------------
 -- Operator lookup tables (v0.8.0)
