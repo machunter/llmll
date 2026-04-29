@@ -47,27 +47,29 @@
 > [!NOTE]
 > BODY-VC-0 design spec is complete — see [`docs/design/body-vc-0-spec.md`](design/body-vc-0-spec.md). Approved by all 5 agents (2026-04-29). Implementation (BODY-VC-1) can proceed.
 
-**Proof obligations the design spec must address:**
+#### Design Decisions (resolved by BODY-VC-0)
 
-| Obligation | Question |
-|-----------|----------|
-| VC encoding completeness | Which `Expr` constructors can be translated to `.fq` predicates? Current `exprToPred` handles literals, variables, comparisons, linear arithmetic. BODY-VC needs `ELet`, `EIf`, `EApp` (for known pure functions). |
-| Soundness of body translation | Is `bodyToPred` a conservative abstraction — never weaker than the body's actual semantics? |
-| `TDependent` interaction | Should dependent constraints on intermediate let-bindings be re-injected into VCs? Or does the two-layer architecture (types = structure, contracts = behavior) mean they stay out? |
-| Recursive functions | Should BODY-VC be limited to non-recursive `def-logic` initially? `letrec` needs an inductive hypothesis — Lean tier territory. |
-| Coverage fallback | When `bodyToPred` returns `Nothing`, document the fallback behavior explicitly. |
+BODY-VC-0 resolved the following proof obligations:
+
+| Obligation | Resolution |
+|-----------|------------|
+| VC encoding completeness | `ELit`, `EVar`, `EBinOp`, `ELet`, `EIf` covered. `EApp` for user-defined functions and `EMatch` deferred to phase 2. |
+| Soundness of body translation | `bodyToPred` produces `BodyVC` (a list of `FlatPath`s), not a single `FQPred`. Each path is a conjunction of guards → `result = expr`. Conservative: unsupported expressions return `Nothing`. |
+| `TDependent` interaction | TDependent constraints stay out — two-layer architecture preserved. |
+| Recursive functions | BODY-VC-0 excludes `letrec`. Termination is a separate proof obligation (research-track §7). |
+| Coverage fallback | When `bodyToPred` returns `Nothing`, contract-level solver evidence may still be recorded, but body-faithful status remains `False` and runtime assertions are preserved. |
 
 **Coverage boundary:**
 
 - **In scope:** Non-recursive `def-logic` with `ELet`, `EIf`, literal arithmetic, variable references, comparisons
 - **Out of scope:** `letrec` (needs inductive hypothesis), indexed types (`Vect n a`), `EMatch` on sum types (phase 2), `EApp` for user-defined functions (phase 2)
-- **Fallback:** When `bodyToPred` returns `Nothing`, function stays at current `VLProven` with `isBodyFaithful = False`
+- **Fallback:** When `bodyToPred` returns `Nothing`, contract-level solver evidence may still be recorded, but body-faithful status remains `False` and runtime assertions are preserved.
 
 | # | ID | Description | Prerequisite | Effort |
 |---|-----|-------------|-------------|--------|
 | 1 | **BODY-VC-0** | Design spec: VC encoding rules, soundness argument, coverage boundary, `TDependent` interaction, recursive function handling, `ContractClause` refactor decision, `bodyToPred` placement (new function calling `exprToPred` for leaves — Option B), **concrete `.fq` example for each translation rule** — see [`body-vc-0-spec.md`](design/body-vc-0-spec.md) | None | ✅ |
-| 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe FQPred` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). +1 day buffer for `EIf` conditional VC encoding (guard-in-LHS-refinement approach per compiler team review) | BODY-VC-0 | 4–6 days |
-| 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just pred`, emit body-faithful VC | BODY-VC-1 | 1–2 days |
+| 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe BodyVC` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). `BodyVC` contains `[FlatPath]` — each path is a conjunction of guards → `result = expr`. Alpha-renaming for shadowed variables. Conservative `Nothing` for unsupported constructs. | BODY-VC-0 | 4–6 days |
+| 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just bvc`, flatten `BodyVC` paths into `.fq` constraints with `body-post` tag. Update `toDiag` in `DiagnosticFQ.hs` for body-post diagnostic messages. | BODY-VC-1 | 1–2 days |
 | 4 | **BODY-VC-3** | Mark postconditions body-faithful for functions whose body VCs emitted and passed. `isBodyFaithful` → `True` per-function (via `csBodyFaithful`). **Preserve precondition runtime checks** unless call-site precondition VCs exist (not in scope for v0.8.0). Body-VC proves `P ∧ (result = ⟦body⟧) ⟹ Q` — the body satisfies the postcondition under the precondition. It does NOT prove that callers satisfy preconditions. | BODY-VC-2 | 0.5 day |
 | 5 | **BODY-VC-T** | FixpointEmit golden tests — `.fq` file for every `bodyToPred` translation rule (TCB hardening, per [verification-debate-action-items.md](design/verification-debate-action-items.md)) | BODY-VC-1 | 1–2 days |
 
@@ -235,7 +237,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.6.3** | *(shipped, 2026-04-26)* | Trust model fixes: 7 critical bugs (BUG-1..7). `tcStrictMode` typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection, contract instrumentation in build pipeline, termination documentation correction — **shipped (2026-04-26)**. |
 | **v0.7** | *(reorganized, 2026-04-28)* | **Hardening:** BUILTIN-1/2 (total builtins), DO-1 (discarded command warning), TRUST-2a (`VLProvenSMT` + `Ord` removal). 294 tests. — **shipped (2026-04-29)**. |
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. Precondition runtime checks preserved (call-site precondition VCs are out of scope for v0.8.0). |
-| **v0.8.1** | *(new, 2026-04-28)* | **Faithfulness Integration:** LEAN-GA (real Leanstral) + TRUST-2b (`VLProvenLean` + `VLTrustedBase`) + STRIP-GA (assertion stripping unlock) + MCP. Blocked on external availability. |
+| **v0.8.1** | *(new, 2026-04-28)* | **Faithfulness Integration:** LEAN-GA (real Leanstral) + TRUST-2b (`VLProvenLean` + `VLTrustedBase`) + STRIP-GA (enable safe stripping for clauses proven body-faithful; precondition stripping requires call-site precondition VCs or equivalent evidence) + MCP. Blocked on external availability. |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
 ### Items Removed from Scope

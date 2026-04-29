@@ -139,7 +139,7 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 
 **Compiler impact if promoted:** New metric in `SpecCoverage.hs` output; possible CI gate threshold.
 
-**Interaction with BODY-VC:** Results would inform the BODY-VC design spec's soundness argument if available before BODY-VC-0. Best-effort sequencing — won't block BODY-VC.
+**Interaction with BODY-VC:** May inform future spec-quality gates or BODY-VC evaluation criteria.
 
 **Promotion criterion:** Math spec ready for implementation (definitions, measurement procedure, example calculations).
 
@@ -151,7 +151,7 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 
 **Goal:** Encode `measure(args') < measure(args)` at each recursive call site for `letrec :decreases` measures. Currently, the verifier checks `n >= 0` (well-foundedness domain membership) but not that the measure strictly decreases at each recursive call.
 
-**Status: NOT automatically subsumed by BODY-VC** (external consultant correction, 2026-04-28). Body encoding and termination checking are related but distinct proof obligations. If BODY-VC-0 excludes `letrec` (as currently scoped), then strict descent still needs its own design rule. Even when BODY-VC eventually handles `letrec` bodies, the termination measure constraint (`measure(args') < measure(args)`) is a separate well-foundedness obligation from the functional correctness VC (`body ⊢ post`).
+**Status: NOT automatically subsumed by BODY-VC** (external consultant correction, 2026-04-28). Body encoding and termination checking are related but distinct proof obligations. Since BODY-VC-0 excludes `letrec` (confirmed in approved spec, 2026-04-29), strict descent needs an independent design rule. Even when BODY-VC eventually handles `letrec` bodies, the termination measure constraint (`measure(args') < measure(args)`) is a separate well-foundedness obligation from the functional correctness VC (`body ⊢ post`).
 
 **Compiler impact if promoted:** Extension to `emitFnConstraints` in `FixpointEmit.hs` — add a constraint per recursive call site checking `measure(args') < measure(args)`. This is independent of BODY-VC and can be implemented on its own.
 
