@@ -44,8 +44,8 @@
 
 ### BODY-VC — Body-Faithful Verification Conditions
 
-> [!IMPORTANT]
-> BODY-VC needs a design spec before it's implementable. The language team should produce a document comparable to `interface-laws-spec.md`. This is the single most important design task remaining.
+> [!NOTE]
+> BODY-VC-0 design spec is complete — see [`docs/design/body-vc-0-spec.md`](design/body-vc-0-spec.md). Approved by all 5 agents (2026-04-29). Implementation (BODY-VC-1) can proceed.
 
 **Proof obligations the design spec must address:**
 
@@ -65,7 +65,7 @@
 
 | # | ID | Description | Prerequisite | Effort |
 |---|-----|-------------|-------------|--------|
-| 1 | **BODY-VC-0** | Design spec: VC encoding rules, soundness argument, coverage boundary, `TDependent` interaction, recursive function handling, `ContractClause` refactor decision, `bodyToPred` placement (new function calling `exprToPred` for leaves — Option B), **concrete `.fq` example for each translation rule** | None | 2–3 days |
+| 1 | **BODY-VC-0** | Design spec: VC encoding rules, soundness argument, coverage boundary, `TDependent` interaction, recursive function handling, `ContractClause` refactor decision, `bodyToPred` placement (new function calling `exprToPred` for leaves — Option B), **concrete `.fq` example for each translation rule** — see [`body-vc-0-spec.md`](design/body-vc-0-spec.md) | None | ✅ |
 | 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe FQPred` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). +1 day buffer for `EIf` conditional VC encoding (guard-in-LHS-refinement approach per compiler team review) | BODY-VC-0 | 4–6 days |
 | 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just pred`, emit body-faithful VC | BODY-VC-1 | 1–2 days |
 | 4 | **BODY-VC-3** | Update `isBodyFaithful` → `True` for `"liquid-fixpoint"` when body VC is active | BODY-VC-2 | 0.5 day |

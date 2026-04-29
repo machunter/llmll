@@ -1,6 +1,6 @@
 # LLMLL Research Track
 
-> **Last updated:** 2026-04-28  
+> **Last updated:** 2026-04-29  
 > **Purpose:** Track unversioned research items that may feed into future compiler releases.  
 > **Relationship to compiler roadmap:** Items here are *not* part of the compiler engineering backlog ([compiler-team-roadmap.md](compiler-team-roadmap.md)). Each item is promoted to a versioned release only when its **promotion criterion** is met and the compiler team accepts the work.
 
@@ -19,7 +19,7 @@ Until all three conditions are met, the item stays here.
 ## Impact Analysis
 
 > **Assessment date:** 2026-04-28 (updated with external consultant review)  
-> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (289 tests, liquid-fixpoint). The next compiler milestone (v0.8.0 BODY-VC) closes the faithfulness gap. Research items are ranked by how much they advance the strategic bet.
+> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (294 tests, liquid-fixpoint). The next compiler milestone (v0.8.0 BODY-VC) closes the faithfulness gap. Research items are ranked by how much they advance the strategic bet.
 
 | Rank | Item | Impact | Rationale |
 |------|------|--------|-----------|
@@ -162,7 +162,7 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 ## External Consultant Review (2026-04-28)
 
 > **Reviewer:** External consultant (independent project evaluation)  
-> **Scope:** Full worktree review including compiler tests (289 pass, 0 fail), orchestrator tests (35 pass, 2 fail), documentation audit, and research track assessment.
+> **Scope:** Full worktree review including compiler tests (289 pass, 0 fail at time of review), orchestrator tests (35 pass, 2 fail), documentation audit, and research track assessment. (Compiler tests now at 294 after v0.7 hardening.)
 
 ### Key Findings
 
@@ -178,7 +178,7 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 
 1. Fix the Python dry-run fixture/test drift
 2. Reconcile LLMLL.md with actual SpecCoverage JSON
-3. Write BODY-VC-0 design spec
+3. ~~Write BODY-VC-0 design spec~~ ✅ Complete — [`body-vc-0-spec.md`](design/body-vc-0-spec.md) approved (2026-04-29)
 4. Formalize finite observational contract discriminative power
 5. Prototype differential divergence detection without synthesis
 6. Promote Spec-from-RFC with a worked traceability example

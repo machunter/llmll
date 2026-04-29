@@ -236,7 +236,7 @@ Self-recursive functions must be declared with `letrec`, not `def-logic`. The `:
   (if (= n 0) 0 (countdown (- n 1))))
 ```
 
-- A **simple variable** measure (`:decreases n`) is checked for well-founded domain membership (`n ≥ 0`) by `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) is not yet verified; it is a v0.7 research-track item.
+- A **simple variable** measure (`:decreases n`) is checked for well-founded domain membership (`n ≥ 0`) by `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) is not yet verified; it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7).
 - A **complex expression** (`:decreases (- n 1)`) emits a `?proof-required(complex-decreases)` hole — non-blocking, but the solver skips that function.
 - Using `def-logic` for a self-recursive function emits a **self-recursion warning**. `letrec` is the correct verified form.
 
@@ -554,7 +554,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 | Fragment | Status | Prover | What it covers |
 |----------|--------|--------|----------------|
 | **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** (v0.2+) | Z3 via liquid-fixpoint | `+`, `-`, `=`, `<`, `<=`, `>=`, `>` over `int`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
-| **Termination** (`:decreases` measures) | **Shipped** (v0.2+) | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is a v0.7 research-track item. Complex measures emit `?proof-required(complex-decreases)`. |
+| **Termination** (`:decreases` measures) | **Shipped** (v0.2+) | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7). Complex measures emit `?proof-required(complex-decreases)`. |
 | **Property-based testing** | **Shipped** (v0.1.1+) | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Inductive properties** | **Designed, not shipped** | Lean 4 via Leanstral MCP | Translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`). Currently runs in **mock mode only** (`--leanstral-mock`). Real proof integration is blocked on `lean-lsp-mcp` availability. |
 | **Cryptographic primitives** (v0.6.1) | **Asserted** | _(opaque — outside any decidable fragment)_ | `hmac-sha1` and `sha1` builtins are treated as axiomatically correct. Contracts on functions that use them are capped at `asserted` in the trust report. The TOTP benchmark (`examples/totp_rfc6238/`) is the second frozen benchmark demonstrating mixed verification levels (Proven + Asserted + Tested) across a single module. |
