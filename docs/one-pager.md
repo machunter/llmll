@@ -32,7 +32,7 @@ LLMLL is a system — a programming language, compiler, and verification pipelin
 
 ## The Type System
 
-Drawing from type-driven development (as pioneered in Idris and Lean), types in LLMLL can carry constraints directly — a `PositiveInt` is not just an `int`, it's an `int` with a declared constraint `x > 0`, which the compiler can verify within the shipped QF-LIA arithmetic fragment via `llmll verify`. For richer properties like "returns a list of exactly n items," dependent types express that at the type level. For behavioral properties that go further — like "the list is sorted" — the system's **shipped** verification path is an SMT solver (Z3 via liquid-fixpoint) that handles the decidable quantifier-free linear arithmetic fragment automatically. Contracts outside this fragment — those requiring induction or non-linear reasoning — are tracked as `asserted` or `tested` and explicitly flagged with `?proof-required` holes.
+Inspired by refinement types (Liquid Haskell) and type-driven development, types in LLMLL can carry constraints directly — a `PositiveInt` is not just an `int`, it's an `int` with a declared constraint `x > 0`, which the compiler can verify within the shipped QF-LIA arithmetic fragment via `llmll verify`. For behavioral properties — like "the list is sorted" — the system's **shipped** verification path is an SMT solver (Z3 via liquid-fixpoint) that handles the decidable quantifier-free linear arithmetic fragment automatically. Contracts outside this fragment — those requiring induction or non-linear reasoning — are tracked as `asserted` or `tested` and explicitly flagged with `?proof-required` holes. LLMLL does not have dependent elimination, proof terms, or sigma types — its type annotations are refinement-like predicates, not dependent types in the Idris/Lean sense.
 
 > **Verification scope:** The **shipped** verification path is SMT (Z3 via liquid-fixpoint), covering quantifier-free linear integer arithmetic: `+`, `-`, `=`, `<`, `<=`, `>=`, `>`. This handles ~80% of practical contracts (numeric bounds, conservation invariants, length preservation). An interactive proof path (Lean 4, via Leanstral MCP) is **designed but not shipped** — translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`), but real proof integration is blocked on `lean-lsp-mcp` availability and the current pipeline runs in mock mode only (`--leanstral-mock`). Contracts outside the SMT fragment are not silently dropped; they are tracked as `asserted` with explicit verification level propagation through dependencies.
 
@@ -64,6 +64,19 @@ Agents don't write source code files that get merged with git-style diffs. They 
 
 ## Status
 
+LLMLL currently provides body-faithful SMT verification for a **non-recursive QF-LIA core**: literals, variables, simple let-bindings, conditionals, and linear arithmetic. Programs outside that fragment fall back to contract-only verification, tests, or runtime assertions with explicit trust labels.
+
+**Verification boundary (v0.8.0):**
+
+| Construct | SMT body-faithful | Fallback |
+|---|---|---|
+| `ELit`, `EVar` (int), linear ops | ✅ | — |
+| `ELet` (PVar, int), `EIf` (≤4096 paths) | ✅ | — |
+| `EApp` (builtins, user-defined) | ❌ | contract-only |
+| `EMatch`, `EPair`, `ELambda`, `EDo`, `letrec` | ❌ | runtime |
+| Non-linear ops (*, /, mod) | ❌ | `?proof-required` |
+| **Int overflow** | ⚠ | Z3 `Int` ≠ Haskell `Int64` |
+
 The compiler is at **v0.8.0** (April 2026): Haskell code generation, formal contract verification (liquid-fixpoint/Z3), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report`), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, and a specification quality layer — `--spec-coverage` gate with `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts, frozen ERC-20 and TOTP benchmarks with verification-scope matrices, and algebraic interface laws (`def-interface :laws`). v0.8.0 shipped **body-faithful verification conditions** — the verifier now encodes function bodies as `.fq` constraints for the QF-LIA fragment, so `VLProvenSMT` means the implementation satisfies the contract, not just that the contract is self-consistent. Postcondition runtime assertions can be safely stripped for body-faithful proven functions; preconditions are always preserved. The type checker implements sound unification (Algorithm W with occurs check and let-generalization) — the last known unsoundness was closed in v0.5.0. 320 Haskell + 37 Python tests passing.
 
 Early stage — the compiler infrastructure works, validation on increasingly complex sample programs is ongoing. Open source (GPLv3). Solo project, supported by AI tools.
@@ -88,20 +101,19 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 | Milestone | Description |
 |-----------|-------------|
-| **Spec coverage gate + suppression governance** (v0.6.0) ✅ | `llmll verify --spec-coverage` classifies every function as contracted, suppressed, or unspecified and computes effective coverage. `(weakness-ok fn "reason")` requires mandatory reason strings. Suppressions surfaced in `--trust-report`. Governance warnings W601–W603. |
-| **Frozen ERC-20 benchmark** (v0.6.0) ✅ | First real-domain benchmark with external ground truth (ERC-20 standard). Frozen skeleton, filled version, expected results, verification-scope matrix (10 properties), and end-to-end walkthrough. |
-| **Clause-level provenance** (v0.6.0) ✅ | `:source` annotation on `pre`/`post` contracts provides per-clause traceability to originating standards. Threaded through `--trust-report` and `.verified.json` sidecars. |
-| **U-Full soundness** (v0.5.0) ✅ | Occurs check prevents infinite types. Let-generalization for top-level polymorphic functions via TVar-TVar wildcard closure. Closes the last known unsoundness in the type checker. |
-| **Lead Agent** (v0.4.0) ✅ | Automated skeleton generation from natural-language intent. The Lead Agent architects programs end-to-end (decomposition, types, contracts, agent assignment). Closes the last manual step in the pipeline. |
-| **Spec weakness detection** (v0.3.5) ✅ | `llmll verify --weakness-check` constructs trivial candidate implementations and tests whether they satisfy the contract. Flags under-specified contracts with the specific trivial body that passed. |
-| **Context-aware checkout** (v0.3.5) ✅ | `llmll checkout` returns Γ (in-scope bindings), τ (expected type), and Σ (sibling signatures) alongside the lock token. Reduces agent hallucination by providing exact typing context. |
-| **Frozen TOTP benchmark** (v0.6.1) ✅ | Second real-domain benchmark (RFC 6238 TOTP). Exercises cryptographic standard translation, mixed verification levels, and `:source` provenance. 14 CI assertions, frozen ground truth. |
-| **Algebraic interface laws** (v0.6.2) ✅ | `def-interface :laws` with `(for-all ...)` property syntax. Laws are type-checked, QuickCheck `prop_` codegen enforces properties, separate "Interface laws" section in spec coverage. |
-| **Trust model fixes** (v0.6.3) ✅ | 7 critical bugs resolved: strict typecheck gate on `build`/`run`/`verify`, runtime contract instrumentation in build pipeline, transitive trust closure, body-faithful stripping guard, proof laundering protection. |
-| **Hardening** (v0.7) ✅ | `string-char-at` negative index guard, `regex-match` upgraded to POSIX ERE via `regex-tdfa`, do-block discarded command warning, `VLProvenSMT` constructor replaces `Ord` instance on `VerificationLevel`. 294 tests (+5 trust-tier). |
-| **Body-faithful VCs** (v0.8.0) ✅ | `bodyToPred` translates function bodies into verification conditions for the QF-LIA fragment (`ELet`, `EIf`, `ELit`, `EVar`, linear arithmetic). Alpha-renaming for shadowed variables, path-sensitive constraint emission. When proven, postcondition runtime assertions are safely stripped. Precondition checks preserved (call-site precondition VCs are future work). Closes the faithfulness gap where the verifier checked contract self-consistency but not implementation correctness. 320 tests (+26). |
-| **WASM sandboxing** (planned) | Contracts cover *correctness*; WASM covers *capability abuse*. Server-side runtimes (Wasmtime, WasmEdge) enforce that programs cannot access resources beyond their declared capabilities. `effectful` WASM compatibility confirmed (v0.5.0 spike). |
-| **Synthetic training corpus** (planned) | Haskell-to-LLMLL back-translation from Hackage for fine-tuning and benchmarking. |
+| **Documentation boundary clarity** (v0.8.1a) | Rename "Dependent Types" → "Refinement Type Aliases." Per-construct verification matrix in LLMLL.md, README, and one-pager. Integer overflow model gap documented. Docs only, no code changes. |
+| **Evidence model refactor** (v0.8.1b) | Replace `VerificationLevel` total order with four-tier partial order: `verified` > `contract-checked` / `tested` > `asserted`. Assumption taxonomy (`runtime-primitive`, `compiler-builtin`, `external-opaque`). Structured `.verified.json` sidecar. Design review required. |
+| **Compositional verification** (v0.9) | Assume-guarantee encoding for `EApp` with correct precondition polarity. `EMatch` on `Result`. SCC recursive fallback. Transitive trust degradation. `--strict-verified-core` mode. Design review required. |
+| **Body-faithful VCs** (v0.8.0) ✅ | `bodyToPred` translates function bodies into verification conditions for the QF-LIA fragment. Closes the faithfulness gap. 320 tests (+26). |
+| **Hardening** (v0.7) ✅ | `string-char-at` negative index guard, `regex-match` → POSIX ERE, `VLProvenSMT` constructor. 294 tests. |
+| **Trust model fixes** (v0.6.3) ✅ | 7 critical bugs resolved: strict typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection. |
+| **Algebraic interface laws** (v0.6.2) ✅ | `def-interface :laws` with `(for-all ...)` property syntax and QuickCheck codegen. |
+| **Spec quality** (v0.6.0–v0.6.1) ✅ | `--spec-coverage` gate, `(weakness-ok)` governance, `:source` provenance, frozen ERC-20 and TOTP benchmarks. |
+| **U-Full soundness** (v0.5.0) ✅ | Occurs check, let-generalization. Closes last known unsoundness. |
+| **Lead Agent** (v0.4.0) ✅ | `llmll-orchestra --mode plan|lead|auto`. Automated skeleton generation. |
+| **Context-aware checkout** (v0.3.5) ✅ | `llmll checkout` returns Γ, τ, Σ. `--weakness-check` detects trivial-body specs. |
+| **WASM sandboxing** (planned) | WASM-WASI capability enforcement. `effectful` compatibility confirmed (v0.5.0 spike). |
+| **Synthetic training corpus** (research) | Hackage back-translation for fine-tuning. |
 
 ---
 
