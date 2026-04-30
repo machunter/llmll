@@ -183,9 +183,9 @@ User-defined tagged unions (also called ADTs or discriminated unions) are declar
 
 > **Built-in sum types:** `Result[t,e]` and `DelegationError` (§11.2) follow the same rules and are pre-declared by the compiler. You can `match` on them using their constructor names (`Success`, `Error`, `AgentTimeout`, etc.).
 
-### 3.4 Dependent Types (Logic-Constrained)
+### 3.4 Refinement Type Aliases (Logic-Constrained)
 
-Any base type can be constrained by a predicate using `(where [binding: base] predicate)`:
+Any base type can be constrained by a predicate using `(where [binding: base] predicate)`. These are **refinement-like annotations** — the predicates are checked by the verification layer (`llmll verify`) within the QF-LIA fragment, or enforced as runtime assertions depending on trust level. They are not dependent types in the Idris/Lean sense: LLMLL has no dependent elimination, proof terms, or sigma types.
 
 ```lisp
 (type PositiveInt  (where [x: int]    (> x 0)))
@@ -195,7 +195,7 @@ Any base type can be constrained by a predicate using `(where [binding: base] pr
 (type BlockID      (where [s: string] (regex-match "^[a-f0-9]{64}$" s)))
 ```
 
-Dependent type constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify` (Phase 2b).
+Refinement type alias constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify` (Phase 2b). See §5.3.5 for a precise matrix of which constructs are verified at each level.
 
 ---
 
@@ -431,9 +431,9 @@ JSON-AST fields: `"pre_source"` / `"post_source"` (optional string).
 
 The test runner generates at least 100 random samples per `check`. For primitive types it targets edge cases: `0`, `-1`, `MAX_INT`, `MIN_INT`, `""`, `[]`.
 
-### 5.2 Generators for Dependent Types (`gen`)
+### 5.2 Generators for Refinement Types (`gen`)
 
-When a `for-all` binds a variable of a dependent type (e.g., `Letter`), the test engine must generate values that satisfy the type's `where` predicate. The default strategy is **rejection sampling**: generate a value of the base type, check the predicate, discard and retry if it fails. This terminates when 100 valid samples are accumulated, or reports a generation failure after 10,000 attempts.
+When a `for-all` binds a variable of a refinement type (e.g., `Letter`), the test engine must generate values that satisfy the type's `where` predicate. The default strategy is **rejection sampling**: generate a value of the base type, check the predicate, discard and retry if it fails. This terminates when 100 valid samples are accumulated, or reports a generation failure after 10,000 attempts.
 
 For types where rejection sampling is inefficient (e.g., a 64-hex-digit string), register a custom **generator** with `gen`:
 
@@ -448,7 +448,7 @@ For types where rejection sampling is inefficient (e.g., a 64-hex-digit string),
   (hex-encode (random-bytes 32)))
 ```
 
-A `gen` declaration applies to all `for-all` blocks in the same module that use the named type. If no `gen` is declared for a dependent type, rejection sampling is used automatically.
+A `gen` declaration applies to all `for-all` blocks in the same module that use the named type. If no `gen` is declared for a refinement type, rejection sampling is used automatically.
 
 ### 5.3 Verification (Phase 2b — Shipped)
 
@@ -596,6 +596,33 @@ where ⟦B⟧ is the body's symbolic translation into the liquid-fixpoint constr
 > **Two-tier verification status.** After v0.8.0:
 > - `VLProvenSMT` + `csPostBodyFaithful = True` = implementation verified against contract. Postcondition assertions can be safely stripped.
 > - `VLProvenSMT` + `csPostBodyFaithful = False` = contract self-consistency verified only. All runtime assertions preserved. This occurs for fallback functions (non-QF-LIA bodies, path-limit exceeded, `letrec`).
+
+#### 5.3.5 Verification Matrix (v0.8.0)
+
+The following matrix documents the verification status of each syntax construct as of v0.8.0. "Typechecked" means the construct is accepted by the type checker. "Runtime assert" means contracts on functions using the construct are enforced as runtime assertions. "SMT contract" means the construct's contracts can be checked by the solver. "SMT body-faithful" means the construct's implementation is encoded as a verification condition.
+
+| Construct | Typechecked | Runtime assert | SMT contract | SMT body-faithful | QuickCheck | Fallback behavior |
+|---|---|---|---|---|---|---|
+| `ELit` (int, bool) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| `EVar` (int-typed) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| `EVar` (non-int) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
+| `EOp`/`EApp` (+, -, =, <, <=, >=, >, !=) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| `EOp`/`EApp` (*, /, mod, rem) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime + `?proof-required` |
+| `ELet` (single `PVar`, int RHS) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| `ELet` (pattern/non-int RHS) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
+| `EIf` (int guards, ≤4096 paths) | ✅ | ✅ | ✅ | ✅ (path-split) | ✅ | — |
+| `EIf` (>4096 paths) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only + warning |
+| `EApp` (builtins: `string-length` etc.) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
+| `EApp` (user-defined functions) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
+| `EMatch` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
+| `EPair`/`first`/`second` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
+| `letrec` | ✅ | ✅ | ⚠ termination only | ❌ | ✅ | runtime + `:decreases` check |
+| `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |
+| `ELambda` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
+| **Int overflow** | ✅ | ✅ | ⚠ Z3 `Int` ≠ `Int64` | ⚠ | ✅ | documented gap |
+
+> [!WARNING]
+> **Integer overflow model gap.** Z3 reasons over mathematical integers (unbounded). Haskell `Int` is a 64-bit signed integer that wraps at 2⁶³. Contracts proven by the solver may not hold at overflow boundaries. This is a documented limitation of the verification model, not a defect to fix — bounded arithmetic encoding would require a different solver theory (QF-BV) with significantly higher verification cost. Programs operating near `Int64` boundaries should use QuickCheck tests with edge-case generators targeting `maxBound` and `minBound`.
 
 ---
 
@@ -1379,7 +1406,7 @@ TRUST_LEVEL = "proven" | "tested" | "asserted" ;
 (* ============================================================ *)
 type-decl   = "(" "type" IDENT type-body ")" ;
 
-type-body   = where-type                             (* dependent type *)
+type-body   = where-type                             (* refinement type alias *)
             | { "(" "|" IDENT type ")" }            (* sum type / ADT *)
             ;
 
@@ -1447,7 +1474,7 @@ check       = "(" "check" STRING for-all ")" ;
 for-all     = "(" "for-all" "[" { typed-param } "]" expr ")" ;
 
 gen-decl    = "(" "gen" IDENT expr ")" ;
-              (* expr must have the base type of the named dependent type *)
+              (* expr must have the base type of the named refinement type *)
 
 (* ============================================================ *)
 (* Expressions                                                   *)
@@ -1995,6 +2022,6 @@ Closed all specification gaps found during real-world implementation. The spec i
 | `let` | Sequential binding semantics (`let*`) formally specified |
 | IO | Standard command constructor library in §13.9; `seq-commands` combinator |
 | Interfaces | Named parameters in `fn-type` formally specified as doc-only |
-| PBT | Rejection-sampling fallback for dependent types; `gen` declaration for custom generators |
+| PBT | Rejection-sampling fallback for refinement types; `gen` declaration for custom generators |
 | Concurrency | `def-invariant` syntax (verification deferred to v0.2) |
 

@@ -75,6 +75,28 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 
 ---
 
+## Verification Boundary
+
+LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core**: integer literals, integer-typed variables, simple let-bindings, conditionals, and linear arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=`). Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions with explicit trust labels.
+
+| Construct | SMT body-faithful | Fallback |
+|---|---|---|
+| `ELit`, `EVar` (int) | ✅ | — |
+| `EOp` (+, -, =, <, <=, >=, >, !=) | ✅ | — |
+| `ELet` (PVar, int RHS) | ✅ | — |
+| `EIf` (≤4096 paths) | ✅ (path-split) | — |
+| `EApp` (builtins, user-defined) | ❌ | contract-only |
+| `EMatch`, `EPair`, `ELambda`, `EDo` | ❌ | runtime |
+| `letrec` | ❌ | runtime + `:decreases` |
+| Non-linear ops (*, /, mod) | ❌ | runtime + `?proof-required` |
+| **Int overflow** | ⚠ | Z3 `Int` ≠ Haskell `Int64` |
+
+> **Integer overflow model gap:** Z3 reasons over mathematical integers; Haskell `Int` wraps at 2⁶³. Contracts proven in the solver may not hold at overflow boundaries.
+
+Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
+
+---
+
 ## Examples
 
 | Example | Format | Description |
