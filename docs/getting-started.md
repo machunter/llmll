@@ -570,7 +570,6 @@ These patterns work in the **current compiler**. Each shows what works today and
 
 ✅ **Works.** `first`/`second` accept any pair-like value regardless of annotation.
 
-> [!NOTE]
 
 ### 4.2 Type Aliases at Call Sites
 
@@ -654,7 +653,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 >   (if won (wasi.io.stdout msg) ...))
 > ```
 >
-> This restriction does not apply to JSON-AST (`{"kind": "lit-list", ...}` is always unambiguous). Bug tracked as **B3** in `compiler-team-roadmap.md`.
+> This restriction does not apply to JSON-AST (`{"kind": "lit-list", ...}` is always unambiguous).
 
 ---
 
