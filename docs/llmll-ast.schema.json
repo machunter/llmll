@@ -122,7 +122,7 @@
     },
 
     "TypeDecl": {
-      "description": "A user-defined type: either a dependent (where) type or a sum type (ADT). Corresponds to EBNF 'type-decl'.",
+      "description": "A user-defined type: either a refinement type alias (where) or a sum type (ADT). Corresponds to EBNF 'type-decl'.",
       "type": "object",
       "required": ["kind", "name", "body"],
       "additionalProperties": false,
@@ -131,7 +131,7 @@
         "name": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
         "body": {
           "oneOf": [
-            { "$ref": "#/$defs/TypeWhere", "description": "Dependent type: (where [x: base] predicate)" },
+            { "$ref": "#/$defs/TypeWhere", "description": "Refinement type alias: (where [x: base] predicate)" },
             {
               "description": "Sum type / ADT: list of (| Constructor payload) arms",
               "type": "object",
@@ -186,13 +186,13 @@
     },
 
     "GenDecl": {
-      "description": "A custom value generator for a dependent type. Used by the PBT engine. Corresponds to EBNF 'gen-decl'.",
+      "description": "A custom value generator for a refinement type alias. Used by the PBT engine. Corresponds to EBNF 'gen-decl'.",
       "type": "object",
       "required": ["kind", "type_name", "body"],
       "additionalProperties": false,
       "properties": {
         "kind":      { "type": "string", "const": "gen-decl" },
-        "type_name": { "type": "string", "description": "The dependent type this generator produces values for." },
+        "type_name": { "type": "string", "description": "The refinement type alias this generator produces values for." },
         "body":      { "$ref": "#/$defs/Expr", "description": "Expression yielding a value of the base type satisfying the dependent constraint." }
       }
     },
@@ -374,7 +374,7 @@
     },
 
     "TypeWhere": {
-      "description": "A dependent type: (where [binding: base] predicate).",
+      "description": "A refinement type alias: (where [binding: base] predicate).",
       "type": "object",
       "required": ["kind", "binding", "base_type", "predicate"],
       "additionalProperties": false,

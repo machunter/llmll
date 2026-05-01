@@ -2,6 +2,33 @@
 
 ---
 
+## v0.8.1a — Documentation Boundary Clarity (2026-04-30)
+
+### Spec (LLMLL.md)
+
+- **RENAME-1** — §3.4 heading renamed from "Dependent Types (Logic-Constrained)" to "Refinement Type Aliases (Logic-Constrained)." Removed prose comparing LLMLL to Idris or Lean for dependent elimination. LLMLL has no dependent types — the terminology now accurately reflects refinement-like annotations.
+- **MATRIX-1** — §5.3.5 per-construct verification matrix added (17 rows × 6 columns: typechecked, runtime-asserted, SMT contract, SMT body-faithful, QuickCheck, fallback).
+- **BOUNDARY-2** — Integer overflow model gap documented in §5.3.5: Z3 reasons over mathematical integers; Haskell `Int` wraps at 2⁶³.
+
+### README.md
+
+- **MATRIX-2** — Compressed verification matrix added to "Verification Boundary" section.
+
+### One-Pager (docs/one-pager.md)
+
+- **RENAME-2** — Removed Idris/Lean comparison; reworded to "Inspired by refinement types (Liquid Haskell)."
+- **MATRIX-3** — Compressed verification matrix added.
+- **BOUNDARY-1** — Status section now leads with the QF-LIA boundary sentence.
+- **ROADMAP-2** — What's Next table updated with v0.8.1a/v0.8.1b/v0.9 milestones.
+
+### Roadmap (docs/compiler-team-roadmap.md)
+
+- **ROADMAP-1** — Roadmap restructured with v0.8.1a/v0.8.1b/v0.9 plan. Feature freeze policy. Critical path diagram updated. Old v0.8.1 items moved to parking lot.
+
+**No code changes. No test changes. Zero regression risk.**
+
+---
+
 ## v0.8.0 — Faithfulness Core (2026-04-29)
 
 ### Compiler — Body-Faithful Verification Conditions (BODY-VC)
