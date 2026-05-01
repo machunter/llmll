@@ -4,7 +4,7 @@
 
 > **Current version: v0.9.0 (shipped).** Compositional Verification — assume-guarantee reasoning for function call chains. `CallVC`, `ContractEnv`, call-pre obligation emission, `EMatch` on `Result`, SCC detection, `--strict-verified-core` mode. 452 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
-<details><summary><strong>Release history (v0.1.1 → v0.6.3)</strong></summary>
+<details><summary><strong>Release history</strong></summary>
 
 | Version | Headline |
 |---------|----------|
