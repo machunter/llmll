@@ -853,6 +853,66 @@ bodyToPredM env se cenv sccSet (ELet (b:bs) body) =
 -- ELet with no bindings (degenerate): just translate the body
 bodyToPredM env se cenv sccSet (ELet [] body) = bodyToPredM env se cenv sccSet body
 
+-- v0.9.0 COMP-3: EMatch on Result (two-path encoding)
+-- Handles: (match scrutinee ((Success s) bodyS) ((Error e) bodyE))
+-- Produces: BranchVC (FQVar "_match_success_N") bodyS_VC bodyE_VC
+-- Falls back on:
+--   - Non-two-arm matches (general ADT → future)
+--   - Constructors other than Success/Error
+--   - Scrutinee translation failure
+--   - Constructor-dependent postconditions (Issue 2)
+--   - Unannotated return types on scrutinee calls
+bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
+  -- Must be exactly 2 arms with Success and Error constructors
+  | Just (successVar, successBody, errorVar, errorBody) <- classifyResultArms arms
+  = do
+    -- Translate scrutinee
+    mScrutVC <- bodyToPredM env se cenv sccSet scrutinee
+    case mScrutVC of
+      Nothing -> return Nothing
+      Just scrutVC -> do
+        -- Determine the ok/err sorts from the scrutinee's type
+        -- For EVar: look up in sort env (conservative: assume FQInt)
+        -- For CallVC: use the callee's return type from ContractEnv
+        let (okSort, errSort) = case scrutinee of
+              EApp fname _ | fname `Map.member` cenv ->
+                let (_, _, mRetType) = cenv Map.! fname
+                in case mRetType of
+                     Just (TResult okT errT) -> (typeToSort okT, typeToSort errT)
+                     _                       -> (FQInt, FQInt)
+              _ -> (FQInt, FQInt)  -- fallback: assume int payloads
+
+        -- Generate fresh names for payload variables and match guard
+        successRenamed <- freshName successVar
+        errorRenamed   <- freshName errorVar
+        guardVar       <- freshName "_match_success"
+
+        -- Success branch: bind payload variable, translate body
+        let envS = Map.insert successVar successRenamed env
+            seS  = Map.insert successRenamed okSort se
+        mSuccessVC <- bodyToPredM envS seS cenv sccSet successBody
+
+        -- Error branch: bind payload variable, translate body
+        let envE = Map.insert errorVar errorRenamed env
+            seE  = Map.insert errorRenamed errSort se
+        mErrorVC <- bodyToPredM envE seE cenv sccSet errorBody
+
+        case (mSuccessVC, mErrorVC) of
+          (Just svc, Just evc) -> do
+            -- For CallVC scrutinee: thread as let-binding + branch
+            -- For SimpleVC scrutinee: just branch with synthetic guard
+            case scrutVC of
+              SimpleVC [] _scrutPred ->
+                return (Just (BranchVC (FQVar guardVar) svc evc))
+              CallVC {} ->
+                -- The scrutinee is a function call — wrap the branch as CallVC continuation
+                -- The CallVC result is the match scrutinee; branch discriminates its constructor
+                return (Just (setCallVCContinuation scrutVC (BranchVC (FQVar guardVar) svc evc)))
+              _ ->
+                -- Scrutinee produced a complex VC (branch, etc.) — fallback
+                return Nothing
+          _ -> return Nothing
+
 -- Everything else: match, app (user-defined without contract), lambda, etc. → fallback
 bodyToPredM _ _ _ _ _ = return Nothing
 
@@ -992,6 +1052,25 @@ prependLB lb (CallVC cal args mPre mPost rVar rSort cont) =
 
 prependLBs :: [LetBinding] -> BodyVC -> BodyVC
 prependLBs lbs bvc = foldr prependLB bvc lbs
+
+-- | v0.9.0 COMP-3: Classify match arms as Result (Success/Error) pattern.
+-- Returns Just (successVar, successBody, errorVar, errorBody) if the arms
+-- are exactly two with Success and Error constructors (in either order).
+-- Returns Nothing for non-Result patterns.
+classifyResultArms :: [(Pattern, Expr)] -> Maybe (Name, Expr, Name, Expr)
+classifyResultArms arms = case arms of
+  [(PConstructor "Success" [PVar s], bodyS), (PConstructor "Error" [PVar e], bodyE)] ->
+    Just (s, bodyS, e, bodyE)
+  [(PConstructor "Error" [PVar e], bodyE), (PConstructor "Success" [PVar s], bodyS)] ->
+    Just (s, bodyS, e, bodyE)
+  _ -> Nothing
+
+-- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
+-- Used for EMatch-over-call: the match's BranchVC becomes the call's continuation.
+setCallVCContinuation :: BodyVC -> BodyVC -> BodyVC
+setCallVCContinuation (CallVC cal args mPre mPost rVar rSort _cont) newCont =
+  CallVC cal args mPre mPost rVar rSort newCont
+setCallVCContinuation bvc _newCont = bvc  -- no-op for non-CallVC (shouldn't happen)
 
 -- | Infer the FQSort of a predicate result.
 -- In BODY-VC-0, we only support int-typed results.

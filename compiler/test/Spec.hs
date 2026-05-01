@@ -3992,3 +3992,81 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             erBodyFaithfulFns emitR `shouldSatisfy` elem "safe-sub"
             erBodyFaithfulFns emitR `shouldSatisfy` elem "withdraw"
 
+    describe "EMatch on Result (COMP-3)" $ do
+      it "C06: match on Result variable produces BranchVC" $ do
+        -- (match r ((Success v) v) ((Error e) 0))
+        -- where r is an int-typed variable in sort env
+        let body = EMatch (EVar "r")
+                     [ (PConstructor "Success" [PVar "v"], EVar "v")
+                     , (PConstructor "Error" [PVar "e"], ELit (LitInt 0))
+                     ]
+            se = Map.fromList [("r", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        case result of
+          Just (BranchVC guard svc evc) -> do
+            -- Guard should be a synthetic variable
+            case guard of
+              FQVar gn -> T.isPrefixOf "_bv__match_success" gn `shouldBe` True
+              _ -> expectationFailure $ "Expected FQVar guard, got: " ++ show guard
+            -- Success branch should produce the bound variable
+            case svc of
+              SimpleVC [] (FQVar sv) -> T.isPrefixOf "_bv_v" sv `shouldBe` True
+              _ -> expectationFailure $ "Expected SimpleVC with renamed var, got: " ++ show svc
+            -- Error branch should produce literal 0
+            case evc of
+              SimpleVC [] (FQLit 0) -> pure ()
+              _ -> expectationFailure $ "Expected SimpleVC [FQLit 0], got: " ++ show evc
+          other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
+
+      it "reversed arm order still works (Error first, Success second)" $ do
+        let body = EMatch (EVar "r")
+                     [ (PConstructor "Error" [PVar "e"], ELit (LitInt 0))
+                     , (PConstructor "Success" [PVar "v"], EVar "v")
+                     ]
+            se = Map.fromList [("r", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        case result of
+          Just (BranchVC _ svc evc) -> do
+            -- Success is always the then-branch
+            case svc of
+              SimpleVC [] (FQVar sv) -> T.isPrefixOf "_bv_v" sv `shouldBe` True
+              _ -> expectationFailure $ "Expected success SimpleVC, got: " ++ show svc
+            -- Error is always the else-branch
+            case evc of
+              SimpleVC [] (FQLit 0) -> pure ()
+              _ -> expectationFailure $ "Expected error SimpleVC, got: " ++ show evc
+          other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
+
+      it "F05: match on non-Result (3+ arms) falls back" $ do
+        -- (match c ((Red) 1) ((Green) 2) ((Blue) 3))
+        let body = EMatch (EVar "c")
+                     [ (PConstructor "Red" [], ELit (LitInt 1))
+                     , (PConstructor "Green" [], ELit (LitInt 2))
+                     , (PConstructor "Blue" [], ELit (LitInt 3))
+                     ]
+            se = Map.fromList [("c", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        result `shouldBe` Nothing
+
+      it "EMatch on function call (EApp) produces CallVC with BranchVC continuation" $ do
+        let gContract = Contract
+              (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
+              Nothing
+              (Just (EApp "=" [EVar "result", EVar "x"]))
+              Nothing
+            cenv = Map.fromList [("g", ([("x", TInt)], gContract, Just (TResult TInt TInt)))]
+            body = EMatch (EApp "g" [ELit (LitInt 42)])
+                     [ (PConstructor "Success" [PVar "v"], EVar "v")
+                     , (PConstructor "Error" [PVar "e"], ELit (LitInt 0))
+                     ]
+            se = Map.fromList [("x", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se cenv Set.empty body
+        case result of
+          Just (CallVC callee _ _ _ _ _ cont) -> do
+            callee `shouldBe` "g"
+            -- Continuation should be a BranchVC (the match)
+            case cont of
+              BranchVC _ _ _ -> pure ()
+              _ -> expectationFailure $ "Expected BranchVC continuation, got: " ++ show cont
+          other -> expectationFailure $ "Expected CallVC, got: " ++ show other
+
