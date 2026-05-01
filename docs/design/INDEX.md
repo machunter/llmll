@@ -14,7 +14,6 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 | Document | Summary | Status |
 |---|---|---|
 | [verification-debate.md](verification-debate.md) | Archive of a formal methods critique. Answers 5 Socratic questions (TCB, logic authority, unproven contracts, totality, cross-agent assumptions). Establishes "sound modulo trust" as the defensible position. | Active reference |
-| [verification-debate-action-items.md](verification-debate-action-items.md) | Concrete tickets from the debate: TCB hardening, trust propagation tests, semantic anchor decision, effect system spec, `(trust ...)` elevation. | Active — items tracked |
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |
 
@@ -50,7 +49,7 @@ Historical design documents from shipped versions are in [`../archive/`](../arch
 
 | Directory | Contents | Version |
 |---|---|---|
-| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor, invariant-discovery (base) | v0.6.2–v0.9.0 (all shipped or superseded) |
+| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor, invariant-discovery (base), verification-debate-action-items | v0.6.2–v0.9.0 (all shipped or superseded) |
 | `do_notation/` | Do-notation design and two implementation plans | v0.3 (shipped) |
 | `older_discussions_and_plans/` | SMT/Lean analysis, language analysis, feedback, unicode decision | Pre-v0.2 |
 | `sketch/` | Compiler handoff sketch, implementation guide | Pre-v0.2 |
