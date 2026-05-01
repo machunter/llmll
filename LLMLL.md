@@ -771,9 +771,15 @@ foo/bar/baz.ast.json     (JSON-AST      — tried second)
 
 If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precedence.
 
-### 8.3 Import Ordering Rule
+### 8.3 Declaration Ordering
 
-All `import`, `open`, and `export` declarations must appear **before** any `def-logic`, `type`, or `def-interface` statements — both inside a `(module ...)` block and at file scope. The parser reads imports in a first pass; declarations placed after logic definitions are silently ignored.
+All `import`, `open`, and `export` declarations should appear **before** any `def-logic`, `type`, or `def-interface` statements — both inside a `(module ...)` block and at file scope. The parser accepts declarations in any position, but **ordering has semantic impact**: the type-checker processes statements sequentially, so an `(open A)` placed after a `(def-logic f ...)` will not inject A's names into `f`'s body scope.
+
+Recommended order:
+1. `import` declarations (trigger module loading)
+2. `open` declarations (inject bare names into scope)
+3. `export` declaration (restrict visibility to importers)
+4. `type`, `def-interface`, `def-logic`, `letrec`, `check` declarations
 
 ### 8.4 Cycle Detection
 
@@ -787,39 +793,56 @@ Circular imports are a **compile error**. The compiler performs a DFS-based cycl
 }
 ```
 
-### 8.5 Namespace Isolation — Prefixed Access (Default)
+### 8.5 Namespace Resolution (Current Behavior)
 
-All names exported by an imported module are accessible via the fully qualified path. No extra declaration is needed:
+`(import foo)` triggers DFS file loading and seeds the type-checker with **qualified names only** (`foo.f`, `foo.g`). Codegen concatenates all imported module statements into a single flat `Lib.hs` with bare Haskell names.
+
+To call imported functions, use `(open foo)` to inject bare aliases into the type-checker's scope, then call with bare names:
 
 ```lisp
-(module app.main
-  (import app.auth))
+(import app.auth)
+(open app.auth)                  ;; inject bare aliases for all exports
 
-;; Call the exported function with its qualified name:
+;; Call with bare name:
+(hash-password raw-str)
+```
+
+The usable pattern is: **`import` → `open` → bare call.**
+
+Qualified references (`app.auth.hash-password`) are accepted by the type-checker but **fail at codegen** — the flat `Lib.hs` emits bare Haskell names, not qualified ones.
+
+> [!NOTE]
+> **Loader permissiveness.** The DFS module loader uses permissive typechecking for
+> imported modules — unbound bare names produce warnings, not errors. The entry-point
+> file is checked with strict typechecking during `llmll build`. This asymmetry means
+> imported modules may omit `(open ...)` declarations and still load successfully,
+> but the entry-point file must include them.
+
+#### 8.5.1 Qualified Access (Planned — Not Shipped)
+
+The language design supports fully qualified access as the default namespace model:
+
+```lisp
+;; PLANNED (not currently operational at codegen):
 (app.auth.hash-password raw-str)
 ```
 
-> [!WARNING]
-> **Codegen limitation:** All imported modules are merged into a single flat `Lib.hs`.
-> Qualified references (`module.fn`) are accepted by the type-checker, but codegen
-> flattens them — `world.make-world` becomes `world_make_world` in Haskell, which
-> does not exist. **Call sites must use bare function names.** The `(import world)`
-> statement is still required to trigger module loading and merging.
+This will become operational when codegen emits per-module Haskell files with proper qualified imports, replacing the current single-`Lib.hs` concatenation model.
 
-This reuses the existing `QualIdent` / dot-notation infrastructure — no new runtime concept.
+### 8.6 `open` — Bare-Name Injection
 
-### 8.6 `open` — Selective Unprefixing
-
-`(open path)` pulls a module's exports into the current scope without a prefix. An optional name list restricts which names are unprefixed:
+`(open path)` injects a module's exported names into the current scope as bare names. This is **required** for calling imported functions under strict typechecking (used by `llmll build`). An optional name list restricts which names are injected:
 
 ```lisp
-(open app.auth)                  ;; all exports at bare names
-(open app.auth (hash-password))  ;; only hash-password unprefixed
+(open app.auth)                  ;; all exports as bare names
+(open app.auth (hash-password))  ;; only hash-password as a bare name
 ```
 
-`open` is a compile-time name-alias injection — it has no effect on codegen output.
+`open` is a compile-time alias injection — it makes the type-checker aware of bare names. Codegen is unaffected (bare names already exist in the concatenated `Lib.hs`).
 
-> **Collision policy:** If two `(open ...)` declarations export the same bare name, the second `open` wins (last wins). The compiler emits a `WARNING` diagnostic. An agent that needs both must use prefixed access for at least one.
+`(import A)` alone loads module A's definitions into `Lib.hs` but does **not** make them accessible by bare name in the type-checker. Without `(open A)`, only qualified names (`A.f`) are in scope, and qualified names do not resolve at runtime under the current flat-codegen model.
+
+> **Collision policy:** If two `(open ...)` declarations export the same bare name, the second `open` wins (last wins). The compiler emits a `WARNING` diagnostic.
 
 ### 8.7 `export` — Visibility Control
 
@@ -830,6 +853,16 @@ This reuses the existing `QualIdent` / dot-notation infrastructure — no new ru
 If no `export` declaration is present, **all** top-level `def-logic`, `type`, `def-interface`, and `gen` declarations are exported (open default). `check` and `def-invariant` blocks are **never exported**.
 
 The `export` declaration must appear before the first `def-logic`.
+
+> [!NOTE]
+> **Export enforcement scope.** Export control is enforced at compile time during
+> `llmll build` (which uses strict typechecking). Permissive `llmll check` reports
+> unexported-name access as warnings, not errors.
+>
+> The generated `Lib.hs` contains all definitions from all imported modules, including
+> unexported ones, because exported functions may depend on private helpers and type
+> aliases. True codegen-level hiding requires per-module Haskell file emission with
+> Haskell `module` export lists, planned for a future release.
 
 ### 8.8 Cross-Module `def-interface` Enforcement
 
@@ -900,6 +933,14 @@ Interfaces can declare **algebraic laws** that any conforming implementation mus
 ```
 
 Omitting `:laws` is valid — interfaces without laws parse and compile unchanged.
+
+> [!NOTE]
+> **Cross-module contract metadata (v0.10).** `ModuleEnv` currently stores per-function
+> evidence levels (`meContractStatus`) but not contract expressions (parameter names
+> and `pre`/`post` `Expr` values). Intra-module compositional verification constructs
+> `ContractEnv` directly from the statement list. Cross-module compositional verification
+> (v0.10+) will require extending `ModuleEnv` with a `meContracts` field carrying
+> per-function contract metadata.
 
 ### 8.9 `llmll-hub` Registry
 

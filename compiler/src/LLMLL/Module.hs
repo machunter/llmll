@@ -25,8 +25,6 @@ module LLMLL.Module
 -- All imports must be at the top in Haskell (no inline imports).
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -141,12 +139,18 @@ loadModule :: Bool             -- ^ json mode
            -> FilePath         -- ^ source root (dir of entry file)
            -> [FilePath]       -- ^ extra roots
            -> ModuleCache      -- ^ already-loaded modules
-           -> Set ModulePath   -- ^ DFS stack for cycle detection
+           -> [ModulePath]    -- ^ DFS stack for cycle detection (head = most recent)
            -> ModulePath       -- ^ module to load
            -> IO LoadResult
 loadModule jsonMode srcRoot extraRoots cache0 visitedStack modPath
-  | Set.member modPath visitedStack =
-      let cycleList = map pathToText (Set.toList visitedStack) ++ [pathToText modPath]
+  | modPath `elem` visitedStack =
+      -- Slice: only report the cycle, not ancestors outside it.
+      -- visitedStack is [C, B, A] (most-recent-first) and modPath is B.
+      -- takeWhile (/= B) [C, B, A] = [C]  (modules visited after cycle entry)
+      -- (B : reverse [C]) ++ [B] = [B, C, B]  (correct visit-order cycle)
+      let aboveCycle = takeWhile (/= modPath) visitedStack
+          cyclePath  = (modPath : reverse aboveCycle) ++ [modPath]
+          cycleList  = map pathToText cyclePath
       in pure $ Left [mkCircularImport cycleList]
   | Just env <- Map.lookup modPath cache0 =
       -- Already loaded — return empty order extension (already counted)
@@ -158,7 +162,7 @@ loadModule jsonMode srcRoot extraRoots cache0 visitedStack modPath
           [ mkModuleNotFound (pathToText modPath) (srcRoot : extraRoots) ]
         Just fp -> loadFromFile jsonMode srcRoot extraRoots cache0 visitedStack modPath fp
 
-loadFromFile :: Bool -> FilePath -> [FilePath] -> ModuleCache -> Set ModulePath
+loadFromFile :: Bool -> FilePath -> [FilePath] -> ModuleCache -> [ModulePath]
              -> ModulePath -> FilePath -> IO LoadResult
 loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
   mStmts <- parseFile fp
@@ -166,7 +170,7 @@ loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
     Left diag -> pure $ Left [diag]
     Right stmts -> do
       let imports  = [imp | SImport imp <- stmts]
-          newStack = Set.insert modPath visitedStack
+          newStack = modPath : visitedStack
       result <- foldM (loadOneImport srcRoot extraRoots newStack) (Right (cache0, [])) imports
       case result of
         Left diags -> pure $ Left diags
@@ -189,7 +193,7 @@ loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
             then pure $ Right (cache2, order2, env)
             else pure $ Left hardErrors
 
-loadOneImport :: FilePath -> [FilePath] -> Set ModulePath
+loadOneImport :: FilePath -> [FilePath] -> [ModulePath]
               -> Either [Diagnostic] (ModuleCache, [ModulePath])
               -> Import
               -> IO (Either [Diagnostic] (ModuleCache, [ModulePath]))

@@ -51,6 +51,7 @@ import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
+import ModuleSpec (moduleSpec)
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -4070,3 +4071,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               _ -> expectationFailure $ "Expected BranchVC continuation, got: " ++ show cont
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
 
+  -- -----------------------------------------------------------------------
+  -- Module System (M-01 through M-07)
+  -- -----------------------------------------------------------------------
+  moduleSpec

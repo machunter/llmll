@@ -2,12 +2,13 @@
 ;; Module: main
 ;; Imports: world (for evolve, render-world, make-world, glider-grid)
 ;;
-;; NOTE on qualified names: the LLMLL codegen merges all modules into a single
-;; flat Haskell namespace (Lib.hs). Use bare function names even for imported
-;; module functions — do NOT use world.evolve, use just evolve.
+;; The LLMLL module pattern is: import → open → bare call.
+;; (import world) loads the module and seeds qualified names.
+;; (open world) injects bare aliases so we can call evolve, render-world, etc.
 
 (import wasi.io (capability stdout :deterministic false))
 (import world)
+(open world)
 
 (def-logic start-game []
   (let [(w      20)

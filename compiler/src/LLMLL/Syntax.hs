@@ -528,6 +528,11 @@ data Command
 type ModulePath = [Name]
 
 -- | Everything the type-checker and codegen need from one compiled module.
+-- TODO(v0.10): Add meContracts :: Map Name ([(Name, Type)], Contract)
+-- for cross-module ContractEnv construction. Currently, per-function
+-- contract expressions are not carried in ModuleEnv — only evidence
+-- levels (meContractStatus). This blocks compositional verification
+-- across module boundaries.
 data ModuleEnv = ModuleEnv
   { meExports        :: Map Name Type             -- ^ exported name → type
   , meStatements     :: [Statement]               -- ^ parsed statements (for codegen left-to-right)

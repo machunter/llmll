@@ -1,0 +1,3 @@
+;; modA: defines f and g (no export restriction)
+(def-logic f [x: int] (+ x 1))
+(def-logic g [x: int] (+ x 2))

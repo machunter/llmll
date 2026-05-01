@@ -173,6 +173,7 @@ test-suite llmll-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      ModuleSpec
       Paths_llmll
   hs-source-dirs:
       test

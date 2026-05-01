@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.9.0 shipped (Compositional Verification). Feature freeze active. 452 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.9.0 shipped (Compositional Verification). Module system hardened (v0.9.1). Feature freeze active. 463 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -23,79 +23,6 @@
 
 ---
 
-## Pre-v0.7 Hygiene (external consultant findings, 2026-04-28)
-
-> Items below are not feature work — they are test drift and documentation drift identified during an independent project evaluation. Fix before starting v0.7.
-
-| # | ID | Description | Effort | Status |
-|---|-----|-------------|--------|--------|
-| 1 | **TEST-DRIFT** | Fix Python dry-run Lead Agent fixture — stub plan in `agent.py:385` defines `stub-fn` with no contract, rejected by the spec-quality gate added in v0.6.0. Update fixture to include a minimal contract. | 0.5 hr | ✅ |
-| 2 | **DOC-DRIFT** | Reconcile LLMLL.md with `SpecCoverage.hs` JSON output — spec describes `suppression_debt` field but `SpecCoverage.hs:302` only emits `effective_coverage`. Either remove the field from the spec until SUPP-DEBT ships (v0.8.0), or add a stub field now. | 0.5 hr | ✅ |
-
----
-
-## v0.8.0 — Faithfulness Core ✅ Shipped
-
-**Theme:** Close the faithfulness gap — make `VLProvenSMT` mean implementation-verified, not just contract-consistent. 320 Haskell tests (was 294; +26).
-
-> **Source:** Professor's analysis (2026-04-28) identified the gap documented in [LLMLL.md §5.3.4](../LLMLL.md) and [Contracts.hs:191–192](../compiler/src/LLMLL/Contracts.hs). `emitFnConstraints` now encodes function bodies as verification conditions for the QF-LIA fragment. `isBodyFaithful` returns `True` per-function when body VCs are emitted and pass.
->
-> **Consensus:** Language team proposal + professor review + compiler team feedback (2026-04-28).
-
-### BODY-VC — Body-Faithful Verification Conditions
-
-> [!NOTE]
-> BODY-VC-0 design spec is complete — see [`docs/design/body-vc-0-spec.md`](design/body-vc-0-spec.md). Approved by all 5 agents (2026-04-29). All implementation items shipped.
-
-#### Design Decisions (resolved by BODY-VC-0)
-
-BODY-VC-0 resolved the following proof obligations:
-
-| Obligation | Resolution |
-|-----------|------------|
-| VC encoding completeness | `ELit`, `EVar`, `EBinOp`, `ELet`, `EIf` covered. `EApp` for user-defined functions and `EMatch` deferred to phase 2. |
-| Soundness of body translation | `bodyToPred` produces `BodyVC` (a list of `FlatPath`s), not a single `FQPred`. Each path is a conjunction of guards → `result = expr`. Conservative: unsupported expressions return `Nothing`. |
-| `TDependent` interaction | TDependent constraints stay out — two-layer architecture preserved. |
-| Recursive functions | BODY-VC-0 excludes `letrec`. Termination is a separate proof obligation (research-track §7). |
-| Coverage fallback | When `bodyToPred` returns `Nothing`, contract-level solver evidence may still be recorded, but body-faithful status remains `False` and runtime assertions are preserved. |
-
-**Coverage boundary:**
-
-- **In scope:** Non-recursive `def-logic` with `ELet`, `EIf`, literal arithmetic, variable references, comparisons
-- **Out of scope:** `letrec` (needs inductive hypothesis), indexed types (`Vect n a`), `EMatch` on sum types (phase 2), `EApp` for user-defined functions (phase 2)
-- **Fallback:** When `bodyToPred` returns `Nothing`, contract-level solver evidence may still be recorded, but body-faithful status remains `False` and runtime assertions are preserved.
-
-| # | ID | Description | Prerequisite | Status |
-|---|-----|-------------|-------------|--------|
-| 1 | **BODY-VC-0** | Design spec: VC encoding rules, soundness argument, coverage boundary, `TDependent` interaction, recursive function handling, `ContractClause` refactor decision, `bodyToPred` placement (new function calling `exprToPred` for leaves — Option B), **concrete `.fq` example for each translation rule** — see [`body-vc-0-spec.md`](design/body-vc-0-spec.md) | None | ✅ |
-| 2 | **BODY-VC-1** | `bodyToPred :: Expr -> Maybe BodyVC` for QF-LIA fragment (non-recursive `def-logic`, `ELet`, `EIf`, linear arithmetic). `BodyVC` contains `[FlatPath]` — each path is a conjunction of guards → `result = expr`. Alpha-renaming for shadowed variables. Conservative `Nothing` for unsupported constructs. | BODY-VC-0 | ✅ |
-| 3 | **BODY-VC-2** | Wire into `emitFnConstraints` — when `bodyToPred body = Just bvc`, flatten `BodyVC` paths into `.fq` constraints with `body-post` tag. Update `toDiag` in `DiagnosticFQ.hs` for body-post diagnostic messages. EIf-in-let hoisting. Early-exit fix. | BODY-VC-1 | ✅ |
-| 4 | **BODY-VC-3** | Mark postconditions body-faithful per function via `csPostBodyFaithful` field in `ContractStatus`. `isBodyFaithful` → `True` per-function. `--contracts=unproven` strips postconditions only when `VLProvenSMT ∧ csPostBodyFaithful`. Preconditions never stripped. | BODY-VC-2 | ✅ |
-| 5 | **BODY-VC-T** | 25 new tests: T01–T05 (golden), F01–F03 (fallback), N01–N04 (negative), P01–P04 (parsed-source), T11 (SUPP-DEBT), plus SortEnv, Parens, Flatten, E08 edge cases. | BODY-VC-1 | ✅ |
-
-### Other v0.8.0 Items
-
-| # | ID | Description | Prerequisite | Status |
-|---|-----|-------------|-------------|--------|
-| 6 | **SUPP-DEBT** | `spec_coverage` + `suppression_debt` fields in `--spec-coverage` JSON output alongside `effective_coverage`. | None | ✅ |
-| 7 | **EVENT-LOG** | Orchestration event log schema (Q3 from v0.3.3, deferred since v0.3.5) | Lead Agent stabilized (done) | ✅ |
-| 8 | **SPEC-FOUNDATION** | §0.1 "Semantic Foundation" added to LLMLL.md — LLMLL's operational semantics are defined by the generated Haskell program | None | ✅ |
-| 9 | **SPEC-EFFECTS** | §3.3 "Effect Model" documented — capabilities are static-checked, not algebraic, not row-polymorphic | None | ✅ |
-| 10 | **SPEC-TRUST** | Elevated `(trust ...)` documentation in LLMLL.md — soundness boundary, propagation, review pressure. Trust docs updated for body-faithful verification semantics. | BODY-VC-3 | ✅ |
-
-### Open Spec Items (Language Team) — All Resolved
-
-> Obligations from [verification-debate-action-items.md](design/verification-debate-action-items.md) that have landed in `LLMLL.md`.
-
-| # | Item | Status |
-|---|------|--------|
-| 1 | §0.1 "Semantic Foundation" — operational semantics = generated Haskell | ✅ Shipped (v0.8.0, SPEC-FOUNDATION) |
-| 2 | §3.3 "Effect Model" — capabilities are static-checked, not algebraic, not row-polymorphic | ✅ Shipped (v0.8.0, SPEC-EFFECTS) |
-| 3 | Elevated `(trust ...)` documentation — soundness boundary, propagation, review pressure | ✅ Shipped (v0.8.0, SPEC-TRUST) |
-| 4 | §6 spec-adequacy note — user responsibility for specification correctness | Deferred |
-
----
-
 ## Feature Freeze Policy (v0.8.1a through v0.10)
 
 > [!IMPORTANT]
@@ -103,146 +30,9 @@ BODY-VC-0 resolved the following proof obligations:
 >
 > **Source:** Professor's five-round review (2026-04-30), updated 2026-05-01 to extend through v0.10. Consensus of language team and professor.
 
----
-
-## v0.8.1a — Documentation Boundary Clarity
-
-**Theme:** Make the verification boundary impossible to miss. No code changes, no regression risk.
-
-**Effort:** ~1 day.
-
-> **Source:** Professor's review (2026-04-30) identified that documentation over-claims relative to the verification boundary, and user-facing trust labels conflate different kinds of evidence.
-
-| # | ID | Description | Files affected | Status |
-|---|-----|-------------|---------------|--------|
-| 1 | **RENAME-1** | **[SPEC]** Rename LLMLL.md §3.4 from "Dependent Types (Logic-Constrained)" to "Refinement Type Aliases (Logic-Constrained)." Remove prose comparing LLMLL to Idris or Lean for dependent elimination. Correct claim: "LLMLL supports refinement-like annotations whose predicates are checked by the verification layer or enforced as runtime assertions depending on trust level." | `LLMLL.md` | ✅ |
-| 2 | **RENAME-2** | **[SPEC]** Update one-pager — remove "Drawing from type-driven development (as pioneered in Idris and Lean)" or reword to "Inspired by refinement types (Liquid Haskell) and type-driven development." | `docs/one-pager.md` | ✅ |
-| 3 | **MATRIX-1** | **[SPEC]** Add per-syntax-construct verification matrix to LLMLL.md §5.3 (new §5.3.5). Columns: typechecked, runtime-asserted, SMT contract-only, SMT body-faithful, QuickCheck, unsupported/fallback. Rows: ELit, EVar, EBinOp (linear), EBinOp (non-linear), ELet, EIf, EApp (builtins), EApp (user-defined), EMatch, EPair/first/second, letrec, EDo, ELambda. Include integer overflow model gap row (Z3 `Int` vs Haskell `Int64`). | `LLMLL.md` | ✅ |
-| 4 | **MATRIX-2** | Add compressed verification matrix to README.md (new "Verification Boundary" section after "Quick start"). | `README.md` | ✅ |
-| 5 | **MATRIX-3** | Add compressed verification matrix to one-pager (in "Status" section or new subsection). | `docs/one-pager.md` | ✅ |
-| 6 | **BOUNDARY-1** | **[SPEC]** Rewrite one-pager "Status" opening paragraph to lead with the QF-LIA boundary: "LLMLL currently provides body-faithful SMT verification for a non-recursive QF-LIA core: literals, variables, simple let-bindings, conditionals, and linear arithmetic. Programs outside that fragment fall back to contract-only verification, tests, or runtime assertions with explicit trust labels." | `docs/one-pager.md` | ✅ |
-| 7 | **BOUNDARY-2** | **[SPEC]** Document integer overflow model gap in verification matrix: "Z3 reasons over mathematical integers; Haskell `Int` wraps at 2⁶³. Contracts proven in the solver may not hold at overflow boundaries." Documented limitation, not a defect to fix. | `LLMLL.md` §5.3.5 | ✅ |
-| 8 | **ROADMAP-1** | Update `compiler-team-roadmap.md` with v0.8.1a/v0.8.1b/v0.9 plan. Move old v0.8.1 items to parking lot. Add feature freeze policy. Update critical path diagram. | `docs/compiler-team-roadmap.md` | ✅ |
-| 9 | **ROADMAP-2** | Update one-pager "What's Next" table with v0.8.1a, v0.8.1b, v0.9 milestones. | `docs/one-pager.md` | ✅ |
-
-> ✅ **v0.8.1a shipped** (commit `58c0f26`, 2026-04-30). All 9 items delivered. No code changes, no test changes, zero regression risk.
-
-**Acceptance criteria:**
-- §3.4 heading says "Refinement Type Aliases"
-- No document claims LLMLL has dependent elimination, proof terms, or sigma types
-- Verification matrix appears in LLMLL.md, README.md, and one-pager
-- One-pager "Status" section opens with the QF-LIA boundary sentence
-- Integer overflow model gap documented
-- Roadmap reflects the new milestone structure
 
 ---
 
-## v0.8.1b — Evidence Model Refactor
-
-**Theme:** Replace the linear trust lattice with a structured evidence model. Make trust reports impossible to misread.
-
-**Effort:** ~3–5 days.
-
-> [!IMPORTANT]
-> **Design review required before implementation.** The evidence model changes touch serialization, trust propagation, coverage, cache compatibility, CLI output, and tests. A design spec (comparable to `body-vc-0-spec.md`) should be produced and reviewed before coding begins.
-
-> **Source:** Professor's review identified that user-facing trust labels conflate different kinds of evidence. The current `VerificationLevel` ADT imposes a total order; `contract-checked` and `tested` are incomparable evidence kinds that the current model incorrectly ranks.
-
-**Evidence vocabulary (four tiers, partial order — not total):**
-
-```
-        verified
-       /        \
-contract-checked  tested
-       \        /
-       asserted
-```
-
-| Display label | Evidence kind | Meaning |
-|---|---|---|
-| `verified` | Implementation evidence | SMT proved that the implementation satisfies the contract |
-| `contract-checked` | Specification evidence | SMT proved the contract is internally consistent / non-vacuous; implementation not verified |
-| `tested` | Empirical evidence | Not falsified by QuickCheck-generated tests |
-| `asserted` | Runtime enforcement | Enforced only by runtime assertion; no static or dynamic evidence |
-
-**Assumption taxonomy (separate from evidence tiers):**
-
-| Assumption kind | Meaning | Example |
-|---|---|---|
-| `runtime-primitive` | Part of LLMLL's trusted runtime semantics | `+`, `-`, `string-length` |
-| `compiler-builtin` | Implemented in the LLMLL preamble | `string-char-at`, `regex-match` |
-| `external-opaque` | Stub or FFI binding; correctness assumed, not verified | `sha1`, `hmac-sha1`, Aeson bindings |
-
-| # | ID | Description | Prerequisite | Status |
-|---|-----|-------------|-------------|--------|
-| 1 | **EVID-0** | **[DESIGN]** Design spec: evidence model ADT, JSON schema, projection rules, assumption taxonomy, migration plan for `.verified.json`, backward compatibility story. Comparable to `body-vc-0-spec.md`. | None | ✅ |
-| 2 | **EVID-1** | **[CT]** `EvidenceRecord` type in `Syntax.hs`. Four-tier `DisplayLevel` ADT. `AssumptionKind` ADT. Replace `VerificationLevel` in all 12 consumer files (see full list below). `evidenceMeet` partial-order meet function. | EVID-0 | ✅ |
-| — | **EVID-1a** | **[CT]** Update `ProofCache.hs` — `proofToLevel` returns `DLVerified`. `isTaintedProof` returns `DLAsserted`. | EVID-1 | ✅ |
-| — | **EVID-1b** | **[CT]** Update `AstEmit.hs` — `vlLabel` → `dlLabel` for JSON-AST round-trip (`--emit json-ast`). | EVID-1 | ✅ |
-| — | **EVID-1c** | **[CT]** Update `TypeCheck.hs` — `tcContractStatus` type update, trust-gap warning patterns. | EVID-1 | ✅ |
-| — | **EVID-1d** | **[CT]** Update `Parser.hs` — `(trust ...)` parsing → new evidence constructors. | EVID-1 | ✅ |
-| — | **EVID-1e** | **[CT]** Update `ObligationMining.hs` — obligation classification patterns. | EVID-1 | ✅ |
-| 3 | **EVID-2** | **[CT]** Update `VerifiedCache.hs` — new JSON sidecar format with evidence records. Hard break: old `.verified.json` files return empty map (no backward compat). | EVID-1 | ✅ |
-| 4 | **EVID-3** | **[CT]** Update `TrustReport.hs` — display-level projection rule. Generalize `transitiveClose` from linear `min` to partial-order meet. Display assumptions in report. `⚠` marker for `external-opaque`. | EVID-1 | ✅ |
-| 5 | **EVID-4** | **[CT]** Update `SpecCoverage.hs` — classification uses new evidence tiers. JSON output uses new field names. | EVID-1 | ✅ |
-| 6 | **EVID-5** | **[CT]** Update `Contracts.hs` — stripping logic uses `DLVerified` + `body_faithful` instead of `VLProvenSMT` + `csPostBodyFaithful`. | EVID-1 | ✅ |
-| 7 | **EVID-6** | **[CT]** Update `Module.hs` — `mergeCS` uses new lattice meet. | EVID-1 | ✅ |
-| 8 | **EVID-7** | **[CT]** Update CLI output in `Main.hs` — `--trust-report` and `--json` use new labels. | EVID-1 | ✅ |
-| 9 | **EVID-8** | **[SPEC]** Update LLMLL.md §4.4.1, §5.3.3, §5.3.4 — new trust tier vocabulary. Update §4.4.4 trust report examples. | EVID-7 | ✅ |
-| 10 | **EVID-T** | **[CT]** Test migration: update all trust-report, `.verified.json`, and spec-coverage test expectations. Lattice property tests via `evidenceCovers`/`evidenceMeet`. | EVID-1 | ✅ |
-
-> **Complete `VerificationLevel` consumer file list (12 files):** `Syntax.hs`, `Main.hs`, `TrustReport.hs`, `VerifiedCache.hs`, `SpecCoverage.hs`, `Contracts.hs`, `Module.hs`, `ProofCache.hs`, `AstEmit.hs`, `TypeCheck.hs`, `Parser.hs`, `ObligationMining.hs`. (`DiagnosticFQ.hs` confirmed NOT a consumer — it operates on `ConstraintOrigin`, not `VerificationLevel`.)
-
-**Acceptance criteria:**
-- `--trust-report` never displays plain `proven-smt` without evidence qualification
-- `verified` functions with `external-opaque` dependencies show `⚠ assumes external-opaque: ...`
-- `.verified.json` contains structured evidence records with provenance
-- Old `.verified.json` files are read without errors (backward compat)
-- `contract-checked` and `tested` are not comparable (no `Ord` instance between them)
-- All 320+ existing tests pass (with updated expectations)
-
----
-
-## v0.9 — Compositional Verification ✅ Shipped
-
-**Theme:** Extend body-faithful verification from isolated leaf functions to function call chains.
-
-**Effort:** ~5–7 days (actual: completed 2026-05-01).
-
-> [!NOTE]
-> **Design review (COMP-0) completed and approved (Rev 2).** All 5 implementation phases shipped. See [`docs/design/comp-0-spec.md`](design/comp-0-spec.md).
-
-> **Source:** Professor's review identified compositional verification (`EApp`) as the most impactful technical extension after the evidence model is in place.
-
-**Assume-guarantee encoding for `EApp`:**
-
-Given current path condition Γ, for call `(f e₁ ... eₙ)`:
-1. **PROVE:** `Γ ⟹ pre_f(⟦e₁⟧, ..., ⟦eₙ⟧)` — caller must satisfy callee's precondition
-2. **ASSUME:** `post_f(⟦e₁⟧, ..., ⟦eₙ⟧, result_f)` — caller may use callee's postcondition
-3. **BIND:** `result = result_f` — fresh symbolic variable for call result
-
-> [!CAUTION]
-> **Polarity matters.** The callee precondition is an **obligation** the solver must discharge (constraint), not a **hypothesis** the solver may assume. Emitting `pre_f` as a hypothesis would be a soundness hole.
-
-| # | ID | Description | Prerequisite | Status |
-|---|-----|-------------|-------------|--------|
-| 1 | **COMP-0** | **[DESIGN]** Design spec: assume-guarantee encoding rules, `.fq` constraint polarity, `CallVC` constructor, SCC handling, `EMatch` encoding for `Result`, precondition failure policy, interaction with `bodyToPred`. Rev 2 approved. | EVID-0 | ✅ |
-| 2 | **COMP-1** | **[CT]** `CallVC` constructor, `ContractEnv`, `applySubst`, `isConstructorDependent`, three-way pre distinction (Issue 1), `CallVC` direct return (Issue 3), SCC guard removed (Issue 4), `ELet` continuation threading, call-pre constraint emission with PROVE polarity. | COMP-0 | ✅ |
-| 3 | **COMP-2** | **[CT]** SCC detection via `Data.Graph.stronglyConnComp`. Exported `buildCallGraph` from `HoleAnalysis.hs`. Recursive functions excluded from body VCs. | COMP-1 | ✅ |
-| 4 | **COMP-3** | **[CT]** `EMatch` on `Result a e` (two-path encoding): `classifyResultArms`, synthetic guard, sort derivation from `ContractEnv` `TResult`, `setCallVCContinuation` for EMatch-over-call. | COMP-0 | ✅ |
-| 5 | **COMP-4** | **[CT]** Transitive trust degradation: existing `enrichEntry`/`evidenceMeet` infrastructure (v0.8.1b) handles this. Call graph consistency verified. | COMP-1, EVID-3 | ✅ |
-| 6 | **COMP-5** | **[CT]** `call-pre:` tag in `ConstraintOrigin`, `toDiag` mapping for UNSAFE call-site preconditions. Structured diagnostic with caller/callee identification. | COMP-1 | ✅ |
-| 7 | **COMP-6** | **[CT]** `--strict-verified-core` CLI flag: hard error on functions in `erBodyFallback`. JSON and text output. | COMP-5 | ✅ |
-| 8 | **COMP-T** | **[CT]** 18 golden tests: `applySubst` (4), `isConstructorDependent` (3), `bodyToPredM` with `ContractEnv` (4), `collectCallPreObligations` (2), end-to-end emission (1), `EMatch` on Result (4). 452 total tests. | COMP-1 | ✅ |
-
-**Acceptance criteria:**
-- ✅ `withdraw` calling verified `safe_subtract` emits call-pre obligation
-- ✅ Recursive SCC detected and falls back to contract-only
-- ✅ `EMatch` on `Result` produces two-path body-faithful encoding
-- ✅ Call-site precondition failures produce structured diagnostics
-- ✅ `--strict-verified-core` hard-errors on fallback functions
-
----
 
 ## v0.10 — Obligation-Guided Agent Coding
 
@@ -293,12 +83,13 @@ This is the thing an agent can actually use. Three obligation channels:
 | # | ID | Description | Prerequisite | Status |
 |---|-----|-------------|-------------|--------|
 | 1 | **OBLIG-0** | **[DESIGN]** Design spec: obligation report JSON schema, enriched typed holes (expected type + contract context + path condition + assumption set), `EMatch` branch obligation encoding, repair suggestion generation, benchmark suite definition. | COMP-0 | ☐ |
-| 2 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, and assumption set (from v0.8.1b `ContractStatus.csAssumptions`). Structured JSON output via `llmll checkout --obligations`. | OBLIG-0 | ☐ |
-| 3 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, COMP-1 | ☐ |
-| 4 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, COMP-3 | ☐ |
-| 5 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☐ |
-| 6 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligations` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☐ |
-| 7 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☐ |
+| 2 | **MOD-1** | **[CT]** Cross-module `ContractEnv`: add `meContracts :: Map Name ([(Name, Type)], Contract)` field to `ModuleEnv` in `Syntax.hs`. Populate from `buildModuleEnv`. Wire into `ContractEnv` construction for imported modules. Required for cross-module obligation reports (OBLIG-2/3). See `TODO(v0.10)` in `Syntax.hs:530`. | COMP-1 | ☐ |
+| 3 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, and assumption set (from v0.8.1b `ContractStatus.csAssumptions`). Structured JSON output via `llmll checkout --obligations`. | OBLIG-0 | ☐ |
+| 4 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, MOD-1, COMP-1 | ☐ |
+| 5 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, MOD-1, COMP-3 | ☐ |
+| 6 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☐ |
+| 7 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligations` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☐ |
+| 8 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☐ |
 
 ### Obligation Quality Benchmark
 
@@ -339,6 +130,23 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | **MCP** | MCP integration for compiler CLI | Concrete external integration request |
 
 **What changed from old v0.8.1:** LEAN-GA, TRUST-2b, and MCP were entirely blocked on external availability. STRIP-GA depends on evidence model clarity (v0.8.1b), not Lean. All moved to parking lot. New v0.8.1a/v0.8.1b/v0.9 have zero external blockers.
+
+---
+
+## Future — Module System Codegen (unversioned)
+
+**Theme:** Complete the module system's codegen-level guarantees.
+
+> **Source:** Professor's review (2026-05-01) and module system hardening audit (v0.9.1). Current module system is compile-time correct but codegen-level enforcement is absent.
+
+| # | ID | Description | Prerequisite | Status |
+|---|-----|-------------|-------------|--------|
+| 1 | **MOD-2** | **[CT]** Per-module Haskell file emission: instead of concatenating all module statements into a single `Lib.hs`, emit one `.hs` file per module with Haskell `module` export lists. Enables true codegen-level export hiding and qualified access. | None | ☐ |
+| 2 | **MOD-3** | **[CT]** Qualified access at codegen: with per-module `.hs` files, translate `module.function` to Haskell qualified imports. Makes §8.5.1 "Qualified Access" operational. | MOD-2 | ☐ |
+| 3 | **MOD-4** | **[CT]** `loadFromFile` strict typecheck migration: switch the DFS module loader from permissive `typeCheck` to strict `typeCheckStrictWithCache`. Requires all examples and library modules to have correct `(open ...)` declarations. | MOD-1 | ☐ |
+| 4 | **MOD-5** | **[CT]** `checkInterfaceMismatch` wiring: add `interfaceName` field to `Import` AST in `Syntax.hs`, parse `(interface ...)` clause in `Parser.hs`, expand `meAliasMap` types before comparison in `Module.hs`. | MOD-2 | ☐ |
+
+**Trigger criteria:** v0.10 shipped, or any production use case requiring true namespace isolation.
 
 ---
 
@@ -388,6 +196,8 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | **Feature freeze** (v0.8.1a–v0.10) | **Active** (2026-04-30, extended 2026-05-01) | No new builtins, syntax, FFI, WASI, or orchestration features until v0.10 ships |
 | **Evidence model design** (EVID-0) | **Approved** (Rev 2) | Design spec approved, ready for v0.8.1b implementation |
 | **Obligation-guided agent coding** (v0.10) | **Planned** (2026-05-01) | Structured obligation reports for agents. Replaces indexed-type approach from research track. |
+| **Module system hardening** (v0.9.1) | **Shipped** (2026-05-01) | Spec restructured (§8.3/5/6/7), cycle detection fixed, 11 new tests (M-01–M-07), `life_sexp` corrected. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future). |
+| **Cross-module ContractEnv** (MOD-1) | **v0.10 prerequisite** | `meContracts` field in `ModuleEnv`. Required before OBLIG-2/3 can use imported contracts. |
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |
 | TRUST-2b (`VLProvenLean`) | **Parked** (2026-04-30) | Externally-blocked parking lot — redesign against new evidence model when LEAN-GA triggers |
 | Contract discriminative power formalization | Proposed by Professor | Research track |
@@ -470,7 +280,9 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 
 **v0.9 result:** All 8 items shipped (2026-05-01). COMP-0 ✅ (Rev 2 design spec), COMP-1 ✅ (CallVC + ContractEnv + call-pre emission), COMP-2 ✅ (SCC detection), COMP-3 ✅ (EMatch on Result), COMP-4 ✅ (trust degradation via existing enrichEntry), COMP-5 ✅ (call-pre diagnostics), COMP-6 ✅ (--strict-verified-core), COMP-T ✅ (18 golden tests). 4 source files + test suite updated. 452 Haskell + 37 Python tests.
 
-**v0.10 scope:** Obligation-guided agent coding. Structured obligation reports (JSON) for every hole, unproven contract, and failed call-site precondition. Three obligation channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions via `ObligationMining.hs`. Obligation quality benchmark. Design review (OBLIG-0) required before implementation. ~5–7 days. **Note:** Indexed/dependent types are explicitly excluded from v0.10 (professor consensus, 2026-05-01) and remain in the research track.
+**v0.9.1 result (module system hardening):** Professor's review audit (2026-05-01). Spec restructured (§8.3 ordering, §8.5 namespace resolution, §8.6 open semantics, §8.7 export scope). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected (`open` declarations added). `ModuleEnv` TODO annotated. 11 new module system tests (M-01–M-07). 463 Haskell + 37 Python tests. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future — per-module codegen, strict loader, interface wiring).
+
+**v0.10 scope:** Obligation-guided agent coding. Structured obligation reports (JSON) for every hole, unproven contract, and failed call-site precondition. Three obligation channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions via `ObligationMining.hs`. Obligation quality benchmark. Design review (OBLIG-0) required before implementation. Cross-module `ContractEnv` (MOD-1) is a prerequisite for obligation reports that span module boundaries. ~5–7 days. **Note:** Indexed/dependent types are explicitly excluded from v0.10 (professor consensus, 2026-05-01) and remain in the research track.
 
 **Parked items:** LEAN-GA, TRUST-2b, MCP — triggered by external availability, not on the critical path.
 
@@ -498,7 +310,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. — **shipped (2026-04-29)**. |
 | **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
 | **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. `EvidenceRecord` with body-faithfulness + source provenance. `AssumptionKind` taxonomy. Hard break for `.verified.json`. 14 source files + test suite. 322 tests (+2). — **shipped (2026-05-01)**. |
-| **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). — **shipped (2026-05-01)**. |
+| **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). **v0.9.1:** Module system hardening (spec, cycle fix, 11 tests, `life_sexp` fix). 463 tests. — **shipped (2026-05-01)**. |
 | **v0.10** | *(new, 2026-05-01)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. OBLIG-0 design review required. ~5–7 days. Indexed types explicitly excluded. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
@@ -515,7 +327,47 @@ Research-track items are tracked separately in [research-track.md](research-trac
 
 # Shipped Releases
 
-<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.8.1a)</strong></summary>
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.9.1)</strong></summary>
+
+
+## v0.9 — Compositional Verification ✅ SHIPPED
+
+**Theme:** Extend body-faithful verification from isolated leaf functions to function call chains.
+
+> Shipped 2026-05-01. 8 items. 452 Haskell + 37 Python tests.
+
+| # | ID | Description | Status |
+|---|-----|-------------|--------|
+| 1 | COMP-0 | Design spec: assume-guarantee encoding rules (Rev 2 approved) | ✅ |
+| 2 | COMP-1 | `CallVC` constructor, `ContractEnv`, call-pre emission with PROVE polarity | ✅ |
+| 3 | COMP-2 | SCC detection via `stronglyConnComp`, recursive fallback | ✅ |
+| 4 | COMP-3 | `EMatch` on `Result` (two-path encoding) | ✅ |
+| 5 | COMP-4 | Transitive trust degradation via `evidenceMeet` | ✅ |
+| 6 | COMP-5 | `call-pre:` diagnostics | ✅ |
+| 7 | COMP-6 | `--strict-verified-core` CLI flag | ✅ |
+| 8 | COMP-T | 18 golden tests | ✅ |
+
+**v0.9.1 (module system hardening):** Spec restructured (§8.3/5/6/7). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected. 11 new module system tests (M-01–M-07). 463 Haskell + 37 Python tests.
+
+
+## v0.8.1b — Evidence Model Refactor ✅ SHIPPED
+
+**Theme:** Replace the linear trust lattice with a structured evidence model.
+
+> Shipped 2026-05-01. 10 items. 322 Haskell + 37 Python tests.
+
+| # | ID | Description | Status |
+|---|-----|-------------|--------|
+| 1 | EVID-0 | Design spec: evidence model ADT, JSON schema, assumption taxonomy | ✅ |
+| 2 | EVID-1/1a–1e | `EvidenceRecord` type, `DisplayLevel` ADT, 12 consumer files updated | ✅ |
+| 3 | EVID-2 | `VerifiedCache.hs` rewrite (hard break for old `.verified.json`) | ✅ |
+| 4 | EVID-3 | `TrustReport.hs` — display-level projection, assumption display | ✅ |
+| 5 | EVID-4 | `SpecCoverage.hs` — evidence tier classification | ✅ |
+| 6 | EVID-5 | `Contracts.hs` — stripping uses `DLVerified` + `body_faithful` | ✅ |
+| 7 | EVID-6 | `Module.hs` — `mergeCS` lattice meet | ✅ |
+| 8 | EVID-7 | `Main.hs` — CLI output with new labels | ✅ |
+| 9 | EVID-8 | LLMLL.md §4.4.1, §5.3.3, §5.3.4 — new trust tier vocabulary | ✅ |
+| 10 | EVID-T | Test migration — lattice property tests | ✅ |
 
 
 ## v0.8.1a — Documentation Boundary Clarity ✅ SHIPPED
@@ -537,6 +389,34 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | 9 | ROADMAP-2 | One-pager "What's Next" table updated | ✅ |
 
 **Test count:** 320 Haskell (unchanged), 37 Python (unchanged). No code changes.
+
+
+## v0.8.0 — Faithfulness Core ✅ SHIPPED
+
+**Theme:** Close the faithfulness gap. 320 Haskell tests (was 294; +26).
+
+> Shipped 2026-04-29. 10 items.
+
+| # | ID | Description | Status |
+|---|-----|-------------|--------|
+| 1 | BODY-VC-0 | Design spec (approved by all 5 agents) | ✅ |
+| 2 | BODY-VC-1 | `bodyToPred` for QF-LIA fragment | ✅ |
+| 3 | BODY-VC-2 | Wire into `emitFnConstraints` | ✅ |
+| 4 | BODY-VC-3 | `csPostBodyFaithful` per-function marking | ✅ |
+| 5 | BODY-VC-T | 25 new tests | ✅ |
+| 6 | SUPP-DEBT | `suppression_debt` in `--spec-coverage` | ✅ |
+| 7 | EVENT-LOG | Orchestration event log schema | ✅ |
+| 8 | SPEC-FOUNDATION | §0.1 "Semantic Foundation" | ✅ |
+| 9 | SPEC-EFFECTS | §3.3 "Effect Model" | ✅ |
+| 10 | SPEC-TRUST | Elevated `(trust ...)` documentation | ✅ |
+
+
+## Pre-v0.7 Hygiene ✅
+
+| # | ID | Description | Status |
+|---|-----|-------------|--------|
+| 1 | TEST-DRIFT | Fix Python dry-run Lead Agent fixture | ✅ |
+| 2 | DOC-DRIFT | Reconcile LLMLL.md with `SpecCoverage.hs` JSON output | ✅ |
 
 
 ## v0.7 — Hardening ✅ SHIPPED

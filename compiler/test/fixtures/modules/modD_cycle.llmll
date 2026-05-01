@@ -1,0 +1,3 @@
+;; modD_cycle: imports modC_cycle (forms a cycle)
+(import modC_cycle)
+(def-logic d-fn [x: int] x)

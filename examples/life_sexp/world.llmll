@@ -3,6 +3,7 @@
 ;; Imports: core (for next-cell-state)
 
 (import core)
+(open core)
 
 (export make-world world-grid world-width world-height evolve render-world glider-grid)
 

@@ -405,7 +405,7 @@ loadStatementsMulti json fp = do
       if isBuiltinImport path
         then pure (Right (c, ord))
         else do
-          res <- loadModule j srcRoot [] c Set.empty path
+          res <- loadModule j srcRoot [] c [] path
           case res of
             Left diags         -> pure (Left diags)
             Right (c', o', _)  -> pure (Right (c', ord ++ o'))
