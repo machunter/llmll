@@ -35,7 +35,7 @@ import LLMLL.Diagnostic
 -- | Where in the LLMLL source a given constraint originated.
 data ConstraintOrigin = ConstraintOrigin
   { coFunction   :: Text      -- ^ enclosing def-logic / letrec name
-  , coClause     :: Text      -- ^ "pre" | "post" | "decreases"
+  , coClause     :: Text      -- ^ "pre" | "post" | "decreases" | "body-post" | "call-pre:<callee>"
   , coJsonPtr    :: Text      -- ^ JSON Pointer: "/statements/2/pre"
   , coSourceFile :: FilePath  -- ^ original .llmll or .ast.json path
   } deriving (Show)
@@ -123,6 +123,11 @@ toDiag fp table cid =
                                       <> "' failed (then-branch does not satisfy postcondition)"
                   "body-post-else" -> "body verification of '" <> coFunction orig
                                       <> "' failed (else-branch does not satisfy postcondition)"
+                  clause | "call-pre:" `T.isPrefixOf` clause ->
+                    let callee = T.drop 9 clause  -- drop "call-pre:"
+                    in "call-site precondition of '" <> callee
+                       <> "' not satisfied in '" <> coFunction orig
+                       <> "' — caller does not prove callee's precondition"
                   _                -> coClause orig <> "-condition of '" <> coFunction orig
                                       <> "' not verified"
                 <> " (constraint #" <> T.pack (show cid) <> ")"
