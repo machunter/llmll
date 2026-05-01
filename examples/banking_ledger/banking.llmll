@@ -1,0 +1,59 @@
+;; Banking Ledger — v0.9.0 Compositional Verification Example
+;;
+;; Demonstrates assume-guarantee reasoning across a 3-level call chain:
+;;   transfer → withdraw → safe-subtract
+;;
+;; Each function has pre/post contracts. The verifier:
+;;   1. Proves each function's body satisfies its own postcondition
+;;   2. At each call site, proves the caller satisfies the callee's precondition
+;;   3. Assumes the callee's postcondition holds (assume-guarantee)
+;;
+;; Run: llmll verify examples/banking_ledger/banking.llmll
+;; Run: llmll verify examples/banking_ledger/banking.llmll --strict-verified-core
+
+;; --- Layer 1: Primitive arithmetic with safety guarantee ---
+
+(def-logic safe-subtract [a: int b: int]
+  (pre (and (>= a b) (>= b 0)))
+  (post (and (= result (- a b)) (>= result 0)))
+  (- a b))
+
+;; --- Layer 2: Domain operation using safe-subtract ---
+
+(def-logic withdraw [balance: int amount: int]
+  (pre (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (safe-subtract balance amount))
+
+;; --- Layer 3: Compound operation using withdraw ---
+
+(def-logic transfer [from-bal: int amount: int]
+  (pre (and (>= from-bal amount) (>= amount 0)))
+  (post (and (= result (- from-bal amount)) (>= result 0)))
+  (withdraw from-bal amount))
+
+;; --- Layer 2b: Conditional logic with call ---
+
+(def-logic clamp-withdraw [balance: int requested: int]
+  (pre (and (>= balance 0) (>= requested 0)))
+  (post (>= result 0))
+  (if (>= balance requested)
+    (withdraw balance requested)
+    balance))
+
+;; --- Layer 2c: Let-binding with call result ---
+
+(def-logic withdraw-twice [balance: int first: int second: int]
+  (pre (and (>= balance (+ first second)) (and (>= first 0) (>= second 0))))
+  (post (and (= result (- (- balance first) second)) (>= result 0)))
+  (let [[after-first (withdraw balance first)]]
+    (withdraw after-first second)))
+
+;; --- Layer 2d: Fee computation (no external calls, pure logic) ---
+
+(def-logic compute-fee [amount: int]
+  (pre (>= amount 0))
+  (post (and (>= result 0) (<= result 10)))
+  (if (> amount 100)
+    10
+    0))
