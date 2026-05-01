@@ -17,6 +17,10 @@
 
 - **COMP-0** — Design spec `docs/design/comp-0-spec.md` produced and approved (Rev 2). Five soundness issues resolved: three-way pre distinction, constructor-dependent postcondition guard, CallVC direct return, SCC guard relaxation, sort derivation from ContractEnv.
 
+### v0.10 Carryover
+
+> **v0.10 carryover:** COMP-5 structured repair suggestions, 13 remaining golden tests (stripping regression, trust degradation chains), and `--strict-verified-core` post-solver enforcement are deferred to v0.10 (Obligation-Guided Agent Coding).
+
 ---
 
 ## v0.8.1b — Evidence Model Refactor (2026-05-01)
