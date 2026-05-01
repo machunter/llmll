@@ -26,9 +26,8 @@ Documents addressing the specification-coverage gap: how can the system create p
 
 | Document | Summary | Status |
 |---|---|---|
-| [invariant-discovery.md](invariant-discovery.md) | Distilled design discussion. 6 mechanisms: adversarial red-team, mutation testing on specs, property mining, spec coverage metric, hub-driven suggestions, counter-example display. | Active reference |
-| [invariant-discovery-proposal.md](invariant-discovery-proposal.md) | External team's full proposal. 9 mechanisms, ranked. Key concepts: "specification pressure" and "contract entropy." Includes a concrete architecture sketch (6 phases per hole). | Under review |
-| [invariant-discovery-review.md](invariant-discovery-review.md) | Professor's mechanism-by-mechanism critique. Recommends differential implementation pressure (Phase A), CEGIS-style strengthening (Phase B), adversarial search (Phase C). Defines "contract discriminative power." | Under review |
+| [invariant-discovery-proposal.md](invariant-discovery-proposal.md) | External team's full proposal. 9 mechanisms, ranked. Key concepts: "specification pressure" and "contract entropy." Includes a concrete architecture sketch (6 phases per hole). | Active reference |
+| [invariant-discovery-review.md](invariant-discovery-review.md) | Professor's mechanism-by-mechanism critique. Recommends differential implementation pressure (Phase A), CEGIS-style strengthening (Phase B), adversarial search (Phase C). Defines "contract discriminative power." | Active reference |
 
 ---
 
@@ -51,7 +50,7 @@ Historical design documents from shipped versions are in [`../archive/`](../arch
 
 | Directory | Contents | Version |
 |---|---|---|
-| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor | v0.6.2–v0.9.0 (all shipped) |
+| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor, invariant-discovery (base) | v0.6.2–v0.9.0 (all shipped or superseded) |
 | `do_notation/` | Do-notation design and two implementation plans | v0.3 (shipped) |
 | `older_discussions_and_plans/` | SMT/Lean analysis, language analysis, feedback, unicode decision | Pre-v0.2 |
 | `sketch/` | Compiler handoff sketch, implementation guide | Pre-v0.2 |

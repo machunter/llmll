@@ -1,6 +1,6 @@
 # LLMLL Research Track
 
-> **Last updated:** 2026-04-29  
+> **Last updated:** 2026-05-01  
 > **Purpose:** Track unversioned research items that may feed into future compiler releases.  
 > **Relationship to compiler roadmap:** Items here are *not* part of the compiler engineering backlog ([compiler-team-roadmap.md](compiler-team-roadmap.md)). Each item is promoted to a versioned release only when its **promotion criterion** is met and the compiler team accepts the work.
 
@@ -9,7 +9,7 @@
 ## How Items Are Promoted
 
 1. The research item meets its stated **promotion criterion** (below).
-2. A design spec comparable to [`interface-laws-spec.md`](design/interface-laws-spec.md) is produced.
+2. A design spec is produced and reviewed.
 3. The compiler team accepts the spec and schedules the work into a versioned release.
 
 Until all three conditions are met, the item stays here.
@@ -18,8 +18,8 @@ Until all three conditions are met, the item stays here.
 
 ## Impact Analysis
 
-> **Assessment date:** 2026-04-28 (updated with external consultant review, 2026-05-01)  
-> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (320 tests, liquid-fixpoint). Body-faithful VCs shipped (v0.8.0). Evidence model approved (EVID-0). Research items are ranked by how much they advance the strategic bet.
+> **Assessment date:** 2026-05-01  
+> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (452 tests, liquid-fixpoint). Body-faithful VCs shipped (v0.8.0). Evidence model shipped (v0.8.1b). Compositional verification shipped (v0.9.0). Research items are ranked by how much they advance the strategic bet.
 
 | Rank | Item | Impact | Rationale |
 |------|------|--------|-----------|
@@ -124,8 +124,8 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 ### 5. Differential Implementation Pressure
 
-> **Source:** [invariant-discovery-review.md §3](design/invariant-discovery-review.md)  
-> **Professor's assessment:** "Highest-value, most architecturally aligned idea" — [invariant-discovery-review.md §3](design/invariant-discovery-review.md)
+> **Source:** [invariant-discovery-proposal.md §3](design/invariant-discovery-proposal.md) + [invariant-discovery-review.md §3](design/invariant-discovery-review.md)  
+> **Professor's assessment:** "Highest-value, most architecturally aligned idea"
 
 **Goal:** `llmll checkout --multi` allows N agents to independently fill the same `?delegate` hole. After all fills arrive, divergence analysis generates distinguishing inputs and flags underspecification.
 
@@ -148,7 +148,7 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 
 **Compiler impact if promoted:** New metric in `SpecCoverage.hs` output; possible CI gate threshold.
 
-**Interaction with BODY-VC:** May inform future spec-quality gates or BODY-VC evaluation criteria.
+**Partially shipped precursors:** `--spec-coverage` (v0.6.0) provides function-level coverage. `--weakness-check` (v0.3.5) detects trivially-satisfiable contracts. What remains is the formal discriminative-power scalar and CI integration.
 
 **Promotion criterion:** Math spec ready for implementation (definitions, measurement procedure, example calculations).
 
@@ -171,29 +171,29 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 ## External Consultant Review (2026-04-28)
 
 > **Reviewer:** External consultant (independent project evaluation)  
-> **Scope:** Full worktree review including compiler tests (289 pass, 0 fail at time of review), orchestrator tests (35 pass, 2 fail), documentation audit, and research track assessment. (Compiler tests now at 294 after v0.7 hardening.)
+> **Scope:** Full worktree review including compiler tests, orchestrator tests, documentation audit, and research track assessment. Compiler tests now at 452 (v0.9.0).
 
 ### Key Findings
 
-| Finding | Impact | Action |
-|---------|--------|--------|
-| Python dry-run fixture stale — stub plan in `agent.py:385` has no contract, rejected by spec-quality gate | Test drift | Fix fixture (compiler roadmap, pre-v0.7) |
-| LLMLL.md describes `suppression_debt` JSON field but `SpecCoverage.hs:302` only emits `effective_coverage` | Doc drift | Reconcile spec with implementation (compiler roadmap, pre-v0.7 or SUPP-DEBT in v0.8.0) |
+| Finding | Impact | Resolution |
+|---------|--------|------------|
+| Python dry-run fixture stale | Test drift | ✅ Fixed |
+| LLMLL.md / SpecCoverage JSON drift | Doc drift | ✅ Fixed (SUPP-DEBT, v0.8.0) |
 | Call-site strict descent is NOT subsumed by BODY-VC | Analysis correction | Updated item #7 above |
 | Spec-from-RFC should require clause provenance traceability | Scope refinement | Updated item #3 impact ranking |
 | Self-hosted orchestrator blocked on BODY-VC + effect model | Sequencing | Confirmed low priority |
 
 ### Consultant's Recommended Near-Term Ordering
 
-1. Fix the Python dry-run fixture/test drift
-2. Reconcile LLMLL.md with actual SpecCoverage JSON
-3. ~~Write BODY-VC-0 design spec~~ ✅ Complete — [`body-vc-0-spec.md`](design/body-vc-0-spec.md) approved (2026-04-29)
+1. ~~Fix the Python dry-run fixture/test drift~~ ✅ Complete
+2. ~~Reconcile LLMLL.md with actual SpecCoverage JSON~~ ✅ Complete
+3. ~~Write BODY-VC-0 design spec~~ ✅ Complete — shipped in v0.8.0
 4. Formalize finite observational contract discriminative power
 5. Prototype differential divergence detection without synthesis
 6. Promote Spec-from-RFC with a worked traceability example
 
 > [!NOTE]
-> Items 1–3 are compiler engineering (tracked in [compiler-team-roadmap.md](compiler-team-roadmap.md)). Items 4–6 are research track work.
+> Items 1–3 are resolved. Items 4–6 are the remaining research track work.
 
 ---
 
