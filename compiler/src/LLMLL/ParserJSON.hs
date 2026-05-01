@@ -282,9 +282,10 @@ parseTrustDecl o = do
   target <- o .: "target" :: Parser Name
   lvl    <- o .: "level"  :: Parser Text
   vl <- case lvl of
-    "proven"   -> pure $ VLProven ""
-    "tested"   -> pure $ VLTested 0
-    "asserted" -> pure VLAsserted
+    "contract-checked" -> pure $ DLContractChecked ""
+    "verified"  -> pure $ DLVerified ""
+    "tested"   -> pure $ DLTested 0
+    "asserted" -> pure DLAsserted
     _          -> fail $ "unknown trust level: " ++ T.unpack lvl
   pure $ STrust target vl
 

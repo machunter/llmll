@@ -32,7 +32,7 @@ import Data.Maybe (mapMaybe)
 import Data.Aeson (encode, object, (.=), Value(..))
 import qualified Data.ByteString.Lazy.Char8 as BLC
 
-import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), VerificationLevel(..))
+import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), DisplayLevel(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), TrustDependency(..))
 

@@ -124,7 +124,7 @@ analyzeContracts stmts =
 -- | Controls which runtime assertions survive into generated Haskell.
 data ContractsMode
   = ContractsFull      -- ^ All contracts remain as runtime assertions
-  | ContractsUnproven  -- ^ Strip assertions for VLProven contracts only
+  | ContractsUnproven  -- ^ Strip assertions for verified contracts only
   | ContractsNone      -- ^ Strip all runtime assertions
   deriving (Show, Eq)
 
@@ -140,7 +140,7 @@ instrumentContracts mode statusMap = map go
     lookupStatus (SDefLogic n _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus (SLetrec n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus _                     = defaultCS
-    defaultCS = ContractStatus Nothing Nothing Nothing Nothing False
+    defaultCS = ContractStatus Nothing Nothing []
 
 -- | Instrument a single statement.
 instrumentStatement :: ContractsMode -> ContractStatus -> Statement -> Statement
@@ -168,22 +168,18 @@ instrumentStatement ContractsUnproven cs (SLetrec name params mRet contract dec 
 instrumentStatement _ _ stmt = stmt
 
 -- | Strip proven contract clauses, keep unproven ones.
--- v0.6.3 (BUG-6): Only strip if the proof is body-faithful.
--- Until the .fq emitter encodes function bodies into verification conditions,
--- VLProven only means "the formula is self-consistent", not "the body satisfies
--- the contract". Stripping in that case would be unsound.
+-- v0.8.1b: Only strip if the evidence record is verified AND body-faithful.
 filterContracts :: ContractStatus -> Contract -> Contract
 filterContracts cs contract = Contract
-  { contractPre = case csPreLevel cs of
+  { contractPre = case csPre cs of
       -- v0.8.0: preconditions are never stripped — body VCs prove post, not pre.
       -- A future BODY-VC extension may encode precondition checks into the body,
       -- but for now all proven preconditions remain as runtime assertions.
       _                 -> contractPre contract
   , contractPreSource = contractPreSource contract
-  , contractPost = case csPostLevel cs of
-      -- v0.8.0: strip postcondition only when proven AND body-faithful
-      Just (VLProven _)    | csPostBodyFaithful cs -> Nothing
-      Just (VLProvenSMT _) | csPostBodyFaithful cs -> Nothing
+  , contractPost = case csPost cs of
+      -- v0.8.1b: strip postcondition only when verified AND body-faithful
+      Just er | isVerifiedLevel (erDisplayLevel er) && erBodyFaithful er -> Nothing
       _                 -> contractPost contract
   , contractPostSource = contractPostSource contract
   }
@@ -205,10 +201,10 @@ applyContractsMode ContractsNone _ stmts = map clearContracts stmts
 applyContractsMode ContractsUnproven statusMap stmts = map stripProven stmts
   where
     stripProven (SDefLogic n p r c b) =
-      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing False) n statusMap
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing []) n statusMap
       in SDefLogic n p r (filterContracts cs c) b
     stripProven (SLetrec n p r c d b) =
-      let cs = Map.findWithDefault (ContractStatus Nothing Nothing Nothing Nothing False) n statusMap
+      let cs = Map.findWithDefault (ContractStatus Nothing Nothing []) n statusMap
       in SLetrec n p r (filterContracts cs c) d b
     stripProven s = s
 

@@ -87,7 +87,7 @@ data EmitResult = EmitResult
   , erFQText          :: Text             -- ^ .fq text ready to write to disk
   , erConstraintTable :: ConstraintTable  -- ^ ID → origin (for DiagnosticFQ)
   , erSkipped         :: [Text]           -- ^ names of skipped non-linear functions
-  , erBodyFaithful    :: [Text]           -- ^ v0.8.0: functions with successful body VCs
+  , erBodyFaithfulFns :: [Text]           -- ^ v0.8.0: functions with successful body VCs
   , erBodyFallback    :: [Text]           -- ^ v0.8.0: functions that fell back
   , erDiagnostics     :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
   , erEmittedPre      :: [Text]           -- ^ v0.8.0: functions whose pre emitted a constraint
@@ -229,7 +229,7 @@ emitFixpointWith opts srcFile stmts = do
     , erFQText          = emitFQFile fqFile
     , erConstraintTable = table
     , erSkipped         = skipped
-    , erBodyFaithful    = bfaithful
+    , erBodyFaithfulFns = bfaithful
     , erBodyFallback    = bfallback
     , erDiagnostics     = diags
     , erEmittedPre      = emPre

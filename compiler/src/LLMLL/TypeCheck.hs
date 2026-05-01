@@ -203,7 +203,7 @@ data TCState = TCState
   , tcPointerStack :: [Text]          -- ^ RFC 6901 pointer segments; [] in check mode (D4)
   -- v0.3: Stratified verification trust-gap tracking
   , tcContractStatus :: Map Name ContractStatus  -- ^ imported function → contract status
-  , tcTrusts         :: Map Name VerificationLevel -- ^ acknowledged trust declarations
+  , tcTrusts         :: Map Name DisplayLevel -- ^ acknowledged trust declarations
   -- v0.3.5: Scope provenance tracking (Phase C)
   , tcProvenance     :: Map Name ScopeSource  -- ^ per-binding source classification for checkout context
   -- v0.4: CAP-1 capability enforcement
@@ -314,18 +314,18 @@ runTCSketch env action =
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
-emitTrustGap :: Name -> Map Name VerificationLevel -> Maybe VerificationLevel -> TC ()
+emitTrustGap :: Name -> Map Name DisplayLevel -> Maybe DisplayLevel -> TC ()
 emitTrustGap _ _ Nothing = pure ()
-emitTrustGap _ _ (Just vl) | isProvenLevel vl = pure ()  -- proven: no gap
+emitTrustGap _ _ (Just vl) | isSolverBacked vl = pure ()  -- solver-backed: no gap
 emitTrustGap func trusts (Just vl) =
   case Map.lookup func trusts of
-    Just tl | trustCovers tl vl -> pure ()  -- trust level sufficient
+    Just tl | evidenceCovers tl vl -> pure ()  -- trust level sufficient
     _ -> do
       ptr <- gets tcPointerStack
       let ptrText = "/" <> T.intercalate "/" (reverse ptr)
           levelText = case vl of
-            VLAsserted  -> "asserted"
-            VLTested _  -> "tested"
+            DLAsserted  -> "asserted"
+            DLTested _  -> "tested"
             _           -> "unknown"
       modify $ \s -> s { tcErrors = tcErrors s ++ [mkTrustGapWarning func levelText ptrText] }
 
@@ -824,9 +824,9 @@ inferExpr (EApp func args) = do
        Nothing -> pure ()  -- no contract status known (local or unknown)
        Just cs -> do
          -- Check pre-condition
-         emitTrustGap func trusts (csPreLevel cs)
+         emitTrustGap func trusts (fmap erDisplayLevel (csPre cs))
          -- Check post-condition
-         emitTrustGap func trusts (csPostLevel cs)
+         emitTrustGap func trusts (fmap erDisplayLevel (csPost cs))
   case mFuncTy of
     Nothing -> do
       tcWarnOrError $ "call to unknown function '" <> func <> "'"

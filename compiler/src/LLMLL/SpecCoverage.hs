@@ -50,8 +50,8 @@ data FunctionClass
 data FunctionEntry = FunctionEntry
   { feName      :: Name              -- ^ Function name
   , feClass     :: FunctionClass     -- ^ Classification
-  , fePreLevel  :: Maybe VerificationLevel  -- ^ From sidecar
-  , fePostLevel :: Maybe VerificationLevel  -- ^ From sidecar
+  , fePreLevel  :: Maybe DisplayLevel  -- ^ From sidecar
+  , fePostLevel :: Maybe DisplayLevel  -- ^ From sidecar
   , feReason    :: Maybe Text        -- ^ weakness-ok reason (if suppressed)
   } deriving (Show, Eq)
 
@@ -61,8 +61,9 @@ data CoverageSummary = CoverageSummary
   , csSuppressed       :: Int
   , csUnspecified      :: Int
   , csTotal            :: Int
-  , csProven           :: Int  -- ^ Functions with all clauses proven
-  , csTested           :: Int  -- ^ Functions with tested (but not proven) clauses
+  , csVerified         :: Int  -- ^ Functions with body-faithful verified evidence
+  , csContractChecked' :: Int  -- ^ Functions with contract-checked evidence
+  , csTested           :: Int  -- ^ Functions with tested (but not solver-backed) clauses
   , csAsserted         :: Int  -- ^ Functions with asserted clauses
   , csEffective        :: Double  -- ^ effective_coverage in [0, 1]
   , csSpecCoverage     :: Double  -- ^ v0.8.0 SUPP-DEBT: contracted / total (excludes suppressions)
@@ -174,8 +175,8 @@ classifyEntry suppMap csMap (name, contract) =
       reason = Map.lookup name suppMap
       cls = classifyFunction contract hasSuppression reason
       cs = Map.lookup name csMap
-      preLevel  = cs >>= csPreLevel
-      postLevel = cs >>= csPostLevel
+      preLevel  = cs >>= csPre >>= (Just . erDisplayLevel)
+      postLevel = cs >>= csPost >>= (Just . erDisplayLevel)
   in FunctionEntry
        { feName      = name
        , feClass     = cls
@@ -204,17 +205,21 @@ computeSummary entries =
       suppDebt    = if total == 0
                     then 0.0
                     else fromIntegral (length suppressed) / fromIntegral total
-      -- Count by verification level within contracted
-      proven   = length [e | e <- contracted, isProven (fePreLevel e) && isProven (fePostLevel e)]
-      tested   = length [e | e <- contracted, isTested (fePreLevel e) || isTested (fePostLevel e)
-                                             , not (isProven (fePreLevel e) && isProven (fePostLevel e))]
-      asserted = length contracted - proven - tested
+      -- Count by evidence level within contracted
+      verified = length [e | e <- contracted, isVer (fePreLevel e) && isVer (fePostLevel e)]
+      contractChecked = length [e | e <- contracted, isCC (fePreLevel e) || isCC (fePostLevel e)
+                                                    , not (isVer (fePreLevel e) && isVer (fePostLevel e))]
+      tested   = length [e | e <- contracted, isTst (fePreLevel e) || isTst (fePostLevel e)
+                                             , not (isVer (fePreLevel e) && isVer (fePostLevel e))
+                                             , not (isCC (fePreLevel e) || isCC (fePostLevel e))]
+      asserted = length contracted - verified - contractChecked - tested
   in CoverageSummary
        { csContracted = length contracted
        , csSuppressed = length suppressed
        , csUnspecified = length unspecified
        , csTotal      = total
-       , csProven     = proven
+       , csVerified   = verified
+       , csContractChecked' = contractChecked
        , csTested     = tested
        , csAsserted   = asserted
        , csEffective  = effective
@@ -222,10 +227,12 @@ computeSummary entries =
        , csSuppressionDebt = suppDebt
        }
   where
-    isProven (Just vl) = isProvenLevel vl
-    isProven _         = False
-    isTested (Just (VLTested _)) = True
-    isTested _                   = False
+    isVer (Just dl) = isVerifiedLevel dl
+    isVer _         = False
+    isCC (Just DLContractChecked{}) = True
+    isCC _                          = False
+    isTst (Just DLTested{}) = True
+    isTst _                 = False
 
 -- ---------------------------------------------------------------------------
 -- Warning constructors
@@ -272,9 +279,10 @@ formatCoverageText report =
       contracted = [ "  Functions with contracts:     "
                      <> tshow (csContracted s) <> " / " <> tshow (csTotal s)
                      <> "   (" <> pct (csContracted s) (csTotal s) <> ")"
-                   , "    Proven:                     " <> tshow (csProven s)
-                   , "    Tested:                     " <> tshow (csTested s)
-                   , "    Asserted:                   " <> tshow (csAsserted s)
+                    , "    Verified:                   " <> tshow (csVerified s)
+                    , "    Contract-checked:            " <> tshow (csContractChecked' s)
+                    , "    Tested:                     " <> tshow (csTested s)
+                    , "    Asserted:                   " <> tshow (csAsserted s)
                    ]
       suppressionLines =
         let suppEntries = [e | e <- crEntries report, feClass e == FCSuppressed]
@@ -321,8 +329,8 @@ formatCoverageJson report =
     entryJson e = object
       [ "name"       .= feName e
       , "class"      .= classLabel (feClass e)
-      , "pre_level"  .= fmap vlLabel (fePreLevel e)
-      , "post_level" .= fmap vlLabel (fePostLevel e)
+      , "pre_level"  .= fmap dlLabel (fePreLevel e)
+      , "post_level" .= fmap dlLabel (fePostLevel e)
       , "reason"     .= feReason e
       ]
     summaryJson s = object
@@ -330,7 +338,8 @@ formatCoverageJson report =
       , "suppressed"         .= csSuppressed s
       , "unspecified"        .= csUnspecified s
       , "total"              .= csTotal s
-      , "proven"             .= csProven s
+      , "verified"           .= csVerified s
+      , "contract_checked"   .= csContractChecked' s
       , "tested"             .= csTested s
       , "asserted"           .= csAsserted s
       , "effective_coverage" .= csEffective s
@@ -354,12 +363,6 @@ classLabel FCUnspecified = "unspecified"
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
-
-vlLabel :: VerificationLevel -> Text
-vlLabel VLAsserted    = "asserted"
-vlLabel (VLTested n)  = "tested (" <> tshow n <> " samples)"
-vlLabel (VLProven p)  = "proven (" <> p <> ")"
-vlLabel (VLProvenSMT p) = "proven-smt (" <> p <> ")"
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show

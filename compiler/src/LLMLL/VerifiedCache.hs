@@ -2,7 +2,7 @@
 -- Module      : LLMLL.VerifiedCache
 -- Description : Sidecar .verified.json file I/O for contract verification levels.
 --
--- v0.3: Persists per-function ContractStatus alongside module source.
+-- v0.8.1b: Serializes the new EvidenceRecord/DisplayLevel/AssumptionKind model.
 -- Written by `llmll verify` and `llmll test`.
 -- Read by `llmll build` (for --contracts=unproven) and module imports.
 module LLMLL.VerifiedCache
@@ -21,7 +21,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import System.Directory (doesFileExist)
 
-import LLMLL.Syntax (ContractStatus(..), VerificationLevel(..), Name)
+import LLMLL.Syntax (ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), AssumptionKind(..), Name)
 
 -- ---------------------------------------------------------------------------
 -- Path convention
@@ -32,66 +32,101 @@ verifiedPath :: FilePath -> FilePath
 verifiedPath fp = fp ++ ".verified.json"
 
 -- ---------------------------------------------------------------------------
--- JSON encoding
+-- JSON encoding — DisplayLevel
 -- ---------------------------------------------------------------------------
 
-vlToJSON :: VerificationLevel -> Value
-vlToJSON VLAsserted      = object ["level" .= ("asserted" :: Text)]
-vlToJSON (VLTested n)    = object ["level" .= ("tested" :: Text), "samples" .= n]
-vlToJSON (VLProven prov) = object ["level" .= ("proven" :: Text), "prover" .= prov]
-vlToJSON (VLProvenSMT solver) = object ["level" .= ("proven-smt" :: Text), "prover" .= solver]
+dlToJSON :: DisplayLevel -> Value
+dlToJSON DLAsserted          = object ["level" .= ("asserted" :: Text)]
+dlToJSON (DLTested n)        = object ["level" .= ("tested" :: Text), "samples" .= n]
+dlToJSON (DLContractChecked p) = object ["level" .= ("contract-checked" :: Text), "prover" .= p]
+dlToJSON (DLVerified p)      = object ["level" .= ("verified" :: Text), "prover" .= p]
 
-vlFromJSON :: Value -> Maybe VerificationLevel
-vlFromJSON (Object o) =
+dlFromJSON :: Value -> Maybe DisplayLevel
+dlFromJSON (Object o) =
   case KM.lookup "level" o of
-    Just (String "asserted") -> Just VLAsserted
+    Just (String "asserted") -> Just DLAsserted
     Just (String "tested")   ->
       let n = case KM.lookup "samples" o of
                 Just (Number s) -> round s
                 _               -> 0
-      in Just (VLTested n)
-    Just (String "proven")   ->
+      in Just (DLTested n)
+    Just (String "contract-checked") ->
       let p = case KM.lookup "prover" o of
                 Just (String t) -> t
                 _               -> ""
-      in Just (VLProven p)
-    Just (String "proven-smt") ->
+      in Just (DLContractChecked p)
+    Just (String "verified") ->
       let p = case KM.lookup "prover" o of
                 Just (String t) -> t
                 _               -> ""
-      in Just (VLProvenSMT p)
+      in Just (DLVerified p)
     _ -> Nothing
-vlFromJSON _ = Nothing
+dlFromJSON _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- JSON encoding — EvidenceRecord
+-- ---------------------------------------------------------------------------
+
+erToJSON :: EvidenceRecord -> Value
+erToJSON er = object $
+  ["display_level" .= dlToJSON (erDisplayLevel er)] ++
+  ["body_faithful" .= True | erBodyFaithful er] ++
+  maybe [] (\s -> ["source" .= s]) (erSource er)
+
+erFromJSON :: Value -> Maybe EvidenceRecord
+erFromJSON (Object o) = do
+  dlVal <- KM.lookup "display_level" o
+  dl    <- dlFromJSON dlVal
+  let bf = case KM.lookup "body_faithful" o of
+             Just (Bool b) -> b
+             _             -> False
+      src = case KM.lookup "source" o of
+              Just (String s) -> Just s
+              _               -> Nothing
+  Just $ EvidenceRecord dl bf src
+erFromJSON _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- JSON encoding — AssumptionKind
+-- ---------------------------------------------------------------------------
+
+akToJSON :: AssumptionKind -> Value
+akToJSON AKRuntimePrimitive = String "runtime-primitive"
+akToJSON AKCompilerBuiltin  = String "compiler-builtin"
+akToJSON AKExternalOpaque   = String "external-opaque"
+
+akFromJSON :: Value -> Maybe AssumptionKind
+akFromJSON (String "runtime-primitive") = Just AKRuntimePrimitive
+akFromJSON (String "compiler-builtin")  = Just AKCompilerBuiltin
+akFromJSON (String "external-opaque")   = Just AKExternalOpaque
+akFromJSON _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- JSON encoding — ContractStatus
+-- ---------------------------------------------------------------------------
 
 csToJSON :: ContractStatus -> Value
 csToJSON cs = object $
-  maybe [] (\v -> ["pre" .= vlToJSON v]) (csPreLevel cs) ++
-  maybe [] (\v -> ["post" .= vlToJSON v]) (csPostLevel cs) ++
-  maybe [] (\s -> ["pre_source" .= s]) (csPreSource cs) ++
-  maybe [] (\s -> ["post_source" .= s]) (csPostSource cs) ++
-  ["post_body_faithful" .= csPostBodyFaithful cs | csPostBodyFaithful cs]
+  maybe [] (\er -> ["pre" .= erToJSON er]) (csPre cs) ++
+  maybe [] (\er -> ["post" .= erToJSON er]) (csPost cs) ++
+  if null (csAssumptions cs) then [] else ["assumptions" .= map akToJSON (csAssumptions cs)]
 
 csFromJSON :: Value -> Maybe ContractStatus
 csFromJSON (Object o) =
-  let pre  = KM.lookup "pre" o >>= vlFromJSON
-      post = KM.lookup "post" o >>= vlFromJSON
-      preS = case KM.lookup "pre_source" o of
-               Just (String s) -> Just s
-               _               -> Nothing
-      postS = case KM.lookup "post_source" o of
-               Just (String s) -> Just s
-               _               -> Nothing
-      bodyF = case KM.lookup "post_body_faithful" o of
-                Just (Bool b) -> b
-                _             -> False
-  in Just $ ContractStatus pre post preS postS bodyF
+  let pre  = KM.lookup "pre" o >>= erFromJSON
+      post = KM.lookup "post" o >>= erFromJSON
+      assumptions = case KM.lookup "assumptions" o of
+        Just (Array arr) -> concatMap (\v -> maybe [] (:[]) (akFromJSON v)) (foldr (:) [] arr)
+        _                -> []
+  in Just $ ContractStatus pre post assumptions
 csFromJSON _ = Nothing
 
 -- ---------------------------------------------------------------------------
 -- File I/O
 -- ---------------------------------------------------------------------------
 
--- | Load verified status from sidecar file. Returns empty map if file missing.
+-- | Load verified status from sidecar file. Returns empty map if file missing
+-- or if the file uses an old/incompatible format.
 loadVerified :: FilePath -> IO (Map Name ContractStatus)
 loadVerified fp = do
   let path = verifiedPath fp

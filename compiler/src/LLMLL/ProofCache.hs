@@ -39,7 +39,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Numeric (showHex)
 
-import LLMLL.Syntax (VerificationLevel(..))
+import LLMLL.Syntax (DisplayLevel(..))
 
 -- | A cached proof entry.
 data ProofEntry = ProofEntry
@@ -132,11 +132,11 @@ isTaintedProof pe =
   peProver pe == "mock"
   || any (`T.isInfixOf` peProof pe) ["sorry", "axiom", "mock", "admit"]
 
--- | Convert a proof cache entry to a VerificationLevel.
--- Tainted proofs are capped at VLAsserted (cannot be "proven").
-proofToLevel :: ProofEntry -> VerificationLevel
+-- | Convert a proof cache entry to a DisplayLevel.
+-- Tainted proofs are capped at DLAsserted (cannot be "proven").
+-- Returns DLContractChecked; DLVerified is only assigned when body-faithfulness
+-- is known (in Main.hs verify pipeline).
+proofToLevel :: ProofEntry -> DisplayLevel
 proofToLevel pe
-  | isTaintedProof pe = VLAsserted
-  | peProver pe == "liquid-fixpoint" = VLProvenSMT (peProver pe)
-  | otherwise                        = VLProven (peProver pe)
-
+  | isTaintedProof pe = DLAsserted
+  | otherwise         = DLContractChecked (peProver pe)

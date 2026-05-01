@@ -42,13 +42,17 @@ module LLMLL.Syntax
     -- * Contracts
   , Contract(..)
 
-    -- * Verification Levels (v0.3)
-  , VerificationLevel(..)
-  , vlTier
-  , trustCovers
-  , trustMin
-  , isProvenLevel
-  , vlProverName
+    -- * Evidence Model (v0.8.1b)
+  , DisplayLevel(..)
+  , EvidenceRecord(..)
+  , AssumptionKind(..)
+  , evidenceMeet
+  , evidenceCovers
+  , isVerifiedLevel
+  , isSolverBacked
+  , dlProverName
+  , dlLabel
+  , akLabel
   , ContractStatus(..)
 
     -- * Properties (check blocks)
@@ -245,64 +249,108 @@ data Contract = Contract
   } deriving (Show, Eq, Generic)
 
 -- ---------------------------------------------------------------------------
--- Verification Levels (v0.3 Stratified Verification)
+-- Evidence Model (v0.8.1b — Diamond Lattice)
 -- ---------------------------------------------------------------------------
 
--- | How a contract clause (pre or post) has been verified.
-data VerificationLevel
-  = VLAsserted                        -- ^ Runtime assertion only; no evidence
-  | VLTested   { vlSamples :: Int }   -- ^ QuickCheck passed N samples without falsification
-  | VLProven   { vlProver  :: Text }  -- ^ Formally verified by named prover (generic / legacy)
-  | VLProvenSMT { vlSMTSolver :: Text }  -- ^ SMT solver proof (e.g. "liquid-fixpoint")
+-- | Evidence tier for a contract clause. Partial order, not total.
+-- DLContractChecked and DLTested are incomparable — there is no Ord instance.
+--
+-- Lattice structure:
+--          DLVerified
+--         /          \
+-- DLContractChecked  DLTested
+--         \          /
+--          DLAsserted
+data DisplayLevel
+  = DLAsserted                             -- ^ Runtime assertion only; no evidence
+  | DLTested   { dlSamples :: Int }       -- ^ QuickCheck passed N samples
+  | DLContractChecked { dlProver :: Text } -- ^ SMT proved contract consistency (not body)
+  | DLVerified { dlVerProver :: Text }    -- ^ SMT proved body satisfies contract
   deriving (Show, Eq, Generic)
 
--- | Trust-tier ordering: Asserted < Tested < Proven.
--- This is a trust-tier preorder, NOT a lawful Ord.
--- VLProven and VLProvenSMT are at the same tier.
--- Internal metadata (samples, prover name) is NOT compared.
-vlTier :: VerificationLevel -> Int
-vlTier VLAsserted    = 0
-vlTier VLTested{}    = 1
-vlTier VLProven{}    = 2
-vlTier VLProvenSMT{} = 2
-
--- | Does trust level @tl@ cover the requirement @req@?
--- A trust level covers a requirement when its tier is >= the required tier.
--- Use this instead of @(>=)@ on VerificationLevel.
-trustCovers :: VerificationLevel -> VerificationLevel -> Bool
-trustCovers tl req = vlTier tl >= vlTier req
-
--- | The lower of two trust levels (by tier).
--- When tiers are equal, prefers the first argument (arbitrary but deterministic).
-trustMin :: VerificationLevel -> VerificationLevel -> VerificationLevel
-trustMin a b
-  | vlTier a <= vlTier b = a
-  | otherwise            = b
-
--- | Central predicate: is this a proven-level verification?
--- Covers both legacy VLProven and new VLProvenSMT.
--- Use this instead of ad-hoc pattern matches.
-isProvenLevel :: VerificationLevel -> Bool
-isProvenLevel VLProven{}    = True
-isProvenLevel VLProvenSMT{} = True
-isProvenLevel _             = False
-
--- | Extract the prover name from a proven-level verification, if any.
-vlProverName :: VerificationLevel -> Maybe Text
-vlProverName (VLProven p)    = Just p
-vlProverName (VLProvenSMT p) = Just p
-vlProverName _               = Nothing
-
--- | Per-function contract verification status.
--- v0.6: source provenance tracked per-clause alongside verification level.
--- v0.8.0: csPostBodyFaithful tracks whether body-faithful VCs were generated.
-data ContractStatus = ContractStatus
-  { csPreLevel          :: Maybe VerificationLevel  -- ^ Nothing if no pre clause
-  , csPostLevel         :: Maybe VerificationLevel  -- ^ Nothing if no post clause
-  , csPreSource         :: Maybe Text               -- ^ v0.6: :source annotation for pre clause
-  , csPostSource        :: Maybe Text               -- ^ v0.6: :source annotation for post clause
-  , csPostBodyFaithful  :: Bool                     -- ^ v0.8.0: True when body VC was successfully generated
+-- | Structured evidence record for a single contract clause.
+data EvidenceRecord = EvidenceRecord
+  { erDisplayLevel :: DisplayLevel   -- ^ What kind of evidence backs this clause
+  , erBodyFaithful :: Bool           -- ^ True when body VC was generated and passed
+  , erSource       :: Maybe Text     -- ^ :source provenance annotation
   } deriving (Show, Eq, Generic)
+
+-- | Classification of unverified dependencies.
+data AssumptionKind
+  = AKRuntimePrimitive   -- ^ Trusted runtime semantics: +, -, string-length, etc.
+  | AKCompilerBuiltin    -- ^ Implemented in LLMLL preamble: string-char-at, regex-match
+  | AKExternalOpaque     -- ^ Stub or FFI binding: sha1, hmac-sha1, Aeson
+  deriving (Show, Eq, Ord, Generic)
+
+-- | Per-function contract verification status (v0.8.1b).
+data ContractStatus = ContractStatus
+  { csPre         :: Maybe EvidenceRecord  -- ^ Nothing if no pre clause
+  , csPost        :: Maybe EvidenceRecord  -- ^ Nothing if no post clause
+  , csAssumptions :: [AssumptionKind]      -- ^ Function-level unverified dependencies
+  } deriving (Show, Eq, Generic)
+
+-- | Greatest lower bound (meet) of two display levels.
+-- Exhaustive pattern matching — no numeric tier dispatch.
+-- Incomparable elements (DLContractChecked ⊓ DLTested) meet at DLAsserted.
+evidenceMeet :: DisplayLevel -> DisplayLevel -> DisplayLevel
+-- Bottom absorbs
+evidenceMeet DLAsserted _            = DLAsserted
+evidenceMeet _ DLAsserted            = DLAsserted
+-- Same constructor, different metadata: conservative choice
+evidenceMeet (DLVerified p1) (DLVerified _)               = DLVerified p1
+evidenceMeet (DLContractChecked p1) (DLContractChecked _)  = DLContractChecked p1
+evidenceMeet (DLTested n1) (DLTested n2)                   = DLTested (min n1 n2)
+-- Verified is top
+evidenceMeet (DLVerified _) b        = b
+evidenceMeet a (DLVerified _)        = a
+-- Incomparable: contract-checked ⊓ tested = asserted
+evidenceMeet DLContractChecked{} DLTested{} = DLAsserted
+evidenceMeet DLTested{} DLContractChecked{} = DLAsserted
+
+-- | Does evidence level @a@ cover requirement @b@?
+-- a covers b iff a is at least as high in the lattice as b.
+-- For DLTested, sample counts are metadata — DLTested n covers DLTested m for any n, m.
+evidenceCovers :: DisplayLevel -> DisplayLevel -> Bool
+evidenceCovers (DLVerified _) _              = True   -- top covers everything
+evidenceCovers _ (DLVerified _)              = False  -- only verified covers verified
+evidenceCovers _ DLAsserted                  = True   -- everything covers bottom
+evidenceCovers DLAsserted _                  = False  -- bottom covers only bottom
+evidenceCovers (DLContractChecked _) (DLContractChecked _) = True
+evidenceCovers (DLTested _) (DLTested _)     = True
+-- Incomparable: contract-checked vs tested
+evidenceCovers DLContractChecked{} DLTested{} = False
+evidenceCovers DLTested{} DLContractChecked{} = False
+
+-- | Is this verified-level evidence (body-faithful SMT proof)?
+isVerifiedLevel :: DisplayLevel -> Bool
+isVerifiedLevel DLVerified{} = True
+isVerifiedLevel _            = False
+
+-- | True when evidence includes a solver-backed proof (contract or body).
+-- Does NOT imply a total ordering — DLTested is incomparable, not "below".
+isSolverBacked :: DisplayLevel -> Bool
+isSolverBacked DLVerified{}        = True
+isSolverBacked DLContractChecked{} = True
+isSolverBacked _                   = False
+
+-- | Extract prover name, if any.
+dlProverName :: DisplayLevel -> Maybe Text
+dlProverName (DLVerified p)        = Just p
+dlProverName (DLContractChecked p) = Just p
+dlProverName _                     = Nothing
+
+-- | Human display label for a display level.
+dlLabel :: DisplayLevel -> Text
+dlLabel DLAsserted            = "asserted"
+dlLabel (DLTested n)          = "tested (" <> tshow n <> " samples)"
+dlLabel (DLContractChecked p) = "contract-checked (" <> p <> ")"
+dlLabel (DLVerified p)        = "verified (" <> p <> ")"
+
+-- | Human display label for an assumption kind.
+akLabel :: AssumptionKind -> Text
+akLabel AKRuntimePrimitive = "runtime-primitive"
+akLabel AKCompilerBuiltin  = "compiler-builtin"
+akLabel AKExternalOpaque   = "external-opaque"
 
 -- ---------------------------------------------------------------------------
 -- Properties (check blocks)
@@ -369,7 +417,7 @@ data Statement
   -- v0.3 stratified verification
   | STrust
     { trustTarget :: Name              -- ^ Flat dotted qualified name, e.g. "crypto.hash.pbkdf2"
-    , trustLevel  :: VerificationLevel -- ^ Acknowledged trust level
+    , trustLevel  :: DisplayLevel      -- ^ Acknowledged trust level
     }
   -- v0.6 suppression governance
   | SWeaknessOk

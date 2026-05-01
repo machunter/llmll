@@ -33,7 +33,6 @@ import Data.Maybe (mapMaybe, fromMaybe)
 import System.FilePath ((</>), (<.>), takeExtension)
 import System.Directory (doesFileExist, getHomeDirectory)
 import Control.Monad (foldM)
-import Control.Applicative ((<|>))
 import qualified Data.ByteString.Lazy as BL
 
 import LLMLL.Syntax
@@ -237,7 +236,7 @@ buildModuleEnv path stmts _env =
       filteredExports = case mExportDecl of
         Nothing -> allExports
         Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) allExports
-      -- v0.3: default all contracts to VLAsserted
+      -- v0.8.1b: default all contracts to DLAsserted evidence
       contractStats = Map.fromList $ mapMaybe extractContractStatus stmts
   in ModuleEnv
        { meExports        = filteredExports
@@ -258,7 +257,7 @@ buildModuleEnv path stmts _env =
     toExport (STypeDef name body)   = Just (name, body)
     toExport _                      = Nothing
 
-    -- v0.3: build default contract status (VLAsserted for any clause that exists)
+    -- v0.8.1b: build default contract status (DLAsserted for any clause that exists)
     extractContractStatus (SDefLogic name _ _ contract _) = mkCS name contract
     extractContractStatus (SLetrec name _ _ contract _ _) = mkCS name contract
     extractContractStatus _ = Nothing
@@ -266,31 +265,29 @@ buildModuleEnv path stmts _env =
     mkCS name contract
       | contractPre contract /= Nothing || contractPost contract /= Nothing =
           Just (name, ContractStatus
-            { csPreLevel  = fmap (const VLAsserted) (contractPre contract)
-            , csPostLevel = fmap (const VLAsserted) (contractPost contract)
-            , csPreSource  = contractPreSource contract
-            , csPostSource = contractPostSource contract
-            , csPostBodyFaithful = False
+            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing)) (contractPre contract)
+            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing)) (contractPost contract)
+            , csAssumptions = []
             })
       | otherwise = Nothing
 
--- | Merge sidecar contract status: take the higher-tier level for each clause.
--- Sidecar can upgrade (asserted → proven), but buildModuleEnv defaults remain
+-- | Merge sidecar contract status: take the higher-evidence record for each clause.
+-- Sidecar can upgrade (asserted → verified), but buildModuleEnv defaults remain
 -- if the sidecar is missing a clause.
 mergeCS :: ContractStatus -> ContractStatus -> ContractStatus
 mergeCS sidecar base = ContractStatus
-  { csPreLevel  = pickHigher (csPreLevel sidecar) (csPreLevel base)
-  , csPostLevel = pickHigher (csPostLevel sidecar) (csPostLevel base)
-  , csPreSource  = csPreSource sidecar <|> csPreSource base
-  , csPostSource = csPostSource sidecar <|> csPostSource base
-  , csPostBodyFaithful = csPostBodyFaithful sidecar || csPostBodyFaithful base
+  { csPre  = pickHigherER (csPre sidecar) (csPre base)
+  , csPost = pickHigherER (csPost sidecar) (csPost base)
+  , csAssumptions = case csAssumptions sidecar of
+      [] -> csAssumptions base
+      as -> as
   }
   where
-    pickHigher (Just a) (Just b)
-      | vlTier a >= vlTier b = Just a
-      | otherwise            = Just b
-    pickHigher a        Nothing  = a
-    pickHigher Nothing  b        = b
+    pickHigherER (Just a) (Just b)
+      | evidenceCovers (erDisplayLevel a) (erDisplayLevel b) = Just a
+      | otherwise = Just b
+    pickHigherER a Nothing  = a
+    pickHigherER Nothing b  = b
 
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = Nothing

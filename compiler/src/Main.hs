@@ -35,7 +35,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), VerificationLevel(..), Name, Expr(..), HoleKind(..))
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..))
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrict, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -1061,8 +1061,8 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
         unless (null skipped) $
           TIO.putStrLn $ "   skipped (non-linear): " <> T.intercalate ", " skipped
         -- v0.8.0: report body-faithful and fallback functions
-        unless (null (erBodyFaithful emitR)) $
-          TIO.putStrLn $ "   body-faithful: " <> T.intercalate ", " (erBodyFaithful emitR)
+        unless (null (erBodyFaithfulFns emitR)) $
+          TIO.putStrLn $ "   body-faithful: " <> T.intercalate ", " (erBodyFaithfulFns emitR)
         unless (null (erBodyFallback emitR)) $
           TIO.putStrLn $ "   body-fallback: " <> T.intercalate ", " (erBodyFallback emitR)
         -- v0.8.0: surface diagnostics (path-limit warnings etc.)
@@ -1101,7 +1101,7 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
               -- v0.8.0: augment JSON with body-faithful metadata
               let reportJson = formatReportJson report
                   bodyMeta = T.pack . BLC.unpack . encode $ object
-                    [ "body_faithful" .= erBodyFaithful emitR
+                    [ "body_faithful" .= erBodyFaithfulFns emitR
                     , "body_fallback" .= erBodyFallback emitR
                     ]
               -- Merge by stripping closing } from report and appending body_meta fields
@@ -1127,23 +1127,24 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           -- v0.3: write .verified.json sidecar on SAFE
           case fqResult of
             FQSafe -> do
-              let bodyFaithfulSet = Set.fromList (erBodyFaithful emitR)
-                  -- v0.8.0: Post is VLProvenSMT only when body-faithful VC
+              let bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
+                  -- v0.8.1b: Post gets DLVerified only when body-faithful VC
                   -- was emitted and solver returned SAFE. This means the solver
-                  -- checked: P ∧ (result = ⟦body⟧) ⟹ Q.
-                  -- Pre remains VLAsserted: preconditions are caller assumptions,
+                  -- checked: P ∧ (result = ⟦body⟧) ⇒ Q.
+                  -- Pre remains DLAsserted: preconditions are caller assumptions,
                   -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPreLevel  = fmap (const VLAsserted) (contractPre c)
-                            -- Pre remains asserted: no call-site VCs in v0.8.0
-                        , csPostLevel = if Set.member n bodyFaithfulSet
-                                        then fmap (const (VLProvenSMT "liquid-fixpoint")) (contractPost c)
-                                        else fmap (const VLAsserted) (contractPost c)
-                            -- Post proven only when body-faithful VC succeeded
-                        , csPreSource  = contractPreSource c
-                        , csPostSource = contractPostSource c
-                        , csPostBodyFaithful = Set.member n bodyFaithfulSet
+                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c)))
+                                       (contractPre c)
+                            -- Pre remains asserted: no call-site VCs in v0.8.1b
+                        , csPost = if Set.member n bodyFaithfulSet
+                                   then fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c)))
+                                             (contractPost c)
+                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c)))
+                                             (contractPost c)
+                            -- Post verified only when body-faithful VC succeeded
+                        , csAssumptions = []  -- v0.8.1b: deferred to v0.9
                         })
                     | s <- stmts
                     , Just (n, c) <- [extractContract s]

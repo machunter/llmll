@@ -374,11 +374,12 @@ pWeaknessOkDecl = do
   pure $ SWeaknessOk name reason
 
 -- | Parse a trust level keyword.
-pTrustLevel :: Parser VerificationLevel
+pTrustLevel :: Parser DisplayLevel
 pTrustLevel = choice
-  [ VLProven ""    <$ symbol "proven"
-  , VLTested 0     <$ symbol "tested"
-  , VLAsserted     <$ symbol "asserted"
+  [ DLContractChecked "" <$ try (symbol "contract-checked")
+  , DLVerified ""        <$ symbol "verified"
+  , DLTested 0           <$ symbol "tested"
+  , DLAsserted           <$ symbol "asserted"
   ]
 
 -- | Split a dotted Text identifier into a module path.
