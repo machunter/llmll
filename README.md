@@ -77,7 +77,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 
 ## Verification Boundary
 
-LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core**: integer literals, integer-typed variables, simple let-bindings, conditionals, and linear arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=`). Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions with explicit trust labels.
+LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning** (v0.9.0): integer literals, integer-typed variables, simple let-bindings, conditionals, function calls to contracted functions (assume-guarantee), `Result` pattern matching, and linear arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=`). Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions with explicit trust labels.
 
 | Construct | SMT body-faithful | Fallback |
 |---|---|---|
@@ -85,9 +85,11 @@ LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core*
 | `EOp` (+, -, =, <, <=, >=, >, !=) | ✅ | — |
 | `ELet` (PVar, int RHS) | ✅ | — |
 | `EIf` (≤4096 paths) | ✅ (path-split) | — |
-| `EApp` (builtins, user-defined) | ❌ | contract-only |
-| `EMatch`, `EPair`, `ELambda`, `EDo` | ❌ | runtime |
-| `letrec` | ❌ | runtime + `:decreases` |
+| `EApp` (contracted callee) | ✅ (v0.9.0 assume-guarantee) | — |
+| `EApp` (uncontracted / recursive self) | ❌ | contract-only |
+| `EMatch` on `Result` (2-arm) | ✅ (v0.9.0 two-path) | — |
+| `EMatch` (general ADT), `EPair`, `ELambda`, `EDo` | ❌ | runtime |
+| `letrec` (own body VC) | ❌ | runtime + `:decreases` |
 | Non-linear ops (*, /, mod) | ❌ | runtime + `?proof-required` |
 | **Int overflow** | ⚠ | Z3 `Int` ≠ Haskell `Int64` |
 
@@ -122,7 +124,7 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.8.1b)
+LLMLL.md                    ← canonical language specification (v0.9.0)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/

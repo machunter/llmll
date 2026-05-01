@@ -468,7 +468,7 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 
 **v0.8.1b result:** All 10 items shipped (commit `bf98797`, 2026-05-01). EVID-0 ✅ (design spec), EVID-1/1a–1e ✅ (core ADT + 12 consumer files), EVID-2 ✅ (VerifiedCache rewrite), EVID-3 ✅ (TrustReport), EVID-4 ✅ (SpecCoverage), EVID-5 ✅ (Contracts), EVID-6 ✅ (Module), EVID-7 ✅ (Main), EVID-8 ✅ (spec update), EVID-T ✅ (test migration). 14 source files + test suite updated. Hard break: no backward compat for old `.verified.json`. 322 Haskell + 37 Python tests.
 
-**v0.9 scope:** Compositional verification. Assume-guarantee encoding for `EApp` with correct precondition polarity. SCC detection for recursive fallback. `EMatch` on `Result`. Transitive trust degradation. Design review (COMP-0) required before implementation. ~5–7 days.
+**v0.9 result:** All 8 items shipped (2026-05-01). COMP-0 ✅ (Rev 2 design spec), COMP-1 ✅ (CallVC + ContractEnv + call-pre emission), COMP-2 ✅ (SCC detection), COMP-3 ✅ (EMatch on Result), COMP-4 ✅ (trust degradation via existing enrichEntry), COMP-5 ✅ (call-pre diagnostics), COMP-6 ✅ (--strict-verified-core), COMP-T ✅ (18 golden tests). 4 source files + test suite updated. 452 Haskell + 37 Python tests.
 
 **v0.10 scope:** Obligation-guided agent coding. Structured obligation reports (JSON) for every hole, unproven contract, and failed call-site precondition. Three obligation channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions via `ObligationMining.hs`. Obligation quality benchmark. Design review (OBLIG-0) required before implementation. ~5–7 days. **Note:** Indexed/dependent types are explicitly excluded from v0.10 (professor consensus, 2026-05-01) and remain in the research track.
 
