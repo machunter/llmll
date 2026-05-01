@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.8.1b)
+# LLMLL: Large Language Model Logical Language (v0.9.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.8.1b (shipped).** Evidence Model Refactor — partial-order `DisplayLevel` diamond lattice (`verified > contract-checked ∥ tested > asserted`). `EvidenceRecord` with body-faithfulness and source provenance. Haskell codegen is the only backend. 322 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.9.0 (shipped).** Compositional Verification — assume-guarantee reasoning for function call chains. `CallVC`, `ContractEnv`, call-pre obligation emission, `EMatch` on `Result`, SCC detection, `--strict-verified-core` mode. 452 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history (v0.1.1 → v0.6.3)</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.9.0** | Compositional Verification: Assume-guarantee reasoning for function call chains (`CallVC`, `ContractEnv`). `EApp` to contracted functions is body-faithful. `EMatch` on `Result` (two-path encoding). SCC recursive fallback. Call-pre obligation emission (PROVE polarity). `--strict-verified-core` mode. Trust report loads `.verified.json` sidecar. 452 tests (+130). |
 | **v0.8.1b** | Evidence Model Refactor: `VerificationLevel` total order replaced with `DisplayLevel` partial-order diamond lattice (`DLVerified > DLContractChecked ∥ DLTested > DLAsserted`). `EvidenceRecord` (level + body-faithful + source provenance). `AssumptionKind` taxonomy. `ContractStatus` restructured. `evidenceMeet` (GLB) and `evidenceCovers` (partial-order). 14 source files + test suite updated. Hard break: no backward compat for old `.verified.json`. 322 tests (+2). |
 | **v0.8.1a** | Documentation Boundary Clarity: §3.4 renamed "Refinement Type Aliases." Per-construct verification matrix (§5.3.5). QF-LIA boundary and integer overflow model gap documented. One-pager and README updated. No code changes. |
 | **v0.8.0** | Faithfulness Core: Body-faithful verification conditions (BODY-VC). EOp delegation + `!=` in `exprToPred`. Clause-level emission tracking (`erEmittedPre`/`erEmittedPost`). EIf-in-let hoisting. SUPP-DEBT (`spec_coverage` + `suppression_debt`). Post-only stripping when body-faithful. 320 tests (+26). |
@@ -350,18 +351,19 @@ When the sidecar `.verified.json` file is missing for an imported module, all co
 
 `llmll verify --trust-report` prints a per-function trust summary after verification. For each function with contracts, the report shows:
 
-- The function’s own verification level (proven/tested/asserted) for pre and post clauses
+- The function's own verification level (verified/contract-checked/tested/asserted) for pre and post clauses
 - Which cross-module functions it calls and their verification levels
-- **Epistemic drift warnings:** when a `proven` conclusion depends transitively on an `asserted` or `tested` assumption upstream
+- **Epistemic drift warnings:** when a `verified` conclusion depends transitively on an `asserted` or `tested` assumption upstream
+
+> **v0.9.0:** The trust report now loads the `.verified.json` sidecar, so solver results are reflected in the output. Postconditions verified by `liquid-fixpoint` display as `verified (liquid-fixpoint)`. Preconditions remain `asserted` — they are caller obligations, not independently verified by the solver.
 
 ```bash
 stack exec llmll -- verify program.llmll --trust-report
 # Trust Report
 # ────────────────────────────────────────────────────────────
 #   withdraw:
-#     pre: proven (liquid-fixpoint)  |  post: proven (liquid-fixpoint)
-#     ↳ calls auth.verify-token (pre: —, post: asserted)
-#     ⚠ withdraw is proven, but depends on auth.verify-token which is asserted
+#     pre: asserted  |  post: verified (liquid-fixpoint)
+#     ↳ calls safe-subtract (pre: asserted, post: verified (liquid-fixpoint))
 ```
 
 Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling.
@@ -581,7 +583,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 > [!IMPORTANT]
 > **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of "proven" correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
 
-#### 5.3.4 Body-Faithful Verification (v0.8.0)
+#### 5.3.4 Body-Faithful Verification (v0.8.0, extended v0.9.0)
 
 The `.fq` emitter now encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates constraints of the form:
 
@@ -591,20 +593,29 @@ P ∧ (result = ⟦B⟧) ⟹ Q
 
 where ⟦B⟧ is the body's symbolic translation into the liquid-fixpoint constraint language. This closes the faithfulness gap: when both the contract and the body are in the QF-LIA fragment, `VLProvenSMT` means "the implementation satisfies the contract for all well-typed inputs."
 
-**Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, and all QF-LIA operators. `EMatch`, `letrec`, and non-linear expressions fall back conservatively to contract-only verification.
+**Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, `EApp` to contracted functions (v0.9.0, assume-guarantee), `EMatch` on `Result` with two-arm Success/Error pattern (v0.9.0), and all QF-LIA operators. General `EMatch`, `letrec` (own body), and non-linear expressions fall back conservatively to contract-only verification.
+
+**Compositional call-chain verification (v0.9.0):** When a body-faithful function calls a contracted callee, the verifier:
+1. **Proves** the callee's precondition is satisfied at the call site (PROVE polarity — caller obligation)
+2. **Assumes** the callee's postcondition holds for the call result (assume-guarantee)
+3. **Binds** a fresh symbolic variable for the call result
+
+Recursive functions (detected via `stronglyConnComp` SCC analysis) are excluded from body VC emission for their own body, but non-recursive callers may still use assume-guarantee against their contracts.
 
 **Path limit:** Functions with >4096 execution paths (from deeply nested `EIf`) fall back to contract-only verification with a diagnostic warning. This prevents solver timeouts while maintaining soundness.
 
 **Contract stripping (v0.8.0):** `--contracts=unproven` now strips postcondition runtime assertions for functions that are both `VLProvenSMT` and body-faithful (`csPostBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
+
+**Strict verified core (v0.9.0):** `--strict-verified-core` hard-errors if any function falls back from body-faithful verification (i.e., appears in `erBodyFallback`). Use this to enforce that all functions in a module are fully verified.
 
 > [!NOTE]
 > **Two-tier verification status.** After v0.8.0:
 > - `VLProvenSMT` + `csPostBodyFaithful = True` = implementation verified against contract. Postcondition assertions can be safely stripped.
 > - `VLProvenSMT` + `csPostBodyFaithful = False` = contract self-consistency verified only. All runtime assertions preserved. This occurs for fallback functions (non-QF-LIA bodies, path-limit exceeded, `letrec`).
 
-#### 5.3.5 Verification Matrix (v0.8.0)
+#### 5.3.5 Verification Matrix (v0.8.0, extended v0.9.0)
 
-The following matrix documents the verification status of each syntax construct as of v0.8.0. "Typechecked" means the construct is accepted by the type checker. "Runtime assert" means contracts on functions using the construct are enforced as runtime assertions. "SMT contract" means the construct's contracts can be checked by the solver. "SMT body-faithful" means the construct's implementation is encoded as a verification condition.
+The following matrix documents the verification status of each syntax construct as of v0.9.0. "Typechecked" means the construct is accepted by the type checker. "Runtime assert" means contracts on functions using the construct are enforced as runtime assertions. "SMT contract" means the construct's contracts can be checked by the solver. "SMT body-faithful" means the construct's implementation is encoded as a verification condition.
 
 | Construct | Typechecked | Runtime assert | SMT contract | SMT body-faithful | QuickCheck | Fallback behavior |
 |---|---|---|---|---|---|---|
@@ -617,11 +628,13 @@ The following matrix documents the verification status of each syntax construct 
 | `ELet` (pattern/non-int RHS) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | `EIf` (int guards, ≤4096 paths) | ✅ | ✅ | ✅ | ✅ (path-split) | ✅ | — |
 | `EIf` (>4096 paths) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only + warning |
+| `EApp` (contracted callee, non-recursive) | ✅ | ✅ | ✅ | ✅ (v0.9.0 assume-guarantee) | ✅ | — |
+| `EApp` (uncontracted / recursive self) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
 | `EApp` (builtins: `string-length` etc.) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
-| `EApp` (user-defined functions) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
-| `EMatch` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
+| `EMatch` on `Result` (2-arm Success/Error) | ✅ | ✅ | ✅ | ✅ (v0.9.0 two-path) | ✅ | — |
+| `EMatch` (general ADT, >2 arms) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | `EPair`/`first`/`second` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
-| `letrec` | ✅ | ✅ | ⚠ termination only | ❌ | ✅ | runtime + `:decreases` check |
+| `letrec` (own body VC) | ✅ | ✅ | ⚠ termination only | ❌ | ✅ | runtime + `:decreases` check |
 | `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |
 | `ELambda` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | **Int overflow** | ✅ | ✅ | ⚠ Z3 `Int` ≠ `Int64` | ⚠ | ✅ | documented gap |
