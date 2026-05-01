@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.8.0 shipped (Faithfulness Core); next: v0.8.1a (docs), v0.8.1b (evidence model), v0.9 (compositional). Feature freeze active. 320 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.8.1a shipped (Documentation Boundary Clarity); next: v0.8.1b (evidence model), v0.9 (compositional). Feature freeze active. 320 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -115,15 +115,17 @@ BODY-VC-0 resolved the following proof obligations:
 
 | # | ID | Description | Files affected | Status |
 |---|-----|-------------|---------------|--------|
-| 1 | **RENAME-1** | **[SPEC]** Rename LLMLL.md §3.4 from "Dependent Types (Logic-Constrained)" to "Refinement Type Aliases (Logic-Constrained)." Remove prose comparing LLMLL to Idris or Lean for dependent elimination. Correct claim: "LLMLL supports refinement-like annotations whose predicates are checked by the verification layer or enforced as runtime assertions depending on trust level." | `LLMLL.md` | ☐ |
-| 2 | **RENAME-2** | **[SPEC]** Update one-pager — remove "Drawing from type-driven development (as pioneered in Idris and Lean)" or reword to "Inspired by refinement types (Liquid Haskell) and type-driven development." | `docs/one-pager.md` | ☐ |
-| 3 | **MATRIX-1** | **[SPEC]** Add per-syntax-construct verification matrix to LLMLL.md §5.3 (new §5.3.5). Columns: typechecked, runtime-asserted, SMT contract-only, SMT body-faithful, QuickCheck, unsupported/fallback. Rows: ELit, EVar, EBinOp (linear), EBinOp (non-linear), ELet, EIf, EApp (builtins), EApp (user-defined), EMatch, EPair/first/second, letrec, EDo, ELambda. Include integer overflow model gap row (Z3 `Int` vs Haskell `Int64`). | `LLMLL.md` | ☐ |
-| 4 | **MATRIX-2** | Add compressed verification matrix to README.md (new "Verification Boundary" section after "Quick start"). | `README.md` | ☐ |
-| 5 | **MATRIX-3** | Add compressed verification matrix to one-pager (in "Status" section or new subsection). | `docs/one-pager.md` | ☐ |
-| 6 | **BOUNDARY-1** | **[SPEC]** Rewrite one-pager "Status" opening paragraph to lead with the QF-LIA boundary: "LLMLL currently provides body-faithful SMT verification for a non-recursive QF-LIA core: literals, variables, simple let-bindings, conditionals, and linear arithmetic. Programs outside that fragment fall back to contract-only verification, tests, or runtime assertions with explicit trust labels." | `docs/one-pager.md` | ☐ |
-| 7 | **BOUNDARY-2** | **[SPEC]** Document integer overflow model gap in verification matrix: "Z3 reasons over mathematical integers; Haskell `Int` wraps at 2⁶³. Contracts proven in the solver may not hold at overflow boundaries." Documented limitation, not a defect to fix. | `LLMLL.md` §5.3.5 | ☐ |
+| 1 | **RENAME-1** | **[SPEC]** Rename LLMLL.md §3.4 from "Dependent Types (Logic-Constrained)" to "Refinement Type Aliases (Logic-Constrained)." Remove prose comparing LLMLL to Idris or Lean for dependent elimination. Correct claim: "LLMLL supports refinement-like annotations whose predicates are checked by the verification layer or enforced as runtime assertions depending on trust level." | `LLMLL.md` | ✅ |
+| 2 | **RENAME-2** | **[SPEC]** Update one-pager — remove "Drawing from type-driven development (as pioneered in Idris and Lean)" or reword to "Inspired by refinement types (Liquid Haskell) and type-driven development." | `docs/one-pager.md` | ✅ |
+| 3 | **MATRIX-1** | **[SPEC]** Add per-syntax-construct verification matrix to LLMLL.md §5.3 (new §5.3.5). Columns: typechecked, runtime-asserted, SMT contract-only, SMT body-faithful, QuickCheck, unsupported/fallback. Rows: ELit, EVar, EBinOp (linear), EBinOp (non-linear), ELet, EIf, EApp (builtins), EApp (user-defined), EMatch, EPair/first/second, letrec, EDo, ELambda. Include integer overflow model gap row (Z3 `Int` vs Haskell `Int64`). | `LLMLL.md` | ✅ |
+| 4 | **MATRIX-2** | Add compressed verification matrix to README.md (new "Verification Boundary" section after "Quick start"). | `README.md` | ✅ |
+| 5 | **MATRIX-3** | Add compressed verification matrix to one-pager (in "Status" section or new subsection). | `docs/one-pager.md` | ✅ |
+| 6 | **BOUNDARY-1** | **[SPEC]** Rewrite one-pager "Status" opening paragraph to lead with the QF-LIA boundary: "LLMLL currently provides body-faithful SMT verification for a non-recursive QF-LIA core: literals, variables, simple let-bindings, conditionals, and linear arithmetic. Programs outside that fragment fall back to contract-only verification, tests, or runtime assertions with explicit trust labels." | `docs/one-pager.md` | ✅ |
+| 7 | **BOUNDARY-2** | **[SPEC]** Document integer overflow model gap in verification matrix: "Z3 reasons over mathematical integers; Haskell `Int` wraps at 2⁶³. Contracts proven in the solver may not hold at overflow boundaries." Documented limitation, not a defect to fix. | `LLMLL.md` §5.3.5 | ✅ |
 | 8 | **ROADMAP-1** | Update `compiler-team-roadmap.md` with v0.8.1a/v0.8.1b/v0.9 plan. Move old v0.8.1 items to parking lot. Add feature freeze policy. Update critical path diagram. | `docs/compiler-team-roadmap.md` | ✅ |
-| 9 | **ROADMAP-2** | Update one-pager "What's Next" table with v0.8.1a, v0.8.1b, v0.9 milestones. | `docs/one-pager.md` | ☐ |
+| 9 | **ROADMAP-2** | Update one-pager "What's Next" table with v0.8.1a, v0.8.1b, v0.9 milestones. | `docs/one-pager.md` | ✅ |
+
+> ✅ **v0.8.1a shipped** (commit `58c0f26`, 2026-04-30). All 9 items delivered. No code changes, no test changes, zero regression risk.
 
 **Acceptance criteria:**
 - §3.4 heading says "Refinement Type Aliases"
@@ -352,22 +354,22 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 > **Roadmap restructure (2026-04-30):** Professor's five-round review + language team consensus. Old v0.8.1 (entirely blocked on `lean-lsp-mcp`) replaced with three actionable milestones. Feature freeze active from v0.8.1a through v0.9.
 
 ```
-v0.8.0 (SHIPPED)     v0.8.1a (docs)    v0.8.1b (evidence)     v0.9 (compositional)      Parked
+v0.8.0 (SHIPPED)     v0.8.1a (SHIPPED)  v0.8.1b (evidence)     v0.9 (compositional)      Parked
 ────────────────     ──────────────    ──────────────────     ────────────────────      ──────
-BODY-VC ✅            RENAME-1/2        EVID-0 (design)        COMP-0 (design)           LEAN-GA
-SUPP-DEBT ✅          MATRIX-1/2/3      EVID-1 (ADT)           COMP-1 (EApp)             TRUST-2b
-EVENT-LOG ✅          BOUNDARY-1/2      EVID-2 (sidecar)       COMP-2 (SCC)              MCP
-SPEC-* ✅             ROADMAP-1/2       EVID-3 (trust rpt)     COMP-3 (EMatch Result)
+BODY-VC ✅            RENAME-1/2 ✅      EVID-0 (design ✅)      COMP-0 (design)           LEAN-GA
+SUPP-DEBT ✅          MATRIX-1/2/3 ✅    EVID-1 (ADT)           COMP-1 (EApp)             TRUST-2b
+EVENT-LOG ✅          BOUNDARY-1/2 ✅    EVID-2 (sidecar)       COMP-2 (SCC)              MCP
+SPEC-* ✅             ROADMAP-1/2 ✅     EVID-3 (trust rpt)     COMP-3 (EMatch Result)
 320 tests                               EVID-4 (coverage)      COMP-4 (propagation)
-                      ~1 day            EVID-5 (contracts)     COMP-5 (obligations)
+                      9/9 shipped       EVID-5 (contracts)     COMP-5 (obligations)
                       no code           EVID-6 (module)        COMP-6 (strict mode)
                       zero risk         EVID-7 (CLI)           COMP-T (stripping tests)
                                         EVID-8 (spec)
-                                        EVID-T (tests)         ~5-7 days
+                                        EVID-T (124 tests)     ~5-7 days
                                         ~3-5 days
 ```
 
-**Critical path:** v0.8.1a (immediate) → EVID-0 design review → v0.8.1b implementation → COMP-0 design review → v0.9 implementation.
+**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation → COMP-0 design review → v0.9 implementation.
 
 **Feature freeze** active from v0.8.1a through v0.9 ship.
 
@@ -376,6 +378,8 @@ SPEC-* ✅             ROADMAP-1/2       EVID-3 (trust rpt)     COMP-3 (EMatch R
 **v0.8.0 result:** All 10 items shipped. BODY-VC-0 ✅ → BODY-VC-1 ✅ → BODY-VC-2 ✅ → BODY-VC-3 ✅. BODY-VC-T (25 tests) validated all translation rules. EOp soundness fix and clause-level emission tracking closed two critical soundness gaps. SUPP-DEBT, EVENT-LOG, SPEC-FOUNDATION, SPEC-EFFECTS, SPEC-TRUST all shipped. 320 Haskell + 37 Python tests.
 
 **v0.8.1a scope:** Documentation only. Rename "Dependent Types" → "Refinement Type Aliases." Add verification matrix to LLMLL.md, README, and one-pager. Document integer overflow model gap. ~1 day, zero code risk.
+
+**v0.8.1a result:** All 9 items shipped (commit `58c0f26`, 2026-04-30). RENAME-1/2 ✅, MATRIX-1/2/3 ✅, BOUNDARY-1/2 ✅, ROADMAP-1/2 ✅. No code changes, no test changes. 320 Haskell + 37 Python tests unchanged.
 
 **v0.8.1b scope:** Evidence model refactor. Replace `VerificationLevel` total order with four-tier `DisplayLevel` partial order + assumption taxonomy. Touches `Syntax.hs`, `VerifiedCache.hs`, `TrustReport.hs`, `SpecCoverage.hs`, `Contracts.hs`, `Module.hs`, `Main.hs`. Design review (EVID-0) required before implementation. ~3–5 days.
 
@@ -405,7 +409,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.6.3** | *(shipped, 2026-04-26)* | Trust model fixes: 7 critical bugs (BUG-1..7). `tcStrictMode` typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection, contract instrumentation in build pipeline, termination documentation correction — **shipped (2026-04-26)**. |
 | **v0.7** | *(reorganized, 2026-04-28)* | **Hardening:** BUILTIN-1/2 (total builtins), DO-1 (discarded command warning), TRUST-2a (`VLProvenSMT` + `Ord` removal). 294 tests. — **shipped (2026-04-29)**. |
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. — **shipped (2026-04-29)**. |
-| **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. |
+| **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
 | **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. Assumption taxonomy. Structured `.verified.json` sidecar. Backward-compatible. EVID-0 design review required. ~3–5 days. |
 | **v0.9** | *(new, 2026-04-30)* | **Compositional Verification:** Assume-guarantee `EApp` encoding. `EMatch` on `Result`. SCC recursive fallback. Transitive trust degradation. `--strict-verified-core` mode. COMP-0 design review required. ~5–7 days. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |
@@ -423,7 +427,28 @@ Research-track items are tracked separately in [research-track.md](research-trac
 
 # Shipped Releases
 
-<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.7)</strong></summary>
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.8.1a)</strong></summary>
+
+
+## v0.8.1a — Documentation Boundary Clarity ✅ SHIPPED
+
+**Theme:** Make the verification boundary impossible to miss. No code changes, no regression risk.
+
+> Shipped 2026-04-30. 9 items.
+
+| # | ID | Description | Status |
+|---|-----|-------------|--------|
+| 1 | RENAME-1 | §3.4 "Dependent Types" → "Refinement Type Aliases" | ✅ |
+| 2 | RENAME-2 | One-pager: removed Idris/Lean comparison | ✅ |
+| 3 | MATRIX-1 | Per-construct verification matrix in LLMLL.md §5.3.5 | ✅ |
+| 4 | MATRIX-2 | Compressed verification matrix in README | ✅ |
+| 5 | MATRIX-3 | Compressed verification matrix in one-pager | ✅ |
+| 6 | BOUNDARY-1 | One-pager QF-LIA boundary rewrite | ✅ |
+| 7 | BOUNDARY-2 | Integer overflow model gap documented | ✅ |
+| 8 | ROADMAP-1 | Roadmap restructured with v0.8.1a/v0.8.1b/v0.9 | ✅ |
+| 9 | ROADMAP-2 | One-pager "What's Next" table updated | ✅ |
+
+**Test count:** 320 Haskell (unchanged), 37 Python (unchanged). No code changes.
 
 
 ## v0.7 — Hardening ✅ SHIPPED

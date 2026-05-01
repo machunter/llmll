@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.8.0
+# LLMLL Getting Started — v0.8.1a
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
