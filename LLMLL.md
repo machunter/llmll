@@ -279,7 +279,7 @@ Inside a `post` clause, the identifier `result` is **automatically bound to the 
 | `post` violation | `AssertionError` raised before result is returned. The implementation is buggy. |
 | Both satisfied | Result is returned normally. |
 
-#### 4.4.1 Display Levels (v0.8.1b)
+#### 4.4.1 Display Levels
 
 Every `pre` and `post` clause carries a **display level** — a structured evidence record describing how the contract has been checked. Display levels form a partial-order diamond lattice, not a total order:
 
@@ -402,7 +402,7 @@ In LLMLL's target domains (financial compliance, protocol implementation, crypto
 
 **Semantics:** Pure metadata — no effect on type checking, verification, or codegen. The `:source` string is stored per-clause (`contractPreSource` / `contractPostSource`) and threaded through `--trust-report` output and `.verified.json` sidecars.
 
-**Backward compatible:** Omitting `:source` yields `Nothing` — all pre-v0.6.0 programs parse and compile unchanged.
+**Backward compatible:** Omitting `:source` yields `Nothing` — all existing programs parse and compile unchanged.
 
 **Multiple pre clauses:** When multiple `(pre ...)` clauses are combined with `and`, the `:source` annotation is dropped (ambiguous provenance across combined clauses).
 
@@ -468,7 +468,6 @@ stack exec llmll -- verify ../examples/withdraw.llmll
 # ✅ ../examples/withdraw.llmll — SAFE (liquid-fixpoint)
 ```
 
-> **v0.3 — Interactive Proof Holes:** `?proof-required :inductive` and `:unknown` holes are routed to Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds.
 
 #### 5.3.1 Spec Weakness Detection
 
@@ -596,9 +595,9 @@ Recursive functions (detected via `stronglyConnComp` SCC analysis) are excluded 
 
 **Path limit:** Functions with >4096 execution paths (from deeply nested `EIf`) fall back to contract-only verification with a diagnostic warning. This prevents solver timeouts while maintaining soundness.
 
-**Contract stripping (v0.8.0):** `--contracts=unproven` now strips postcondition runtime assertions for functions that are both `DLVerified` and body-faithful (`erBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
+**Contract stripping:** `--contracts=unproven` strips postcondition runtime assertions for functions that are both `DLVerified` and body-faithful (`erBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
 
-**Strict verified core (v0.9.0):** `--strict-verified-core` hard-errors if any function falls back from body-faithful verification (i.e., appears in `erBodyFallback`). Use this to enforce that all functions in a module are fully verified.
+**Strict verified core:** `--strict-verified-core` hard-errors if any function falls back from body-faithful verification (i.e., appears in `erBodyFallback`). Use this to enforce that all functions in a module are fully verified.
 
 
 
@@ -675,7 +674,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.6.0, with WASM-WASI planned as a future deployment target. Capability enforcement is active at compile time: when a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error, and propagation is non-transitive — each module must re-declare its own capability imports, matching the principle of least authority.
+`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` with WASM-WASI planned as a future deployment target. Capability enforcement is active at compile time: when a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error, and propagation is non-transitive — each module must re-declare its own capability imports, matching the principle of least authority.
 
 ```lisp
 (module cloud-storage
@@ -920,7 +919,7 @@ Import syntax:
 
 The `hub.` prefix prevents local files from accidentally shadowing registry packages. Publishing, semantic versioning beyond `major.minor.patch`, and a web registry API are deferred (not version-pinned).
 
-Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7). _(Full hub write-path including publishing is introduced in v0.3.)_
+Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7).
 
 ---
 
@@ -1127,7 +1126,7 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 
 ## 10a. Event Log Specification
 
-Correct replay is the foundation of fault tolerance, audit trails, and (in v0.2) SMT proof validation over execution traces.
+Correct replay is the foundation of fault tolerance, audit trails, and SMT proof validation over execution traces.
 
 ### Sources of Non-Determinism
 
@@ -1766,7 +1765,7 @@ When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solu
    ```
    This resolves to `import System.Posix.Files` and `atomicWriteFile` — no stub required.
 
-### 13.11 Cryptographic Operations (v0.6.1)
+### 13.11 Cryptographic Operations
 
 Cryptographic builtins are **opaque primitives** — the compiler does not attempt to verify their correctness. Their results are classified as `asserted` in the trust report. Downstream contracts that depend on these builtins are capped at the `asserted` verification level.
 
