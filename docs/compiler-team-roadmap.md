@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.8.1a shipped (Documentation Boundary Clarity); next: v0.8.1b (evidence model), v0.9 (compositional). Feature freeze active. 320 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.8.1b shipped (Evidence Model Refactor); next: v0.9 (compositional). Feature freeze active. 322 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -175,21 +175,21 @@ contract-checked  tested
 
 | # | ID | Description | Prerequisite | Status |
 |---|-----|-------------|-------------|--------|
-| 1 | **EVID-0** | **[DESIGN]** Design spec: evidence model ADT, JSON schema, projection rules, assumption taxonomy, migration plan for `.verified.json`, backward compatibility story. Comparable to `body-vc-0-spec.md`. | None | ☐ |
-| 2 | **EVID-1** | **[CT]** `EvidenceRecord` type in `Syntax.hs`. Four-tier `DisplayLevel` ADT. `AssumptionKind` ADT. Replace `VerificationLevel` in all 12 consumer files (see full list below). `evidenceMeet` partial-order meet function. | EVID-0 | ☐ |
-| — | **EVID-1a** | **[CT]** Update `ProofCache.hs` — `proofToLevel` returns `DLVerified`. `isTaintedProof` returns `DLAsserted`. | EVID-1 | ☐ |
-| — | **EVID-1b** | **[CT]** Update `AstEmit.hs` — `vlLabel` → `dlLabel` for JSON-AST round-trip (`--emit json-ast`). | EVID-1 | ☐ |
-| — | **EVID-1c** | **[CT]** Update `TypeCheck.hs` — `tcContractStatus` type update, trust-gap warning patterns. | EVID-1 | ☐ |
-| — | **EVID-1d** | **[CT]** Update `Parser.hs` — `(trust ...)` parsing → new evidence constructors. | EVID-1 | ☐ |
-| — | **EVID-1e** | **[CT]** Update `ObligationMining.hs` — obligation classification patterns. | EVID-1 | ☐ |
-| 3 | **EVID-2** | **[CT]** Update `VerifiedCache.hs` — new JSON sidecar format with evidence records. Backward-compatible reader: old `.verified.json` files parse into equivalent `EvidenceRecord`. | EVID-1 | ☐ |
-| 4 | **EVID-3** | **[CT]** Update `TrustReport.hs` — display-level projection rule. Generalize `transitiveClose` from linear `min` to partial-order meet. Display assumptions in report. `⚠` marker for `external-opaque`. | EVID-1 | ☐ |
-| 5 | **EVID-4** | **[CT]** Update `SpecCoverage.hs` — classification uses new evidence tiers. JSON output uses new field names. | EVID-1 | ☐ |
-| 6 | **EVID-5** | **[CT]** Update `Contracts.hs` — stripping logic uses `DLVerified` + `body_faithful` instead of `VLProvenSMT` + `csPostBodyFaithful`. | EVID-1 | ☐ |
-| 7 | **EVID-6** | **[CT]** Update `Module.hs` — `mergeCS` uses new lattice meet. | EVID-1 | ☐ |
-| 8 | **EVID-7** | **[CT]** Update CLI output in `Main.hs` — `--trust-report` and `--json` use new labels. | EVID-1 | ☐ |
-| 9 | **EVID-8** | **[SPEC]** Update LLMLL.md §4.4.1, §5.3.3, §5.3.4 — new trust tier vocabulary. Update §4.4.4 trust report examples. | EVID-7 | ☐ |
-| 10 | **EVID-T** | **[CT]** Test migration: update all trust-report, `.verified.json`, and spec-coverage test expectations. Add tests for: partial-order meet (80 cases — 16 commutativity + 64 associativity), assumption chain propagation, `external-opaque` display. Backward-compat sidecar golden test. | EVID-1 | ☐ |
+| 1 | **EVID-0** | **[DESIGN]** Design spec: evidence model ADT, JSON schema, projection rules, assumption taxonomy, migration plan for `.verified.json`, backward compatibility story. Comparable to `body-vc-0-spec.md`. | None | ✅ |
+| 2 | **EVID-1** | **[CT]** `EvidenceRecord` type in `Syntax.hs`. Four-tier `DisplayLevel` ADT. `AssumptionKind` ADT. Replace `VerificationLevel` in all 12 consumer files (see full list below). `evidenceMeet` partial-order meet function. | EVID-0 | ✅ |
+| — | **EVID-1a** | **[CT]** Update `ProofCache.hs` — `proofToLevel` returns `DLVerified`. `isTaintedProof` returns `DLAsserted`. | EVID-1 | ✅ |
+| — | **EVID-1b** | **[CT]** Update `AstEmit.hs` — `vlLabel` → `dlLabel` for JSON-AST round-trip (`--emit json-ast`). | EVID-1 | ✅ |
+| — | **EVID-1c** | **[CT]** Update `TypeCheck.hs` — `tcContractStatus` type update, trust-gap warning patterns. | EVID-1 | ✅ |
+| — | **EVID-1d** | **[CT]** Update `Parser.hs` — `(trust ...)` parsing → new evidence constructors. | EVID-1 | ✅ |
+| — | **EVID-1e** | **[CT]** Update `ObligationMining.hs` — obligation classification patterns. | EVID-1 | ✅ |
+| 3 | **EVID-2** | **[CT]** Update `VerifiedCache.hs` — new JSON sidecar format with evidence records. Hard break: old `.verified.json` files return empty map (no backward compat). | EVID-1 | ✅ |
+| 4 | **EVID-3** | **[CT]** Update `TrustReport.hs` — display-level projection rule. Generalize `transitiveClose` from linear `min` to partial-order meet. Display assumptions in report. `⚠` marker for `external-opaque`. | EVID-1 | ✅ |
+| 5 | **EVID-4** | **[CT]** Update `SpecCoverage.hs` — classification uses new evidence tiers. JSON output uses new field names. | EVID-1 | ✅ |
+| 6 | **EVID-5** | **[CT]** Update `Contracts.hs` — stripping logic uses `DLVerified` + `body_faithful` instead of `VLProvenSMT` + `csPostBodyFaithful`. | EVID-1 | ✅ |
+| 7 | **EVID-6** | **[CT]** Update `Module.hs` — `mergeCS` uses new lattice meet. | EVID-1 | ✅ |
+| 8 | **EVID-7** | **[CT]** Update CLI output in `Main.hs` — `--trust-report` and `--json` use new labels. | EVID-1 | ✅ |
+| 9 | **EVID-8** | **[SPEC]** Update LLMLL.md §4.4.1, §5.3.3, §5.3.4 — new trust tier vocabulary. Update §4.4.4 trust report examples. | EVID-7 | ✅ |
+| 10 | **EVID-T** | **[CT]** Test migration: update all trust-report, `.verified.json`, and spec-coverage test expectations. Lattice property tests via `evidenceCovers`/`evidenceMeet`. | EVID-1 | ✅ |
 
 > **Complete `VerificationLevel` consumer file list (12 files):** `Syntax.hs`, `Main.hs`, `TrustReport.hs`, `VerifiedCache.hs`, `SpecCoverage.hs`, `Contracts.hs`, `Module.hs`, `ProofCache.hs`, `AstEmit.hs`, `TypeCheck.hs`, `Parser.hs`, `ObligationMining.hs`. (`DiagnosticFQ.hs` confirmed NOT a consumer — it operates on `ConstraintOrigin`, not `VerificationLevel`.)
 
@@ -438,21 +438,22 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 > **Roadmap restructure (2026-04-30, extended 2026-05-01):** Professor's review + language team consensus. Old v0.8.1 (blocked on `lean-lsp-mcp`) replaced with four actionable milestones. Feature freeze active from v0.8.1a through v0.10.
 
 ```
-v0.8.0 (SHIPPED)  v0.8.1a (SHIPPED)  v0.8.1b (evidence)  v0.9 (compositional)  v0.10 (obligations)     Parked
+v0.8.0 (SHIPPED)  v0.8.1a (SHIPPED)  v0.8.1b (SHIPPED)   v0.9 (compositional)  v0.10 (obligations)     Parked
 ────────────────  ──────────────     ──────────────────  ────────────────────  ─────────────────────   ──────
 BODY-VC ✅         RENAME-1/2 ✅       EVID-0 (design ✅)   COMP-0 (design)       OBLIG-0 (design)        LEAN-GA
-SUPP-DEBT ✅       MATRIX-1/2/3 ✅     EVID-1 (ADT)        COMP-1 (EApp)         OBLIG-1 (enriched holes) TRUST-2b
-EVENT-LOG ✅       BOUNDARY-1/2 ✅     EVID-2 (sidecar)    COMP-2 (SCC)          OBLIG-2 (goal-state)    MCP
-SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust rpt)  COMP-3 (EMatch)       OBLIG-3 (branch obligs)
-320 tests                             EVID-4 (coverage)   COMP-4 (propagation)  OBLIG-4 (suggestions)
-                   9/9 shipped        EVID-5 (contracts)  COMP-5 (obligations)  OBLIG-5 (repair loop)
-                   no code            EVID-6 (module)     COMP-6 (strict mode)  OBLIG-B (benchmark)
-                   zero risk          EVID-7/8 (CLI/spec) COMP-T (tests)
-                                      EVID-T (124 tests)  ~5-7 days             ~5-7 days
-                                      ~3-5 days
+SUPP-DEBT ✅       MATRIX-1/2/3 ✅     EVID-1 (ADT ✅)       COMP-1 (EApp)         OBLIG-1 (enriched holes) TRUST-2b
+EVENT-LOG ✅       BOUNDARY-1/2 ✅     EVID-2 (sidecar ✅)  COMP-2 (SCC)          OBLIG-2 (goal-state)    MCP
+SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch)       OBLIG-3 (branch obligs)
+320 tests                             EVID-4 (coverage ✅) COMP-4 (propagation)  OBLIG-4 (suggestions)
+                   9/9 shipped        EVID-5 (contracts✅) COMP-5 (obligations)  OBLIG-5 (repair loop)
+                   no code            EVID-6 (module ✅)   COMP-6 (strict mode)  OBLIG-B (benchmark)
+                   zero risk          EVID-7/8 (CLI ✅)    COMP-T (tests)
+                                      EVID-T (tests ✅)    ~5-7 days             ~5-7 days
+                                      10/10 shipped
+                                       322 tests
 ```
 
-**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation → COMP-0 design review → v0.9 implementation → OBLIG-0 design review → v0.10 implementation.
+**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation ✅ → COMP-0 design review → v0.9 implementation → OBLIG-0 design review → v0.10 implementation.
 
 **Feature freeze** active from v0.8.1a through v0.10 ship.
 
@@ -465,6 +466,8 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust rpt)  COMP-3 (EMatch)    
 **v0.8.1a result:** All 9 items shipped (commit `58c0f26`, 2026-04-30). RENAME-1/2 ✅, MATRIX-1/2/3 ✅, BOUNDARY-1/2 ✅, ROADMAP-1/2 ✅. No code changes, no test changes. 320 Haskell + 37 Python tests unchanged.
 
 **v0.8.1b scope:** Evidence model refactor. Replace `VerificationLevel` total order with four-tier `DisplayLevel` partial order + assumption taxonomy. Touches `Syntax.hs`, `VerifiedCache.hs`, `TrustReport.hs`, `SpecCoverage.hs`, `Contracts.hs`, `Module.hs`, `Main.hs`. Design review (EVID-0) required before implementation. ~3–5 days.
+
+**v0.8.1b result:** All 10 items shipped (commit `bf98797`, 2026-05-01). EVID-0 ✅ (design spec), EVID-1/1a–1e ✅ (core ADT + 12 consumer files), EVID-2 ✅ (VerifiedCache rewrite), EVID-3 ✅ (TrustReport), EVID-4 ✅ (SpecCoverage), EVID-5 ✅ (Contracts), EVID-6 ✅ (Module), EVID-7 ✅ (Main), EVID-8 ✅ (spec update), EVID-T ✅ (test migration). 14 source files + test suite updated. Hard break: no backward compat for old `.verified.json`. 322 Haskell + 37 Python tests.
 
 **v0.9 scope:** Compositional verification. Assume-guarantee encoding for `EApp` with correct precondition polarity. SCC detection for recursive fallback. `EMatch` on `Result`. Transitive trust degradation. Design review (COMP-0) required before implementation. ~5–7 days.
 
@@ -495,7 +498,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.7** | *(reorganized, 2026-04-28)* | **Hardening:** BUILTIN-1/2 (total builtins), DO-1 (discarded command warning), TRUST-2a (`VLProvenSMT` + `Ord` removal). 294 tests. — **shipped (2026-04-29)**. |
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. — **shipped (2026-04-29)**. |
 | **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
-| **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. Assumption taxonomy. Structured `.verified.json` sidecar. Backward-compatible. EVID-0 design review required. ~3–5 days. |
+| **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. `EvidenceRecord` with body-faithfulness + source provenance. `AssumptionKind` taxonomy. Hard break for `.verified.json`. 14 source files + test suite. 322 tests (+2). — **shipped (2026-05-01)**. |
 | **v0.9** | *(new, 2026-04-30)* | **Compositional Verification:** Assume-guarantee `EApp` encoding. `EMatch` on `Result`. SCC recursive fallback. Transitive trust degradation. `--strict-verified-core` mode. COMP-0 design review required. ~5–7 days. |
 | **v0.10** | *(new, 2026-05-01)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. OBLIG-0 design review required. ~5–7 days. Indexed types explicitly excluded. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |

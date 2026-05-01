@@ -1,10 +1,10 @@
-# LLMLL — v0.8.1a
+# LLMLL — v0.8.1b
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.8.1a is shipped.** Documentation Boundary Clarity — verification matrix, "Refinement Type Aliases" rename, QF-LIA boundary documented. v0.8.1b (Evidence Model Refactor) in progress. 320 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.8.1b is shipped.** Evidence Model Refactor — partial-order `DisplayLevel` diamond lattice replaces total-order `VerificationLevel`. `EvidenceRecord` with body-faithfulness and source provenance. 322 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -122,7 +122,7 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.8.1a)
+LLMLL.md                    ← canonical language specification (v0.8.1b)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -173,7 +173,7 @@ examples/
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
-  compiler-team-roadmap.md  ← Engineering backlog (v0.8.1a shipped, v0.8.1b planned)
+  compiler-team-roadmap.md  ← Engineering backlog (v0.8.1b shipped, v0.9 planned)
   llmll-ast.schema.json     ← JSON-AST schema v0.2.0 (use with AI agents; CheckoutToken v0.3.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
@@ -202,7 +202,7 @@ tools/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.8.1a shipped, v0.8.1b planned |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.8.1b shipped, v0.9 planned |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
 | [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |

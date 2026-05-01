@@ -101,8 +101,8 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 | Milestone | Description |
 |-----------|-------------|
-| **Documentation boundary clarity** (v0.8.1a) | Rename "Dependent Types" → "Refinement Type Aliases." Per-construct verification matrix in LLMLL.md, README, and one-pager. Integer overflow model gap documented. Docs only, no code changes. |
-| **Evidence model refactor** (v0.8.1b) | Replace `VerificationLevel` total order with four-tier partial order: `verified` > `contract-checked` / `tested` > `asserted`. Assumption taxonomy (`runtime-primitive`, `compiler-builtin`, `external-opaque`). Structured `.verified.json` sidecar. Design review required. |
+| **Documentation boundary clarity** (v0.8.1a) ✅ | Rename "Dependent Types" → "Refinement Type Aliases." Per-construct verification matrix in LLMLL.md, README, and one-pager. Integer overflow model gap documented. Docs only, no code changes. |
+| **Evidence model refactor** (v0.8.1b) ✅ | `VerificationLevel` total order replaced with `DisplayLevel` partial-order diamond lattice. `EvidenceRecord` with body-faithfulness and source provenance. `AssumptionKind` taxonomy. 14 source files + test suite. 322 tests (+2). |
 | **Compositional verification** (v0.9) | Assume-guarantee encoding for `EApp` with correct precondition polarity. `EMatch` on `Result`. SCC recursive fallback. Transitive trust degradation. `--strict-verified-core` mode. Design review required. |
 | **Obligation-guided agent coding** (v0.10) | Structured obligation reports (JSON) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. Aims for the Idris workflow *feel* through richer obligations, without indexed types. |
 | **Body-faithful VCs** (v0.8.0) ✅ | `bodyToPred` translates function bodies into verification conditions for the QF-LIA fragment. Closes the faithfulness gap. 320 tests (+26). |

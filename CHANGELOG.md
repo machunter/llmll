@@ -2,6 +2,27 @@
 
 ---
 
+## v0.8.1b — Evidence Model Refactor (2026-05-01)
+
+### Compiler — DisplayLevel Diamond Lattice
+
+- **EVID-1** — `VerificationLevel` total order replaced with `DisplayLevel` partial-order diamond lattice in `Syntax.hs`. Four tiers: `DLVerified > DLContractChecked ∥ DLTested > DLAsserted`. `EvidenceRecord` type (display level + body-faithful flag + source provenance). `AssumptionKind` taxonomy (`AKRuntimePrimitive`, `AKCompilerBuiltin`, `AKExternalOpaque`). `ContractStatus` restructured to `csPre`/`csPost` (`Maybe EvidenceRecord`) + `csAssumptions`. `evidenceMeet` (GLB), `evidenceCovers` (partial-order check), `isSolverBacked`, `isVerifiedLevel`, `dlLabel`.
+- **EVID-1a–1e** — Consumer modules updated: `ProofCache.hs`, `AstEmit.hs`, `TypeCheck.hs`, `Parser.hs`, `ParserJSON.hs`, `ObligationMining.hs`.
+- **EVID-2** — `VerifiedCache.hs` rewritten with `EvidenceRecord`/`DisplayLevel`/`AssumptionKind` JSON serialization. Hard break: old `.verified.json` files return empty map (no backward compatibility).
+- **EVID-3** — `TrustReport.hs` refactored: `TrustEntry` uses `Maybe EvidenceRecord`, `TrustSummary` has 6 fields (adds `tsContractChecked`), `effectiveLevel` uses `evidenceMeet`.
+- **EVID-4** — `SpecCoverage.hs` refactored: `FunctionEntry` uses `Maybe DisplayLevel`, summary adds `csVerified`/`csContractChecked'`.
+- **EVID-5** — `Contracts.hs` updated: `filterContracts` checks `isVerifiedLevel && erBodyFaithful`.
+- **EVID-6** — `Module.hs` updated: `mkCS`/`mergeCS` use `EvidenceRecord` and `evidenceCovers`.
+- **EVID-7** — `Main.hs` updated: verify pipeline builds `EvidenceRecord (DLVerified "liquid-fixpoint") True`.
+- **FixpointEmit.hs** — `erBodyFaithful` renamed to `erBodyFaithfulFns` to resolve name collision with `EvidenceRecord.erBodyFaithful`.
+- **EVID-T** — All 322 tests updated and passing. Replaced `vlTier`/`trustCovers` tests with `evidenceCovers`/`evidenceMeet` lattice tests.
+
+### Design
+
+- **EVID-0** — Design spec `docs/design/evid-0-spec.md` produced and approved.
+
+---
+
 ## v0.8.1a — Documentation Boundary Clarity (2026-04-30)
 
 ### Spec (LLMLL.md)
