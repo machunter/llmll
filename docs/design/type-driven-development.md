@@ -87,7 +87,7 @@ LLMLL separates the specification into three independent feedback channels:
   :return Result[a, string]
   (pre (> (list-length xs) 0))
   (post (match result
-    (Success v) (= v (first xs))
+    (Success v) (= v (list-head xs))
     (Error _)   true))
   ?hole)
 ```
@@ -102,7 +102,7 @@ The agent receives a structured obligation report:
   "expected_type": "Result[a, string]",
   "contract_context": {
     "preconditions": ["(> (list-length xs) 0)"],
-    "postcondition_goal": "(match result (Success v) (= v (first xs)) (Error _) true)"
+    "postcondition_goal": "(match result (Success v) (= v (list-head xs)) (Error _) true)"
   },
   "path_condition": [],
   "in_scope": { "xs": "list[a]" },
@@ -268,8 +268,8 @@ Each obligation contains:
 | Body-faithful verification conditions | ✅ | v0.8.0 | `bodyToPred` for QF-LIA fragment |
 | Path-sensitive constraint emission | ✅ | v0.8.0 | `EIf` → `FlatPath` guards |
 | Orchestrator retry loop | ✅ | v0.3.5 | Python orchestrator `llmll-orchestra` |
-| Structured evidence model (EVID-0) | 🟡 | v0.8.1b | Four-tier `DisplayLevel` partial order |
-| Assumption taxonomy | 🟡 | v0.8.1b | `AKRuntimePrimitive`, `AKCompilerBuiltin`, `AKExternalOpaque` |
+| Structured evidence model (EVID-0) | ✅ | v0.8.1b | Four-tier `DisplayLevel` partial order |
+| Assumption taxonomy | ✅ | v0.8.1b | `AKRuntimePrimitive`, `AKCompilerBuiltin`, `AKExternalOpaque` |
 | Compositional verification (`EApp`) | 🔲 | v0.9 | Assume-guarantee encoding, correct precondition polarity |
 | `EMatch` two-path encoding for `Result` | 🔲 | v0.9 | Path-sensitive per-constructor obligations |
 | Call-site precondition diagnostics | 🔲 | v0.9 | Structured repair suggestions |
