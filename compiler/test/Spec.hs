@@ -3,7 +3,7 @@ module Main (main) where
 
 import Test.Hspec
 import Control.Monad (forM_)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, isJust)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
@@ -14,7 +14,7 @@ import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, run
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..))
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -3608,24 +3608,24 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "Positive (SAFE)" $ do
       it "T01: literal body 42" $ do
         let body = ELit (LitInt 42)
-            (_, result) = bodyToPredFrom 0 Map.empty body
+            (_, result) = bodyToPredFrom 0 Map.empty Map.empty Set.empty body
         result `shouldBe` Just (SimpleVC [] (FQLit 42))
 
       it "T02: bool literal true" $ do
         let body = ELit (LitBool True)
-            (_, result) = bodyToPredFrom 0 Map.empty body
+            (_, result) = bodyToPredFrom 0 Map.empty Map.empty Set.empty body
         result `shouldBe` Just (SimpleVC [] FQTrue)
 
       it "T03: arithmetic (+ n 1) with int params" $ do
         let body = EApp "+" [EVar "n", ELit (LitInt 1)]
             se = intSortEnv ["n"]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Just (SimpleVC [] (FQBinArith FQAdd (FQVar "n") (FQLit 1)))
 
       it "T04: single ELet with alpha-renaming" $ do
         let body = ELet [(PVar "s", Nothing, EApp "+" [EVar "a", EVar "b"])] (EApp "+" [EVar "s", EVar "c"])
             se = intSortEnv ["a", "b", "c"]
-            (counter, result) = bodyToPredFrom 0 se body
+            (counter, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         -- Counter should advance
         counter `shouldBe` 1
         case result of
@@ -3640,7 +3640,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "T05: EIf produces BranchVC" $ do
         let body = EIf (EApp ">" [EVar "n", ELit (LitInt 0)]) (EVar "n") (ELit (LitInt 0))
             se = intSortEnv ["n"]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
           Just (BranchVC guard tvc evc) -> do
             guard `shouldBe` FQBinPred FQGt (FQVar "n") (FQLit 0)
@@ -3652,7 +3652,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "T09: shadowing (let [[x (+ x 1)]] x) renames correctly" $ do
         let body = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] (EVar "x")
             se = intSortEnv ["x"]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
           Just (SimpleVC [lb] resultPred) -> do
             lbName lb `shouldBe` "_bv_x_0"
@@ -3664,8 +3664,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let body1 = ELet [(PVar "x", Nothing, ELit (LitInt 1))] (EVar "x")
             body2 = ELet [(PVar "x", Nothing, ELit (LitInt 2))] (EVar "x")
             se = intSortEnv []
-            (c1, _) = bodyToPredFrom 0 se body1
-            (c2, r2) = bodyToPredFrom c1 se body2
+            (c1, _) = bodyToPredFrom 0 se Map.empty Set.empty body1
+            (c2, r2) = bodyToPredFrom c1 se Map.empty Set.empty body2
         c1 `shouldBe` 1
         c2 `shouldBe` 2
         case r2 of
@@ -3676,31 +3676,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "EVar for non-int param returns Nothing" $ do
         let body = EVar "s"
             se = Map.fromList [("s", FQBool)]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Nothing
 
       it "EVar for unknown param returns Nothing" $ do
         let body = EVar "unknown"
-            (_, result) = bodyToPredFrom 0 Map.empty body
+            (_, result) = bodyToPredFrom 0 Map.empty Map.empty Set.empty body
         result `shouldBe` Nothing
 
     describe "Fallback" $ do
       it "F01: match in body returns Nothing" $ do
         let body = EMatch (EVar "x") [(PVar "y", EVar "y")]
             se = intSortEnv ["x"]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Nothing
 
       it "F02: user-defined function call returns Nothing" $ do
         let body = EApp "my-func" [EVar "x"]
             se = intSortEnv ["x"]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Nothing
 
       it "F03: non-linear operator * returns Nothing" $ do
         let body = EApp "*" [EVar "x", EVar "y"]
             se = intSortEnv ["x", "y"]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Nothing
 
     describe "Flattening" $ do
@@ -3742,7 +3742,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- Body returns x, but post requires result = x+1
         let body = EVar "x"
             se = Map.fromList [("x", FQInt)]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
           Just (SimpleVC [] resultPred) -> do
             -- Result pred is just (FQVar "x"), but post would be (+ x 1)
@@ -3755,7 +3755,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- (def-logic id [x: int] (post (= result x)) (+ x 1))
         let body = EApp "+" [EVar "x", ELit (LitInt 1)]
             se = Map.fromList [("x", FQInt)]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
           Just (SimpleVC [] resultPred) -> do
             resultPred `shouldBe` FQBinArith FQAdd (FQVar "x") (FQLit 1)
@@ -3773,7 +3773,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        (ELit (LitInt 0))
                        (EVar "n")
             se = Map.fromList [("n", FQInt)]
-            (_, result) = bodyToPredFrom 0 se body
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
           Just (BranchVC guard thenVC elseVC) -> do
             -- The else branch returns n (which could be negative)
@@ -3799,7 +3799,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let innerLet = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] (EVar "x")
             body = ELet [(PVar "x", Nothing, EApp "+" [EVar "x", ELit (LitInt 1)])] innerLet
             se = Map.fromList [("x", FQInt)]
-            (counter, result) = bodyToPredFrom 0 se body
+            (counter, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         -- Two let bindings → counter advanced by 2
         counter `shouldBe` 2
         case result of
@@ -3867,4 +3867,206 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erSkipped emitR `shouldSatisfy` elem "mul"
         -- Should NOT be in emittedPost
         erEmittedPost emitR `shouldSatisfy` not . elem "mul"
+
+  -- -----------------------------------------------------------------------
+  -- COMP-T: Compositional verification golden tests (v0.9.0)
+  -- -----------------------------------------------------------------------
+  describe "COMP-T (v0.9.0 compositional verification)" $ do
+
+    let mkContract mPre mPost = Contract mPre Nothing mPost Nothing
+
+    describe "applySubst" $ do
+      it "substitutes variables in FQBinPred" $ do
+        let subst = Map.fromList [("x", FQLit 42)]
+            pred' = FQBinPred FQGe (FQVar "x") (FQLit 0)
+        applySubst subst pred' `shouldBe` FQBinPred FQGe (FQLit 42) (FQLit 0)
+
+      it "leaves non-matching variables unchanged" $ do
+        let subst = Map.fromList [("x", FQLit 42)]
+            pred' = FQBinPred FQEq (FQVar "y") (FQVar "x")
+        applySubst subst pred' `shouldBe` FQBinPred FQEq (FQVar "y") (FQLit 42)
+
+      it "substitutes through FQAnd" $ do
+        let subst = Map.fromList [("a", FQLit 1), ("b", FQLit 2)]
+            pred' = FQAnd [FQVar "a", FQVar "b"]
+        applySubst subst pred' `shouldBe` FQAnd [FQLit 1, FQLit 2]
+
+      it "leaves literals unchanged" $ do
+        applySubst (Map.fromList [("x", FQLit 1)]) (FQLit 99) `shouldBe` FQLit 99
+        applySubst (Map.fromList [("x", FQLit 1)]) FQTrue `shouldBe` FQTrue
+
+    describe "isConstructorDependent" $ do
+      it "EMatch on result is constructor-dependent" $ do
+        let expr = EMatch (EVar "result") [(PConstructor "Ok" [PVar "v"], EVar "v")]
+        isConstructorDependent expr `shouldBe` True
+
+      it "EMatch on non-result is NOT constructor-dependent" $ do
+        let expr = EMatch (EVar "x") [(PConstructor "Ok" [PVar "v"], EVar "v")]
+        isConstructorDependent expr `shouldBe` False
+
+      it "simple literal is NOT constructor-dependent" $ do
+        isConstructorDependent (ELit (LitInt 42)) `shouldBe` False
+
+    describe "bodyToPredM with ContractEnv" $ do
+      it "C01: EApp to contracted function produces CallVC" $ do
+        let gContract = mkContract
+              (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
+              (Just (EApp "=" [EVar "result", EVar "x"]))
+            cenv = Map.fromList [("g", ([("x", TInt)], gContract, Just TInt))]
+            body = EApp "g" [ELit (LitInt 42)]
+            (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
+        case result of
+          Just (CallVC callee args mPre _mPost _rVar rSort _cont) -> do
+            callee `shouldBe` "g"
+            args `shouldBe` [FQLit 42]
+            mPre `shouldBe` Just (FQBinPred FQGe (FQLit 42) (FQLit 0))
+            rSort `shouldBe` FQInt
+          other -> expectationFailure $ "Expected CallVC, got: " ++ show other
+
+      it "F01: EApp to function without contract falls back" $ do
+        let cenv = Map.empty :: ContractEnv
+            body = EApp "h" [ELit (LitInt 42)]
+            (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
+        result `shouldBe` Nothing
+
+      it "F02: Issue 1 - untranslatable pre causes fallback" $ do
+        let gContract = mkContract
+              (Just (EApp "*" [EVar "x", EVar "x"]))
+              (Just (EApp "=" [EVar "result", EVar "x"]))
+            cenv = Map.fromList [("g", ([("x", TInt)], gContract, Just TInt))]
+            body = EApp "g" [ELit (LitInt 5)]
+            (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
+        result `shouldBe` Nothing
+
+      it "C08: no pre, only post, produces CallVC with Nothing pre" $ do
+        let gContract = mkContract Nothing
+              (Just (EApp "=" [EVar "result", EVar "x"]))
+            cenv = Map.fromList [("g", ([("x", TInt)], gContract, Just TInt))]
+            body = EApp "g" [ELit (LitInt 42)]
+            (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
+        case result of
+          Just (CallVC _ _ mPre mPost _ _ _) -> do
+            mPre `shouldBe` Nothing
+            mPost `shouldSatisfy` isJust
+          other -> expectationFailure $ "Expected CallVC, got: " ++ show other
+
+    describe "collectCallPreObligations" $ do
+      it "extracts obligation from CallVC with pre" $ do
+        let bvc = CallVC "g" [FQLit 42]
+                    (Just (FQBinPred FQGe (FQLit 42) (FQLit 0)))
+                    (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
+                    "_r" FQInt
+                    (SimpleVC [] (FQVar "_r"))
+            obligs = collectCallPreObligations bvc
+        length obligs `shouldBe` 1
+        let (callee, prePred, guard) = head obligs
+        callee `shouldBe` "g"
+        prePred `shouldBe` FQBinPred FQGe (FQLit 42) (FQLit 0)
+        guard `shouldBe` FQTrue
+
+      it "no obligation from CallVC without pre" $ do
+        let bvc = CallVC "g" [FQLit 42] Nothing
+                    (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
+                    "_r" FQInt
+                    (SimpleVC [] (FQVar "_r"))
+        collectCallPreObligations bvc `shouldBe` []
+
+    describe "call-pre constraint emission (end-to-end)" $ do
+      it "emitFixpointWith emits call-pre constraint for contracted call" $ do
+        let src = T.pack $ unlines
+              [ "(def-logic safe-sub [balance: int amount: int]"
+              , "  (pre (>= balance amount))"
+              , "  (post (= result (- balance amount)))"
+              , "  (- balance amount))"
+              , ""
+              , "(def-logic withdraw [bal: int amt: int]"
+              , "  (pre (>= bal amt))"
+              , "  (post (= result (- bal amt)))"
+              , "  (safe-sub bal amt))"
+              ]
+        case parseStatements "test.llmll" src of
+          Left err -> expectationFailure $ "parse failed: " <> show err
+          Right stmts -> do
+            emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
+            erCallPreFns emitR `shouldSatisfy` elem "withdraw"
+            erBodyFaithfulFns emitR `shouldSatisfy` elem "safe-sub"
+            erBodyFaithfulFns emitR `shouldSatisfy` elem "withdraw"
+
+    describe "EMatch on Result (COMP-3)" $ do
+      it "C06: match on Result variable produces BranchVC" $ do
+        -- (match r ((Success v) v) ((Error e) 0))
+        -- where r is an int-typed variable in sort env
+        let body = EMatch (EVar "r")
+                     [ (PConstructor "Success" [PVar "v"], EVar "v")
+                     , (PConstructor "Error" [PVar "e"], ELit (LitInt 0))
+                     ]
+            se = Map.fromList [("r", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        case result of
+          Just (BranchVC guard svc evc) -> do
+            -- Guard should be a synthetic variable
+            case guard of
+              FQVar gn -> T.isPrefixOf "_bv__match_success" gn `shouldBe` True
+              _ -> expectationFailure $ "Expected FQVar guard, got: " ++ show guard
+            -- Success branch should produce the bound variable
+            case svc of
+              SimpleVC [] (FQVar sv) -> T.isPrefixOf "_bv_v" sv `shouldBe` True
+              _ -> expectationFailure $ "Expected SimpleVC with renamed var, got: " ++ show svc
+            -- Error branch should produce literal 0
+            case evc of
+              SimpleVC [] (FQLit 0) -> pure ()
+              _ -> expectationFailure $ "Expected SimpleVC [FQLit 0], got: " ++ show evc
+          other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
+
+      it "reversed arm order still works (Error first, Success second)" $ do
+        let body = EMatch (EVar "r")
+                     [ (PConstructor "Error" [PVar "e"], ELit (LitInt 0))
+                     , (PConstructor "Success" [PVar "v"], EVar "v")
+                     ]
+            se = Map.fromList [("r", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        case result of
+          Just (BranchVC _ svc evc) -> do
+            -- Success is always the then-branch
+            case svc of
+              SimpleVC [] (FQVar sv) -> T.isPrefixOf "_bv_v" sv `shouldBe` True
+              _ -> expectationFailure $ "Expected success SimpleVC, got: " ++ show svc
+            -- Error is always the else-branch
+            case evc of
+              SimpleVC [] (FQLit 0) -> pure ()
+              _ -> expectationFailure $ "Expected error SimpleVC, got: " ++ show evc
+          other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
+
+      it "F05: match on non-Result (3+ arms) falls back" $ do
+        -- (match c ((Red) 1) ((Green) 2) ((Blue) 3))
+        let body = EMatch (EVar "c")
+                     [ (PConstructor "Red" [], ELit (LitInt 1))
+                     , (PConstructor "Green" [], ELit (LitInt 2))
+                     , (PConstructor "Blue" [], ELit (LitInt 3))
+                     ]
+            se = Map.fromList [("c", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        result `shouldBe` Nothing
+
+      it "EMatch on function call (EApp) produces CallVC with BranchVC continuation" $ do
+        let gContract = Contract
+              (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
+              Nothing
+              (Just (EApp "=" [EVar "result", EVar "x"]))
+              Nothing
+            cenv = Map.fromList [("g", ([("x", TInt)], gContract, Just (TResult TInt TInt)))]
+            body = EMatch (EApp "g" [ELit (LitInt 42)])
+                     [ (PConstructor "Success" [PVar "v"], EVar "v")
+                     , (PConstructor "Error" [PVar "e"], ELit (LitInt 0))
+                     ]
+            se = Map.fromList [("x", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se cenv Set.empty body
+        case result of
+          Just (CallVC callee _ _ _ _ _ cont) -> do
+            callee `shouldBe` "g"
+            -- Continuation should be a BranchVC (the match)
+            case cont of
+              BranchVC _ _ _ -> pure ()
+              _ -> expectationFailure $ "Expected BranchVC continuation, got: " ++ show cont
+          other -> expectationFailure $ "Expected CallVC, got: " ++ show other
 

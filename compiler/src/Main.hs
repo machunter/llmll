@@ -91,7 +91,7 @@ data Command
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
   | CmdHubQuery T.Text                                      -- v0.6.1: hub query --signature <sig>
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -234,6 +234,8 @@ optionsParser = info (helper <*> opts) $
             <> help "v0.4: On UNSAFE, suggest postcondition strengthenings on callees")
       <*> switch (long "spec-coverage"
             <> help "v0.6: Print specification coverage report")
+      <*> switch (long "strict-verified-core"
+            <> help "v0.9.0: Hard-error if any function falls back from body-faithful verification")
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -311,7 +313,7 @@ main = do
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
     CmdHubQuery sig           -> doHubQuery json sig
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -1017,8 +1019,8 @@ parseOneType t
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> IO ()
-doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
+doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -1067,6 +1069,23 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           TIO.putStrLn $ "   body-fallback: " <> T.intercalate ", " (erBodyFallback emitR)
         -- v0.8.0: surface diagnostics (path-limit warnings etc.)
         mapM_ (\d -> TIO.putStrLn $ "   ⚠️  " <> diagMessage d) (erDiagnostics emitR)
+        -- v0.9.0: report call-pre obligations
+        unless (null (erCallPreFns emitR)) $
+          TIO.putStrLn $ "   call-pre obligations: " <> T.intercalate ", " (erCallPreFns emitR)
+
+      -- v0.9.0 COMP-6: --strict-verified-core enforcement
+      -- If enabled, any function in erBodyFallback causes a hard error.
+      when strictCore $ do
+        let fallbacks = erBodyFallback emitR
+        unless (null fallbacks) $ do
+          let errMsg = "--strict-verified-core: " <> T.pack (show (length fallbacks))
+                    <> " function(s) fell back from body-faithful verification: "
+                    <> T.intercalate ", " fallbacks
+          if json
+            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                   object ["file" .= fp, "strict_error" .= errMsg, "fallback_fns" .= fallbacks]
+            else TIO.putStrLn $ "ERROR: " <> errMsg
+          exitFailure
 
       -- 4. Find liquid-fixpoint binary (installs as "fixpoint" or "liquid-fixpoint")
       mLF <- do

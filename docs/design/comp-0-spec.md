@@ -1,10 +1,11 @@
 # COMP-0 — Design Specification
 
-> **Version:** Draft Rev 1  
+> **Version:** Rev 2 — Professor's review incorporated  
 > **Date:** 2026-05-01  
 > **Implements:** compiler-team-roadmap.md § v0.9 (Compositional Verification)  
 > **Prerequisites:** v0.8.0 (BODY-VC) shipped, v0.8.1b (EVID-0) approved  
-> **Status:** DRAFT — awaiting team review
+> **Reviewed:** Professor (2026-05-01) — conditional approve, 5 issues resolved  
+> **Status:** APPROVED — ready for COMP-1
 
 ---
 
@@ -138,14 +139,15 @@ This is emitted as an independent constraint with its own constraint ID and orig
 `bodyToPredM` currently has no access to other functions' contracts. A new parameter is needed:
 
 ```haskell
-type ContractEnv = Map Name ([(Name, Type)], Contract)
--- Maps function name → (parameter list, contract)
+type ContractEnv = Map Name ([(Name, Type)], Contract, Maybe Type)
+-- Maps function name → (parameter list, contract, return type annotation)
+-- Return type needed for EMatch sort derivation (§5.3, Issue 5)
 
 buildContractEnv :: [Statement] -> ContractEnv
 buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
   where
-    go (SDefLogic name params _ contract _) = Just (name, (params, contract))
-    go (SLetrec name params _ contract _ _) = Just (name, (params, contract))
+    go (SDefLogic name params mRet contract _) = Just (name, (params, contract, mRet))
+    go (SLetrec name params mRet contract _ _) = Just (name, (params, contract, mRet))
     go _ = Nothing
 ```
 
@@ -164,9 +166,12 @@ bodyToPredM :: Map Name Name   -- renaming env
 
 ```haskell
 -- User-defined function call with contract
+-- Issue 4 resolution: SCC guard REMOVED. Callers of recursive functions
+-- may use assume-guarantee against the recursive function's contract.
+-- The recursive function's own body VC remains excluded (§4.1).
+-- Trust degrades via evidenceMeet — see §4.4.
 bodyToPredM env se cenv sccSet (EApp fname args)
   | fname `Map.member` cenv
-  , fname `Set.notMember` sccSet  -- not in a recursive SCC
   = do
     -- Translate arguments
     mArgVCs <- mapM (bodyToPredM env se cenv sccSet) args
@@ -174,27 +179,57 @@ bodyToPredM env se cenv sccSet (EApp fname args)
     case mArgPreds of
       Nothing -> return Nothing  -- argument translation failed
       Just argPreds -> do
-        let (params, contract) = cenv Map.! fname
+        let (params, contract, mRetType) = cenv Map.! fname
             paramNames = map fst params
         -- Build substitution: callee params → translated args
         let subst = Map.fromList (zip paramNames argPreds)
-        -- Translate pre/post with substitution
-        let mPrePred  = contractPre contract >>= exprToPred >>= Just . applySubst subst
-            mPostPred = contractPost contract >>= exprToPred
-        -- Fresh result variable
-        resultVar <- freshName ("call_" <> fname)
-        let mPostSubst = fmap (\p -> applySubst (Map.insert "result" (FQVar resultVar) subst) p) mPostPred
-            retSort = maybe FQInt typeToSort (contractRetType params contract)
-        -- For now, wrap in CallVC with trivial continuation
-        -- The continuation will be filled by the enclosing ELet
-        return $ Just $ SimpleVC
-          [LetBinding resultVar retSort (FQVar resultVar)]
-          (FQVar resultVar)
-        -- NOTE: actual CallVC integration happens in the ELet case
-        -- when `let r = (g x y) in body` is encountered
+        -- Issue 1 resolution: three-way pre distinction (soundness-critical)
+        --   callee has no pre        → no obligation, assumption valid
+        --   callee has pre, translates → obligation emitted
+        --   callee has pre, fails     → ENTIRE CALL FALLS BACK
+        let mPreResult = case contractPre contract of
+              Nothing  -> Just Nothing
+              Just pre -> case exprToPred pre of
+                            Nothing -> Nothing       -- untranslatable pre → fallback
+                            Just p  -> Just (Just (applySubst subst p))
+        case mPreResult of
+          Nothing -> return Nothing  -- soundness: cannot assume post without verifying pre
+          Just mPrePred -> do
+            -- Translate post (Nothing = no post → no assumption)
+            let mPostPred = contractPost contract >>= exprToPred
+            -- Fresh result variable
+            resultVar <- freshName ("call_" <> fname)
+            let mPostSubst = fmap (\p -> applySubst (Map.insert "result" (FQVar resultVar) subst) p) mPostPred
+                retSort = maybe FQInt typeToSort mRetType
+            -- Issue 3 resolution: return CallVC directly (Option A)
+            -- The enclosing ELet case fills the real continuation.
+            return $ Just $ CallVC
+              { cvCallee         = fname
+              , cvArgs           = argPreds
+              , cvPreObligation  = mPrePred
+              , cvPostAssumption = mPostSubst
+              , cvResultVar      = resultVar
+              , cvResultSort     = retSort
+              , cvContinuation   = SimpleVC [] (FQVar resultVar)
+              }
 ```
 
-**Practical pattern:** Most call sites appear as `(let [[r (g x y)]] body)`. The `ELet` case already handles `bodyToPredM` for the RHS, so the `CallVC` result flows naturally through the existing let-binding machinery.
+**Practical pattern:** Most call sites appear as `(let [[r (g x y)]] body)`. The `ELet` case recognizes when its RHS is a `CallVC` and threads the continuation:
+
+```haskell
+-- ELet with CallVC RHS: thread the body as the continuation
+bodyToPredM env se cenv sccSet (ELet [(PVar v, _, rhs)] body)
+  -- ... (existing SimpleVC and BranchVC cases unchanged) ...
+  -- NEW: CallVC in let RHS
+  Just (CallVC cal args mPre mPost rVar rSort _cont) -> do
+    renamed <- freshName v
+    let env' = Map.insert v renamed env
+        se'  = Map.insert renamed rSort se
+    mBodyVC <- bodyToPredM env' se' cenv sccSet body
+    case mBodyVC of
+      Nothing -> return Nothing
+      Just bvc -> return $ Just $ CallVC cal args mPre mPost rVar rSort bvc
+```
 
 ### 3.4 `applySubst` — Predicate Substitution
 
@@ -215,7 +250,7 @@ applySubst _ p = p  -- FQLit, FQTrue, FQFalse unchanged
 
 ### 4.1 Motivation
 
-Recursive call cycles cannot use assume-guarantee reasoning without inductive hypotheses (deferred to Lean integration). Functions in recursive SCCs must fall back to contract-only verification.
+Recursive call cycles cannot use assume-guarantee reasoning **for the recursive function's own body VC** without inductive hypotheses (deferred to Lean integration). Functions in recursive SCCs are **excluded from body-faithful verification of their own bodies**. However, **callers of recursive functions** may use assume-guarantee reasoning against the recursive function's contract, treating it as an opaque interface (see §4.4).
 
 ### 4.2 Reuse Existing Infrastructure
 
@@ -234,11 +269,25 @@ let callGraph = buildCallGraph stmts
         getRecursive (CyclicSCC ns) = ns
 ```
 
-`recursiveNames` is passed to `bodyToPredM` as the SCC set. Any `EApp` to a name in this set returns `Nothing` (fallback).
+`recursiveNames` is passed to `bodyToPredM` as the SCC set. For the function's **own** body VC, membership in `recursiveNames` causes fallback (letrec already excluded). For **callers**, the SCC set is used to degrade trust level but not to prevent assume-guarantee encoding (see §3.3, §4.4).
 
 ### 4.3 Self-Recursion
 
 A function that calls itself (direct recursion) forms a trivial SCC of size 1. `letrec` functions are already excluded from body VCs (line 352: `Nothing -> pure ()`). Non-letrec `def-logic` functions that somehow call themselves should also fall back — the SCC set handles this uniformly.
+
+### 4.4 Callers of Recursive Functions (Issue 4 Resolution)
+
+> [!NOTE]
+> **Professor Review Issue 4 — resolved by relaxation.**
+
+A call to a recursive function with a valid contract uses assume-guarantee reasoning (§2). The caller's effective display level degrades via `evidenceMeet`:
+
+- Recursive callee is `DLContractChecked` → caller effective level ≤ `DLContractChecked`
+- Recursive callee is `DLAsserted` → caller effective level ≤ `DLAsserted`
+
+The recursive function's own body VC remains excluded (§4.1). This relaxation is sound because assume-guarantee against a contract is independent of whether the callee's body is verified — it depends only on whether the contract holds, which is the callee's own verification responsibility.
+
+**Effective display level cap:** A function that uses compositional reasoning against a recursive callee can be at most `DLContractChecked`, never `DLVerified`, because the callee's body VC is not available to justify `DLVerified`.
 
 ---
 
@@ -265,28 +314,53 @@ A function that calls itself (direct recursion) forms a trivial SCC of size 1. `
 
 ### 5.3 Encoding Rule
 
+> [!IMPORTANT]
+> **Constructor-independent postcondition requirement (Issue 2 resolution).** The callee's postcondition expression must not itself contain `EMatch` on `result`. If `contractPost` contains an `EMatch` on `result`, the `EMatch` encoding falls back to `Nothing`. This prevents unsound assumptions when the postcondition assigns different guarantees per constructor. Full constructor-decomposed postconditions are deferred (§13).
+
+```haskell
+-- | Does the postcondition use constructor-dependent reasoning?
+isConstructorDependent :: Expr -> Bool
+isConstructorDependent (EMatch (EVar "result") _) = True
+isConstructorDependent (EMatch _ _)                = False
+isConstructorDependent (EApp _ args) = any isConstructorDependent args
+isConstructorDependent (ELet _ body) = isConstructorDependent body
+isConstructorDependent (EIf _ t e)   = isConstructorDependent t || isConstructorDependent e
+isConstructorDependent _             = False
+```
+
 ```
 ⟦EMatch scrutinee [(PConstructor "Success" [PVar s], bodyS),
                     (PConstructor "Error"   [PVar e], bodyE)]⟧ =
-  let scrutVC = ⟦scrutinee⟧
-  in case scrutVC of
-    Just svc ->
-      -- Success branch: bind s to scrutinee result, translate bodyS
-      let envS = Map.insert s resultVar env
-          seS  = Map.insert resultVar FQInt se  -- or okSort
-          bodyS_VC = ⟦bodyS⟧_envS
-      -- Error branch: bind e, translate bodyE
-          envE = Map.insert e resultVar env
-          seE  = Map.insert resultVar FQInt se  -- or errSort
-          bodyE_VC = ⟦bodyE⟧_envE
-      in BranchVC
-           (FQVar "_match_success")  -- synthetic guard
-           bodyS_VC
-           bodyE_VC
-    Nothing -> Nothing
+  -- Issue 2: reject constructor-dependent postconditions
+  case contractPost contract of
+    Just post | isConstructorDependent post -> Nothing  -- fallback
+    _ ->
+  -- Issue 5: resolve Success/Error sorts from callee return type (ContractEnv)
+  let (_, _, mRetType) = cenv Map.! fname
+  in case mRetType of
+    Just (TResult okType errType) ->
+      let okSort  = typeToSort okType
+          errSort = typeToSort errType
+          scrutVC = ⟦scrutinee⟧
+      in case scrutVC of
+        Just svc ->
+          -- Success branch: bind s to scrutinee result, translate bodyS
+          let envS = Map.insert s resultVar env
+              seS  = Map.insert resultVar okSort se
+              bodyS_VC = ⟦bodyS⟧_envS
+          -- Error branch: bind e, translate bodyE
+              envE = Map.insert e resultVar env
+              seE  = Map.insert resultVar errSort se
+              bodyE_VC = ⟦bodyE⟧_envE
+          in BranchVC
+               (FQVar "_match_success")  -- synthetic guard
+               bodyS_VC
+               bodyE_VC
+        Nothing -> Nothing
+    _ -> Nothing  -- non-Result or unannotated return type → fallback
 ```
 
-**Guard encoding:** The success/error distinction is modeled as a synthetic boolean guard. The solver treats each branch independently — the success branch assumes success, the error branch assumes error. Path conditions are conjunctive, so the two branches are disjoint.
+**Guard encoding:** The success/error distinction is modeled as a synthetic boolean guard. The solver treats each branch independently — the success branch assumes success, the error branch assumes error. Path conditions are conjunctive, so the two branches are disjoint. The guard carries no semantic content for constructor-independent postconditions (this is correct — both branches get the same postcondition assumption). Constructor-dependent postconditions are rejected by the `isConstructorDependent` check above.
 
 ### 5.4 Interaction with `CallVC`
 
@@ -407,7 +481,7 @@ For caller `f` calling callee `g`:
 
 **Argument:** If `g` is independently verified (its own body VC is SAFE), then `post_g` holds for all inputs satisfying `pre_g`. The obligation proves that `f` provides such inputs. Therefore, the assumption is justified.
 
-**Recursive case:** Functions in recursive SCCs are excluded from compositional encoding (§4). Their effective display level reflects contract-only verification. No unsound assumption is introduced.
+**Recursive case:** Recursive functions' **own** body VCs are excluded (§4.1). **Callers** of recursive functions may use assume-guarantee against the recursive function's contract (§4.4). Trust degrades via `evidenceMeet` — the caller's effective display level is at most `DLContractChecked`. This is the same reasoning used for any callee whose body VC is unavailable.
 
 ### 9.3 Proof Obligations Summary
 
@@ -415,18 +489,20 @@ For caller `f` calling callee `g`:
 |-----|----------|------------|
 | PO-1 | Callee pre is an obligation (RHS), not a hypothesis | Constraint polarity in §2.5 |
 | PO-2 | Callee post is justified by callee's own body VC | Independent verification |
-| PO-3 | Recursive functions excluded from assume-guarantee | SCC detection (§4) |
+| PO-3 | Recursive functions excluded from own body VC | SCC detection (§4); callers may use assume-guarantee (§4.4) |
 | PO-4 | Contract variable substitution is capture-free | Alpha-renaming with fresh names (§2.2) |
 | PO-5 | Path conditions are conjunctive and disjoint | Inherited from BODY-VC-0 flattening |
 | PO-6 | Trust degradation is monotonic (meet is ≤ both inputs) | `evidenceMeet` lattice laws (EVID-0) |
+| PO-7 | Untranslatable callee pre → entire call falls back | Three-way distinction in §3.3 (Issue 1) |
+| PO-8 | Constructor-dependent postconditions rejected in EMatch | `isConstructorDependent` check in §5.3 (Issue 2) |
 
-**TCB:** `CodegenHs.hs` · `bodyToPred` · `exprToPred` · `applySubst` · `liquid-fixpoint` · Z3 · GHC
+**TCB:** `CodegenHs.hs` · `bodyToPred` · `exprToPred` · `applySubst` · `isConstructorDependent` · `liquid-fixpoint` · Z3 · GHC
 
 ---
 
 ## 10. Test Matrix (COMP-T)
 
-### Positive (SAFE) — 8 tests
+### Positive (SAFE) — 9 tests
 
 | ID | Description | Paths |
 |----|-------------|-------|
@@ -438,6 +514,7 @@ For caller `f` calling callee `g`:
 | C06 | `EMatch` on `Result`: success + error branches | 2 |
 | C07 | Call with precondition satisfied by caller's pre | 1 |
 | C08 | Degraded chain: `DLVerified` calling `DLContractChecked` → effective `DLContractChecked` | 1 |
+| C09 | Non-recursive caller calls recursive callee with contract → assume-guarantee, effective `DLContractChecked` | 1 |
 
 ### Negative (UNSAFE) — 4 tests
 
@@ -448,15 +525,17 @@ For caller `f` calling callee `g`:
 | N03 | Wrong argument order: `(g amount balance)` vs `(g balance amount)` |
 | N04 | Missing guard before call in conditional branch |
 
-### Fallback — 5 tests
+### Fallback — 7 tests
 
 | ID | Trigger |
 |----|---------|
 | F01 | Call to function without contracts (no pre/post) |
-| F02 | Call to function in recursive SCC |
+| F02 | Call to recursive function **without** contract → fallback |
 | F03 | Call to function with non-QF-LIA contract |
 | F04 | Call with non-translatable argument |
 | F05 | `EMatch` on non-`Result` type |
+| F06 | Call to function with non-QF-LIA precondition (e.g., `(pre (* x x))`) → entire call falls back (Issue 1) |
+| F07 | Callee has constructor-dependent postcondition (`match result` in post) → `EMatch` encoding falls back (Issue 2) |
 
 ### Edge — 5 tests
 
@@ -484,7 +563,7 @@ For caller `f` calling callee `g`:
 | R01 | Trust report shows transitive degradation |
 | R02 | Trust report distinguishes call-site obligation from body-post |
 
-**Total: 28 tests.** Layout: `compiler/test/golden/comp/{positive,negative,fallback,edge,stripping,trust}/`
+**Total: 31 tests.** Layout: `compiler/test/golden/comp/{positive,negative,fallback,edge,stripping,trust}/`
 
 ---
 
@@ -527,7 +606,7 @@ COMP-5: ObligationMining.hs call-pre diagnostics
     ▼
 COMP-6: --strict-verified-core flag + hard-error on fallback
     ▼
-COMP-T: 28 golden tests (parallel with COMP-2+)
+COMP-T: 31 golden tests (parallel with COMP-2+)
 ```
 
 ---
@@ -537,6 +616,8 @@ COMP-T: 28 golden tests (parallel with COMP-2+)
 | Construct | Phase | Reason |
 |-----------|-------|--------|
 | `EMatch` on general ADTs | v0.10+ | Requires constructor-refined sort env |
+| Constructor-dependent postcondition decomposition | v0.10+ | Requires per-constructor sub-postcondition extraction (Issue 2) |
+| `EMatch` on `Result` with inferred (unannotated) return type | v0.10+ | Requires type-checker output threaded into `bodyToPredM` (Issue 5) |
 | Recursive function induction | LEAN-GA | Needs inductive hypothesis (Lean) |
 | Higher-order calls (`ELambda` args) | Out of scope | Requires function summaries for lambdas |
 | Cross-module calls | Future | Requires module-level `ContractEnv` |
@@ -549,11 +630,27 @@ COMP-T: 28 golden tests (parallel with COMP-2+)
 
 | Decision | Resolution |
 |----------|-----------|
-| `CallVC` constructor vs emission-level handling | `CallVC` — obligation/assumption threading through flattening requires structural awareness |
+| `CallVC` constructor vs emission-level handling | `CallVC` as intermediate node — Option A (Issue 3). Consistent with `BranchVC` pattern. |
 | Precondition as constraint (PROVE) not hypothesis | Accepted — soundness-critical polarity |
+| Untranslatable callee pre → entire call falls back | Three-way distinction mirrors BODY-VC-0 fallback policy (Issue 1) |
+| Constructor-dependent postconditions rejected in EMatch | `isConstructorDependent` guard (Issue 2). Full decomposition deferred. |
+| Callers of recursive functions may use assume-guarantee | Relaxation accepted (Issue 4). Trust degrades via `evidenceMeet`. |
+| `ContractEnv` includes return type | `Maybe Type` needed for EMatch sort derivation (Issue 5) |
 | SCC detection via `Data.Graph.stronglyConnComp` | Accepted — reuse existing infrastructure from `HoleAnalysis.hs` |
 | `EMatch` limited to `Result` | Accepted — highest-value case, avoids general ADT sort env |
 | Contract variable substitution via `applySubst` | Accepted — simple, capture-free with fresh names |
 | `--strict-verified-core` as separate flag from `--strict` | Accepted — orthogonal concerns (typecheck vs verification) |
 | Trust degradation reuses `evidenceMeet` | Accepted — lattice laws proven in EVID-0 |
-| 28-test matrix | Accepted — covers all encoding rules, polarities, and edge cases |
+| 31-test matrix | Accepted — covers all encoding rules, polarities, edge cases, and review issues |
+
+---
+
+## Appendix: Professor Review Issues (Resolved)
+
+| # | Issue | Severity | Resolution |
+|---|-------|----------|------------|
+| 1 | Untranslatable precondition → free pass on obligation | Correctness | Three-way pre distinction in §3.3; test F06 |
+| 2 | `EMatch` guard semantically vacuous for constructor-dependent postconditions | Correctness | `isConstructorDependent` guard in §5.3; test F07 |
+| 3 | `bodyToPredM` returns `SimpleVC` but spec describes `CallVC` flattening | Architecture | Option A: `CallVC` as intermediate node in §3.3 |
+| 4 | Recursive callee → entire caller falls back | Ergonomics | Relaxation: allow assume-guarantee against recursive contracts (§4.4); test C09 |
+| 5 | `EMatch` binding sort derivation not specified | Completeness | `ContractEnv` extended with `Maybe Type` (§3.1); sort resolved from `TResult` in §5.3 |

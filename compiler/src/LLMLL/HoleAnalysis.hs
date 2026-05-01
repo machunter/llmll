@@ -27,6 +27,8 @@ module LLMLL.HoleAnalysis
     -- * v0.3.1: complexity classification
   , holeComplexity
   , normalizeComplexity
+    -- * v0.9.0: call graph (shared with FixpointEmit for SCC detection)
+  , buildCallGraph
   ) where
 
 import Data.Text (Text)

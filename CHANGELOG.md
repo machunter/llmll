@@ -2,6 +2,27 @@
 
 ---
 
+## v0.9.0 — Compositional Verification (2026-05-01)
+
+### Compiler — Assume-Guarantee Reasoning
+
+- **COMP-1** — `CallVC` constructor on `BodyVC` ADT (7 record fields: callee, args, preObligation, postAssumption, resultVar, resultSort, continuation). `ContractEnv` type and `buildContractEnv` for extracting contracts from statements. `applySubst` (capture-free predicate substitution, 7 `FQPred` cases). `isConstructorDependent` (TCB guard for constructor-dependent postconditions, Issue 2). `bodyToPredM` extended with `ContractEnv` + `Set Name` (SCC set). EApp case with three-way pre distinction (Issue 1): no pre → pass, translatable pre → obligation, untranslatable pre → fallback. `CallVC` returned directly from EApp (Issue 3). SCC guard removed — callers may use assume-guarantee against recursive functions' contracts (Issue 4). `ELet` continuation threading for `CallVC` RHS. `flattenBodyVC`/`countPathsBounded`/`prependLB` extended for `CallVC`. `collectCallPreObligations` helper. Call-pre constraint emission with PROVE polarity. `EmitResult.erCallPreFns` tracking.
+- **COMP-2** — SCC detection via `Data.Graph.stronglyConnComp` in `emitFixpointWith`. Exported `buildCallGraph` from `HoleAnalysis.hs`. Recursive functions excluded from body VCs.
+- **COMP-3** — `EMatch` on `Result a e` (two-path encoding): `classifyResultArms` (detects Success/Error two-arm pattern in either order), synthetic boolean guard `_match_success_N`, sort derivation from `ContractEnv` `TResult okType errType` (Issue 5), `setCallVCContinuation` for EMatch-over-call desugaring (§5.4). Falls back on non-Result types, non-two-arm matches, complex scrutinees.
+- **COMP-5** — `call-pre:` tag in `ConstraintOrigin` (`DiagnosticFQ.hs`). `toDiag` mapping for UNSAFE call-site preconditions. Structured error: "call-site precondition of '<callee>' not satisfied in '<caller>'." Call-pre obligation reporting in verify output.
+- **COMP-6** — `--strict-verified-core` CLI flag: hard-error if any function is in `erBodyFallback`. JSON and text error output with fallback function names.
+- **COMP-T** — 18 COMP golden tests: `applySubst` (4), `isConstructorDependent` (3), `bodyToPredM` with `ContractEnv` (4), `collectCallPreObligations` (2), end-to-end call-pre emission (1), `EMatch` on Result (4). **452 total tests passing** (434 → 452).
+
+### Design
+
+- **COMP-0** — Design spec `docs/design/comp-0-spec.md` produced and approved (Rev 2). Five soundness issues resolved: three-way pre distinction, constructor-dependent postcondition guard, CallVC direct return, SCC guard relaxation, sort derivation from ContractEnv.
+
+### v0.10 Carryover
+
+> **v0.10 carryover:** COMP-5 structured repair suggestions, 13 remaining golden tests (stripping regression, trust degradation chains), and `--strict-verified-core` post-solver enforcement are deferred to v0.10 (Obligation-Guided Agent Coding).
+
+---
+
 ## v0.8.1b — Evidence Model Refactor (2026-05-01)
 
 ### Compiler — DisplayLevel Diamond Lattice

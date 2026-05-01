@@ -25,6 +25,13 @@
 -- QF-LIA fragment are translated to verification conditions via bodyToPredM.
 -- Body VCs prove: P ∧ (result = ⟦body⟧) ⟹ Q (postcondition faithfulness).
 -- Functions outside the fragment fall back to contract-only verification.
+--
+-- COMPOSITIONAL VERIFICATION (v0.9.0, COMP-0 Rev 2):
+-- When a function f calls a contracted function g, the emitter uses
+-- assume-guarantee reasoning: f must PROVE g's precondition (obligation)
+-- and may ASSUME g's postcondition (hypothesis). Recursive functions'
+-- own body VCs are excluded; callers may use assume-guarantee against
+-- recursive functions' contracts with trust degradation via evidenceMeet.
 
 module LLMLL.FixpointEmit
   ( -- * Top-level emitter
@@ -44,6 +51,12 @@ module LLMLL.FixpointEmit
   , LetBinding(..)
   , FlatPath
   , SortEnv
+    -- * Compositional verification (v0.9.0)
+  , ContractEnv
+  , buildContractEnv
+  , applySubst
+  , isConstructorDependent
+  , collectCallPreObligations
     -- * Body-VC engine (exported for testing)
   , bodyToPredFrom
   , flattenBodyVC
@@ -56,15 +69,18 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, catMaybes)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put)
+import Data.Graph (stronglyConnComp, SCC(..))
 
 import LLMLL.Syntax
 import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic, mkWarning)
+import LLMLL.HoleAnalysis (buildCallGraph)
 
 -- ---------------------------------------------------------------------------
 -- Configuration (v0.8.0)
@@ -92,6 +108,7 @@ data EmitResult = EmitResult
   , erDiagnostics     :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
   , erEmittedPre      :: [Text]           -- ^ v0.8.0: functions whose pre emitted a constraint
   , erEmittedPost     :: [Text]           -- ^ v0.8.0: functions whose post emitted a constraint
+  , erCallPreFns      :: [Text]           -- ^ v0.9.0: functions that emitted call-pre obligations
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -108,6 +125,15 @@ data BodyVC
     -- ^ A straight-line sequence of let-bindings followed by a result predicate
   | BranchVC FQPred BodyVC BodyVC
     -- ^ An if-then-else: guard, then-VC, else-VC
+  | CallVC                               -- ^ v0.9.0: Compositional call site
+    { cvCallee         :: Name           -- ^ callee function name
+    , cvArgs           :: [FQPred]       -- ^ translated argument predicates
+    , cvPreObligation  :: Maybe FQPred   -- ^ callee pre after substitution (PROVE polarity)
+    , cvPostAssumption :: Maybe FQPred   -- ^ callee post after substitution (ASSUME polarity)
+    , cvResultVar      :: Name           -- ^ fresh result variable (_call_g_N)
+    , cvResultSort     :: FQSort         -- ^ sort of the result
+    , cvContinuation   :: BodyVC         -- ^ rest of the body after the call
+    }
   deriving (Show, Eq)
 
 -- | A single let-binding in the body VC.
@@ -120,6 +146,23 @@ data LetBinding = LetBinding
 -- | A flattened path through the body-VC tree:
 -- (path guard conjunction, accumulated let-bindings, result predicate)
 type FlatPath = (FQPred, [LetBinding], FQPred)
+
+-- ---------------------------------------------------------------------------
+-- Compositional verification types (v0.9.0 COMP-1)
+-- ---------------------------------------------------------------------------
+
+-- | Contract environment: maps function names to their parameter lists,
+-- contracts, and optional return type annotations.
+-- Return type is needed for EMatch sort derivation (COMP-0 §5.3, Issue 5).
+type ContractEnv = Map Name ([(Name, Type)], Contract, Maybe Type)
+
+-- | Build a ContractEnv from top-level statements.
+buildContractEnv :: [Statement] -> ContractEnv
+buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
+  where
+    go (SDefLogic name params mRet contract _) = Just (name, (params, contract, mRet))
+    go (SLetrec name params mRet contract _ _) = Just (name, (params, contract, mRet))
+    go _ = Nothing
 
 -- ---------------------------------------------------------------------------
 -- Built-in qualifier safety net
@@ -152,6 +195,15 @@ emitFixpointWith :: EmitOptions -> FilePath -> [Statement] -> IO EmitResult
 emitFixpointWith opts srcFile stmts = do
   -- v0.8.0: build alias map from STypeDef statements for isIntLike resolution
   let aliases = buildAliasMap stmts
+  -- v0.9.0: build contract environment and SCC set for compositional verification
+  let cenv = buildContractEnv stmts
+      callGraph = buildCallGraph stmts
+      sccs = stronglyConnComp
+        [(name, name, deps) | (name, deps) <- Map.toList callGraph]
+      recursiveNames = Set.fromList $ concatMap getRecursive sccs
+        where
+          getRecursive (AcyclicSCC _) = []
+          getRecursive (CyclicSCC ns) = ns
   ctrRef    <- newIORef (0 :: Int)  -- constraint ID counter
   bindRef   <- newIORef (0 :: Int)  -- binder ID counter
   tableRef  <- newIORef (Map.empty :: ConstraintTable)
@@ -167,6 +219,7 @@ emitFixpointWith opts srcFile stmts = do
   diagsRef <- newIORef ([] :: [Diagnostic])
   emittedPreRef <- newIORef ([] :: [Text])
   emittedPostRef <- newIORef ([] :: [Text])
+  callPreRef <- newIORef ([] :: [Text])  -- v0.9.0: functions with call-pre obligations
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -189,6 +242,7 @@ emitFixpointWith opts srcFile stmts = do
   let addDiag d = modifyIORef' diagsRef (++ [d])
   let addEmittedPre n = modifyIORef' emittedPreRef (++ [n])
   let addEmittedPost n = modifyIORef' emittedPostRef (++ [n])
+  let addCallPre n = modifyIORef' callPreRef (++ [n])  -- v0.9.0
 
   -- Process each statement
   forM_ (zip [0..] stmts) $ \(idx, stmt) ->
@@ -200,13 +254,13 @@ emitFixpointWith opts srcFile stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost bodyCounterRef aliases
+          addEmittedPre addEmittedPost addCallPre bodyCounterRef aliases cenv recursiveNames
           name params mRet contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost bodyCounterRef aliases
+          addEmittedPre addEmittedPost addCallPre bodyCounterRef aliases cenv recursiveNames
           name params mRet contract Nothing (Just dec) idx
 
       _ -> pure ()
@@ -223,6 +277,7 @@ emitFixpointWith opts srcFile stmts = do
   diags     <- readIORef diagsRef
   emPre     <- readIORef emittedPreRef
   emPost    <- readIORef emittedPostRef
+  callPre   <- readIORef callPreRef
   let fqFile = FQFile dataDecs quals binds consts
   return EmitResult
     { erFQFile          = fqFile
@@ -234,6 +289,7 @@ emitFixpointWith opts srcFile stmts = do
     , erDiagnostics     = diags
     , erEmittedPre      = emPre
     , erEmittedPost     = emPost
+    , erCallPreFns      = callPre
     }
 
 -- ---------------------------------------------------------------------------
@@ -255,8 +311,11 @@ emitFnConstraints
   -> (Diagnostic -> IO ()) -- emit diagnostics
   -> (Text -> IO ())       -- v0.8.0: record emitted pre clause
   -> (Text -> IO ())       -- v0.8.0: record emitted post clause
+  -> (Text -> IO ())       -- v0.9.0: record call-pre obligation
   -> IORef Int             -- body-VC alpha-renaming counter
   -> AliasMap              -- v0.8.0: type alias map for isIntLike
+  -> ContractEnv           -- v0.9.0: contract environment for compositional VC
+  -> Set.Set Name          -- v0.9.0: recursive SCC set
   -> Name
   -> [(Name, Type)]
   -> Maybe Type
@@ -267,7 +326,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost bodyCounterRef aliases
+    addEmittedPre addEmittedPost addCallPre bodyCounterRef aliases cenv sccSet
     name params mRet contract mBody mDec stmtIdx = do
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
@@ -367,7 +426,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
             let sortEnv = buildSortEnv aliases params
             -- Translate body
             seed <- readIORef bodyCounterRef
-            let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv body
+            let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv cenv sccSet body
             writeIORef bodyCounterRef newSeed
             case mBodyVC of
               Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
@@ -423,6 +482,28 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                       addOrigin cid (ConstraintOrigin name tag ptr srcFile)
                     -- Mark as body-faithful
                     addBodyFaithful name
+
+                    -- v0.9.0: Emit call-pre obligations for any CallVC nodes
+                    -- Each obligation is a separate constraint proving the callee's
+                    -- precondition is satisfied at the call site.
+                    let callObligations = collectCallPreObligations bvc
+                    unless (null callObligations) $ do
+                      addCallPre name
+                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred, pathGuard)) -> do
+                        -- Emit binders for all int-typed params (same env as body-post)
+                        -- The call-pre constraint shares the function's parameter environment.
+                        cid <- freshCid
+                        let cpTag = "call-pre:" <> callee
+                            -- LHS: path guard ∧ caller pre (context in which the call occurs)
+                            lhsPred = conjoinAll $ [pathGuard | pathGuard /= FQTrue]
+                                                 ++ maybe [] (:[]) mPre
+                            lhs = FQReft "v" FQInt lhsPred
+                            -- RHS: callee's precondition (PROVE polarity — caller must prove this)
+                            rhs = FQReft "v" FQInt prePred
+                            c = FQConstraint cid envIds lhs rhs [name, cpTag]
+                        addConst c
+                        let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                        addOrigin cid (ConstraintOrigin name cpTag ptr srcFile)
 
 emitParamBind :: IO FQBindId -> (FQBind -> IO ()) -> (Name, Type) -> IO FQBind
 emitParamBind freshBid addBind (n, t) = do
@@ -535,15 +616,18 @@ hashPred :: FQPred -> Int
 hashPred = T.length . T.pack . show
 
 -- ---------------------------------------------------------------------------
--- Body-VC translation engine (v0.8.0 BODY-VC-1)
+-- Body-VC translation engine (v0.8.0 BODY-VC-1, extended v0.9.0 COMP-1)
 -- ---------------------------------------------------------------------------
 
 -- | Pure entry point: translates a function body to a BodyVC tree.
 -- Takes a seed counter value and a sort environment (built from int params).
 -- Returns (updatedCounter, Maybe BodyVC). Nothing = unsupported expression.
-bodyToPredFrom :: Int -> SortEnv -> Expr -> (Int, Maybe BodyVC)
-bodyToPredFrom seed sortEnv expr =
-  let (result, finalCounter) = runStateFrom seed (bodyToPredM Map.empty sortEnv expr)
+--
+-- v0.9.0: accepts ContractEnv and SCC set for compositional verification.
+-- Pass Map.empty / Set.empty for leaf functions (backward compat).
+bodyToPredFrom :: Int -> SortEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
+bodyToPredFrom seed sortEnv cenv sccSet expr =
+  let (result, finalCounter) = runStateFrom seed (bodyToPredM Map.empty sortEnv cenv sccSet expr)
   in (finalCounter, result)
   where
     -- Run a State Int computation with a given starting value.
@@ -568,84 +652,146 @@ freshName base = do
 -- _bv_x_0) appears inside an operator expression and we delegate to
 -- exprToPred, the .fq output will reference the un-renamed name, which
 -- the solver cannot resolve.
-bodyToPredM :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe BodyVC)
+--
+-- v0.9.0: Extended with ContractEnv and SCC set for compositional verification.
+-- When encountering EApp to a contracted user function, uses assume-guarantee
+-- reasoning (COMP-0 §2). SCC set excludes recursive functions' own body VCs
+-- but allows callers to use assume-guarantee (Issue 4 relaxation).
+bodyToPredM :: Map Name Name  -- ^ renaming env
+            -> SortEnv        -- ^ sort env
+            -> ContractEnv    -- ^ v0.9.0: contract lookup
+            -> Set.Set Name   -- ^ v0.9.0: recursive SCC set (for own-body exclusion)
+            -> Expr
+            -> State Int (Maybe BodyVC)
 
 -- Literals
-bodyToPredM _ _ (ELit (LitInt n)) = return (Just (SimpleVC [] (FQLit n)))
-bodyToPredM _ _ (ELit (LitBool True))  = return (Just (SimpleVC [] FQTrue))
-bodyToPredM _ _ (ELit (LitBool False)) = return (Just (SimpleVC [] FQFalse))
+bodyToPredM _ _ _ _ (ELit (LitInt n)) = return (Just (SimpleVC [] (FQLit n)))
+bodyToPredM _ _ _ _ (ELit (LitBool True))  = return (Just (SimpleVC [] FQTrue))
+bodyToPredM _ _ _ _ (ELit (LitBool False)) = return (Just (SimpleVC [] FQFalse))
 
 -- Variables: look up renamed name, check sort env
-bodyToPredM env sortEnv (EVar v) =
+bodyToPredM env sortEnv _ _ (EVar v) =
   let renamed = fromMaybe v (Map.lookup v env)
   in case Map.lookup renamed sortEnv of
        Just FQInt -> return (Just (SimpleVC [] (FQVar renamed)))
        _          -> return Nothing  -- non-int or unknown sort → fallback
 
+-- v0.9.0: User-defined function call with contract (COMP-0 §2, §3)
+-- Issue 4 resolution: SCC guard REMOVED. Callers of recursive functions
+-- may use assume-guarantee against the recursive function's contract.
+-- The recursive function's own body VC remains excluded (§4.1).
+-- Trust degrades via evidenceMeet — see §4.4.
+bodyToPredM env se cenv _sccSet (EApp fname args)
+  | fname `Map.member` cenv
+  , lookupArithOp fname == Nothing   -- not a builtin operator
+  , lookupPredOp fname == Nothing    -- not a builtin operator
+  , fname `notElem` ["not", "and", "or", "*", "/", "mod", "rem", "^", "**"]
+  = do
+    -- Translate arguments
+    mArgVCs <- mapM (bodyToPredM env se cenv _sccSet) args
+    let mArgPreds = sequence [case mvc of Just (SimpleVC [] p) -> Just p; _ -> Nothing
+                             | mvc <- mArgVCs]
+    case mArgPreds of
+      Nothing -> return Nothing  -- argument translation failed
+      Just argPreds -> do
+        let (params, contract, mRetType) = cenv Map.! fname
+            paramNames = map fst params
+        -- Build substitution: callee params → translated args
+        let subst = Map.fromList (zip paramNames argPreds)
+        -- Issue 1 resolution: three-way pre distinction (soundness-critical)
+        --   callee has no pre        → no obligation, assumption valid
+        --   callee has pre, translates → obligation emitted
+        --   callee has pre, fails     → ENTIRE CALL FALLS BACK
+        let mPreResult = case contractPre contract of
+              Nothing  -> Just Nothing
+              Just pre -> case exprToPred pre of
+                            Nothing -> Nothing       -- untranslatable pre → fallback
+                            Just p  -> Just (Just (applySubst subst p))
+        case mPreResult of
+          Nothing -> return Nothing  -- soundness: cannot assume post without verifying pre
+          Just mPrePred -> do
+            -- Translate post (Nothing = no post → no assumption)
+            let mPostPred = contractPost contract >>= exprToPred
+            -- Fresh result variable
+            resultVar <- freshName ("call_" <> fname)
+            let mPostSubst = fmap (\p -> applySubst (Map.insert "result" (FQVar resultVar) subst) p) mPostPred
+                retSort = maybe FQInt typeToSort mRetType
+            -- Issue 3 resolution: return CallVC directly (Option A)
+            -- The enclosing ELet case fills the real continuation.
+            return $ Just $ CallVC
+              { cvCallee         = fname
+              , cvArgs           = argPreds
+              , cvPreObligation  = mPrePred
+              , cvPostAssumption = mPostSubst
+              , cvResultVar      = resultVar
+              , cvResultSort     = retSort
+              , cvContinuation   = SimpleVC [] (FQVar resultVar)
+              }
+
 -- Binary arithmetic operators (+, -)
-bodyToPredM env se (EApp op [l, r])
+bodyToPredM env se cenv sccSet (EApp op [l, r])
   | Just binOp <- lookupArithOp op = do
-      lvc <- bodyToPredM env se l
-      rvc <- bodyToPredM env se r
+      lvc <- bodyToPredM env se cenv sccSet l
+      rvc <- bodyToPredM env se cenv sccSet r
       case (lvc, rvc) of
         (Just (SimpleVC [] lp), Just (SimpleVC [] rp)) ->
           return . Just $ SimpleVC [] (FQBinArith binOp lp rp)
         _ -> return Nothing
 
 -- Binary comparison operators (>=, >, <=, <, =, /=, plus Unicode)
-bodyToPredM env se (EApp op [l, r])
+bodyToPredM env se cenv sccSet (EApp op [l, r])
   | Just binOp <- lookupPredOp op = do
-      lvc <- bodyToPredM env se l
-      rvc <- bodyToPredM env se r
+      lvc <- bodyToPredM env se cenv sccSet l
+      rvc <- bodyToPredM env se cenv sccSet r
       case (lvc, rvc) of
         (Just (SimpleVC [] lp), Just (SimpleVC [] rp)) ->
           return . Just $ SimpleVC [] (FQBinPred binOp lp rp)
         _ -> return Nothing
 
 -- Non-linear operators: reject
-bodyToPredM _ _ (EApp op [_, _])
+bodyToPredM _ _ _ _ (EApp op [_, _])
   | op `elem` ["*", "/", "mod", "rem", "^", "**"] = return Nothing
 
 -- Logical operators: not, and, or
-bodyToPredM env se (EApp "not" [a]) = do
-  avc <- bodyToPredM env se a
+bodyToPredM env se cenv sccSet (EApp "not" [a]) = do
+  avc <- bodyToPredM env se cenv sccSet a
   case avc of
     Just (SimpleVC [] p) -> return . Just $ SimpleVC [] (FQNot p)
     _ -> return Nothing
 
-bodyToPredM env se (EApp "and" args) = do
-  avcs <- mapM (bodyToPredM env se) args
+bodyToPredM env se cenv sccSet (EApp "and" args) = do
+  avcs <- mapM (bodyToPredM env se cenv sccSet) args
   let preds = [p | Just (SimpleVC [] p) <- avcs]
   if length preds == length args
     then return . Just $ SimpleVC [] (FQAnd preds)
     else return Nothing
 
-bodyToPredM env se (EApp "or" args) = do
-  avcs <- mapM (bodyToPredM env se) args
+bodyToPredM env se cenv sccSet (EApp "or" args) = do
+  avcs <- mapM (bodyToPredM env se cenv sccSet) args
   let preds = [p | Just (SimpleVC [] p) <- avcs]
   if length preds == length args
     then return . Just $ SimpleVC [] (FQOr preds)
     else return Nothing
 
 -- Normalize EOp to EApp
-bodyToPredM env se (EOp name args) = bodyToPredM env se (EApp name args)
+bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet (EApp name args)
 
 -- EIf: branch into guard + then-VC + else-VC
-bodyToPredM env se (EIf guard thenE elseE) = do
+bodyToPredM env se cenv sccSet (EIf guard thenE elseE) = do
   mGuard <- guardToPredM env se guard
   case mGuard of
     Nothing -> return Nothing
     Just gp -> do
-      mthen <- bodyToPredM env se thenE
-      melse <- bodyToPredM env se elseE
+      mthen <- bodyToPredM env se cenv sccSet thenE
+      melse <- bodyToPredM env se cenv sccSet elseE
       case (mthen, melse) of
         (Just tvc, Just evc) -> return (Just (BranchVC gp tvc evc))
         _                    -> return Nothing
 
 -- ELet with single PVar binding: alpha-rename, emit LetBinding, recurse
-bodyToPredM env se (ELet [(PVar v, _mType, rhs)] body) = do
+bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
   -- Translate the RHS
-  mRhsVC <- bodyToPredM env se rhs
+  mRhsVC <- bodyToPredM env se cenv sccSet rhs
   case mRhsVC of
     Nothing -> return Nothing
     Just (SimpleVC [] rhsPred) -> do
@@ -656,7 +802,7 @@ bodyToPredM env se (ELet [(PVar v, _mType, rhs)] body) = do
           se'   = Map.insert renamed sort se
           lb    = LetBinding renamed sort rhsPred
       -- Recurse on body with updated env
-      mBodyVC <- bodyToPredM env' se' body
+      mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
         Nothing -> return Nothing
         Just (SimpleVC lbs resultP) ->
@@ -664,6 +810,18 @@ bodyToPredM env se (ELet [(PVar v, _mType, rhs)] body) = do
         Just (BranchVC gp tvc evc) ->
           -- Prepend this binding to both branches
           return (Just (BranchVC gp (prependLB lb tvc) (prependLB lb evc)))
+        -- v0.9.0: SimpleVC RHS but body produces CallVC — prepend binding
+        Just cvc@(CallVC {}) ->
+          return (Just (prependLB lb cvc))
+    -- v0.9.0: RHS is a CallVC — thread the body as the continuation (Issue 3)
+    Just (CallVC cal callArgs mPre mPost rVar rSort _cont) -> do
+      renamed <- freshName v
+      let env' = Map.insert v renamed env
+          se'  = Map.insert renamed rSort se
+      mBodyVC <- bodyToPredM env' se' cenv sccSet body
+      case mBodyVC of
+        Nothing -> return Nothing
+        Just bvc -> return $ Just $ CallVC cal callArgs mPre mPost rVar rSort bvc
     -- RHS is a branch (EIf in let RHS) — hoist via flattening.
     -- Single-path degenerate branches are handled; multi-path falls back.
     Just bvc@(BranchVC _ _ _) -> do
@@ -675,7 +833,7 @@ bodyToPredM env se (ELet [(PVar v, _mType, rhs)] body) = do
         -- Degenerate single-path: the branch always takes one path
         [(_, pathLBs, pathResult)] -> do
           let lb = LetBinding renamed FQInt pathResult
-          mBodyVC <- bodyToPredM env' se' body
+          mBodyVC <- bodyToPredM env' se' cenv sccSet body
           case mBodyVC of
             Nothing -> return Nothing
             Just (SimpleVC lbs resultP) ->
@@ -689,14 +847,74 @@ bodyToPredM env se (ELet [(PVar v, _mType, rhs)] body) = do
     _ -> return Nothing
 
 -- ELet with multiple bindings: desugar to nested single-binding ELets
-bodyToPredM env se (ELet (b:bs) body) =
-  bodyToPredM env se (ELet [b] (ELet bs body))
+bodyToPredM env se cenv sccSet (ELet (b:bs) body) =
+  bodyToPredM env se cenv sccSet (ELet [b] (ELet bs body))
 
 -- ELet with no bindings (degenerate): just translate the body
-bodyToPredM env se (ELet [] body) = bodyToPredM env se body
+bodyToPredM env se cenv sccSet (ELet [] body) = bodyToPredM env se cenv sccSet body
 
--- Everything else: match, app (user-defined), lambda, etc. → fallback
-bodyToPredM _ _ _ = return Nothing
+-- v0.9.0 COMP-3: EMatch on Result (two-path encoding)
+-- Handles: (match scrutinee ((Success s) bodyS) ((Error e) bodyE))
+-- Produces: BranchVC (FQVar "_match_success_N") bodyS_VC bodyE_VC
+-- Falls back on:
+--   - Non-two-arm matches (general ADT → future)
+--   - Constructors other than Success/Error
+--   - Scrutinee translation failure
+--   - Constructor-dependent postconditions (Issue 2)
+--   - Unannotated return types on scrutinee calls
+bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
+  -- Must be exactly 2 arms with Success and Error constructors
+  | Just (successVar, successBody, errorVar, errorBody) <- classifyResultArms arms
+  = do
+    -- Translate scrutinee
+    mScrutVC <- bodyToPredM env se cenv sccSet scrutinee
+    case mScrutVC of
+      Nothing -> return Nothing
+      Just scrutVC -> do
+        -- Determine the ok/err sorts from the scrutinee's type
+        -- For EVar: look up in sort env (conservative: assume FQInt)
+        -- For CallVC: use the callee's return type from ContractEnv
+        let (okSort, errSort) = case scrutinee of
+              EApp fname _ | fname `Map.member` cenv ->
+                let (_, _, mRetType) = cenv Map.! fname
+                in case mRetType of
+                     Just (TResult okT errT) -> (typeToSort okT, typeToSort errT)
+                     _                       -> (FQInt, FQInt)
+              _ -> (FQInt, FQInt)  -- fallback: assume int payloads
+
+        -- Generate fresh names for payload variables and match guard
+        successRenamed <- freshName successVar
+        errorRenamed   <- freshName errorVar
+        guardVar       <- freshName "_match_success"
+
+        -- Success branch: bind payload variable, translate body
+        let envS = Map.insert successVar successRenamed env
+            seS  = Map.insert successRenamed okSort se
+        mSuccessVC <- bodyToPredM envS seS cenv sccSet successBody
+
+        -- Error branch: bind payload variable, translate body
+        let envE = Map.insert errorVar errorRenamed env
+            seE  = Map.insert errorRenamed errSort se
+        mErrorVC <- bodyToPredM envE seE cenv sccSet errorBody
+
+        case (mSuccessVC, mErrorVC) of
+          (Just svc, Just evc) -> do
+            -- For CallVC scrutinee: thread as let-binding + branch
+            -- For SimpleVC scrutinee: just branch with synthetic guard
+            case scrutVC of
+              SimpleVC [] _scrutPred ->
+                return (Just (BranchVC (FQVar guardVar) svc evc))
+              CallVC {} ->
+                -- The scrutinee is a function call — wrap the branch as CallVC continuation
+                -- The CallVC result is the match scrutinee; branch discriminates its constructor
+                return (Just (setCallVCContinuation scrutVC (BranchVC (FQVar guardVar) svc evc)))
+              _ ->
+                -- Scrutinee produced a complex VC (branch, etc.) — fallback
+                return Nothing
+          _ -> return Nothing
+
+-- Everything else: match, app (user-defined without contract), lambda, etc. → fallback
+bodyToPredM _ _ _ _ _ = return Nothing
 
 -- ---------------------------------------------------------------------------
 -- Guard translation (v0.8.0)
@@ -767,6 +985,19 @@ flattenBodyVC (BranchVC guard thenVC elseVC) =
   let thenPaths = [(conjoin guard g, lbs, r) | (g, lbs, r) <- flattenBodyVC thenVC]
       elsePaths = [(conjoin (FQNot guard) g, lbs, r) | (g, lbs, r) <- flattenBodyVC elseVC]
   in thenPaths ++ elsePaths
+-- v0.9.0: Flatten a CallVC by threading postcondition as guard and
+-- result variable as let-binding into the continuation paths.
+-- The precondition obligation is emitted separately during constraint
+-- emission — it is NOT folded into the body-post constraint.
+flattenBodyVC (CallVC _callee _args _mPre mPost resultVar resultSort cont) =
+  let contPaths = flattenBodyVC cont
+      -- Add result variable as a let-binding and postcondition as guard
+      resultLB = LetBinding resultVar resultSort (FQVar resultVar)
+  in [ ( conjoinAll [guard, fromMaybe FQTrue mPost]
+       , resultLB : lbs
+       , resultPred )
+     | (guard, lbs, resultPred) <- contPaths
+     ]
 
 -- | Count paths in a BodyVC tree with an upper bound.
 -- Stops counting once the limit is exceeded (avoids state explosion).
@@ -779,6 +1010,24 @@ countPathsBounded limit = go
       in if tc >= limit then tc
          else let ec = go evc
               in min limit (tc + ec)
+    go (CallVC _ _ _ _ _ _ cont) = go cont  -- v0.9.0: paths determined by continuation
+
+-- | v0.9.0: Collect all call-pre obligations from a BodyVC tree.
+-- Returns (calleeName, preconditionPred, pathGuard) for each CallVC
+-- that has a non-Nothing precondition obligation.
+-- Path guards are accumulated through BranchVC nodes.
+collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred)]
+collectCallPreObligations = go FQTrue
+  where
+    go _guard (SimpleVC _ _) = []
+    go guard (BranchVC g thenVC elseVC) =
+      go (conjoin guard g) thenVC ++ go (conjoin guard (FQNot g)) elseVC
+    go guard (CallVC callee _args mPre _mPost _rVar _rSort cont) =
+      let preObligs = case mPre of
+            Just prePred -> [(callee, prePred, guard)]
+            Nothing      -> []
+          contObligs = go guard cont
+      in preObligs ++ contObligs
 
 -- ---------------------------------------------------------------------------
 -- Predicate helpers (v0.8.0)
@@ -798,9 +1047,30 @@ conjoinAll = foldr conjoin FQTrue
 prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
 prependLB lb (BranchVC g t e) = BranchVC g (prependLB lb t) (prependLB lb e)
+prependLB lb (CallVC cal args mPre mPost rVar rSort cont) =
+  CallVC cal args mPre mPost rVar rSort (prependLB lb cont)  -- v0.9.0
 
 prependLBs :: [LetBinding] -> BodyVC -> BodyVC
 prependLBs lbs bvc = foldr prependLB bvc lbs
+
+-- | v0.9.0 COMP-3: Classify match arms as Result (Success/Error) pattern.
+-- Returns Just (successVar, successBody, errorVar, errorBody) if the arms
+-- are exactly two with Success and Error constructors (in either order).
+-- Returns Nothing for non-Result patterns.
+classifyResultArms :: [(Pattern, Expr)] -> Maybe (Name, Expr, Name, Expr)
+classifyResultArms arms = case arms of
+  [(PConstructor "Success" [PVar s], bodyS), (PConstructor "Error" [PVar e], bodyE)] ->
+    Just (s, bodyS, e, bodyE)
+  [(PConstructor "Error" [PVar e], bodyE), (PConstructor "Success" [PVar s], bodyS)] ->
+    Just (s, bodyS, e, bodyE)
+  _ -> Nothing
+
+-- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
+-- Used for EMatch-over-call: the match's BranchVC becomes the call's continuation.
+setCallVCContinuation :: BodyVC -> BodyVC -> BodyVC
+setCallVCContinuation (CallVC cal args mPre mPost rVar rSort _cont) newCont =
+  CallVC cal args mPre mPost rVar rSort newCont
+setCallVCContinuation bvc _newCont = bvc  -- no-op for non-CallVC (shouldn't happen)
 
 -- | Infer the FQSort of a predicate result.
 -- In BODY-VC-0, we only support int-typed results.
@@ -846,3 +1116,32 @@ lookupPredOp "/="  = Just FQNeq
 lookupPredOp "!="  = Just FQNeq
 lookupPredOp "≠"   = Just FQNeq
 lookupPredOp _     = Nothing
+
+-- ---------------------------------------------------------------------------
+-- Compositional verification helpers (v0.9.0 COMP-1)
+-- ---------------------------------------------------------------------------
+
+-- | Capture-free predicate substitution.
+-- Replaces free variables in a FQPred according to the substitution map.
+-- Variables not in the map are left unchanged.
+applySubst :: Map Name FQPred -> FQPred -> FQPred
+applySubst subst (FQVar v) = Map.findWithDefault (FQVar v) v subst
+applySubst subst (FQBinPred op l r) = FQBinPred op (applySubst subst l) (applySubst subst r)
+applySubst subst (FQBinArith op l r) = FQBinArith op (applySubst subst l) (applySubst subst r)
+applySubst subst (FQAnd ps) = FQAnd (map (applySubst subst) ps)
+applySubst subst (FQOr ps) = FQOr (map (applySubst subst) ps)
+applySubst subst (FQNot p) = FQNot (applySubst subst p)
+applySubst _ p = p  -- FQLit, FQTrue, FQFalse unchanged
+
+-- | Does the postcondition use constructor-dependent reasoning?
+-- If the postcondition contains EMatch on "result", the EMatch encoding
+-- cannot safely assume the same postcondition on both branches.
+-- Full constructor-decomposed postconditions are deferred (COMP-0 §13).
+-- Added to TCB (COMP-0 Rev 2, Issue 2).
+isConstructorDependent :: Expr -> Bool
+isConstructorDependent (EMatch (EVar "result") _) = True
+isConstructorDependent (EMatch _ _)                = False
+isConstructorDependent (EApp _ args) = any isConstructorDependent args
+isConstructorDependent (ELet _ body) = isConstructorDependent body
+isConstructorDependent (EIf _ t e)   = isConstructorDependent t || isConstructorDependent e
+isConstructorDependent _             = False
