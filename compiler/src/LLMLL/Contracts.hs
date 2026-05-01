@@ -184,8 +184,8 @@ filterContracts cs contract = Contract
   , contractPostSource = contractPostSource contract
   }
 
--- | v0.8.0: The old prover-string check is retired. Body-faithfulness is now
--- tracked structurally via csPostBodyFaithful on ContractStatus.
+-- | v0.8.1b: Body-faithfulness is tracked via EvidenceRecord.erBodyFaithful
+-- on ContractStatus.csPost. Stripping requires isVerifiedLevel && erBodyFaithful.
 
 -- | Empty contract — contracts moved into body as assertions.
 noContract :: Contract
