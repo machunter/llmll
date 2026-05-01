@@ -2,6 +2,8 @@
 module Main (main) where
 
 import Test.Hspec
+import Control.Monad (forM_)
+import Data.Maybe (fromJust)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
@@ -1272,6 +1274,108 @@ main = hspec $ do
 
     it "isSolverBacked: DLAsserted is NOT solver-backed" $
       isSolverBacked DLAsserted `shouldBe` False
+
+  -- =========================================================================
+  -- v0.8.1b: Exhaustive lattice property tests (EVID-0 spec PO-1a..PO-5)
+  -- =========================================================================
+
+  describe "DisplayLevel lattice laws (EVID-0 PO-1a: commutativity)" $ do
+    -- 16 pairs: meet(a,b) = meet(b,a) for all a,b in {A, T, CC, V}
+    let levels = [ ("Asserted", DLAsserted)
+                 , ("Tested", DLTested 100)
+                 , ("ContractChecked", DLContractChecked "z3")
+                 , ("Verified", DLVerified "lf")
+                 ]
+    forM_ [(na, a, nb, b) | (na, a) <- levels, (nb, b) <- levels] $
+      \(na, a, nb, b) ->
+        it ("meet(" ++ na ++ ", " ++ nb ++ ") = meet(" ++ nb ++ ", " ++ na ++ ")") $
+          evidenceMeet a b `shouldBe` evidenceMeet b a
+
+  describe "DisplayLevel lattice laws (EVID-0 PO-1b: associativity)" $ do
+    -- 64 triples: meet(meet(a,b),c) = meet(a,meet(b,c))
+    let levels = [ ("A", DLAsserted)
+                 , ("T", DLTested 100)
+                 , ("CC", DLContractChecked "z3")
+                 , ("V", DLVerified "lf")
+                 ]
+    forM_ [(na, a, nb, b, nc, c) | (na, a) <- levels, (nb, b) <- levels, (nc, c) <- levels] $
+      \(na, a, nb, b, nc, c) ->
+        it ("meet(meet(" ++ na ++ "," ++ nb ++ ")," ++ nc ++ ") = meet(" ++ na ++ ",meet(" ++ nb ++ "," ++ nc ++ "))") $
+          evidenceMeet (evidenceMeet a b) c `shouldBe` evidenceMeet a (evidenceMeet b c)
+
+  describe "DisplayLevel lattice laws (EVID-0 PO-2: idempotency)" $ do
+    -- 4 cases: meet(a,a) = a
+    it "meet(Asserted, Asserted) = Asserted" $
+      evidenceMeet DLAsserted DLAsserted `shouldBe` DLAsserted
+    it "meet(Tested, Tested) = Tested" $
+      evidenceMeet (DLTested 100) (DLTested 100) `shouldBe` DLTested 100
+    it "meet(ContractChecked, ContractChecked) = ContractChecked" $
+      evidenceMeet (DLContractChecked "z3") (DLContractChecked "z3") `shouldBe` DLContractChecked "z3"
+    it "meet(Verified, Verified) = Verified" $
+      evidenceMeet (DLVerified "lf") (DLVerified "lf") `shouldBe` DLVerified "lf"
+
+  describe "DisplayLevel lattice laws (EVID-0 PO-3: bottom absorbs)" $ do
+    -- 4 cases: meet(a, Asserted) = Asserted
+    it "meet(Asserted, Asserted) = Asserted" $
+      evidenceMeet DLAsserted DLAsserted `shouldBe` DLAsserted
+    it "meet(Tested, Asserted) = Asserted" $
+      evidenceMeet (DLTested 100) DLAsserted `shouldBe` DLAsserted
+    it "meet(ContractChecked, Asserted) = Asserted" $
+      evidenceMeet (DLContractChecked "z3") DLAsserted `shouldBe` DLAsserted
+    it "meet(Verified, Asserted) = Asserted" $
+      evidenceMeet (DLVerified "lf") DLAsserted `shouldBe` DLAsserted
+
+  describe "DisplayLevel lattice laws (EVID-0 PO-4: top identity)" $ do
+    -- 4 cases: meet(a, Verified) = a
+    it "meet(Asserted, Verified) = Asserted" $
+      evidenceMeet DLAsserted (DLVerified "lf") `shouldBe` DLAsserted
+    it "meet(Tested, Verified) = Tested" $
+      evidenceMeet (DLTested 100) (DLVerified "lf") `shouldBe` DLTested 100
+    it "meet(ContractChecked, Verified) = ContractChecked" $
+      evidenceMeet (DLContractChecked "z3") (DLVerified "lf") `shouldBe` DLContractChecked "z3"
+    it "meet(Verified, Verified) = Verified" $
+      evidenceMeet (DLVerified "lf") (DLVerified "lf") `shouldBe` DLVerified "lf"
+
+  describe "DisplayLevel lattice laws (EVID-0 PO-5: same-constructor metadata)" $ do
+    it "meet(Tested 100, Tested 200) = Tested 100 (min samples)" $
+      evidenceMeet (DLTested 100) (DLTested 200) `shouldBe` DLTested 100
+    it "meet(Tested 200, Tested 100) = Tested 100 (commutative min)" $
+      evidenceMeet (DLTested 200) (DLTested 100) `shouldBe` DLTested 100
+    it "meet(ContractChecked z3, ContractChecked lf) = ContractChecked z3 (first-arg)" $
+      evidenceMeet (DLContractChecked "z3") (DLContractChecked "lf") `shouldBe` DLContractChecked "z3"
+    it "meet(Verified z3, Verified lf) = Verified z3 (first-arg)" $
+      evidenceMeet (DLVerified "z3") (DLVerified "lf") `shouldBe` DLVerified "z3"
+
+  describe "evidenceCovers consistency (16 pairs)" $ do
+    -- For all a,b: covers(a,b) iff a is ≥ b in the lattice
+    let levels = [ ("Asserted", DLAsserted)
+                 , ("Tested", DLTested 100)
+                 , ("ContractChecked", DLContractChecked "z3")
+                 , ("Verified", DLVerified "lf")
+                 ]
+        -- Expected coverage: (a covers b) for each pair
+        expected = [ (("Asserted","Asserted"), True)
+                   , (("Asserted","Tested"), False)
+                   , (("Asserted","ContractChecked"), False)
+                   , (("Asserted","Verified"), False)
+                   , (("Tested","Asserted"), True)
+                   , (("Tested","Tested"), True)
+                   , (("Tested","ContractChecked"), False)  -- incomparable
+                   , (("Tested","Verified"), False)
+                   , (("ContractChecked","Asserted"), True)
+                   , (("ContractChecked","Tested"), False)  -- incomparable
+                   , (("ContractChecked","ContractChecked"), True)
+                   , (("ContractChecked","Verified"), False)
+                   , (("Verified","Asserted"), True)
+                   , (("Verified","Tested"), True)
+                   , (("Verified","ContractChecked"), True)
+                   , (("Verified","Verified"), True)
+                   ]
+    forM_ expected $ \((na, nb), expect) -> do
+      let a = fromJust $ lookup na levels
+          b = fromJust $ lookup nb levels
+      it ("covers(" ++ na ++ ", " ++ nb ++ ") = " ++ show expect) $
+        evidenceCovers a b `shouldBe` expect
 
   describe "ContractsMode: instrumentStatement" $ do
     let mkDefLogic name preE postE bodyE =
