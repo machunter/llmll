@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-04-24  
+> **Last updated:** 2026-05-01  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -15,11 +15,8 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 |---|---|---|
 | [verification-debate.md](verification-debate.md) | Archive of a formal methods critique. Answers 5 Socratic questions (TCB, logic authority, unproven contracts, totality, cross-agent assumptions). Establishes "sound modulo trust" as the defensible position. | Active reference |
 | [verification-debate-action-items.md](verification-debate-action-items.md) | Concrete tickets from the debate: TCB hardening, trust propagation tests, semantic anchor decision, effect system spec, `(trust ...)` elevation. | Active — items tracked |
-| [algorithm_w_tdependent_resolution.md](algorithm_w_tdependent_resolution.md) | Language Team resolution for Algorithm W × TDependent interaction. Decision: Strip-then-Unify (Option A). Unification operates on structural base types; refinement constraints are not propagated. Preserves the two-layer architecture (types = structure, contracts = behavior). | **Resolved** (2026-04-19) |
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |
-| [contract-clause-refactor.md](contract-clause-refactor.md) | Deferred design: `ContractClause` type to replace flat `Maybe Expr` fields in `Contract`. Richer per-clause metadata (source, severity, ownership). Option A (sibling fields) chosen for v0.6; Option B captured here with migration path and revisit triggers. | **Deferred** (2026-04-22) |
-| [interface-laws-spec.md](interface-laws-spec.md) | Formal specification for `def-interface :laws` — algebraic law enforcement. Inference rules, grammar extensions (S-expr + JSON-AST), code generation (QuickCheck properties), spec-coverage interaction, proof obligations for Leanstral, and test plan. AST change: `defInterfaceLaws :: [Expr] → [Property]`. ~15 hours estimated. | **Proposed** (v0.6.2) |
 
 ---
 
@@ -32,18 +29,6 @@ Documents addressing the specification-coverage gap: how can the system create p
 | [invariant-discovery.md](invariant-discovery.md) | Distilled design discussion. 6 mechanisms: adversarial red-team, mutation testing on specs, property mining, spec coverage metric, hub-driven suggestions, counter-example display. | Active reference |
 | [invariant-discovery-proposal.md](invariant-discovery-proposal.md) | External team's full proposal. 9 mechanisms, ranked. Key concepts: "specification pressure" and "contract entropy." Includes a concrete architecture sketch (6 phases per hole). | Under review |
 | [invariant-discovery-review.md](invariant-discovery-review.md) | Professor's mechanism-by-mechanism critique. Recommends differential implementation pressure (Phase A), CEGIS-style strengthening (Phase B), adversarial search (Phase C). Defines "contract discriminative power." | Under review |
-| [spec-adequacy-closure.md](spec-adequacy-closure.md) | **Implementation plan** for closing the spec gap. 3 tracks: spec adequacy feedback (weakness-check, spec-coverage, invariant registry, obligation mining), ERC-20 domain benchmark, Lead Agent spec-quality gate. 7 success criteria. External reviewer accepted in design. | **Approved — v0.3.5–v0.4** |
-
----
-
-## Agent Integration
-
-Documents addressing the gap between agent capabilities and language semantics: what agents need to know to generate correct code, and how to automate skeleton authoring.
-
-| Document | Summary | Status |
-|---|---|---|
-| [agent-prompt-semantics-gap.md](agent-prompt-semantics-gap.md) | Gap analysis: agents lack built-in function reference, evaluation rules, type node coverage, and in-scope variable context. Proposes 3-phase solution: (A) enhanced system prompt (~950 tokens), (B) `llmll spec` compiler-emitted reference, (C) context-aware checkout with Γ/τ/Σ. Includes corrected built-in reference verified against `builtinEnv`. | Phases A+B shipped (v0.3.4); Phase C planned |
-| [lead-agent.md](lead-agent.md) | Automated skeleton generation from natural-language intent. Two-step prompt (architecture plan → JSON-AST), compiler-in-the-loop validation, structural quality heuristics (parallelism, fan-out, loose types, sentinel collisions). Phased: plan-only → skeleton generation → `--mode auto` → tool-use with `POST /sketch`. | Design draft |
 
 ---
 
@@ -54,8 +39,9 @@ Designs for system components beyond the current compiler — orchestration, com
 | Document | Summary | Status |
 |---|---|---|
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: compiler↔orchestrator boundary, agent registry, context assembly, scheduling strategies, error recovery, self-hosted LLMLL endgame. | Design draft |
+| [lead-agent.md](lead-agent.md) | Automated skeleton generation from natural-language intent. Two-step prompt (architecture plan → JSON-AST), compiler-in-the-loop validation, structural quality heuristics. | Design draft |
 | [component-hub.md](component-hub.md) | Per-project and global component registry. Query by type signature + contract, not by name. Addresses reuse, progressive accumulation, and cross-project publishing. | Design draft |
-| [type-driven-development.md](type-driven-development.md) | Idris-style indexed types for agent hole-filling. The obligation-guided part (structured hole obligations, repair suggestions, multi-channel feedback) was **promoted to v0.10** on the compiler roadmap (2026-05-01). What remains here is the indexed-type extension (`Vect n a`, GADTs, type-level arithmetic), which stays deferred. | Design exploration (partially promoted) |
+| [type-driven-development.md](type-driven-development.md) | Idris-style indexed types for agent hole-filling. The obligation-guided part (structured hole obligations, repair suggestions) was **promoted to v0.10** on the compiler roadmap. What remains here is the indexed-type extension (`Vect n a`, GADTs, type-level arithmetic). | Design exploration (partially promoted) |
 
 ---
 
@@ -65,6 +51,7 @@ Historical design documents from shipped versions are in [`../archive/`](../arch
 
 | Directory | Contents | Version |
 |---|---|---|
+| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor | v0.6.2–v0.9.0 (all shipped) |
 | `do_notation/` | Do-notation design and two implementation plans | v0.3 (shipped) |
 | `older_discussions_and_plans/` | SMT/Lean analysis, language analysis, feedback, unicode decision | Pre-v0.2 |
 | `sketch/` | Compiler handoff sketch, implementation guide | Pre-v0.2 |
