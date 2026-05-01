@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.8.1b shipped (Evidence Model Refactor); next: v0.9 (compositional). Feature freeze active. 322 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.9.0 shipped (Compositional Verification). Feature freeze active. 452 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -203,14 +203,14 @@ contract-checked  tested
 
 ---
 
-## v0.9 — Compositional Verification
+## v0.9 — Compositional Verification ✅ Shipped
 
 **Theme:** Extend body-faithful verification from isolated leaf functions to function call chains.
 
-**Effort:** ~5–7 days.
+**Effort:** ~5–7 days (actual: completed 2026-05-01).
 
-> [!IMPORTANT]
-> **Design review (COMP-0) required before implementation.**
+> [!NOTE]
+> **Design review (COMP-0) completed and approved (Rev 2).** All 5 implementation phases shipped. See [`docs/design/comp-0-spec.md`](design/comp-0-spec.md).
 
 > **Source:** Professor's review identified compositional verification (`EApp`) as the most impactful technical extension after the evidence model is in place.
 
@@ -226,22 +226,21 @@ Given current path condition Γ, for call `(f e₁ ... eₙ)`:
 
 | # | ID | Description | Prerequisite | Status |
 |---|-----|-------------|-------------|--------|
-| 1 | **COMP-0** | **[DESIGN]** Design spec: assume-guarantee encoding rules, `.fq` constraint polarity, **`FlatPath`/`BodyVC` polarity architecture** (emission-level handling vs. `CallVC` constructor — see implementation plan for analysis), SCC handling, `EMatch` encoding for `Result`, precondition failure policy, interaction with existing `bodyToPred`. | EVID-0 | ☐ |
-| 2 | **COMP-1** | **[CT]** Extend `bodyToPred` to handle `EApp` for calls to contracted functions. Fresh symbolic result variable. Precondition as constraint (prove polarity). Postcondition as hypothesis (assume polarity). Alpha-rename callee contract variables. | COMP-0 | ☐ |
-| 3 | **COMP-2** | **[CT]** SCC check before compositional encoding. Reuse Tarjan's SCC algorithm (build function call graph, not hole dependency graph). Functions in recursive SCCs fall back to contract-only. | COMP-1 | ☐ |
-| 4 | **COMP-3** | **[CT]** Extend `bodyToPred` to handle `EMatch` on `Result a e` (two-path encoding: Success branch + Error branch). | COMP-0 | ☐ |
-| 5 | **COMP-4** | **[CT]** Transitive trust degradation: propagate evidence tiers through call graph using partial-order meet from v0.8.1b. | COMP-1, EVID-3 | ☐ |
-| 6 | **COMP-5** | **[CT]** Structured call-site precondition failure diagnostics. Wire into `ObligationMining.hs`. Include path condition, required precondition, and suggested repairs. | COMP-1 | ☐ |
-| 7 | **COMP-6** | **[CT]** `--strict-verified-core` build mode: hard error on unproven call-site preconditions. | COMP-5 | ☐ |
-| 8 | **COMP-T** | **[CT]** Regression tests for stripping invariants + golden tests for call chains: A→B→C (verified chain), A→B→C (degraded chain), A↔B cycle (fallback). `EMatch` on `Result` golden test. | COMP-1 | ☐ |
+| 1 | **COMP-0** | **[DESIGN]** Design spec: assume-guarantee encoding rules, `.fq` constraint polarity, `CallVC` constructor, SCC handling, `EMatch` encoding for `Result`, precondition failure policy, interaction with `bodyToPred`. Rev 2 approved. | EVID-0 | ✅ |
+| 2 | **COMP-1** | **[CT]** `CallVC` constructor, `ContractEnv`, `applySubst`, `isConstructorDependent`, three-way pre distinction (Issue 1), `CallVC` direct return (Issue 3), SCC guard removed (Issue 4), `ELet` continuation threading, call-pre constraint emission with PROVE polarity. | COMP-0 | ✅ |
+| 3 | **COMP-2** | **[CT]** SCC detection via `Data.Graph.stronglyConnComp`. Exported `buildCallGraph` from `HoleAnalysis.hs`. Recursive functions excluded from body VCs. | COMP-1 | ✅ |
+| 4 | **COMP-3** | **[CT]** `EMatch` on `Result a e` (two-path encoding): `classifyResultArms`, synthetic guard, sort derivation from `ContractEnv` `TResult`, `setCallVCContinuation` for EMatch-over-call. | COMP-0 | ✅ |
+| 5 | **COMP-4** | **[CT]** Transitive trust degradation: existing `enrichEntry`/`evidenceMeet` infrastructure (v0.8.1b) handles this. Call graph consistency verified. | COMP-1, EVID-3 | ✅ |
+| 6 | **COMP-5** | **[CT]** `call-pre:` tag in `ConstraintOrigin`, `toDiag` mapping for UNSAFE call-site preconditions. Structured diagnostic with caller/callee identification. | COMP-1 | ✅ |
+| 7 | **COMP-6** | **[CT]** `--strict-verified-core` CLI flag: hard error on functions in `erBodyFallback`. JSON and text output. | COMP-5 | ✅ |
+| 8 | **COMP-T** | **[CT]** 18 golden tests: `applySubst` (4), `isConstructorDependent` (3), `bodyToPredM` with `ContractEnv` (4), `collectCallPreObligations` (2), end-to-end emission (1), `EMatch` on Result (4). 452 total tests. | COMP-1 | ✅ |
 
 **Acceptance criteria:**
-- `withdraw` calling verified `safe_subtract` produces `verified` trust level
-- `withdraw` calling `contract-checked` callee degrades to `contract-checked`
-- Recursive SCC detected and falls back to contract-only
-- `EMatch` on `Result` produces two-path body-faithful encoding
-- Stripping regression tests pass for all body-faithful functions
-- Call-site precondition failures produce structured diagnostics with repair suggestions
+- ✅ `withdraw` calling verified `safe_subtract` emits call-pre obligation
+- ✅ Recursive SCC detected and falls back to contract-only
+- ✅ `EMatch` on `Result` produces two-path body-faithful encoding
+- ✅ Call-site precondition failures produce structured diagnostics
+- ✅ `--strict-verified-core` hard-errors on fallback functions
 
 ---
 
@@ -438,22 +437,22 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 > **Roadmap restructure (2026-04-30, extended 2026-05-01):** Professor's review + language team consensus. Old v0.8.1 (blocked on `lean-lsp-mcp`) replaced with four actionable milestones. Feature freeze active from v0.8.1a through v0.10.
 
 ```
-v0.8.0 (SHIPPED)  v0.8.1a (SHIPPED)  v0.8.1b (SHIPPED)   v0.9 (compositional)  v0.10 (obligations)     Parked
+v0.8.0 (SHIPPED)  v0.8.1a (SHIPPED)  v0.8.1b (SHIPPED)   v0.9 (SHIPPED)        v0.10 (obligations)     Parked
 ────────────────  ──────────────     ──────────────────  ────────────────────  ─────────────────────   ──────
-BODY-VC ✅         RENAME-1/2 ✅       EVID-0 (design ✅)   COMP-0 (design)       OBLIG-0 (design)        LEAN-GA
-SUPP-DEBT ✅       MATRIX-1/2/3 ✅     EVID-1 (ADT ✅)       COMP-1 (EApp)         OBLIG-1 (enriched holes) TRUST-2b
-EVENT-LOG ✅       BOUNDARY-1/2 ✅     EVID-2 (sidecar ✅)  COMP-2 (SCC)          OBLIG-2 (goal-state)    MCP
-SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch)       OBLIG-3 (branch obligs)
-320 tests                             EVID-4 (coverage ✅) COMP-4 (propagation)  OBLIG-4 (suggestions)
-                   9/9 shipped        EVID-5 (contracts✅) COMP-5 (obligations)  OBLIG-5 (repair loop)
-                   no code            EVID-6 (module ✅)   COMP-6 (strict mode)  OBLIG-B (benchmark)
-                   zero risk          EVID-7/8 (CLI ✅)    COMP-T (tests)
-                                      EVID-T (tests ✅)    ~5-7 days             ~5-7 days
+BODY-VC ✅         RENAME-1/2 ✅       EVID-0 (design ✅)   COMP-0 (design ✅)    OBLIG-0 (design)        LEAN-GA
+SUPP-DEBT ✅       MATRIX-1/2/3 ✅     EVID-1 (ADT ✅)       COMP-1 (EApp ✅)      OBLIG-1 (enriched holes) TRUST-2b
+EVENT-LOG ✅       BOUNDARY-1/2 ✅     EVID-2 (sidecar ✅)  COMP-2 (SCC ✅)       OBLIG-2 (goal-state)    MCP
+SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch ✅)    OBLIG-3 (branch obligs)
+320 tests                             EVID-4 (coverage ✅) COMP-4 (trust ✅)     OBLIG-4 (suggestions)
+                   9/9 shipped        EVID-5 (contracts✅) COMP-5 (diags ✅)     OBLIG-5 (repair loop)
+                   no code            EVID-6 (module ✅)   COMP-6 (strict ✅)    OBLIG-B (benchmark)
+                   zero risk          EVID-7/8 (CLI ✅)    COMP-T (tests ✅)
+                                      EVID-T (tests ✅)    8/8 shipped           ~5-7 days
                                       10/10 shipped
                                        322 tests
 ```
 
-**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation ✅ → COMP-0 design review → v0.9 implementation → OBLIG-0 design review → v0.10 implementation.
+**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation ✅ → COMP-0 design review ✅ → v0.9 implementation ✅ → OBLIG-0 design review → v0.10 implementation.
 
 **Feature freeze** active from v0.8.1a through v0.10 ship.
 
@@ -499,7 +498,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. — **shipped (2026-04-29)**. |
 | **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
 | **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. `EvidenceRecord` with body-faithfulness + source provenance. `AssumptionKind` taxonomy. Hard break for `.verified.json`. 14 source files + test suite. 322 tests (+2). — **shipped (2026-05-01)**. |
-| **v0.9** | *(new, 2026-04-30)* | **Compositional Verification:** Assume-guarantee `EApp` encoding. `EMatch` on `Result`. SCC recursive fallback. Transitive trust degradation. `--strict-verified-core` mode. COMP-0 design review required. ~5–7 days. |
+| **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). — **shipped (2026-05-01)**. |
 | **v0.10** | *(new, 2026-05-01)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. OBLIG-0 design review required. ~5–7 days. Indexed types explicitly excluded. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
