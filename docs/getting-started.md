@@ -1,4 +1,4 @@
-# LLMLL Getting Started — v0.8.1a
+# LLMLL Getting Started
 
 > This document is the single reference for building and running LLMLL programs,
 > understanding what patterns work in the current compiler, and the JSON-AST schema versioning policy.
@@ -13,7 +13,7 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
-| `fixpoint` + `z3` | any stable | **Optional** (Phase 2b `verify` command only): `stack install liquid-fixpoint` then `brew install z3` |
+| `fixpoint` + `z3` | any stable | **Optional** (`verify` command only): `stack install liquid-fixpoint` then `brew install z3` |
 
 **Install Stack:** <https://docs.haskellstack.org/en/stable/install_and_upgrade/>
 
@@ -35,14 +35,14 @@ Available commands:
   holes      List and classify all holes in a file
   test       Run property-based tests (check blocks)
   build      Compile source to a Haskell application
-  verify     Emit .fq constraints, run liquid-fixpoint, trust report (Phase 2b+)
-  spec       Emit the agent prompt specification from builtinEnv (v0.3.4)
+  verify     Emit .fq constraints, run liquid-fixpoint, trust report
+  spec       Emit the agent prompt specification from builtinEnv
   typecheck  Type inference (use --sketch for partial programs)
   serve      HTTP sketch endpoint for agent swarms
-  checkout   Lock a hole for exclusive agent editing (v0.3; context-aware in v0.3.5)
-  patch      Apply an RFC 6902 JSON-Patch to a checked-out hole (v0.3)
+  checkout   Lock a hole for exclusive agent editing
+  patch      Apply an RFC 6902 JSON-Patch to a checked-out hole
   hub        llmll-hub package registry (fetch, scaffold, query)
-  replay     Deterministic replay from event log (v0.3.1)
+  replay     Deterministic replay from event log
   repl       Start an interactive LLMLL REPL
 ```
 
@@ -75,7 +75,7 @@ stack exec llmll -- holes ../examples/hangman_json/hangman.ast.json
 | `AGENT` | Delegated to a specialist agent |
 | `info` | Non-blocking TODO |
 
-#### `--deps` — dependency graph (v0.3.3)
+#### `--deps` — dependency graph
 
 Add `--deps` to `--json` output to include a dependency graph between holes.
 The orchestrator uses this for topological sorting and parallel scheduling.
@@ -190,7 +190,7 @@ llmll hub scaffold web-api-server --output ./my-project
 Import fetched packages using the `hub.` prefix (see §4.8).
 
 ```bash
-# Query the hub for functions matching a type signature (v0.6.1)
+# Query the hub for functions matching a type signature
 llmll hub query --signature "int -> int -> int"
 # Results:
 #   llmll-math.arithmetic.add : int -> int -> int [contracted]
@@ -202,7 +202,7 @@ llmll hub query --signature "list[int] -> int" --json
 ```
 
 > [!NOTE]
-> **Type matching semantics (v0.6.1):** Query type variables (single letters like `a`, `b`) act as wildcards — `list[a] -> a` matches `list[int] -> int`. `TDependent` constraints are stripped before matching. Parameter order is significant: `int -> string` does not match `string -> int`.
+> **Type matching semantics:** Query type variables (single letters like `a`, `b`) act as wildcards — `list[a] -> a` matches `list[int] -> int`. `TDependent` constraints are stripped before matching. Parameter order is significant: `int -> string` does not match `string -> int`.
 
 > [!NOTE]
 > **Known limitation:** The CLI signature parser handles base types (`int`, `string`, `bool`), `bytes[N]`, `list[T]`, and single-letter type variables. Compound types like `Result[T, E]` and `map[K, V]` are not supported in query signatures — use simpler queries and filter results manually. Compound types in shell arguments may need quoting: `--signature "map[string, int]"`.
@@ -222,16 +222,16 @@ stack exec llmll -- verify file.llmll --fq-out out.fq
 # JSON output:
 stack exec llmll -- --json verify file.llmll
 
-# v0.3.1: Run Leanstral proof pipeline on ?proof-required holes (mock mode):
+# Run Leanstral proof pipeline on ?proof-required holes (mock mode):
 stack exec llmll -- verify file.llmll --leanstral-mock
 # Runs liquid-fixpoint first, then scans for ?proof-required holes,
 # translates to Lean 4 obligations, resolves via mock prover,
 # caches results in .proof-cache.json.
 
-# v0.3.1: Leanstral with custom command and timeout:
+# Leanstral with custom command and timeout:
 stack exec llmll -- verify file.llmll --leanstral-cmd /path/to/lean-lsp-mcp --leanstral-timeout 60
 
-# v0.3.2: Trust report — transitive trust closure with epistemic drift detection:
+# Trust report — transitive trust closure with epistemic drift detection:
 stack exec llmll -- verify file.llmll --trust-report
 # Trust Report
 # ────────────────────────────────────────────────────────────
@@ -247,7 +247,7 @@ stack exec llmll -- verify file.llmll --trust-report
 # JSON trust report (for tooling consumption):
 stack exec llmll -- verify file.llmll --trust-report --json
 
-# v0.3.5: Weakness check — detect specs that admit trivial implementations:
+# Weakness check — detect specs that admit trivial implementations:
 stack exec llmll -- verify file.llmll --weakness-check
 # ✅ hangman.llmll — SAFE (liquid-fixpoint)
 # ⚠ Spec weakness detected for `sort-list`:
@@ -255,7 +255,7 @@ stack exec llmll -- verify file.llmll --weakness-check
 #   Trivial valid implementation: (def-logic sort-list [input: list[int]] input)
 #   Consider strengthening the postcondition.
 
-# v0.6: Spec coverage — how much of your module is under contract:
+# Spec coverage — how much of your module is under contract:
 stack exec llmll -- verify file.llmll --spec-coverage
 # Spec Coverage Report
 # ────────────────────────────────────────────
@@ -276,7 +276,7 @@ stack exec llmll -- verify file.llmll --spec-coverage --json
 
 `--weakness-check` runs **after** a SAFE verification result. For each contracted function, it constructs trivial bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, the spec is flagged as potentially weak. This is advisory — it does not affect the verification outcome.
 
-#### Spec coverage and the Verification-Scope Matrix (v0.6.0)
+#### Spec coverage and the Verification-Scope Matrix
 
 `--spec-coverage` classifies every function in a module as **contracted**, **suppressed** (via `weakness-ok`), or **unspecified**, then computes:
 
@@ -305,11 +305,9 @@ effective_coverage = (contracted + suppressed) / total_functions
 | `--mode auto` | 60% | Blocking failure |
 | `--mode lead` | 40% fail, 60% warn | Tiered response |
 
-Tightening roadmap: 60% in v0.6, 70% in v0.7, 80% in v0.8.
-
 Each example with a JSON-AST verifier includes a `VERIFICATION_SCOPE.md` file documenting the per-function classification and verification boundary. See `examples/erc20_token/WALKTHROUGH.md` for the full end-to-end benchmark.
 
-#### Clause-level provenance (`:source` annotation, v0.6.0)
+#### Clause-level provenance (`:source` annotation)
 
 Contracts can carry a `:source` annotation linking each clause to an external standard or specification:
 
@@ -328,7 +326,7 @@ JSON-AST equivalent: add `"pre_source"` / `"post_source"` optional string fields
 
 When multiple `(pre ...)` clauses are combined (via `and`), the `:source` annotation is dropped (ambiguous provenance). Use a single `(pre ...)` with a combined expression when source traceability is needed.
 
-#### Downstream obligation mining (v0.4.0)
+#### Downstream obligation mining
 
 When `llmll verify` reports UNSAFE at a cross-function boundary, the obligation miner extracts the unsatisfied constraint and suggests a postcondition strengthening on the callee:
 
@@ -346,9 +344,9 @@ This leverages existing `TrustReport.hs` transitive closure infrastructure and t
 > [!IMPORTANT]
 > `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
 
-#### Body-faithful verification (v0.8.0)
+#### Body-faithful verification
 
-Since v0.8.0, `llmll verify` encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates:
+`llmll verify` encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates:
 
 ```
 P ∧ (result = ⟦B⟧) ⟹ Q
@@ -375,7 +373,7 @@ This means `VLProvenSMT` with `body_faithful = true` guarantees the implementati
 - `spec_coverage` — contracted / total (excludes suppressions)
 - `suppression_debt` — suppressed / total
 
-### `replay` — deterministic event log replay (v0.3.1)
+### `replay` — deterministic event log replay
 
 ```bash
 # Run a console program — produces .event-log.jsonl automatically:
@@ -398,7 +396,7 @@ The replay command:
 > [!NOTE]
 > Event logs are crash-safe: if the program is killed mid-run, the log is valid up to the last flushed line. Partial logs can be replayed.
 
-### `typecheck --sketch` — partial-program type inference (Phase 2c)
+### `typecheck --sketch` — partial-program type inference
 
 ```bash
 stack exec llmll -- typecheck --sketch ../examples/sketch/if_hole.ast.json
@@ -412,11 +410,11 @@ Accepts a partial LLMLL program with holes anywhere. Returns:
 
 - `holes[]` — each `?hole`’s inferred type (or `null` if indeterminate) and its RFC 6901 JSON Pointer
 - `errors[]` — type errors detectable even with holes present, each annotated with `holeSensitive: bool`
-- `invariant_suggestions[]` (v0.4.0) — invariant suggestions from the pattern registry, keyed by `(type signature, function name pattern)`. Contains ≥5 patterns (list-preserving, sorted, round-trip, subset, idempotent).
+- `invariant_suggestions[]` — invariant suggestions from the pattern registry, keyed by `(type signature, function name pattern)`. Contains ≥5 patterns (list-preserving, sorted, round-trip, subset, idempotent).
 
 `holeSensitive: true` means the error may disappear once holes are filled — fix `holeSensitive: false` errors first.
 
-#### Invariant suggestions (v0.4.0)
+#### Invariant suggestions
 
 When a function’s type signature matches a known pattern, `--sketch` emits invariant suggestions:
 
@@ -435,7 +433,7 @@ stack exec llmll -- typecheck --sketch program.ast.json
 
 The pattern registry is stored as data (not code) — adding new patterns does not require recompilation. See `InvariantRegistry.hs` for the full pattern set.
 
-### `serve` — HTTP sketch endpoint (Phase 2c)
+### `serve` — HTTP sketch endpoint
 
 ```bash
 # Start on default localhost:7777
@@ -452,10 +450,10 @@ curl -s -X POST localhost:7777/sketch \
 
 Every `POST /sketch` is **stateless** — a fresh type-check context per request. Safe for concurrent agent use with no locking. TLS is handled by a reverse proxy (nginx/Caddy); `llmll serve` binds plaintext only.
 
-### `checkout` — lock a hole for exclusive editing (v0.3; context-aware v0.3.5; CAP-1 v0.4.0)
+### `checkout` — lock a hole for exclusive editing
 
 ```bash
-# Lock a hole and get a checkout token (v0.3.5: includes typing context)
+# Lock a hole and get a checkout token (includes typing context)
 stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/2/body
 # {
 #   "pointer": "/statements/2/body",
@@ -489,7 +487,7 @@ stack exec llmll -- checkout --release ../examples/delegate_demo/program.ast.jso
 
 Locks are per-file (`.llmll-lock.json` alongside the source) with a 1-hour TTL. Stale locks are auto-expired on any `checkout` or `patch` call.
 
-**v0.3.5+ context-aware fields** (optional — present when the compiler has sketch data):
+**Context-aware fields** (optional — present when the compiler has sketch data):
 
 | Field | Content |
 |-------|---------|
@@ -502,7 +500,7 @@ Locks are per-file (`.llmll-lock.json` alongside the source) with a 1-hour TTL. 
 > [!IMPORTANT]
 > `checkout` requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`.
 
-### `patch` — apply an RFC 6902 JSON-Patch to a checked-out hole (v0.3)
+### `patch` — apply an RFC 6902 JSON-Patch to a checked-out hole
 
 ```bash
 stack exec llmll -- patch ../examples/delegate_demo/program.ast.json ../examples/delegate_demo/patch-request.json
@@ -521,7 +519,7 @@ The patch request is a JSON envelope containing the checkout token and RFC 6902 
 }
 ```
 
-Supported operations: `replace`, `add`, `remove`, `test`. The `test` op guards against stale patches. `move` and `copy` are not supported in v0.3 — use `remove` + `add` instead.
+Supported operations: `replace`, `add`, `remove`, `test`. The `test` op guards against stale patches. `move` and `copy` are not supported — use `remove` + `add` instead.
 
 **Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot mutate `/statements/0/body`.
 
@@ -546,7 +544,6 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted.
 
 > [!IMPORTANT]
-> **Migrating from v0.2.0:** Files with `"schemaVersion": "0.2.0"` are **rejected** by the v0.3+ compiler. Update both `schemaVersion` and `llmll_version` to `"0.3.0"`. The `Contract` type now has per-clause source provenance fields; existing files without these fields parse correctly (they default to `null`).
 
 | Field | Meaning |
 |-------|---------|
@@ -574,7 +571,6 @@ These patterns work in the **current compiler**. Each shows what works today and
 ✅ **Works.** `first`/`second` accept any pair-like value regardless of annotation.
 
 > [!NOTE]
-> **v0.4.0 (U-Lite):** `first` and `second` are now properly typed as `TPair a b → a` and `TPair a b → b` respectively, with per-call-site type variable instantiation. The previous `TVar "p"` polymorphic hack is replaced by correct pair-type constraints. This means `first 42` is now a type error (correctly rejected). Existing pair-destructuring code is unaffected.
 
 ### 4.2 Type Aliases at Call Sites
 
@@ -606,17 +602,17 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 
 ✅ `string-concat-many :: list[string] -> string` — concatenates without separator.
 
-### 4.5 New Built-ins (since v0.1.3.1)
+### 4.5 Built-in Functions
 
 | Function | Signature | Notes |
 | -------- | --------- | ----- |
 | `string-trim` | `string → string` | Strip leading/trailing whitespace, `\t`, `\n`, `\r` |
 | `string-concat-many` | `list[string] → string` | Concat list of strings |
 | `list-nth` | `list[a] int → Result[a, string]` | Safe indexed access |
-| `string-char-at` | `string int → string` | Single character at index. Returns `""` for negative or out-of-bounds indices (v0.7). |
-| `regex-match` | `string string → bool` | POSIX ERE match via `regex-tdfa` (v0.7). Invalid patterns return `False` (total). Replaces the `isInfixOf` stub from v0.3.4. |
-| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 HMAC-SHA1 (v0.6.1, §13.11). Opaque — trust level is `asserted`. |
-| `sha1` | `bytes[20] → bytes[20]` | SHA-1 hash (v0.6.1, §13.11). Preamble is a stub — see LLMLL.md §13.11. |
+| `string-char-at` | `string int → string` | Single character at index. Returns `""` for negative or out-of-bounds indices. |
+| `regex-match` | `string string → bool` | POSIX ERE match via `regex-tdfa`. Invalid patterns return `False` (total).  |
+| `hmac-sha1` | `bytes[20] bytes[20] → bytes[20]` | RFC 2104 HMAC-SHA1. Opaque — trust level is `asserted`. |
+| `sha1` | `bytes[20] → bytes[20]` | SHA-1 hash. Preamble is a stub — see LLMLL.md §13.11. |
 
 ### 4.6 `def-main` Initialisation and Termination
 
@@ -634,14 +630,14 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > [!IMPORTANT]
 > **`:on-done` is the canonical hook for end-of-game output.** If `game-loop` prints a win/loss message on the same turn the game ends, the board can render twice. Move all terminal output for the final state into a dedicated `show-result` function and declare it via `:on-done`. See `LLMLL.md §9.5` for the full before/after pattern.
 
-### 4.7 Known Restrictions (v0.2 fully shipped)
+### 4.7 Known Restrictions
 
 | Feature | Status | Notes |
 | ------- | ------ | ----- |
 | `[...]` list literal as direct argument inside S-expression `if` branch | ❌ Parse error | Hoist into a `let` binding before the `if` (workaround below) |
 | `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
-| `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | v0.3 |
-| `EPair` returning `TResult` approximation | ✅ **Fixed (v0.3 PR 1)** | `EPair` now correctly typed `TPair a b`; `match` on pairs no longer suggests `Success`/`Error` arms |
+| `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | planned |
+| `EPair` returning `TResult` approximation | ✅ **Fixed** | `EPair` now correctly typed `TPair a b`; `match` on pairs no longer suggests `Success`/`Error` arms |
 
 > [!WARNING]
 > **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
@@ -672,7 +668,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
 | `[...]` list literal as direct argument inside S-expression `if` branch | Parse error: `unexpected ]` | Hoist into a `let` binding before the `if` (see §4.7) |
 | `import` after `def-logic` inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def-logic` |
-| Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | **v0.4.0 (CAP-1):** compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` before any `wasi.io.*` call |
+| Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` before any `wasi.io.*` call |
 
 > [!IMPORTANT]
 > **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
@@ -692,9 +688,9 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 
 ---
 
-### 4.8 Multi-File Modules: `open`, `export`, and `hub` (v0.2)
+### 4.8 Multi-File Modules: `open`, `export`, and `hub`
 
-Phase 2a ships real multi-file compilation. Use these patterns when authoring or consuming multi-module programs.
+Use these patterns when authoring or consuming multi-module programs.
 
 #### Prefixed access (default)
 
@@ -709,19 +705,19 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 ```
 
 > [!IMPORTANT]
-> **Phase 2a codegen limitation — use bare names at call sites.**
+> **Codegen limitation — use bare names at call sites.**
 > Qualified access (`module.fn`) is *accepted by the type-checker and resolver*, but
-> Phase 2a codegen merges all modules into a single flat `Lib.hs` with bare Haskell
+> The codegen merges all modules into a single flat `Lib.hs` with bare Haskell
 > identifiers. A call written as `(world.make-world ...)` becomes `world_make_world`
 > in the generated Haskell, which **does not exist** — GHC will error with
 > `Variable not in scope: world_make_world`.
 >
-> **Rule for Phase 2a:** always use **bare function names** at call sites, even for
+> **Rule:** always use **bare function names** at call sites, even for
 > functions imported from other modules. The `(import world)` statement is still
 > required (it triggers module loading and merging); only call sites must be bare.
 >
 > ```lisp
-> ;; ✅ correct in Phase 2a:
+> ;; ✅ correct:
 > (import world)
 > (make-world 20 10)
 >
@@ -729,7 +725,7 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 > (world.make-world 20 10)
 > ```
 >
-> Per-module Haskell output (so `world.make-world` compiles correctly) is planned for Phase 2b.
+> Per-module Haskell output (so `world.make-world` compiles correctly) is planned for a future release.
 
 #### `open` — pull names into local scope
 
@@ -779,7 +775,7 @@ The `hub.` prefix tells the resolver to search only `~/.llmll/modules/`, never t
 
 Omit `"names"` in an `open` node to bring all exports into scope.
 
-#### ⚠️ Phase 2a Limitation: module search root is anchored to the **entry-point** file
+#### ⚠️ Limitation: module search root is anchored to the **entry-point** file
 
 > [!WARNING]
 > **All `import` paths are resolved relative to the directory of the file you pass to `llmll check` / `llmll build` (the entry-point), not relative to the file that contains the `import` statement.**
@@ -795,7 +791,7 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 >   core.ast.json       ← (import core)    → resolved to ./core.ast.json  ✅
 > ```
 >
-> **What does NOT work in Phase 2a:**
+> **What does NOT work currently:**
 >
 > ```text
 > examples/life_json/
@@ -811,9 +807,9 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 >             life/ break unless life/ = the entry-point directory.
 > ```
 >
-> **Recommended layout for Phase 2a:** keep all module files at the **same directory level** as the entry-point. Use single-segment import names (`import core`, `import world`).
+> **Recommended layout:** keep all module files at the **same directory level** as the entry-point. Use single-segment import names (`import core`, `import world`).
 >
-> A `--lib <dir>` flag that adds extra search roots is planned for Phase 2b.
+> A `--lib <dir>` flag that adds extra search roots is planned for a future release.
 
 ---
 
@@ -879,14 +875,14 @@ The compiler auto-emits `?proof-required` holes for constraints outside the deci
 
 S-expression (`.llmll`) and JSON-AST (`.ast.json`) files use different string escape rules. Mixing them up is a common source of parse errors.
 
-| Escape | JSON-AST | S-expression (v0.2+) |
+| Escape | JSON-AST | S-expression |
 | ------ | -------- | -------------------- |
 | `\n` newline | ✅ | ✅ |
 | `\t` tab | ✅ | ✅ |
 | `\r` CR | ✅ | ✅ |
 | `\\` backslash | ✅ | ✅ |
 | `\"` quote | ✅ | ✅ |
-| `\uXXXX` Unicode | ✅ | ✅ added v0.2 |
+| `\uXXXX` Unicode | ✅ | ✅supported |
 | `\xNN` hex | ❌ not valid JSON | ❌ not supported |
 
 **JSON-AST:** follows RFC 8259. Use `\uXXXX` for control characters:
@@ -902,15 +898,15 @@ The compiler emits a hint when it detects the `\x1b` pattern:
 :hint "JSON strings must use \\uXXXX for control/non-ASCII chars (e.g. \\u001b not \\x1b)"
 ```
 
-**S-expression:** uses Haskell-style escapes. `\uXXXX` is now also supported (v0.2):
+**S-expression:** uses Haskell-style escapes. `\uXXXX` is now also supported:
 
 ```lisp
-(def-logic clear-screen [] "\u001b[2J\u001b[H")  ;; ✅ works in v0.2
+(def-logic clear-screen [] "\u001b[2J\u001b[H")
 ```
 
 ---
 
-### §4.12 Pair-Type JSON-AST Round-Trip (v0.3 PR 1)
+### §4.12 Pair-Type JSON-AST Round-Trip
 
 Since PR 1, `llmll build --emit json-ast` on any program containing `(pair a b)` emits the correct `"pair-type"` node:
 
@@ -925,7 +921,7 @@ Previously, pair expressions were approximated as `"result-type"` in JSON-AST ou
 
 ---
 
-### §4.13 do-notation JSON-AST Schema Migration (v0.3 PR 2)
+### §4.13 do-notation JSON-AST Schema
 
 Since PR 2, the JSON-AST schema for `do`-blocks uses a single, unified `"do-step"` node. The old separation of `"bind-step"` and `"expr-step"` is obsolete:
 
@@ -941,7 +937,7 @@ Since PR 2, the JSON-AST schema for `do`-blocks uses a single, unified `"do-step
 > **Migrating from pre-PR2 do-blocks:** The JSON parser **rejects** old `"bind-step"` and `"expr-step"` kinds with a clear migration error. To update, rename your step `"kind"` to `"do-step"`. For named steps, keep the `"name"` property to capture the bound state.
 > Furthermore, `llmll check` enforces state threading. Every step inside a `do`-block must return exactly `(S, Command)`, and the type `S` must be strictly identical across all steps. A mismatch produces a `"type-mismatch"` diagnostic.
 
-### 4.14 Pair Destructuring in `let` Bindings (v0.3 PR 4)
+### 4.14 Pair Destructuring in `let` Bindings
 
 The binding head of a `let` form can be a **pattern** instead of a simple name, enabling pair destructuring without a separate `match`:
 
@@ -989,9 +985,9 @@ Nested destructuring is supported:
 
 ---
 
-### §4.15 Capability Enforcement (v0.4.0, CAP-1)
+### §4.15 Capability Enforcement
 
-Since v0.4.0, calling a `wasi.*` function without a matching capability import is a **compile-time type error**. The check is in `inferExpr (EApp ...)` — it covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, and contract expressions.
+Calling a `wasi.*` function without a matching capability import is a **compile-time type error**. The check is in `inferExpr (EApp ...)` — it covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, and contract expressions.
 
 ```lisp
 ;; ✅ CORRECT — capability import present:
@@ -1020,7 +1016,7 @@ Since v0.4.0, calling a `wasi.*` function without a matching capability import i
 
 ---
 
-### §4.16 U-Lite Type Errors (v0.4.0)
+### §4.16 Type Errors for Polymorphic Functions
 
 U-Lite replaces the previous `compatibleWith (TVar _) _ = True` wildcard with substitution-based unification for concrete types. This catches several classes of type errors that were previously silently accepted.
 
@@ -1059,7 +1055,7 @@ U-Lite replaces the previous `compatibleWith (TVar _) _ = True` wildcard with su
 
 ---
 
-### §4.17 U-Full Type Soundness (v0.5.0)
+### §4.17 Type Soundness
 
 U-Full completes Algorithm W with occurs check and let-generalization, closing the last known unsoundness in the type checker.
 
@@ -1090,14 +1086,14 @@ Top-level `def-logic` and `letrec` functions are let-generalized: each call site
 ```
 
 > [!NOTE]
-> **Known limitation (v0.5.0):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
+> **Known limitation:** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for a future release.
 
 > [!NOTE]
 > **L1055 asymmetric wildcard:** The asymmetric wildcard at line 1055 of `TypeCheck.hs` is documented as safe under per-call-site scoping (Language Team Issue 3). Each `EApp` gets fresh type variables, so the asymmetry does not leak across call boundaries.
 
 ---
 
-### §4.18 Benchmark CI Gates (v0.6.1)
+### §4.18 Benchmark CI Gates
 
 Two frozen benchmarks have CI gate scripts that verify compiler output against expected results. Use these to guard against regressions.
 
@@ -1153,4 +1149,4 @@ make benchmark-all
 (def-main :mode console :init (start-game) :step game-loop)
 ```
 
-> Unicode aliases are supported since v0.1.1: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`
+> Unicode aliases are supported: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`
