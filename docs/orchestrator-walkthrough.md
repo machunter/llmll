@@ -412,13 +412,11 @@ The system prompt tells the agent which AST node kinds are valid (`lit-int`,
 `var`, `app`, `let`, `if`, `match`, etc.) and instructs it to return *only* a
 JSON array — no commentary, no markdown fences.
 
-> **v0.3.4 note:** The system prompt is no longer hardcoded. At startup, the
+> **Note:** The system prompt is not hardcoded. At startup, the
 > orchestrator calls `llmll spec` to fetch the complete list of built-in
 > functions, operators, constructors, and type nodes directly from the compiler's
 > `builtinEnv`. This means adding a new builtin to the compiler automatically
-> makes it available to agents — no manual prompt editing required. If the
-> compiler doesn't support `spec` (pre-v0.3.4), the orchestrator falls back to a
-> static legacy reference.
+> makes it available to agents — no manual prompt editing required.
 
 **What the agent returns:**
 
@@ -1190,9 +1188,9 @@ document:
 2. **Contract verification on filled code.** Once all holes are filled,
    `llmll verify` can check `pre`/`post` contracts via liquid-fixpoint and Z3.
    The orchestrator could invoke verification as a final pass, producing a
-   trust report that classifies each function as `proven`, `tested`, or
-   `asserted`. This closes the gap between *structural* correctness (types
-   match) and *semantic* correctness (behavior meets specification).
+   trust report that classifies each function as `verified`, `contract-checked`,
+   `tested`, or `asserted`. This closes the gap between *structural* correctness
+   (types match) and *semantic* correctness (behavior meets specification).
 
 3. **Distributed multi-module orchestration.** The current system operates on
    a single file. For a real application with dozens of modules and hundreds
