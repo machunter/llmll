@@ -12,7 +12,7 @@
 | **v0.8.1b** | Evidence Model Refactor: `VerificationLevel` total order replaced with `DisplayLevel` partial-order diamond lattice (`DLVerified > DLContractChecked ∥ DLTested > DLAsserted`). `EvidenceRecord` (level + body-faithful + source provenance). `AssumptionKind` taxonomy. `ContractStatus` restructured. `evidenceMeet` (GLB) and `evidenceCovers` (partial-order). 14 source files + test suite updated. Hard break: no backward compat for old `.verified.json`. 322 tests (+2). |
 | **v0.8.1a** | Documentation Boundary Clarity: §3.4 renamed "Refinement Type Aliases." Per-construct verification matrix (§5.3.5). QF-LIA boundary and integer overflow model gap documented. One-pager and README updated. No code changes. |
 | **v0.8.0** | Faithfulness Core: Body-faithful verification conditions (BODY-VC). EOp delegation + `!=` in `exprToPred`. Clause-level emission tracking (`erEmittedPre`/`erEmittedPost`). EIf-in-let hoisting. SUPP-DEBT (`spec_coverage` + `suppression_debt`). Post-only stripping when body-faithful. 320 tests (+26). |
-| **v0.7** | Hardening: `string-char-at` negative index guard (BUILTIN-2), `regex-match` upgraded to POSIX ERE via `regex-tdfa` (BUILTIN-1), do-block discarded command warning (DO-1), `VLProvenSMT` constructor replaces `Ord` instance on `VerificationLevel` (TRUST-2a). 294 tests (+5 trust-tier). |
+| **v0.7** | Hardening: `string-char-at` negative index guard (BUILTIN-2), `regex-match` upgraded to POSIX ERE via `regex-tdfa` (BUILTIN-1), do-block discarded command warning (DO-1), `DLVerified` constructor replaces `Ord` instance on `VerificationLevel` (TRUST-2a). 294 tests (+5 trust-tier). |
 | **v0.6.3** | Trust Model Fixes: 7 critical bugs resolved. `result` removed from pre scope (BUG-1), strict typecheck gate (BUG-4), contract instrumentation in build pipeline (BUG-2), transitive trust closure (BUG-3), body-faithful stripping guard (BUG-6), proof laundering protection (BUG-7), termination docs corrected (BUG-5). `tcStrictMode` + `llmll check --strict`. 289 tests (unchanged count; 2 expectations updated). |
 | **v0.6.2** | Algebraic Interface Laws: `def-interface :laws` with `(for-all ...)` property syntax, QuickCheck `prop_` codegen, spec coverage integration, PBT wiring. VSM-1 backfill complete. 289 total tests $+$ 10 new. |
 | **v0.6.1** | TOTP Benchmark & Hub Query: `hmac-sha1`/`sha1` crypto builtins (§13.11). Frozen TOTP RFC 6238 benchmark (14 CI assertions). `llmll hub query --signature` for type-driven package search. Provenance display in `--trust-report`. 279 total tests $+$ 0 Haskell $+$ 0 Python. |
@@ -39,16 +39,17 @@
 
 ## 0.1 Semantic Foundation
 
-LLMLL's operational semantics are defined by the generated Haskell program. The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior. There is no separate formal semantics document. Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics — a proven contract holds for all well-typed inputs of the generated Haskell code.
+LLMLL's operational semantics are defined by the generated Haskell program. The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior. There is no separate formal semantics document. Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics — a verified contract holds for all well-typed inputs of the generated Haskell code. Compositional reasoning (v0.9.0): when function `f` calls contracted function `g`, the verifier proves that `f` satisfies `g`'s precondition (obligation) and assumes `g`'s postcondition (hypothesis). This assume-guarantee composition is sound when both functions are independently verified. Functions in recursive call cycles are excluded from compositional encoding and verified contract-only.
 
 ---
 
 ## 1. Core Philosophy
 
-1. **Strict Immutability:** There are no variables, only constants. State is transformed, never mutated. Re-binding the same name in the same scope is a compile error.
+1. **Strict Immutability:** There are no variables, only constants. State is transformed, never mutated. Re-binding the same name in the same scope is a compile error. Shadowing in nested scopes (e.g., a `let` binding that reuses a parameter name) is permitted but discouraged — the verifier alpha-renames shadowed bindings internally.
 2. **Hole-Driven Development:** Ambiguity is a first-class citizen represented by Holes (`?`). A program with holes can be analyzed and type-checked but not executed until the holes are filled. Always prefer a typed hole over a hallucinated implementation.
 3. **Typed Logic:** Every expression has a type. The type system prevents null pointer dereferences, type mismatches, and unguarded IO.
-4. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications. These contracts are the trust interface between agents. Verification is stratified: contracts in the decidable arithmetic fragment (QF-LIA) are verified at compile time via liquid-fixpoint / Z3; contracts outside that fragment are enforced as runtime assertions and flagged with `?proof-required`. An interactive proof path (Lean 4 via Leanstral) is designed but not yet shipped (see §5.3.3). Each contract clause carries a *display level* — `verified`, `contract-checked`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation. Trust levels propagate transitively through call chains: no `verified` conclusion rests silently on an `asserted` assumption.
+4a. **Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications. These contracts are the trust interface between agents. Verification is stratified: contracts in the decidable arithmetic fragment (QF-LIA) are verified at compile time via liquid-fixpoint / Z3; contracts outside that fragment are enforced as runtime assertions and flagged with `?proof-required`. An interactive proof path (Lean 4 via Leanstral) is designed but not yet shipped (see §5.3.3). Each contract clause carries a *display level* — `verified`, `contract-checked`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation.
+4b. **Transitive Trust Propagation:** Trust levels propagate through call chains: no `verified` conclusion rests silently on an `asserted` assumption. A function's effective display level is the lattice meet of its own level and all transitively reachable callees' levels.
 5. **Compositional Verification:** Verification extends beyond isolated functions. When a function calls a contracted callee, the verifier proves the caller satisfies the callee's precondition and assumes the callee's postcondition holds (assume-guarantee reasoning). This enables body-faithful verification across multi-function call chains without inlining. Recursive cycles are detected and fall back to contract-only verification.
 6. **Capability-Based Security:** Programs have zero access to the system unless explicitly granted via a `capability` import, enforced at compile time. Every side effect is modeled as a `Command` value returned from pure logic — never performed directly. See §7 for the sandbox implementation.
 
@@ -141,14 +142,9 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 | `Result[t,e]` | Success (`t`) or Error (`e`) | `Result[int,string]` |
 | `Promise[t]` | Pending async value | `Promise[ImageBytes]` |
 | `(a, b)` | 2-tuple (product type) | `(int, string)` |
-| `Command` | An IO effect value (see §9) | _(constructed via capability constructors only)_ |
+| `Command` | An IO effect (see §9) | _(constructed via capability constructors only)_ |
 
-> [!NOTE]
-> **v0.3 PR 1 — `(a, b)` is now backed by `TPair`.**  
-> Prior to PR 1, the type checker internally approximated `(pair a b)` as `TResult ta tb`. This caused two incorrect behaviours: (1) `llmll build --emit json-ast` emitted `{"kind":"result-type",...}` for pair-typed expressions; (2) `match` exhaustiveness on a pair-typed scrutinee incorrectly cited `Success`/`Error` constructor names.  
-> Both issues are fixed. The surface syntax is unchanged — `(pair a b)` and `(a, b)` type annotations work exactly as before.
-
-> `Command` is opaque — it cannot be constructed with a literal or user-defined constructor. It is only produced by the standard command constructors listed in §13.9. You can store a `Command` in a `let` binding and return it from a function, but you cannot inspect its internal fields. In the planned design, `Command` becomes a **typed effect row** (`Eff '[HTTP, FS, ...] r` using the `effectful` library), making a function’s required capabilities visible in its type signature. **Currently (v0.6.0):** `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statement list — missing imports are compile-time type errors (checked in `inferExpr (EApp ...)`). Propagation is non-transitive: each module must declare its own capability imports. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned).
+> `Command` is opaque — only produced by the standard command constructors (§13.9). Currently emitted as Haskell `IO ()`. Capability enforcement (§7) requires a matching `(import wasi.* (capability ...))` for any `wasi.*` call.
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -185,7 +181,7 @@ User-defined tagged unions (also called ADTs or discriminated unions) are declar
 
 **Destruction:** Use `match` (see §3.4). Every `match` on a sum type must be exhaustive.
 
-> **Built-in sum types:** `Result[t,e]` and `DelegationError` (§11.2) follow the same rules and are pre-declared by the compiler. You can `match` on them using their constructor names (`Success`, `Error`, `AgentTimeout`, etc.).
+
 
 ### 3.4 Refinement Type Aliases (Logic-Constrained)
 
@@ -199,7 +195,7 @@ Any base type can be constrained by a predicate using `(where [binding: base] pr
 (type BlockID      (where [s: string] (regex-match "^[a-f0-9]{64}$" s)))
 ```
 
-Refinement type alias constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify` (Phase 2b). See §5.3.5 for a precise matrix of which constructs are verified at each level.
+Refinement type alias constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify`. See §5.3.5 for a precise matrix of which constructs are verified at each level.
 
 > [!NOTE]
 > **Obligation-guided agent coding (v0.10).** While LLMLL does not have Idris-style indexed types, v0.10 aims to provide the Idris workflow *feel* — goal-directed construction from rich obligations — through structured obligation reports that expose type, contract, and trust obligations to agents. See [compiler-team-roadmap.md](docs/compiler-team-roadmap.md) § v0.10.
@@ -283,33 +279,30 @@ Inside a `post` clause, the identifier `result` is **automatically bound to the 
 | `post` violation | `AssertionError` raised before result is returned. The implementation is buggy. |
 | Both satisfied | Result is returned normally. |
 
-#### 4.4.1 Verification Levels
+#### 4.4.1 Display Levels (v0.8.1b)
 
-Every `pre` and `post` clause carries a **verification level** that describes how the contract has been checked:
+Every `pre` and `post` clause carries a **display level** — a structured evidence record describing how the contract has been checked. Display levels form a partial-order diamond lattice, not a total order:
+
+```
+        verified
+       /        \
+contract-checked  tested
+       \        /
+       asserted
+```
 
 | Level | Meaning | When assigned |
 |-------|---------|---------------|
-| `proven` | Formally verified via SMT (Z3) or interactive proof (Lean). The contract holds for all well-typed inputs. | `llmll verify` reports SAFE |
+| `verified` | Body-faithful SMT proof: the solver proved the function body satisfies the contract for all well-typed inputs. | `llmll verify` reports SAFE and the function's body VC was emitted |
+| `contract-checked` | The solver proved contract consistency (e.g., pre ⇒ post is satisfiable), but the function body was not encoded as a VC. | `llmll verify` reports SAFE for a fallback function (non-QF-LIA body, `letrec`, path-limit exceeded) |
 | `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` passes; `llmll verify` skips or emits `?proof-required` |
 | `asserted` | Enforced as a runtime assertion only. No static or dynamic evidence of correctness beyond the assertion itself. | Default for any contract not yet run through `verify` or `test` |
 
-The verification level is recorded per-contract, per-function in the module's exported metadata (see §8 — `ModuleEnv` extensions).
+`contract-checked` and `tested` are **incomparable** — neither implies the other. Their meet (greatest lower bound) is `asserted`. This prevents a `tested`-only function from being silently treated as equivalent to a solver-checked function, or vice versa.
 
-> **Trust tier vs. evidence provenance (v0.7).** The three trust tiers above
-> (`proven`, `tested`, `asserted`) are the user-facing trust model and the only
-> values accepted in `(trust ...)` declarations. Internally, the compiler
-> distinguishes *how* a `proven` result was obtained:
-> `proven-smt (liquid-fixpoint)` for SMT evidence vs.
-> `proven (leanstral)` for generic or interactive proof evidence.
-> This distinction appears in `.verified.json` sidecars (as `"proven-smt"`),
-> `--trust-report` output, and `--spec-coverage` JSON.
-> It does not affect the surface grammar.
->
-> **Body-faithfulness (v0.8.0).** `proven-smt` with `post_body_faithful = true`
-> means "the solver verified that the implementation satisfies the contract."
-> `proven-smt` without body-faithfulness means "the solver accepted the emitted
-> obligation" (contract self-consistency only). The `.verified.json` sidecar
-> includes the `post_body_faithful` field per function. See §5.3.4.
+The display level is recorded per-clause in an `EvidenceRecord` that also carries a `body-faithful` flag and an optional `:source` provenance annotation. Display levels are stored per-function in the module's exported metadata (see §8 — `ModuleEnv` extensions).
+
+> The `verified` and `contract-checked` levels carry a prover tag (e.g., `verified (liquid-fixpoint)`). This tag appears in `.verified.json` sidecars and `--trust-report` output but does not affect the surface grammar. The `(trust ...)` declaration accepts four keywords: `verified`, `contract-checked`, `tested`, `asserted`. For details on how body-faithfulness distinguishes `verified` from `contract-checked`, see §5.3.4.
 
 #### 4.4.2 Runtime Assertion Modes
 
@@ -317,14 +310,14 @@ The `--contracts` flag controls which runtime assertions are compiled into the o
 
 | Mode | Assertions included | Default for |
 |------|---------------------|-------------|
-| `--contracts=full` | All contracts (proven + tested + asserted) | `llmll test` |
-| `--contracts=unproven` | Only `tested` and `asserted` contracts; `proven` contracts are stripped | `llmll build` (when a cached verify result exists) |
+| `--contracts=full` | All contracts (verified + contract-checked + tested + asserted) | `llmll test` |
+| `--contracts=unproven` | Only non-verified contracts; `verified` body-faithful postconditions are stripped | `llmll build` (when a cached verify result exists) |
 | `--contracts=none` | No runtime assertions | Opt-in only; requires explicit flag |
 
 Without a prior `llmll verify` pass, `llmll build` defaults to `--contracts=full`. The `--contracts` flag applies to Haskell code generation regardless of `--emit-only`.
 
 > [!IMPORTANT]
-> **Invariant:** Stripping a `proven` contract must not change observable behavior for any well-typed program. This invariant depends on `.fq` emitter faithfulness — see compiler team brief for verification obligations.
+> **Invariant:** Stripping a `verified` contract must not change observable behavior for any well-typed program. This invariant depends on `.fq` emitter faithfulness — see compiler team brief for verification obligations.
 
 #### 4.4.3 Trust-Level Propagation
 
@@ -356,7 +349,7 @@ When the sidecar `.verified.json` file is missing for an imported module, all co
 - Which cross-module functions it calls and their verification levels
 - **Epistemic drift warnings:** when a `verified` conclusion depends transitively on an `asserted` or `tested` assumption upstream
 
-> **v0.9.0:** The trust report now loads the `.verified.json` sidecar, so solver results are reflected in the output. Postconditions verified by `liquid-fixpoint` display as `verified (liquid-fixpoint)`. Preconditions remain `asserted` — they are caller obligations, not independently verified by the solver.
+
 
 ```bash
 stack exec llmll -- verify program.llmll --trust-report
@@ -371,7 +364,7 @@ Use `--trust-report --json` for machine-readable JSON output suitable for CI or 
 
 The report walks the full module cache (entry-point module plus all imported modules) and computes the transitive trust closure. An agent auditing a module can use the trust report to identify all points where the formal verification chain breaks down.
 
-### 4.5 Suppression Governance (`weakness-ok`) — v0.6.0
+### 4.5 Suppression Governance (`weakness-ok`)
 
 When a function is intentionally left without contracts (e.g., pure rendering logic, FFI wrappers, or configuration constants), the `weakness-ok` declaration acknowledges the gap and prevents the spec coverage gate from flagging it as unspecified:
 
@@ -394,7 +387,7 @@ When a function is intentionally left without contracts (e.g., pure rendering lo
 
 JSON-AST equivalent: `{"kind": "weakness-ok", "name": "render-board", "reason": "pure string rendering"}`.
 
-### 4.6 Clause-Level Provenance (`:source`) — v0.6.0
+### 4.6 Clause-Level Provenance (`:source`)
 
 In LLMLL's target domains (financial compliance, protocol implementation, cryptographic standards), auditors require per-clause traceability to the originating standard. The `:source` annotation provides free-form provenance metadata on `pre` and `post` clauses:
 
@@ -415,7 +408,7 @@ In LLMLL's target domains (financial compliance, protocol implementation, crypto
 
 JSON-AST fields: `"pre_source"` / `"post_source"` (optional string).
 
-> **Design note (v0.6):** `:source` uses free-form text. Structured references (`{standard, section, clause}`) are planned for v0.7.
+
 
 ---
 
@@ -458,9 +451,9 @@ For types where rejection sampling is inefficient (e.g., a 64-hex-digit string),
 
 A `gen` declaration applies to all `for-all` blocks in the same module that use the named type. If no `gen` is declared for a refinement type, rejection sampling is used automatically.
 
-### 5.3 Verification (Phase 2b — Shipped)
+### 5.3 Verification
 
-**`llmll verify`** is the Phase 2b compile-time verification command. It:
+**`llmll verify`** is the compile-time verification command. It:
 
 1. Walks the typed AST and emits a `.fq` constraint file for `liquid-fixpoint`.
 2. Runs `fixpoint` (+ Z3) as a standalone binary — no GHC plugin required.
@@ -477,7 +470,7 @@ stack exec llmll -- verify ../examples/withdraw.llmll
 
 > **v0.3 — Interactive Proof Holes:** `?proof-required :inductive` and `:unknown` holes are routed to Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds.
 
-#### 5.3.1 Spec Weakness Detection (v0.3.5)
+#### 5.3.1 Spec Weakness Detection
 
 `llmll verify --weakness-check` is an advisory pass that runs **after** a SAFE verification result. For each contracted function, the compiler constructs trivial candidate bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, a `spec-weakness` diagnostic is emitted:
 
@@ -492,7 +485,7 @@ This diagnostic is **non-blocking**: the function remains SAFE. It is an *adviso
 
 Weakness checking does not modify `FixpointEmit.hs` — it constructs synthetic single-statement programs and calls the existing `emitFixpoint` pipeline.
 
-#### 5.3.2 Spec Coverage Gate (v0.6.0)
+#### 5.3.2 Spec Coverage Gate
 
 `llmll verify --spec-coverage` classifies every function in a module and computes the **effective specification coverage**:
 
@@ -515,7 +508,7 @@ effective_coverage = (contracted + suppressed) / total_functions
 >
 > However, suppression is not specification. The D10 warning (>50% suppressed)
 > guards against gaming. For governance reporting, `suppression_debt`
-> (= suppressed / total) alongside `effective_coverage` was added in v0.8.0 (SUPP-DEBT).
+> (= suppressed / total) is reported alongside `effective_coverage` for governance visibility.
 
 Example output:
 
@@ -555,36 +548,34 @@ Use `--spec-coverage --json` for machine-readable output:
 }
 ```
 
-The JSON output includes per-function `entries`, aggregate `summary`, interface `laws`, and governance `warnings`. The `effective_coverage` field in `summary` is `(contracted + suppressed) / total`.
-
-> **Shipped (v0.8.0, SUPP-DEBT):** Two additional summary fields — `spec_coverage` (= contracted / total, excluding suppressions) and `suppression_debt` (= suppressed / total) — are now included in the JSON output.
+The JSON output includes per-function `entries`, aggregate `summary`, interface `laws`, and governance `warnings`. Summary fields: `effective_coverage` (= (contracted + suppressed) / total), `spec_coverage` (= contracted / total, excluding suppressions), and `suppression_debt` (= suppressed / total).
 
 **Division guard (SC-PO-1):** A module with 0 functions has `effective_coverage = 100%`.
 
 **Governance guardrails:** See §4.5 for WO-1, WO-2, and D10 warning rules.
 
-#### 5.3.3 Verification Scope (v0.6.0, extended v0.6.1)
+#### 5.3.3 Verification Scope
 
 The following table precisely defines what `llmll verify` can prove, what it tracks but cannot prove, and what is designed but not yet operational:
 
 | Fragment | Status | Prover | What it covers |
 |----------|--------|--------|----------------|
-| **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** (v0.2+) | Z3 via liquid-fixpoint | `+`, `-`, `=`, `<`, `<=`, `>=`, `>` over `int`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
-| **Termination** (`:decreases` measures) | **Shipped** (v0.2+) | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7). Complex measures emit `?proof-required(complex-decreases)`. |
-| **Property-based testing** | **Shipped** (v0.1.1+) | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
+| **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** | Z3 via liquid-fixpoint | `+`, `-`, `=`, `<`, `<=`, `>=`, `>` over `int`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
+| **Termination** (`:decreases` measures) | **Shipped** | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7). Complex measures emit `?proof-required(complex-decreases)`. |
+| **Property-based testing** | **Shipped** | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Inductive properties** | **Designed, not shipped** | Lean 4 via Leanstral MCP | Translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`). Currently runs in **mock mode only** (`--leanstral-mock`). Real proof integration is blocked on `lean-lsp-mcp` availability. |
-| **Cryptographic primitives** (v0.6.1) | **Asserted** | _(opaque — outside any decidable fragment)_ | `hmac-sha1` and `sha1` builtins are treated as axiomatically correct. Contracts on functions that use them are capped at `asserted` in the trust report. The TOTP benchmark (`examples/totp_rfc6238/`) is the second frozen benchmark demonstrating mixed verification levels (Proven + Asserted + Tested) across a single module. |
+| **Cryptographic primitives** | **Asserted** | _(opaque — outside any decidable fragment)_ | `hmac-sha1` and `sha1` builtins are treated as axiomatically correct. Contracts on functions that use them are capped at `asserted` in the trust report. The TOTP benchmark (`examples/totp_rfc6238/`) demonstrates mixed display levels (verified + asserted + tested) across a single module. |
 
 **What is NOT silently dropped:** Contracts outside the QF-LIA fragment are not ignored. They are:
 1. Enforced as **runtime assertions** (unless stripped via `--contracts=none`)
 2. Tracked as **`asserted`** verification level
 3. Flagged with `?proof-required` holes when the predicate is detected as non-linear or requiring induction
-4. Propagated through the **trust report** — downstream `proven` conclusions that depend on `asserted` assumptions are flagged as epistemic drift
+4. Propagated through the **trust report** — downstream `verified` conclusions that depend on `asserted` assumptions are flagged as epistemic drift
 
 > [!IMPORTANT]
-> **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of "proven" correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
+> **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of `verified` correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
 
-#### 5.3.4 Body-Faithful Verification (v0.8.0, extended v0.9.0)
+#### 5.3.4 Body-Faithful Verification
 
 The `.fq` emitter now encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates constraints of the form:
 
@@ -592,7 +583,7 @@ The `.fq` emitter now encodes function bodies as verification conditions for fun
 P ∧ (result = ⟦B⟧) ⟹ Q
 ```
 
-where ⟦B⟧ is the body's symbolic translation into the liquid-fixpoint constraint language. This closes the faithfulness gap: when both the contract and the body are in the QF-LIA fragment, `VLProvenSMT` means "the implementation satisfies the contract for all well-typed inputs."
+where ⟦B⟧ is the body's symbolic translation into the liquid-fixpoint constraint language. This closes the faithfulness gap: when both the contract and the body are in the QF-LIA fragment, `DLVerified "liquid-fixpoint"` with `erBodyFaithful = True` means "the implementation satisfies the contract for all well-typed inputs."
 
 **Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, `EApp` to contracted functions (v0.9.0, assume-guarantee), `EMatch` on `Result` with two-arm Success/Error pattern (v0.9.0), and all QF-LIA operators. General `EMatch`, `letrec` (own body), and non-linear expressions fall back conservatively to contract-only verification.
 
@@ -605,16 +596,13 @@ Recursive functions (detected via `stronglyConnComp` SCC analysis) are excluded 
 
 **Path limit:** Functions with >4096 execution paths (from deeply nested `EIf`) fall back to contract-only verification with a diagnostic warning. This prevents solver timeouts while maintaining soundness.
 
-**Contract stripping (v0.8.0):** `--contracts=unproven` now strips postcondition runtime assertions for functions that are both `VLProvenSMT` and body-faithful (`csPostBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
+**Contract stripping (v0.8.0):** `--contracts=unproven` now strips postcondition runtime assertions for functions that are both `DLVerified` and body-faithful (`erBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
 
 **Strict verified core (v0.9.0):** `--strict-verified-core` hard-errors if any function falls back from body-faithful verification (i.e., appears in `erBodyFallback`). Use this to enforce that all functions in a module are fully verified.
 
-> [!NOTE]
-> **Two-tier verification status.** After v0.8.0:
-> - `VLProvenSMT` + `csPostBodyFaithful = True` = implementation verified against contract. Postcondition assertions can be safely stripped.
-> - `VLProvenSMT` + `csPostBodyFaithful = False` = contract self-consistency verified only. All runtime assertions preserved. This occurs for fallback functions (non-QF-LIA bodies, path-limit exceeded, `letrec`).
 
-#### 5.3.5 Verification Matrix (v0.8.0, extended v0.9.0)
+
+#### 5.3.5 Verification Matrix
 
 The following matrix documents the verification status of each syntax construct as of v0.9.0. "Typechecked" means the construct is accepted by the type checker. "Runtime assert" means contracts on functions using the construct are enforced as runtime assertions. "SMT contract" means the construct's contracts can be checked by the solver. "SMT body-faithful" means the construct's implementation is encoded as a verification condition.
 
@@ -687,10 +675,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.6.0, with WASM-WASI planned as a future deployment target.
-
-> [!IMPORTANT]
-> **v0.4.0 (CAP-1):** Capability enforcement is now active at compile time. When a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error: `"wasi.io.stdout requires (import wasi.io (capability ...))"`. **Propagation is non-transitive (module-local):** Module B must re-declare `(import wasi.io ...)` even if it only calls `wasi.*` via a function imported from Module A. This matches the principle of least authority.
+`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` in v0.1.2–v0.6.0, with WASM-WASI planned as a future deployment target. Capability enforcement is active at compile time: when a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error, and propagation is non-transitive — each module must re-declare its own capability imports, matching the principle of least authority.
 
 ```lisp
 (module cloud-storage
@@ -815,13 +800,12 @@ All names exported by an imported module are accessible via the fully qualified 
 (app.auth.hash-password raw-str)
 ```
 
-> [!NOTE]
-> **Phase 2a codegen:** All imported modules are merged into a single flat `Lib.hs`.
-> Qualified references (`module.fn`) are accepted by the type-checker and resolver,
-> but codegen flattens them — `world.make-world` becomes `world_make_world` in Haskell,
-> which does not exist. **Call sites must use bare function names.** The `(import world)`
-> statement is still required to trigger module loading and merging. Per-module Haskell
-> output (so qualified names survive to GHC) is planned for Phase 2b.
+> [!WARNING]
+> **Codegen limitation:** All imported modules are merged into a single flat `Lib.hs`.
+> Qualified references (`module.fn`) are accepted by the type-checker, but codegen
+> flattens them — `world.make-world` becomes `world_make_world` in Haskell, which
+> does not exist. **Call sites must use bare function names.** The `(import world)`
+> statement is still required to trigger module loading and merging.
 
 This reuses the existing `QualIdent` / dot-notation infrastructure — no new runtime concept.
 
@@ -869,7 +853,7 @@ When module B imports module A and calls a function declared under A's `def-inte
 }
 ```
 
-### 8.8.1 Algebraic Laws for Interfaces (`:laws`) — v0.6.2
+### 8.8.1 Algebraic Laws for Interfaces (`:laws`)
 
 Interfaces can declare **algebraic laws** that any conforming implementation must satisfy. Laws are `(for-all ...)` properties attached to a `def-interface` via the `:laws` clause. The compiler type-checks law expressions with interface methods and bindings in scope, and generates QuickCheck `prop_` functions for automated enforcement.
 
@@ -891,11 +875,11 @@ Interfaces can declare **algebraic laws** that any conforming implementation mus
 
 **Syntax:** `:laws` is an optional clause after the method list. It contains a list of `(for-all [bindings] expr)` properties. Each `for-all` binding follows standard typed-parameter syntax.
 
-**Type checking (LAWS-4):** Law expressions are type-checked in a scope where all interface methods are available as bound variables. The `for-all` bindings are added to this scope. The body expression must have type `bool`.
+**Type checking:** Law expressions are type-checked in a scope where all interface methods are available as bound variables. The `for-all` bindings are added to this scope. The body expression must have type `bool`.
 
-**Codegen (LAWS-5):** Each law property generates a QuickCheck `prop_` function in the emitted Haskell. The properties are wired into `runPropertyTests` (LAWS-PBT) and appear as a separate "Interface laws" section in `--spec-coverage` reports (LAWS-7).
+**Codegen:** Each law property generates a QuickCheck `prop_` function in the emitted Haskell. The properties are wired into `runPropertyTests` and appear as a separate "Interface laws" section in `--spec-coverage` reports.
 
-**JSON-AST:** Laws are represented as an array of property objects in the `def-interface` node. `parseLawProperty` (LAWS-3) and `AstEmit.hs` law emission (LAWS-6) ensure round-trip compatibility.
+**JSON-AST:** Laws are represented as an array of property objects in the `def-interface` node. `parseLawProperty` and `AstEmit.hs` law emission ensure round-trip compatibility.
 
 ```json
 {
@@ -916,7 +900,7 @@ Interfaces can declare **algebraic laws** that any conforming implementation mus
 }
 ```
 
-**Backward compatible:** Omitting `:laws` is valid — all pre-v0.6.2 `def-interface` declarations parse and compile unchanged.
+Omitting `:laws` is valid — interfaces without laws parse and compile unchanged.
 
 ### 8.9 `llmll-hub` Registry
 
@@ -934,7 +918,7 @@ Import syntax:
 ]))
 ```
 
-The `hub.` prefix prevents local files from accidentally shadowing registry packages. Publishing, semantic versioning beyond `major.minor.patch`, and a web registry API are deferred to v0.3.
+The `hub.` prefix prevents local files from accidentally shadowing registry packages. Publishing, semantic versioning beyond `major.minor.patch`, and a web registry API are deferred (not version-pinned).
 
 Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7). _(Full hub write-path including publishing is introduced in v0.3.)_
 
@@ -955,8 +939,8 @@ Every logic function that interacts with the world follows this signature:
 The AI's logic is pure. The runtime is the only actor that touches the OS.
 
 ```lisp
-(def-logic handle-request [state: AppState request: HttpRequest]
-  (if (is-valid? request)
+(def-logic handle-request [state: AppState request: string]
+  (if (string-contains request "/valid")
       (pair (update-state state) (wasi.http.response 200 "OK"))
       (pair state                (wasi.http.response 400 "Bad Request"))))
 ```
@@ -1100,7 +1084,7 @@ In JSON-AST:
 }
 ```
 
-### 9.6 `do`-notation State Threading (v0.3)
+### 9.6 `do`-notation State Threading
 
 For complex sequences of actions that thread a state and accumulate commands, LLMLL provides a monadic `do`-notation block as a cleaner alternative to deeply nested `let` and `seq-commands`.
 
@@ -1121,8 +1105,6 @@ For complex sequences of actions that thread a state and accumulate commands, LL
 > [!WARNING]
 > Using an anonymous step `(expr)` when `expr` returns a new state will result in **state-loss**. The bound state from prior steps is retained, but the updated state from `(expr)` is discarded. Always use named steps `[s <- (expr)]` to thread modified states properly.
 
-> [!NOTE]
-> **JSON-AST schema:** `do`-blocks use a unified `"do-step"` kind with an optional `"name"` field. The old `"bind-step"` / `"expr-step"` separation is rejected. See `getting-started.md §4.13` for migration details.
 
 ---
 
@@ -1136,13 +1118,10 @@ The pipeline accepts two source formats: S-expressions (`.llmll`) and JSON-AST (
 4. **Transpilation:** Validated `.llmll` is converted to **Haskell** (`.hs` + `package.yaml`). Generated modules are compiled with `{-# LANGUAGE Safe #-}`, preventing any IO outside the declared capability model.
 5. **Binary Generation:** `ghc` compiles the generated Haskell to a native binary.
 6. **Contract & Property Testing:** The test runner executes `pre`/`post` runtime assertions and `check`/`for-all` QuickCheck blocks against the running binary. Failures are reported as JSON diagnostics.
-7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities (v0.1.2–v0.6.0). WASM-WASI is planned as a future replacement. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` function calls require a matching `(import wasi.* (capability ...))` in the module’s statements — missing imports are compile-time type errors.
+7. **Sandboxed Execution:** The binary runs inside a Docker container with `seccomp-bpf` syscall filtering and filesystem/network policies derived from the module’s declared capabilities. WASM-WASI is planned as a future replacement.
 8. **Event-Log Replay:** The runtime records a sequenced Event Log of `(Input, CommandResult, captures)` triples (see §10a). Replay is bitwise deterministic for all modules that use `:deterministic true` capability flags on clock and PRNG imports.
 
-> **v0.2 (shipped):** Step 2 includes compile-time contract verification via `llmll verify` (decoupled liquid-fixpoint backend). Contracts outside the decidable QF arithmetic fragment are emitted as `?proof-required` holes.
-> **v0.3:** `?proof-required :inductive` holes are resolved by Leanstral (Lean 4 proof agent) via MCP. Verified proof certificates are stored and re-checked on subsequent builds without re-calling Leanstral.
-> **v0.4.0:** CAP-1 capability enforcement is active — `wasi.*` calls require matching capability imports. Lead Agent ships as `llmll-orchestra --mode plan|lead|auto`. Docker sandbox remains; WASM-WASI is a planned future deployment target.
-> **v0.5.0:** U-Full sound unification completes Algorithm W. Occurs check, let-generalization, and TVar-TVar wildcard closure close the last known unsoundness in the type checker.
+
 
 ---
 
@@ -1272,8 +1251,7 @@ hashed-pw (?delegate @crypto-agent "Implement PBKDF2 hashing" -> bytes[64])
 > [!IMPORTANT]
 > **Type of `await`:** `await : Promise[t] -> Result[t, DelegationError]`. The type checker infers `Result[t, DelegationError]` for any `(await expr)` where `expr : Promise[t]`. An un-`await`ed `Promise[t]` remains `Promise[t]`.
 
-> [!WARNING]
-> **Breaking change from v0.2:** In v0.2, `await` was a no-op that returned bare `t` (since `Promise[t]` was backed by `IO t`). In v0.3, `await` returns `Result[t, DelegationError]`. Code that pattern-matches the result of `await` must use `Success`/`Error` arms. Code that used `await` without matching (e.g., passing the result directly) will get a type mismatch.
+
 
 #### Delegation Outcome Table
 
@@ -1286,9 +1264,9 @@ hashed-pw (?delegate @crypto-agent "Implement PBKDF2 hashing" -> bytes[64])
 | `?delegate-async`, agent succeeds | `await` returns `Result.Success value` |
 | `?delegate-async`, agent fails | `await` returns `Result.Error DelegationError` |
 
-#### Hole Resolution via JSON-Patch (v0.3)
+#### Hole Resolution via JSON-Patch
 
-In v0.3, `?delegate` holes can be resolved programmatically by agents through the **checkout/patch lifecycle**. This is the primary agent-coordination mechanism for filling holes without human intervention.
+`?delegate` holes can be resolved programmatically by agents through the **checkout/patch lifecycle**. This is the primary agent-coordination mechanism for filling holes without human intervention.
 
 **Workflow:**
 
@@ -1312,7 +1290,7 @@ In v0.3, `?delegate` holes can be resolved programmatically by agents through th
 
 **Scope containment:** All patch operations must target nodes within the checked-out subtree. A token for `/statements/2/body` cannot be used to modify `/statements/0/body` — this prevents lateral hole theft between agents.
 
-**Supported RFC 6902 operations:** `replace`, `add`, `remove`, `test`. The `test` operation is the agent's guard against stale patches — it asserts that the hole hasn't been modified since checkout. `move` and `copy` are deferred to a future release.
+**Supported RFC 6902 operations:** `replace`, `add`, `remove`, `test`. The `test` operation is the agent's guard against stale patches — it asserts that the hole hasn't been modified since checkout.
 
 **CLI commands:**
 
@@ -1325,12 +1303,11 @@ In v0.3, `?delegate` holes can be resolved programmatically by agents through th
 
 **HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
 
-> [!NOTE]
-> Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling in v0.3; general AST mutation is planned for a future release.
+> Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling; general AST mutation is planned for a future release.
 
-#### Context-Aware Checkout (v0.3.5)
+#### Context-Aware Checkout
 
-Since v0.3.5, `llmll checkout` returns the **local typing context** alongside the lock token. This is the single highest-impact change for agent first-attempt accuracy — agents no longer need to infer what’s in scope from surrounding AST context.
+`llmll checkout` returns the **local typing context** alongside the lock token. This is the single highest-impact feature for agent first-attempt accuracy — agents no longer need to infer what’s in scope from surrounding AST context.
 
 The checkout response includes four optional fields (present when the compiler has sketch data for the target hole):
 
@@ -1342,11 +1319,11 @@ The checkout response includes four optional fields (present when the compiler h
 | `type_definitions` | `[TypeDefEntry]` | User-defined types referenced by in-scope bindings. Sum types include constructors; aliases include the base type. Depth-bounded expansion (max 5 levels) with cycle detection (`recursive: true`). |
 | `scope_truncated` | `bool` | `true` if the scope was truncated to the 50-entry limit; absent or `false` otherwise. |
 
-**Pointer normalization (EC-3):** RFC 6901 pointer segments with leading zeros are normalized: `/statements/02/body` → `/statements/2/body`.
+**Pointer normalization:** RFC 6901 pointer segments with leading zeros are normalized: `/statements/02/body` → `/statements/2/body`.
 
-**Monomorphization (C5):** Polymorphic signatures in `available_functions` are rewritten against concrete types found in the scope. This is a presentation-only transformation — the underlying `builtinEnv` is not mutated (INV-2).
+**Monomorphization:** Polymorphic signatures in `available_functions` are rewritten against concrete types found in the scope. This is a presentation-only transformation — the underlying `builtinEnv` is not mutated.
 
-**Scope truncation (C6):** When the in-scope binding count exceeds the limit, entries are retained by source priority: `param` > `let-binding` > `match-arm` > `open-import`. Shadowing safety is structurally guaranteed by the single-entry-per-key invariant of the scope map (INV-3).
+**Scope truncation:** When the in-scope binding count exceeds the limit, entries are retained by source priority: `param` > `let-binding` > `match-arm` > `open-import`. Shadowing safety is structurally guaranteed by the single-entry-per-key invariant of the scope map.
 
 ### 11.3 AST-Level Merging (Semantic Source Control)
 
@@ -1378,7 +1355,7 @@ The grammar is given in EBNF. `{ x }` means zero or more `x`. `[ x ]` means opti
 (* Top-level structure                                           *)
 (* ============================================================ *)
 program     = { statement } ;
-statement   = type-decl | gen-decl | def-logic | def-interface
+statement   = type-decl | gen-decl | weakness-ok | def-logic | def-interface
             | def-invariant | def-main | module-decl | import
             | open-decl | export-decl              (* NEW in v0.2 *)
             | trust-decl                            (* NEW in v0.3 *)
@@ -1415,7 +1392,7 @@ export-decl = "(" "export" { IDENT } ")" ;
 (* Trust declarations — NEW in v0.3 (§4.4.3)                    *)
 (* ============================================================ *)
 trust-decl  = "(" "trust" qual-ident ":level" TRUST_LEVEL ")" ;
-TRUST_LEVEL = "proven" | "tested" | "asserted" ;
+TRUST_LEVEL = "verified" | "contract-checked" | "tested" | "asserted" ;
               (* Acknowledges an unproven contract from an imported function.    *)
               (* Per-function, multiple per module. Idempotent (duplicates OK).  *)
               (* Must appear before any def-logic (same ordering as import).     *)
@@ -1460,13 +1437,15 @@ def-logic   = "(" "def-logic" IDENT
               ")" ;
 
 typed-param = IDENT ":" type ;
-pre-clause  = "(" "pre"  expr ")" ;
-post-clause = "(" "post" expr ")" ;
+pre-clause  = "(" "pre"  expr [ ":source" STRING ] ")" ;
+post-clause = "(" "post" expr [ ":source" STRING ] ")" ;
 
 (* ============================================================ *)
 (* Interfaces                                                    *)
 (* ============================================================ *)
-def-interface = "(" "def-interface" IDENT { iface-fn } ")" ;
+def-interface = "(" "def-interface" IDENT { iface-fn }
+                  [ ":laws" "[" { for-all } "]" ]
+                ")" ;
 iface-fn      = "[" IDENT fn-type "]" ;
 
 (* ============================================================ *)
@@ -1494,6 +1473,10 @@ for-all     = "(" "for-all" "[" { typed-param } "]" expr ")" ;
 
 gen-decl    = "(" "gen" IDENT expr ")" ;
               (* expr must have the base type of the named refinement type *)
+
+weakness-ok = "(" "weakness-ok" IDENT STRING ")" ;
+              (* Suppression governance — see §4.5.                        *)
+              (* STRING is a non-empty reason for the suppression.         *)
 
 (* ============================================================ *)
 (* Expressions                                                   *)
@@ -1610,11 +1593,11 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
-| `pair` | `a b -> (a, b)` | Construct a 2-tuple. **v0.3 PR 1:** now correctly typed `TPair a b` — distinct from `Result[a,b]` in diagnostics and JSON-AST output |
+| `pair` | `a b -> (a, b)` | Construct a 2-tuple (typed `TPair a b` internally) |
 | `first` | `(a, b) -> a` | First projection — accepts any pair, including explicitly-annotated parameters |
 | `second` | `(a, b) -> b` | Second projection — accepts any pair, including explicitly-annotated parameters |
 
-> **Pair destructuring in `let` bindings (v0.3 PR 4 — shipped).**
+> **Pair destructuring in `let` bindings.**
 > `(let [((pair s cmd) (authenticate state cred))] ...)` destructures a pair result into `s` and `cmd`. Nested destructuring is supported: `(let [((pair word (pair g rest)) state)] ...)`. This works identically to pair patterns in `match` arms. In JSON-AST, use `"pattern"` instead of `"name"` in the let-binding object.
 
 > **Pattern for records:** LLMLL has no native record syntax. Use nested `pair` values and named accessor functions. A 4-field record uses 3 levels of nesting:
@@ -1684,7 +1667,6 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `abs` | `int -> int` | Absolute value |
 | `min` | `int int -> int` | Minimum |
 | `max` | `int int -> int` | Maximum |
-| `mod` | `int int -> int` | Modulo (same as `%` in C) |
 
 ### 13.8 Result Helpers
 
@@ -1742,7 +1724,7 @@ The identifier `result` is a **reserved pseudo-binding** available only inside `
 - `let` bindings (not a valid expression outside `post`)
 - Parameter lists (reserved keyword — compile error)
 
-### 13.10 Building Services (FAQ)
+### 13.11a Building Services (FAQ)
 
 When building practical services (REST APIs, CLIs, etc.) in LLMLL, here are solutions to common patterns. All examples use the Haskell FFI model.
 
@@ -1812,235 +1794,3 @@ Cryptographic builtins are **opaque primitives** — the compiler does not attem
 The `weakness-ok` declaration acknowledges that the wrapper has no meaningful contract — its correctness rests entirely on the axiomatically assumed `hmac-sha1` builtin.
 
 ---
-
-## 14. Version Roadmap
-
-> For the compiler team's full implementation schedule, ticket-level deliverables, and acceptance criteria, see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md). This section documents **language-visible features** only.
-
-### v0.3.2 — Trust Hardening + WASM PoC ✅ Shipped
-
-| Area | Feature |
-|------|---------|
-| Cross-module trust propagation | ✅ 7 test cases covering the asserted/tested/proven matrix, mixed verification levels, and `(trust ...)` declaration suppression. Validates that a `VLProven` function importing a `VLAsserted` dependency is correctly capped at `VLAsserted`. |
-| `llmll verify --trust-report` | ✅ Per-function trust summary with transitive closure analysis. Reports verification level (proven/tested/asserted) for every contract. Flags epistemic drift: “Function `withdraw` is proven, but depends on `auth.verify-token` which is asserted.” JSON output with `--json`. New `LLMLL.TrustReport` module. |
-| GHC WASM PoC | ✅ Analyzed generated Haskell output for WASM compatibility. Conditional GO verdict — pure logic compiles cleanly; ~6-7 days engineering. See [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md). |
-
-### v0.3.3 — Agent Orchestration ✅ Shipped
-
-| Area | Feature |
-|------|---------|
-| `llmll holes --deps` | ✅ Annotated dependency graph in `--json` output. Each hole entry includes `depends_on` edges (pointer/via/reason) and `cycle_warning` flag. Only body-level `AgentTask`/`Blocking` holes participate; `?proof-required` and contract-position holes excluded. |
-| Cycle detection | ✅ Tarjan's SCC algorithm detects mutual-recursion cycles. Deterministic back-edge removal (highest statement index). Error-level diagnostic if any SCC function lacks explicit return type. |
-| `--deps-out FILE` | ✅ Persist dependency graph to file (implies `--deps`). Compiler does not manage lifecycle — orchestrator owns the file. |
-| RFC 6901 pointer fix | ✅ `holePointer` now tracks structural AST position (`/statements/N/body`, etc.) — compatible with `llmll checkout`. Previous context-based pointer generation was non-functional. |
-| Call-graph analysis | ✅ `extractCalls` + `buildCallGraph` + `buildFuncBodyHoles` + `computeHoleDeps` — new internal functions in `HoleAnalysis.hs`. |
-
-### v0.3.4 — Agent Spec + Orchestrator Hardening ✅ Shipped
-
-| Area | Feature |
-|------|---------|
-| `llmll spec` | ✅ Compiler-emitted agent prompt specification generated directly from `builtinEnv`. 36 builtins + 14 operators. JSON output (`--json`) includes constructors, evaluation model, pattern kinds, type nodes. Text output is token-dense for direct system prompt inclusion. |
-| Spec Faithfulness tests | ✅ 7 property tests ensure spec is a superset of `builtinEnv`, partition is disjoint, output is deterministic, `wasi.*` functions excluded. Adding a new builtin without a spec entry is caught automatically. |
-| Phase A prompt enrichment | ✅ ~950 tokens added to orchestrator system prompt: pair/first/second, Result construction vs pattern matching (ok/err vs Success/Error), letrec note, fixed-arity operator rule, type nodes (`pair-type`, `fn-type`). |
-| Orchestrator integration | ✅ `compiler.spec()` wraps `llmll spec` with backward-compat fallback. `build_system_prompt()` injects compiler-emitted spec; falls back to static legacy reference for pre-v0.3.4 compilers. |
-| New builtins | ✅ `string-empty?` (`string → bool`) added to `builtinEnv` + runtime preamble. `regex-match` preamble stub (`isInfixOf`); upgraded to POSIX ERE in v0.7. `is-valid?` removed from `builtinEnv`. |
-
-### v0.3.5 — Agent Effectiveness ✅ Shipped
-
-| Area | Feature |
-|------|---------|
-| Context-aware checkout (C1–C6) | ✅ `llmll checkout` returns local typing context: `in_scope` (Γ delta with provenance tags), `expected_return_type` (τ), `available_functions` (Σ, monomorphized), `type_definitions` (depth-bounded alias expansion). `ScopeSource`/`ScopeBinding` provenance types in `TypeCheck.hs`. `withTaggedEnv` scope combinator. `truncateScope` with priority-based retention. |
-| Pointer normalization (EC-3) | ✅ `normalizePointer` strips leading zeros from RFC 6901 numeric segments: `/statements/02/body` → `/statements/2/body`. |
-| `ELet` env leak fix (EC-1) | ✅ Let bindings no longer leak into sibling if-branches. Env saved/restored around sequential let processing. |
-| `llmll verify --weakness-check` | ✅ After SAFE, constructs trivial-body candidates (identity, constant-zero, empty-string, true, empty-list) and checks if they satisfy the contract. Advisory `spec-weakness` diagnostic with `trivial_implementation` field. New `WeaknessCheck.hs` module. |
-| Orchestrator E2E | ✅ `_format_diagnostics()` converts raw compiler JSON into actionable text for agent retry prompts. `_ensure_checkout()` handles lock expiry with automatic re-checkout. Context-aware prompt construction from checkout response. 12 Python integration tests. |
-
-### v0.3.1 — Event Log + Leanstral MCP ✅ Shipped
-
-| Area | Feature |
-|------|---------|
-| Event Log | ✅ JSONL event logging for console programs (`.event-log.jsonl`). Stdout capture via `hDuplicate`/`hDupTo`. Crash-safe line-by-line format. |
-| `llmll replay` | ✅ Deterministic replay: rebuilds program, feeds logged inputs step-by-step, compares outputs against recorded results. Reports match/divergence per event. |
-| **Leanstral integration** | ✅ (mock-first) `?proof-required :inductive` and `:unknown` holes translated to Lean 4 `theorem` obligations (`LeanTranslate.hs`). MCP client (`MCPClient.hs`) with `--leanstral-mock` mode. Real `lean-lsp-mcp` integration deferred. |
-| Proof cache | ✅ Per-file `.proof-cache.json` sidecar with SHA-256 invalidation (`ProofCache.hs`). Subsequent `llmll verify` reads cache, skips re-proving. |
-| `llmll verify` extensions | ✅ `--leanstral-mock` / `--leanstral-cmd` / `--leanstral-timeout` CLI flags. `runLeanstralPipeline` scans statements for proof-required holes. |
-
-### v0.3 — Agent Coordination + Interactive Proofs ✅ Shipped
-
-| Area | Feature |
-|------|---------|
-| `?scaffold` | ✅ Cold-start module from `llmll-hub` skeleton; all `def-interface` boundaries pre-typed; implementation details as named `?` holes; resolves at parse time |
-| `do`-notation | ✅ Monadic `do`-notation as surface syntax; desugars to `(State, Input) → (NewState, Command)`. No new runtime semantics. PRs 1–4 shipped: TPair introduction (PR 1), DoStep collapse (PR 2), emitDo rewrite soundness fix (PR 3), pair destructuring in `let` bindings (PR 4). |
-| Stratified verification | ✅ Contracts carry a verification level (`proven`, `tested`, `asserted`). `--contracts` flag controls runtime assertion compilation. Trust-level propagation with `(trust ...)` declarations. `.verified.json` sidecar for cross-build proof caching. |
-| `string-concat` sugar | ✅ Parse-level variadic: `(string-concat a b c)` desugars to `(string-concat-many [a b c])` |
-| `Promise[t]` | ✅ Upgraded from `IO t` to `Async t` (`async` package). `(await x)` desugars to `Async.wait` |
-
-### v0.4.0 — Lead Agent + U-Lite Soundness ✅ Shipped
-
-| Area | Feature |
-|------|---------|
-| Lead Agent | ✅ `llmll-orchestra --mode plan|lead|auto --intent "..."` generates architecture plan, JSON-AST skeleton, fills holes, and verifies — end-to-end. Quality heuristics flag low parallelism, all-string types, missing contracts, unassigned agents. |
-| U-Lite (Soundness) | ✅ Per-call-site substitution-based unification for concrete types with fresh type variable instantiation at each `EApp`. `list-head 42` is now a type error. `first`/`second` properly typed as `TPair a b → a`/`TPair a b → b`. Per-call-site scoping prevents cross-call conflicts. TDependent resolved via Strip-then-Unify (Option A). |
-| CAP-1 (Capability enforcement) | ✅ `wasi.*` function calls require a matching `(import wasi.* (capability ...))` — compile-time type error if missing. Check is in `inferExpr (EApp ...)`, covering all nesting contexts. Non-transitive module-local propagation. |
-| Invariant pattern registry | ✅ `llmll typecheck --sketch` emits `invariant_suggestions` from pattern database keyed by `(type signature, function name pattern)`. ≥5 patterns: list-preserving, sorted, round-trip, subset, idempotent. Stored as data, not code. |
-| Downstream obligation mining | ✅ Cross-module UNSAFE results suggest postcondition strengthening on callee. Leverages `TrustReport.hs` transitive closure infrastructure. |
-| Aeson FFI | ✅ `(import haskell.aeson Data.Aeson)` codegen emits `import Data.Aeson` + adds `aeson` to `package.yaml`. Manual Haskell bridge file for JSON instance derivation. |
-
-### v0.5 — U-Full Soundness ✅ Shipped
-
-Complete sound unification — closes the last known unsoundness in the type checker. WASM build target moved to unversioned future work (2026-04-21).
-
-| Area | Feature |
-|------|---------|
-| U-full (Algorithm W) | ✅ Occurs check prevents infinite types (`a ~ list[a]` is rejected). TVar-TVar wildcard closure ensures type variable bindings propagate through chains. Bound-TVar consistency uses recursive `structuralUnify` instead of `compatibleWith` (Language Team Issue 2). `TDependent` strips to base type (two-layer architecture preserved). 7 new tests (264 total). |
-| `effectful` WASM spike | ✅ **GO.** `effectful` 2.6.1.0 compiles, links, and executes under `wasm32-wasi` (GHC 9.12.4, wasmtime 44.0.0). No C shim failures. Typed effect row design is WASM-compatible. See [`docs/effectful-wasm-spike.md`](docs/effectful-wasm-spike.md). |
-
-> [!NOTE]
-> **Known limitation (v0.5):** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for v0.7.
-
-### v0.6.3 — Trust Model Fixes ✅ Shipped
-
-Seven critical bugs from the v0.6.3 engineering audit, all resolved. Stabilizes the trust model, enforces type-checking gates, and ensures verifiable correctness.
-
-| Area | Feature |
-|------|---------|
-| BUG-1 | ✅ `result` removed from precondition environments. `result` in a `pre` clause is now a hard error per §4.3. `exprContainsVar` helper validates recursively. |
-| BUG-4 | ✅ `tcStrictMode` typecheck gate. `typeCheckStrict`/`typeCheckStrictWithCache` enforce hard errors. `doBuild`, `doBuildFromJson`, `doRun`, `doVerify` all gate on strict typecheck. `llmll check --strict` CLI flag. |
-| BUG-2 | ✅ Contract instrumentation wired into build pipeline. `instrumentContracts` replaces `applyContractsMode`. `runtime-error` lowered to Haskell `error`. |
-| BUG-6 | ✅ Body-faithfulness guard on contract stripping. `isBodyFaithful` returns `False` for all current provers — no unsound assertion removal. |
-| BUG-7 | ✅ Proof laundering protection. `isTaintedProof` detects `sorry`/`mock`/`admit`. Mock prover tagged `"mock"` instead of `"leanstral"`. |
-| BUG-3 | ✅ Transitive trust closure via `transitiveClose` fixed-point iteration. `teEffectiveLevel = min(self, transitive deps)`. |
-| BUG-5 | ✅ Termination documentation corrected (§4.2, §5.3.3): non-negativity only, not strict descent. |
-
-### v0.8.0 — Faithfulness Core ✅ Shipped
-
-Close the faithfulness gap — make `VLProvenSMT` mean implementation-verified. 320 Haskell tests (was 294; +26).
-
-| Area | Feature |
-|------|---------|
-| BODY-VC | ✅ Body-faithful verification conditions for QF-LIA fragment. `bodyToPred` encodes `ELet`, `EIf`, literal arithmetic as `.fq` constraints. Alpha-renaming for shadowed variables. Path limit (>4096 → fallback). Conservative `Nothing` for unsupported constructs. |
-| EOp soundness | ✅ `exprToPred (EOp op args) = exprToPred (EApp op args)` delegation. `!=` added to `exprToPred` and `lookupPredOp`. Parsed-source round-trip tested. |
-| Emission tracking | ✅ `erEmittedPre`/`erEmittedPost` fields in `EmitResult`. Sidecar generation checks membership before promoting to `VLProvenSMT`; skipped clauses remain `VLAsserted`. |
-| Body-faithful stripping | ✅ `csPostBodyFaithful` field in `ContractStatus`. `--contracts=unproven` strips postconditions only when `VLProvenSMT ∧ csPostBodyFaithful`. Preconditions never stripped. |
-| SUPP-DEBT | ✅ `spec_coverage` + `suppression_debt` fields in `--spec-coverage` JSON output. |
-| Verify JSON | ✅ `body_faithful` / `body_fallback` metadata in verify JSON output. |
-
-### v0.7 — Hardening ✅ Shipped
-
-Close remaining concrete fixes from the external review. 294 Haskell tests (was 289; +5 trust-tier).
-
-| Area | Feature |
-|------|---------|
-| BUILTIN-2 | ✅ `string-char-at` negative index guard. Returns `""` for out-of-bounds indices in both directions. |
-| BUILTIN-1 | ✅ `regex-match` → POSIX ERE via `regex-tdfa`. Replaces `isInfixOf` stub. Invalid patterns return `False` (total). `unsafePerformIO`/`try`/`evaluate` with `PREAMBLE COMPROMISE` comment. Generated `package.yaml` gains `regex-tdfa` dependency. |
-| DO-1 | ✅ Discarded command warning. Intermediate `TCustom "Command"` types in `do`-blocks emit warning: “current codegen discards.” `checkDiscardedCommand` helper in `TypeCheck.hs`. Warning-only; hard error deferred to v0.8.1 (DO-2). |
-| TRUST-2a | ✅ `VLProvenSMT { vlSMTSolver }` constructor. `Ord` instance removed — replaced by `trustCovers`, `trustMin`, `isProvenLevel`, `vlProverName`. 10 consumer files updated. `.verified.json` serializes as `"proven-smt"`. |
-
-### v0.6.2 — Algebraic Interface Laws ✅ Shipped
-
-First-class algebraic law enforcement for `def-interface`. Single-feature release.
-
-| Area | Feature |
-|------|---------|
-| `def-interface :laws` | ✅ `:laws` clause with `(for-all ...)` algebraic properties. Laws are first-class: parsed, type-checked (methods + bindings in scope), and enforced via QuickCheck `prop_` codegen. See §8.8.1. |
-| Parser | ✅ S-expression: `:laws [(for-all [x: T] expr)]` clause. JSON-AST: `parseLawProperty` for law round-trip (LAWS-2, LAWS-3). |
-| Type checker | ✅ `for-all` law expressions type-checked with interface methods and bindings in scope (LAWS-4). |
-| Codegen | ✅ QuickCheck `prop_` function emission for each law property (LAWS-5). Interface laws wired into `runPropertyTests` (LAWS-PBT). |
-| Spec coverage | ✅ Separate "Interface laws" section in `--spec-coverage` report (LAWS-7). |
-| JSON-AST | ✅ Law emission in `AstEmit.hs` for round-trip compatibility (LAWS-6). |
-| VSM-1 | ✅ Verification-scope matrices backfilled in all three verifier examples. |
-
-### v0.6.1 — TOTP Benchmark & Hub Query ✅ Shipped
-
-Second frozen benchmark (RFC 6238 TOTP), hub query-by-signature, and v0.6.0 carryover closure.
-
-| Area | Feature |
-|------|---------|
-| Cryptographic builtins (§13.11) | ✅ `hmac-sha1 : bytes[20] → bytes[20] → bytes[20]` and `sha1 : bytes[20] → bytes[20]`. Opaque primitives — correctness is `asserted`. Preamble implementation in `CodegenHs.hs`. |
-| TOTP benchmark | ✅ Frozen benchmark in `examples/totp_rfc6238/` — skeleton, filled version, `EXPECTED_RESULTS.json` with verification-scope matrix (5 properties across 3 levels: Proven, Asserted, Tested). RFC clause traceability via `:source`. CI gate: `make benchmark-totp` (14 assertions). |
-| Hub query-by-signature | ✅ `llmll hub query --signature "int → int → int"` — brute-force scan of `~/.llmll/modules/`. `structuralMatch` with TVar wildcards, TDependent stripping, order-sensitive parameter matching. New `LLMLL.HubQuery` module. |
-| PROV-3 closure | ✅ `:source` annotations now displayed in `--trust-report` text and JSON output. `TrustEntry` gains `tePreSource`/`tePostSource` fields. |
-| ERC-20 CI gate (BM-4) | ✅ `make benchmark-erc20` — 11 frozen assertions. `make benchmark-all` runs both benchmarks. |
-| Checkout hub suggestions (HUB-3) | ✅ `CheckoutToken.ctHubSuggestions` field scaffolded (always `Nothing` in v0.6.1 — populated by future orchestrator wiring). |
-
-### v0.6 — Specification Quality ✅ Shipped
-
-The specification coverage and quality gate — the acknowledged bottleneck since v0.4.0. Functions without contracts can no longer silently proceed through the pipeline.
-
-| Area | Feature |
-|------|---------|
-| Spec coverage gate (`--spec-coverage`) | ✅ `llmll verify --spec-coverage` classifies every function as contracted, suppressed (`weakness-ok`), or unspecified. Computes `effective_coverage = (contracted + suppressed) / total`. Text and JSON output. `SpecCoverage.hs` module. |
-| Suppression governance (`weakness-ok`) | ✅ `(weakness-ok fn-name "reason")` — top-level declaration. Mandatory non-empty reason string. Parser support in S-expression and JSON-AST. Governance warnings: WO-1 (`W601`), WO-2 (`W602`), D10 (`W603`). |
-| Clause-level provenance (`:source`) | ✅ `(pre expr :source "RFC 8446 §7.1")` — per-clause metadata on `pre`/`post`. Parsed in S-expression and JSON-AST (`pre_source`/`post_source`). Threaded through `--trust-report` and `.verified.json`. No effect on type checking or codegen. |
-| ERC-20 benchmark | ✅ Frozen benchmark in `examples/erc20_token/` — skeleton, filled version, `EXPECTED_RESULTS.json` with verification-scope matrix (10 properties), end-to-end `WALKTHROUGH.md`. |
-| TrustReport suppressions | ✅ `--trust-report` output includes "Intentional Underspecification" section listing all `weakness-ok` declarations with reasons. JSON output includes `suppressions` array. |
-
-### Future — WASM Sandboxing (unversioned)
-
-WASM-WASI is the long-term deployment target. Docker + `seccomp-bpf` remains the sandbox until WASM is scheduled. Confirmed future direction, not pinned to a release version.
-
-| Area | Feature |
-|------|---------|
-| `llmll build --target wasm` | Generated Haskell compiled with GHC's `--target=wasm32-wasi` backend |
-| WASM VM | Wasmtime (or equivalent) replaces Docker as the default sandbox |
-| WASI capability enforcement | WASI import declarations replace Docker network/filesystem policy layers |
-| `{-# LANGUAGE Safe #-}` | Already enforced from v0.1.2; guarantees generated code is structurally WASM-compatible from day one |
-
-### v0.2 — Module System + Compile-Time Verification ✅ Shipped
-
-The module system shipped **first within v0.2** (Phase 2a) because cross-module invariant verification (`def-invariant` + liquid-fixpoint) requires multi-file resolution as substrate.
-
-| Area | Feature |
-|------|---------|
-| **Module system (Phase 2a)** | Multi-file resolution: `(import foo.bar ...)` loads and type-checks `foo/bar.llmll` or its `.ast.json` equivalent |
-| **Module system (Phase 2a)** | Namespace isolation: each source file has its own top-level scope; imported names accessible as `module.name` by default |
-| **Module system (Phase 2a)** | `open` / `export` — selective unprefixing and visibility control (see §8.6, §8.7) |
-| **Module system (Phase 2a)** | Cross-module `def-interface` enforcement — structural compatibility checked at import time (see §8.8) |
-| **Module system (Phase 2a)** | `llmll-hub` read-only registry: `llmll hub fetch <pkg>@<ver>` + `hub.` import prefix (see §8.9) |
-| **Capability enforcement** | ✅ **Shipped in v0.4.0 (CAP-1).** Capability declarations are enforced at compile time: `wasi.*` calls without a matching capability import produce a type error. Check is in `inferExpr (EApp ...)`. Non-transitive module-local propagation. `effectful` typed effect row integration is planned alongside WASM-WASI enforcement (future, not version-pinned). |
-| **Compile-time contracts (Phase 2b)** | `llmll verify` emits `.fq` constraints from the typed AST and runs `liquid-fixpoint` + Z3 as a standalone binary. Covers quantifier-free linear integer arithmetic. Reports SAFE or contract-violation diagnostics with JSON Pointers. No GHC plugin required. |
-| **`?proof-required` holes (Phase 2b)** | Auto-emitted for predicates outside the QF fragment or complex `letrec` `:decreases` measures. Complexity hints: `complex-decreases` or `non-linear-contract`. Non-blocking — runtime assertion remains active. |
-| **`letrec` (Phase 2b)** | Bounded recursion with mandatory `:decreases` termination annotation. Simple variable measures are verified by `llmll verify`. |
-| **`match` exhaustiveness (Phase 2b)** | Static exhaustiveness checking for ADT sum types — a `match` missing a constructor arm is a compile error. |
-| **Type system fix (Phase 2c)** | `pair-type` in `typed-param` position is now accepted: `[acc: (int, string)]` in `def-logic` params, lambda params, and `for-all` bindings. The v0.1.x untyped-parameter workaround is no longer needed. |
-| `def-invariant` | liquid-fixpoint-backed module invariant verification after every AST merge |
-| **`llmll typecheck --sketch`** | Partial-program type inference API: accepts a program with holes, returns inferred type of each hole and any type errors present even in the incomplete program |
-
-### v0.1.2 — Machine-First Foundation ✅ Shipped
-
-New language-visible features: JSON-AST as a first-class source format, Haskell codegen target, and minor surface syntax fixes.
-
-| Area | Feature |
-|------|---------|
-| **Source formats** | Compiler accepts `.ast.json` files validated against `docs/llmll-ast.schema.json` as a first-class source format alongside `.llmll` S-expressions |
-| JSON-AST | `llmll build --emit json-ast` round-trips S-expressions ↔ JSON |
-| Diagnostics | Every compiler error is a JSON object with an RFC 6901 JSON Pointer to the offending AST node |
-| Holes CLI | `llmll holes --json` lists all `?` holes with inferred type, module path, and agent target |
-| **Codegen target** | Generated code is **Haskell** (`.hs` + `package.yaml`), replacing Rust. `Codegen.hs` rewritten as `CodegenHs.hs` (`generateHaskell`) |
-| **`Command` model** | `Command` is emitted as plain Haskell `IO ()`. **Capability enforcement is active (v0.4.0, CAP-1):** `wasi.*` calls without matching capability import are compile-time type errors. `effectful` typed effect row integration (`Eff '[HTTP, FS, ...] r`) is planned alongside WASM-WASI (future, not version-pinned). |
-| **FFI tiers** | Two tiers: (1) Hackage — `(import haskell.* ...)` resolves to a native GHC import, no stub generated; (2) C — `(import c.* ...)` generates a `foreign import ccall` stub in `src/FFI/*.hs`. The legacy `rust.*` namespace and Rust FFI stdlib are retired |
-| **Sandboxing** | Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` replaces WASM as the runtime sandbox (WASM is a confirmed future direction, not version-pinned) |
-| `let` syntax | `(let [(x e1) (y e2)] body)` — canonical v0.1.2 form; `(let [[x e1] [y e2]] body)` also accepted (v0.1.1 backward compat) |
-| List literals | `[]` and `[a b c]` list literals added; `(list-empty)` and `(list-append ...)` remain valid |
-
-> **Rationale — Haskell target:** LLMLL's concepts (pure functions, ADTs, algebraic effects, liquid types) map directly onto Haskell's native semantics. The Haskell target eliminates codegen semantic drift, makes v0.2 compile-time verification a liquid-fixpoint integration task (weeks, not months), and shares the compiler's own type universe with generated programs. WASM-WASI remains the long-term deployment target; Docker is the current sandbox.
-
-> **Rationale — JSON-AST:** LLMs generating S-expressions suffer parentheses drift — a structural error whose rate is a function of generation length vs. nesting depth, not model quality. JSON schema-constrained generation (via OpenAI Structured Outputs, Gemini schema parameters, etc.) provides mathematical structural validity guarantees before the compiler runs.
-
-### v0.1.1 ✅ Shipped
-
-Closed all specification gaps found during real-world implementation. The spec is now sufficient to implement any program using only v0.1.1 primitives without workarounds.
-
-| Area | Feature |
-|------|---------|
-| Type system | `Command` type formally defined; custom ADT sum types (`(type T (| Ctor t) ...)`) |
-| Iteration | `range` built-in (`(range from to) -> list[int]`) |
-| Grammar | `QualIdent` production; ARROW terminal with maximal-munch rule; exhaustive `match` spec; `=` polymorphism |
-| Grammar | Unicode symbol aliases (`→` `∀` `λ` `∧` `∨` `¬` `≥` `≤` `≠`) |
-| Contracts | `result` keyword formally defined for `post` clauses |
-| `let` | Sequential binding semantics (`let*`) formally specified |
-| IO | Standard command constructor library in §13.9; `seq-commands` combinator |
-| Interfaces | Named parameters in `fn-type` formally specified as doc-only |
-| PBT | Rejection-sampling fallback for refinement types; `gen` declaration for custom generators |
-| Concurrency | `def-invariant` syntax (verification deferred to v0.2) |
-
