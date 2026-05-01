@@ -1,41 +1,73 @@
-# Type-Driven Development in LLMLL
+# Type-Driven Development for Agents: From Indexed Types to Obligation-Guided Coding
 
-> **Status:** Design exploration  
-> **Date:** 2026-04-11  
-> **Context:** Tension between LLMLL's two-layer model (types + contracts) and Idris-style type-driven development where the type IS the specification.  
-> **Key question:** Does step-by-step type-guided deduction help AI models fill holes more accurately?
+> **Status:** Design exploration (partially promoted to v0.10 roadmap)  
+> **Original date:** 2026-04-11  
+> **Major revision:** 2026-05-01  
+> **Source:** Professor's five-round review + language team consensus (2026-05-01)  
+> **Key decision:** LLMLL preserves the Idris workflow insight; v0.10 implements it through obligations, not indexed types.
 
 ---
 
-## Current Model: Two Layers
+## 1. Executive Summary
 
-LLMLL separates structural and behavioral properties:
+The original type-driven development hypothesis is preserved: rich specifications help agents construct programs step by step. What changed is the implementation path. LLMLL does not pursue Idris-style indexed types for v0.10. Instead, it exposes type obligations, contract obligations, and trust obligations as structured machine-readable feedback. This gives agents much of the workflow benefit of dependent development without requiring a dependent typechecker.
 
-| Layer | Mechanism | Example | Verified by |
+| Aspect | Decision |
+|---|---|
+| **Original insight** | Rich specifications guide construction so strongly that filling holes becomes "matching the only shape that satisfies the obligations." Confirmed. |
+| **v0.10 milestone** | Obligation-guided agent coding — structured obligation reports (JSON) exposing type, contract, and trust obligations. Promoted from this document. |
+| **Research track** | Indexed types (`Vect n a`, GADTs, type-level arithmetic, bidirectional typechecking). Explicitly deferred. |
+| **Architecture** | Types check structural shape (Algorithm W). Contracts check behavioral obligations (liquid-fixpoint). Trust reports classify evidence quality. All three channels feed the agent. |
+
+---
+
+## 2. Terminology
+
+| Term | Meaning in LLMLL | Note |
+|---|---|---|
+| **Refinement type alias** | A `(where [x: base] predicate)` annotation — the predicate is checked by the verification layer or enforced at runtime. | Renamed from "Dependent Type" in v0.8.1a. |
+| **Obligation-guided coding** | Agent workflow where the compiler emits structured obligations (type, contract, trust) and the agent fills holes iteratively using obligation feedback. | v0.10 scope. |
+| **Type-driven development** | In the Idris sense: indexed types encode the specification in the type, and the typechecker rejects bad inhabitants. | Research track only. Not shipped. |
+| **`TDependent`** | Internal AST constructor name. Historical — predates the rename. Implementation detail, not a user-facing concept. |
+
+---
+
+## 3. The Original Insight
+
+When an AI agent encounters a `?hole`, its accuracy depends on how constrained the hole is. The more the specification narrows the space of valid expressions, the less the agent can hallucinate.
+
+| Approach | Constraint strength | Agent freedom | Hallucination risk |
 |---|---|---|---|
-| **Types** | `where` clauses, sum types, `TPair` | `(type PositiveInt (where [x: int] (> x 0)))` | Compiler (compile-time) |
-| **Contracts** | `pre`/`post` | `(pre (> amount 0))` | liquid-fixpoint / Leanstral |
+| Untyped hole | No constraint | Maximum | High |
+| Simple type (`int → int`) | Shape only | High | Medium |
+| Contract (`pre`/`post`) | Behavioral spec | Medium (must satisfy checker) | Medium (can satisfy incorrectly) |
+| Rich obligations (type + contract + trust) | Structural + behavioral + evidentiary | Low | Low |
+| Full dependent type (Idris-style) | Structural + behavioral (fused) | Lowest | Lowest |
 
-Both can express the same property. `(pre (> amount 0))` and typing the parameter as `PositiveInt` do the same job. The separation is currently deliberate: types are fast (compile-time), contracts are thorough (SMT/proof).
+**The key argument:** Step-by-step hole-filling decomposes a hard problem (produce a program satisfying a behavioral spec) into a sequence of easier problems (fill a hole where the obligations leave almost no choice). This is where LLMs are strong (pattern-matching against structured constraints) and weak (multi-step reasoning about behavioral correctness).
+
+This insight is independent of *how* the constraints are expressed. Idris uses indexed types. LLMLL uses obligations. Both narrow the search space.
 
 ---
 
-## The Idris Model: Type IS Specification
+## 4. Two Architectures for the Same Workflow
 
-In Idris, you don't write contracts. The type carries the full specification. Development proceeds by:
+### 4.1 The Idris Model: Type IS Specification
+
+In Idris, the type carries the full specification. Development proceeds by:
 
 1. **Write the type signature** — this is the spec
 2. **Create a hole** — `?impl`
 3. **Ask the compiler** what the hole's type is, given the context
-4. **Case-split** on a variable — the compiler generates all pattern match branches with updated types
+4. **Case-split** on a variable — the compiler generates all branches with updated types
 5. **Repeat** — each branch has a simpler type, narrowing the space of valid programs
 6. **The implementation writes itself** — once the types are specific enough, there's often only one valid expression
 
-### Example: safe head
-
-**Idris:**
 ```idris
+-- Research-track architecture — NOT in v0.10 scope
+
 data Vect : Nat -> Type -> Type where
+  Nil  : Vect 0 a
   (::) : a -> Vect n a -> Vect (S n) a
 
 head : Vect (S n) a -> a    -- type guarantees non-empty
@@ -44,143 +76,344 @@ head (x :: _) = x           -- only one case — empty is impossible
 
 No contract needed. The type `Vect (S n) a` makes the precondition structural.
 
-**LLMLL today:**
+### 4.2 The LLMLL Model: Three Channels of Obligation
+
+LLMLL separates the specification into three independent feedback channels:
+
 ```lisp
+;; v0.10 architecture — obligation-guided coding
+
 (def-logic safe-head [xs: list[a]]
-  (pre (> (list-length xs) 0))   ;; behavioral — verified by SMT
-  ...)
+  :return Result[a, string]
+  (pre (> (list-length xs) 0))
+  (post (match result
+    (Success v) (= v (first xs))
+    (Error _)   true))
+  ?hole)
 ```
 
-The precondition is a runtime/SMT concern, not a type-level guarantee.
+The agent receives a structured obligation report:
 
----
+```json
+{
+  "kind": "hole-obligation",
+  "hole": "?hole",
+  "function": "safe-head",
+  "expected_type": "Result[a, string]",
+  "contract_context": {
+    "preconditions": ["(> (list-length xs) 0)"],
+    "postcondition_goal": "(match result (Success v) (= v (first xs)) (Error _) true)"
+  },
+  "path_condition": [],
+  "in_scope": { "xs": "list[a]" },
+  "assumptions": [{ "name": "list-length", "kind": "runtime-primitive" }],
+  "suggestions": [{
+    "expression": "(match xs ((cons head _) (Success head)) (_ (Error \"empty\")))",
+    "reason": "satisfies postcondition under precondition (list-length xs) > 0"
+  }]
+}
+```
 
-## Why This Matters for AI Agents
+The agent fills the hole using the obligation report, then the verifier classifies the evidence.
 
-The critical insight: **type-driven deduction may help AI models fill holes more accurately**.
+### 4.3 The "Guide vs. Prove" Distinction
 
-### The hypothesis
+The fundamental difference between the two architectures:
 
-When an AI agent encounters a `?hole`, its accuracy depends on how constrained the hole is. The more the type system narrows the space of valid expressions, the less the agent can hallucinate.
-
-| Approach | Constraint strength | Agent freedom | Hallucination risk |
+| Architecture | During construction | During checking | What the agent sees |
 |---|---|---|---|
-| Untyped hole | No constraint | Maximum | High |
-| Simple type (`int → int`) | Shape only | High | Medium |
-| Contract (`pre/post`) | Behavioral spec | Medium (must satisfy checker) | Medium (can satisfy incorrectly) |
-| Rich dependent type | Structural + behavioral | Low | Low |
+| **Idris-style indexed types** | Type indices refine the search space directly | Typechecker proves inhabitance of indexed type | Expected type narrows possible programs |
+| **LLMLL obligation-guided coding** | Types, contracts, and evidence obligations guide the search | Verifier / tester / runtime / trust report classify the result | Structured obligation report with type, logic, path, and trust context |
 
-With Idris-style types, the agent doesn't need to "understand" the specification — it just needs to produce an expression that type-checks. The type system does the reasoning. This is exactly where LLMs are strong (pattern matching against type signatures) and weak (complex multi-step reasoning about behavioral correctness).
+**Idris asks:** "Can this program inhabit the indexed type?"  
+**LLMLL asks:** "Given this structural type, contract, path condition, and evidence state, what obligations remain?"
 
-### The workflow comparison
+Both guide the agent step by step. Idris constrains construction (the typechecker rejects bad values). LLMLL validates results (the verifier/tester/runtime classifies evidence). For agents, LLMLL's three-channel model provides *richer feedback* — at the cost of not rejecting bad constructions until after they are written.
 
-**Current LLMLL (contracts):**
-```
-Agent sees:  ?impl : int → int → int
-             (pre (> b 0))
-             (post (= result (- a b)))
+### 4.4 Side-by-Side Comparison
 
-Agent must:  1. Read the contract
-             2. Understand what it means
-             3. Produce an implementation that satisfies it
-             4. Wait for SMT feedback if wrong
-```
-
-**Idris-style LLMLL (types):**
-```
-Agent sees:  ?impl : (a : Int) → (b : PositiveInt) → Eq result (minus a b)
-
-Agent must:  1. Read the type
-             2. Case-split on b (compiler guides this)
-             3. Fill the only well-typed expression
-
-The type system rejects wrong answers immediately — no SMT round-trip.
-```
-
-The Idris model gives the agent **immediate, cheap feedback** at every step. The contract model gives **delayed, expensive feedback** (wait for SMT/Leanstral). For an agent swarm doing one-shot fills, immediate feedback is better.
-
-### The step-by-step deduction advantage
-
-Idris's interactive mode breaks hole-filling into a sequence of small steps:
-
-1. Start with `?impl : Vect (S n) a → a`
-2. Case-split on the input → compiler generates `(x :: xs) → ?rhs`
-3. Now `?rhs : a` and `x : a` is in scope
-4. The only value of type `a` in scope is `x`
-5. Agent fills `x` — done
-
-Each step has a tiny search space. An LLM can handle each step with high accuracy. Compare this to the current model where the agent sees the entire spec at once and must produce the full implementation in one shot.
-
-**This is the key argument: type-driven development decomposes a hard problem (fill a hole satisfying a behavioral spec) into a sequence of easy problems (fill a hole where the type leaves almost no choice).**
-
----
-
-## What LLMLL Would Need
-
-### Already present
-
-| Ingredient | Status |
-|---|---|
-| Typed holes with inferred constraints | ✅ `--sketch` mode |
-| `?hole` → agent fills → compiler re-checks | ✅ `?delegate` workflow |
-| Dependent types with `where` clauses | ✅ `TDependent` |
-| Pattern matching with exhaustiveness checking | ✅ `checkExhaustive` |
-
-### Missing (v0.5+ candidates)
-
-| Feature | What it enables | Effort |
+| Goal | Idris route (🔬 research) | LLMLL v0.10 route (🔲 planned) |
 |---|---|---|
-| **Indexed families** (`Vect n a`) | Non-emptiness, length-preservation as types | Medium — new `Type` constructor, parser, codegen |
-| **Proof terms as values** | `Refl`, `Cong` — proofs are first-class expressions | High — requires rethinking `Expr` |
-| **Interactive case-split** | `llmll split ?hole variable` → compiler generates branches | Medium — new CLI command + TypeCheck extension |
-| **Type-level computation** | `(+ n 1)` at the type level | High — requires type-level evaluator |
-| **Totality checking** | Guarantee termination (required for types-as-proofs) | Medium — extends `:decreases` to a totality checker |
-
-### The minimal experiment
-
-The smallest test of this hypothesis:
-
-1. Add `Vect n a` as a built-in indexed type (like `list[a]` but length-indexed)
-2. Add `llmll split ?hole <variable>` CLI command — compiler generates case-split branches with updated types
-3. Run an agent through a 3-step type-driven fill of `safe-head`
-4. Compare accuracy against the contract-based approach
-
-If the agent succeeds in 3 steps with no SMT round-trips, the hypothesis is validated.
+| Guide the agent step by step | Indexed types and dependent pattern matching | Typed holes, branch obligations, contract context, trust obligations |
+| Reject bad construction early | Typechecker rejects impossible inhabitants | Verifier/tester/trust report emits structured obligations |
+| Main mechanism | Types are specifications | Types + contracts + evidence records |
+| Feedback latency | Immediate (type error) | Fast (verifier + trust report cycle) |
+| Architecture cost | Requires dependent type system, bidirectional TC, erasure | Reuses existing Algorithm W + contracts + verifier |
 
 ---
 
-## The Case for Deferral
+## 5. LLMLL v0.10: Obligation-Guided Agent Coding
 
-While the hypothesis is compelling, pursuing this now would:
+> Cross-reference: [compiler-team-roadmap.md](../compiler-team-roadmap.md) § v0.10 for implementation items (OBLIG-0 through OBLIG-B).
 
-- Require significant changes to `Syntax.hs` (indexed type families), `TypeCheck.hs` (type-level evaluation), and `CodegenHs.hs` (generating GADT-style Haskell)
-- Compete with v0.3.1 (Event Log + Leanstral) and v0.4 (WASM hardening) for engineering time
-- Risk scope creep — "just add Vect" quickly becomes "implement half of Idris"
+### 5.1 The Three Obligation Channels
 
-The pragmatic path: **ship v0.3.1 and v0.4, then run the minimal experiment as a v0.5 spike.** If the experiment shows measurable accuracy improvement for agent hole-filling, promote it to a full feature.
+| Channel | Question answered | Source | Example |
+|---|---|---|---|
+| **Type obligations** | What shape must this expression have? | Type checker (`--sketch`) | `expected_type: "Result[a, string]"` |
+| **Contract obligations** | What logical property must it satisfy? | Verifier (liquid-fixpoint) | `postcondition_goal: "(>= result 0)"` |
+| **Trust obligations** | What evidence is still missing? | Trust report (v0.8.1b evidence model) | `assumptions: [{ "name": "sha1", "kind": "external-opaque" }]` |
+
+No other agent-facing system integrates all three channels into a single machine-readable feedback format.
+
+### 5.2 What v0.10 Delivers
+
+| Item | Description |
+|---|---|
+| **Enriched typed holes** | `CheckoutToken` extended with contract preconditions, postcondition goal, path condition, assumption set |
+| **Structured obligation JSON** | Machine-readable report for each `?hole`, unproven contract, and failed call-site precondition |
+| **`EMatch` branch obligations** | Per-branch context with constructor-refined bindings and sub-goals |
+| **Repair suggestions** | `ObligationMining.hs` proposes: add guard, strengthen precondition, choose candidate expression |
+| **Agent repair loop** | `llmll verify --obligations` → orchestrator consumes → patch → re-verify → trust report |
+| **Obligation quality benchmark** | Validates that reports are sufficient for mechanical repair |
+
+### 5.3 Non-Goals for v0.10
+
+> [!IMPORTANT]
+> The following are explicitly **not in v0.10 scope**. They remain in the research track.
+
+- Length-indexed vectors (`Vect n a`)
+- State-indexed commands
+- GADTs
+- Type-level naturals
+- Type-level arithmetic
+- Dependent pattern matching (branch type refinement)
+- Bidirectional typechecking
+- Proof terms as values (`Refl`, `Cong`)
+- Erasure analysis
+
+This list protects the roadmap from sliding back into "build half of Idris."
 
 ---
 
-## Open Questions
+## 6. Obligation Lifecycle
 
-> **Q1: Does step-by-step type-guided deduction actually improve LLM accuracy?**
->
-> This is empirically testable. Compare:
-> - (A) Agent fills `?impl` with contract spec, one-shot
-> - (B) Agent fills `?impl` via 3-step type-driven case-split
->
-> Measure: success rate, iterations needed, token cost.
+v0.10 is not "emit more JSON." It is a workflow:
 
-> **Q2: Can the orchestrator automate the case-split workflow?**
->
-> In Idris, the *human* decides when to case-split and on which variable. In LLMLL, the *orchestrator* would make this decision. The compiler would need to expose a "suggest split" API: given a hole and its type, recommend which variable to split on.
+```
+hole or failed proof
+  → structured obligation
+    → agent repair
+      → re-check
+        → updated evidence record
+          → trust report
+```
 
-> **Q3: Should LLMLL adopt Idris's proof terms, or keep proofs external (Leanstral)?**
->
-> Idris embeds proofs in the program (`Refl : a = a`). LLMLL keeps proofs external (Leanstral returns a proof certificate). The external model is simpler and aligns with the agent-first architecture (agents produce code, not proofs). But embedded proofs would enable type-driven deduction without any external dependency.
->
-> Leaning toward: external proofs for now, embedded proofs as a v0.6+ research direction.
+### 6.1 Obligation Sources
 
-> **Q4: What if types-as-specs makes contracts obsolete?**
->
-> If dependent types are expressive enough, `pre`/`post` contracts become redundant. The stratified verification system (v0.3) would become a compatibility layer. This is fine — the contracts → types migration can be gradual, and the verifier infrastructure (liquid-fixpoint, Leanstral) remains useful for the decidable fragments.
+| Source | Produces |
+|---|---|
+| Type checker (`llmll check`) | Typed hole with expected type, in-scope variables |
+| Verifier (`llmll verify`) | Unproven contract clause, failed call-site precondition |
+| Trust report (`llmll verify --trust-report`) | Missing evidence, assumption warnings, transitive degradation |
+
+### 6.2 Obligation Shape
+
+Each obligation contains:
+
+| Field | Description |
+|---|---|
+| `kind` | `hole-obligation`, `contract-obligation`, `precondition-obligation` |
+| `function` | Enclosing function name |
+| `expected_type` | Structural type of the expression to fill |
+| `contract_context` | Relevant preconditions and postcondition goal |
+| `path_condition` | Guards accumulated from `EIf`/`EMatch` branches (from `bodyToPred` FlatPaths) |
+| `in_scope` | Variables and their types available at the hole |
+| `available_functions` | Functions callable from this context |
+| `assumptions` | Unverified dependencies (from v0.8.1b `ContractStatus.csAssumptions`) |
+| `suggestions` | Concrete repair candidates with justification |
+
+### 6.3 Obligation Status
+
+| Status | Meaning |
+|---|---|
+| **open** | No evidence yet — agent must act |
+| **discharged** | Verified by solver, tests, or runtime assertion |
+| **deferred** | Explicitly deferred via `(weakness-ok)` with reason |
+| **asserted** | Runtime assertion only; no compile-time evidence |
+
+### 6.4 Obligation Consumers
+
+| Consumer | Uses obligations for |
+|---|---|
+| Agent | Repair loop: fill hole → re-check → iterate |
+| Human developer | Review open obligations before merge |
+| CI pipeline | Gate: no new open obligations without `(weakness-ok)` |
+| Trust report | Aggregate evidence quality per function |
+
+---
+
+## 7. Infrastructure Inventory
+
+### Status markers
+
+| Marker | Meaning |
+|---|---|
+| ✅ | Shipped and tested |
+| 🟡 | Approved design, pending implementation |
+| 🔲 | Planned (design not yet started) |
+| 🔬 | Research track |
+
+### Current state (May 2026)
+
+| Ingredient | Status | Version | Notes |
+|---|---|---|---|
+| Typed holes with inferred constraints | ✅ | v0.2 | `--sketch` mode |
+| `?hole` → agent fills → compiler re-checks | ✅ | v0.2 | `?delegate` workflow |
+| Refinement type aliases with `where` clauses | ✅ | v0.1 | `TDependent` (internal name) |
+| Pattern matching with exhaustiveness checking | ✅ | v0.1 | `checkExhaustive` |
+| Context-aware checkout (Γ, τ, Σ) | ✅ | v0.3.5 | `CheckoutToken` with `ctInScope`, `ctExpectedReturnType`, `ctAvailableFunctions` |
+| Skeleton generation from signatures | ✅ | v0.4 | Lead Agent |
+| Obligation mining (basic) | ✅ | v0.4 | `ObligationMining.hs` |
+| Body-faithful verification conditions | ✅ | v0.8.0 | `bodyToPred` for QF-LIA fragment |
+| Path-sensitive constraint emission | ✅ | v0.8.0 | `EIf` → `FlatPath` guards |
+| Orchestrator retry loop | ✅ | v0.3.5 | Python orchestrator `llmll-orchestra` |
+| Structured evidence model (EVID-0) | 🟡 | v0.8.1b | Four-tier `DisplayLevel` partial order |
+| Assumption taxonomy | 🟡 | v0.8.1b | `AKRuntimePrimitive`, `AKCompilerBuiltin`, `AKExternalOpaque` |
+| Compositional verification (`EApp`) | 🔲 | v0.9 | Assume-guarantee encoding, correct precondition polarity |
+| `EMatch` two-path encoding for `Result` | 🔲 | v0.9 | Path-sensitive per-constructor obligations |
+| Call-site precondition diagnostics | 🔲 | v0.9 | Structured repair suggestions |
+| Enriched typed holes (obligation JSON) | 🔲 | v0.10 | OBLIG-1 |
+| `EMatch` branch obligations | 🔲 | v0.10 | OBLIG-3 |
+| Repair suggestions from `ObligationMining` | 🔲 | v0.10 | OBLIG-4 |
+| Agent repair loop integration | 🔲 | v0.10 | OBLIG-5 |
+| Obligation quality benchmark | 🔲 | v0.10 | OBLIG-B |
+| Indexed types (`Vect n a`) | 🔬 | — | Requires dependent type system |
+| Interactive case-split (`llmll split`) | 🔬 | — | Requires indexed types |
+| Type-level computation | 🔬 | — | Requires type-level evaluator |
+| Proof terms as values | 🔬 | — | Requires rethinking `Expr` |
+
+The infrastructure gap between "what exists" and "what v0.10 needs" is much smaller than originally estimated in April 2026.
+
+---
+
+## 8. Obligation Quality Benchmark
+
+The success metric for v0.10:
+
+> *Can a simple repair loop fill common holes using only the structured obligation report, without hidden compiler knowledge?*
+
+### 8.1 Quality Criteria
+
+| Criterion | Question |
+|---|---|
+| **Completeness** | Does the report include all information needed to attempt a repair? |
+| **Minimality** | Does it avoid dumping irrelevant compiler state? |
+| **Grounding** | Are suggestions tied to actual path conditions and contracts? |
+| **Actionability** | Does it suggest concrete repairs: guard, strengthen precondition, choose expression, split branch? |
+| **Stability** | Does the same source produce stable obligation IDs across small edits? |
+
+### 8.2 Benchmark Cases
+
+| Program | Hole | Required obligation fields | Expected candidate |
+|---|---|---|---|
+| `withdraw(balance, amount)` | body | expected type, path condition (`balance >= amount`), postcondition goal (`result >= 0`), in-scope vars | `(- balance amount)` |
+| `clamp(value, lo, hi)` | body | expected type, two-branch path conditions | `(if (< value lo) lo (if (> value hi) hi value))` |
+| `safe-head(xs)` | body | expected type (`Result[a, string]`), `EMatch` branch obligations (Cons vs Nil) | `(match xs ...)` with two arms |
+| `abs(n)` | body | expected type, postcondition goal (`result >= 0`), single branch split | `(if (< n 0) (- 0 n) n)` |
+
+### 8.3 Evaluation Protocol
+
+For each benchmark case:
+
+1. **Input:** LLMLL source with a `?hole` and contract
+2. **Run:** `llmll verify --obligations` → obligation report JSON
+3. **Check:** Does the report contain all required obligation fields?
+4. **Check:** Does the report contain at least one repair suggestion that would close the obligation?
+5. **Check:** If a simple agent loop applies the suggestion, does `llmll verify` succeed?
+
+A benchmark case passes if all three checks succeed.
+
+---
+
+## 9. Research Track: Indexed Types
+
+> This section describes work that is **not on the v0.10 roadmap**. It is included for completeness and to record the long-term direction.
+
+### 9.1 What Indexed Types Would Enable
+
+True indexed types (`Vect n a`) would make preconditions structural rather than behavioral:
+
+```idris
+-- Research-track only
+
+head : Vect (S n) a -> a    -- impossible to call on empty
+append : Vect n a -> Vect m a -> Vect (n + m) a   -- length preserved by type
+```
+
+The typechecker would reject bad programs at compile time, with no SMT round-trip. For agents, this means even tighter search-space narrowing.
+
+### 9.2 Requirements
+
+| Requirement | Impact | Effort |
+|---|---|---|
+| Type-level naturals | New kind in the type system | High |
+| Type-level computation (`n + m`) | Type-level evaluator in `TypeCheck.hs` | High |
+| GADT-style pattern matching | Branch type refinement | High |
+| Dependent elimination | Return type depends on matched constructor | High |
+| Bidirectional typechecking | Replaces Algorithm W (Dunfield-Krishnaswami style) | Very high |
+| Erasure analysis | Which type-level terms exist at runtime | Medium |
+
+Each is a multi-week project with deep interactions with the existing type inference engine. Algorithm W does not handle GADTs.
+
+### 9.3 Why Not v0.10
+
+v0.10 achieves approximately 80% of the agent-facing benefit of Idris-style development through richer obligation reporting, without requiring any of the above. The indexed-type approach would:
+
+- Require fundamental changes to `TypeCheck.hs` (Algorithm W → bidirectional)
+- Risk scope creep — "just add `Vect`" quickly becomes "implement half of Idris"
+- Compete with verification-boundary hardening for engineering time
+- Not compose with the existing contract/trust architecture without significant integration work
+
+### 9.4 Promotion Criteria
+
+To promote indexed types from research to roadmap:
+
+1. Design spec with typing rules for indexed types
+2. Bidirectional typechecking migration plan
+3. Erasure strategy
+4. Demonstration that the indexed-type fragment composes with `bodyToPred` and the evidence model
+5. Effort estimate accepted by both teams
+
+### 9.5 Relationship to v0.10
+
+v0.10 (obligation-guided coding) does not require indexed types and does not change Algorithm W. Indexed types would be an orthogonal addition. If promoted, they would extend the obligation report with index-refined expected types — but the obligation architecture itself is independent.
+
+---
+
+## 10. Resolved Open Questions
+
+### Q1: Does step-by-step type-guided deduction actually improve LLM accuracy?
+
+**Resolved (2026-05-01).** The hypothesis is confirmed in principle. The professor agrees that rich specifications help agents construct programs step by step. The implementation path is obligation-guided coding (v0.10), not indexed types. Empirical validation will come from the obligation quality benchmark (§8).
+
+### Q2: Can the orchestrator automate the case-split workflow?
+
+**Resolved (2026-05-01).** Reframed. The orchestrator does not perform Idris-style case-splits. Instead, it consumes structured obligation reports from `llmll verify --obligations`, patches the source using repair suggestions, and re-verifies. The agent sees branch obligations from `EMatch` (OBLIG-3), which serve the same role as case-split results — but generated by the verifier, not the typechecker.
+
+### Q3: Should LLMLL adopt Idris's proof terms, or keep proofs external?
+
+**Resolved (2026-05-01).** External proofs via liquid-fixpoint (and eventually Leanstral). LLMLL does not embed proof terms in the program. Agents produce code, not proofs. The evidence model (v0.8.1b) classifies the proof status; agents do not need to manipulate proof objects.
+
+### Q4: What if types-as-specs makes contracts obsolete?
+
+**Resolved (2026-05-01).** Types and contracts are permanent separate layers in LLMLL through v0.10. Types check structural shape under Algorithm W. Refinement predicates and contracts express behavioral obligations checked by the verifier, runtime assertions, tests, or evidence reports. LLMLL does not attempt to make contracts obsolete by moving all specifications into the type system.
+
+Algorithm W operates on stripped structural types. Refinement predicates are preserved for obligation generation but erased for unification. This was formalized in the [Algorithm W × TDependent Resolution](algorithm_w_tdependent_resolution.md) (Strip-then-Unify, Option A).
+
+### Q5: Obligation completeness benchmark (NEW — open)
+
+**Open.** How do we measure whether an obligation report is "sufficient" for an agent? The five quality criteria (§8.1) and four benchmark cases (§8.2) define a starting point. The v0.10 success metric is:
+
+> *Can a simple repair loop fill common holes using only the structured obligation report, without hidden compiler knowledge?*
+
+This requires empirical validation during v0.10 implementation.
+
+---
+
+## Appendix: Document History
+
+| Date | Change |
+|---|---|
+| 2026-04-11 | Original document: "Type-Driven Development in LLMLL." Hypothesis stated. `Vect n a` minimal experiment proposed. Deferred to v0.5+. |
+| 2026-05-01 | Major revision. Obligation-guided agent coding promoted to v0.10. Indexed types deferred to research track. Four open questions resolved. Obligation lifecycle, quality benchmark, and non-goals added. Title updated. Professor's "guide vs. prove" distinction incorporated. |
