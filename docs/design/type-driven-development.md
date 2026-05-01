@@ -4,6 +4,7 @@
 > **Original date:** 2026-04-11  
 > **Major revision:** 2026-05-01  
 > **Source:** Professor's five-round review + language team consensus (2026-05-01)  
+> **Reviewed:** Language Team (2026-05-01) — approved with two P0 corrections (resolved)  
 > **Key decision:** LLMLL preserves the Idris workflow insight; v0.10 implements it through obligations, not indexed types.
 
 ---
@@ -250,7 +251,6 @@ Each obligation contains:
 | Marker | Meaning |
 |---|---|
 | ✅ | Shipped and tested |
-| 🟡 | Approved design, pending implementation |
 | 🔲 | Planned (design not yet started) |
 | 🔬 | Research track |
 
@@ -323,6 +323,20 @@ For each benchmark case:
 5. **Check:** If a simple agent loop applies the suggestion, does `llmll verify` succeed?
 
 A benchmark case passes if all three checks succeed.
+
+---
+
+## 8.4 Edge Cases for OBLIG-0 Design
+
+> **Source:** Language Team review (2026-05-01). These edge cases must be addressed in the OBLIG-0 design spec before implementation.
+
+| # | Edge case | Problem | Where to address |
+|---|---|---|---|
+| EC-1 | **Polymorphic holes** | A `?hole : a` with no monomorphic grounding has an unconstrained type. The obligation report must distinguish "type is polymorphic (any value of any type)" from "type is unknown (inference failed)." | OBLIG-0 design — obligation should report unconstrained type variable explicitly |
+| EC-2 | **Obligation ID stability under alpha-renaming** | If variable names change but structure is identical, obligation IDs should remain stable. Naive AST-position-based IDs would break across renames. | OBLIG-0 design — IDs should be content-addressed or path-based, not position-based |
+| EC-3 | **N-ary sum type branch obligations** | v0.9 handles `Result` (2 constructors). User-defined sum types (`TSumType`) can have N constructors. Branch obligations must generalize to N paths. | OBLIG-3 implementation — generalize from 2-path to N-path |
+| EC-4 | **Repair suggestion soundness scope** | Suggestions from `ObligationMining.hs` are candidates, not proofs. A suggestion may satisfy one path but violate another. The report must not imply suggestions are verified. | OBLIG-4 — label suggestions as "suggested, not verified" |
+| EC-5 | **Decidability classification outside QF-LIA** | Obligations involving non-linear arithmetic, string predicates, or recursive functions may be undecidable. The report should flag these so agents know the verifier cannot discharge them automatically. | OBLIG-2 — add `"decidability": "undecidable"` field for obligations outside the decidable fragment |
 
 ---
 
@@ -417,3 +431,4 @@ This requires empirical validation during v0.10 implementation.
 |---|---|
 | 2026-04-11 | Original document: "Type-Driven Development in LLMLL." Hypothesis stated. `Vect n a` minimal experiment proposed. Deferred to v0.5+. |
 | 2026-05-01 | Major revision. Obligation-guided agent coding promoted to v0.10. Indexed types deferred to research track. Four open questions resolved. Obligation lifecycle, quality benchmark, and non-goals added. Title updated. Professor's "guide vs. prove" distinction incorporated. |
+| 2026-05-01 | Language Team review: two P0 corrections (`first` → `list-head` in safe-head example; EVID-0 status updated to shipped). Five edge cases added (EC-1 through EC-5) for OBLIG-0 design. |
