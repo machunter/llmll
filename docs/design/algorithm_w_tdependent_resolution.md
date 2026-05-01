@@ -198,14 +198,14 @@ All of these are structurally independent of `TDependent`. The refinement layer 
 
 ---
 
-## Future Considerations (v0.6+)
+## Future Considerations
 
-If the type-driven development experiment ([type-driven-development.md](../docs/design/type-driven-development.md)) succeeds and LLMLL moves toward richer dependent types (indexed families, proof terms), this decision may need revisiting. Specifically:
+If LLMLL eventually moves toward indexed dependent types (tracked in [research-track.md](../docs/research-track.md) §1), this decision may need revisiting. Specifically:
 
 - **Option C (refinement-subtyping)** would become relevant if LLMLL adds subtype coercions and wants the type checker to generate proof obligations automatically.
 - **Option B (propagate-refinement)** would become relevant if LLMLL adds type-level computation and wants the type checker to evaluate constraint expressions.
 
-Both of these are explicitly deferred to v0.6+ in the roadmap. For v0.4, Option A is the correct choice.
+Both remain in the research track. **v0.10 (obligation-guided agent coding) does NOT affect this resolution** — it enriches obligation reports for agents using the existing two-layer architecture, without changing Algorithm W or how unification handles `TDependent`.
 
 ---
 
@@ -217,6 +217,6 @@ Both of these are explicitly deferred to v0.6+ in the roadmap. For v0.4, Option 
 | What does the unifier do with `TDependent`? | Strips to base type, unifies structurally. |
 | Where are refinement constraints verified? | `FixpointEmit.hs` → liquid-fixpoint / Leanstral. |
 | Does the substitution ever contain `TDependent`? | **No.** Type variables map to structural types only. |
-| Is this permanent? | For v0.4–v0.5, yes. Subject to revisit if v0.6 type-driven development changes the architecture. |
+| Is this permanent? | For v0.4–v0.10, yes. Subject to revisit only if indexed types (research track) are promoted. v0.10 (obligation-guided coding) does not change this. |
 
 **Decision is final for the v0.4 scope. U1–U4 may proceed.**

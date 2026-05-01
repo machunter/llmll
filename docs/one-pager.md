@@ -104,6 +104,7 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 | **Documentation boundary clarity** (v0.8.1a) | Rename "Dependent Types" → "Refinement Type Aliases." Per-construct verification matrix in LLMLL.md, README, and one-pager. Integer overflow model gap documented. Docs only, no code changes. |
 | **Evidence model refactor** (v0.8.1b) | Replace `VerificationLevel` total order with four-tier partial order: `verified` > `contract-checked` / `tested` > `asserted`. Assumption taxonomy (`runtime-primitive`, `compiler-builtin`, `external-opaque`). Structured `.verified.json` sidecar. Design review required. |
 | **Compositional verification** (v0.9) | Assume-guarantee encoding for `EApp` with correct precondition polarity. `EMatch` on `Result`. SCC recursive fallback. Transitive trust degradation. `--strict-verified-core` mode. Design review required. |
+| **Obligation-guided agent coding** (v0.10) | Structured obligation reports (JSON) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. Aims for the Idris workflow *feel* through richer obligations, without indexed types. |
 | **Body-faithful VCs** (v0.8.0) ✅ | `bodyToPred` translates function bodies into verification conditions for the QF-LIA fragment. Closes the faithfulness gap. 320 tests (+26). |
 | **Hardening** (v0.7) ✅ | `string-char-at` negative index guard, `regex-match` → POSIX ERE, `VLProvenSMT` constructor. 294 tests. |
 | **Trust model fixes** (v0.6.3) ✅ | 7 critical bugs resolved: strict typecheck gate, transitive trust closure, body-faithful stripping guard, proof laundering protection. |
@@ -149,7 +150,7 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 | Reference | Relevance |
 |-----------|-----------|
-| Edwin Brady, *Type-Driven Development with Idris* (Manning, 2017) | Foundational text on types-as-specs with compiler-guided hole-filling. LLMLL's typed-hole workflow is directly influenced by this. |
+| Edwin Brady, *Type-Driven Development with Idris* (Manning, 2017) | Foundational text on types-as-specs with compiler-guided hole-filling. LLMLL's typed-hole workflow and v0.10 obligation-guided agent coding are directly influenced by this. LLMLL aims for the Idris workflow *feel* (goal-directed construction from rich obligations) without the indexed-type architecture; see [research-track.md](../docs/research-track.md) §1. |
 | Ranjit Jhala & Niki Vazou, *Liquid Haskell* (UCSD) | Refinement types verified by SMT solvers. LLMLL uses the same underlying engine (liquid-fixpoint/Z3). |
 | Bertrand Meyer, *Design by Contract* (1986) | Original formulation of pre/post conditions as formal interface specs. |
 | LangGraph, CrewAI, AutoGen | Multi-agent AI frameworks. LLMLL differs: coordination through a *compiler*, not conversation. |

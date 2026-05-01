@@ -55,7 +55,7 @@ Designs for system components beyond the current compiler — orchestration, com
 |---|---|---|
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: compiler↔orchestrator boundary, agent registry, context assembly, scheduling strategies, error recovery, self-hosted LLMLL endgame. | Design draft |
 | [component-hub.md](component-hub.md) | Per-project and global component registry. Query by type signature + contract, not by name. Addresses reuse, progressive accumulation, and cross-project publishing. | Design draft |
-| [type-driven-development.md](type-driven-development.md) | Idris-style indexed types for agent hole-filling. Hypothesis: step-by-step type-guided deduction improves LLM accuracy. Minimal experiment: `Vect n a` + `llmll split`. Deferred to v0.5+. | Design exploration |
+| [type-driven-development.md](type-driven-development.md) | Idris-style indexed types for agent hole-filling. The obligation-guided part (structured hole obligations, repair suggestions, multi-channel feedback) was **promoted to v0.10** on the compiler roadmap (2026-05-01). What remains here is the indexed-type extension (`Vect n a`, GADTs, type-level arithmetic), which stays deferred. | Design exploration (partially promoted) |
 
 ---
 

@@ -96,12 +96,12 @@ BODY-VC-0 resolved the following proof obligations:
 
 ---
 
-## Feature Freeze Policy (v0.8.1a through v0.9)
+## Feature Freeze Policy (v0.8.1a through v0.10)
 
 > [!IMPORTANT]
-> **No new builtins, syntax constructs, FFI tiers, WASI capabilities, or orchestration features until v0.9 ships.** The project's credibility depends on narrowing the verification boundary, not expanding the language surface. Each unverified feature is a semantic escape hatch. Exceptions require explicit team consensus with a written soundness argument.
+> **No new builtins, syntax constructs, FFI tiers, WASI capabilities, or orchestration features until v0.10 ships.** The project's credibility depends on narrowing the verification boundary and deepening the obligation-feedback architecture, not expanding the language surface. Each unverified feature is a semantic escape hatch. Exceptions require explicit team consensus with a written soundness argument.
 >
-> **Source:** Professor's five-round review (2026-04-30). Consensus of language team and professor.
+> **Source:** Professor's five-round review (2026-04-30), updated 2026-05-01 to extend through v0.10. Consensus of language team and professor.
 
 ---
 
@@ -245,6 +245,89 @@ Given current path condition Γ, for call `(f e₁ ... eₙ)`:
 
 ---
 
+## v0.10 — Obligation-Guided Agent Coding
+
+**Theme:** Make LLMLL's obligation reports the clearest machine-readable goal state for code synthesis. Aim for the Idris workflow *feel* (goal-directed construction from rich obligations) without the Idris type-system *architecture* (indexed types, GADTs, dependent elimination).
+
+**Effort:** ~5–7 days.
+
+> **Source:** Professor's review (2026-05-01). Consensus: the highest-value part of "type-driven development" is not indexed types — it is exposing structured obligations to agents. LLMLL combines three independent feedback channels (type obligations, contract obligations, trust obligations) into a single agent loop. No other agent-facing system integrates all three.
+
+> [!IMPORTANT]
+> **Indexed types are NOT in scope for v0.10.** `Vect n a`, state-indexed commands, dependent pattern matching, type-level arithmetic, GADTs, and full Idris-style elaboration remain in the research track. v0.10 achieves 80% of the agent-facing benefit of Idris-style development through richer obligation reporting, without requiring changes to Algorithm W or the core type inference engine.
+
+### Structured Obligation Report
+
+The primary artifact is a structured JSON obligation report for every hole or failed verification step:
+
+```json
+{
+  "kind": "hole-obligation",
+  "hole": "?h3",
+  "function": "withdraw",
+  "expected_type": "int",
+  "contract_context": {
+    "preconditions": ["(>= balance amount)", "(> amount 0)"],
+    "postcondition_goal": "(>= result 0)"
+  },
+  "path_condition": ["(>= balance amount)"],
+  "in_scope": { "balance": "int", "amount": "int" },
+  "available_functions": ["safe_subtract", "max", "min"],
+  "assumptions": [{ "name": "int-minus", "kind": "runtime-primitive" }],
+  "suggestions": [{
+    "expression": "(- balance amount)",
+    "reason": "satisfies non-negative result under current precondition"
+  }]
+}
+```
+
+This is the thing an agent can actually use. Three obligation channels:
+
+| Channel | Question answered | Source |
+|---|---|---|
+| **Type obligations** | What shape must this expression have? | Type checker (`--sketch`) |
+| **Contract obligations** | What logical property must it satisfy? | Verifier (liquid-fixpoint) |
+| **Trust obligations** | What evidence is still missing? | Trust report (v0.8.1b evidence model) |
+
+### Implementation Items
+
+| # | ID | Description | Prerequisite | Status |
+|---|-----|-------------|-------------|--------|
+| 1 | **OBLIG-0** | **[DESIGN]** Design spec: obligation report JSON schema, enriched typed holes (expected type + contract context + path condition + assumption set), `EMatch` branch obligation encoding, repair suggestion generation, benchmark suite definition. | COMP-0 | ☐ |
+| 2 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, and assumption set (from v0.8.1b `ContractStatus.csAssumptions`). Structured JSON output via `llmll checkout --obligations`. | OBLIG-0 | ☐ |
+| 3 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, COMP-1 | ☐ |
+| 4 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, COMP-3 | ☐ |
+| 5 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☐ |
+| 6 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligations` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☐ |
+| 7 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☐ |
+
+### Obligation Quality Benchmark
+
+The success metric for v0.10:
+
+> *Can a simple repair loop fill common holes using only the structured obligation report, without hidden compiler knowledge?*
+
+| Program | Hole | Required obligation fields | Expected candidate |
+|---|---|---|---|
+| `withdraw(balance, amount)` | body | expected type, path condition (`balance >= amount`), postcondition goal (`result >= 0`), in-scope vars | `(- balance amount)` |
+| `clamp(value, lo, hi)` | body | expected type, two-branch path conditions | `(if (< value lo) lo (if (> value hi) hi value))` |
+| `safe-head(xs)` | body | expected type (`Result[a, string]`), `EMatch` branch obligations (Cons vs Nil) | `(match xs ...)` with two arms |
+| `abs(n)` | body | expected type, postcondition goal (`result >= 0`), single branch split | `(if (< n 0) (- 0 n) n)` |
+
+### Architectural Note: Path Conditions Bridge v0.9 → v0.10
+
+`bodyToPred` (v0.9) already computes path conditions for each `EIf`/`EMatch` branch — they are the guards in each `FlatPath`. v0.10 re-exports these same path conditions to the agent via the obligation report. No new analysis required — same semantic computation, new output format.
+
+**Acceptance criteria:**
+- Obligation reports produced for all `?hole` sites, unproven contracts, and failed call-site preconditions
+- Obligation reports contain all three channels: type, contract, trust
+- `EMatch` branch obligations include per-branch context and sub-goals
+- Repair suggestions include at least: add guard, strengthen pre, weaken callee pre, candidate expression
+- Obligation quality benchmark passes for all four benchmark programs
+- Orchestrator end-to-end test: obligations → patch → verify → trust report
+
+---
+
 ## Externally-Blocked Parking Lot
 
 Items from the old v0.8.1 that depend on external availability. Tracked but not on the critical path.
@@ -303,8 +386,9 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 | Item | Current Status | Next Action |
 |------|---------------|-------------|
-| **Feature freeze** (v0.8.1a–v0.9) | **Active** (2026-04-30) | No new builtins, syntax, FFI, WASI, or orchestration features until v0.9 ships |
-| **Evidence model design** (EVID-0) | **Pending** | Design spec required before v0.8.1b implementation |
+| **Feature freeze** (v0.8.1a–v0.10) | **Active** (2026-04-30, extended 2026-05-01) | No new builtins, syntax, FFI, WASI, or orchestration features until v0.10 ships |
+| **Evidence model design** (EVID-0) | **Approved** (Rev 2) | Design spec approved, ready for v0.8.1b implementation |
+| **Obligation-guided agent coding** (v0.10) | **Planned** (2026-05-01) | Structured obligation reports for agents. Replaces indexed-type approach from research track. |
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |
 | TRUST-2b (`VLProvenLean`) | **Parked** (2026-04-30) | Externally-blocked parking lot — redesign against new evidence model when LEAN-GA triggers |
 | Contract discriminative power formalization | Proposed by Professor | Research track |
@@ -345,33 +429,32 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | Orchestration features (compiler-side) | **Feature freeze** |
 | Typeclass law machinery | **Feature freeze** |
 | Lean integration | Externally blocked (parking lot) |
-| Indexed/dependent types | Research track (unchanged) |
+| Indexed/dependent types | Research track — explicitly excluded from v0.10 (professor consensus, 2026-05-01) |
 
 ---
 
 # Summary: Version Plan and Critical Path
 
-> **Roadmap restructure (2026-04-30):** Professor's five-round review + language team consensus. Old v0.8.1 (entirely blocked on `lean-lsp-mcp`) replaced with three actionable milestones. Feature freeze active from v0.8.1a through v0.9.
+> **Roadmap restructure (2026-04-30, extended 2026-05-01):** Professor's review + language team consensus. Old v0.8.1 (blocked on `lean-lsp-mcp`) replaced with four actionable milestones. Feature freeze active from v0.8.1a through v0.10.
 
 ```
-v0.8.0 (SHIPPED)     v0.8.1a (SHIPPED)  v0.8.1b (evidence)     v0.9 (compositional)      Parked
-────────────────     ──────────────    ──────────────────     ────────────────────      ──────
-BODY-VC ✅            RENAME-1/2 ✅      EVID-0 (design ✅)      COMP-0 (design)           LEAN-GA
-SUPP-DEBT ✅          MATRIX-1/2/3 ✅    EVID-1 (ADT)           COMP-1 (EApp)             TRUST-2b
-EVENT-LOG ✅          BOUNDARY-1/2 ✅    EVID-2 (sidecar)       COMP-2 (SCC)              MCP
-SPEC-* ✅             ROADMAP-1/2 ✅     EVID-3 (trust rpt)     COMP-3 (EMatch Result)
-320 tests                               EVID-4 (coverage)      COMP-4 (propagation)
-                      9/9 shipped       EVID-5 (contracts)     COMP-5 (obligations)
-                      no code           EVID-6 (module)        COMP-6 (strict mode)
-                      zero risk         EVID-7 (CLI)           COMP-T (stripping tests)
-                                        EVID-8 (spec)
-                                        EVID-T (124 tests)     ~5-7 days
-                                        ~3-5 days
+v0.8.0 (SHIPPED)  v0.8.1a (SHIPPED)  v0.8.1b (evidence)  v0.9 (compositional)  v0.10 (obligations)     Parked
+────────────────  ──────────────     ──────────────────  ────────────────────  ─────────────────────   ──────
+BODY-VC ✅         RENAME-1/2 ✅       EVID-0 (design ✅)   COMP-0 (design)       OBLIG-0 (design)        LEAN-GA
+SUPP-DEBT ✅       MATRIX-1/2/3 ✅     EVID-1 (ADT)        COMP-1 (EApp)         OBLIG-1 (enriched holes) TRUST-2b
+EVENT-LOG ✅       BOUNDARY-1/2 ✅     EVID-2 (sidecar)    COMP-2 (SCC)          OBLIG-2 (goal-state)    MCP
+SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust rpt)  COMP-3 (EMatch)       OBLIG-3 (branch obligs)
+320 tests                             EVID-4 (coverage)   COMP-4 (propagation)  OBLIG-4 (suggestions)
+                   9/9 shipped        EVID-5 (contracts)  COMP-5 (obligations)  OBLIG-5 (repair loop)
+                   no code            EVID-6 (module)     COMP-6 (strict mode)  OBLIG-B (benchmark)
+                   zero risk          EVID-7/8 (CLI/spec) COMP-T (tests)
+                                      EVID-T (124 tests)  ~5-7 days             ~5-7 days
+                                      ~3-5 days
 ```
 
-**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation → COMP-0 design review → v0.9 implementation.
+**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation → COMP-0 design review → v0.9 implementation → OBLIG-0 design review → v0.10 implementation.
 
-**Feature freeze** active from v0.8.1a through v0.9 ship.
+**Feature freeze** active from v0.8.1a through v0.10 ship.
 
 **v0.7 result:** All 4 items shipped. 294 Haskell + 37 Python tests. 3 discovered issues resolved (Module.hs `max`, compare tests, round-trip serialization).
 
@@ -384,6 +467,8 @@ SPEC-* ✅             ROADMAP-1/2 ✅     EVID-3 (trust rpt)     COMP-3 (EMatch
 **v0.8.1b scope:** Evidence model refactor. Replace `VerificationLevel` total order with four-tier `DisplayLevel` partial order + assumption taxonomy. Touches `Syntax.hs`, `VerifiedCache.hs`, `TrustReport.hs`, `SpecCoverage.hs`, `Contracts.hs`, `Module.hs`, `Main.hs`. Design review (EVID-0) required before implementation. ~3–5 days.
 
 **v0.9 scope:** Compositional verification. Assume-guarantee encoding for `EApp` with correct precondition polarity. SCC detection for recursive fallback. `EMatch` on `Result`. Transitive trust degradation. Design review (COMP-0) required before implementation. ~5–7 days.
+
+**v0.10 scope:** Obligation-guided agent coding. Structured obligation reports (JSON) for every hole, unproven contract, and failed call-site precondition. Three obligation channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions via `ObligationMining.hs`. Obligation quality benchmark. Design review (OBLIG-0) required before implementation. ~5–7 days. **Note:** Indexed/dependent types are explicitly excluded from v0.10 (professor consensus, 2026-05-01) and remain in the research track.
 
 **Parked items:** LEAN-GA, TRUST-2b, MCP — triggered by external availability, not on the critical path.
 
@@ -412,6 +497,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
 | **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. Assumption taxonomy. Structured `.verified.json` sidecar. Backward-compatible. EVID-0 design review required. ~3–5 days. |
 | **v0.9** | *(new, 2026-04-30)* | **Compositional Verification:** Assume-guarantee `EApp` encoding. `EMatch` on `Result`. SCC recursive fallback. Transitive trust degradation. `--strict-verified-core` mode. COMP-0 design review required. ~5–7 days. |
+| **v0.10** | *(new, 2026-05-01)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. OBLIG-0 design review required. ~5–7 days. Indexed types explicitly excluded. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 

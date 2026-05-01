@@ -18,8 +18,8 @@ Until all three conditions are met, the item stays here.
 
 ## Impact Analysis
 
-> **Assessment date:** 2026-04-28 (updated with external consultant review)  
-> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (294 tests, liquid-fixpoint). The next compiler milestone (v0.8.0 BODY-VC) closes the faithfulness gap. Research items are ranked by how much they advance the strategic bet.
+> **Assessment date:** 2026-04-28 (updated with external consultant review, 2026-05-01)  
+> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (320 tests, liquid-fixpoint). Body-faithful VCs shipped (v0.8.0). Evidence model approved (EVID-0). Research items are ranked by how much they advance the strategic bet.
 
 | Rank | Item | Impact | Rationale |
 |------|------|--------|-----------|
@@ -27,7 +27,7 @@ Until all three conditions are met, the item stays here.
 | **2** | **Contract discriminative power** | **Medium-high** | Provides a scalar metric for spec quality. Without a number, you can't set CI thresholds, compare approaches, or track improvement over time. External consultant recommends formalizing this with finite observational semantics. |
 | **3** | **Spec-from-RFC pipeline** | **Medium-high** | Makes the system useful on real problems where specs already exist. External consultant elevates this: "LLMLL's strongest target domains already have external specs. Require clause provenance: external paragraph → LLMLL pre/post/law → verification level." Traceability from external spec to verification level is the key differentiator. |
 | **4** | **Call-site strict descent** | **Medium** | External consultant correction: "not automatically subsumed by BODY-VC. Body encoding and termination checking are related but not identical proof obligations." Since BODY-VC-0 excludes `letrec`, strict descent still needs its own design rule. Upgraded from Low. |
-| **5** | **Type-driven development** | **High ceiling, high risk** | If the hypothesis holds, it's transformative. But indexed types create preservation, progress, totality, erasure, and type-level normalization obligations. External consultant: "Keep this as a narrow spike; do not let it become half of Idris." |
+| **5** | **Indexed/dependent types** | **High ceiling, high risk** | If the hypothesis holds, it's transformative. But indexed types create preservation, progress, totality, erasure, and type-level normalization obligations. External consultant: "Keep this as a narrow spike; do not let it become half of Idris." **Note (2026-05-01):** The highest-value part of the original "type-driven development" idea — obligation-guided agent coding — has been **promoted to v0.10** on the compiler roadmap. This research item now covers only the indexed-type extension (Vect n a, GADTs, type-level arithmetic), which remains deferred. |
 | **6** | **Synthetic training corpus** | **Medium, uncertain** | Addresses whether agents can learn to write better specs. ML research with uncertain outcomes. |
 | **7** | **Self-hosted orchestrator** | **Low** | External consultant: "adds IO, concurrency, JSON, and effect proof obligations without improving the core verification story. Valuable only after BODY-VC and the effect model are settled." |
 
@@ -35,26 +35,35 @@ Until all three conditions are met, the item stays here.
 
 ## Active Research Items
 
-### 1. Type-Driven Development
+### 1. Indexed / Dependent Types
 
 > **Source:** [type-driven-development.md](design/type-driven-development.md)
 
-**Hypothesis:** Step-by-step type-guided deduction (Idris-style case-splitting) improves LLM agent accuracy for hole-filling compared to one-shot contract-based generation.
+> [!IMPORTANT]
+> **The obligation-guided agent coding part of this idea has been promoted to v0.10** on the compiler roadmap ([compiler-team-roadmap.md](compiler-team-roadmap.md) § v0.10). What remains here is the indexed-type extension only: `Vect n a`, GADTs, dependent pattern matching, type-level arithmetic, and bidirectional typechecking.
 
-**Minimal experiment:**
+**Original hypothesis:** Step-by-step type-guided deduction (Idris-style case-splitting) improves LLM agent accuracy for hole-filling compared to one-shot contract-based generation.
 
-| Step | Work |
-|------|------|
-| 1 | Add `Vect n a` as a built-in indexed type |
-| 2 | Add `llmll split ?hole <variable>` CLI command |
-| 3 | Run an agent through 3-step type-driven fill of `safe-head` |
-| 4 | Compare accuracy vs contract-based approach |
+**Professor's resolution (2026-05-01):** The hypothesis is correct, but 80% of the agent-facing benefit is achievable *without* indexed types. The v0.10 milestone achieves this through structured obligation reports (type + contract + trust), `EMatch` branch obligations, and repair suggestions — using the existing type system.
 
-**Compiler impact if promoted:** New `Type` constructors in `Syntax.hs`, type-level evaluation in `TypeCheck.hs`, GADT-style codegen in `CodegenHs.hs`. Significant — but scoped to the indexed type fragment only.
+**What remains in research:** True indexed types (`Vect n a`) require:
 
-**Interaction with BODY-VC:** The v0.8.0 BODY-VC design spec explicitly excludes indexed types from its coverage boundary. If type-driven development is promoted, body-faithful VCs for GADT pattern matching would be a separate phase.
+| Requirement | Impact |
+|---|---|
+| Type-level naturals | New kind in the type system |
+| Type-level computation (`n + m`) | Type-level evaluator in `TypeCheck.hs` |
+| GADT-style pattern matching | Branch type refinement |
+| Dependent elimination | Return type depends on matched constructor |
+| Bidirectional typechecking | Replaces Algorithm W (Dunfield-Krishnaswami style) |
+| Erasure analysis | Which type-level terms exist at runtime |
 
-**Promotion criterion:** Design spec with typing rules for indexed types.
+Each is a multi-week project with deep interactions with the existing type inference engine. Algorithm W does not handle GADTs.
+
+**Compiler impact if promoted:** Fundamental architecture change to `TypeCheck.hs`. Significant — not scoped to a fragment.
+
+**Interaction with v0.10:** v0.10 (obligation-guided coding) does not require indexed types and does not change Algorithm W. Indexed types would be an orthogonal addition.
+
+**Promotion criterion:** Design spec with typing rules for indexed types, bidirectional typechecking migration plan, and erasure strategy.
 
 ---
 

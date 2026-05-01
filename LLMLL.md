@@ -198,6 +198,9 @@ Any base type can be constrained by a predicate using `(where [binding: base] pr
 
 Refinement type alias constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify` (Phase 2b). See §5.3.5 for a precise matrix of which constructs are verified at each level.
 
+> [!NOTE]
+> **Obligation-guided agent coding (v0.10).** While LLMLL does not have Idris-style indexed types, v0.10 aims to provide the Idris workflow *feel* — goal-directed construction from rich obligations — through structured obligation reports that expose type, contract, and trust obligations to agents. See [compiler-team-roadmap.md](docs/compiler-team-roadmap.md) § v0.10.
+
 ---
 
 ## 4. Logic Structures & Design by Contract
