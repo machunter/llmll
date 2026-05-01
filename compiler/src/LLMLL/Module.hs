@@ -19,6 +19,7 @@ module LLMLL.Module
   , checkInterfaceMismatch
   , isBuiltinImport   -- ^ P1: exported so Main.hs can apply the same bypass
   , topoSortedEnvs   -- ^ P3: return ModuleEnvs in dependency order for codegen
+  , mergeCS          -- ^ v0.9.0: exported for trust report sidecar merge
   ) where
 
 -- All imports must be at the top in Haskell (no inline imports).

@@ -61,7 +61,7 @@ import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
-import LLMLL.VerifiedCache (saveVerified, verifiedPath)
+import LLMLL.VerifiedCache (saveVerified, loadVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
@@ -1033,7 +1033,9 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
         exitFailure
       -- v0.3.2: --trust-report mode — print trust summary and exit
       when trustReport $ do
-        let report = buildTrustReport _cache stmts
+        -- v0.9.0: load .verified.json sidecar so trust report reflects solver results
+        sidecar <- loadVerified fp
+        let report = buildTrustReport _cache stmts sidecar
         if json
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)
@@ -1135,7 +1137,8 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
                 mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
                 -- v0.4: --obligations mode
                 when obligations $ do
-                  let trustRpt = buildTrustReport _cache stmts
+                  oblSidecar <- loadVerified fp
+                  let trustRpt = buildTrustReport _cache stmts oblSidecar
                       oblSugs  = mineObligations table fqResult trustRpt stmts
                   if json
                     then TIO.putStrLn (formatObligationsJson oblSugs)

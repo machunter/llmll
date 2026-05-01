@@ -1750,7 +1750,7 @@ main = hspec $ do
                        (EVar "n")
                    ]
           cache = DM.empty
-          report = buildTrustReport cache stmts
+          report = buildTrustReport cache stmts Map.empty
       length (trEntries report) `shouldBe` 1
       teName (head (trEntries report)) `shouldBe` "main-fn"
       fmap erDisplayLevel (tePre (head (trEntries report))) `shouldBe` Just DLAsserted
@@ -1770,7 +1770,7 @@ main = hspec $ do
                                 Nothing)
                       (EApp "crypto.hash" [EVar "x"])
                   ]
-          report = buildTrustReport cache stmts
+          report = buildTrustReport cache stmts Map.empty
           processEntry = head [e | e <- trEntries report, teName e == "process"]
       -- The entry function has asserted contracts (default) and depends on crypto.hash
       length (teDeps processEntry) `shouldSatisfy` (>= 1)
@@ -1784,7 +1784,7 @@ main = hspec $ do
                       (Contract Nothing Nothing Nothing Nothing)
                       (EApp "math.safe-add" [EVar "x"])
                   ]
-          report = buildTrustReport cache stmts
+          report = buildTrustReport cache stmts Map.empty
           callerEntry = head [e | e <- trEntries report, teName e == "caller"]
       teDrifts callerEntry `shouldBe` []
 
@@ -1798,7 +1798,7 @@ main = hspec $ do
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing) (EVar "x")
                   ]
-          report = buildTrustReport cache stmts
+          report = buildTrustReport cache stmts Map.empty
       -- math.safe-add is proven, crypto.hash is asserted, no-contract has no contract
       tsContractChecked (trSummary report) `shouldBe` 1
       tsAsserted (trSummary report) `shouldBe` 1
@@ -1811,7 +1811,7 @@ main = hspec $ do
                       (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
                       (EVar "x")
                   ]
-          report = buildTrustReport cache stmts
+          report = buildTrustReport cache stmts Map.empty
           jsonText = formatTrustReportJson report
       -- Must parse as valid JSON
       (decode (BLC.pack (T.unpack jsonText)) :: Maybe Value) `shouldSatisfy` (/= Nothing)
@@ -1828,7 +1828,7 @@ main = hspec $ do
                           (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) Nothing [])
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
-          report = buildTrustReport cache stmts
+          report = buildTrustReport cache stmts Map.empty
           humanText = formatTrustReport report
       humanText `shouldSatisfy` T.isInfixOf "Trust Report"
       humanText `shouldSatisfy` T.isInfixOf "verify-token"

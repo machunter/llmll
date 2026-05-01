@@ -29,6 +29,7 @@ import Data.Aeson (encode, object, (.=), Value(..))
 import qualified Data.ByteString.Lazy.Char8 as BLC
 
 import LLMLL.Syntax
+import LLMLL.Module (mergeCS)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -71,15 +72,20 @@ data TrustSummary = TrustSummary
 -- Report Building
 -- ---------------------------------------------------------------------------
 
--- | Build a trust report from a module cache and the entry-point statements.
+-- | Build a trust report from a module cache, entry-point statements,
+-- and an optional sidecar ContractStatus map (from .verified.json).
 -- For each function with contracts, identifies:
---   1. Its own verification level (from ContractStatus)
+--   1. Its own verification level (from ContractStatus, upgraded by sidecar)
 --   2. Which cross-module functions it calls (from the AST)
 --   3. Whether those callees have lower trust levels (epistemic drift)
-buildTrustReport :: ModuleCache -> [Statement] -> TrustReport
-buildTrustReport cache entryStmts =
+buildTrustReport :: ModuleCache -> [Statement] -> Map Name ContractStatus -> TrustReport
+buildTrustReport cache entryStmts sidecar =
   let -- Collect all contract statuses: qualified names from cache + entry module
-      allCS       = collectAllContractStatus cache entryStmts
+      baseCS      = collectAllContractStatus cache entryStmts
+      -- v0.9.0: merge sidecar evidence (verified, contract-checked, etc.)
+      -- into the base contract status map. Sidecar upgrades; base defaults remain
+      -- if the sidecar is missing a clause.
+      allCS       = Map.unionWith mergeCS sidecar baseCS
       -- Collect all exports from cache for type-checking call resolution
       allExports  = collectAllExports cache
       -- Build entries for every function that has contracts
