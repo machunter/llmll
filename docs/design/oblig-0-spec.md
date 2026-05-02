@@ -440,6 +440,7 @@ Net-new analysis in `ObligationMining.hs`. O(n²) bounded arithmetic search (var
 ### 8.2 Cardinality and Ordering (Rev 6 — Finding 5)
 
 - **Hard cap:** 8 entries each (16 total max, ~2.4KB).
+- **Truncation signal:** When the cap excludes candidates, the list carries `"truncated": true` (analogous to `scope_truncated` in checkout and `path_truncated` in path conditions). Absent or `false` when all candidates fit.
 - **Priority (Rev 6):** structural-equality match (post-zonking) > unification-only match > alphabetical. "Post-zonking" means type variables are resolved to their inferred concrete types before comparison; a polymorphic builtin like `list-head : list[a] -> Result[a, string]` that unifies with `Result[int, string]` ranks below a monomorphic function returning `Result[int, string]` directly.
 - **Trust label:** each entry carries `"status"`: `"verified"` / `"contract-checked"` / `"asserted"` / `"builtin"`.
 

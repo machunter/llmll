@@ -294,7 +294,7 @@ contract-checked  tested
 | Level | Meaning | When assigned |
 |-------|---------|---------------|
 | `verified` | Body-faithful SMT proof: the solver proved the function body satisfies the contract for all well-typed inputs. | `llmll verify` reports SAFE and the function's body VC was emitted |
-| `contract-checked` | The solver proved contract consistency (e.g., pre ⇒ post is satisfiable), but the function body was not encoded as a VC. | `llmll verify` reports SAFE for a fallback function (non-QF-LIA body, `letrec`, path-limit exceeded) |
+| `contract-checked` | The solver proved contract consistency (pre ⇒ post is valid — holds for all models of the contract pair), but the function body was not encoded as a VC. | `llmll verify` reports SAFE for a fallback function (non-QF-LIA body, `letrec`, path-limit exceeded) |
 | `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` passes; `llmll verify` skips or emits `?proof-required` |
 | `asserted` | Enforced as a runtime assertion only. No static or dynamic evidence of correctness beyond the assertion itself. | Default for any contract not yet run through `verify` or `test` |
 
