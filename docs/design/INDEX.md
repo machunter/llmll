@@ -13,6 +13,7 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 
 | Document | Summary | Status |
 |---|---|---|
+| [oblig-0-spec.md](oblig-0-spec.md) | OBLIG-0 design spec: obligation report JSON schema, three obligation channels (type/contract/trust), enriched typed holes, EMatch branch obligations, repair suggestions, benchmark suite. Prerequisite for v0.10 implementation. | **Approved** (Rev 8) — OBLIG-1/MOD-1 unblocked |
 | [verification-debate.md](verification-debate.md) | Archive of a formal methods critique. Answers 5 Socratic questions (TCB, logic authority, unproven contracts, totality, cross-agent assumptions). Establishes "sound modulo trust" as the defensible position. | Active reference |
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |

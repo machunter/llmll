@@ -84,11 +84,11 @@ This is the thing an agent can actually use. Three obligation channels:
 |---|-----|-------------|-------------|--------|
 | 1 | **OBLIG-0** | **[DESIGN]** Design spec: obligation report JSON schema, enriched typed holes (expected type + contract context + path condition + assumption set), `EMatch` branch obligation encoding, repair suggestion generation, benchmark suite definition. | COMP-0 | ☐ |
 | 2 | **MOD-1** | **[CT]** Cross-module `ContractEnv`: add `meContracts :: Map Name ([(Name, Type)], Contract)` field to `ModuleEnv` in `Syntax.hs`. Populate from `buildModuleEnv`. Wire into `ContractEnv` construction for imported modules. Required for cross-module obligation reports (OBLIG-2/3). See `TODO(v0.10)` in `Syntax.hs:530`. | COMP-1 | ☐ |
-| 3 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, and assumption set (from v0.8.1b `ContractStatus.csAssumptions`). Structured JSON output via `llmll checkout --obligations`. | OBLIG-0 | ☐ |
+| 3 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, assumption set, source/evidence hashes for staleness detection. New fields emitted unconditionally on `llmll checkout` (no extra flag). | OBLIG-0 | ☐ |
 | 4 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, MOD-1, COMP-1 | ☐ |
 | 5 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, MOD-1, COMP-3 | ☐ |
 | 6 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☐ |
-| 7 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligations` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☐ |
+| 7 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligation-report` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☐ |
 | 8 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☐ |
 
 ### Obligation Quality Benchmark
@@ -97,23 +97,36 @@ The success metric for v0.10:
 
 > *Can a simple repair loop fill common holes using only the structured obligation report, without hidden compiler knowledge?*
 
+**Tier 1 — Arithmetic Candidates (gates OBLIG-4 initial)**
+
 | Program | Hole | Required obligation fields | Expected candidate |
 |---|---|---|---|
 | `withdraw(balance, amount)` | body | expected type, path condition (`balance >= amount`), postcondition goal (`result >= 0`), in-scope vars | `(- balance amount)` |
+| `double(n)` | body | expected type (`int`), postcondition (`result = n + n`), in-scope vars | `(+ n n)` |
+
+**Tier 1 — Branch Obligations (gates OBLIG-3)**
+
+| Program | Hole | Required obligation fields | Expected |
+|---|---|---|---|
+| `safe-first(xs)` | body | expected type (`Result[int, string]`), 2-arm branch obligations from `(match (list-head xs) ...)` | Branch obligations with `backing` derived from actual body VC emission (`"smt"` iff `body-post` constraints emitted) |
+
+**Tier 2 — Conditional Synthesis (gates OBLIG-4 extension, deferred)**
+
+| Program | Hole | Required obligation fields | Expected candidate |
+|---|---|---|---|
 | `clamp(value, lo, hi)` | body | expected type, two-branch path conditions | `(if (< value lo) lo (if (> value hi) hi value))` |
-| `safe-head(xs)` | body | expected type (`Result[a, string]`), `EMatch` branch obligations (Cons vs Nil) | `(match xs ...)` with two arms |
 | `abs(n)` | body | expected type, postcondition goal (`result >= 0`), single branch split | `(if (< n 0) (- 0 n) n)` |
 
 ### Architectural Note: Path Conditions Bridge v0.9 → v0.10
 
-`bodyToPred` (v0.9) already computes path conditions for each `EIf`/`EMatch` branch — they are the guards in each `FlatPath`. v0.10 re-exports these same path conditions to the agent via the obligation report. No new analysis required — same semantic computation, new output format.
+`bodyToPred` (v0.9) already computes path conditions for each `EIf`/`EMatch` branch — they are the guards in each `FlatPath`. v0.10 re-exports these same path conditions to the agent via the obligation report. For hole-bearing functions (where `bodyToPredM` returns `Nothing`), a separate presentation-only guard-walker in `ObligationAssembly.hs` collects accumulated path conditions at each hole site (see OBLIG-0 spec §4.2.3).
 
 **Acceptance criteria:**
 - Obligation reports produced for all `?hole` sites, unproven contracts, and failed call-site preconditions
 - Obligation reports contain all three channels: type, contract, trust
-- `EMatch` branch obligations include per-branch context and sub-goals
-- Repair suggestions include at least: add guard, strengthen pre, weaken callee pre, candidate expression
-- Obligation quality benchmark passes for all four benchmark programs
+- `EMatch` branch obligations include per-branch context, sub-goals, and `backing` label (`"smt"` vs `"guidance"`)
+- Repair suggestions include at least: strengthen pre, weaken callee pre, candidate expression (arithmetic Tier 1)
+- Tier 1 benchmark passes (B1, B5, B3); Tier 2 benchmarks gate OBLIG-4 extension
 - Orchestrator end-to-end test: obligations → patch → verify → trust report
 
 ---

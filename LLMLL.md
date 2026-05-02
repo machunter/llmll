@@ -39,7 +39,7 @@
 
 ## 0.1 Semantic Foundation
 
-LLMLL's operational semantics are defined by the generated Haskell program. The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior. There is no separate formal semantics document. Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics — a verified contract holds for all well-typed inputs of the generated Haskell code. Compositional reasoning (v0.9.0): when function `f` calls contracted function `g`, the verifier proves that `f` satisfies `g`'s precondition (obligation) and assumes `g`'s postcondition (hypothesis). This assume-guarantee composition is sound when both functions are independently verified. Functions in recursive call cycles are excluded from compositional encoding and verified contract-only.
+LLMLL's operational semantics are defined by the generated Haskell program. The compiler is the reference implementation: if the generated Haskell compiles and runs, that is the correct behavior. There is no separate formal semantics document. Verification conditions emitted by `llmll verify` are sound with respect to this generated-program semantics under mathematical-integer (unbounded) semantics — a verified contract holds for all well-typed inputs of the generated Haskell code, modulo the `Int64` overflow gap documented in §5.3.5. Compositional reasoning (v0.9.0): when function `f` calls contracted function `g`, the verifier proves that `f` satisfies `g`'s precondition (obligation) and assumes `g`'s postcondition (hypothesis). This assume-guarantee composition is sound when both functions are independently verified. Functions in recursive call cycles are excluded from compositional encoding and verified contract-only.
 
 ---
 
@@ -228,11 +228,11 @@ All logic is contained in pure functions declared with `def-logic`. Functions ar
 
 ### 4.2 `letrec` (Recursive Functions with Termination Measures)
 
-Self-recursive functions must be declared with `letrec`, not `def-logic`. The `:decreases` measure is **required** — the compiler uses it to verify termination via `llmll verify`.
+Self-recursive functions must be declared with `letrec`, not `def-logic`. The `:decreases` measure is **required** — the compiler verifies that the measure expression is well-founded (`measure ≥ 0`) via `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) is **not yet verified** — it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7).
 
 ```lisp
 (letrec function-name [param1: Type1 ...]
-  :decreases decrease-expr   ;; required: must strictly decrease each recursive call
+  :decreases decrease-expr   ;; required: checked for well-foundedness (≥ 0)
   (pre  boolean-expression)  ;; optional
   (post boolean-expression)  ;; optional
   body-expression)
@@ -300,6 +300,9 @@ contract-checked  tested
 
 `contract-checked` and `tested` are **incomparable** — neither implies the other. Their meet (greatest lower bound) is `asserted`. This prevents a `tested`-only function from being silently treated as equivalent to a solver-checked function, or vice versa.
 
+> [!NOTE]
+> **Epistemic status distinction.** `contract-checked` provides **logical evidence** over the contract pair: the solver proved that the pre/post relationship is internally consistent, independent of the function body. It cannot be falsified by a counterexample (though the body may still violate it). `tested` provides **statistical evidence** over a random sample of size N (default 100): the property was not falsified, but may fail on the N+1th input. These are categorically different kinds of evidence and should not be treated as interchangeable trust signals.
+
 The display level is recorded per-clause in an `EvidenceRecord` that also carries a `body-faithful` flag and an optional `:source` provenance annotation. Display levels are stored per-function in the module's exported metadata (see §8 — `ModuleEnv` extensions).
 
 > The `verified` and `contract-checked` levels carry a prover tag (e.g., `verified (liquid-fixpoint)`). This tag appears in `.verified.json` sidecars and `--trust-report` output but does not affect the surface grammar. The `(trust ...)` declaration accepts four keywords: `verified`, `contract-checked`, `tested`, `asserted`. For details on how body-faithfulness distinguishes `verified` from `contract-checked`, see §5.3.4.
@@ -317,7 +320,7 @@ The `--contracts` flag controls which runtime assertions are compiled into the o
 Without a prior `llmll verify` pass, `llmll build` defaults to `--contracts=full`. The `--contracts` flag applies to Haskell code generation regardless of `--emit-only`.
 
 > [!IMPORTANT]
-> **Invariant:** Stripping a `verified` contract must not change observable behavior for any well-typed program. This invariant depends on `.fq` emitter faithfulness — see compiler team brief for verification obligations.
+> **Invariant:** Stripping a `verified` contract must not change observable behavior for any well-typed program. This invariant depends on `.fq` emitter faithfulness — see the [faithfulness invariant in FixpointEmit.hs](compiler/src/LLMLL/FixpointEmit.hs#L16-L27) and the [BODY-VC-0 design spec](docs/archive/shipped-design-specs/body-vc-0-spec.md).
 
 #### 4.4.3 Trust-Level Propagation
 
@@ -622,7 +625,7 @@ The following matrix documents the verification status of each syntax construct 
 | `EMatch` on `Result` (2-arm Success/Error) | ✅ | ✅ | ✅ | ✅ (v0.9.0 two-path) | ✅ | — |
 | `EMatch` (general ADT, >2 arms) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | `EPair`/`first`/`second` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
-| `letrec` (own body VC) | ✅ | ✅ | ⚠ termination only | ❌ | ✅ | runtime + `:decreases` check |
+| `letrec` (own body VC) | ✅ | ✅ | ⚠ measure well-formedness only | ❌ | ✅ | runtime + `:decreases` check |
 | `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |
 | `ELambda` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | **Int overflow** | ✅ | ✅ | ⚠ Z3 `Int` ≠ `Int64` | ⚠ | ✅ | documented gap |
@@ -674,7 +677,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ## 7. FFI & Capability System
 
-`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` with WASM-WASI planned as a future deployment target. Capability enforcement is active at compile time: when a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error, and propagation is non-transitive — each module must re-declare its own capability imports, matching the principle of least authority.
+`llmll` programs run in a capability-gated sandbox. All interactions with the outside world require `import` statements that grant specific **capabilities**. The sandbox implementation is Docker + `seccomp-bpf` + `{-# LANGUAGE Safe #-}` with WASM-WASI planned as a future deployment target. Capability enforcement is active at compile time: when a `wasi.*` function is called, the type checker verifies that a matching `SImport` with a `Capability` is present in the module’s statements. Missing imports produce a structured type error, and propagation is non-transitive — each module must re-declare its own capability imports, matching the principle of least authority. Non-transitive capability enforcement is implemented in [`TypeCheck.hs`](compiler/src/LLMLL/TypeCheck.hs#L641-L660) (CAP-1, shipped v0.4) and verified by the capability test fixtures in [`compiler/test/fixtures/`](compiler/test/fixtures/).
 
 ```lisp
 (module cloud-storage
@@ -1367,12 +1370,20 @@ The checkout response includes four optional fields (present when the compiler h
 
 ### 11.3 AST-Level Merging (Semantic Source Control)
 
-`llmll` bypasses text-based merge conflicts by operating exclusively on the AST:
+> [!WARNING]
+> **Designed, not yet implemented.** The following describes planned behavior for a future release. The current compiler does not implement AST-level merging beyond the JSON-Patch hole-filling pipeline of §11.2.
 
-- **Concurrent additions:** Agent A adds a function + Agent B adds a type → compiler merges tree nodes seamlessly.
-- **Logical conflicts:** Two agents redefine the same node incompatibly → compiler generates `?conflict-resolution` hole and flags the Lead AI. No `<<<< HEAD` markers.
+The design envisions that `llmll` will bypass text-based merge conflicts by operating exclusively on the AST:
+
+- **Concurrent additions:** Agent A adds a function + Agent B adds a type → the compiler will merge tree nodes seamlessly.
+- **Logical conflicts:** Two agents redefine the same node incompatibly → the compiler is designed to generate a `?conflict-resolution` hole and flag the Lead AI. No `<<<< HEAD` markers.
+
+The current module system provides `mergeModuleEnvs` (name unification across imports) and `mergeCS` (evidence-record reconciliation) in [`Module.hs`](compiler/src/LLMLL/Module.hs), but there is no `?conflict-resolution` hole generator or general AST-merge mechanism.
 
 ### 11.4 Global Module Invariants (`def-invariant`)
+
+> [!WARNING]
+> **Designed, not yet implemented.** `def-invariant` is parsed (reduced to `SDefLogic`) but semantic enforcement is deferred. Z3 invariant verification on merge is not yet implemented.
 
 A module can declare invariants that must hold over its state at all times:
 
@@ -1382,7 +1393,7 @@ A module can declare invariants that must hold over its state at all times:
      (state-total-supply state)))
 ```
 
-After any AST merge, the compiler runs Z3 verification of all declared invariants. A merge that breaks a global invariant is rejected before it can produce runnable code.
+The design intent is that after any AST merge, the compiler will run Z3 verification of all declared invariants. A merge that breaks a global invariant would be rejected before it can produce runnable code. This is not yet implemented — the `def-invariant` form is accepted by the parser but has no runtime or verification effect.
 
 ---
 
