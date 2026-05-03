@@ -54,6 +54,8 @@ module LLMLL.FixpointEmit
     -- * Compositional verification (v0.9.0)
   , ContractEnv
   , buildContractEnv
+  , buildContractEnvWithImports  -- v0.10 MOD-1
+  , buildSortEnv                 -- v0.10 (Language Team Correction 1)
   , applySubst
   , isConstructorDependent
   , collectCallPreObligations
@@ -81,6 +83,7 @@ import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic, mkWarning)
 import LLMLL.HoleAnalysis (buildCallGraph)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 
 -- ---------------------------------------------------------------------------
 -- Configuration (v0.8.0)
@@ -163,6 +166,18 @@ buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
     go (SDefLogic name params mRet contract _) = Just (name, (params, contract, mRet))
     go (SLetrec name params mRet contract _ _) = Just (name, (params, contract, mRet))
     go _ = Nothing
+
+-- | v0.10 MOD-1: Build a ContractEnv merging local contracts with imported
+-- module contracts from the ModuleCache. Local contracts shadow imports
+-- (Map.union has left-bias). This is the entry point for cross-module
+-- compositional verification in OBLIG-2.
+buildContractEnvWithImports :: [Statement] -> Map ModulePath ModuleEnv -> ContractEnv
+buildContractEnvWithImports stmts cache =
+  let localContracts    = buildContractEnv stmts
+      importedContracts = Map.foldl' (\acc menv -> Map.union acc (meContracts menv))
+                                     Map.empty cache
+  -- Local contracts shadow imported contracts (name collision resolution).
+  in Map.union localContracts importedContracts
 
 -- ---------------------------------------------------------------------------
 -- Built-in qualifier safety net
@@ -917,59 +932,14 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
 bodyToPredM _ _ _ _ _ = return Nothing
 
 -- ---------------------------------------------------------------------------
--- Guard translation (v0.8.0)
+-- Guard translation (v0.8.0, v0.10: extracted to GuardClassifier.hs)
 -- ---------------------------------------------------------------------------
 
--- | Translates guard expressions to FQPred, consulting BOTH the renaming
--- environment AND SortEnv. Variables are checked against sortEnv; non-int
--- or unknown vars cause fallback. This prevents the soundness bug where
--- exprToPred would silently assign FQInt to bool/string variables.
+-- | Translates guard expressions to FQPred. Delegates to the shared
+-- classifyGuardM core in GuardClassifier.hs (v0.10 drift mitigation,
+-- spec §4.2.4). Behavioral equivalent of the pre-extraction guardToPredM.
 guardToPredM :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe FQPred)
-guardToPredM env sortEnv (EVar v) =
-  let renamed = fromMaybe v (Map.lookup v env)
-  in case Map.lookup renamed sortEnv of
-       Just FQInt  -> return (Just (FQVar renamed))
-       _           -> return Nothing  -- non-int or unknown → fallback
-
-guardToPredM _ _ (ELit (LitBool True))  = return (Just FQTrue)
-guardToPredM _ _ (ELit (LitBool False)) = return (Just FQFalse)
-guardToPredM _ _ (ELit (LitInt n))      = return (Just (FQLit n))
-
--- Comparison operators (including Unicode aliases)
-guardToPredM env se (EApp op [l, r])
-  | Just binOp <- lookupPredOp op = do
-      lp <- guardToPredM env se l
-      rp <- guardToPredM env se r
-      return $ FQBinPred binOp <$> lp <*> rp
-
--- Arithmetic in guards
-guardToPredM env se (EApp op [l, r])
-  | Just binOp <- lookupArithOp op = do
-      lp <- guardToPredM env se l
-      rp <- guardToPredM env se r
-      return $ FQBinArith binOp <$> lp <*> rp
-
--- Non-linear in guards
-guardToPredM _ _ (EApp op [_, _])
-  | op `elem` ["*", "/", "mod", "rem"] = return Nothing
-
-guardToPredM env se (EApp "not" [a]) = do
-  ap <- guardToPredM env se a
-  return $ FQNot <$> ap
-
-guardToPredM env se (EApp "and" args) = do
-  ps <- mapM (guardToPredM env se) args
-  return $ if all isJust ps then Just (FQAnd (catMaybes ps)) else Nothing
-
-guardToPredM env se (EApp "or" args) = do
-  ps <- mapM (guardToPredM env se) args
-  return $ if all isJust ps then Just (FQOr (catMaybes ps)) else Nothing
-
--- Normalize EOp
-guardToPredM env se (EOp name args) = guardToPredM env se (EApp name args)
-
--- Everything else in guard position: ELet, EIf, etc. → fallback
-guardToPredM _ _ _ = return Nothing
+guardToPredM = classifyGuardM
 
 -- ---------------------------------------------------------------------------
 -- Flattening and path counting (v0.8.0)
@@ -1093,29 +1063,10 @@ buildSortEnv aliases params = Map.fromList
   [ (n, typeToSort t) | (n, t) <- params, isIntLike aliases t ]
 
 -- ---------------------------------------------------------------------------
--- Operator lookup tables (v0.8.0)
+-- Operator lookup tables (v0.8.0, v0.10: moved to GuardClassifier.hs)
 -- ---------------------------------------------------------------------------
-
--- | Look up an arithmetic binary operator (including Unicode aliases).
-lookupArithOp :: Name -> Maybe FQBinOp
-lookupArithOp "+" = Just FQAdd
-lookupArithOp "-" = Just FQSub
-lookupArithOp _   = Nothing
-
--- | Look up a predicate binary operator (including Unicode aliases).
-lookupPredOp :: Name -> Maybe FQBinOp
-lookupPredOp ">="  = Just FQGe
-lookupPredOp "≥"   = Just FQGe
-lookupPredOp ">"   = Just FQGt
-lookupPredOp "<="  = Just FQLe
-lookupPredOp "≤"   = Just FQLe
-lookupPredOp "<"   = Just FQLt
-lookupPredOp "="   = Just FQEq
-lookupPredOp "=="  = Just FQEq
-lookupPredOp "/="  = Just FQNeq
-lookupPredOp "!="  = Just FQNeq
-lookupPredOp "≠"   = Just FQNeq
-lookupPredOp _     = Nothing
+-- lookupArithOp and lookupPredOp are now imported from LLMLL.GuardClassifier.
+-- Internal uses in this module (exprToPred, bodyToPredM) go through the import.
 
 -- ---------------------------------------------------------------------------
 -- Compositional verification helpers (v0.9.0 COMP-1)

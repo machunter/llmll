@@ -1,0 +1,3 @@
+(def-logic double [n: int]
+  (post (= result (+ n n)))
+  ?body_impl)

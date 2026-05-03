@@ -15,6 +15,9 @@ runtime/
 # Local agent workflows — not part of the project source
 .agents/
 
+# Outreach planning, drafts, and posting workspace — local only
+outreach-workspace/
+
 # Local toolchain path overrides (machine-specific)
 .env
 tools/llmll-orchestra/.env

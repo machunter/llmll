@@ -22,6 +22,8 @@ module LLMLL.Serve
   ) where
 
 import Control.Monad (when)
+import Data.Version (showVersion)
+import Paths_llmll (version)
 import Data.Aeson (encode, object, (.=), Value(..))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
@@ -173,7 +175,7 @@ respond404 = responseLBS status404 jsonCT
 handleHealth :: IO Response
 handleHealth = pure $ respondOK $ encode $ object
   [ "status"  .= ("ok"    :: T.Text)
-  , "version" .= ("0.2.0" :: T.Text) ]
+  , "version" .= T.pack (showVersion version) ]
 
 -- | POST /typecheck — full type-check, returns DiagnosticReport JSON.
 handleTypecheck :: Request -> IO Response
@@ -191,7 +193,7 @@ handleTypecheck req = do
                [ "success"     .= reportSuccess report
                , "diagnostics" .= reportDiagnostics report ]
 
--- | POST /sketch — sketch inference, returns schemaVersion 0.2.0 JSON.
+-- | POST /sketch — sketch inference, returns schemaVersion JSON.
 -- emptyTCState constructed here (inside handler), not at server startup.
 handleSketch :: Request -> IO Response
 handleSketch req = do

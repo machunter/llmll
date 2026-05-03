@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.9.0 shipped (Compositional Verification). Module system hardened (v0.9.1). Feature freeze active. 463 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.9.0 shipped (Compositional Verification). Module system hardened (v0.9.1). Feature freeze active. 474 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -82,14 +82,14 @@ This is the thing an agent can actually use. Three obligation channels:
 
 | # | ID | Description | Prerequisite | Status |
 |---|-----|-------------|-------------|--------|
-| 1 | **OBLIG-0** | **[DESIGN]** Design spec: obligation report JSON schema, enriched typed holes (expected type + contract context + path condition + assumption set), `EMatch` branch obligation encoding, repair suggestion generation, benchmark suite definition. | COMP-0 | ☐ |
-| 2 | **MOD-1** | **[CT]** Cross-module `ContractEnv`: add `meContracts :: Map Name ([(Name, Type)], Contract)` field to `ModuleEnv` in `Syntax.hs`. Populate from `buildModuleEnv`. Wire into `ContractEnv` construction for imported modules. Extend `ctVerifiedHash` staleness guard to hash all imported `.verified.json` files (OBLIG-0 §5.3 Rev 6 Finding 3). Required for cross-module obligation reports (OBLIG-2/3). See `TODO(v0.10)` in `Syntax.hs:530`. | COMP-1 | ☐ |
-| 3 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, assumption set, source/evidence hashes for staleness detection. New fields emitted unconditionally on `llmll checkout` (no extra flag). | OBLIG-0 | ☐ |
-| 4 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, MOD-1, COMP-1 | ☐ |
-| 5 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, MOD-1, COMP-3 | ☐ |
-| 6 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☐ |
-| 7 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligation-report` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☐ |
-| 8 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☐ |
+| 1 | **OBLIG-0** | **[DESIGN]** Design spec: obligation report JSON schema, enriched typed holes (expected type + contract context + path condition + assumption set), `EMatch` branch obligation encoding, repair suggestion generation, benchmark suite definition. | COMP-0 | ☑ |
+| 2 | **MOD-1** | **[CT]** Cross-module `ContractEnv`: add `meContracts :: Map Name ([(Name, Type)], Contract)` field to `ModuleEnv` in `Syntax.hs`. Populate from `buildModuleEnv`. Wire into `ContractEnv` construction for imported modules. Extend `ctVerifiedHash` staleness guard to hash all imported `.verified.json` files (OBLIG-0 §5.3 Rev 6 Finding 3). Required for cross-module obligation reports (OBLIG-2/3). See `TODO(v0.10)` in `Syntax.hs:530`. | COMP-1 | ☑ |
+| 3 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, assumption set, source/evidence hashes for staleness detection. New fields emitted unconditionally on `llmll checkout` (no extra flag). | OBLIG-0 | ☑ |
+| 4 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, MOD-1, COMP-1 | ☑ |
+| 5 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, MOD-1, COMP-3 | ☑ |
+| 6 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☑ |
+| 7 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligation-report` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☑ |
+| 8 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☑ |
 
 ### Obligation Quality Benchmark
 
@@ -208,7 +208,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 |------|---------------|-------------|
 | **Feature freeze** (v0.8.1a–v0.10) | **Active** (2026-04-30, extended 2026-05-01) | No new builtins, syntax, FFI, WASI, or orchestration features until v0.10 ships |
 | **Evidence model design** (EVID-0) | **Approved** (Rev 2) | Design spec approved, ready for v0.8.1b implementation |
-| **Obligation-guided agent coding** (v0.10) | **Planned** (2026-05-01) | Structured obligation reports for agents. Replaces indexed-type approach from research track. |
+| **Obligation-guided agent coding** (v0.10) | **Shipped** (2026-05-03) | Structured obligation reports for agents. 8 items (OBLIG-0–OBLIG-B) complete. 556 tests. |
 | **Module system hardening** (v0.9.1) | **Shipped** (2026-05-01) | Spec restructured (§8.3/5/6/7), cycle detection fixed, 11 new tests (M-01–M-07), `life_sexp` corrected. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future). |
 | **Cross-module ContractEnv** (MOD-1) | **v0.10 prerequisite** | `meContracts` field in `ModuleEnv`. Required before OBLIG-2/3 can use imported contracts. |
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |
@@ -293,7 +293,7 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 
 **v0.9 result:** All 8 items shipped (2026-05-01). COMP-0 ✅ (Rev 2 design spec), COMP-1 ✅ (CallVC + ContractEnv + call-pre emission), COMP-2 ✅ (SCC detection), COMP-3 ✅ (EMatch on Result), COMP-4 ✅ (trust degradation via existing enrichEntry), COMP-5 ✅ (call-pre diagnostics), COMP-6 ✅ (--strict-verified-core), COMP-T ✅ (18 golden tests). 4 source files + test suite updated. 452 Haskell + 37 Python tests.
 
-**v0.9.1 result (module system hardening):** Professor's review audit (2026-05-01). Spec restructured (§8.3 ordering, §8.5 namespace resolution, §8.6 open semantics, §8.7 export scope). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected (`open` declarations added). `ModuleEnv` TODO annotated. 11 new module system tests (M-01–M-07). 463 Haskell + 37 Python tests. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future — per-module codegen, strict loader, interface wiring).
+**v0.9.1 result (module system hardening):** Professor's review audit (2026-05-01). Spec restructured (§8.3 ordering, §8.5 namespace resolution, §8.6 open semantics, §8.7 export scope). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected (`open` declarations added). `ModuleEnv` TODO annotated. 11 new module system tests (M-01–M-07). 474 Haskell + 37 Python tests. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future — per-module codegen, strict loader, interface wiring).
 
 **v0.10 scope:** Obligation-guided agent coding. Structured obligation reports (JSON) for every hole, unproven contract, and failed call-site precondition. Three obligation channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions via `ObligationMining.hs`. Obligation quality benchmark. Design review (OBLIG-0) required before implementation. Cross-module `ContractEnv` (MOD-1) is a prerequisite for obligation reports that span module boundaries. ~5–7 days. **Note:** Indexed/dependent types are explicitly excluded from v0.10 (professor consensus, 2026-05-01) and remain in the research track.
 
@@ -323,7 +323,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. — **shipped (2026-04-29)**. |
 | **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
 | **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. `EvidenceRecord` with body-faithfulness + source provenance. `AssumptionKind` taxonomy. Hard break for `.verified.json`. 14 source files + test suite. 322 tests (+2). — **shipped (2026-05-01)**. |
-| **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). **v0.9.1:** Module system hardening (spec, cycle fix, 11 tests, `life_sexp` fix). 463 tests. — **shipped (2026-05-01)**. |
+| **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). **v0.9.1:** Module system hardening (spec, cycle fix, 11 tests, `life_sexp` fix). 474 tests. — **shipped (2026-05-01)**. |
 | **v0.10** | *(new, 2026-05-01)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. OBLIG-0 design review required. ~5–7 days. Indexed types explicitly excluded. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
@@ -360,7 +360,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | 7 | COMP-6 | `--strict-verified-core` CLI flag | ✅ |
 | 8 | COMP-T | 18 golden tests | ✅ |
 
-**v0.9.1 (module system hardening):** Spec restructured (§8.3/5/6/7). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected. 11 new module system tests (M-01–M-07). 463 Haskell + 37 Python tests.
+**v0.9.1 (module system hardening):** Spec restructured (§8.3/5/6/7). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected. 11 new module system tests (M-01–M-07). 474 Haskell + 37 Python tests.
 
 
 ## v0.8.1b — Evidence Model Refactor ✅ SHIPPED

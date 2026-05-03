@@ -9,6 +9,7 @@
 --   4. Apply RFC 6902 ops (replace/add/remove/test)
 --   5. Re-parse Value → [Statement] via parseJSONASTValue
 --   6. Re-typecheck
+--   6.5 Re-verify via emitFixpoint + liquid-fixpoint (if contracts present)
 --   7. On success: write updated .ast.json, clear lock entry
 --
 -- Advisory flock held for the entire read→verify→write cycle (§2.3).
@@ -23,6 +24,9 @@ module LLMLL.PatchApply
   , parsePatchRequest
   , parsePatchOp
   , toPatchOpInfos
+  , hasContracts     -- v0.10: exported for testing
+  -- v0.10: SHA-256 hashing (used by Main.hs for checkout staleness)
+  , hashFile
   ) where
 
 import Data.Aeson (Value(..), FromJSON(..), ToJSON(..), withObject, (.:), (.=), object)
@@ -40,9 +44,19 @@ import LLMLL.Checkout (loadLock, saveLock, expireStale, CheckoutToken(..), Check
 import LLMLL.ParserJSON (parseJSONASTValue)
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
-import LLMLL.Syntax (Statement)
+import LLMLL.Syntax (Statement(..), Contract(..))
+import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
+import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 
 import Data.Time.Clock (getCurrentTime)
+import System.Directory (doesFileExist, findExecutable)
+import System.FilePath (takeBaseName)
+import System.Process (readProcessWithExitCode)
+import qualified Data.Text.IO as TIO
+import qualified Crypto.Hash.SHA256 as SHA256
+import qualified Data.ByteString as BS
+import Data.Word (Word8)
+import Numeric (showHex)
 
 -- ---------------------------------------------------------------------------
 -- Data Types
@@ -62,7 +76,8 @@ data PatchOp
 
 data PatchResult
   = PatchSuccess Int               -- number of statements in result
-  | PatchTypeError DiagnosticReport -- type errors from re-verification
+  | PatchTypeError DiagnosticReport -- type errors from re-typecheck
+  | PatchVerifyError DiagnosticReport -- SMT verification failed (contracts violated)
   | PatchApplyError Text           -- structural error, test failure, move/copy rejection
   | PatchAuthError Text            -- invalid/expired/scope-violation
   deriving (Show)
@@ -74,6 +89,10 @@ instance ToJSON PatchResult where
     ]
   toJSON (PatchTypeError report) = object
     [ "result"      .= ("PatchTypeError" :: Text)
+    , "diagnostics" .= reportDiagnostics report
+    ]
+  toJSON (PatchVerifyError report) = object
+    [ "result"      .= ("PatchVerifyError" :: Text)
     , "diagnostics" .= reportDiagnostics report
     ]
   toJSON (PatchApplyError msg) = object
@@ -206,43 +225,103 @@ applyPatch fp pr = do
   case matchingTokens of
     [] -> pure $ PatchAuthError "invalid or expired checkout token"
     (ct:_) -> do
-      -- 2. Scope check
-      case validateScope (ctPointer ct) (prPatch pr) of
-        Left err -> pure $ PatchAuthError err
-        Right () -> do
-          -- 3. Load source JSON
-          raw <- BL.readFile fp
-          case A.decode raw of
-            Nothing -> pure $ PatchApplyError "cannot parse source file as JSON"
-            Just astVal -> do
-              -- 4. Apply ops
-              case applyOps (prPatch pr) astVal of
-                Left err -> pure $ PatchApplyError err
-                Right patchedVal -> do
-                  -- Build patch op info for diagnostic rebasing
-                  let opInfos = toPatchOpInfos (prPatch pr)
-                  -- 5. Re-parse patched JSON → statements
-                  case parseJSONASTValue patchedVal of
-                    Left diags -> pure $ PatchTypeError DiagnosticReport
-                      { reportPhase       = "patch"
-                      , reportSuccess     = False
-                      , reportDiagnostics = map (rebaseToPatch opInfos) diags
-                      }
-                    Right stmts -> do
-                      -- 6. Re-typecheck
-                      let report = typeCheck emptyEnv stmts
-                      if reportSuccess report
-                        then do
-                          -- 7. Write patched JSON and clear lock entry
-                          BL.writeFile fp (A.encode patchedVal)
-                          let remaining = filter (\t -> ctToken t /= prToken pr) (lockTokens cleanLock)
-                              newLock = cleanLock { lockTokens = remaining }
-                          saveLock fp newLock
-                          pure $ PatchSuccess (length stmts)
-                        else do
-                          -- Type errors: rebase pointers, don't write, preserve lock for retry
-                          let rebased = report { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics report) }
-                          pure $ PatchTypeError rebased
+      -- v0.10 OBLIG-1: Staleness validation (between step 1 and step 2)
+      -- Compare source/verified hashes against current files.
+      -- If ctSourceHash/ctVerifiedHash are Nothing (pre-v0.10 lock file),
+      -- skip the check entirely (backward compat, Correction 4).
+      staleResult <- checkStaleness fp ct
+      case staleResult of
+        Just err -> pure $ PatchAuthError err
+        Nothing -> do
+          -- 2. Scope check
+          case validateScope (ctPointer ct) (prPatch pr) of
+            Left err -> pure $ PatchAuthError err
+            Right () -> do
+              -- 3. Load source JSON
+              raw <- BL.readFile fp
+              case A.decode raw of
+                Nothing -> pure $ PatchApplyError "cannot parse source file as JSON"
+                Just astVal -> do
+                  -- 4. Apply ops
+                  case applyOps (prPatch pr) astVal of
+                    Left err -> pure $ PatchApplyError err
+                    Right patchedVal -> do
+                      -- Build patch op info for diagnostic rebasing
+                      let opInfos = toPatchOpInfos (prPatch pr)
+                      -- 5. Re-parse patched JSON → statements
+                      case parseJSONASTValue patchedVal of
+                        Left diags -> pure $ PatchTypeError DiagnosticReport
+                          { reportPhase       = "patch"
+                          , reportSuccess     = False
+                          , reportDiagnostics = map (rebaseToPatch opInfos) diags
+                          }
+                        Right stmts -> do
+                          -- 6. Re-typecheck
+                          let report = typeCheck emptyEnv stmts
+                          if reportSuccess report
+                            then do
+                              -- 6.5 Re-verify via SMT (if contracts present)
+                              verifyResult <- reVerify fp stmts
+                              case verifyResult of
+                                Just unsafeReport -> do
+                                  -- Verification failed: rebase diagnostics, don't write, preserve lock
+                                  let rebased = unsafeReport { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics unsafeReport) }
+                                  pure $ PatchVerifyError rebased
+                                Nothing -> do
+                                  -- 7. Write patched JSON and clear lock entry
+                                  BL.writeFile fp (A.encode patchedVal)
+                                  let remaining = filter (\t -> ctToken t /= prToken pr) (lockTokens cleanLock)
+                                      newLock = cleanLock { lockTokens = remaining }
+                                  saveLock fp newLock
+                                  pure $ PatchSuccess (length stmts)
+                            else do
+                              -- Type errors: rebase pointers, don't write, preserve lock for retry
+                              let rebased = report { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics report) }
+                              pure $ PatchTypeError rebased
+
+-- ---------------------------------------------------------------------------
+-- v0.10 OBLIG-1: Staleness Guards
+-- ---------------------------------------------------------------------------
+
+-- | Check if the checkout token's source/verified hashes are still current.
+-- Returns Nothing if no staleness detected (or no hashes to check — pre-v0.10).
+-- Returns Just errorMessage if stale.
+checkStaleness :: FilePath -> CheckoutToken -> IO (Maybe Text)
+checkStaleness fp ct = do
+  -- Source file staleness
+  srcResult <- case ctSourceHash ct of
+    Nothing -> pure Nothing  -- pre-v0.10 token: skip check
+    Just expectedHash -> do
+      currentHash <- hashFile fp
+      pure $ if currentHash /= expectedHash
+        then Just "obligation context is stale — re-checkout required (source file changed)"
+        else Nothing
+  case srcResult of
+    Just err -> pure (Just err)
+    Nothing -> do
+      -- Verified sidecar staleness
+      case ctVerifiedHash ct of
+        Nothing -> pure Nothing  -- pre-v0.10 token or no sidecar: skip check
+        Just expectedHash -> do
+          let verifiedFp = fp ++ ".verified.json"
+          exists <- doesFileExist verifiedFp
+          if not exists
+            then pure $ Just "obligation context is stale — re-checkout required (.verified.json removed)"
+            else do
+              currentHash <- hashFile verifiedFp
+              pure $ if currentHash /= expectedHash
+                then Just "obligation context is stale — re-checkout required (.verified.json changed)"
+                else Nothing
+
+-- | Compute SHA-256 hash of a file, returning the hex-encoded digest.
+hashFile :: FilePath -> IO Text
+hashFile path = do
+  contents <- BS.readFile path
+  let digest = SHA256.hash contents
+  pure $ T.pack (concatMap toHex (BS.unpack digest))
+  where
+    toHex :: Word8 -> String
+    toHex w = let s = showHex w "" in if length s == 1 then '0' : s else s
 
 -- ---------------------------------------------------------------------------
 -- Patch Op Info Construction
@@ -258,3 +337,54 @@ toPatchOpInfos ops = concatMap toInfo (zip [0..] ops)
     toInfo (i, PatchAdd p _)     = [PatchOpInfo i p "add"]
     toInfo (i, PatchRemove p)    = [PatchOpInfo i p "remove"]
     toInfo (_, PatchTest _ _)    = []  -- test ops can't introduce errors
+
+-- ---------------------------------------------------------------------------
+-- v0.10 BUG-PATCH-VERIFY: SMT Re-Verification
+-- ---------------------------------------------------------------------------
+
+-- | Check if any top-level function carries contracts (pre or post).
+-- Used to skip re-verification when no contracts exist (no work for the solver).
+hasContracts :: [Statement] -> Bool
+hasContracts = any stmtHasContract
+  where
+    stmtHasContract (SDefLogic _ _ _ c _)  = contractPre c /= Nothing || contractPost c /= Nothing
+    stmtHasContract (SLetrec _ _ _ c _ _)  = contractPre c /= Nothing || contractPost c /= Nothing
+    stmtHasContract _ = False
+
+-- | Re-verify patched statements via emitFixpoint + liquid-fixpoint.
+-- Returns Nothing on success (SAFE, solver missing, no contracts, solver error).
+-- Returns Just report on UNSAFE (contract violation detected).
+--
+-- Graceful degradation: if liquid-fixpoint is not installed, returns Nothing
+-- (patch proceeds on typecheck success alone). This matches doVerify behavior.
+reVerify :: FilePath -> [Statement] -> IO (Maybe DiagnosticReport)
+reVerify fp stmts
+  | not (hasContracts stmts) = pure Nothing  -- no contracts → skip
+  | otherwise = do
+      -- Emit .fq constraints with body-faithful VCs
+      let emitOpts = defaultEmitOptions { emitBodyVCs = True }
+      emitR <- emitFixpointWith emitOpts fp stmts
+      let fqText = erFQText emitR
+          table  = erConstraintTable emitR
+      -- Find liquid-fixpoint binary
+      mLF <- do
+        a <- findExecutable "liquid-fixpoint"
+        case a of
+          Just _ -> return a
+          Nothing -> findExecutable "fixpoint"
+      case mLF of
+        Nothing -> pure Nothing  -- graceful degradation: no solver installed
+        Just lfBin -> do
+          -- Write .fq to temp file
+          let baseName = takeBaseName fp
+              fqPath   = "/tmp/llmll-patch-" <> baseName <> ".fq"
+          TIO.writeFile fqPath fqText
+          -- Run solver
+          (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+          let outT     = T.pack out
+              fqResult = parseFQResult (outT <> T.pack err)
+              fqReport = fqResultToReport fp table fqResult
+          case fqResult of
+            FQSafe     -> pure Nothing       -- SAFE → proceed with write
+            FQUnsafe _ -> pure (Just fqReport)  -- UNSAFE → reject patch
+            FQError _  -> pure Nothing       -- solver error → graceful: proceed

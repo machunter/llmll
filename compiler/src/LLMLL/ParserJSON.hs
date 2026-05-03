@@ -6,7 +6,7 @@
 --
 -- The two parsers MUST agree on every construct. Any divergence is a bug.
 --
--- JSON schema: docs/llmll-ast.schema.json (v0.2.0)
+-- JSON schema: docs/llmll-ast.schema.json
 -- Versioning policy: docs/json-ast-versioning.md
 module LLMLL.ParserJSON
   ( parseJSONAST

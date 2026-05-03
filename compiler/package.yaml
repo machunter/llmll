@@ -1,5 +1,5 @@
 name:                llmll
-version:             0.2.0
+version:             0.10.0
 synopsis:            LLMLL compiler - AI-to-AI programming language
 description:         Compiler for the Large Language Model Logical Language
 license:             MIT
@@ -72,6 +72,7 @@ library:
     # D4: liquid-fixpoint decoupled verification backend
     - LLMLL.FixpointIR
     - LLMLL.FixpointEmit
+    - LLMLL.GuardClassifier
     - LLMLL.DiagnosticFQ
     # D5: HTTP serve endpoint
     - LLMLL.Serve
@@ -101,6 +102,8 @@ library:
     - LLMLL.ObligationMining
     # v0.6: spec coverage metric
     - LLMLL.SpecCoverage
+    # v0.10: obligation report assembly
+    - LLMLL.ObligationAssembly
 
 executables:
   llmll:

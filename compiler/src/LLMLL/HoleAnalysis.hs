@@ -29,6 +29,8 @@ module LLMLL.HoleAnalysis
   , normalizeComplexity
     -- * v0.9.0: call graph (shared with FixpointEmit for SCC detection)
   , buildCallGraph
+    -- * v0.10: pointer → function name (shared with ObligationAssembly)
+  , enclosingFunc
   ) where
 
 import Data.Text (Text)

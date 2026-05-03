@@ -1,0 +1,31 @@
+{
+  "token": "495c4be4dbfdb8a140a72684c842105457c4d94efe745cc21aa536531a97cb20",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/statements/1/body",
+      "value": {
+        "kind": "hole-named",
+        "name": "body_impl"
+      }
+    },
+    {
+      "op": "replace",
+      "path": "/statements/1/body",
+      "value": {
+        "kind": "app",
+        "fn": "+",
+        "args": [
+          {
+            "kind": "var",
+            "name": "balance"
+          },
+          {
+            "kind": "var",
+            "name": "amount"
+          }
+        ]
+      }
+    }
+  ]
+}
