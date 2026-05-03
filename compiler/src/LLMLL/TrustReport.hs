@@ -15,6 +15,7 @@ module LLMLL.TrustReport
   , buildTrustReport
   , formatTrustReport
   , formatTrustReportJson
+  , effectiveLevel     -- v0.10: for obligation trust labels (F9)
   ) where
 
 import Data.Map.Strict (Map)

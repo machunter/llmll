@@ -26,6 +26,9 @@ module LLMLL.ObligationAssembly
   , normalizeForFingerprint
   , obligationStatus
   , recursiveNames
+  , patternBindings
+  , isTypeCompatible
+  , trustLabel
     -- * Assembly
   , assembleReport
   , encodeReport
@@ -55,10 +58,12 @@ import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap )
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
-import LLMLL.TrustReport (TrustReport(..), TrustEntry(..))
+import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), effectiveLevel)
 import LLMLL.HoleAnalysis
   ( HoleReport(..), HoleEntry(..), HoleStatus(..)
   , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc )
+import LLMLL.ObligationMining (isQfLia, generateCandidates, CandidateExpr(..))
+import LLMLL.TypeCheck (builtinEnv)
 import LLMLL.GuardClassifier (classifyGuardM)
 
 -- ---------------------------------------------------------------------------
@@ -126,6 +131,11 @@ data ObligationObj = ObligationObj
   , ooContractedFns   :: [Value]
   , ooAvailableFns    :: [Value]
   , ooSuggestions     :: [Value]
+  -- Branch-specific fields (F4: only populated for BranchObligation)
+  , ooParentId        :: Maybe Text
+  , ooBranchIndex     :: Maybe Int
+  , ooConstructor     :: Maybe Text
+  , ooBindings        :: [Value]
   } deriving (Show)
 
 -- | Report summary (spec §2.1)
@@ -241,8 +251,8 @@ classifyContractFragment :: Contract -> Text
 classifyContractFragment c
   | contractPre c == Nothing && contractPost c == Nothing = "absent"
   | otherwise =
-      let preOk  = maybe True isQfLiaExpr (contractPre c)
-          postOk = maybe True isQfLiaExpr (contractPost c)
+      let preOk  = maybe True isQfLia (contractPre c)
+          postOk = maybe True isQfLia (contractPost c)
       in if preOk && postOk then "qf_lia" else "non_qf_lia"
 
 -- | Classify body fragment (spec §4.2.2).
@@ -310,16 +320,168 @@ hasHole (ELambda _ body) = hasHole body
 hasHole (EDo steps)      = any (\(DoStep _ e) -> hasHole e) steps
 hasHole _                = False
 
--- | Simple QF-LIA check for contract expressions.
-isQfLiaExpr :: Expr -> Bool
-isQfLiaExpr (EVar _)          = True
-isQfLiaExpr (ELit (LitInt _)) = True
-isQfLiaExpr (ELit (LitBool _))= True
-isQfLiaExpr (EApp op args)
-  | op `elem` [">=", "<=", ">", "<", "=", "==", "/=", "!=",
-                "+", "-", "not", "and", "or", "≥", "≤", "≠"]
-  = all isQfLiaExpr args
-isQfLiaExpr _ = False
+-- | isQfLia is now imported from ObligationMining (F5: predicate drift fix).
+
+-- ---------------------------------------------------------------------------
+-- Phase 3: Branch obligation helpers (OBLIG-3)
+-- ---------------------------------------------------------------------------
+
+-- | Extract variable bindings from a pattern (F2: recursive on PConstructor).
+patternBindings :: Pattern -> [(Name, Text)]
+patternBindings (PVar v)            = [(v, "match-arm")]
+patternBindings (PConstructor _ ps) = concatMap patternBindings ps
+patternBindings PWildcard           = []
+patternBindings (PLiteral _)        = []
+
+-- | Best-effort type recovery for scrutinee (Q1/b2).
+inferScrutineeType :: [(Name, Type)] -> Expr -> Maybe Type
+inferScrutineeType params (EVar v) = lookup v params
+inferScrutineeType _ _             = Nothing
+
+-- | Look up a constructor's payload type from a sum type (R1).
+lookupConstructorPayload :: AliasMap -> Type -> Name -> Maybe Type
+lookupConstructorPayload aliases scrutTy ctorName =
+  case resolveType scrutTy of
+    TSumType ctors ->
+      lookup ctorName ctors >>= id
+    TResult okTy errTy
+      | ctorName == "Success" -> Just okTy
+      | ctorName == "Error"   -> Just errTy
+    _ -> Nothing
+  where
+    resolveType (TCustom n) = maybe (TCustom n) resolveType (Map.lookup n aliases)
+    resolveType t           = t
+
+-- | Assemble branch obligations from EMatch in hole-bearing functions (F1).
+-- Two-pass: takes hole obligations for parent_id linkage.
+assembleBranchObligations :: [ObligationObj] -> [Statement] -> ConstraintTable
+                          -> Maybe FQVerifyResult -> Set Name -> AliasMap
+                          -> [ObligationObj]
+assembleBranchObligations holeObls stmts table mFqResult suppressed aliases =
+  concatMap (branchesForHole stmts table mFqResult suppressed aliases) holeObls
+
+branchesForHole :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
+                -> Set Name -> AliasMap -> ObligationObj -> [ObligationObj]
+branchesForHole stmts table mFqResult suppressed aliases parentObl =
+  let fnName = ooFunction parentObl
+      (mContract, mParams, mBody) = findFunctionInfo fnName stmts
+      params = fromMaybe [] mParams
+      contract = fromMaybe emptyContract mContract
+  in case mBody of
+    Nothing -> []
+    Just body -> findMatchBranches fnName params contract parentObl
+                   table mFqResult suppressed aliases body
+
+findMatchBranches :: Name -> [(Name, Type)] -> Contract -> ObligationObj
+                  -> ConstraintTable -> Maybe FQVerifyResult -> Set Name
+                  -> AliasMap -> Expr -> [ObligationObj]
+findMatchBranches fnName params contract parentObl table mFqResult suppressed aliases = go
+  where
+    go (EMatch scrut arms) =
+      let scrutTy = inferScrutineeType params scrut
+      in concatMap (\(i, (pat, armBody)) ->
+        let ctorName = case pat of
+              PConstructor c _ -> c
+              PVar v           -> v
+              PWildcard        -> "_"
+              PLiteral _       -> "<lit>"
+            binds = patternBindings pat
+            typedBinds = case scrutTy of
+              Just sty -> map (\(n, src) ->
+                let ty = case pat of
+                      PConstructor c _ -> maybe "_" typeLabel
+                                           (lookupConstructorPayload aliases sty c)
+                      _ -> "_"
+                in object ["name" .= n, "type" .= (ty :: Text), "source" .= src]) binds
+              Nothing -> map (\(n, src) ->
+                object ["name" .= n, "type" .= ("_" :: Text), "source" .= src]) binds
+            pathEntry = PathEntry ("(match-" <> ctorName <> ")") "structural"
+            status = obligationStatus mFqResult fnName BranchObligation table suppressed
+            backing = deriveBacking table fnName BranchObligation
+            oblId = normalizeForFingerprint fnName params (contractPost contract)
+                      ("branch-" <> T.pack (show i))
+        in [ObligationObj
+              { ooId              = oblId
+              , ooOrigin          = ooOrigin parentObl <> "/arms/" <> T.pack (show i)
+              , ooKind            = BranchObligation
+              , ooBacking         = backing
+              , ooStatus          = status
+              , ooFunction        = fnName
+              , ooTypeChannel     = Nothing
+              , ooContractChannel = Nothing
+              , ooTrustChannel    = Nothing
+              , ooContractedFns   = []
+              , ooAvailableFns    = []
+              , ooSuggestions     = []
+              , ooParentId        = Just (ooId parentObl)
+              , ooBranchIndex     = Just i
+              , ooConstructor     = Just ctorName
+              , ooBindings        = typedBinds
+              }] ++ go armBody
+        ) (zip [0..] arms)
+    go (EIf _ t e)       = go t ++ go e
+    go (ELet _ body)     = go body
+    go (EApp _ args)     = concatMap go args
+    go (EOp _ args)      = concatMap go args
+    go (EPair a b)       = go a ++ go b
+    go (EAwait e)        = go e
+    go (ELambda _ b)     = go b
+    go (EDo steps)       = concatMap (\(DoStep _ e) -> go e) steps
+    go _                 = []
+
+-- ---------------------------------------------------------------------------
+-- Phase 3: Function lists (spec §8)
+-- ---------------------------------------------------------------------------
+
+-- | Type-compatibility with Result-unwrapping (F8, R2).
+isTypeCompatible :: Type -> Type -> Bool
+isTypeCompatible expected actual@(TResult ok _) =
+  typeLabel expected == typeLabel actual
+  || isTypeCompatible expected ok
+isTypeCompatible expected actual = typeLabel expected == typeLabel actual
+
+-- | Trust label for function lists (F9, R3).
+trustLabel :: Map Name TrustEntry -> Name -> Text
+trustLabel trustMap name = case Map.lookup name trustMap of
+  Just te -> case teEffectiveLevel te of
+    Just (DLVerified _)       -> "verified"
+    Just (DLContractChecked _) -> "contract-checked"
+    Just DLAsserted           -> "asserted"
+    _                         -> "asserted"
+  Nothing -> "builtin"
+
+-- | Assemble function lists with cap-8 (spec §8.2).
+assembleFunctionLists :: [Statement] -> Map Name TrustEntry -> Type
+                      -> ([Value], [Value])
+assembleFunctionLists stmts trustMap expectedTy =
+  let cap = 8
+      -- Contracted: user functions with contracts and compatible return types
+      contracted = take cap
+        [ object [ "name"    .= fname
+                 , "params"  .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
+                 , "returns" .= typeLabel ret
+                 , "status"  .= trustLabel trustMap fname ]
+        | SDefLogic fname ps (Just ret) c _ <- stmts
+        , contractPre c /= Nothing || contractPost c /= Nothing
+        , isTypeCompatible expectedTy ret
+        ]
+      -- Available: builtins (non-wasi) with compatible return types
+      builtins = Map.toList builtinEnv
+      available = take cap
+        [ object [ "name"    .= bname
+                 , "params"  .= ([] :: [Value])
+                 , "returns" .= typeLabel bty
+                 , "status"  .= ("builtin" :: Text) ]
+        | (bname, bty) <- builtins
+        , not ("wasi." `T.isPrefixOf` bname)
+        , isTypeCompatible expectedTy (returnType bty)
+        ]
+  in (contracted, available)
+
+-- | Extract return type (last arrow result or self).
+returnType :: Type -> Type
+returnType (TFn _ r) = r
+returnType t         = t
 
 -- ---------------------------------------------------------------------------
 -- Assembly (spec §2.1)
@@ -340,6 +502,11 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
       holeObls = assembleHoleObligations stmts table mFqResult trustRpt
                    faithful fallback recNames suppressed holeReport
 
+      -- Assemble branch obligations from EMatch (F1: two-pass)
+      aliases = buildAliasMap stmts
+      branchObls = assembleBranchObligations holeObls stmts table
+                     mFqResult suppressed aliases
+
       -- Assemble contract/precondition/termination obligations from UNSAFE
       unsafeObls = case mFqResult of
         Just (FQUnsafe failedIds) ->
@@ -347,7 +514,7 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
             faithful suppressed failedIds
         _ -> []
 
-      allObls = holeObls ++ unsafeObls
+      allObls = holeObls ++ branchObls ++ unsafeObls
       summary = ReportSummary
         { rsTotal      = length allObls
         , rsOpen       = length [o | o <- allObls, ooStatus o == "open"]
@@ -427,9 +594,13 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback recNames suppressed h
     , ooTypeChannel     = Just typeCh
     , ooContractChannel = Just contractCh
     , ooTrustChannel    = Just trustCh
-    , ooContractedFns   = []  -- Phase 2: populated in future
-    , ooAvailableFns    = []  -- Phase 2: populated in future
-    , ooSuggestions     = []  -- Phase 3: OBLIG-4
+    , ooContractedFns   = []
+    , ooAvailableFns    = []
+    , ooSuggestions     = []
+    , ooParentId        = Nothing
+    , ooBranchIndex     = Nothing
+    , ooConstructor     = Nothing
+    , ooBindings        = []
     }
 
 -- | Assemble contract/precondition/termination obligations from UNSAFE IDs.
@@ -463,6 +634,10 @@ assembleConstraintObligations stmts table mFqResult _trustRpt faithful suppresse
         , ooContractedFns   = []
         , ooAvailableFns    = []
         , ooSuggestions     = []
+        , ooParentId        = Nothing
+        , ooBranchIndex     = Nothing
+        , ooConstructor     = Nothing
+        , ooBindings        = []
         }
 
     classifyClause c
@@ -528,6 +703,14 @@ encodeObligation o = object $
        , "available_functions"  .= ooAvailableFns o
        , "suggestions"          .= ooSuggestions o
        ]
+    ++ case ooKind o of
+         BranchObligation ->
+           [ "parent_id"    .= ooParentId o
+           , "branch_index" .= ooBranchIndex o
+           , "constructor"  .= ooConstructor o
+           , "bindings"     .= ooBindings o
+           ]
+         _ -> []
 
 encodeTypeCh :: TypeChannel -> Value
 encodeTypeCh tc = object

@@ -13,7 +13,12 @@ import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
-import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..))
+import LLMLL.ObligationAssembly
+  ( exprToSExpr, deriveBacking, collectHoleGuards, normalizeForFingerprint
+  , obligationStatus, classifyContractFragment, classifyBodyFragment
+  , recursiveNames, ObligationKind(..), patternBindings, isTypeCompatible
+  , trustLabel )
+import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
@@ -33,10 +38,6 @@ import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, savePro
 import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..))
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
-import LLMLL.ObligationAssembly
-  ( exprToSExpr, deriveBacking, collectHoleGuards, normalizeForFingerprint
-  , obligationStatus, classifyContractFragment, classifyBodyFragment
-  , recursiveNames, ObligationKind(..) )
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
@@ -4466,6 +4467,71 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "OA-RN1: empty for non-recursive" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EVar "x")]
       recursiveNames stmts `shouldBe` Set.empty
+
+  -- -----------------------------------------------------------------------
+  -- v0.10 Phase 3: Branch Obligations + Repair (OBLIG-3, OBLIG-4)
+  -- -----------------------------------------------------------------------
+
+  describe "Phase 3: patternBindings (F2)" $ do
+    it "PB-1: PVar extracts single binding" $
+      patternBindings (PVar "x") `shouldBe` [("x", "match-arm")]
+    it "PB-2: PWildcard extracts nothing" $
+      patternBindings PWildcard `shouldBe` []
+    it "PB-3: PConstructor extracts sub-bindings" $
+      patternBindings (PConstructor "Success" [PVar "val"])
+        `shouldBe` [("val", "match-arm")]
+    it "PB-4: nested PConstructor recurses" $
+      patternBindings (PConstructor "Pair" [PVar "a", PVar "b"])
+        `shouldBe` [("a", "match-arm"), ("b", "match-arm")]
+    it "PB-5: deeply nested" $
+      patternBindings (PConstructor "Outer" [PConstructor "Inner" [PVar "x"], PVar "y"])
+        `shouldBe` [("x", "match-arm"), ("y", "match-arm")]
+
+  describe "Phase 3: isTypeCompatible (F8, R2)" $ do
+    it "TC-1: exact match" $
+      isTypeCompatible TInt TInt `shouldBe` True
+    it "TC-2: mismatch" $
+      isTypeCompatible TInt TString `shouldBe` False
+    it "TC-3: Result unwrap success" $
+      isTypeCompatible TInt (TResult TInt TString) `shouldBe` True
+    it "TC-4: Result exact match" $
+      isTypeCompatible (TResult TInt TString) (TResult TInt TString) `shouldBe` True
+    it "TC-5: Result wrong payload" $
+      isTypeCompatible TString (TResult TInt TString) `shouldBe` False
+
+  describe "Phase 3: trustLabel (F9, R3)" $ do
+    it "TL-1: builtin for unknown name" $
+      trustLabel Map.empty "unknown" `shouldBe` "builtin"
+
+  describe "Phase 3: generateCandidates (OBLIG-4)" $ do
+    it "GEN-1: withdraw params → includes (- balance amount)" $ do
+      let cands = generateCandidates [("balance", TInt), ("amount", TInt)]
+      any (\c -> ceExpr c == "(- balance amount)") cands `shouldBe` True
+
+    it "GEN-2: all candidates have verified=False" $ do
+      let cands = generateCandidates [("x", TInt), ("y", TInt)]
+      all (\c -> ceVerified c == False) cands `shouldBe` True
+
+    it "GEN-3: single param → (+ n n)" $ do
+      let cands = generateCandidates [("n", TInt)]
+      any (\c -> ceExpr c == "(+ n n)") cands `shouldBe` True
+
+    it "GEN-4: no int params → empty" $ do
+      let cands = generateCandidates [("s", TString)]
+      cands `shouldBe` []
+
+    it "GEN-5: cap at 8" $ do
+      let params = [("p" <> T.pack (show i), TInt) | i <- [1..10::Int]]
+          cands = generateCandidates params
+      length cands `shouldSatisfy` (<= 8)
+
+  describe "Phase 3: isQfLia exported (F5/F6)" $ do
+    it "IQ-1: simple comparison is QF-LIA" $
+      isQfLia (EApp ">=" [EVar "x", ELit (LitInt 0)]) `shouldBe` True
+    it "IQ-2: string op is not QF-LIA" $
+      isQfLia (EApp "string-empty?" [EVar "s"]) `shouldBe` False
+    it "IQ-3: multiplication is not QF-LIA" $
+      isQfLia (EApp "*" [EVar "x", EVar "y"]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

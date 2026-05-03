@@ -22,6 +22,9 @@ module LLMLL.ObligationMining
   , mineObligations
   , formatObligations
   , formatObligationsJson
+  , isQfLia             -- spec §12: shared QF-LIA check
+  , CandidateExpr(..)   -- OBLIG-4: repair suggestions
+  , generateCandidates
   ) where
 
 import Data.Map.Strict (Map)
@@ -29,10 +32,11 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe)
+import qualified Data.List
 import Data.Aeson (encode, object, (.=), Value(..))
 import qualified Data.ByteString.Lazy.Char8 as BLC
 
-import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), DisplayLevel(..))
+import LLMLL.Syntax (Name, Type(..), Contract(..), Expr(..), Literal(..), Statement(..), DisplayLevel(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), TrustDependency(..))
 
@@ -247,3 +251,42 @@ formatObligationsJson sugs =
       , "json_pointer"  .= osJsonPointer s
       , "strength"      .= strengthLabel (osStrength s)
       ]
+
+-- ---------------------------------------------------------------------------
+-- OBLIG-4: Candidate Expression Search
+-- ---------------------------------------------------------------------------
+
+-- | Maximum number of candidate expressions to generate.
+maxCandidateSearchDepth :: Int
+maxCandidateSearchDepth = 8
+
+-- | A candidate expression for hole filling.
+data CandidateExpr = CandidateExpr
+  { ceExpr     :: Text    -- ^ S-expression, e.g. "(- balance amount)"
+  , ceVerified :: Bool    -- ^ Always False for v0.10 (F7)
+  , ceKind     :: Text    -- ^ Always "candidate-expression"
+  } deriving (Show, Eq)
+
+-- | Generate candidate expressions from typed parameters.
+-- O(n²) bounded arithmetic search: for each pair of int params, emit
+-- (+ a b), (- a b), (- b a). For single int param: (+ n n).
+-- Capped at maxCandidateSearchDepth.
+generateCandidates :: [(Name, Type)] -> [CandidateExpr]
+generateCandidates params =
+  let intParams = [n | (n, ty) <- params, isIntType ty]
+      uniquePairs = dedupPairs [(a, b) | a <- intParams, b <- intParams, a /= b]
+      singles = [mk ("(+ " <> n <> " " <> n <> ")") | n <- intParams]
+      pairCands = concatMap (\(a, b) ->
+        [ mk ("(- " <> a <> " " <> b <> ")")
+        , mk ("(- " <> b <> " " <> a <> ")")
+        , mk ("(+ " <> a <> " " <> b <> ")")
+        ]) uniquePairs
+      allCands = dedupCands (pairCands ++ singles)
+  in take maxCandidateSearchDepth allCands
+  where
+    mk expr = CandidateExpr expr False "candidate-expression"
+    isIntType TInt = True
+    isIntType _    = False
+    dedupPairs ps = Data.List.nub [(min a b, max a b) | (a, b) <- ps]
+    dedupCands [] = []
+    dedupCands (x:xs) = x : dedupCands (filter (\y -> ceExpr y /= ceExpr x) xs)

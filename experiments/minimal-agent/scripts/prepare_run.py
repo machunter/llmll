@@ -150,9 +150,6 @@ def prepare_one(
         "experiment": "minimal-agent",
         "created_at": created_at,
         "problem_id": problem_id,
-        "problem_title": title,
-        "source_problem_file": str(source.resolve()),
-        "llmll_doc_file": str(llmll_doc.resolve()),
         "stop_policy": "first_error",
         "expected_solution_files": ["solution.llmll", "solution.ast.json"],
     }

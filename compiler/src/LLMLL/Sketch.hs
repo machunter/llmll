@@ -5,9 +5,9 @@
 -- This module owns the JSON encoding of sketch results.
 -- TypeCheck.hs owns the inference; this module owns the wire format.
 --
--- Output schema (schemaVersion 0.2.0):
+-- Output schema:
 -- {
---   "schemaVersion": "0.2.0",
+--   "schemaVersion": "<schemaVersion>",
 --   "holes": [ { "name", "inferredType", "pointer" } ],
 --   "errors": [ { "kind", "message", "pointer", "holeSensitive",
 --                 "expected"?, "got"?, "hole"? } ]

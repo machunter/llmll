@@ -20,7 +20,7 @@ FEATURE_PATTERNS = {
     "check": r"\(check\b|\"kind\"\s*:\s*\"check\"",
     "pre": r"\(pre\b|\"pre\"\s*:",
     "post": r"\(post\b|\"post\"\s*:",
-    "delegate": r"\?delegate\b|\"kind\"\s*:\s*\"hole-delegate\"",
+    "delegate": r"\?delegate(?!-)\b|\"kind\"\s*:\s*\"hole-delegate\"",
     "delegate-async": r"\?delegate-async\b|\"kind\"\s*:\s*\"hole-delegate-async\"",
     "await": r"\(await\b|\"kind\"\s*:\s*\"await\"",
     "on-failure": r"\bon-failure\b|\"on_failure\"\s*:",

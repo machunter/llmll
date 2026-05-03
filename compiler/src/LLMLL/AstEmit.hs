@@ -19,6 +19,8 @@ module LLMLL.AstEmit
   ) where
 
 import Data.Text (Text)
+import Data.Version (showVersion)
+import Paths_llmll (version)
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (Value(..), object, (.=), toJSON, encode)
@@ -38,7 +40,7 @@ emitJsonAST stmts =
   encodePretty' cfg $
     object
       [ "schemaVersion" .= expectedSchemaVersion
-      , "llmll_version" .= expectedSchemaVersion
+      , "llmll_version" .= showVersion version
       , "statements"    .= map stmtToJson stmts
       ]
   where

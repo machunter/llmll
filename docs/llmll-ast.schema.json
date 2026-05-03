@@ -9,18 +9,17 @@
     "Program": {
       "description": "Top-level structure. A file is a flat list of statements (no implicit root module). Wrap in a module statement if namespacing is desired.",
       "type": "object",
-      "required": ["schemaVersion", "llmll_version", "statements"],
+      "required": ["schemaVersion", "statements"],
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.2.0'. The compiler rejects files with an unrecognised version. Files pinned to '0.1.3' must update this field to compile with the v0.2 compiler.",
+          "description": "Must be '0.3.0'. The compiler rejects files with an unrecognised version.",
           "type": "string",
-          "const": "0.2.0"
+          "const": "0.3.0"
         },
         "llmll_version": {
-          "description": "Must be '0.2.0'.",
-          "type": "string",
-          "const": "0.2.0"
+          "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
+          "type": "string"
         },
         "source_file": {
           "description": "Optional: original .llmll filename for diagnostics.",

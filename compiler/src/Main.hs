@@ -17,6 +17,8 @@
 module Main (main) where
 
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
+import Data.Version (showVersion)
+import Paths_llmll (version)
 import System.Exit (exitFailure, exitSuccess, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
@@ -118,7 +120,7 @@ data Options = Options
 optionsParser :: ParserInfo Options
 optionsParser = info (helper <*> opts) $
   fullDesc
-  <> progDesc "LLMLL — Large Language Model Logical Language Compiler (v0.2.0)"
+  <> progDesc ("LLMLL — Large Language Model Logical Language Compiler (v" ++ showVersion version ++ ")")
   <> header "llmll — AI-to-AI programming language compiler"
   where
     opts = Options
