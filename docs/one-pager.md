@@ -80,7 +80,7 @@ LLMLL currently provides body-faithful SMT verification for a **non-recursive QF
 | Non-linear ops (*, /, mod) | ❌ | `?proof-required` |
 | **Int overflow** | ⚠ | Z3 `Int` ≠ Haskell `Int64` |
 
-**Shipped capabilities:** Haskell code generation, formal contract verification (liquid-fixpoint/Z3), compositional assume-guarantee reasoning across function call chains, multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report` with `.verified.json` sidecar), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, specification quality layer (`--spec-coverage` gate, `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts), frozen ERC-20 and TOTP benchmarks with verification-scope matrices, algebraic interface laws (`def-interface :laws`), body-faithful VCs for the QF-LIA fragment, and `--strict-verified-core` mode that hard-errors on fallback functions.
+**Shipped capabilities:** Haskell code generation, formal contract verification (liquid-fixpoint/Z3), compositional assume-guarantee reasoning across function call chains, **obligation-guided agent coding** (structured JSON obligation reports with type/contract/trust channels, `EMatch` branch obligations, repair suggestions, function lists — v0.10.0), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report` with `.verified.json` sidecar), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, specification quality layer (`--spec-coverage` gate, `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts), frozen ERC-20 and TOTP benchmarks with verification-scope matrices, algebraic interface laws (`def-interface :laws`), body-faithful VCs for the QF-LIA fragment, and `--strict-verified-core` mode that hard-errors on fallback functions.
 
 Early stage — the compiler infrastructure works, validation on increasingly complex sample programs is ongoing. Open source (GPLv3). Solo project, supported by AI tools.
 
@@ -104,7 +104,6 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 
 | Milestone | Description |
 |-----------|-------------|
-| **Obligation-guided agent coding** | Structured obligation reports (JSON) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Aims for the Idris workflow *feel* through richer obligations, without indexed types. |
 | **WASM sandboxing** | WASM-WASI capability enforcement replacing the current Docker sandbox. `effectful` compatibility confirmed. |
 | **Synthetic training corpus** | Hackage back-translation for fine-tuning LLMs on LLMLL. |
 
@@ -134,6 +133,7 @@ See [research-track.md](research-track.md) for additional research items: differ
 | "TOTP benchmark with RFC traceability" | Frozen benchmark, `:source` annotations | **Shipped** | `examples/totp_rfc6238/` |
 | "Body-faithful verification" | `bodyToPred` encodes bodies as VCs; body-faithful postconditions can be stripped | **Shipped** | `llmll verify` on QF-LIA functions |
 | "Compositional call-chain verification" | Assume-guarantee reasoning, call-pre obligations, `EMatch` on Result | **Shipped** | `llmll verify examples/banking_ledger/banking.llmll --strict-verified-core` |
+| "Obligation-guided agent coding" | Structured JSON reports with type/contract/trust channels, repair suggestions, function lists, branch obligations | **Shipped** (v0.10.0) | `llmll verify --obligation-report`, `examples/benchmarks/` |
 | "WASM sandboxing" | `effectful` compat spike GO; Docker is current sandbox | **Planned** | `docs/effectful-wasm-spike.md` |
 
 > [!NOTE]

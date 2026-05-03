@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.9.0)
+# LLMLL: Large Language Model Logical Language (v0.10.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.9.0 (shipped).** Compositional Verification — assume-guarantee reasoning for function call chains. `CallVC`, `ContractEnv`, call-pre obligation emission, `EMatch` on `Result`, SCC detection, `--strict-verified-core` mode. 452 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.10.0 (shipped).** Obligation-Guided Agent Coding — structured obligation reports (JSON) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Function lists. Benchmark suite. 556 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.10.0** | Obligation-Guided Agent Coding: Structured obligation reports (JSON, schema `0.10.0`) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions (`generateCandidates`). Function lists with type-compatible matching. `ObligationAssembly.hs` + `GuardClassifier.hs`. Benchmark suite (B1/B3/B5). 556 tests (+104). |
 | **v0.9.0** | Compositional Verification: Assume-guarantee reasoning for function call chains (`CallVC`, `ContractEnv`). `EApp` to contracted functions is body-faithful. `EMatch` on `Result` (two-path encoding). SCC recursive fallback. Call-pre obligation emission (PROVE polarity). `--strict-verified-core` mode. Trust report loads `.verified.json` sidecar. 452 tests (+130). |
 | **v0.8.1b** | Evidence Model Refactor: `VerificationLevel` total order replaced with `DisplayLevel` partial-order diamond lattice (`DLVerified > DLContractChecked ∥ DLTested > DLAsserted`). `EvidenceRecord` (level + body-faithful + source provenance). `AssumptionKind` taxonomy. `ContractStatus` restructured. `evidenceMeet` (GLB) and `evidenceCovers` (partial-order). 14 source files + test suite updated. Hard break: no backward compat for old `.verified.json`. 322 tests (+2). |
 | **v0.8.1a** | Documentation Boundary Clarity: §3.4 renamed "Refinement Type Aliases." Per-construct verification matrix (§5.3.5). QF-LIA boundary and integer overflow model gap documented. One-pager and README updated. No code changes. |
@@ -198,7 +199,7 @@ Any base type can be constrained by a predicate using `(where [binding: base] pr
 Refinement type alias constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify`. See §5.3.5 for a precise matrix of which constructs are verified at each level.
 
 > [!NOTE]
-> **Obligation-guided agent coding (v0.10).** While LLMLL does not have Idris-style indexed types, v0.10 aims to provide the Idris workflow *feel* — goal-directed construction from rich obligations — through structured obligation reports that expose type, contract, and trust obligations to agents. See [compiler-team-roadmap.md](docs/compiler-team-roadmap.md) § v0.10.
+> **Obligation-guided agent coding (v0.10, shipped).** LLMLL v0.10.0 provides the Idris workflow *feel* — goal-directed construction from rich obligations — through structured obligation reports that expose type, contract, and trust obligations to agents. `llmll verify --obligation-report` emits a JSON report with three channels per obligation, repair suggestions, and function lists. See [compiler-team-roadmap.md](docs/compiler-team-roadmap.md) § v0.10.
 
 ---
 
@@ -938,12 +939,11 @@ Interfaces can declare **algebraic laws** that any conforming implementation mus
 Omitting `:laws` is valid — interfaces without laws parse and compile unchanged.
 
 > [!NOTE]
-> **Cross-module contract metadata (v0.10).** `ModuleEnv` currently stores per-function
-> evidence levels (`meContractStatus`) but not contract expressions (parameter names
-> and `pre`/`post` `Expr` values). Intra-module compositional verification constructs
-> `ContractEnv` directly from the statement list. Cross-module compositional verification
-> (v0.10+) will require extending `ModuleEnv` with a `meContracts` field carrying
-> per-function contract metadata.
+> **Cross-module contract metadata (v0.10, shipped).** `ModuleEnv` now stores per-function
+> contract metadata via `meContracts :: Map Name ([(Name, Type)], Contract, Maybe Type)`,
+> populated from `buildModuleEnv`. This enables cross-module compositional verification
+> and obligation reports that reference imported contracts. See MOD-1 in
+> [`CHANGELOG.md`](CHANGELOG.md).
 
 ### 8.9 `llmll-hub` Registry
 

@@ -339,6 +339,48 @@ stack exec llmll -- verify program.llmll
 
 This leverages existing `TrustReport.hs` transitive closure infrastructure and the new `ObligationMining.hs` module.
 
+#### Obligation report (v0.10.0)
+
+`--obligation-report` emits a structured JSON report for every hole, unproven contract, and failed call-site precondition. The report is designed for agent consumption — each obligation includes enough context for a mechanical repair procedure.
+
+```bash
+stack exec llmll -- verify file.llmll --obligation-report --json
+# {
+#   "schema_version": "0.10.0",
+#   "obligations": [
+#     {
+#       "kind": "hole-obligation",
+#       "hole": "?impl",
+#       "function": "withdraw",
+#       "expected_type": "int",
+#       "contract_context": {
+#         "preconditions": ["(>= balance amount)"],
+#         "postcondition_goal": "(>= result 0)"
+#       },
+#       "path_condition": ["(>= balance amount)"],
+#       "in_scope": { "balance": "int", "amount": "int" },
+#       "suggestions": [{ "expression": "(- balance amount)", "reason": "arithmetic candidate" }],
+#       "contracted_functions": [...],
+#       "available_functions": [...]
+#     }
+#   ]
+# }
+```
+
+Three obligation channels:
+
+| Channel | Question answered | Source |
+|---|---|---|
+| **Type obligations** | What shape must this expression have? | Type checker (`--sketch`) |
+| **Contract obligations** | What logical property must it satisfy? | Verifier (liquid-fixpoint) |
+| **Trust obligations** | What evidence is still missing? | Trust report (evidence model) |
+
+**Branch obligations:** For `EMatch` expressions containing holes, each branch emits a sub-obligation with constructor-refined bindings and per-branch context. Linked to the parent hole obligation via `parent_id`.
+
+**Repair suggestions:** For int-typed holes, the report includes arithmetic candidate expressions synthesized from in-scope variables (O(n²) bounded, cap-8).
+
+**Function lists:** Each obligation includes `contracted_functions` (user-defined with compatible return type and trust labels) and `available_functions` (builtins with compatible signatures). Both lists are capped at 8 entries with truncation signals.
+
 `verify` is **gracefully degrading**: if `fixpoint` or `z3` is not in `PATH`, it writes the `.fq` file and exits 0 with an install hint. The file can be checked manually or in CI once the tools are installed.
 
 > [!IMPORTANT]
