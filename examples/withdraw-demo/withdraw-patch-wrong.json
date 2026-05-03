@@ -1,0 +1,22 @@
+{
+  "token": "REPLACE_WITH_CHECKOUT_TOKEN",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/statements/1/body",
+      "value": { "kind": "hole-named", "name": "body_impl" }
+    },
+    {
+      "op": "replace",
+      "path": "/statements/1/body",
+      "value": {
+        "kind": "app",
+        "fn": "+",
+        "args": [
+          { "kind": "var", "name": "balance" },
+          { "kind": "var", "name": "amount" }
+        ]
+      }
+    }
+  ]
+}

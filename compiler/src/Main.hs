@@ -58,8 +58,8 @@ import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
 import LLMLL.InvariantRegistry (defaultPatterns)
-import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
-import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..))
+import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..))
+import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (saveVerified, loadVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
@@ -1338,7 +1338,29 @@ doCheckout _json fp pointer = do
       hPutStrLn stderr $ "Error: cannot parse " ++ fp ++ " as JSON"
       exitFailure
     Just astVal -> do
-      result <- checkoutHole fp astVal pointer
+      -- v0.10 OBLIG-1: Compute staleness hashes
+      sourceHash <- hashFile fp
+      let verifiedFp = verifiedPath fp
+      verifiedExists <- doesFileExist verifiedFp
+      mVerifiedHash <- if verifiedExists
+        then Just <$> hashFile verifiedFp
+        else pure Nothing
+      let ctx = CheckoutContext
+            { ccScope          = Nothing
+            , ccExpectedReturn = Nothing
+            , ccFunctions      = Nothing
+            , ccTypeDefs       = Nothing
+            -- v0.10: contract fields deferred to OBLIG-2 (requires parsed statements)
+            , ccContractPre    = Nothing
+            , ccPostGoal       = Nothing
+            , ccPathCondition  = Nothing
+            , ccAssumptions    = Nothing
+            , ccObligationId   = Nothing
+            -- v0.10: staleness hashes
+            , ccSourceHash     = Just sourceHash
+            , ccVerifiedHash   = mVerifiedHash
+            }
+      result <- checkoutHoleWithContext fp astVal pointer ctx
       case result of
         Left diag -> do
           hPutStrLn stderr $ T.unpack (diagMessage diag)

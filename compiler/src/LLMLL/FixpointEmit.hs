@@ -54,6 +54,8 @@ module LLMLL.FixpointEmit
     -- * Compositional verification (v0.9.0)
   , ContractEnv
   , buildContractEnv
+  , buildContractEnvWithImports  -- v0.10 MOD-1
+  , buildSortEnv                 -- v0.10 (Language Team Correction 1)
   , applySubst
   , isConstructorDependent
   , collectCallPreObligations
@@ -163,6 +165,18 @@ buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
     go (SDefLogic name params mRet contract _) = Just (name, (params, contract, mRet))
     go (SLetrec name params mRet contract _ _) = Just (name, (params, contract, mRet))
     go _ = Nothing
+
+-- | v0.10 MOD-1: Build a ContractEnv merging local contracts with imported
+-- module contracts from the ModuleCache. Local contracts shadow imports
+-- (Map.union has left-bias). This is the entry point for cross-module
+-- compositional verification in OBLIG-2.
+buildContractEnvWithImports :: [Statement] -> Map ModulePath ModuleEnv -> ContractEnv
+buildContractEnvWithImports stmts cache =
+  let localContracts    = buildContractEnv stmts
+      importedContracts = Map.foldl' (\acc menv -> Map.union acc (meContracts menv))
+                                     Map.empty cache
+  -- Local contracts shadow imported contracts (name collision resolution).
+  in Map.union localContracts importedContracts
 
 -- ---------------------------------------------------------------------------
 -- Built-in qualifier safety net

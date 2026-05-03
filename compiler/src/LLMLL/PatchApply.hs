@@ -23,6 +23,8 @@ module LLMLL.PatchApply
   , parsePatchRequest
   , parsePatchOp
   , toPatchOpInfos
+  -- v0.10: SHA-256 hashing (used by Main.hs for checkout staleness)
+  , hashFile
   ) where
 
 import Data.Aeson (Value(..), FromJSON(..), ToJSON(..), withObject, (.:), (.=), object)
