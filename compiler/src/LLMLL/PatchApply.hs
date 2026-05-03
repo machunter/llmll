@@ -9,6 +9,7 @@
 --   4. Apply RFC 6902 ops (replace/add/remove/test)
 --   5. Re-parse Value → [Statement] via parseJSONASTValue
 --   6. Re-typecheck
+--   6.5 Re-verify via emitFixpoint + liquid-fixpoint (if contracts present)
 --   7. On success: write updated .ast.json, clear lock entry
 --
 -- Advisory flock held for the entire read→verify→write cycle (§2.3).
@@ -23,6 +24,7 @@ module LLMLL.PatchApply
   , parsePatchRequest
   , parsePatchOp
   , toPatchOpInfos
+  , hasContracts     -- v0.10: exported for testing
   -- v0.10: SHA-256 hashing (used by Main.hs for checkout staleness)
   , hashFile
   ) where
@@ -42,10 +44,15 @@ import LLMLL.Checkout (loadLock, saveLock, expireStale, CheckoutToken(..), Check
 import LLMLL.ParserJSON (parseJSONASTValue)
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
-import LLMLL.Syntax (Statement)
+import LLMLL.Syntax (Statement(..), Contract(..))
+import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
+import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 
 import Data.Time.Clock (getCurrentTime)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, findExecutable)
+import System.FilePath (takeBaseName)
+import System.Process (readProcessWithExitCode)
+import qualified Data.Text.IO as TIO
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as BS
 import Data.Word (Word8)
@@ -69,7 +76,8 @@ data PatchOp
 
 data PatchResult
   = PatchSuccess Int               -- number of statements in result
-  | PatchTypeError DiagnosticReport -- type errors from re-verification
+  | PatchTypeError DiagnosticReport -- type errors from re-typecheck
+  | PatchVerifyError DiagnosticReport -- SMT verification failed (contracts violated)
   | PatchApplyError Text           -- structural error, test failure, move/copy rejection
   | PatchAuthError Text            -- invalid/expired/scope-violation
   deriving (Show)
@@ -81,6 +89,10 @@ instance ToJSON PatchResult where
     ]
   toJSON (PatchTypeError report) = object
     [ "result"      .= ("PatchTypeError" :: Text)
+    , "diagnostics" .= reportDiagnostics report
+    ]
+  toJSON (PatchVerifyError report) = object
+    [ "result"      .= ("PatchVerifyError" :: Text)
     , "diagnostics" .= reportDiagnostics report
     ]
   toJSON (PatchApplyError msg) = object
@@ -248,12 +260,20 @@ applyPatch fp pr = do
                           let report = typeCheck emptyEnv stmts
                           if reportSuccess report
                             then do
-                              -- 7. Write patched JSON and clear lock entry
-                              BL.writeFile fp (A.encode patchedVal)
-                              let remaining = filter (\t -> ctToken t /= prToken pr) (lockTokens cleanLock)
-                                  newLock = cleanLock { lockTokens = remaining }
-                              saveLock fp newLock
-                              pure $ PatchSuccess (length stmts)
+                              -- 6.5 Re-verify via SMT (if contracts present)
+                              verifyResult <- reVerify fp stmts
+                              case verifyResult of
+                                Just unsafeReport -> do
+                                  -- Verification failed: rebase diagnostics, don't write, preserve lock
+                                  let rebased = unsafeReport { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics unsafeReport) }
+                                  pure $ PatchVerifyError rebased
+                                Nothing -> do
+                                  -- 7. Write patched JSON and clear lock entry
+                                  BL.writeFile fp (A.encode patchedVal)
+                                  let remaining = filter (\t -> ctToken t /= prToken pr) (lockTokens cleanLock)
+                                      newLock = cleanLock { lockTokens = remaining }
+                                  saveLock fp newLock
+                                  pure $ PatchSuccess (length stmts)
                             else do
                               -- Type errors: rebase pointers, don't write, preserve lock for retry
                               let rebased = report { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics report) }
@@ -318,3 +338,53 @@ toPatchOpInfos ops = concatMap toInfo (zip [0..] ops)
     toInfo (i, PatchRemove p)    = [PatchOpInfo i p "remove"]
     toInfo (_, PatchTest _ _)    = []  -- test ops can't introduce errors
 
+-- ---------------------------------------------------------------------------
+-- v0.10 BUG-PATCH-VERIFY: SMT Re-Verification
+-- ---------------------------------------------------------------------------
+
+-- | Check if any top-level function carries contracts (pre or post).
+-- Used to skip re-verification when no contracts exist (no work for the solver).
+hasContracts :: [Statement] -> Bool
+hasContracts = any stmtHasContract
+  where
+    stmtHasContract (SDefLogic _ _ _ c _)  = contractPre c /= Nothing || contractPost c /= Nothing
+    stmtHasContract (SLetrec _ _ _ c _ _)  = contractPre c /= Nothing || contractPost c /= Nothing
+    stmtHasContract _ = False
+
+-- | Re-verify patched statements via emitFixpoint + liquid-fixpoint.
+-- Returns Nothing on success (SAFE, solver missing, no contracts, solver error).
+-- Returns Just report on UNSAFE (contract violation detected).
+--
+-- Graceful degradation: if liquid-fixpoint is not installed, returns Nothing
+-- (patch proceeds on typecheck success alone). This matches doVerify behavior.
+reVerify :: FilePath -> [Statement] -> IO (Maybe DiagnosticReport)
+reVerify fp stmts
+  | not (hasContracts stmts) = pure Nothing  -- no contracts → skip
+  | otherwise = do
+      -- Emit .fq constraints with body-faithful VCs
+      let emitOpts = defaultEmitOptions { emitBodyVCs = True }
+      emitR <- emitFixpointWith emitOpts fp stmts
+      let fqText = erFQText emitR
+          table  = erConstraintTable emitR
+      -- Find liquid-fixpoint binary
+      mLF <- do
+        a <- findExecutable "liquid-fixpoint"
+        case a of
+          Just _ -> return a
+          Nothing -> findExecutable "fixpoint"
+      case mLF of
+        Nothing -> pure Nothing  -- graceful degradation: no solver installed
+        Just lfBin -> do
+          -- Write .fq to temp file
+          let baseName = takeBaseName fp
+              fqPath   = "/tmp/llmll-patch-" <> baseName <> ".fq"
+          TIO.writeFile fqPath fqText
+          -- Run solver
+          (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+          let outT     = T.pack out
+              fqResult = parseFQResult (outT <> T.pack err)
+              fqReport = fqResultToReport fp table fqResult
+          case fqResult of
+            FQSafe     -> pure Nothing       -- SAFE → proceed with write
+            FQUnsafe _ -> pure (Just fqReport)  -- UNSAFE → reject patch
+            FQError _  -> pure Nothing       -- solver error → graceful: proceed

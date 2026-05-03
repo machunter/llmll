@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.9.0 shipped (Compositional Verification). Module system hardened (v0.9.1). Feature freeze active. 463 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.9.0 shipped (Compositional Verification). Module system hardened (v0.9.1). Feature freeze active. 474 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -293,7 +293,7 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 
 **v0.9 result:** All 8 items shipped (2026-05-01). COMP-0 ✅ (Rev 2 design spec), COMP-1 ✅ (CallVC + ContractEnv + call-pre emission), COMP-2 ✅ (SCC detection), COMP-3 ✅ (EMatch on Result), COMP-4 ✅ (trust degradation via existing enrichEntry), COMP-5 ✅ (call-pre diagnostics), COMP-6 ✅ (--strict-verified-core), COMP-T ✅ (18 golden tests). 4 source files + test suite updated. 452 Haskell + 37 Python tests.
 
-**v0.9.1 result (module system hardening):** Professor's review audit (2026-05-01). Spec restructured (§8.3 ordering, §8.5 namespace resolution, §8.6 open semantics, §8.7 export scope). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected (`open` declarations added). `ModuleEnv` TODO annotated. 11 new module system tests (M-01–M-07). 463 Haskell + 37 Python tests. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future — per-module codegen, strict loader, interface wiring).
+**v0.9.1 result (module system hardening):** Professor's review audit (2026-05-01). Spec restructured (§8.3 ordering, §8.5 namespace resolution, §8.6 open semantics, §8.7 export scope). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected (`open` declarations added). `ModuleEnv` TODO annotated. 11 new module system tests (M-01–M-07). 474 Haskell + 37 Python tests. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future — per-module codegen, strict loader, interface wiring).
 
 **v0.10 scope:** Obligation-guided agent coding. Structured obligation reports (JSON) for every hole, unproven contract, and failed call-site precondition. Three obligation channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions via `ObligationMining.hs`. Obligation quality benchmark. Design review (OBLIG-0) required before implementation. Cross-module `ContractEnv` (MOD-1) is a prerequisite for obligation reports that span module boundaries. ~5–7 days. **Note:** Indexed/dependent types are explicitly excluded from v0.10 (professor consensus, 2026-05-01) and remain in the research track.
 
@@ -323,7 +323,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.8.0** | *(new, 2026-04-28)* | **Faithfulness Core:** BODY-VC (body-faithful verification conditions — design spec ✅ + `bodyToPred` + emitter integration + postcondition body-faithfulness per-function + golden tests) + SUPP-DEBT + EVENT-LOG + SPEC-FOUNDATION. No external blockers. — **shipped (2026-04-29)**. |
 | **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
 | **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. `EvidenceRecord` with body-faithfulness + source provenance. `AssumptionKind` taxonomy. Hard break for `.verified.json`. 14 source files + test suite. 322 tests (+2). — **shipped (2026-05-01)**. |
-| **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). **v0.9.1:** Module system hardening (spec, cycle fix, 11 tests, `life_sexp` fix). 463 tests. — **shipped (2026-05-01)**. |
+| **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). **v0.9.1:** Module system hardening (spec, cycle fix, 11 tests, `life_sexp` fix). 474 tests. — **shipped (2026-05-01)**. |
 | **v0.10** | *(new, 2026-05-01)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. OBLIG-0 design review required. ~5–7 days. Indexed types explicitly excluded. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
@@ -360,7 +360,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | 7 | COMP-6 | `--strict-verified-core` CLI flag | ✅ |
 | 8 | COMP-T | 18 golden tests | ✅ |
 
-**v0.9.1 (module system hardening):** Spec restructured (§8.3/5/6/7). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected. 11 new module system tests (M-01–M-07). 463 Haskell + 37 Python tests.
+**v0.9.1 (module system hardening):** Spec restructured (§8.3/5/6/7). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected. 11 new module system tests (M-01–M-07). 474 Haskell + 37 Python tests.
 
 
 ## v0.8.1b — Evidence Model Refactor ✅ SHIPPED

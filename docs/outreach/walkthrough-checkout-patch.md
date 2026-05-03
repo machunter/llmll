@@ -91,6 +91,33 @@ $ llmll patch withdraw.ast.json patch-scope.json
 {"message":"scope violation: op path /statements/0/body is outside checkout scope /statements/1/body","result":"PatchAuthError"}
 ```
 
+## 3a. Wrong implementation — rejected by contract verification
+
+With a valid token, suppose the agent submits `(+ balance amount)` — this type-checks but violates the postcondition `(= result (- balance amount))`:
+
+```json
+{
+  "token": "3002919c6885fdd0...fecffb29ab",
+  "patch": [
+    { "op": "test",    "path": "/statements/1/body",
+      "value": { "kind": "hole-named", "name": "body_impl" } },
+    { "op": "replace", "path": "/statements/1/body",
+      "value": { "kind": "app", "fn": "+",
+                 "args": [ {"kind":"var","name":"balance"},
+                           {"kind":"var","name":"amount"} ] } }
+  ]
+}
+```
+
+```bash
+$ llmll patch withdraw.ast.json withdraw-patch-wrong.json
+{"result":"PatchVerifyError","diagnostics":[...]}
+```
+
+The patch is **rejected** — it type-checks but the SMT solver proves the body violates the contract. The file on disk is unchanged, and the lock is preserved for retry. The `diagnostics` array contains rebased JSON Pointers pointing at the failed constraint.
+
+> **Note:** If `liquid-fixpoint` is not installed, the patch proceeds on typecheck success alone (graceful degradation). The re-verification gate requires the solver binary in `PATH`.
+
 ## 4. Correct attempt — patches and verifies
 
 The agent with the valid token submits `(- balance amount)`:
@@ -114,9 +141,9 @@ $ llmll patch withdraw.ast.json patch.json
 {"result":"PatchSuccess","statements":2}
 ```
 
-The patch applied: the compiler re-parsed and re-typechecked the patched AST. The file is updated and the lock is cleared.
+The patch applied: the compiler re-parsed, re-typechecked, and re-verified the patched AST against the function's contracts via SMT. The file is updated and the lock is cleared.
 
-Now verify the contract:
+Now confirm with `llmll verify`:
 
 ```bash
 $ llmll verify withdraw.ast.json
@@ -153,7 +180,7 @@ Summary:
 - **Concurrent editing without conflicts.** A second agent could have checked out a different hole in the same file simultaneously. Patches are scope-contained to the locked subtree.
 - **Structural validation before commit.** A patch with an invalid token, expired lock, or out-of-scope pointer never reaches the file.
 - **Local typing context as data.** Via the HTTP API, the agent never has to read surrounding code to know what's in scope; the checkout response carries `in_scope`, `available_functions`, and `type_definitions` as structured JSON.
-- **Two-phase safety.** The patch boundary enforces authorization and type correctness; `llmll verify` enforces contract correctness via SMT solving. Both gates must pass.
+- **Unified safety gate.** The patch boundary enforces authorization, type correctness, *and* contract correctness (via SMT re-verification) in a single `llmll patch` call. A semantically wrong patch is rejected without touching the file.
 
 The same loop scales to a `def-interface` skeleton with N specialist agents filling N holes in parallel — see [docs/orchestrator-walkthrough.md](https://github.com/machunter/llmll/blob/main/docs/orchestrator-walkthrough.md) for that version. The shape doesn't change; only the number of locks held simultaneously.
 
