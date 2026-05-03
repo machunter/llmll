@@ -72,6 +72,7 @@ library:
     # D4: liquid-fixpoint decoupled verification backend
     - LLMLL.FixpointIR
     - LLMLL.FixpointEmit
+    - LLMLL.GuardClassifier
     - LLMLL.DiagnosticFQ
     # D5: HTTP serve endpoint
     - LLMLL.Serve
