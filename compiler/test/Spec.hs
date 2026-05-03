@@ -1212,14 +1212,14 @@ main = hspec $ do
 
     it "expireStale removes expired tokens" $ do
       let epoch = UTCTime (fromGregorian 2026 1 1) 0
-          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
           lock = CheckoutLock "test.json" [tok]
           later = addUTCTime 7200 epoch
       lockTokens (expireStale later lock) `shouldBe` []
 
     it "expireStale keeps non-expired tokens" $ do
       let epoch = UTCTime (fromGregorian 2026 1 1) 0
-          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
           lock = CheckoutLock "test.json" [tok]
           later = addUTCTime 1800 epoch
       length (lockTokens (expireStale later lock)) `shouldBe` 1
@@ -1567,6 +1567,7 @@ main = hspec $ do
           , mePath = modPath
           , meContractStatus = DM.fromList
               [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing)) [])]
+          , meContracts = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
 
@@ -1614,6 +1615,7 @@ main = hspec $ do
                , meAliasMap       = DM.empty
                , mePath           = T.splitOn "." name
                , meContractStatus = DM.fromList [(name, contractStatus)]
+               , meContracts      = DM.empty
                }
 
         -- Module A: "auth.verify" with configurable contract status
@@ -1697,6 +1699,7 @@ main = hspec $ do
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
                 [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])]
+            , meContracts      = DM.empty
             }
           cryptoEnv = ModuleEnv
             { meExports        = DM.fromList [("hash", TFn [TString] TString)]
@@ -1706,6 +1709,7 @@ main = hspec $ do
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
                 [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) Nothing [])]
+            , meContracts      = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
@@ -1742,6 +1746,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = path
             , meContractStatus = DM.fromList [(name, cs)]
+            , meContracts      = DM.empty
             }
 
     -- Test 1: Report includes entry function with its contract levels
@@ -2918,6 +2923,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meAliasMap = DM.empty
             , mePath = ["helpers"]
             , meContractStatus = DM.empty
+            , meContracts = DM.empty
             }
           cache = DM.fromList [( ["helpers"], modAEnv)]
           -- Module B imports helpers, calls wasi.io.stdout directly without own import

@@ -17,6 +17,7 @@
 module LLMLL.Checkout
   ( CheckoutToken(..)
   , CheckoutLock(..)
+  , CheckoutContext(..)   -- v0.10 OBLIG-1
   , ScopeEntry(..)
   , FuncEntry(..)
   , TypeDefEntry(..)
@@ -151,7 +152,32 @@ data CheckoutToken = CheckoutToken
   , ctScopeTruncated    :: Bool                   -- ^ C6: true if scope was truncated
   -- v0.6.1: Hub query integration (HUB-3)
   , ctHubSuggestions    :: Maybe [QueryResult]     -- ^ matching hub functions
+  -- v0.10 OBLIG-1: Obligation context fields (spec §5.1, §5.3)
+  , ctContractPre       :: Maybe Text             -- ^ pre clause from enclosing function
+  , ctPostconditionGoal :: Maybe Text             -- ^ post clause (the "goal")
+  , ctPathCondition     :: Maybe [Text]           -- ^ path conditions from contract pre
+  , ctAssumptions       :: Maybe [Text]           -- ^ assumption kind labels from trust entry
+  , ctObligationId      :: Maybe Text             -- ^ obligation ID (fingerprint, spec §3)
+  , ctSourceHash        :: Maybe Text             -- ^ SHA-256 of source file at checkout
+  , ctVerifiedHash      :: Maybe Text             -- ^ SHA-256 of .verified.json sidecar
   } deriving (Show, Eq, Generic)
+
+-- | v0.10 OBLIG-1: Bundled context parameter for checkoutHoleWithContext.
+-- Replaces the 4+ positional Maybe arguments (Language Team Correction 3).
+data CheckoutContext = CheckoutContext
+  { ccScope           :: Maybe [ScopeEntry]
+  , ccExpectedReturn  :: Maybe Text
+  , ccFunctions       :: Maybe [FuncEntry]
+  , ccTypeDefs        :: Maybe [TypeDefEntry]
+  -- v0.10 additions:
+  , ccContractPre     :: Maybe Text
+  , ccPostGoal        :: Maybe Text
+  , ccPathCondition   :: Maybe [Text]
+  , ccAssumptions     :: Maybe [Text]
+  , ccObligationId    :: Maybe Text
+  , ccSourceHash      :: Maybe Text
+  , ccVerifiedHash    :: Maybe Text
+  } deriving (Show, Eq)
 
 instance ToJSON CheckoutToken where
   toJSON ct = object $
@@ -166,7 +192,16 @@ instance ToJSON CheckoutToken where
     maybe [] (\fs -> ["available_functions"   .= fs]) (ctAvailableFunctions ct) ++
     maybe [] (\td -> ["type_definitions"      .= td]) (ctTypeDefinitions ct) ++
     ["scope_truncated" .= True | ctScopeTruncated ct] ++
-    maybe [] (\hs -> ["hub_suggestions" .= map hubSugToJson hs]) (ctHubSuggestions ct)
+    maybe [] (\hs -> ["hub_suggestions" .= map hubSugToJson hs]) (ctHubSuggestions ct) ++
+    -- v0.10 OBLIG-1: obligation context fields (emitted unconditionally as null when absent)
+    [ "contract_pre"        .= ctContractPre ct
+    , "postcondition_goal"  .= ctPostconditionGoal ct
+    , "path_condition"      .= ctPathCondition ct
+    , "assumptions"         .= ctAssumptions ct
+    , "obligation_id"       .= ctObligationId ct
+    , "source_hash"         .= ctSourceHash ct
+    , "verified_hash"       .= ctVerifiedHash ct
+    ]
 
 hubSugToJson :: QueryResult -> Value
 hubSugToJson qr = object
@@ -189,6 +224,14 @@ instance FromJSON CheckoutToken where
     funcs <- o .:? "available_functions"
     tdefs <- o .:? "type_definitions"
     trunc <- o .:? "scope_truncated"
+    -- v0.10 OBLIG-1: all new fields use (.:?) for backward compat (Correction 4)
+    contractPre_ <- o .:? "contract_pre"
+    postGoal_ <- o .:? "postcondition_goal"
+    pathCond_ <- o .:? "path_condition"
+    assumptions_ <- o .:? "assumptions"
+    obligId_ <- o .:? "obligation_id"
+    srcHash_ <- o .:? "source_hash"
+    verHash_ <- o .:? "verified_hash"
     pure CheckoutToken
       { ctPointer   = p
       , ctHoleKind  = hk
@@ -202,6 +245,13 @@ instance FromJSON CheckoutToken where
       , ctTypeDefinitions   = tdefs
       , ctScopeTruncated    = maybe False id trunc
       , ctHubSuggestions    = Nothing  -- populated at checkout time, not deserialization
+      , ctContractPre       = contractPre_
+      , ctPostconditionGoal = postGoal_
+      , ctPathCondition     = pathCond_
+      , ctAssumptions       = assumptions_
+      , ctObligationId      = obligId_
+      , ctSourceHash        = srcHash_
+      , ctVerifiedHash      = verHash_
       }
 
 data CheckoutLock = CheckoutLock
@@ -279,21 +329,28 @@ saveLock fp cl = do
 -- This is the backward-compatible entry point (no context).
 checkoutHole :: FilePath -> Value -> Text -> IO (Either Diagnostic CheckoutToken)
 checkoutHole fp astVal pointer =
-  checkoutHoleWithContext fp astVal pointer Nothing Nothing Nothing Nothing
+  checkoutHoleWithContext fp astVal pointer emptyCheckoutContext
 
--- | v0.3.5 (Phase C): Context-aware checkout.
--- Accepts typing context from the type checker (threaded through Main.hs)
--- and includes it in the checkout response.
+-- | v0.10 OBLIG-1: Default empty context (all fields Nothing).
+emptyCheckoutContext :: CheckoutContext
+emptyCheckoutContext = CheckoutContext
+  { ccScope = Nothing, ccExpectedReturn = Nothing
+  , ccFunctions = Nothing, ccTypeDefs = Nothing
+  , ccContractPre = Nothing, ccPostGoal = Nothing
+  , ccPathCondition = Nothing, ccAssumptions = Nothing
+  , ccObligationId = Nothing, ccSourceHash = Nothing
+  , ccVerifiedHash = Nothing
+  }
+
+-- | v0.3.5 (Phase C) / v0.10 (OBLIG-1): Context-aware checkout.
+-- Accepts a CheckoutContext record (refactored from positional args per Correction 3).
 checkoutHoleWithContext
   :: FilePath
   -> Value               -- ^ JSON-AST
   -> Text                -- ^ pointer (user-supplied, will be normalized)
-  -> Maybe [ScopeEntry]  -- ^ Γ delta (in-scope bindings)
-  -> Maybe Text          -- ^ τ (expected return type label)
-  -> Maybe [FuncEntry]   -- ^ Σ (available function signatures)
-  -> Maybe [TypeDefEntry] -- ^ type definitions
+  -> CheckoutContext     -- ^ bundled context (v0.10: replaces 4+ Maybe args)
   -> IO (Either Diagnostic CheckoutToken)
-checkoutHoleWithContext fp astVal rawPointer mScope mExpRet mFuncs mTypeDefs = do
+checkoutHoleWithContext fp astVal rawPointer ctx = do
   let pointer = normalizePointer rawPointer
   -- 1. Resolve pointer against JSON Value
   case resolvePointer pointer astVal of
@@ -339,12 +396,20 @@ checkoutHoleWithContext fp astVal rawPointer mScope mExpRet mFuncs mTypeDefs = d
                     , ctToken     = tok
                     , ctTTL       = 3600  -- 1 hour default
                     -- v0.3.5: attach context
-                    , ctInScope           = mScope
-                    , ctExpectedReturn    = mExpRet
-                    , ctAvailableFunctions = mFuncs
-                    , ctTypeDefinitions   = mTypeDefs
+                    , ctInScope           = ccScope ctx
+                    , ctExpectedReturn    = ccExpectedReturn ctx
+                    , ctAvailableFunctions = ccFunctions ctx
+                    , ctTypeDefinitions   = ccTypeDefs ctx
                     , ctScopeTruncated    = False  -- C6 will set this
                     , ctHubSuggestions    = Nothing  -- HUB-3: populated by caller
+                    -- v0.10 OBLIG-1: obligation context
+                    , ctContractPre       = ccContractPre ctx
+                    , ctPostconditionGoal = ccPostGoal ctx
+                    , ctPathCondition     = ccPathCondition ctx
+                    , ctAssumptions       = ccAssumptions ctx
+                    , ctObligationId      = ccObligationId ctx
+                    , ctSourceHash        = ccSourceHash ctx
+                    , ctVerifiedHash      = ccVerifiedHash ctx
                     }
                   newLock = cleanLock { lockTokens = lockTokens cleanLock ++ [ct] }
               saveLock fp newLock

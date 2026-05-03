@@ -243,6 +243,8 @@ buildModuleEnv path stmts _env =
         Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) allExports
       -- v0.8.1b: default all contracts to DLAsserted evidence
       contractStats = Map.fromList $ mapMaybe extractContractStatus stmts
+      -- v0.10 MOD-1: extract per-function contracts for cross-module ContractEnv
+      contractsMap = Map.fromList $ mapMaybe extractContracts stmts
   in ModuleEnv
        { meExports        = filteredExports
        , meStatements     = stmts
@@ -250,6 +252,7 @@ buildModuleEnv path stmts _env =
        , meAliasMap       = aliasMap'
        , mePath           = path
        , meContractStatus = contractStats
+       , meContracts      = contractsMap
        }
   where
     toExport (SDefLogic name params mRet _ _) =
@@ -275,6 +278,13 @@ buildModuleEnv path stmts _env =
             , csAssumptions = []
             })
       | otherwise = Nothing
+
+    -- v0.10 MOD-1: extract contract expressions for cross-module ContractEnv
+    extractContracts (SDefLogic name params mRet contract _) =
+      Just (name, (params, contract, mRet))
+    extractContracts (SLetrec name params mRet contract _ _) =
+      Just (name, (params, contract, mRet))
+    extractContracts _ = Nothing
 
 -- | Merge sidecar contract status: take the higher-evidence record for each clause.
 -- Sidecar can upgrade (asserted → verified), but buildModuleEnv defaults remain
