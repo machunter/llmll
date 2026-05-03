@@ -1,0 +1,16 @@
+{
+  "problems": [1, 2, 3],
+  "llmll_cmd": "llmll",
+  "timeout_seconds": 1800,
+  "skip_verify": false,
+  "agents": [
+    {
+      "name": "agent-a",
+      "cmd": "echo 'replace this with an agent command'"
+    },
+    {
+      "name": "agent-b",
+      "cmd": "echo 'replace this with another agent command'"
+    }
+  ]
+}

@@ -32,6 +32,12 @@ import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMC
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..))
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
+import LLMLL.ObligationAssembly
+  ( exprToSExpr, deriveBacking, collectHoleGuards, normalizeForFingerprint
+  , obligationStatus, classifyContractFragment, classifyBodyFragment
+  , recursiveNames, ObligationKind(..) )
+import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
@@ -4255,6 +4261,211 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               BranchVC _ _ _ -> pure ()
               _ -> expectationFailure $ "Expected BranchVC continuation, got: " ++ show cont
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
+
+  -- -----------------------------------------------------------------------
+  -- v0.10 Phase 2: GuardClassifier (Sub-task A)
+  -- -----------------------------------------------------------------------
+
+  describe "GuardClassifier: classifyGuardM" $ do
+    let intEnv = Map.fromList [("x", FQInt), ("y", FQInt)] :: Map.Map T.Text FQSort
+        emptyRename = Map.empty :: Map.Map T.Text T.Text
+
+    it "GC-1: classifies integer variable" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (EVar "x")) 0
+      result `shouldBe` Just (FQVar "x")
+
+    it "GC-2: rejects non-int variable" $ do
+      let se = Map.fromList [("s", FQBool)] :: Map.Map T.Text FQSort
+      let result = evalState (classifyGuardM emptyRename se (EVar "s")) 0
+      result `shouldBe` Nothing
+
+    it "GC-3: rejects unknown variable" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (EVar "unknown")) 0
+      result `shouldBe` Nothing
+
+    it "GC-4: classifies integer literal" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (ELit (LitInt 42))) 0
+      result `shouldBe` Just (FQLit 42)
+
+    it "GC-5: classifies boolean literal" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (ELit (LitBool True))) 0
+      result `shouldBe` Just FQTrue
+
+    it "GC-6: classifies comparison (>= x y)" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (EApp ">=" [EVar "x", EVar "y"])) 0
+      result `shouldBe` Just (FQBinPred FQGe (FQVar "x") (FQVar "y"))
+
+    it "GC-7: classifies arithmetic (+ x y)" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (EApp "+" [EVar "x", EVar "y"])) 0
+      result `shouldBe` Just (FQBinArith FQAdd (FQVar "x") (FQVar "y"))
+
+    it "GC-8: rejects non-linear (*)" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (EApp "*" [EVar "x", EVar "y"])) 0
+      result `shouldBe` Nothing
+
+    it "GC-9: classifies not" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (EApp "not" [ELit (LitBool True)])) 0
+      result `shouldBe` Just (FQNot FQTrue)
+
+    it "GC-10: normalizes EOp to EApp" $ do
+      let result = evalState (classifyGuardM emptyRename intEnv (EOp ">=" [EVar "x", EVar "y"])) 0
+      result `shouldBe` Just (FQBinPred FQGe (FQVar "x") (FQVar "y"))
+
+    it "GC-11: applies renaming environment" $ do
+      let rename = Map.fromList [("balance", "_arg_balance_0")] :: Map.Map T.Text T.Text
+          se = Map.fromList [("_arg_balance_0", FQInt)] :: Map.Map T.Text FQSort
+      let result = evalState (classifyGuardM rename se (EVar "balance")) 0
+      result `shouldBe` Just (FQVar "_arg_balance_0")
+
+  describe "GuardClassifier: lookupPredOp" $ do
+    it "GC-P1: maps >= to FQGe" $ lookupPredOp ">=" `shouldBe` Just FQGe
+    it "GC-P2: maps Unicode ≥ to FQGe" $ lookupPredOp "\x2265" `shouldBe` Just FQGe
+    it "GC-P3: maps < to FQLt" $ lookupPredOp "<" `shouldBe` Just FQLt
+    it "GC-P4: maps == to FQEq" $ lookupPredOp "==" `shouldBe` Just FQEq
+    it "GC-P5: maps /= to FQNeq" $ lookupPredOp "/=" `shouldBe` Just FQNeq
+    it "GC-P6: rejects unknown" $ lookupPredOp "foo" `shouldBe` Nothing
+
+  describe "GuardClassifier: lookupArithOp" $ do
+    it "GC-A1: maps + to FQAdd" $ lookupArithOp "+" `shouldBe` Just FQAdd
+    it "GC-A2: maps - to FQSub" $ lookupArithOp "-" `shouldBe` Just FQSub
+    it "GC-A3: rejects *" $ lookupArithOp "*" `shouldBe` Nothing
+
+  -- -----------------------------------------------------------------------
+  -- v0.10 Phase 2: ObligationAssembly (Sub-task B)
+  -- -----------------------------------------------------------------------
+
+  describe "ObligationAssembly: exprToSExpr" $ do
+    it "OA-S1: variable" $ exprToSExpr (EVar "x") `shouldBe` "x"
+    it "OA-S2: integer literal" $ exprToSExpr (ELit (LitInt 42)) `shouldBe` "42"
+    it "OA-S3: boolean literal" $ exprToSExpr (ELit (LitBool True)) `shouldBe` "true"
+    it "OA-S4: application" $ exprToSExpr (EApp ">=" [EVar "x", ELit (LitInt 0)]) `shouldBe` "(>= x 0)"
+    it "OA-S5: nested" $ exprToSExpr (EApp "+" [EApp "-" [EVar "a", EVar "b"], ELit (LitInt 1)])
+      `shouldBe` "(+ (- a b) 1)"
+    it "OA-S6: named hole" $ exprToSExpr (EHole (HNamed "body")) `shouldBe` "?body"
+    it "OA-S7: EOp normalizes" $ exprToSExpr (EOp "+" [EVar "a", EVar "b"]) `shouldBe` "(+ a b)"
+
+  describe "ObligationAssembly: deriveBacking" $ do
+    let mkTable entries = Map.fromList entries
+        co fn cl = ConstraintOrigin fn cl "" ""
+
+    it "OA-B1: smt when body-post constraint exists for hole" $ do
+      let table = mkTable [(1, co "withdraw" "body-post")]
+      deriveBacking table "withdraw" HoleObligation `shouldBe` "smt"
+
+    it "OA-B2: guidance when no body-post for hole" $ do
+      let table = mkTable [(1, co "withdraw" "pre")]
+      deriveBacking table "withdraw" HoleObligation `shouldBe` "guidance"
+
+    it "OA-B3: smt for contract when pre constraint exists" $ do
+      let table = mkTable [(1, co "f" "pre")]
+      deriveBacking table "f" ContractObligation `shouldBe` "smt"
+
+    it "OA-B4: guidance for contract when no matching constraint" $ do
+      let table = mkTable [(1, co "other" "pre")]
+      deriveBacking table "f" ContractObligation `shouldBe` "guidance"
+
+    it "OA-B5: smt for precondition when call-pre constraint exists" $ do
+      let table = mkTable [(1, co "caller" "call-pre:callee")]
+      deriveBacking table "caller" PreconditionObligation `shouldBe` "smt"
+
+  describe "ObligationAssembly: obligationStatus" $ do
+    let emptyTable = Map.empty :: Map.Map Int ConstraintOrigin
+        noSuppressed = Set.empty :: Set.Set T.Text
+
+    it "OA-ST1: open when no solver" $
+      obligationStatus Nothing "f" HoleObligation emptyTable noSuppressed `shouldBe` "open"
+
+    it "OA-ST2: discharged when SAFE" $
+      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable noSuppressed `shouldBe` "discharged"
+
+    it "OA-ST3: deferred when in suppression set" $
+      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable (Set.singleton "f") `shouldBe` "deferred"
+
+    it "OA-ST4: open when UNSAFE and function failed" $ do
+      let table = Map.fromList [(1, ConstraintOrigin "f" "post" "" "")]
+      obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed `shouldBe` "open"
+
+    it "OA-ST5: discharged when UNSAFE but function not in failed set" $ do
+      let table = Map.fromList [(1, ConstraintOrigin "other" "post" "" "")]
+      obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed `shouldBe` "discharged"
+
+  describe "ObligationAssembly: classifyContractFragment" $ do
+    it "OA-CF1: absent when no pre and no post" $
+      classifyContractFragment (Contract Nothing Nothing Nothing Nothing) `shouldBe` "absent"
+
+    it "OA-CF2: qf_lia for simple arithmetic" $
+      classifyContractFragment (Contract
+        (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+        `shouldBe` "qf_lia"
+
+    it "OA-CF3: non_qf_lia for string operations" $
+      classifyContractFragment (Contract
+        (Just (EApp "string-empty?" [EVar "s"])) Nothing Nothing Nothing)
+        `shouldBe` "non_qf_lia"
+
+  describe "ObligationAssembly: classifyBodyFragment" $ do
+    let noRec = Set.empty :: Set.Set T.Text
+
+    it "OA-BF1: hole_bearing when body has hole" $
+      classifyBodyFragment "f" noRec [] [] (EHole (HNamed "impl")) `shouldBe` "hole_bearing"
+
+    it "OA-BF2: qf_lia when body-faithful" $
+      classifyBodyFragment "f" noRec ["f"] [] (EApp "-" [EVar "a", EVar "b"]) `shouldBe` "qf_lia"
+
+    it "OA-BF3: unsupported when in fallback" $
+      classifyBodyFragment "f" noRec [] ["f"] (EApp "g" [EVar "x"]) `shouldBe` "unsupported"
+
+    it "OA-BF4: recursive when in recursive set" $
+      classifyBodyFragment "f" (Set.singleton "f") [] [] (EApp "f" [EVar "x"]) `shouldBe` "recursive"
+
+  describe "ObligationAssembly: normalizeForFingerprint" $ do
+    it "OA-NF1: produces oblig: prefixed ID" $ do
+      let oblId = normalizeForFingerprint "withdraw" [("balance", TInt), ("amount", TInt)]
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) "body"
+      T.isPrefixOf "oblig:withdraw:body:" oblId `shouldBe` True
+
+    it "OA-NF2: fingerprint is 12 hex chars" $ do
+      let oblId = normalizeForFingerprint "f" [("x", TInt)] Nothing "body"
+          parts = T.splitOn ":" oblId
+      T.length (last parts) `shouldBe` 12
+
+    it "OA-NF3: same inputs produce same ID" $ do
+      let oblId1 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body"
+          oblId2 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body"
+      oblId1 `shouldBe` oblId2
+
+    it "OA-NF4: different post produces different ID" $ do
+      let oblId1 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "x")) "body"
+          oblId2 = normalizeForFingerprint "f" [("x", TInt)] (Just (EVar "y")) "body"
+      oblId1 `shouldSatisfy` (/= oblId2)
+
+  describe "ObligationAssembly: collectHoleGuards" $ do
+    let emptyRename = Map.empty :: Map.Map T.Text T.Text
+        intEnv = Map.fromList [("x", FQInt)] :: Map.Map T.Text FQSort
+
+    it "OA-HG1: finds hole with no guards" $ do
+      let results = collectHoleGuards emptyRename intEnv (EHole (HNamed "impl"))
+      length results `shouldBe` 1
+      fst (head results) `shouldBe` "impl"
+      snd (head results) `shouldBe` []
+
+    it "OA-HG2: collects if-then guard" $ do
+      let expr = EIf (EApp ">=" [EVar "x", ELit (LitInt 0)])
+                   (EHole (HNamed "pos"))
+                   (EHole (HNamed "neg"))
+          results = collectHoleGuards emptyRename intEnv expr
+      length results `shouldBe` 2
+
+    it "OA-HG3: handles let without crash (F5)" $ do
+      let expr = ELet [(PWildcard, Nothing, ELit (LitInt 1))]
+                   (EHole (HNamed "body"))
+          results = collectHoleGuards emptyRename intEnv expr
+      length results `shouldBe` 1
+
+  describe "ObligationAssembly: recursiveNames" $ do
+    it "OA-RN1: empty for non-recursive" $ do
+      let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EVar "x")]
+      recursiveNames stmts `shouldBe` Set.empty
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
