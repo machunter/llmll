@@ -49,6 +49,7 @@ library
       LLMLL.InvariantRegistry
       LLMLL.ObligationMining
       LLMLL.SpecCoverage
+      LLMLL.ObligationAssembly
   other-modules:
       Main
       Paths_llmll
@@ -114,6 +115,7 @@ executable llmll
       LLMLL.Lexer
       LLMLL.MCPClient
       LLMLL.Module
+      LLMLL.ObligationAssembly
       LLMLL.ObligationMining
       LLMLL.Parser
       LLMLL.ParserJSON

@@ -71,6 +71,7 @@ import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
+import LLMLL.ObligationAssembly (assembleReport)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -91,7 +92,7 @@ data Command
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
   | CmdHubQuery T.Text                                      -- v0.6.1: hub query --signature <sig>
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -236,6 +237,8 @@ optionsParser = info (helper <*> opts) $
             <> help "v0.6: Print specification coverage report")
       <*> switch (long "strict-verified-core"
             <> help "v0.9.0: Hard-error if any function falls back from body-faithful verification")
+      <*> switch (long "obligation-report"
+            <> help "v0.10: Emit structured obligation report (JSON, OBLIG-0 spec §2.1)")
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -313,7 +316,7 @@ main = do
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
     CmdHubQuery sig           -> doHubQuery json sig
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -1019,8 +1022,8 @@ parseOneType t
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
-doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
+doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -1106,6 +1109,12 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
                    object [ "file" .= fp, "fq_file" .= fqPath
                            , "verified" .= False, "reason" .= msg ]
             else TIO.putStrLn $ "⚠️  " <> msg
+          -- v0.10 F8: obligation-report degradation (no solver → all status="open")
+          when obligationReport $ do
+            sidecar <- loadVerified fp
+            let trustRpt = buildTrustReport _cache stmts sidecar
+                reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
+            TIO.putStrLn reportText
           exitSuccess   -- non-fatal: user can run manually
 
         Just lfBin -> do
@@ -1114,7 +1123,16 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           (code, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
           let outT    = T.pack out
               fqResult = parseFQResult (outT <> T.pack err)
-              report   = fqResultToReport fp table fqResult
+
+          -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE)
+          when obligationReport $ do
+            oblSidecar <- loadVerified fp
+            let trustRpt = buildTrustReport _cache stmts oblSidecar
+                reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
+            TIO.putStrLn reportText
+            exitSuccess
+
+          let report = fqResultToReport fp table fqResult
 
           -- 6. Report
           if json

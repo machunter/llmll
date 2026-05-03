@@ -1,1 +1,94 @@
-{"llmll_version":"0.3.0","schemaVersion":"0.3.0","statements":[{"body":{"base_type":{"kind":"primitive","name":"int"},"binding":"x","kind":"where","predicate":{"args":[{"kind":"var","name":"x"},{"kind":"lit-int","value":0}],"kind":"op","op":">"}},"kind":"type-decl","name":"PositiveInt"},{"body":{"args":[{"kind":"var","name":"balance"},{"kind":"var","name":"amount"}],"fn":"+","kind":"app"},"kind":"def-logic","name":"withdraw","params":[{"name":"balance","param_type":{"kind":"primitive","name":"int"}},{"name":"amount","param_type":{"kind":"named","name":"PositiveInt"}}],"post":{"args":[{"kind":"var","name":"result"},{"args":[{"kind":"var","name":"balance"},{"kind":"var","name":"amount"}],"kind":"op","op":"-"}],"kind":"op","op":"="},"pre":{"args":[{"kind":"var","name":"balance"},{"kind":"var","name":"amount"}],"kind":"op","op":">="}}]}
+{
+  "llmll_version": "0.3.0",
+  "schemaVersion": "0.3.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "x",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "x"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": ">"
+        }
+      },
+      "kind": "type-decl",
+      "name": "PositiveInt"
+    },
+    {
+      "body": {
+        "kind": "hole-named",
+        "name": "body_impl"
+      },
+      "kind": "def-logic",
+      "name": "withdraw",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "named",
+            "name": "PositiveInt"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "var",
+                "name": "amount"
+              }
+            ],
+            "kind": "op",
+            "op": "-"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "balance"
+          },
+          {
+            "kind": "var",
+            "name": "amount"
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      }
+    }
+  ]
+}
