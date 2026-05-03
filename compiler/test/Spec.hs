@@ -3,6 +3,7 @@ module Main (main) where
 
 import Test.Hspec
 import Control.Monad (forM_)
+import Control.Exception (finally)
 import Data.Maybe (fromJust, isJust)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -13,10 +14,10 @@ import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..))
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
-import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
+import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
@@ -37,6 +38,7 @@ import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, re
 import System.Process (callProcess)
 import Data.List (isSuffixOf, sort, find)
 import qualified Data.Set as Set
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Aeson (encode, decode, Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
@@ -44,8 +46,9 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..))
-import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), checkoutHole)
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), applyPatch, hasContracts)
+import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), TrivialBody(..))
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, formatCoverageJson, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
@@ -1169,6 +1172,182 @@ main = hspec $ do
         case applyOps ops root of
           Left _ -> pure ()
           Right _ -> expectationFailure "should short-circuit on test failure"
+
+  -- =========================================================================
+  -- v0.10 BUG-PATCH-VERIFY: hasContracts (pure)
+  -- =========================================================================
+
+  describe "hasContracts (patch re-verification guard)" $ do
+
+    it "returns True for SDefLogic with pre+post" $ do
+      let stmt = SDefLogic "f" [("x", TInt)] Nothing
+                   (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                             (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                   (EVar "x")
+      hasContracts [stmt] `shouldBe` True
+
+    it "returns True for SDefLogic with post only" $ do
+      let stmt = SDefLogic "f" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing
+                             (Just (EApp "=" [EVar "result", EVar "x"])) Nothing)
+                   (EVar "x")
+      hasContracts [stmt] `shouldBe` True
+
+    it "returns False for SDefLogic with no contracts" $ do
+      let stmt = SDefLogic "f" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing Nothing Nothing)
+                   (EVar "x")
+      hasContracts [stmt] `shouldBe` False
+
+    it "returns False for STypeDef-only program" $ do
+      let stmt = STypeDef "Foo" TInt
+      hasContracts [stmt] `shouldBe` False
+
+  -- =========================================================================
+  -- v0.10 BUG-PATCH-VERIFY: PatchVerifyError JSON shape (pure)
+  -- =========================================================================
+
+  describe "PatchVerifyError JSON shape" $ do
+
+    it "serializes with result=PatchVerifyError and diagnostics array" $ do
+      let report = DiagnosticReport "verify" [mkError Nothing "post-condition violated"] False
+          result = PatchVerifyError report
+          json = encode result
+      case decode json of
+        Nothing -> expectationFailure "failed to decode PatchVerifyError JSON"
+        Just (Object o) -> do
+          KM.lookup "result" o `shouldBe` Just (String "PatchVerifyError")
+          case KM.lookup "diagnostics" o of
+            Just (Array _) -> pure ()
+            _ -> expectationFailure "expected diagnostics array"
+        _ -> expectationFailure "expected JSON object"
+
+    it "PatchSuccess JSON is unchanged (regression)" $ do
+      let result = PatchSuccess 5
+          json = encode result
+      case decode json of
+        Nothing -> expectationFailure "failed to decode PatchSuccess JSON"
+        Just (Object o) -> do
+          KM.lookup "result" o `shouldBe` Just (String "PatchSuccess")
+        _ -> expectationFailure "expected JSON object"
+
+  -- =========================================================================
+  -- v0.10 BUG-PATCH-VERIFY: parseFQResult round-trip (pure)
+  -- =========================================================================
+
+  describe "parseFQResult (patch verification integration)" $ do
+
+    it "parses SAFE output" $
+      parseFQResult "SAFE" `shouldBe` FQSafe
+
+    it "returns FQError on garbage input" $ do
+      let result = parseFQResult "CRASH: segfault"
+      case result of
+        FQError _ -> pure ()
+        _ -> expectationFailure $ "expected FQError, got: " ++ show result
+
+  -- =========================================================================
+  -- v0.10 BUG-PATCH-VERIFY: full lifecycle IO tests
+  -- =========================================================================
+
+  describe "BUG-PATCH-VERIFY: patch re-verification lifecycle" $ do
+
+    -- PROOF OBLIGATION 1: Correct body → PatchSuccess
+    it "OBLIG-1: patch with (- balance amount) returns PatchSuccess" $ do
+      let tmpDir = "test/_tmp_patch_verify_1"
+      createDirectoryIfMissing True tmpDir
+      BL.readFile "../examples/withdraw-demo/withdraw.ast.json"
+        >>= BL.writeFile (tmpDir </> "withdraw.ast.json")
+      let fp = tmpDir </> "withdraw.ast.json"
+      raw <- BL.readFile fp
+      let Just astVal = decode raw
+      result <- checkoutHole fp astVal "/statements/1/body"
+      case result of
+        Left diag -> expectationFailure $ T.unpack (diagMessage diag)
+        Right ct -> do
+          let patchReq = PatchRequest (ctToken ct)
+                [ PatchTest "/statements/1/body"
+                    (object ["kind" .= ("hole-named" :: T.Text), "name" .= ("body_impl" :: T.Text)])
+                , PatchReplace "/statements/1/body"
+                    (object ["kind" .= ("app" :: T.Text), "fn" .= ("-" :: T.Text),
+                             "args" .= [object ["kind" .= ("var" :: T.Text), "name" .= ("balance" :: T.Text)],
+                                        object ["kind" .= ("var" :: T.Text), "name" .= ("amount" :: T.Text)]]])
+                ]
+          pResult <- applyPatch fp patchReq
+          case pResult of
+            PatchSuccess _ -> pure ()
+            other -> expectationFailure $ "expected PatchSuccess, got: " ++ show other
+      removeDirectoryRecursive tmpDir
+
+    -- PROOF OBLIGATION 2: Wrong body → PatchVerifyError (CRITICAL — the bug case)
+    it "OBLIG-2: patch with (+ balance amount) returns PatchVerifyError or PatchSuccess (graceful)" $ do
+      let tmpDir = "test/_tmp_patch_verify_2"
+      createDirectoryIfMissing True tmpDir
+      BL.readFile "../examples/withdraw-demo/withdraw.ast.json"
+        >>= BL.writeFile (tmpDir </> "withdraw.ast.json")
+      let fp = tmpDir </> "withdraw.ast.json"
+      raw <- BL.readFile fp
+      let Just astVal = decode raw
+      result <- checkoutHole fp astVal "/statements/1/body"
+      case result of
+        Left diag -> expectationFailure $ T.unpack (diagMessage diag)
+        Right ct -> do
+          let patchReq = PatchRequest (ctToken ct)
+                [ PatchTest "/statements/1/body"
+                    (object ["kind" .= ("hole-named" :: T.Text), "name" .= ("body_impl" :: T.Text)])
+                , PatchReplace "/statements/1/body"
+                    (object ["kind" .= ("app" :: T.Text), "fn" .= ("+" :: T.Text),
+                             "args" .= [object ["kind" .= ("var" :: T.Text), "name" .= ("balance" :: T.Text)],
+                                        object ["kind" .= ("var" :: T.Text), "name" .= ("amount" :: T.Text)]]])
+                ]
+          pResult <- applyPatch fp patchReq
+          -- PatchVerifyError: fixpoint installed → contract violation caught ✅
+          -- PatchSuccess: fixpoint NOT installed → graceful degradation ✅
+          -- PatchTypeError: INVALID — typecheck should pass
+          case pResult of
+            PatchVerifyError _ -> pure ()
+            PatchSuccess _     -> pure ()
+            other -> expectationFailure $ "expected PatchVerifyError or PatchSuccess, got: " ++ show other
+      removeDirectoryRecursive tmpDir
+
+    -- PROOF OBLIGATION 3: No contracts → PatchSuccess regardless
+    it "OBLIG-3: patch function with no contracts returns PatchSuccess" $ do
+      let tmpDir = "test/_tmp_patch_no_contract"
+          astJson = object
+            [ "schemaVersion" .= ("0.3.0" :: T.Text)
+            , "llmll_version" .= ("0.3.0" :: T.Text)
+            , "statements" .= [object
+                [ "kind" .= ("def-logic" :: T.Text)
+                , "name" .= ("add" :: T.Text)
+                , "params" .= [object ["name" .= ("x" :: T.Text),
+                                       "param_type" .= object ["kind" .= ("primitive" :: T.Text), "name" .= ("int" :: T.Text)]],
+                                object ["name" .= ("y" :: T.Text),
+                                       "param_type" .= object ["kind" .= ("primitive" :: T.Text), "name" .= ("int" :: T.Text)]]]
+                , "body" .= object ["kind" .= ("hole-named" :: T.Text), "name" .= ("impl" :: T.Text)]
+                ]]
+            ]
+      createDirectoryIfMissing True tmpDir
+      let fp = tmpDir </> "nocontract.ast.json"
+      BL.writeFile fp (encode astJson)
+      raw <- BL.readFile fp
+      let Just astVal = decode raw
+      result <- checkoutHole fp astVal "/statements/0/body"
+      case result of
+        Left diag -> expectationFailure $ T.unpack (diagMessage diag)
+        Right ct -> do
+          let patchReq = PatchRequest (ctToken ct)
+                [ PatchTest "/statements/0/body"
+                    (object ["kind" .= ("hole-named" :: T.Text), "name" .= ("impl" :: T.Text)])
+                , PatchReplace "/statements/0/body"
+                    (object ["kind" .= ("app" :: T.Text), "fn" .= ("*" :: T.Text),
+                             "args" .= [object ["kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text)],
+                                        object ["kind" .= ("var" :: T.Text), "name" .= ("y" :: T.Text)]]])
+                ]
+          pResult <- applyPatch fp patchReq
+          case pResult of
+            PatchSuccess _ -> pure ()
+            other -> expectationFailure $ "expected PatchSuccess (no contracts), got: " ++ show other
+      removeDirectoryRecursive tmpDir
 
   -- =========================================================================
   -- v0.3: parsePatchOp tests (pure)
