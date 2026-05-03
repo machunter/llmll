@@ -20,7 +20,7 @@ import LLMLL.ObligationAssembly
   , trustLabel )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -4487,17 +4487,24 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       patternBindings (PConstructor "Outer" [PConstructor "Inner" [PVar "x"], PVar "y"])
         `shouldBe` [("x", "match-arm"), ("y", "match-arm")]
 
-  describe "Phase 3: isTypeCompatible (F8, R2)" $ do
+  describe "Phase 3: isTypeCompatible (F8, R1, C2)" $ do
     it "TC-1: exact match" $
-      isTypeCompatible TInt TInt `shouldBe` True
+      isTypeCompatible Map.empty TInt TInt `shouldBe` True
     it "TC-2: mismatch" $
-      isTypeCompatible TInt TString `shouldBe` False
+      isTypeCompatible Map.empty TInt TString `shouldBe` False
     it "TC-3: Result unwrap success" $
-      isTypeCompatible TInt (TResult TInt TString) `shouldBe` True
+      isTypeCompatible Map.empty TInt (TResult TInt TString) `shouldBe` True
     it "TC-4: Result exact match" $
-      isTypeCompatible (TResult TInt TString) (TResult TInt TString) `shouldBe` True
+      isTypeCompatible Map.empty (TResult TInt TString) (TResult TInt TString) `shouldBe` True
     it "TC-5: Result wrong payload" $
-      isTypeCompatible TString (TResult TInt TString) `shouldBe` False
+      isTypeCompatible Map.empty TString (TResult TInt TString) `shouldBe` False
+    it "TC-6: TVar matches any (C2)" $
+      isTypeCompatible Map.empty TInt (TVar "a") `shouldBe` True
+    it "TC-7: TDependent strips refinement (R1)" $
+      isTypeCompatible Map.empty TInt (TDependent "x" TInt (ELit (LitBool True))) `shouldBe` True
+    it "TC-8: TCustom resolves via alias map" $
+      let aliases = Map.fromList [("PositiveInt", TDependent "x" TInt (EApp ">" [EVar "x", ELit (LitInt 0)]))]
+      in isTypeCompatible aliases TInt (TCustom "PositiveInt") `shouldBe` True
 
   describe "Phase 3: trustLabel (F9, R3)" $ do
     it "TL-1: builtin for unknown name" $
@@ -4505,24 +4512,24 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "Phase 3: generateCandidates (OBLIG-4)" $ do
     it "GEN-1: withdraw params → includes (- balance amount)" $ do
-      let cands = generateCandidates [("balance", TInt), ("amount", TInt)]
+      let cands = generateCandidates ["balance", "amount"]
       any (\c -> ceExpr c == "(- balance amount)") cands `shouldBe` True
 
     it "GEN-2: all candidates have verified=False" $ do
-      let cands = generateCandidates [("x", TInt), ("y", TInt)]
+      let cands = generateCandidates ["x", "y"]
       all (\c -> ceVerified c == False) cands `shouldBe` True
 
     it "GEN-3: single param → (+ n n)" $ do
-      let cands = generateCandidates [("n", TInt)]
+      let cands = generateCandidates ["n"]
       any (\c -> ceExpr c == "(+ n n)") cands `shouldBe` True
 
-    it "GEN-4: no int params → empty" $ do
-      let cands = generateCandidates [("s", TString)]
+    it "GEN-4: no names → empty" $ do
+      let cands = generateCandidates []
       cands `shouldBe` []
 
     it "GEN-5: cap at 8" $ do
-      let params = [("p" <> T.pack (show i), TInt) | i <- [1..10::Int]]
-          cands = generateCandidates params
+      let names = ["p" <> T.pack (show i) | i <- [1..10::Int]]
+          cands = generateCandidates names
       length cands `shouldSatisfy` (<= 8)
 
   describe "Phase 3: isQfLia exported (F5/F6)" $ do
@@ -4532,6 +4539,73 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       isQfLia (EApp "string-empty?" [EVar "s"]) `shouldBe` False
     it "IQ-3: multiplication is not QF-LIA" $
       isQfLia (EApp "*" [EVar "x", EVar "y"]) `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- Phase 4: Golden Benchmark Tests (B1, B3, B5)
+  -- -----------------------------------------------------------------------
+
+  describe "Phase 4: B1 withdraw golden" $ do
+    it "B1-1: generates (- balance amount) suggestion" $ do
+      src <- TIO.readFile "../examples/benchmarks/b1-withdraw.llmll"
+      case parseStatements "../examples/benchmarks/b1-withdraw.llmll" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let aliases = buildAliasMap stmts
+              -- withdraw has params [("balance", TInt), ("amount", TCustom "PositiveInt")]
+              params = case [ps | SDefLogic "withdraw" ps _ _ _ <- stmts] of
+                (ps:_) -> ps
+                []     -> []
+              intNames = [n | (n, t) <- params, isIntLike aliases t]
+              cands = generateCandidates intNames
+          intNames `shouldSatisfy` (\ns -> "balance" `elem` ns && "amount" `elem` ns)
+          any (\c -> ceExpr c == "(- balance amount)") cands `shouldBe` True
+
+    it "B1-2: PositiveInt param included via isIntLike" $ do
+      src <- TIO.readFile "../examples/benchmarks/b1-withdraw.llmll"
+      case parseStatements "../examples/benchmarks/b1-withdraw.llmll" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let aliases = buildAliasMap stmts
+              params = case [ps | SDefLogic "withdraw" ps _ _ _ <- stmts] of
+                (ps:_) -> ps
+                []     -> []
+          any (\(n,t) -> n == "amount" && isIntLike aliases t) params `shouldBe` True
+
+  describe "Phase 4: B5 double golden" $ do
+    it "B5-1: generates (+ n n) suggestion" $ do
+      let cands = generateCandidates ["n"]
+      any (\c -> ceExpr c == "(+ n n)") cands `shouldBe` True
+
+  describe "Phase 4: B3 safe-first golden" $ do
+    it "B3-1: parses with EMatch body" $ do
+      src <- TIO.readFile "../examples/benchmarks/b3-safe-first.llmll"
+      case parseStatements "../examples/benchmarks/b3-safe-first.llmll" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let bodies = [body | SDefLogic "safe-first" _ _ _ body <- stmts]
+          length bodies `shouldBe` 1
+          case bodies of
+            [EMatch _ arms] -> length arms `shouldBe` 2
+            _ -> expectationFailure "expected EMatch body"
+
+    it "B3-2: patternBindings Success arm" $
+      patternBindings (PConstructor "Success" [PVar "val"])
+        `shouldBe` [("val", "match-arm")]
+
+    it "B3-3: patternBindings Error arm" $
+      patternBindings (PConstructor "Error" [PVar "e"])
+        `shouldBe` [("e", "match-arm")]
+
+  describe "Phase 4: Integration tests" $ do
+    it "INT-1: fingerprint stability" $ do
+      let id1 = normalizeForFingerprint "withdraw" [("balance", TInt), ("amount", TInt)]
+                  (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) "body"
+          id2 = normalizeForFingerprint "withdraw" [("balance", TInt), ("amount", TInt)]
+                  (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) "body"
+      id1 `shouldBe` id2
+
+    it "INT-2: isTypeCompatible TVar enables list-head matching" $
+      isTypeCompatible Map.empty TInt (TResult (TVar "a") TString) `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

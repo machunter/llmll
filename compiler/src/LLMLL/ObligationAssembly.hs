@@ -128,9 +128,11 @@ data ObligationObj = ObligationObj
   , ooTypeChannel     :: Maybe TypeChannel
   , ooContractChannel :: Maybe ContractChannel
   , ooTrustChannel    :: Maybe TrustChannel
-  , ooContractedFns   :: [Value]
-  , ooAvailableFns    :: [Value]
-  , ooSuggestions     :: [Value]
+  , ooContractedFns       :: [Value]
+  , ooAvailableFns        :: [Value]
+  , ooSuggestions         :: [Value]
+  , ooContractedTruncated :: Bool       -- F5: spec §8.2 truncation signal
+  , ooAvailableTruncated  :: Bool       -- F5: spec §8.2 truncation signal
   -- Branch-specific fields (F4: only populated for BranchObligation)
   , ooParentId        :: Maybe Text
   , ooBranchIndex     :: Maybe Int
@@ -333,10 +335,15 @@ patternBindings (PConstructor _ ps) = concatMap patternBindings ps
 patternBindings PWildcard           = []
 patternBindings (PLiteral _)        = []
 
--- | Best-effort type recovery for scrutinee (Q1/b2).
+-- | Best-effort type recovery for scrutinee (Q1/b2, F6).
+-- Handles EVar (param lookup) and EApp (builtinEnv lookup).
 inferScrutineeType :: [(Name, Type)] -> Expr -> Maybe Type
 inferScrutineeType params (EVar v) = lookup v params
-inferScrutineeType _ _             = Nothing
+inferScrutineeType _params (EApp fn _args) =
+  case Map.lookup fn builtinEnv of
+    Just ty -> Just (returnType ty)
+    Nothing -> Nothing
+inferScrutineeType _ _ = Nothing
 
 -- | Look up a constructor's payload type from a sum type (R1).
 lookupConstructorPayload :: AliasMap -> Type -> Name -> Maybe Type
@@ -349,8 +356,9 @@ lookupConstructorPayload aliases scrutTy ctorName =
       | ctorName == "Error"   -> Just errTy
     _ -> Nothing
   where
-    resolveType (TCustom n) = maybe (TCustom n) resolveType (Map.lookup n aliases)
-    resolveType t           = t
+    resolveType (TCustom n)        = maybe (TCustom n) resolveType (Map.lookup n aliases)
+    resolveType (TDependent _ b _) = resolveType b   -- R2: strip refinement
+    resolveType t                  = t
 
 -- | Assemble branch obligations from EMatch in hole-bearing functions (F1).
 -- Two-pass: takes hole obligations for parent_id linkage.
@@ -410,9 +418,11 @@ findMatchBranches fnName params contract parentObl table mFqResult suppressed al
               , ooTypeChannel     = Nothing
               , ooContractChannel = Nothing
               , ooTrustChannel    = Nothing
-              , ooContractedFns   = []
-              , ooAvailableFns    = []
-              , ooSuggestions     = []
+              , ooContractedFns       = []
+              , ooAvailableFns        = []
+              , ooSuggestions         = []
+              , ooContractedTruncated = False
+              , ooAvailableTruncated  = False
               , ooParentId        = Just (ooId parentObl)
               , ooBranchIndex     = Just i
               , ooConstructor     = Just ctorName
@@ -433,12 +443,28 @@ findMatchBranches fnName params contract parentObl table mFqResult suppressed al
 -- Phase 3: Function lists (spec §8)
 -- ---------------------------------------------------------------------------
 
--- | Type-compatibility with Result-unwrapping (F8, R2).
-isTypeCompatible :: Type -> Type -> Bool
-isTypeCompatible expected actual@(TResult ok _) =
+-- | Type-compatibility with Result-unwrapping (F8, R1, C2).
+-- TVar overapproximation acceptable for v0.10 (F2): LLMLL builtins
+-- have concrete return types in practice. Spec §8.2 zonking deferred to v0.11.
+isTypeCompatible :: AliasMap -> Type -> Type -> Bool
+isTypeCompatible _      _ (TVar _)                  = True
+isTypeCompatible _      (TVar _) _                  = True
+isTypeCompatible aliases expected actual@(TResult ok _) =
   typeLabel expected == typeLabel actual
-  || isTypeCompatible expected ok
-isTypeCompatible expected actual = typeLabel expected == typeLabel actual
+  || isTypeCompatible aliases expected ok
+isTypeCompatible aliases expected (TCustom n) =
+  case Map.lookup n aliases of
+    Just resolved -> isTypeCompatible aliases expected resolved
+    Nothing       -> typeLabel expected == typeLabel (TCustom n)
+isTypeCompatible aliases (TCustom n) actual =
+  case Map.lookup n aliases of
+    Just resolved -> isTypeCompatible aliases resolved actual
+    Nothing       -> typeLabel (TCustom n) == typeLabel actual
+isTypeCompatible aliases expected (TDependent _ base _) =   -- R1
+  isTypeCompatible aliases expected base
+isTypeCompatible aliases (TDependent _ base _) actual =      -- R1
+  isTypeCompatible aliases base actual
+isTypeCompatible _ expected actual = typeLabel expected == typeLabel actual
 
 -- | Trust label for function lists (F9, R3).
 trustLabel :: Map Name TrustEntry -> Name -> Text
@@ -450,38 +476,57 @@ trustLabel trustMap name = case Map.lookup name trustMap of
     _                         -> "asserted"
   Nothing -> "builtin"
 
--- | Assemble function lists with cap-8 (spec §8.2).
-assembleFunctionLists :: [Statement] -> Map Name TrustEntry -> Type
-                      -> ([Value], [Value])
-assembleFunctionLists stmts trustMap expectedTy =
+-- | Assemble function lists with cap-8 and truncation signals (spec §8.2).
+-- Ordering: alphabetical (v0.10). Spec §8.2 zonking priority deferred to v0.11 (F8).
+assembleFunctionLists :: [Statement] -> AliasMap -> Map Name TrustEntry -> Type
+                      -> ([Value], Bool, [Value], Bool)
+assembleFunctionLists stmts aliases trustMap expectedTy =
   let cap = 8
-      -- Contracted: user functions with contracts and compatible return types
-      contracted = take cap
+      -- Contracted: user functions with contracts and compatible return types (C3: + SLetrec)
+      allContracted =
         [ object [ "name"    .= fname
                  , "params"  .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
                  , "returns" .= typeLabel ret
                  , "status"  .= trustLabel trustMap fname ]
         | SDefLogic fname ps (Just ret) c _ <- stmts
         , contractPre c /= Nothing || contractPost c /= Nothing
-        , isTypeCompatible expectedTy ret
+        , isTypeCompatible aliases expectedTy ret
         ]
-      -- Available: builtins (non-wasi) with compatible return types
+      contracted = take cap allContracted
+      contractedT = length allContracted > cap
+      -- Available: builtins (non-wasi) with compatible return types (C4: params populated)
       builtins = Map.toList builtinEnv
-      available = take cap
+      allAvailable =
         [ object [ "name"    .= bname
-                 , "params"  .= ([] :: [Value])
-                 , "returns" .= typeLabel bty
+                 , "params"  .= builtinParams bty
+                 , "returns" .= typeLabel (returnType bty)
                  , "status"  .= ("builtin" :: Text) ]
         | (bname, bty) <- builtins
         , not ("wasi." `T.isPrefixOf` bname)
-        , isTypeCompatible expectedTy (returnType bty)
+        , isTypeCompatible aliases expectedTy (returnType bty)
         ]
-  in (contracted, available)
+      available = take cap allAvailable
+      availableT = length allAvailable > cap
+  in (contracted, contractedT, available, availableT)
+
+-- | Extract parameter types from a function type for builtin display (C4, F4).
+builtinParams :: Type -> [[Value]]
+builtinParams (TFn argTys _) =
+  zipWith (\i t -> [toJSON ("arg" <> T.pack (show i) :: Text), toJSON (typeLabel t)])
+          [1::Int ..] argTys
+builtinParams _ = []
 
 -- | Extract return type (last arrow result or self).
 returnType :: Type -> Type
 returnType (TFn _ r) = r
 returnType t         = t
+
+-- | Encode a candidate expression as JSON.
+encodeCand :: CandidateExpr -> Value
+encodeCand c = object
+  [ "expr"     .= ceExpr c
+  , "verified" .= ceVerified c
+  , "kind"     .= ceKind c ]
 
 -- ---------------------------------------------------------------------------
 -- Assembly (spec §2.1)
@@ -564,7 +609,9 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback recNames suppressed h
       aliases  = buildAliasMap stmts
       sortEnv  = buildSortEnv aliases params
       guards   = collectHoleGuards Map.empty sortEnv (fromMaybe (ELit (LitBool True)) mBody)
-      myGuards = maybe [] snd $ lookup (holeName he) [(n, (n, gs)) | (n, gs) <- guards]
+      -- F7 fix: holeName has "?" prefix, collectHoleGuards emits without
+      hName    = T.dropWhile (== '?') (holeName he)
+      myGuards = maybe [] snd $ lookup hName [(n, (n, gs)) | (n, gs) <- guards]
       contractCh = ContractChannel
         { ccPreconditions = maybe [] (\e -> [exprToSExpr e]) (contractPre contract)
         , ccPostGoal      = fmap exprToSExpr (contractPost contract)
@@ -584,6 +631,18 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback recNames suppressed h
         , trBodyFaithful   = fnName `elem` faithful
         }
 
+      -- Function lists (§8)
+      expectedTy = fromMaybe TUnit (holeInferredType he)
+      trustMap = Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+      (contracted, contractedT, available, availableT) =
+        assembleFunctionLists stmts aliases trustMap expectedTy
+
+      -- Repair suggestions (OBLIG-4)
+      suggestions = case holeInferredType he of
+        Just ty | isIntLike aliases ty ->
+          map encodeCand (generateCandidates [n | (n, t) <- params, isIntLike aliases t])
+        _ -> []
+
   Just ObligationObj
     { ooId              = oblId
     , ooOrigin          = holePointer he
@@ -594,9 +653,11 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback recNames suppressed h
     , ooTypeChannel     = Just typeCh
     , ooContractChannel = Just contractCh
     , ooTrustChannel    = Just trustCh
-    , ooContractedFns   = []
-    , ooAvailableFns    = []
-    , ooSuggestions     = []
+    , ooContractedFns       = contracted
+    , ooAvailableFns        = available
+    , ooSuggestions         = suggestions
+    , ooContractedTruncated = contractedT
+    , ooAvailableTruncated  = availableT
     , ooParentId        = Nothing
     , ooBranchIndex     = Nothing
     , ooConstructor     = Nothing
@@ -631,9 +692,11 @@ assembleConstraintObligations stmts table mFqResult _trustRpt faithful suppresse
         , ooTypeChannel     = Nothing
         , ooContractChannel = Nothing
         , ooTrustChannel    = Nothing
-        , ooContractedFns   = []
-        , ooAvailableFns    = []
-        , ooSuggestions     = []
+        , ooContractedFns       = []
+        , ooAvailableFns        = []
+        , ooSuggestions         = []
+        , ooContractedTruncated = False
+        , ooAvailableTruncated  = False
         , ooParentId        = Nothing
         , ooBranchIndex     = Nothing
         , ooConstructor     = Nothing
@@ -699,9 +762,11 @@ encodeObligation o = object $
   ] ++ maybe [] (\tc -> ["type_channel" .= encodeTypeCh tc]) (ooTypeChannel o)
     ++ maybe [] (\cc -> ["contract_channel" .= encodeContractCh cc]) (ooContractChannel o)
     ++ maybe [] (\tr -> ["trust_channel" .= encodeTrustCh tr]) (ooTrustChannel o)
-    ++ [ "contracted_functions" .= ooContractedFns o
-       , "available_functions"  .= ooAvailableFns o
-       , "suggestions"          .= ooSuggestions o
+    ++ [ "contracted_functions"           .= ooContractedFns o
+       , "contracted_functions_truncated" .= ooContractedTruncated o
+       , "available_functions"            .= ooAvailableFns o
+       , "available_functions_truncated"  .= ooAvailableTruncated o
+       , "suggestions"                    .= ooSuggestions o
        ]
     ++ case ooKind o of
          BranchObligation ->
