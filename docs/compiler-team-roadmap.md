@@ -82,14 +82,14 @@ This is the thing an agent can actually use. Three obligation channels:
 
 | # | ID | Description | Prerequisite | Status |
 |---|-----|-------------|-------------|--------|
-| 1 | **OBLIG-0** | **[DESIGN]** Design spec: obligation report JSON schema, enriched typed holes (expected type + contract context + path condition + assumption set), `EMatch` branch obligation encoding, repair suggestion generation, benchmark suite definition. | COMP-0 | ☐ |
-| 2 | **MOD-1** | **[CT]** Cross-module `ContractEnv`: add `meContracts :: Map Name ([(Name, Type)], Contract)` field to `ModuleEnv` in `Syntax.hs`. Populate from `buildModuleEnv`. Wire into `ContractEnv` construction for imported modules. Extend `ctVerifiedHash` staleness guard to hash all imported `.verified.json` files (OBLIG-0 §5.3 Rev 6 Finding 3). Required for cross-module obligation reports (OBLIG-2/3). See `TODO(v0.10)` in `Syntax.hs:530`. | COMP-1 | ☐ |
-| 3 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, assumption set, source/evidence hashes for staleness detection. New fields emitted unconditionally on `llmll checkout` (no extra flag). | OBLIG-0 | ☐ |
-| 4 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, MOD-1, COMP-1 | ☐ |
-| 5 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, MOD-1, COMP-3 | ☐ |
-| 6 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☐ |
-| 7 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligation-report` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☐ |
-| 8 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☐ |
+| 1 | **OBLIG-0** | **[DESIGN]** Design spec: obligation report JSON schema, enriched typed holes (expected type + contract context + path condition + assumption set), `EMatch` branch obligation encoding, repair suggestion generation, benchmark suite definition. | COMP-0 | ☑ |
+| 2 | **MOD-1** | **[CT]** Cross-module `ContractEnv`: add `meContracts :: Map Name ([(Name, Type)], Contract)` field to `ModuleEnv` in `Syntax.hs`. Populate from `buildModuleEnv`. Wire into `ContractEnv` construction for imported modules. Extend `ctVerifiedHash` staleness guard to hash all imported `.verified.json` files (OBLIG-0 §5.3 Rev 6 Finding 3). Required for cross-module obligation reports (OBLIG-2/3). See `TODO(v0.10)` in `Syntax.hs:530`. | COMP-1 | ☑ |
+| 3 | **OBLIG-1** | **[CT]** Enriched typed holes: extend `CheckoutToken` to include contract preconditions, postcondition goal, path condition, assumption set, source/evidence hashes for staleness detection. New fields emitted unconditionally on `llmll checkout` (no extra flag). | OBLIG-0 | ☑ |
+| 4 | **OBLIG-2** | **[CT]** Goal-state display: structured obligation report (JSON) for each `?hole`, each unproven contract clause, and each failed call-site precondition. Reuse v0.9 path-condition infrastructure (`FlatPath` guards from `bodyToPred`). | OBLIG-0, MOD-1, COMP-1 | ☑ |
+| 5 | **OBLIG-3** | **[CT]** `EMatch` branch obligations: for each branch of a `match` on `Result`/sum types, emit a sub-obligation with per-branch context (constructor-refined bindings) and per-branch contract sub-goals. | OBLIG-0, MOD-1, COMP-3 | ☑ |
+| 6 | **OBLIG-4** | **[CT]** Refinement-aware repair suggestions: `ObligationMining.hs` proposes concrete repairs — add guard before call, strengthen caller precondition, weaken callee precondition, choose candidate expression from in-scope terms that satisfy the postcondition goal. | OBLIG-2 | ☑ |
+| 7 | **OBLIG-5** | **[CT]** Repair loop integration: `llmll verify --obligation-report` emits obligation reports; orchestrator consumes reports, patches, re-verifies. Trust report records final evidence. End-to-end pipeline test. | OBLIG-1, OBLIG-4 | ☑ |
+| 8 | **OBLIG-B** | **[LT+CT]** Obligation quality benchmark suite: for a set of known programs with known holes, verify that the obligation report contains enough information for a mechanical repair procedure. Measures obligation *completeness*, not synthesis *capability*. | OBLIG-2 | ☑ |
 
 ### Obligation Quality Benchmark
 
@@ -208,7 +208,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 |------|---------------|-------------|
 | **Feature freeze** (v0.8.1a–v0.10) | **Active** (2026-04-30, extended 2026-05-01) | No new builtins, syntax, FFI, WASI, or orchestration features until v0.10 ships |
 | **Evidence model design** (EVID-0) | **Approved** (Rev 2) | Design spec approved, ready for v0.8.1b implementation |
-| **Obligation-guided agent coding** (v0.10) | **Planned** (2026-05-01) | Structured obligation reports for agents. Replaces indexed-type approach from research track. |
+| **Obligation-guided agent coding** (v0.10) | **Shipped** (2026-05-03) | Structured obligation reports for agents. 8 items (OBLIG-0–OBLIG-B) complete. 556 tests. |
 | **Module system hardening** (v0.9.1) | **Shipped** (2026-05-01) | Spec restructured (§8.3/5/6/7), cycle detection fixed, 11 new tests (M-01–M-07), `life_sexp` corrected. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future). |
 | **Cross-module ContractEnv** (MOD-1) | **v0.10 prerequisite** | `meContracts` field in `ModuleEnv`. Required before OBLIG-2/3 can use imported contracts. |
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |

@@ -2,6 +2,44 @@
 
 ---
 
+## v0.10.0 — Obligation-Guided Agent Coding (2026-05-03)
+
+### Compiler — Structured Obligation Reports
+
+- **OBLIG-0** — Design spec for obligation report JSON schema (schema version `0.10.0`). Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestion generation. Benchmark suite definition.
+- **MOD-1** — Cross-module `ContractEnv`: `meContracts` field in `ModuleEnv` (`Syntax.hs`). Populated from `buildModuleEnv`. `ctVerifiedHash` staleness guard for imported `.verified.json` files.
+- **OBLIG-1** — Enriched typed holes: `CheckoutToken` extended with contract preconditions, postcondition goal, path condition, assumption set, source/evidence hashes. New fields emitted unconditionally on `llmll checkout`.
+- **OBLIG-2** — Goal-state display: `ObligationAssembly.hs` module. Structured JSON obligation report for each `?hole`, each unproven contract clause, and each failed call-site precondition. `assembleReport` top-level entry point. `--obligation-report` flag on `llmll verify`. `GuardClassifier.hs` extracted from `FixpointEmit.hs` for shared guard classification.
+- **OBLIG-3** — `EMatch` branch obligations: `assembleBranchObligations` (two-pass, parent-id linkage). `patternBindings` (recursive on `PConstructor`). `lookupConstructorPayload` with alias-aware type resolution. `inferScrutineeType` for `EVar` and `EApp` (builtin lookup via `builtinEnv`). Branch-specific fields (`parent_id`, `branch_index`, `constructor`, `bindings`) conditionally emitted.
+- **OBLIG-4** — Repair suggestions: `generateCandidates` in `ObligationMining.hs` (O(n²) bounded arithmetic search, cap-8). `CandidateExpr` type. Pre-filtered via `isIntLike` with `AliasMap` (avoids double-filter bug on dependent type aliases like `PositiveInt`). Wired into `mkHoleObl` for int-typed holes.
+- **OBLIG-5** — Repair loop integration: `llmll verify --obligation-report` emits reports end-to-end via `assembleReport`. Trust report records final evidence.
+- **OBLIG-B** — Benchmark suite: 3 benchmark programs (`b1-withdraw`, `b3-safe-first`, `b5-double`) with golden tests. Fingerprint stability test (INT-1). 11 new Phase 4 tests.
+
+### Compiler — Function Lists (spec §8)
+
+- **`assembleFunctionLists`** — Contracted functions (user-defined with compatible return types) and available builtins (non-WASI, type-compatible) with cap-8 and truncation signals. `isTypeCompatible` with `AliasMap`, `TVar` wildcard matching, `TDependent` refinement stripping, `TCustom` alias resolution, and `Result` unwrapping. `trustLabel` from `effectiveLevel`. Builtin params populated from `TFn` with positional names.
+
+### Compiler — Bug Fixes
+
+- **F7: Path condition key mismatch** — `holeName` carries `?` prefix; `collectHoleGuards` emits without. Fixed by stripping `?` prefix in consumer. Path conditions were silently empty for all hole obligations.
+- **F6: `inferScrutineeType` for `EApp`** — Extended to look up `builtinEnv` for function return types (e.g., `list-head` → `Result[a, string]`). Previously returned `Nothing` for all non-`EVar` scrutinees.
+- **R2: `resolveType` strips `TDependent`** — `lookupConstructorPayload` now correctly resolves dependent type aliases when looking up constructor payload types.
+
+### Compiler — New Modules
+
+- **`ObligationAssembly.hs`** — 800+ line module. Obligation report assembly pipeline: hole obligations, branch obligations, constraint obligations, function lists, repair suggestions, JSON encoding. Schema version `0.10.0`.
+- **`GuardClassifier.hs`** — Extracted from `FixpointEmit.hs`. Shared guard classification logic used by both the `.fq` emitter (verification) and `ObligationAssembly` (presentation).
+
+### Benchmarks
+
+- **`examples/benchmarks/b1-withdraw.llmll`** — `withdraw` with `PositiveInt` alias (tests type-aware candidate generation)
+- **`examples/benchmarks/b3-safe-first.llmll`** — `safe-first` with `EMatch` on `list-head` (tests branch obligations)
+- **`examples/benchmarks/b5-double.llmll`** — `double` with single int param (tests `(+ n n)` candidate)
+
+**Tests:** 556 Haskell (was 452; +104 across Phases 1–4), 37 Python (unchanged).
+
+---
+
 ## v0.9.0 — Compositional Verification (2026-05-01)
 
 ### Compiler — Assume-Guarantee Reasoning
