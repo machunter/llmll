@@ -28,6 +28,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll hub query --signature <sig>` | Search hub cache for functions matching a type signature (e.g. `"int -> int -> int"`). |
 | `llmll replay <source> <log>` | Rebuild program, replay event log inputs, compare outputs for determinism verification. |
 | `llmll spec [--json]` | Emit agent prompt specification from compiler builtins. Text (default) or JSON output. |
+| `llmll version` | Print compiler version and exit. Supports `--json` for `{"version":"…"}` output. Also available as `llmll --version`. |
 | `llmll repl` | Start an interactive LLMLL REPL |
 
 ### Input formats

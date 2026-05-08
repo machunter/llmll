@@ -103,6 +103,7 @@ data Command
   | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
   | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
   | CmdSpec     Bool                                         -- v0.3.4: spec [--json]
+  | CmdVersion                                               -- v0.11: version
   deriving (Show)
 
 -- | Leanstral MCP options for the verify command (v0.3.1).
@@ -118,11 +119,13 @@ data Options = Options
   } deriving (Show)
 
 optionsParser :: ParserInfo Options
-optionsParser = info (helper <*> opts) $
+optionsParser = info (helper <*> versionFlag <*> opts) $
   fullDesc
   <> progDesc ("LLMLL — Large Language Model Logical Language Compiler (v" ++ showVersion version ++ ")")
   <> header "llmll — AI-to-AI programming language compiler"
   where
+    versionFlag = infoOption ("llmll " ++ showVersion version)
+      (long "version" <> help "Print compiler version and exit")
     opts = Options
       <$> commandParser
       <*> switch (long "json" <> help "Output diagnostics as JSON")
@@ -158,6 +161,8 @@ optionsParser = info (helper <*> opts) $
           (progDesc "v0.3.1: Replay an event log against a compiled program"))
       <> command "spec" (info specCmd
           (progDesc "v0.3.4: Emit agent specification from compiler builtins"))
+      <> command "version" (info (pure CmdVersion)
+          (progDesc "Print compiler version and exit"))
       )
 
     fileArg = strArgument (metavar "FILE" <> help "Path to .llmll or .ast.json source file")
@@ -327,6 +332,7 @@ main = do
     CmdPatch fp patchFp       -> doPatch json fp patchFp
     CmdReplay fp logFp        -> doReplay json fp logFp
     CmdSpec jsonOut            -> doSpec jsonOut
+    CmdVersion                -> doVersion json
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -1503,3 +1509,14 @@ doSpec jsonOut =
   if jsonOut
     then TIO.putStr agentSpecJSON
     else TIO.putStr agentSpecText
+
+-- ---------------------------------------------------------------------------
+-- version
+-- ---------------------------------------------------------------------------
+
+doVersion :: Bool -> IO ()
+doVersion json =
+  if json
+    then TIO.putStrLn . T.pack . BLC.unpack . encode $
+           object ["version" .= showVersion version]
+    else TIO.putStrLn $ T.pack ("llmll " ++ showVersion version)

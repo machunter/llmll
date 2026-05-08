@@ -28,7 +28,10 @@ Expected output:
 ```bash
 llmll — AI-to-AI programming language compiler
 
-Usage: llmll COMMAND [--json]
+Usage: llmll [--version] COMMAND [--json]
+
+Available options:
+  --version    Print compiler version and exit
 
 Available commands:
   check      Parse and type-check a .llmll or .ast.json file
@@ -43,6 +46,7 @@ Available commands:
   patch      Apply an RFC 6902 JSON-Patch to a checked-out hole
   hub        llmll-hub package registry (fetch, scaffold, query)
   replay     Deterministic replay from event log
+  version    Print compiler version and exit
   repl       Start an interactive LLMLL REPL
 ```
 
