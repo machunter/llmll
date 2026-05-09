@@ -1037,7 +1037,7 @@ When a `let` binding's RHS is a complex expression (delegation, `await`, functio
 (def-logic build-report [state: AppState data: ReportData]
   (let [(chart-future (?delegate-async @viz-agent
                          "Render a bar chart from data"
-                         -> Promise[ImageBytes]))]
+                         -> ImageBytes))]
     (let [(chart-result (await chart-future))]
       (match chart-result
         (Success img) (pair state (wasi.http.response 200 img))
@@ -1045,7 +1045,7 @@ When a `let` binding's RHS is a complex expression (delegation, `await`, functio
 
 ;; ❌ WRONG — inlining await + delegate-async as a direct argument:
 (def-logic build-report [state: AppState data: ReportData]
-  (match (await (?delegate-async @viz-agent "Render chart" -> Promise[ImageBytes]))
+  (match (await (?delegate-async @viz-agent "Render chart" -> ImageBytes))
     (Success img) (pair state (wasi.http.response 200 img))
     (Error err)   (pair state (wasi.http.response 500 "Agent failed"))))
 ```
@@ -1059,8 +1059,7 @@ The same pattern applies to any multi-step computation: bind results to names wi
     { "name": "chart-future",
       "expr": { "kind": "hole-delegate-async", "agent": "@viz-agent",
                 "description": "Render a bar chart from data",
-                "return_type": { "kind": "promise-type",
-                  "inner": { "kind": "custom-type", "name": "ImageBytes" }}}}
+                "return_type": { "kind": "named", "name": "ImageBytes" }}}
   ],
   "body": {
     "kind": "let",

@@ -29,6 +29,7 @@ module LLMLL.Syntax
     -- * Holes
   , HoleKind(..)
   , DelegateSpec(..)
+  , normalizeAsyncDelegateSpec
   , ScaffoldSpec(..)
 
     -- * Statements (Top-Level Forms)
@@ -257,6 +258,31 @@ data DelegateSpec = DelegateSpec
   , delegateReturnType  :: Type          -- ^ Required return type
   , delegateOnFailure   :: Maybe Expr    -- ^ Optional fallback expression
   } deriving (Show, Eq, Generic)
+
+-- | Normalize and validate an async delegate spec's return type.
+--
+-- Rules:
+--   T                  -> Right spec                  (canonical, no change)
+--   Promise[T]         -> Right spec{retTy = T}       (legacy wrapper stripped)
+--   Promise[Promise[T]] -> Left "..."                 (nested promise, rejected)
+--
+-- The compiler wraps return_type in Promise automatically
+-- (inferHole/HDelegateAsync). If the agent already wrote Promise[T],
+-- this strips it so the compiler doesn't double-wrap.
+--
+-- Language restriction: delegate-async payload types must not be
+-- Promise[...].  A single top-level Promise is tolerated as legacy;
+-- nested Promise is a hard parse error.
+normalizeAsyncDelegateSpec :: DelegateSpec -> Either Text DelegateSpec
+normalizeAsyncDelegateSpec spec =
+  case delegateReturnType spec of
+    TPromise (TPromise _) ->
+      Left $ "hole-delegate-async return_type must be the inner type T, not Promise[T]; "
+          <> "nested Promise[Promise[...]] is invalid"
+    TPromise inner ->
+      Right spec { delegateReturnType = inner }
+    _ ->
+      Right spec
 
 -- ---------------------------------------------------------------------------
 -- Contracts

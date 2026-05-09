@@ -46,6 +46,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe)
+import Data.List (nub, (\\))
 import Control.Monad (forM_, forM, foldM, when, unless, void)
 import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
 import Control.Monad.State.Strict
@@ -305,6 +306,18 @@ withTaggedEnv source bindings action = do
   modify $ \s -> s { tcEnv = oldEnv, tcProvenance = oldProv }
   pure result
 
+-- | Run a computation in a function-scope context.
+-- Sets tcCurrentFn and tcIsLetrec for the duration of the action,
+-- then restores the previous values on exit.  Mirrors withTaggedEnv.
+withFunctionContext :: Name -> Bool -> TC a -> TC a
+withFunctionContext name isLetrec action = do
+  oldFn  <- gets tcCurrentFn
+  oldLet <- gets tcIsLetrec
+  modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = isLetrec }
+  result <- action
+  modify $ \s -> s { tcCurrentFn = oldFn, tcIsLetrec = oldLet }
+  pure result
+
 -- | Emit a structured non-exhaustive-match error using the registered diagnostic.
 tcEmitNonExhaustive :: Name -> [Name] -> [Name] -> TC ()
 tcEmitNonExhaustive typeName missing covered = do
@@ -475,10 +488,29 @@ checkStatements stmts = do
   -- v0.4 CAP-1: store top-level statements for capability checks in inferExpr
   modify $ \s -> s { tcAliasMap = aliasMap, tcTrusts = Map.union trustMap (tcTrusts s), tcModuleStmts = stmts }
   withEnv topLevel $ do
-    -- Second pass: check each statement with its RFC 6901 pointer context.
-    -- Each segment is one RFC 6901 token: "statements" and "N" are separate.
-    forM_ (zip [0 :: Int ..] stmts) $ \(i, stmt) ->
-      withSegment "statements" $ withSegment (tshow i) (checkStatement stmt)
+    -- Register ADT constructors as callable functions (LLMLL.md §3.3).
+    let ctorBindings = collectConstructors stmts
+    -- Phase 1: intra-module constructor name duplicates.
+    let ctorNames = map fst ctorBindings
+        dupes = ctorNames \\ nub ctorNames
+    forM_ (nub dupes) $ \dupName ->
+      tcWarnOrError $ "duplicate constructor name '" <> dupName
+                      <> "' within or across type definitions; first definition wins"
+    -- Phase 2: constructor/function collisions (value namespace only).
+    -- Skip TCustom entries (type names, interface names) — separate namespace.
+    forM_ (nub (map fst ctorBindings)) $ \ctorName -> do
+      mExisting <- tcLookup ctorName
+      case mExisting of
+        Just (TCustom _) -> pure ()  -- type/interface name, not value — skip
+        Just existingType ->
+          tcWarnOrError $ "constructor '" <> ctorName <> "' shadows existing binding of type "
+                          <> typeLabel existingType
+        Nothing -> pure ()
+    withEnv ctorBindings $ do
+      -- Second pass: check each statement with its RFC 6901 pointer context.
+      -- Each segment is one RFC 6901 token: "statements" and "N" are separate.
+      forM_ (zip [0 :: Int ..] stmts) $ \(i, stmt) ->
+        withSegment "statements" $ withSegment (tshow i) (checkStatement stmt)
 
 -- | Extract (name, type) for top-level definitions (for forward references).
 collectTopLevel :: Statement -> Maybe (Name, Type)
@@ -496,67 +528,85 @@ collectTopLevel (STypeDef name body) =
   Just (name, TCustom name)  -- type aliases register as custom types
 collectTopLevel _ = Nothing
 
+-- | Extract constructor bindings from sum-type definitions.
+-- Each constructor is registered as a callable function in the value namespace
+-- (LLMLL.md §3.3: "Use the constructor name as a function call").
+-- Returns TCustom typeName — preserves declared type name until alias
+-- expansion.  NOTE: nominal identity is future work; compatibleWith
+-- (TSumType) compares constructor names only, not payload types.
+--
+-- SCOPE LIMITATION: single-file only. Cross-module constructor injection
+-- must be added when ModuleEnv carries constructor bindings.
+collectConstructors :: [Statement] -> [(Name, Type)]
+collectConstructors stmts = concatMap go stmts
+  where
+    go (STypeDef typeName (TSumType ctors)) =
+      let retType = TCustom typeName
+      in [ case mPayload of
+             Nothing -> (ctor, TFn [] retType)
+             Just pt -> (ctor, TFn [pt] retType)
+         | (ctor, mPayload) <- ctors ]
+    go _ = []
+
 checkStatement :: Statement -> TC ()
 checkStatement (SDefLogic name params mRet contract body) = do
-  -- Track enclosing function for exhaustiveness (D1) and self-recursion (D2)
-  modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = False }
-  let paramBindings = params
-  withTaggedEnv SrcParam paramBindings $ do
-    -- Infer body type: push "body" segment for pointer precision
-    bodyType <- withSegment "body" (inferExpr body)
-    -- Check return type annotation if present
-    case mRet of
-      Nothing -> pure ()
-      Just retTy -> unify name retTy bodyType
-    -- Check pre-condition is boolean (result NOT in scope — §4.3)
-    case contractPre contract of
-      Nothing -> pure ()
-      Just pre -> do
-        when (exprContainsVar "result" pre) $
-          tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
-        preType <- inferExpr pre
-        unless (compatibleWith preType TBool) $
-          tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
-    -- Check post-condition is boolean (has access to 'result')
-    case contractPost contract of
-      Nothing -> pure ()
-      Just post -> do
-        let resultType = fromMaybe bodyType mRet
-        postType <- withEnv [("result", resultType)] (inferExpr post)
-        unless (compatibleWith postType TBool) $
-          tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
+  withFunctionContext name False $ do
+    let paramBindings = params
+    withTaggedEnv SrcParam paramBindings $ do
+      -- Infer body type: push "body" segment for pointer precision
+      bodyType <- withSegment "body" (inferExpr body)
+      -- Check return type annotation if present
+      case mRet of
+        Nothing -> pure ()
+        Just retTy -> unify name retTy bodyType
+      -- Check pre-condition is boolean (result NOT in scope — §4.3)
+      case contractPre contract of
+        Nothing -> pure ()
+        Just pre -> do
+          when (exprContainsVar "result" pre) $
+            tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
+          preType <- inferExpr pre
+          unless (compatibleWith preType TBool) $
+            tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
+      -- Check post-condition is boolean (has access to 'result')
+      case contractPost contract of
+        Nothing -> pure ()
+        Just post -> do
+          let resultType = fromMaybe bodyType mRet
+          postType <- withEnv [("result", resultType)] (inferExpr post)
+          unless (compatibleWith postType TBool) $
+            tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
 
 checkStatement (SLetrec name params mRet contract dec body) = do
-  -- letrec: like def-logic but tcIsLetrec=True supresses the self-recursion warning
-  modify $ \s -> s { tcCurrentFn = Just name, tcIsLetrec = True }
-  let paramBindings = params
-  withTaggedEnv SrcParam paramBindings $ do
-    -- Validate :decreases is integer-typed (QF linear arithmetic restriction)
-    decType <- inferExpr dec
-    unless (compatibleWith decType TInt) $
-      tcWarn $ "letrec '" <> name <> "': :decreases must be int-typed, got " <> typeLabel decType
-    -- Infer body type: push "body" segment for pointer precision
-    bodyType <- withSegment "body" (inferExpr body)
-    case mRet of
-      Nothing -> pure ()
-      Just retTy -> unify name retTy bodyType
-    -- Check pre-condition (result NOT in scope — §4.3)
-    case contractPre contract of
-      Nothing -> pure ()
-      Just pre -> do
-        when (exprContainsVar "result" pre) $
-          tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
-        preType <- inferExpr pre
-        unless (compatibleWith preType TBool) $
-          tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
-    -- Check post-condition
-    case contractPost contract of
-      Nothing -> pure ()
-      Just post -> do
-        let resultType = fromMaybe bodyType mRet
-        postType <- withEnv [("result", resultType)] (inferExpr post)
-        unless (compatibleWith postType TBool) $
-          tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
+  withFunctionContext name True $ do
+    let paramBindings = params
+    withTaggedEnv SrcParam paramBindings $ do
+      -- Validate :decreases is integer-typed (QF linear arithmetic restriction)
+      decType <- inferExpr dec
+      unless (compatibleWith decType TInt) $
+        tcWarn $ "letrec '" <> name <> "': :decreases must be int-typed, got " <> typeLabel decType
+      -- Infer body type: push "body" segment for pointer precision
+      bodyType <- withSegment "body" (inferExpr body)
+      case mRet of
+        Nothing -> pure ()
+        Just retTy -> unify name retTy bodyType
+      -- Check pre-condition (result NOT in scope — §4.3)
+      case contractPre contract of
+        Nothing -> pure ()
+        Just pre -> do
+          when (exprContainsVar "result" pre) $
+            tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
+          preType <- inferExpr pre
+          unless (compatibleWith preType TBool) $
+            tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
+      -- Check post-condition
+      case contractPost contract of
+        Nothing -> pure ()
+        Just post -> do
+          let resultType = fromMaybe bodyType mRet
+          postType <- withEnv [("result", resultType)] (inferExpr post)
+          unless (compatibleWith postType TBool) $
+            tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
 
 checkStatement (SDefInterface name fns laws) = do
   -- Register interface function signatures
@@ -932,7 +982,17 @@ inferHole (HScaffold spec) = do
 
 inferHole (HDelegate spec) = pure (delegateReturnType spec)
 
-inferHole (HDelegateAsync spec) = pure (TPromise (delegateReturnType spec))
+inferHole (HDelegateAsync spec) =
+  case delegateReturnType spec of
+    TPromise _ -> do
+      -- Defensive backstop for ASTs constructed outside the parsers.
+      -- Parsers reject this at parse time; this only fires for
+      -- programmatic AST construction.
+      tcError $ "hole-delegate-async return_type is Promise[...] after normalization; "
+                <> "return_type must be the inner type T, not Promise[T] "
+                <> "(got " <> typeLabel (delegateReturnType spec) <> ")"
+      pure (TVar "?")                 -- wildcard: matches convention at line 844
+    inner -> pure (TPromise inner)    -- canonical wrapping
 
 inferHole (HDelegatePending retType) = do
   tcError "blocking delegate hole — execution will stall"

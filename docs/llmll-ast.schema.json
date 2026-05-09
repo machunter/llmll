@@ -174,9 +174,9 @@
     },
 
     "Variant": {
-      "description": "One arm of a sum type.",
+      "description": "One arm of a sum type. Omit 'payload' for nullary constructors.",
       "type": "object",
-      "required": ["constructor", "payload"],
+      "required": ["constructor"],
       "additionalProperties": false,
       "properties": {
         "constructor": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9_]*$" },
@@ -802,7 +802,7 @@
           }
         },
         {
-          "description": "?delegate-async — non-blocking delegation, returns Promise[T].",
+          "description": "?delegate-async — non-blocking delegation. return_type is the INNER type T; the compiler wraps it in Promise[T]. Do not write Promise[T] as return_type. A top-level Promise wrapper is stripped as legacy; nested Promise wrappers are rejected at parse time.",
           "type": "object",
           "required": ["kind", "agent", "description", "return_type"],
           "additionalProperties": false,
@@ -810,7 +810,7 @@
             "kind":        { "type": "string", "const": "hole-delegate-async" },
             "agent":       { "type": "string" },
             "description": { "type": "string" },
-            "return_type": { "$ref": "#/$defs/Type" }
+            "return_type": { "$ref": "#/$defs/Type", "description": "The inner type T. The compiler wraps this in Promise[T] automatically. A top-level Promise wrapper is stripped as legacy compatibility; nested Promise wrappers are rejected." }
           }
         },
         {

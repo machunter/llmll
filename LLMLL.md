@@ -649,7 +649,7 @@ A program with holes can be **parsed, type-checked, and analyzed** but **not exe
 | `?request-cap(wasi.net.connect)` | Request a capability grant from the human operator. |
 | `?scaffold(template ...)` | Cold-start a module from a `llmll-hub` skeleton (see §6.1). |
 | `?delegate @agent "description" -> Type` | Delegate implementation to a named agent (see §11.2). |
-| `?delegate-async @agent "description" -> Promise[Type]` | Non-blocking delegation (see §11.2). |
+| `?delegate-async @agent "description" -> Type` | Non-blocking delegation. `return_type` is the inner type `T`; the compiler wraps it in `Promise[T]` (see §11.2). |
 | `?proof-required` | A contract predicate that is outside the decidable QF arithmetic fragment (v0.2+). The compiler assigns a complexity hint: `:simple` (liquid-fixpoint track), `:inductive` (Leanstral track), or `:unknown`. Non-blocking in v0.2; resolved by Leanstral (Lean 4) in v0.3. |
 
 **Usage in expressions:** A hole can appear anywhere an expression is expected:
@@ -1278,13 +1278,22 @@ hashed-pw (?delegate @crypto-agent "Implement PBKDF2 hashing" -> bytes[64])
 
 `?delegate-async` returns `Promise[t]` immediately and continues. The module runtime resolves the promise when the agent completes.
 
+`return_type` is the inner type `T`, not `Promise[T]`. The compiler wraps it in `Promise[T]` automatically. A top-level `Promise[...]` in `return_type` is stripped as a legacy compatibility measure. `Promise[Promise[T]]` is a parse error.
+
 **`await` returns `Result[t, DelegationError]`, not bare `t`.** The generated code wraps `Async.wait` in exception handling so that agent failures (crash, timeout, type mismatch) are captured as `Result.Error DelegationError` values rather than propagating as uncaught exceptions. This preserves the LLMLL invariant that logic functions cannot crash from IO.
+
+**Inference rules:**
+
+```
+?delegate-async @A "desc" -> T  ⊢  Promise[T]
+await e : Promise[T]            ⊢  Result[T, DelegationError]
+```
 
 ```lisp
 (def-logic build-report [state: AppState data: ReportData]
   (let [[chart-future (?delegate-async @viz-agent
                          "Render a bar chart from data"
-                         -> Promise[ImageBytes])]]
+                         -> ImageBytes)]]
     (let [[chart-result (await chart-future)]]
       (match chart-result
         (Success img) (pair state (wasi.http.response 200 img))
@@ -1576,7 +1585,7 @@ hole        = "?" IDENT                                        (* named *)
             | "?" "scaffold" "(" IDENT { kv } ")"             (* scaffold *)
             | "?" "delegate" "@" IDENT STRING ARROW type
                 [ "(" "on-failure" expr ")" ]                  (* blocking delegate *)
-            | "?" "delegate-async" "@" IDENT STRING ARROW type ;  (* async delegate *)
+            | "?" "delegate-async" "@" IDENT STRING ARROW type ;  (* async delegate; type is inner T, not Promise[T] *)
 
 (* ============================================================ *)
 (* Operators (all built-in; see Section 13)                      *)

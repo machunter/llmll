@@ -755,7 +755,10 @@ pDelegateAsyncHole = parens $ do
   desc <- pStringLiteral
   pArrowSym
   retTy <- pType
-  pure $ EHole (HDelegateAsync (DelegateSpec agent desc retTy Nothing))
+  let raw = DelegateSpec agent desc retTy Nothing
+  case normalizeAsyncDelegateSpec raw of
+    Left err -> fail (T.unpack err)
+    Right spec -> pure $ EHole (HDelegateAsync spec)
 
 pOnFailure :: Parser Expr
 pOnFailure = parens $ symbol "on-failure" *> pExpr

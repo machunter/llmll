@@ -455,7 +455,11 @@ parseExpr = withObject "Expr" $ \o -> do
     "hole-request-cap"    -> EHole . HRequestCap    <$> o .: "cap_path"
     "hole-scaffold"       -> EHole . HScaffold      <$> parseScaffoldSpec o
     "hole-delegate"       -> EHole . HDelegate      <$> parseDelegateSpec o
-    "hole-delegate-async" -> EHole . HDelegateAsync <$> parseDelegateSpec o
+    "hole-delegate-async" -> do
+      raw <- parseDelegateSpec o
+      case normalizeAsyncDelegateSpec raw of
+        Left err -> fail (T.unpack err)
+        Right spec -> pure $ EHole (HDelegateAsync spec)
     -- D3: ?proof-required hole
     "hole-proof-required" -> do
       reason <- o .:? "reason" .!= "manual"
