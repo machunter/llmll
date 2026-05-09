@@ -482,8 +482,16 @@ pType = choice
   , try pPromiseType
   , try pFnType
   , try pWhereType
-  , TCustom <$> pIdent
+  , resolveNamedType <$> pIdent
   ]
+
+-- | Resolve well-known type names to their built-in constructors.
+-- Anything not in this list stays as TCustom.
+-- If a new built-in type constructor is added to the Type ADT with a
+-- typeLabel that could collide with TCustom, extend this function.
+resolveNamedType :: Text -> Type
+resolveNamedType "DelegationError" = TDelegationError
+resolveNamedType n                 = TCustom n
 
 -- | Phase 2c: parse pair-type (T1, T2) in type position into TPair T1 T2.
 -- PR 2 fix: was producing TResult (unsound); now correctly produces TPair.

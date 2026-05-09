@@ -18,6 +18,7 @@ module LLMLL.Syntax
     -- * Types
   , Type(..)
   , typeLabel
+  , typeConstructorName
 
     -- * Expressions
   , Expr(..)
@@ -147,6 +148,28 @@ typeLabel TDelegationError = "DelegationError"
 typeLabel (TVar n)        = n
 typeLabel (TCustom n)     = n
 typeLabel (TSumType ctors) = T.intercalate " | " (map fst ctors)
+
+-- | Internal constructor name for disambiguation in diagnostics.
+-- Used when typeLabel produces identical strings for different Type values.
+-- e.g. TDelegationError → "built-in", TCustom "DelegationError" → "named".
+typeConstructorName :: Type -> Text
+typeConstructorName TInt               = "built-in"
+typeConstructorName TFloat             = "built-in"
+typeConstructorName TString            = "built-in"
+typeConstructorName TBool              = "built-in"
+typeConstructorName TUnit              = "built-in"
+typeConstructorName TBytes{}           = "built-in"
+typeConstructorName TList{}            = "built-in"
+typeConstructorName TMap{}             = "built-in"
+typeConstructorName TResult{}          = "built-in"
+typeConstructorName TPair{}            = "built-in"
+typeConstructorName TFn{}              = "built-in"
+typeConstructorName TPromise{}         = "built-in"
+typeConstructorName TDependent{}       = "constrained"
+typeConstructorName TDelegationError   = "built-in"
+typeConstructorName (TVar _)           = "type-var"
+typeConstructorName (TCustom _)        = "named"
+typeConstructorName TSumType{}         = "sum"
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show

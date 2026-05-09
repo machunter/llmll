@@ -227,18 +227,29 @@ tcErrorHS msg = modify $ \s -> s
 
 -- | Emit a structured type-mismatch error with expected/got fields.
 -- holeSensitive is set if either type is a hole variable (D3).
+-- When typeLabel produces identical strings for structurally different types,
+-- the constructor name is appended to disambiguate (e.g. "DelegationError (built-in)").
 tcTypeMismatch :: Text -> Type -> Type -> TC ()
 tcTypeMismatch ctx expected actual = modify $ \s -> s
   { tcErrors = tcErrors s ++
       [ (mkError Nothing msg)
           { diagKind          = Just "type-mismatch"
-          , diagExpected      = Just (typeLabel expected)
-          , diagGot           = Just (typeLabel actual)
+          , diagExpected      = Just expLabel
+          , diagGot           = Just actLabel
           , diagHoleSensitive = isHoleSensitive expected actual
           } ] }
   where
-    msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel expected
-            <> ", got " <> typeLabel actual
+    expBase = typeLabel expected
+    actBase = typeLabel actual
+    -- When labels are identical but types differ structurally,
+    -- disambiguate with the internal constructor name.
+    (expLabel, actLabel)
+      | expBase == actBase && expected /= actual
+      = (expBase <> " (" <> typeConstructorName expected <> ")"
+        ,actBase <> " (" <> typeConstructorName actual   <> ")")
+      | otherwise = (expBase, actBase)
+    msg = "type mismatch in '" <> ctx <> "': expected " <> expLabel
+            <> ", got " <> actLabel
 
 -- | True if a type is a hole variable (TVar with "?" prefix).
 isHoleVar :: Type -> Bool

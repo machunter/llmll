@@ -349,8 +349,18 @@ parseType = withObject "Type" $ \o -> do
       snd_ <- o .: "snd" >>= parseType
       pure $ TPair fst_ snd_
     "command"   -> pure $ TCustom "Command"
-    "named"     -> TCustom <$> o .: "name"
+    "named"     -> do
+      n <- o .: "name" :: Parser Text
+      pure $ resolveNamedType n
     _           -> fail $ "unknown Type kind: " ++ T.unpack kind
+
+-- | Resolve well-known type names to their built-in constructors.
+-- Anything not in this list stays as TCustom.
+-- If a new built-in type constructor is added to the Type ADT with a
+-- typeLabel that could collide with TCustom, extend this function.
+resolveNamedType :: Text -> Type
+resolveNamedType "DelegationError" = TDelegationError
+resolveNamedType n                 = TCustom n
 
 -- ---------------------------------------------------------------------------
 -- TypedParam decoder
