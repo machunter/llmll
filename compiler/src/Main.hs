@@ -131,37 +131,37 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <*> switch (long "json" <> help "Output diagnostics as JSON")
 
     commandParser = subparser
-      ( command "check" (info (CmdCheck <$> fileArg <*> switch (long "strict" <> help "v0.6.3: Treat warnings (unbound vars, unknown fns) as hard errors"))
+      ( command "check" (info (helper <*> (CmdCheck <$> fileArg <*> switch (long "strict" <> help "v0.6.3: Treat warnings (unbound vars, unknown fns) as hard errors")))
           (progDesc "Parse and type-check a .llmll or .ast.json file"))
-      <> command "holes" (info holesCmd
+      <> command "holes" (info (helper <*> holesCmd)
           (progDesc "List and classify all holes in a .llmll file"))
-      <> command "test"  (info testCmd
+      <> command "test"  (info (helper <*> testCmd)
           (progDesc "Run property-based tests (check blocks)"))
-      <> command "build" (info buildCmd
+      <> command "build" (info (helper <*> buildCmd)
           (progDesc "Compile .llmll to Rust; use --emit json-ast to emit JSON-AST instead"))
-      <> command "build-json" (info buildJsonCmd
+      <> command "build-json" (info (helper <*> buildJsonCmd)
           (progDesc "Compile a .ast.json file (JSON-AST) — same as build but from JSON input"))
-      <> command "run"   (info runCmd
+      <> command "run"   (info (helper <*> runCmd)
           (progDesc "Compile and immediately run an LLMLL program (requires def-main)"))
-      <> command "repl"  (info (pure CmdRepl)
+      <> command "repl"  (info (helper <*> pure CmdRepl)
           (progDesc "Start an interactive LLMLL REPL"))
-      <> command "hub"   (info hubCmd
+      <> command "hub"   (info (helper <*> hubCmd)
           (progDesc "Manage llmll-hub local package cache (fetch, scaffold)"))
-      <> command "verify" (info verifyCmd
+      <> command "verify" (info (helper <*> verifyCmd)
           (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
-      <> command "typecheck" (info typecheckCmd
+      <> command "typecheck" (info (helper <*> typecheckCmd)
           (progDesc "Parse and type-check; with --sketch infer hole types from context (Phase 2c)"))
-      <> command "serve" (info serveCmd
+      <> command "serve" (info (helper <*> serveCmd)
           (progDesc "D5: Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
-      <> command "checkout" (info checkoutCmd
+      <> command "checkout" (info (helper <*> checkoutCmd)
           (progDesc "v0.3: Lock a hole for exclusive editing (checkout/release/status)"))
-      <> command "patch" (info patchCmd
+      <> command "patch" (info (helper <*> patchCmd)
           (progDesc "v0.3: Apply an RFC 6902 JSON-Patch to a checked-out hole"))
-      <> command "replay" (info replayCmd
+      <> command "replay" (info (helper <*> replayCmd)
           (progDesc "v0.3.1: Replay an event log against a compiled program"))
-      <> command "spec" (info specCmd
+      <> command "spec" (info (helper <*> specCmd)
           (progDesc "v0.3.4: Emit agent specification from compiler builtins"))
-      <> command "version" (info (pure CmdVersion)
+      <> command "version" (info (helper <*> pure CmdVersion)
           (progDesc "Print compiler version and exit"))
       )
 
@@ -204,11 +204,11 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <*> many (strArgument (metavar "..." <> help "Arguments passed through to the program"))
 
     hubCmd = hsubparser
-      (  command "fetch" (info hubFetchCmd
+      (  command "fetch" (info (helper <*> hubFetchCmd)
            (progDesc "Install a .tar.gz package into the local hub cache"))
-      <> command "scaffold" (info hubScaffoldCmd
+      <> command "scaffold" (info (helper <*> hubScaffoldCmd)
            (progDesc "v0.3: Copy a scaffold template to the current directory"))
-      <> command "query" (info hubQueryCmd
+      <> command "query" (info (helper <*> hubQueryCmd)
            (progDesc "v0.6.1: Query hub for functions matching a type signature"))
       )
 
