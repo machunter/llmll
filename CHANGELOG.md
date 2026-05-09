@@ -2,18 +2,43 @@
 
 ---
 
-## Post-v0.10.0 Fixes (2026-05-08)
+## v0.10.1 — Patch Release (2026-05-09)
 
 ### Compiler — `llmll version` Command
 
 - **`llmll version`** — New subcommand prints compiler version and exits. Supports `--json` for `{"version":"…"}` output.
 - **`llmll --version`** — Top-level `--version` flag (via `optparse-applicative` `infoOption`) as an alternative to the subcommand.
 
-### Compiler — Exit Code Fix
+### Compiler — Exit Code Fixes
 
 - **`doCheck` / `doHoles` exit code** — `llmll check` and `llmll holes` now exit with rc=1 on parse errors. Previously they returned rc=0 silently on `Left ()` (parse failure), while every other command handler correctly used `exitFailure`. `llmll typecheck` (non-sketch) is also fixed since it delegates to `doCheck`.
+- **`--help` exit code** — All 17 subcommands (14 top-level + 3 hub sub-subcommands) now respond to `--help` with exit 0. Previously `llmll build --help` treated `--help` as an unknown argument and exited non-zero.
 
-**Tests:** 556 Haskell (unchanged), 37 Python (unchanged).
+### Compiler — Type Alias Resolution Overhaul
+
+- **Structural + transitive `expandAlias`** — `expandAlias` was non-structural (only resolved outermost `TCustom`) and non-transitive (stopped after one alias hop). Both defects blocked constructor-injection on aliased ADTs. Rewritten to recursively traverse composite type structures (`TList`, `TMap`, `TResult`, `TPair`, `TPromise`, `TFn`, `TSumType`, `TDependent`) and chase alias chains transitively. Per-traversal `Set` cycle guard prevents divergence on cyclic aliases.
+- **`compatibleExpanded` helper** — Expand-then-compare helper migrated to 13 direct `compatibleWith` call sites. `checkPattern` now expands scrutinee type at entry, fixing `PConstructor "pair"` against alias-of-`TPair` and `"Success"`/`"Error"` against alias-of-`TResult`.
+- **Unsound `TCustom`/`TSumType` bridge removed** — `compatibleWith` no longer treats any `TCustom` as compatible with any `TSumType`. All call sites now expand before reaching `compatibleWith`.
+- **Alias-cycle diagnostic** — Alias cycles (e.g., `(type A B) (type B A)`) are detected at `checkStatements` time via graph-based DFS reachability. `TSumType` payloads exempted (recursive ADTs are legitimate self-reference, not alias cycles).
+- **Diagnostic preservation** — `unify` reports original (unexpanded) types in diagnostics, preserving alias names like `Color` instead of `(Red | Green | Blue)`.
+- **Known regression:** `structuralUnify` (EApp path) shows expanded leaf types in diagnostics instead of alias names. Follow-up needed.
+
+### Compiler — Async Delegate Normalization
+
+- **`?delegate-async` return type** — `return_type` is now the inner type `T`, not `Promise[T]`. The compiler wraps it in `Promise[T]` automatically. A top-level `Promise[...]` in `return_type` is stripped as a legacy compatibility measure. `Promise[Promise[T]]` is a parse error. Both `Parser.hs` and `ParserJSON.hs` updated. Inference rules added to LLMLL.md §11.2.
+- **ADT constructor registration** — `collectConstructors` extracts `TFn` bindings from `TSumType` variants. Dual-stage collision detection: Phase 1 catches intra-module duplicate constructors; Phase 2 catches constructor/function shadowing (skips `TCustom` type-namespace entries).
+- **`withFunctionContext` combinator** — Structural scope cleanup for `tcCurrentFn` and `tcIsLetrec`, mirroring `withTaggedEnv`. Eliminates false-positive self-recursion warnings on subsequent `SCheck`/`SDefInterface`/`SExpr` statements.
+
+### Compiler — DelegationError Type Normalization
+
+- **`resolveNamedType`** — Both `ParserJSON.hs` and `Parser.hs` now map well-known type names (`"DelegationError"`) to their built-in `Type` constructors (`TDelegationError`) instead of falling through to `TCustom`. Closes the `TCustom`/`TDelegationError` mismatch that caused false type errors when JSON-AST programs used `DelegationError` in type annotations.
+- **Disambiguated type mismatch diagnostic** — When `typeLabel` produces identical strings for structurally different types (e.g., `TDelegationError` vs `TCustom "DelegationError"`), the error now appends the internal constructor tag: `expected DelegationError (built-in), got DelegationError (named)`.
+
+### Compiler — Build Fix
+
+- **macOS case-insensitive path warning suppressed** — Moved executable `Main.hs` from `src/` to `app/` so the executable component builds in a separate directory from the library's `LLMLL/` modules. Added `-optP-Wno-nonportable-include-path` and `-optc-Wno-nonportable-include-path` to executable `ghc-options`.
+
+**Tests:** 570 Haskell (was 556; +14 alias resolution tests), 37 Python (unchanged).
 
 ---
 

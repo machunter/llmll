@@ -1,10 +1,10 @@
-# LLMLL — v0.10.0
+# LLMLL — v0.10.1
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.10.0 is shipped.** Obligation-Guided Agent Coding — structured obligation reports (JSON) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Function lists. Benchmark suite. 556 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.10.1 is shipped.** Patch release — structural/transitive type alias resolution, async delegate normalization, DelegationError type normalization, exit code fixes, `llmll version` command. 570 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -125,7 +125,7 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.10.0)
+LLMLL.md                    ← canonical language specification (v0.10.1)
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/

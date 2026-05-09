@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.10.0)
+# LLMLL: Large Language Model Logical Language (v0.10.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.10.0 (shipped).** Obligation-Guided Agent Coding — structured obligation reports (JSON) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Function lists. Benchmark suite. 556 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.10.1 (shipped).** Patch release — structural/transitive type alias resolution, async delegate normalization (`return_type` is inner `T`, not `Promise[T]`), DelegationError type normalization, exit code fixes, `llmll version` command, ADT constructor registration, alias-cycle diagnostic. 570 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.10.1** | Patch Release: Structural + transitive `expandAlias` with cycle guard (14 new tests). Async delegate normalization (`return_type` is inner `T`). `DelegationError` type normalization at parse time. `llmll version` command. Exit code fixes (`check`/`holes` rc=1, `--help` rc=0). ADT constructor auto-registration. macOS build warning suppression. 570 tests (+14). |
 | **v0.10.0** | Obligation-Guided Agent Coding: Structured obligation reports (JSON, schema `0.10.0`) for holes, unproven contracts, and call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions (`generateCandidates`). Function lists with type-compatible matching. `ObligationAssembly.hs` + `GuardClassifier.hs`. Benchmark suite (B1/B3/B5). 556 tests (+104). |
 | **v0.9.0** | Compositional Verification: Assume-guarantee reasoning for function call chains (`CallVC`, `ContractEnv`). `EApp` to contracted functions is body-faithful. `EMatch` on `Result` (two-path encoding). SCC recursive fallback. Call-pre obligation emission (PROVE polarity). `--strict-verified-core` mode. Trust report loads `.verified.json` sidecar. 452 tests (+130). |
 | **v0.8.1b** | Evidence Model Refactor: `VerificationLevel` total order replaced with `DisplayLevel` partial-order diamond lattice (`DLVerified > DLContractChecked ∥ DLTested > DLAsserted`). `EvidenceRecord` (level + body-faithful + source provenance). `AssumptionKind` taxonomy. `ContractStatus` restructured. `evidenceMeet` (GLB) and `evidenceCovers` (partial-order). 14 source files + test suite updated. Hard break: no backward compat for old `.verified.json`. 322 tests (+2). |

@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.10.0 shipped (Obligation-Guided Agent Coding). 556 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.10.1 shipped (Patch Release). 570 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -208,7 +208,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 |------|---------------|-------------|
 | **Feature freeze** (v0.8.1a–v0.10) | **Active** (2026-04-30, extended 2026-05-01) | No new builtins, syntax, FFI, WASI, or orchestration features until v0.10 ships |
 | **Evidence model design** (EVID-0) | **Approved** (Rev 2) | Design spec approved, ready for v0.8.1b implementation |
-| **Obligation-guided agent coding** (v0.10) | **Shipped** (2026-05-03) | Structured obligation reports for agents. 8 items (OBLIG-0–OBLIG-B) complete. 556 tests. |
+| **Obligation-guided agent coding** (v0.10) | **Shipped** (2026-05-03) | Structured obligation reports for agents. 8 items (OBLIG-0–OBLIG-B) complete. 570 tests (556 v0.10.0 + 14 v0.10.1 alias tests). |
 | **Module system hardening** (v0.9.1) | **Shipped** (2026-05-01) | Spec restructured (§8.3/5/6/7), cycle detection fixed, 11 new tests (M-01–M-07), `life_sexp` corrected. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future). |
 | **Cross-module ContractEnv** (MOD-1) | **v0.10 prerequisite** | `meContracts` field in `ModuleEnv`. Required before OBLIG-2/3 can use imported contracts. |
 | `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |
@@ -271,7 +271,7 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
                    no code            EVID-6 (module ✅)   COMP-6 (strict ✅)    OBLIG-B (benchmark ✅)
                    zero risk          EVID-7/8 (CLI ✅)    COMP-T (tests ✅)
                                       EVID-T (tests ✅)    8/8 shipped           8/8 shipped
-                                      10/10 shipped                              556 tests
+                                      10/10 shipped                              570 tests (v0.10.1)
                                        322 tests
 ```
 
@@ -296,6 +296,8 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 **v0.9.1 result (module system hardening):** Professor's review audit (2026-05-01). Spec restructured (§8.3 ordering, §8.5 namespace resolution, §8.6 open semantics, §8.7 export scope). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected (`open` declarations added). `ModuleEnv` TODO annotated. 11 new module system tests (M-01–M-07). 474 Haskell + 37 Python tests. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future — per-module codegen, strict loader, interface wiring).
 
 **v0.10 result:** All 8 items shipped (2026-05-03). OBLIG-0 ✅ (design spec Rev 8), MOD-1 ✅ (cross-module ContractEnv), OBLIG-1 ✅ (enriched CheckoutToken — 7 new fields), OBLIG-2 ✅ (ObligationAssembly.hs — 800+ lines, --obligation-report flag), OBLIG-3 ✅ (EMatch branch obligations with parent-id linkage), OBLIG-4 ✅ (arithmetic repair suggestions, cap-8), OBLIG-5 ✅ (repair loop end-to-end), OBLIG-B ✅ (3 benchmark programs, 11 golden tests). GuardClassifier.hs extracted from FixpointEmit.hs. 3 bugs fixed (F6, F7, R2). 556 Haskell + 37 Python tests.
+
+**v0.10.1 result (patch):** `llmll version` command + `--version` flag. Exit code fixes: `check`/`holes` rc=1 on parse errors, `--help` rc=0 on all 17 subcommands. Structural + transitive `expandAlias` with cycle guard: composite type traversal (`TList`, `TMap`, `TResult`, `TPair`, `TPromise`, `TFn`, `TSumType`, `TDependent`), alias-chain chasing, DFS cycle detection. `compatibleExpanded` helper replaces 13 `compatibleWith` call sites. Unsound `TCustom`/`TSumType` bridge removed. `?delegate-async` normalization (`return_type` is inner `T`). `DelegationError` parse-time normalization. ADT constructor auto-registration with collision detection. `withFunctionContext` combinator. macOS build warning suppression. 570 Haskell + 37 Python tests (+14 alias resolution tests).
 
 **Parked items:** LEAN-GA, TRUST-2b, MCP — triggered by external availability, not on the critical path.
 
