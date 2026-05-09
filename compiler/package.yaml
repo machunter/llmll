@@ -108,7 +108,10 @@ library:
 executables:
   llmll:
     main:                Main.hs
-    source-dirs:         src
+    source-dirs:         app
+    ghc-options:
+      - -optP-Wno-nonportable-include-path
+      - -optc-Wno-nonportable-include-path
     dependencies:
       - llmll
 

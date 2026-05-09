@@ -96,44 +96,9 @@ library
 executable llmll
   main-is: Main.hs
   other-modules:
-      LLMLL.AgentSpec
-      LLMLL.AstEmit
-      LLMLL.Checkout
-      LLMLL.CodegenHs
-      LLMLL.Contracts
-      LLMLL.Diagnostic
-      LLMLL.DiagnosticFQ
-      LLMLL.FixpointEmit
-      LLMLL.FixpointIR
-      LLMLL.GuardClassifier
-      LLMLL.HoleAnalysis
-      LLMLL.Hub
-      LLMLL.HubQuery
-      LLMLL.InvariantRegistry
-      LLMLL.JsonPointer
-      LLMLL.LeanTranslate
-      LLMLL.Lexer
-      LLMLL.MCPClient
-      LLMLL.Module
-      LLMLL.ObligationAssembly
-      LLMLL.ObligationMining
-      LLMLL.Parser
-      LLMLL.ParserJSON
-      LLMLL.PatchApply
-      LLMLL.PBT
-      LLMLL.ProofCache
-      LLMLL.Replay
-      LLMLL.Serve
-      LLMLL.Sketch
-      LLMLL.SpecCoverage
-      LLMLL.Syntax
-      LLMLL.TrustReport
-      LLMLL.TypeCheck
-      LLMLL.VerifiedCache
-      LLMLL.WeaknessCheck
       Paths_llmll
   hs-source-dirs:
-      src
+      app
   default-extensions:
       OverloadedStrings
       DeriveGeneric
@@ -142,7 +107,7 @@ executable llmll
       GeneralizedNewtypeDeriving
       LambdaCase
       TupleSections
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -optP-Wno-nonportable-include-path -optc-Wno-nonportable-include-path
   build-depends:
       QuickCheck >=2.14
     , aeson >=2.1
