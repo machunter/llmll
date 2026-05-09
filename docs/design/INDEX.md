@@ -40,6 +40,7 @@ Designs for system components beyond the current compiler — orchestration, com
 | [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: compiler↔orchestrator boundary, agent registry, context assembly, scheduling strategies, error recovery, self-hosted LLMLL endgame. | Design draft |
 | [lead-agent.md](lead-agent.md) | Automated skeleton generation from natural-language intent. Two-step prompt (architecture plan → JSON-AST), compiler-in-the-loop validation, structural quality heuristics. | Design draft |
 | [component-hub.md](component-hub.md) | Per-project and global component registry. Query by type signature + contract, not by name. Addresses reuse, progressive accumulation, and cross-project publishing. | Design draft |
+| [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language agent benchmark design. Separates product correctness from assurance evidence when comparing LLMLL against Python, Go, TypeScript, Rust, and similar targets. | Design note |
 | [type-driven-development.md](type-driven-development.md) | Idris-style indexed types for agent hole-filling. The obligation-guided part (structured hole obligations, repair suggestions) was **promoted to v0.10** on the compiler roadmap. What remains here is the indexed-type extension (`Vect n a`, GADTs, type-level arithmetic). | Design exploration (partially promoted) |
 
 ---
