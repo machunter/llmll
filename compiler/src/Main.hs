@@ -436,7 +436,7 @@ doCheck :: Bool -> FilePath -> Bool -> IO ()
 doCheck json fp strict = do
   mResult <- loadStatementsMulti json fp
   case mResult of
-    Left ()                      -> pure ()
+    Left ()                      -> exitFailure
     Right (ss, cache, _loadOrder) -> do
       let report = if strict
                      then typeCheckStrictWithCache cache emptyEnv ss
@@ -457,7 +457,7 @@ doHoles :: Bool -> FilePath -> Bool -> Maybe FilePath -> IO ()
 doHoles json fp deps mDepsOut = do
   stmts <- loadStatements json fp
   case stmts of
-    Left () -> pure ()
+    Left () -> exitFailure
     Right ss -> do
       let includeDeps = deps || isJust mDepsOut
           report = if includeDeps
