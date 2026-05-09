@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.9.0 shipped (Compositional Verification). Module system hardened (v0.9.1). Feature freeze active. 474 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.10.0 shipped (Obligation-Guided Agent Coding). 556 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
@@ -34,7 +34,7 @@
 ---
 
 
-## v0.10 — Obligation-Guided Agent Coding
+## v0.10 — Obligation-Guided Agent Coding ✅ SHIPPED
 
 **Theme:** Make LLMLL's obligation reports the clearest machine-readable goal state for code synthesis. Aim for the Idris workflow *feel* (goal-directed construction from rich obligations) without the Idris type-system *architecture* (indexed types, GADTs, dependent elimination).
 
@@ -260,22 +260,22 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 > **Roadmap restructure (2026-04-30, extended 2026-05-01):** Professor's review + language team consensus. Old v0.8.1 (blocked on `lean-lsp-mcp`) replaced with four actionable milestones. Feature freeze active from v0.8.1a through v0.10.
 
 ```
-v0.8.0 (SHIPPED)  v0.8.1a (SHIPPED)  v0.8.1b (SHIPPED)   v0.9 (SHIPPED)        v0.10 (obligations)     Parked
+v0.8.0 (SHIPPED)  v0.8.1a (SHIPPED)  v0.8.1b (SHIPPED)   v0.9 (SHIPPED)        v0.10 (SHIPPED)         Parked
 ────────────────  ──────────────     ──────────────────  ────────────────────  ─────────────────────   ──────
-BODY-VC ✅         RENAME-1/2 ✅       EVID-0 (design ✅)   COMP-0 (design ✅)    OBLIG-0 (design)        LEAN-GA
-SUPP-DEBT ✅       MATRIX-1/2/3 ✅     EVID-1 (ADT ✅)       COMP-1 (EApp ✅)      OBLIG-1 (enriched holes) TRUST-2b
-EVENT-LOG ✅       BOUNDARY-1/2 ✅     EVID-2 (sidecar ✅)  COMP-2 (SCC ✅)       OBLIG-2 (goal-state)    MCP
-SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch ✅)    OBLIG-3 (branch obligs)
-320 tests                             EVID-4 (coverage ✅) COMP-4 (trust ✅)     OBLIG-4 (suggestions)
-                   9/9 shipped        EVID-5 (contracts✅) COMP-5 (diags ✅)     OBLIG-5 (repair loop)
-                   no code            EVID-6 (module ✅)   COMP-6 (strict ✅)    OBLIG-B (benchmark)
+BODY-VC ✅         RENAME-1/2 ✅       EVID-0 (design ✅)   COMP-0 (design ✅)    OBLIG-0 (design ✅)      LEAN-GA
+SUPP-DEBT ✅       MATRIX-1/2/3 ✅     EVID-1 (ADT ✅)       COMP-1 (EApp ✅)      OBLIG-1 (holes ✅)      TRUST-2b
+EVENT-LOG ✅       BOUNDARY-1/2 ✅     EVID-2 (sidecar ✅)  COMP-2 (SCC ✅)       OBLIG-2 (goal-state ✅) MCP
+SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch ✅)    OBLIG-3 (branches ✅)
+320 tests                             EVID-4 (coverage ✅) COMP-4 (trust ✅)     OBLIG-4 (suggestions ✅)
+                   9/9 shipped        EVID-5 (contracts✅) COMP-5 (diags ✅)     OBLIG-5 (repair ✅)
+                   no code            EVID-6 (module ✅)   COMP-6 (strict ✅)    OBLIG-B (benchmark ✅)
                    zero risk          EVID-7/8 (CLI ✅)    COMP-T (tests ✅)
-                                      EVID-T (tests ✅)    8/8 shipped           ~5-7 days
-                                      10/10 shipped
+                                      EVID-T (tests ✅)    8/8 shipped           8/8 shipped
+                                      10/10 shipped                              556 tests
                                        322 tests
 ```
 
-**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation ✅ → COMP-0 design review ✅ → v0.9 implementation ✅ → OBLIG-0 design review → v0.10 implementation.
+**Critical path:** EVID-0 design review ✅ → v0.8.1b implementation ✅ → COMP-0 design review ✅ → v0.9 implementation ✅ → OBLIG-0 design review ✅ → v0.10 implementation ✅. **All milestones complete.**
 
 **Feature freeze** active from v0.8.1a through v0.10 ship.
 
@@ -295,7 +295,7 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 
 **v0.9.1 result (module system hardening):** Professor's review audit (2026-05-01). Spec restructured (§8.3 ordering, §8.5 namespace resolution, §8.6 open semantics, §8.7 export scope). Cycle detection fixed (`Set` → list stack + visit-order slicing). `life_sexp` example corrected (`open` declarations added). `ModuleEnv` TODO annotated. 11 new module system tests (M-01–M-07). 474 Haskell + 37 Python tests. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future — per-module codegen, strict loader, interface wiring).
 
-**v0.10 scope:** Obligation-guided agent coding. Structured obligation reports (JSON) for every hole, unproven contract, and failed call-site precondition. Three obligation channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions via `ObligationMining.hs`. Obligation quality benchmark. Design review (OBLIG-0) required before implementation. Cross-module `ContractEnv` (MOD-1) is a prerequisite for obligation reports that span module boundaries. ~5–7 days. **Note:** Indexed/dependent types are explicitly excluded from v0.10 (professor consensus, 2026-05-01) and remain in the research track.
+**v0.10 result:** All 8 items shipped (2026-05-03). OBLIG-0 ✅ (design spec Rev 8), MOD-1 ✅ (cross-module ContractEnv), OBLIG-1 ✅ (enriched CheckoutToken — 7 new fields), OBLIG-2 ✅ (ObligationAssembly.hs — 800+ lines, --obligation-report flag), OBLIG-3 ✅ (EMatch branch obligations with parent-id linkage), OBLIG-4 ✅ (arithmetic repair suggestions, cap-8), OBLIG-5 ✅ (repair loop end-to-end), OBLIG-B ✅ (3 benchmark programs, 11 golden tests). GuardClassifier.hs extracted from FixpointEmit.hs. 3 bugs fixed (F6, F7, R2). 556 Haskell + 37 Python tests.
 
 **Parked items:** LEAN-GA, TRUST-2b, MCP — triggered by external availability, not on the critical path.
 
@@ -324,7 +324,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | **v0.8.1a** | *(new, 2026-04-30)* | **Documentation Boundary Clarity:** Rename "Dependent Types" → "Refinement Type Aliases." Verification matrix in LLMLL.md, README, one-pager. Integer overflow model gap. ~1 day, docs only. — **shipped (2026-04-30)**. |
 | **v0.8.1b** | *(new, 2026-04-30)* | **Evidence Model Refactor:** Four-tier `DisplayLevel` partial order replaces `VerificationLevel` total order. `EvidenceRecord` with body-faithfulness + source provenance. `AssumptionKind` taxonomy. Hard break for `.verified.json`. 14 source files + test suite. 322 tests (+2). — **shipped (2026-05-01)**. |
 | **v0.9** | *(shipped, 2026-05-01)* | **Compositional Verification:** Assume-guarantee `EApp` encoding (`CallVC`, `ContractEnv`, three-way pre distinction). `EMatch` on `Result` (two-path encoding). SCC recursive fallback via `stronglyConnComp`. Call-pre constraint emission (PROVE polarity). `--strict-verified-core` mode. 452 tests (+130). **v0.9.1:** Module system hardening (spec, cycle fix, 11 tests, `life_sexp` fix). 474 tests. — **shipped (2026-05-01)**. |
-| **v0.10** | *(new, 2026-05-01)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Obligation quality benchmark. OBLIG-0 design review required. ~5–7 days. Indexed types explicitly excluded. |
+| **v0.10** | *(shipped, 2026-05-03)* | **Obligation-Guided Agent Coding:** Structured obligation reports (JSON) for holes, unproven contracts, call-site failures. Three channels: type, contract, trust. `EMatch` branch obligations. Repair suggestions. Function lists. Benchmark suite (B1/B3/B5). 556 tests (+104). — **shipped (2026-05-03)**. |
 | **Parked** | *(was v0.8.1, 2026-04-28)* | LEAN-GA, TRUST-2b, MCP — externally blocked, moved to parking lot (2026-04-30). |
 | **Future** | *(unversioned, 2026-04-21)* | WASM build target + WASI capability enforcement — **confirmed direction, not version-pinned** |
 
@@ -340,7 +340,27 @@ Research-track items are tracked separately in [research-track.md](research-trac
 
 # Shipped Releases
 
-<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.9.1)</strong></summary>
+<details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.10.0)</strong></summary>
+
+
+## v0.10 — Obligation-Guided Agent Coding ✅ SHIPPED
+
+**Theme:** Make LLMLL's obligation reports the clearest machine-readable goal state for code synthesis.
+
+> Shipped 2026-05-03. 8 items. 556 Haskell + 37 Python tests.
+
+| # | ID | Description | Status |
+|---|-----|-------------|--------|
+| 1 | OBLIG-0 | Design spec: obligation report JSON schema (Rev 8 approved) | ✅ |
+| 2 | MOD-1 | Cross-module `ContractEnv` (`meContracts` in `ModuleEnv`) | ✅ |
+| 3 | OBLIG-1 | Enriched `CheckoutToken` (7 new fields: contract context, path conditions, assumptions) | ✅ |
+| 4 | OBLIG-2 | `ObligationAssembly.hs` + `--obligation-report` flag + `GuardClassifier.hs` extraction | ✅ |
+| 5 | OBLIG-3 | `EMatch` branch obligations (two-pass, parent-id linkage) | ✅ |
+| 6 | OBLIG-4 | Repair suggestions (`generateCandidates`, O(n²) bounded, cap-8) | ✅ |
+| 7 | OBLIG-5 | Repair loop integration (end-to-end `--obligation-report` pipeline) | ✅ |
+| 8 | OBLIG-B | Benchmark suite: 3 programs (B1/B3/B5), 11 golden tests, fingerprint stability | ✅ |
+
+**Bugs fixed:** F7 (path condition key mismatch), F6 (`inferScrutineeType` for `EApp`), R2 (`resolveType` strips `TDependent`).
 
 
 ## v0.9 — Compositional Verification ✅ SHIPPED

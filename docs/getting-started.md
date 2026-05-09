@@ -1028,6 +1028,52 @@ Nested destructuring is supported:
 > [!NOTE]
 > Simple bindings (`"name"`) and pattern bindings (`"pattern"`) are mutually exclusive within a single binding object — the JSON parser enforces a strict `oneOf` on these two keys. Using both in the same object is a parse error.
 
+#### Multi-binding `let` with complex RHS
+
+When a `let` binding's RHS is a complex expression (delegation, `await`, function call returning a pair), bind each intermediate result to its own name. Do **not** inline complex sub-expressions as arguments — the parser may reject them, and the verifier cannot track path conditions through nested calls.
+
+```lisp
+;; ✅ CORRECT — each step is a separate let binding:
+(def-logic build-report [state: AppState data: ReportData]
+  (let [(chart-future (?delegate-async @viz-agent
+                         "Render a bar chart from data"
+                         -> Promise[ImageBytes]))]
+    (let [(chart-result (await chart-future))]
+      (match chart-result
+        (Success img) (pair state (wasi.http.response 200 img))
+        (Error err)   (pair state (wasi.http.response 500 "Agent failed"))))))
+
+;; ❌ WRONG — inlining await + delegate-async as a direct argument:
+(def-logic build-report [state: AppState data: ReportData]
+  (match (await (?delegate-async @viz-agent "Render chart" -> Promise[ImageBytes]))
+    (Success img) (pair state (wasi.http.response 200 img))
+    (Error err)   (pair state (wasi.http.response 500 "Agent failed"))))
+```
+
+The same pattern applies to any multi-step computation: bind results to names with sequential `let`, then use the names in the body.
+
+```json
+{
+  "kind": "let",
+  "bindings": [
+    { "name": "chart-future",
+      "expr": { "kind": "hole-delegate-async", "agent": "@viz-agent",
+                "description": "Render a bar chart from data",
+                "return_type": { "kind": "promise-type",
+                  "inner": { "kind": "custom-type", "name": "ImageBytes" }}}}
+  ],
+  "body": {
+    "kind": "let",
+    "bindings": [
+      { "name": "chart-result",
+        "expr": { "kind": "app", "fn": "await",
+                  "args": [{ "kind": "var", "name": "chart-future" }]}}
+    ],
+    "body": { "kind": "match", "..." : "..." }
+  }
+}
+```
+
 ---
 
 ### §4.15 Capability Enforcement

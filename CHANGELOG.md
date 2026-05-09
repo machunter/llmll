@@ -2,6 +2,21 @@
 
 ---
 
+## Post-v0.10.0 Fixes (2026-05-08)
+
+### Compiler — `llmll version` Command
+
+- **`llmll version`** — New subcommand prints compiler version and exits. Supports `--json` for `{"version":"…"}` output.
+- **`llmll --version`** — Top-level `--version` flag (via `optparse-applicative` `infoOption`) as an alternative to the subcommand.
+
+### Compiler — Exit Code Fix
+
+- **`doCheck` / `doHoles` exit code** — `llmll check` and `llmll holes` now exit with rc=1 on parse errors. Previously they returned rc=0 silently on `Left ()` (parse failure), while every other command handler correctly used `exitFailure`. `llmll typecheck` (non-sketch) is also fixed since it delegates to `doCheck`.
+
+**Tests:** 556 Haskell (unchanged), 37 Python (unchanged).
+
+---
+
 ## v0.10.0 — Obligation-Guided Agent Coding (2026-05-03)
 
 ### Compiler — Structured Obligation Reports
