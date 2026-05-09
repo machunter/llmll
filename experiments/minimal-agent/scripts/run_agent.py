@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -72,6 +75,7 @@ def main() -> int:
             "started_at": started_at,
         },
     )
+    env = build_agent_env(run_dir, args.llmll_cmd)
 
     try:
         with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open(
@@ -81,8 +85,10 @@ def main() -> int:
                 args.agent_cmd,
                 cwd=run_dir,
                 shell=True,
+                stdin=subprocess.DEVNULL,
                 stdout=stdout,
                 stderr=stderr,
+                env=env,
                 timeout=args.timeout_seconds,
                 check=False,
             )
@@ -136,6 +142,21 @@ def main() -> int:
         {"event": "evaluation-finish", "returncode": eval_result.returncode},
     )
     return eval_result.returncode
+
+
+def build_agent_env(run_dir: Path, llmll_cmd: str) -> dict[str, str]:
+    env = os.environ.copy()
+    bin_dir = run_dir / "bin"
+    if bin_dir.exists():
+        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+
+    parts = shlex.split(llmll_cmd)
+    if len(parts) == 1:
+        real_llmll = shutil.which(parts[0], path=os.environ.get("PATH", ""))
+        if real_llmll:
+            env["LLMLL_REAL"] = real_llmll
+
+    return env
 
 
 def append_event(run_dir: Path, event: dict) -> None:

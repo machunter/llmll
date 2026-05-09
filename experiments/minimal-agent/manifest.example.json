@@ -1,5 +1,6 @@
 {
-  "problems": [1, 2, 3],
+  "experiments": ["001", "002", "003"],
+  "run_count": 3,
   "llmll_cmd": "llmll",
   "timeout_seconds": 1800,
   "skip_verify": false,

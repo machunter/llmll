@@ -14,7 +14,7 @@ from typing import Any
 
 
 FEATURE_PATTERNS = {
-    "type": r"\(type\b|\"kind\"\s*:\s*\"type\"",
+    "type": r"\(type\b|\"kind\"\s*:\s*\"type(?:-decl)?\"",
     "def-interface": r"\(def-interface\b|\"kind\"\s*:\s*\"def-interface\"",
     "def-invariant": r"\(def-invariant\b|\"kind\"\s*:\s*\"def-invariant\"",
     "check": r"\(check\b|\"kind\"\s*:\s*\"check\"",
@@ -61,9 +61,34 @@ REQUIRED_FEATURES = {
         "check",
         "pre",
         "post",
-        "scaffold",
     ],
 }
+
+CONTRACT_EXPECTATIONS = {
+    1: {
+        "login-handler": {
+            "pre": {"proof_required": False},
+        },
+    },
+    2: {
+        "summarize-amounts": {
+            "pre": {"proof_required": False},
+            "post": {"proof_required": True},
+        },
+    },
+    3: {
+        "validate-order": {
+            "pre": {"proof_required": False},
+            "post": {"proof_required": True},
+        },
+        "calculate-tax": {
+            "pre": {"proof_required": False},
+            "post": {"proof_required": True},
+        },
+    },
+}
+
+TRUST_STATUS_PRESENT = {"verified", "contract-checked", "tested", "asserted"}
 
 
 def main() -> int:
@@ -80,7 +105,7 @@ def main() -> int:
         "--solution",
         type=Path,
         default=None,
-        help="Explicit solution file. Defaults to solution.llmll, then solution.ast.json.",
+        help="Explicit solution file. Defaults to solution.ast.json, then solution.llmll.",
     )
     parser.add_argument(
         "--skip-verify",
@@ -97,31 +122,51 @@ def main() -> int:
 
     run_dir = args.run_dir.resolve()
     metadata = load_metadata(run_dir)
+    harness = load_harness_result(run_dir)
     solution = find_solution(run_dir, args.solution)
+    solution_ast = load_solution_ast(solution) if solution else None
 
     report: dict[str, Any] = {
         "run_dir": str(run_dir),
+        "experiment_id": metadata.get("experiment_id"),
+        "experiment_slug": metadata.get("experiment_slug"),
+        "experiment_title": metadata.get("experiment_title"),
         "problem_id": metadata.get("problem_id"),
         "status": "failed",
         "stop_policy": "first_error",
         "solution": str(solution) if solution else None,
         "feature_scan": None,
+        "quality_grade": "F",
+        "test_summary": None,
+        "test_assessment": None,
+        "verify_summary": None,
+        "verify_details": None,
+        "contract_assessment": None,
+        "problems_md": analyze_problems_md(run_dir),
+        "agent_duration_seconds": harness.get("duration_seconds"),
+        "total_eval_duration_seconds": 0.0,
         "commands": [],
         "first_error": None,
     }
+    eval_started = time.monotonic()
 
     if solution is None:
         report["first_error"] = {
             "phase": "solution-discovery",
-            "message": "No solution.llmll or solution.ast.json found.",
+            "message": "No solution.ast.json or solution.llmll found.",
         }
+        report["quality_grade"] = quality_grade(report)
+        report["total_eval_duration_seconds"] = round(time.monotonic() - eval_started, 3)
         write_outputs(run_dir, report)
         return 1
 
-    report["feature_scan"] = scan_features(solution, metadata.get("problem_id"))
+    report["feature_scan"] = scan_features(solution, metadata, run_dir)
 
     llmll = shlex.split(args.llmll_cmd)
-    solution_name = solution.name
+    try:
+        solution_name = str(solution.relative_to(run_dir))
+    except ValueError:
+        solution_name = str(solution)
     commands = [
         ("check", llmll + ["check", solution_name]),
         ("check-strict", llmll + ["check", solution_name, "--strict"]),
@@ -145,19 +190,41 @@ def main() -> int:
 
     for name, argv in commands:
         result = run_command(name, argv, cwd=run_dir, timeout=args.timeout_seconds)
+        annotate_command_result(result)
         report["commands"].append(result)
-        if result["returncode"] != 0:
+
+        if name == "test":
+            report["test_summary"] = parse_test_summary(result["stdout"])
+            report["test_assessment"] = assess_tests(
+                report["test_summary"],
+                solution_ast,
+            )
+        elif name == "verify":
+            report["verify_summary"] = parse_verify_summary(result["stdout"])
+            report["verify_details"] = parse_verify_details(result["stdout"])
+            report["contract_assessment"] = assess_contracts(
+                metadata.get("problem_id"),
+                solution_ast,
+                report["verify_details"],
+            )
+
+        if not result["effective_success"]:
             report["first_error"] = {
                 "phase": name,
                 "argv": argv,
                 "returncode": result["returncode"],
+                "effective_failure_reason": result["effective_failure_reason"],
                 "stderr": result["stderr"],
                 "stdout": result["stdout"],
             }
+            report["quality_grade"] = quality_grade(report)
+            report["total_eval_duration_seconds"] = round(time.monotonic() - eval_started, 3)
             write_outputs(run_dir, report)
             return 1
 
     report["status"] = "passed"
+    report["quality_grade"] = quality_grade(report)
+    report["total_eval_duration_seconds"] = round(time.monotonic() - eval_started, 3)
     write_outputs(run_dir, report)
     return 0
 
@@ -167,39 +234,338 @@ def load_metadata(run_dir: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_harness_result(run_dir: Path) -> dict[str, Any]:
+    path = run_dir / "harness_result.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def find_solution(run_dir: Path, explicit: Path | None) -> Path | None:
     if explicit:
         candidate = explicit if explicit.is_absolute() else run_dir / explicit
         return candidate if candidate.exists() else None
-    for name in ("solution.llmll", "solution.ast.json"):
+    for name in ("solution.ast.json", "solution.llmll"):
         candidate = run_dir / name
         if candidate.exists():
             return candidate
     return None
 
 
-def scan_features(solution: Path, problem_id: Any) -> dict[str, Any]:
+def load_solution_ast(solution: Path | None) -> dict[str, Any] | None:
+    if solution is None or solution.suffix != ".json":
+        return None
+    try:
+        data = json.loads(solution.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def scan_features(solution: Path, metadata: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     text = solution.read_text(encoding="utf-8")
     found = {
         name: bool(re.search(pattern, text))
         for name, pattern in FEATURE_PATTERNS.items()
     }
+    json_features = scan_json_ast_features(text)
+    for name, was_found in json_features.items():
+        found[name] = found.get(name, False) or was_found
+    found["scaffold"] = found.get("scaffold", False) or detect_scaffold_usage(run_dir)
+
     try:
-        pid = int(problem_id)
+        pid = int(metadata.get("problem_id"))
     except (TypeError, ValueError):
         pid = 0
-    required = REQUIRED_FEATURES.get(pid, [])
+    required = required_features_for(pid, metadata)
     missing = [name for name in required if not found.get(name, False)]
     return {
         "required": required,
         "found": found,
         "missing_required": missing,
     }
+
+
+def required_features_for(problem_id: int, metadata: dict[str, Any]) -> list[str]:
+    required = list(REQUIRED_FEATURES.get(problem_id, []))
+    if problem_id == 3 and metadata.get("scaffold_templates_provided"):
+        required.append("scaffold")
+    return required
+
+
+def detect_scaffold_usage(run_dir: Path) -> bool:
+    template_root = run_dir / ".llmll" / "templates"
+    for path in run_dir.rglob("scaffold.ast.json"):
+        try:
+            path.relative_to(template_root)
+        except ValueError:
+            return True
+    return False
+
+
+def scan_json_ast_features(text: str) -> dict[str, bool]:
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+
+    found: dict[str, bool] = {}
+    walk_json_ast(document, found)
+    return found
+
+
+def walk_json_ast(value: Any, found: dict[str, bool]) -> None:
+    if isinstance(value, dict):
+        kind = value.get("kind")
+        if kind == "result":
+            found["Result"] = True
+        elif kind == "promise":
+            found["Promise"] = True
+
+        constructor = value.get("constructor")
+        if constructor in {"Success", "Error"}:
+            found["Result"] = True
+
+        fn = value.get("fn")
+        if fn in {"Success", "Error"}:
+            found["Result"] = True
+
+        for child in value.values():
+            walk_json_ast(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            walk_json_ast(child, found)
+
+
+def analyze_problems_md(run_dir: Path) -> dict[str, Any]:
+    path = run_dir / "PROBLEMS.md"
+    if not path.exists():
+        return {
+            "exists": False,
+            "entry_count": 0,
+            "has_no_problems_marker": False,
+            "stale_no_problems_marker": False,
+        }
+
+    text = path.read_text(encoding="utf-8")
+    after_entries = text.split("## Entries", 1)[1] if "## Entries" in text else text
+    entries = [
+        line
+        for line in after_entries.splitlines()
+        if line.lstrip().startswith(("- ", "* "))
+    ]
+    marker_present = "No problems recorded yet." in after_entries
+    entry_count = len(entries)
+    return {
+        "exists": True,
+        "entry_count": entry_count,
+        "has_no_problems_marker": marker_present and entry_count == 0,
+        "stale_no_problems_marker": marker_present and entry_count > 0,
+    }
+
+
+def assess_tests(
+    summary: dict[str, int] | None,
+    solution_ast: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not summary:
+        return None
+
+    checks = collect_checks(solution_ast)
+    excluded_candidates = [
+        check for check in checks if check.get("delegation_dependent")
+    ]
+
+    passed = summary.get("passed", 0)
+    failed = summary.get("failed", 0)
+    skipped = summary.get("skipped", 0)
+    total = summary.get("total", 0)
+
+    excluded = min(len(excluded_candidates), failed + skipped)
+    excluded_skipped = min(skipped, excluded)
+    excluded_failed = min(failed, excluded - excluded_skipped)
+
+    effective_total = max(0, total - excluded)
+    effective_failed = max(0, failed - excluded_failed)
+    effective_skipped = max(0, skipped - excluded_skipped)
+    effective_passed = min(passed, effective_total)
+    all_applicable_passed = (
+        effective_failed == 0
+        and effective_skipped == 0
+        and effective_passed == effective_total
+    )
+
+    return {
+        "raw": summary,
+        "effective_total": effective_total,
+        "effective_passed": effective_passed,
+        "effective_failed": effective_failed,
+        "effective_skipped": effective_skipped,
+        "excluded_delegation_dependent": excluded,
+        "delegation_dependent_checks": excluded_candidates,
+        "all_applicable_passed": all_applicable_passed,
+    }
+
+
+def collect_checks(solution_ast: dict[str, Any] | None) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    if not solution_ast:
+        return checks
+
+    for statement in solution_ast.get("statements", []):
+        if not isinstance(statement, dict) or statement.get("kind") != "check":
+            continue
+        label = str(statement.get("label") or "")
+        reasons: list[str] = []
+        if contains_kind(statement, {"hole-delegate", "hole-delegate-async", "await"}):
+            reasons.append("contains delegation or await")
+        if re.search(r"\b(delegate|delegation|fallback|fail-closed|failed|fire-and-forget)\b", label):
+            reasons.append("delegation-related label")
+        checks.append(
+            {
+                "label": label,
+                "delegation_dependent": bool(reasons),
+                "reasons": reasons,
+            }
+        )
+    return checks
+
+
+def parse_verify_details(stdout: str) -> dict[str, dict[str, str]]:
+    details: dict[str, dict[str, str]] = {}
+    current_name: str | None = None
+
+    for line in stdout.splitlines():
+        if line.strip() == "Summary:":
+            break
+        name_match = re.match(r"\s{2}([A-Za-z0-9_.-]+):\s*$", line)
+        if name_match:
+            current_name = name_match.group(1)
+            continue
+        status_match = re.search(r"pre:\s*(.*?)\s*\|\s*post:\s*(.*)$", line)
+        if current_name and status_match:
+            details[current_name] = {
+                "pre": normalize_trust_status(status_match.group(1)),
+                "post": normalize_trust_status(status_match.group(2)),
+            }
+
+    return details
+
+
+def normalize_trust_status(value: str) -> str:
+    value = value.strip()
+    if not value or value in {"—", "-"}:
+        return "none"
+    return value.lower()
+
+
+def assess_contracts(
+    problem_id: Any,
+    solution_ast: dict[str, Any] | None,
+    verify_details: dict[str, dict[str, str]] | None,
+) -> dict[str, Any] | None:
+    try:
+        pid = int(problem_id)
+    except (TypeError, ValueError):
+        pid = 0
+    expectations = CONTRACT_EXPECTATIONS.get(pid, {})
+    if not expectations:
+        return None
+
+    items = []
+    accepted_count = 0
+    proof_required_ceiling_count = 0
+    asserted_without_proof_count = 0
+
+    for function_name, sides in expectations.items():
+        statement = find_def_logic(solution_ast, function_name)
+        for side, expectation in sides.items():
+            contract_expr = statement.get(side) if statement else None
+            present_in_ast = contract_expr is not None
+            proof_required = contains_kind(contract_expr, {"hole-proof-required"})
+            status = (verify_details or {}).get(function_name, {}).get(side, "none")
+            expected_proof_required = bool(expectation.get("proof_required"))
+
+            accepted = False
+            reason = "missing contract"
+            if present_in_ast and status in TRUST_STATUS_PRESENT:
+                if expected_proof_required:
+                    accepted = proof_required
+                    reason = (
+                        "accepted asserted proof-required ceiling"
+                        if status == "asserted" and proof_required
+                        else "proof-required contract accepted"
+                    )
+                else:
+                    accepted = True
+                    reason = "required contract present"
+                    if status == "asserted":
+                        asserted_without_proof_count += 1
+            elif present_in_ast:
+                reason = "contract present but absent from trust report"
+
+            if accepted:
+                accepted_count += 1
+            if accepted and expected_proof_required and status == "asserted":
+                proof_required_ceiling_count += 1
+
+            items.append(
+                {
+                    "function": function_name,
+                    "side": side,
+                    "expected_proof_required": expected_proof_required,
+                    "present_in_ast": present_in_ast,
+                    "proof_required_marker": proof_required,
+                    "trust_status": status,
+                    "accepted": accepted,
+                    "reason": reason,
+                }
+            )
+
+    return {
+        "expected_total": len(items),
+        "accepted_total": accepted_count,
+        "all_required_contracts_met": accepted_count == len(items),
+        "proof_required_ceiling_accepted": proof_required_ceiling_count,
+        "asserted_without_proof": asserted_without_proof_count,
+        "items": items,
+    }
+
+
+def find_def_logic(
+    solution_ast: dict[str, Any] | None,
+    name: str,
+) -> dict[str, Any] | None:
+    if not solution_ast:
+        return None
+    for statement in solution_ast.get("statements", []):
+        if (
+            isinstance(statement, dict)
+            and statement.get("kind") == "def-logic"
+            and statement.get("name") == name
+        ):
+            return statement
+    return None
+
+
+def contains_kind(value: Any, kinds: set[str]) -> bool:
+    if isinstance(value, dict):
+        if value.get("kind") in kinds:
+            return True
+        return any(contains_kind(child, kinds) for child in value.values())
+    if isinstance(value, list):
+        return any(contains_kind(child, kinds) for child in value)
+    return False
 
 
 def run_command(
@@ -226,6 +592,8 @@ def run_command(
             "duration_seconds": round(time.monotonic() - started, 3),
             "stdout": result.stdout,
             "stderr": result.stderr,
+            "effective_success": None,
+            "effective_failure_reason": None,
         }
     except FileNotFoundError as exc:
         return {
@@ -235,6 +603,8 @@ def run_command(
             "duration_seconds": round(time.monotonic() - started, 3),
             "stdout": "",
             "stderr": str(exc),
+            "effective_success": False,
+            "effective_failure_reason": "command not found",
         }
     except subprocess.TimeoutExpired as exc:
         return {
@@ -244,7 +614,139 @@ def run_command(
             "duration_seconds": round(time.monotonic() - started, 3),
             "stdout": exc.stdout or "",
             "stderr": exc.stderr or f"Timed out after {timeout} seconds.",
+            "effective_success": False,
+            "effective_failure_reason": "timeout",
         }
+
+
+def annotate_command_result(result: dict[str, Any]) -> None:
+    if result["returncode"] != 0:
+        result["effective_success"] = False
+        result["effective_failure_reason"] = f"nonzero exit code {result['returncode']}"
+        return
+
+    diagnostic = detect_compiler_diagnostic_failure(result["stdout"])
+    if diagnostic:
+        result["effective_success"] = False
+        result["effective_failure_reason"] = diagnostic
+        return
+
+    result["effective_success"] = True
+    result["effective_failure_reason"] = None
+
+
+def detect_compiler_diagnostic_failure(stdout: str) -> str | None:
+    text = stdout.strip()
+    if not text:
+        return None
+
+    if text.startswith("(error "):
+        return "compiler emitted error diagnostic"
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+    if isinstance(parsed, dict):
+        if parsed.get("success") is False:
+            return "compiler JSON reported success=false"
+        if parsed.get("severity") == "error":
+            return "compiler JSON reported severity=error"
+        if parsed.get("code") and ("message" in parsed or "suggestion" in parsed):
+            return "compiler JSON reported diagnostic object"
+    if isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, dict) and item.get("severity") == "error":
+                return "compiler JSON reported severity=error"
+    return None
+
+
+def parse_test_summary(stdout: str) -> dict[str, int] | None:
+    text = stdout.strip()
+    if not text:
+        return None
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        keys = ("total", "passed", "failed", "skipped")
+        if all(k in parsed for k in keys):
+            return {k: int(parsed[k]) for k in keys}
+
+    total_match = re.search(r"\b(\d+)\s+properties\b", text)
+    passed_match = re.search(r"Passed:\s+(\d+)", text)
+    failed_match = re.search(r"Failed:\s+(\d+)", text)
+    skipped_match = re.search(r"Skipped:\s+(\d+)", text)
+    if not (total_match and passed_match and failed_match and skipped_match):
+        return None
+    return {
+        "total": int(total_match.group(1)),
+        "passed": int(passed_match.group(1)),
+        "failed": int(failed_match.group(1)),
+        "skipped": int(skipped_match.group(1)),
+    }
+
+
+def parse_verify_summary(stdout: str) -> dict[str, int] | None:
+    text = stdout.strip()
+    if not text:
+        return None
+
+    summary: dict[str, int] = {}
+    patterns = {
+        "verified": r"verified:\s+(\d+)",
+        "contract_checked": r"contract-checked:\s+(\d+)",
+        "tested": r"tested:\s+(\d+)",
+        "asserted": r"asserted:\s+(\d+)",
+        "no_contract": r"no contract:\s+(\d+)",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text)
+        if match:
+            summary[key] = int(match.group(1))
+
+    return summary if summary else None
+
+
+def quality_grade(report: dict[str, Any]) -> str:
+    if report.get("status") != "passed" and report.get("first_error"):
+        return "F"
+
+    feature_scan = report.get("feature_scan") or {}
+    if feature_scan.get("missing_required"):
+        return "F"
+
+    test_assessment = report.get("test_assessment")
+    contract_assessment = report.get("contract_assessment")
+
+    if test_assessment:
+        tests_ok = bool(test_assessment.get("all_applicable_passed"))
+        effective_total = test_assessment.get("effective_total", 0)
+        excluded = test_assessment.get("excluded_delegation_dependent", 0)
+    else:
+        tests_ok = True
+        effective_total = 0
+        excluded = 0
+
+    if contract_assessment:
+        contracts_ok = bool(contract_assessment.get("all_required_contracts_met"))
+        asserted_without_proof = contract_assessment.get("asserted_without_proof", 0)
+    else:
+        contracts_ok = True
+        asserted_without_proof = 0
+
+    if not tests_ok or not contracts_ok:
+        return "C"
+    if effective_total == 0 and excluded > 0:
+        return "B"
+    if asserted_without_proof > 0:
+        return "B"
+    if test_assessment or contract_assessment:
+        return "A"
+    return "C"
 
 
 def write_outputs(run_dir: Path, report: dict[str, Any]) -> None:
@@ -260,9 +762,13 @@ def render_summary(report: dict[str, Any]) -> str:
         "# Evaluation Summary",
         "",
         f"Status: `{report['status']}`",
+        f"Quality grade: `{report.get('quality_grade', 'F')}`",
+        f"Experiment: `{format_experiment_label(report)}`",
         f"Problem: `{report.get('problem_id')}`",
         f"Solution: `{report.get('solution')}`",
         f"Stop policy: `{report['stop_policy']}`",
+        f"Agent duration: `{format_optional_seconds(report.get('agent_duration_seconds'))}`",
+        f"Evaluation duration: `{report.get('total_eval_duration_seconds', 0.0)}s`",
         "",
     ]
 
@@ -274,6 +780,7 @@ def render_summary(report: dict[str, Any]) -> str:
                 "",
                 f"Phase: `{first_error.get('phase')}`",
                 f"Return code: `{first_error.get('returncode', 'n/a')}`",
+                f"Effective failure: `{first_error.get('effective_failure_reason', 'n/a')}`",
                 "",
             ]
         )
@@ -297,12 +804,88 @@ def render_summary(report: dict[str, Any]) -> str:
             lines.append("All required feature markers were found.")
         lines.append("")
 
+    test_summary = report.get("test_summary")
+    if test_summary:
+        lines.extend(
+            [
+                "## Raw Test Summary",
+                "",
+                f"Total: `{test_summary.get('total', 0)}`",
+                f"Passed: `{test_summary.get('passed', 0)}`",
+                f"Failed: `{test_summary.get('failed', 0)}`",
+                f"Skipped: `{test_summary.get('skipped', 0)}`",
+                "",
+            ]
+        )
+
+    test_assessment = report.get("test_assessment")
+    if test_assessment:
+        lines.extend(
+            [
+                "## Adjusted Test Assessment",
+                "",
+                f"Effective total: `{test_assessment.get('effective_total', 0)}`",
+                f"Effective passed: `{test_assessment.get('effective_passed', 0)}`",
+                f"Effective failed: `{test_assessment.get('effective_failed', 0)}`",
+                f"Effective skipped: `{test_assessment.get('effective_skipped', 0)}`",
+                "Delegation-dependent excluded: "
+                f"`{test_assessment.get('excluded_delegation_dependent', 0)}`",
+                "",
+            ]
+        )
+
+    verify_summary = report.get("verify_summary")
+    if verify_summary:
+        lines.extend(
+            [
+                "## Raw Verify Summary",
+                "",
+                f"Verified: `{verify_summary.get('verified', 0)}`",
+                f"Contract checked: `{verify_summary.get('contract_checked', 0)}`",
+                f"Tested: `{verify_summary.get('tested', 0)}`",
+                f"Asserted: `{verify_summary.get('asserted', 0)}`",
+                f"No contract: `{verify_summary.get('no_contract', 0)}`",
+                "",
+            ]
+        )
+
+    contract_assessment = report.get("contract_assessment")
+    if contract_assessment:
+        lines.extend(
+            [
+                "## Contract Assessment",
+                "",
+                "Expected contracts accepted: "
+                f"`{contract_assessment.get('accepted_total', 0)}/"
+                f"{contract_assessment.get('expected_total', 0)}`",
+                "Proof-required ceilings accepted: "
+                f"`{contract_assessment.get('proof_required_ceiling_accepted', 0)}`",
+                "Asserted non-proof contracts: "
+                f"`{contract_assessment.get('asserted_without_proof', 0)}`",
+                "",
+            ]
+        )
+
+    problems = report.get("problems_md")
+    if problems:
+        lines.extend(
+            [
+                "## Problems Log",
+                "",
+                f"Entries: `{problems.get('entry_count', 0)}`",
+                f"No-problems marker: `{problems.get('has_no_problems_marker', False)}`",
+                f"Stale no-problems marker: `{problems.get('stale_no_problems_marker', False)}`",
+                "",
+            ]
+        )
+
     lines.extend(["## Commands", ""])
     for command in report.get("commands", []):
         argv = " ".join(shlex.quote(part) for part in command["argv"])
+        effective = "ok" if command.get("effective_success") else "fail"
         lines.append(
             f"- `{command['name']}` rc={command['returncode']} "
-            f"duration={command['duration_seconds']}s: `{argv}`"
+            f"effective={effective} duration={command['duration_seconds']}s: `{argv}`"
         )
     lines.append("")
     return "\n".join(lines)
@@ -312,6 +895,23 @@ def truncate(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
         return value
     return value[:limit] + "\n...[truncated]..."
+
+
+def format_optional_seconds(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value):.3g}s"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def format_experiment_label(report: dict[str, Any]) -> str:
+    experiment_id = report.get("experiment_id")
+    experiment_slug = report.get("experiment_slug")
+    if experiment_id and experiment_slug:
+        return f"{experiment_id}-{experiment_slug}"
+    return str(experiment_id or "n/a")
 
 
 if __name__ == "__main__":
