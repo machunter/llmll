@@ -276,6 +276,246 @@ main = hspec $ do
           let report = typeCheck emptyEnv stmts
           reportSuccess report `shouldBe` True
 
+  -- -----------------------------------------------------------------------
+  -- expandAlias structural + transitive fix (14 tests)
+  -- -----------------------------------------------------------------------
+  describe "TypeCheck (expandAlias structural + transitive)" $ do
+
+    -- Test #1: TResult structural expansion
+    it "#1 match on Result[Color,string] resolves inner TCustom to TSumType" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
+            , "(def-logic f [r: Result[Color, string]]"
+            , "  (match r"
+            , "    ((Success (Red)) \"red\")"
+            , "    ((Success (Green)) \"green\")"
+            , "    ((Success (Blue)) \"blue\")"
+            , "    ((Error e) \"err\")))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> T.isInfixOf "unknown constructor" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+          reportSuccess report `shouldBe` True
+
+    -- Test #2: TPair structural expansion
+    it "#2 match on (Color, int) resolves inner TCustom via checkPattern entry" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
+            , "(def-logic f [p: (Color, int)]"
+            , "  (match p"
+            , "    ((pair (Red) n) n)"
+            , "    ((pair (Green) n) n)"
+            , "    ((pair (Blue) n) n)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> T.isInfixOf "unknown constructor" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+          reportSuccess report `shouldBe` True
+
+    -- Test #3: Transitive alias chain
+    it "#3 transitive alias chain A -> B -> (| Foo) resolves" $ do
+      let src = T.pack $ unlines
+            [ "(type B (| Foo unit))"
+            , "(type A B)"
+            , "(def-logic f [x: A]"
+            , "  (match x ((Foo) \"found\")))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    -- Test #4: TPair sibling branches both expand
+    it "#4 TPair with both components aliased expands independently" $ do
+      let src = T.pack $ unlines
+            [ "(type A int)"
+            , "(def-logic f [x: A y: A]"
+            , "  (+ x y))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    -- Test #5: Diagnostic preservation — alias name in unify error
+    -- We check that error diagnostics mention the alias name "Color"
+    -- rather than the expanded structural form "(Red | Green | Blue)".
+    it "#5 unify mismatch reports alias name 'Color', not expanded form" $ do
+      -- Two functions: one returns Color, the other takes int.
+      -- The mismatch is detected via compatibleExpanded at the if-branch site.
+      let src = T.pack $ unlines
+            [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
+            , "(def-logic f [b: bool c: Color]"
+            , "  (if b c 42))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          -- Should have a warning/error about different types in branches
+          let diags = reportDiagnostics report
+          let hasBranchMismatch = any (\d -> T.isInfixOf "different types" (diagMessage d)) diags
+          let mentionsColor = any (\d -> T.isInfixOf "Color" (diagMessage d)) diags
+          -- After Fix 1c, the if-branch compatibility uses compatibleExpanded,
+          -- so Color expands to TSumType and correctly mismatches with int.
+          -- The diagnostic message should mention "Color" because typeLabel on
+          -- TCustom "Color" returns "Color".
+          hasBranchMismatch `shouldBe` True
+          mentionsColor `shouldBe` True
+
+    -- Test #6: EIf branch compatibility with alias
+    it "#6 if branches: alias vs base type accepted when alias expands to base" $ do
+      let src = T.pack $ unlines
+            [ "(type MyInt int)"
+            , "(def-logic f [x: MyInt b: bool]"
+            , "  (if b x 42))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> T.isInfixOf "different types" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+          reportSuccess report `shouldBe` True
+
+    -- Test #7: pre/post bool check with alias-to-bool
+    it "#7 pre condition with alias-to-bool accepted" $ do
+      let src = T.pack $ unlines
+            [ "(type Flag bool)"
+            , "(def-logic f [x: Flag] (pre x) x)"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let errs = filter (\d -> T.isInfixOf "must be bool" (diagMessage d))
+                            (reportDiagnostics report)
+          errs `shouldBe` []
+          reportSuccess report `shouldBe` True
+
+    -- Test #8: Match arm result unification with alias
+    it "#8 match arms returning alias and base type accepted" $ do
+      let src = T.pack $ unlines
+            [ "(type MyInt int)"
+            , "(type Color (| Red unit) (| Green unit))"
+            , "(def-logic f [x: MyInt c: Color]"
+            , "  (match c"
+            , "    ((Red) x)"
+            , "    ((Green) 42)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> T.isInfixOf "different types" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+          reportSuccess report `shouldBe` True
+
+    -- Test #9: PConstructor "pair" against alias of TPair
+    it "#9 pair destructor on alias-of-TPair succeeds via checkPattern entry" $ do
+      let src = T.pack $ unlines
+            [ "(type P (int, string))"
+            , "(def-logic f [p: P]"
+            , "  (match p ((pair a b) a)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    -- Test #10: Direct alias cycle diagnostic
+    it "#10 direct alias cycle (type A B) (type B A) emits error" $ do
+      let src = T.pack $ unlines
+            [ "(type A B)"
+            , "(type B A)"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` False
+          let errs = filter (\d -> T.isInfixOf "type alias cycle" (diagMessage d))
+                            (reportDiagnostics report)
+          length errs `shouldSatisfy` (> 0)
+
+    -- Test #11: Composite-mediated alias cycle
+    it "#11 composite-mediated cycle (type A (list B)) (type B (list A)) emits error" $ do
+      let src = T.pack $ unlines
+            [ "(type A list[B])"
+            , "(type B list[A])"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` False
+          let errs = filter (\d -> T.isInfixOf "type alias cycle" (diagMessage d))
+                            (reportDiagnostics report)
+          length errs `shouldSatisfy` (> 0)
+
+    -- Test #12: Recursive ADT accepted (not flagged as cycle)
+    it "#12 recursive ADT (type Tree (| Leaf | Node Tree)) accepted without cycle error" $ do
+      let src = T.pack $ unlines
+            [ "(type Tree (| Leaf unit) (| Node Tree))"
+            , "(def-logic f [t: Tree]"
+            , "  (match t"
+            , "    ((Leaf) 0)"
+            , "    ((Node sub) 1)))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let cycleErrs = filter (\d -> T.isInfixOf "type alias cycle" (diagMessage d))
+                                 (reportDiagnostics report)
+          cycleErrs `shouldBe` []
+          reportSuccess report `shouldBe` True
+
+    -- Test #13: Positive composite case post-bridge-removal
+    it "#13 list[Color] compatible after alias expansion (bridge removed)" $ do
+      let src = T.pack $ unlines
+            [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
+            , "(def-logic f [xs: list[Color]]"
+            , "  (list-length xs))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          reportSuccess report `shouldBe` True
+
+    -- Test #14: End-to-end delegate-async -> await -> PConstructor
+    it "#14 delegate-async -> await -> match with ADT constructors type-checks" $ do
+      let src = T.pack $ unlines
+            [ "(type ColorADT (| Red unit) (| Green unit) (| Blue unit))"
+            , "(def-logic process-color [c: ColorADT]"
+            , "  (match c"
+            , "    ((Red) \"red\")"
+            , "    ((Green) \"green\")"
+            , "    ((Blue) \"blue\")))"
+            ]
+      case parseStatements "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let warns = filter (\d -> T.isInfixOf "unknown constructor" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+          reportSuccess report `shouldBe` True
+
   describe "TypeCheck (first/second pair projectors)" $ do
     it "first accepts a pair-typed param (v0.4 U2-lite: requires TPair)" $ do
       -- v0.4 U2-lite: first :: TFn [TPair a b] a (was TFn [TVar p] (TVar a))

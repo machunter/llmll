@@ -47,6 +47,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe)
 import Data.List (nub, (\\))
+import qualified Data.Set as Set
 import Control.Monad (forM_, forM, foldM, when, unless, void)
 import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
 import Control.Monad.State.Strict
@@ -487,6 +488,38 @@ checkStatements stmts = do
   -- Populate alias map so expandAlias can resolve TCustom aliases in unify
   -- v0.4 CAP-1: store top-level statements for capability checks in inferExpr
   modify $ \s -> s { tcAliasMap = aliasMap, tcTrusts = Map.union trustMap (tcTrusts s), tcModuleStmts = stmts }
+  -- Fix 3: detect type alias cycles and emit diagnostics.
+  -- Self-reference inside TSumType payloads is legitimate recursive-ADT structure,
+  -- not an alias cycle (e.g. (type Tree (| Leaf unit | Node Tree)) is valid).
+  let collectCustomNames :: Type -> Set.Set Name
+      collectCustomNames ty = case ty of
+        TCustom n        -> Set.singleton n
+        TList a          -> collectCustomNames a
+        TMap k v         -> collectCustomNames k <> collectCustomNames v
+        TResult a b      -> collectCustomNames a <> collectCustomNames b
+        TPair a b        -> collectCustomNames a <> collectCustomNames b
+        TPromise a       -> collectCustomNames a
+        TFn args ret     -> foldMap collectCustomNames args <> collectCustomNames ret
+        TSumType _       -> Set.empty   -- self-reference in constructor payloads is recursion, not a cycle
+        TDependent _ b _ -> collectCustomNames b
+        _                -> Set.empty
+      aliasGraph = Map.map collectCustomNames aliasMap
+      -- DFS: returns all names participating in any cycle
+      detectCycles :: Set.Set Name
+      detectCycles =
+        let reachable start = go' Set.empty start
+              where
+                go' :: Set.Set Name -> Name -> Set.Set Name
+                go' visited n
+                  | n `Set.member` visited = Set.singleton n
+                  | otherwise = case Map.lookup n aliasGraph of
+                      Nothing   -> Set.empty
+                      Just deps -> foldMap (go' (Set.insert n visited))
+                                           (Set.toList (deps `Set.intersection` Map.keysSet aliasMap))
+        in foldMap reachable (Map.keys aliasMap)
+      cyclicNames = Set.toAscList detectCycles
+  forM_ cyclicNames $ \n ->
+    tcError $ "type alias cycle involving '" <> n <> "'"
   withEnv topLevel $ do
     -- Register ADT constructors as callable functions (LLMLL.md §3.3).
     let ctorBindings = collectConstructors stmts
@@ -566,7 +599,8 @@ checkStatement (SDefLogic name params mRet contract body) = do
           when (exprContainsVar "result" pre) $
             tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
           preType <- inferExpr pre
-          unless (compatibleWith preType TBool) $
+          preOk <- compatibleExpanded preType TBool
+          unless preOk $
             tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
       -- Check post-condition is boolean (has access to 'result')
       case contractPost contract of
@@ -574,7 +608,8 @@ checkStatement (SDefLogic name params mRet contract body) = do
         Just post -> do
           let resultType = fromMaybe bodyType mRet
           postType <- withEnv [("result", resultType)] (inferExpr post)
-          unless (compatibleWith postType TBool) $
+          postOk <- compatibleExpanded postType TBool
+          unless postOk $
             tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
 
 checkStatement (SLetrec name params mRet contract dec body) = do
@@ -583,7 +618,8 @@ checkStatement (SLetrec name params mRet contract dec body) = do
     withTaggedEnv SrcParam paramBindings $ do
       -- Validate :decreases is integer-typed (QF linear arithmetic restriction)
       decType <- inferExpr dec
-      unless (compatibleWith decType TInt) $
+      decOk <- compatibleExpanded decType TInt
+      unless decOk $
         tcWarn $ "letrec '" <> name <> "': :decreases must be int-typed, got " <> typeLabel decType
       -- Infer body type: push "body" segment for pointer precision
       bodyType <- withSegment "body" (inferExpr body)
@@ -597,7 +633,8 @@ checkStatement (SLetrec name params mRet contract dec body) = do
           when (exprContainsVar "result" pre) $
             tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
           preType <- inferExpr pre
-          unless (compatibleWith preType TBool) $
+          preOk <- compatibleExpanded preType TBool
+          unless preOk $
             tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
       -- Check post-condition
       case contractPost contract of
@@ -605,7 +642,8 @@ checkStatement (SLetrec name params mRet contract dec body) = do
         Just post -> do
           let resultType = fromMaybe bodyType mRet
           postType <- withEnv [("result", resultType)] (inferExpr post)
-          unless (compatibleWith postType TBool) $
+          postOk <- compatibleExpanded postType TBool
+          unless postOk $
             tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
 
 checkStatement (SDefInterface name fns laws) = do
@@ -621,7 +659,8 @@ checkStatement (SDefInterface name fns laws) = do
     let ifaceBindings = fns  -- interface method signatures as env
     withEnv ifaceBindings $ withEnv bindings $ do
       bodyType <- inferExpr body
-      unless (compatibleWith bodyType TBool) $
+      lawOk <- compatibleExpanded bodyType TBool
+      unless lawOk $
         tcError $ "interface '" <> name <> "' :laws clause must be bool, got " <> typeLabel bodyType
 
 checkStatement (STypeDef name body) = do
@@ -630,7 +669,8 @@ checkStatement (STypeDef name body) = do
     TDependent bindName base constraint -> do
       -- Bring binding variable into scope before checking the constraint
       ctype <- withEnv [(bindName, base)] (inferExpr constraint)
-      unless (compatibleWith ctype TBool) $
+      ctypeOk <- compatibleExpanded ctype TBool
+      unless ctypeOk $
         tcWarn $ "type '" <> name <> "' constraint should be bool, got " <> typeLabel ctype
     _ -> pure ()
 
@@ -638,7 +678,8 @@ checkStatement (SCheck prop) = do
   -- Property bindings become forall quantifiers
   withEnv (propBindings prop) $ do
     bodyType <- inferExpr (propBody prop)
-    unless (compatibleWith bodyType TBool) $
+    chkOk <- compatibleExpanded bodyType TBool
+    unless chkOk $
       tcError $ "check property '" <> propDescription prop
         <> "': body must be bool, got " <> typeLabel bodyType
 
@@ -695,7 +736,8 @@ checkStatement (SDefMain { defMainStep = stepE, defMainDone = doneE }) = do
     Nothing -> pure ()
     Just de -> do
       doneType <- inferExpr de
-      unless (compatibleWith doneType TBool) $
+      doneOk <- compatibleExpanded doneType TBool
+      unless doneOk $
         tcWarn ":done? should return bool; found non-bool type (ignored in v0.2)"
 
 -- ---------------------------------------------------------------------------
@@ -788,7 +830,8 @@ inferExpr (ELet bindings body) = do
 
 inferExpr (EIf cond thenE elseE) = do
   condType <- inferExpr cond
-  unless (compatibleWith condType TBool) $
+  condOk <- compatibleExpanded condType TBool
+  unless condOk $
     tcError $ "if condition must be bool, got " <> typeLabel condType
   -- Sketch propagation: if one branch is a hole, constrain it from the other.
   -- withSegment threads one RFC 6901 token per call so the stack stays clean.
@@ -797,7 +840,8 @@ inferExpr (EIf cond thenE elseE) = do
       -- Standard path (both concrete)
       thenType <- withSegment "then" (inferExpr thenE)
       elseType <- withSegment "else" (inferExpr elseE)
-      if compatibleWith thenType elseType
+      branchOk <- compatibleExpanded thenType elseType
+      if branchOk
         then pure thenType
         else do
           tcWarnOrError $ "if branches have different types: " <> typeLabel thenType
@@ -822,6 +866,7 @@ inferExpr (EIf cond thenE elseE) = do
 inferExpr (EMatch expr cases) = do
   scrutType <- inferExpr expr
   -- Resolve through type aliases so we can see the structural TSumType body
+  -- (redundant; checkPattern also expands at entry — kept for checkExhaustive)
   resolvedScrutType <- expandAlias scrutType
   -- Exhaustiveness check: only for TSumType where the full constructor set is known
   checkExhaustive resolvedScrutType cases
@@ -842,7 +887,9 @@ inferExpr (EMatch expr cases) = do
     [] -> pure (TVar "?", Nothing)
     (t:ts) -> foldM (\(acc, mc) t' ->
         if mc /= Nothing then pure (acc, mc)
-        else if compatibleWith acc t' then pure (acc, Nothing)
+        else do
+          armOk <- compatibleExpanded acc t'
+          if armOk then pure (acc, Nothing)
              else do
                tcWarn $ "match arms have different types: " <> typeLabel acc <> " vs " <> typeLabel t'
                pure (acc, Just (acc, t'))
@@ -1106,16 +1153,24 @@ checkExhaustive scrutTy arms = do
 -- ---------------------------------------------------------------------------
 
 -- | Type-check a pattern against a scrutinee type, returning new bindings.
+-- Expands the scrutinee type at entry so all pattern-dispatch cases see
+-- the structural body (TSumType, TResult, TPair) rather than a TCustom alias.
 checkPattern :: Pattern -> Type -> TC [(Name, Type)]
-checkPattern PWildcard _ = pure []
-checkPattern (PVar name) ty = pure [(name, ty)]
-checkPattern (PLiteral lit) scrutTy = do
+checkPattern pat scrutTy = do
+  scrutTy' <- expandAlias scrutTy
+  checkPatternExpanded pat scrutTy'
+
+-- | Internal: pattern checking against an already-expanded scrutinee type.
+checkPatternExpanded :: Pattern -> Type -> TC [(Name, Type)]
+checkPatternExpanded PWildcard _ = pure []
+checkPatternExpanded (PVar name) ty = pure [(name, ty)]
+checkPatternExpanded (PLiteral lit) scrutTy = do
   let litTy = inferLiteral lit
   unless (compatibleWith litTy scrutTy) $
     tcWarn $ "literal pattern type " <> typeLabel litTy
               <> " may not match scrutinee type " <> typeLabel scrutTy
   pure []
-checkPattern (PConstructor ctor subPats) scrutTy = do
+checkPatternExpanded (PConstructor ctor subPats) scrutTy = do
   -- Built-in constructors: Success(v), Error(e)
   case (ctor, scrutTy) of
     ("Success", TResult t _) ->
@@ -1196,6 +1251,10 @@ occursIn _ _                  = False  -- TInt, TString, TBool, TUnit, TBytes, T
 -- v0.5 U-Full: TVar-TVar now binds (wildcard closure). Occurs check prevents
 -- infinite types. Bound-TVar consistency uses recursive structuralUnify
 -- instead of compatibleWith (Language Team Issue 2, 2026-04-21).
+--
+-- PRECONDITION: inputs must be pre-expanded via expandAlias. The production
+-- call site (EApp, inferExpr) expands before calling. Direct test usage via
+-- runTCPure should expand inputs before calling structuralUnify.
 structuralUnify :: Name -> Map Name Type -> Type -> Type -> TC (Map Name Type)
 structuralUnify func subst expected actual =
   case (expected, actual) of
@@ -1325,26 +1384,57 @@ compatibleWith (TBytes m) (TBytes n) = m == n
 -- TSumType: structural constructor equality (v0.4 U7-lite)
 -- Before U-lite: any sum ≡ any sum (unsound). Now requires matching constructors.
 compatibleWith (TSumType a) (TSumType b) = map fst a == map fst b
-compatibleWith (TCustom _)  (TSumType _) = True  -- aliases resolved via expandAlias
-compatibleWith (TSumType _)  (TCustom _) = True  -- aliases resolved via expandAlias
 compatibleWith a b = a == b
 
+-- | TC-level compatibility check that expands aliases before comparison.
+-- Use at call sites that receive types from inference (which may
+-- contain unresolved TCustom aliases from the environment).
+compatibleExpanded :: Type -> Type -> TC Bool
+compatibleExpanded a b = do
+  a' <- expandAlias a
+  b' <- expandAlias b
+  pure (compatibleWith a' b')
+
 -- | Unify two types, emitting an error if they are incompatible.
--- | Expand a TCustom alias to its structural body if one is registered.
--- Leaves all other types unchanged.
+-- | Fully expand type aliases: traverses composite type structure and
+-- chases alias chains transitively.  Cycle guard (per-traversal Set)
+-- prevents divergence on (type A B) (type B A).
+--
+-- NOTE: TDependent recurses into the base type only. The predicate is
+-- an Expr, not a Type; alias expansion inside contract predicates is
+-- owned by Contracts.hs / FixpointEmit.hs. Do not "fix" this asymmetry
+-- without coordinating with those modules.
 expandAlias :: Type -> TC Type
-expandAlias (TCustom n) = do
-  am <- gets tcAliasMap
-  pure $ fromMaybe (TCustom n) (Map.lookup n am)
-expandAlias t = pure t
+expandAlias t0 = go Set.empty t0
+  where
+    go :: Set.Set Name -> Type -> TC Type
+    go seen t = case t of
+      TCustom n
+        | n `Set.member` seen -> pure (TCustom n)   -- alias cycle: stop
+        | otherwise -> do
+            am <- gets tcAliasMap
+            case Map.lookup n am of
+              Nothing   -> pure (TCustom n)
+              Just body -> go (Set.insert n seen) body
+      TList a            -> TList    <$> go seen a
+      TMap k v           -> TMap     <$> go seen k <*> go seen v
+      TResult a b        -> TResult  <$> go seen a <*> go seen b
+      TPair a b          -> TPair    <$> go seen a <*> go seen b
+      TPromise a         -> TPromise <$> go seen a
+      TFn args ret       -> TFn      <$> traverse (go seen) args <*> go seen ret
+      TSumType ctors     -> TSumType <$> traverse
+                              (\(c, mp) -> (\mp' -> (c, mp')) <$> traverse (go seen) mp)
+                              ctors
+      TDependent n b c   -> (\b' -> TDependent n b' c) <$> go seen b
+      _                  -> pure t   -- TInt/TFloat/TString/TBool/TUnit/TBytes/TVar/TDelegationError
 
 unify :: Name -> Type -> Type -> TC ()
 unify ctx expected actual = do
   expected' <- expandAlias expected
   actual'   <- expandAlias actual
   unless (compatibleWith expected' actual') $
-    -- Use structured type-mismatch error with separate expected/got fields (D5).
-    tcTypeMismatch ctx expected' actual'
+    -- Report originals to preserve alias names in diagnostics (Fix 1b).
+    tcTypeMismatch ctx expected actual
 
 -- | zipWithM_ with indices.
 zipWithM_ :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m ()
