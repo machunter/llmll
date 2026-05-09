@@ -51,7 +51,6 @@ library
       LLMLL.SpecCoverage
       LLMLL.ObligationAssembly
   other-modules:
-      Main
       Paths_llmll
   hs-source-dirs:
       src
