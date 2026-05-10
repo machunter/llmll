@@ -781,7 +781,9 @@ isHole _         = False
 checkExpr :: Expr -> Type -> TC ()
 checkExpr (EHole (HNamed name)) expected =
   recordHole name (HoleTyped expected)
-checkExpr (EHole hk) _ = void (inferHole hk)
+checkExpr (EHole hk) expected = do
+  actual <- inferHole hk
+  unify "<check>" expected actual
 checkExpr e expected   = inferExpr e >>= \actual -> unify "<check>" expected actual
 
 -- | Infer the type of an expression.
@@ -917,6 +919,11 @@ inferExpr (EApp func args) = do
   -- Check is here (in inferExpr, not checkStatement) because EApp can appear
   -- in any nesting context: let RHS, if branches, match arms, do steps, contracts.
   when ("wasi." `T.isPrefixOf` func) $ checkWasiCapability func
+  -- S4: warn on dotted function names in app position (non-wasi)
+  when ("." `T.isInfixOf` func && not ("wasi." `T.isPrefixOf` func)) $
+    tcWarn $ "dotted function name '" <> func <> "' in app position is not supported; "
+           <> "use (open <module-path>) and call the bare exported name. "
+           <> "For Result constructors, use 'ok' and 'err' instead of qualified forms."
   mFuncTy <- tcLookup func
   let nArgs = length args
   -- D2: warn when a plain def-logic calls itself recursively without :decreases
@@ -1027,7 +1034,12 @@ inferHole (HScaffold spec) = do
   tcWarn $ "scaffold hole for template: " <> scaffoldTemplate spec
   pure TUnit
 
-inferHole (HDelegate spec) = pure (delegateReturnType spec)
+inferHole (HDelegate spec) = do
+  let retTy = delegateReturnType spec
+  case delegateOnFailure spec of
+    Nothing -> pure ()
+    Just fb -> checkExpr fb retTy
+  pure retTy
 
 inferHole (HDelegateAsync spec) =
   case delegateReturnType spec of

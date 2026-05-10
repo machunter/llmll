@@ -669,7 +669,9 @@ emitDo steps =
 
 emitHole :: HoleKind -> Text
 emitHole (HNamed n)        = "( error (\"hole: \" ++ " <> T.pack (show (T.unpack n)) <> ") {- HOLE -} )"
-emitHole (HDelegate spec)  = "( error (\"delegate: \" ++ " <> T.pack (show (T.unpack (delegateAgent spec))) <> ") )"
+emitHole (HDelegate spec)  = case delegateOnFailure spec of
+  Nothing -> "( error (\"delegate: \" ++ " <> T.pack (show (T.unpack (delegateAgent spec))) <> ") )"
+  Just fb -> emitExpr fb
 emitHole (HDelegateAsync s)= "( error (\"delegate-async: \" ++ " <> T.pack (show (T.unpack (delegateAgent s))) <> ") )"
 emitHole (HDelegatePending _) = "( error \"delegate-pending: blocking hole\" )"
 -- D3: proof-required holes compile to an explicit error stub — the LH pipeline validates this site

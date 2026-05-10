@@ -25,6 +25,10 @@ module LLMLL.Contracts
 
     -- * Symbolic Evaluator (used by PBT)
   , evalExprStatic
+  , evalExprStaticWith
+  , FuncEnv
+  , buildFuncEnv
+  , maxFuel
   , evalOp
 
     -- * Module-Level Analysis
@@ -37,6 +41,7 @@ import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import Control.Monad (foldM, zipWithM)
 
 import LLMLL.Syntax
 
@@ -286,36 +291,133 @@ evalContract funcName contract env =
           _ -> ContractUnchecked
 
 -- ---------------------------------------------------------------------------
+-- Function Environment for PBT
+-- ---------------------------------------------------------------------------
+
+-- | Top-level function environment for static evaluation.
+-- Maps function name to (parameter names, body).
+type FuncEnv = Map Name ([Name], Expr)
+
+-- | Maximum unfolding depth — prevents hangs on recursive def-logic.
+maxFuel :: Int
+maxFuel = 64
+
+-- | Build a function environment from def-logic statements.
+-- Excludes SLetrec (explicitly recursive — would need decreases measure).
+buildFuncEnv :: [Statement] -> FuncEnv
+buildFuncEnv stmts = Map.fromList
+  [ (name, (map fst params, body))
+  | SDefLogic name params _mRet _contract body <- stmts
+  ]
+
+-- ---------------------------------------------------------------------------
 -- Minimal Symbolic Evaluator
 -- ---------------------------------------------------------------------------
 
 -- | Symbolically evaluate simple expressions with constant folding.
 -- Returns Nothing for expressions that can't be reduced to a literal.
+--
+-- Backward-compatible wrapper: empty FuncEnv, full fuel.
 evalExprStatic :: Map Name Expr -> Expr -> Maybe Expr
-evalExprStatic env (EVar name) = Map.lookup name env
-evalExprStatic _   (ELit lit)  = Just (ELit lit)
+evalExprStatic = evalExprStaticWith Map.empty maxFuel
 
-evalExprStatic env (EOp op args) = do
-  argVals <- mapM (evalExprStatic env) args
+-- | Evaluate with separate function and value environments.
+-- Fuel counter prevents non-termination on recursive calls.
+evalExprStaticWith :: FuncEnv -> Int -> Map Name Expr -> Expr -> Maybe Expr
+
+evalExprStaticWith _fe fuel _env _expr | fuel <= 0 = Nothing
+
+evalExprStaticWith _fe _fuel env (EVar name) = Map.lookup name env
+evalExprStaticWith _fe _fuel _   (ELit lit)  = Just (ELit lit)
+
+evalExprStaticWith fe fuel env (EOp op args) = do
+  argVals <- mapM (evalExprStaticWith fe fuel env) args
   evalOp op argVals
 
-evalExprStatic env (EIf cond thenE elseE) = do
-  condVal <- evalExprStatic env cond
+evalExprStaticWith fe fuel env (EIf cond thenE elseE) = do
+  condVal <- evalExprStaticWith fe fuel env cond
   case condVal of
-    ELit (LitBool True)  -> evalExprStatic env thenE
-    ELit (LitBool False) -> evalExprStatic env elseE
+    ELit (LitBool True)  -> evalExprStaticWith fe fuel env thenE
+    ELit (LitBool False) -> evalExprStaticWith fe fuel env elseE
     _                    -> Nothing
 
-evalExprStatic env (EApp func args) = do
-  argVals <- mapM (evalExprStatic env) args
-  case Map.lookup func env of
-    Just body -> evalExprStatic (Map.fromList (zipWith mkBinding [0..] argVals)) body
-    Nothing   -> Nothing
+evalExprStaticWith fe fuel env (ELet bindings body) = do
+  env' <- foldM extendEnv env bindings
+  evalExprStaticWith fe fuel env' body
   where
-    mkBinding :: Int -> Expr -> (Name, Expr)
-    mkBinding i v = (T.pack ("arg" ++ show i), v)
+    extendEnv acc (PVar n, _mTy, expr) = do
+      val <- evalExprStaticWith fe fuel acc expr
+      pure (Map.insert n val acc)
+    extendEnv _ _ = Nothing  -- non-variable patterns: bail
 
-evalExprStatic _ _ = Nothing
+evalExprStaticWith fe fuel env (EApp func args) = do
+  argVals <- mapM (evalExprStaticWith fe fuel env) args
+  case Map.lookup func fe of
+    Just (paramNames, funcBody)
+      | length paramNames == length argVals ->
+          let paramEnv = Map.fromList (zip paramNames argVals)
+          in evalExprStaticWith fe (fuel - 1) paramEnv funcBody
+      | otherwise -> Nothing  -- arity mismatch
+    Nothing -> evalBuiltinApp func argVals
+
+-- Delegate holes: evaluate fallback if present
+evalExprStaticWith fe fuel env (EHole (HDelegate spec)) =
+  case delegateOnFailure spec of
+    Just fb -> evalExprStaticWith fe fuel env fb
+    Nothing -> Nothing
+
+evalExprStaticWith _ _ _ (EHole _) = Nothing
+
+-- Match expressions
+evalExprStaticWith fe fuel env (EMatch scrutinee arms) = do
+  scrVal <- evalExprStaticWith fe fuel env scrutinee
+  matchArms fe fuel env scrVal arms
+
+evalExprStaticWith _ _ _ _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- Built-in Function Applications
+-- ---------------------------------------------------------------------------
+
+-- | Evaluate built-in function applications that don't need a FuncEnv lookup.
+-- ok/err are the expression-level constructors; they canonicalize to
+-- Success/Error tags internally so match patterns (which use Success/Error
+-- constructor names) work correctly.
+evalBuiltinApp :: Name -> [Expr] -> Maybe Expr
+evalBuiltinApp "ok"  [val] = Just (EApp "Success" [val])
+evalBuiltinApp "err" [val] = Just (EApp "Error" [val])
+-- is-ok: only canonical Success/Error tags after evaluation
+evalBuiltinApp "is-ok" [EApp "Success" _] = Just (ELit (LitBool True))
+evalBuiltinApp "is-ok" [EApp "Error" _]   = Just (ELit (LitBool False))
+evalBuiltinApp "is-ok" _                  = Nothing
+evalBuiltinApp _ _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- Pattern Matching
+-- ---------------------------------------------------------------------------
+
+-- | Try to match a scrutinee value against a list of arms.
+matchArms :: FuncEnv -> Int -> Map Name Expr -> Expr -> [(Pattern, Expr)] -> Maybe Expr
+matchArms _  _    _   _ [] = Nothing
+matchArms fe fuel env scrVal ((pat, body):rest) =
+  case matchPattern scrVal pat of
+    Just bindings -> evalExprStaticWith fe fuel (Map.union bindings env) body
+    Nothing       -> matchArms fe fuel env scrVal rest
+
+-- | Try to match a value against a pattern, returning bindings on success.
+matchPattern :: Expr -> Pattern -> Maybe (Map Name Expr)
+matchPattern _ PWildcard       = Just Map.empty
+matchPattern v (PVar name)     = Just (Map.singleton name v)
+matchPattern (ELit lit) (PLiteral pLit)
+  | lit == pLit = Just Map.empty
+  | otherwise   = Nothing
+matchPattern (EApp ctorName args) (PConstructor patCtor subPats)
+  | ctorName == patCtor && length args == length subPats = do
+      bindings <- zipWithM matchPattern args subPats
+      pure (Map.unions bindings)
+  | ctorName == patCtor = Nothing  -- arity mismatch
+matchPattern _ (PConstructor _ _) = Nothing
+matchPattern _ _ = Nothing
 
 -- | Evaluate a built-in operator on literal values.
 evalOp :: Name -> [Expr] -> Maybe Expr
@@ -324,6 +426,10 @@ evalOp "and" [ELit (LitBool a), ELit (LitBool b)] = Just (ELit (LitBool (a && b)
 evalOp "or"  [ELit (LitBool a), ELit (LitBool b)] = Just (ELit (LitBool (a || b)))
 evalOp "="   [ELit (LitInt  a), ELit (LitInt b)]  = Just (ELit (LitBool (a == b)))
 evalOp "!="  [ELit (LitInt  a), ELit (LitInt b)]  = Just (ELit (LitBool (a /= b)))
+evalOp "="   [ELit (LitBool a), ELit (LitBool b)]  = Just (ELit (LitBool (a == b)))
+evalOp "!="  [ELit (LitBool a), ELit (LitBool b)]  = Just (ELit (LitBool (a /= b)))
+evalOp "="   [ELit (LitString a), ELit (LitString b)] = Just (ELit (LitBool (a == b)))
+evalOp "!="  [ELit (LitString a), ELit (LitString b)] = Just (ELit (LitBool (a /= b)))
 evalOp "<"   [ELit (LitInt  a), ELit (LitInt b)]  = Just (ELit (LitBool (a <  b)))
 evalOp ">"   [ELit (LitInt  a), ELit (LitInt b)]  = Just (ELit (LitBool (a >  b)))
 evalOp "<="  [ELit (LitInt  a), ELit (LitInt b)]  = Just (ELit (LitBool (a <= b)))

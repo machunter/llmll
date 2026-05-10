@@ -26,14 +26,15 @@ import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
+import qualified Test.QuickCheck as QC
 import Test.QuickCheck
-  ( Gen, generate, vectorOf, property, arbitrary
+  ( Gen, generate, vectorOf, arbitrary
   , Arbitrary(..), quickCheckResult, Result(..)
   , counterexample, forAll, NonNegative(..))
 import Control.Exception (try, SomeException)
 
 import LLMLL.Syntax
-import LLMLL.Contracts (evalExprStatic)
+import LLMLL.Contracts (evalExprStaticWith, FuncEnv, buildFuncEnv, maxFuel)
 
 -- ---------------------------------------------------------------------------
 -- Result Types
@@ -70,14 +71,15 @@ data PBTResult = PBTResult
 -- | Run all check blocks and interface laws in a list of statements (pure, symbolic evaluation).
 runPropertyTests :: [Statement] -> IO PBTResult
 runPropertyTests stmts = do
-  let checks = [prop | SCheck prop <- stmts]
+  let funcEnv = buildFuncEnv stmts
+      checks = [prop | SCheck prop <- stmts]
       -- v0.6.2: extract interface laws as properties (auto-numbered descriptions)
       lawProps = [ prop { propDescription = ifName <> "_law_" <> T.pack (show idx) }
                  | SDefInterface ifName _ laws <- stmts
                  , (idx, prop) <- zip [(1::Int)..] laws
                  ]
       allProps = checks ++ lawProps
-  runs <- mapM runProperty allProps
+  runs <- mapM (runPropertyWith funcEnv) allProps
   let passed  = length [() | r <- runs, pbtStatus r == PBTPassed]
       failed  = length [() | r <- runs, pbtStatus r == PBTFailed]
       skipped = length [() | r <- runs, pbtStatus r == PBTSkipped]
@@ -97,9 +99,9 @@ runPropertyTestsIO = runPropertyTests
 -- Running a Single Property
 -- ---------------------------------------------------------------------------
 
--- | Run a single check block.
-runProperty :: LLMLL.Syntax.Property -> IO PBTRun
-runProperty prop = do
+-- | Run a single check block with a top-level function environment.
+runPropertyWith :: FuncEnv -> LLMLL.Syntax.Property -> IO PBTRun
+runPropertyWith funcEnv prop = do
   let bindings = propBindings prop
       body     = propBody prop
       desc     = propDescription prop
@@ -107,7 +109,7 @@ runProperty prop = do
 
   -- Generate sample environments and evaluate the property body
   samples <- generateSamples bindings nSamples
-  let results = map (\env -> evalPropertyBody env body) samples
+  let results = map (\env -> evalPropertyBodyWith funcEnv env body) samples
 
   case sequence results of
     -- All evaluations returned concrete booleans
@@ -121,7 +123,7 @@ runProperty prop = do
     -- Some could not be evaluated statically
     Nothing ->
       -- Try QuickCheck on integer-only properties
-      case tryQuickCheck bindings body of
+      case tryQuickCheck funcEnv bindings body of
         Just qcResult -> qcResult >>= \r -> pure $ PBTRun desc (qcStatus r) (qcSamples r) (qcCounterex r)
         Nothing       ->
           let reason
@@ -133,9 +135,9 @@ runProperty prop = do
 
 -- | Evaluate a property body in a given binding environment.
 -- Returns Just True/False for concrete results, Nothing for non-evaluable.
-evalPropertyBody :: Map Name Expr -> Expr -> Maybe Bool
-evalPropertyBody env body =
-  case evalExprStatic env body of
+evalPropertyBodyWith :: FuncEnv -> Map Name Expr -> Expr -> Maybe Bool
+evalPropertyBodyWith funcEnv env body =
+  case evalExprStaticWith funcEnv maxFuel env body of
     Just (ELit (LitBool b)) -> Just b
     _                       -> Nothing
 
@@ -202,9 +204,9 @@ bodyMentionsCommand expr = go expr
 
 -- | Try to run a property using QuickCheck if it only involves integers and bools.
 -- Returns Nothing if the property can't be run this way.
-tryQuickCheck :: [(Name, Type)] -> Expr -> Maybe (IO QCRun)
-tryQuickCheck bindings body
-  | all isSimpleType (map snd bindings) = Just (runQC bindings body)
+tryQuickCheck :: FuncEnv -> [(Name, Type)] -> Expr -> Maybe (IO QCRun)
+tryQuickCheck funcEnv bindings body
+  | all isSimpleType (map snd bindings) = Just (runQC funcEnv bindings body)
   | otherwise = Nothing
   where
     isSimpleType TInt  = True
@@ -218,8 +220,8 @@ data QCRun = QCRun
   , qcCounterex  :: Maybe Text
   } deriving (Show)
 
-runQC :: [(Name, Type)] -> Expr -> IO QCRun
-runQC bindings body = do
+runQC :: FuncEnv -> [(Name, Type)] -> Expr -> IO QCRun
+runQC funcEnv bindings body = do
   let genEnv :: Gen (Map Name Expr)
       genEnv = do
         pairs <- mapM genPair bindings
@@ -233,10 +235,10 @@ runQC bindings body = do
       genLit TBool = LitBool <$> arbitrary
       genLit _     = LitInt <$> arbitrary
 
-      prop :: Map Name Expr -> Bool
-      prop env = case evalExprStatic env body of
-        Just (ELit (LitBool b)) -> b
-        _                       -> True  -- skip unevaluable
+      prop :: Map Name Expr -> QC.Property
+      prop env = case evalExprStaticWith funcEnv maxFuel env body of
+        Just (ELit (LitBool b)) -> QC.property b
+        _                       -> QC.discard
 
   result <- (try (quickCheckResult (forAll genEnv prop)) :: IO (Either SomeException Result))
   case result of

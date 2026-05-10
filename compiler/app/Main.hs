@@ -444,8 +444,16 @@ doCheck json fp strict = do
       if json
         then TIO.putStrLn (formatReportJson report)
         else if reportSuccess report
-          then TIO.putStrLn $
-            "\x2705 " <> T.pack fp <> " \8212 OK (" <> tshow (length ss) <> " statements)"
+          then do
+            let warns = [d | d <- reportDiagnostics report, diagSeverity d == SevWarning]
+            if null warns
+              then TIO.putStrLn $
+                "\x2705 " <> T.pack fp <> " \8212 OK (" <> tshow (length ss) <> " statements)"
+              else do
+                TIO.putStrLn $
+                  "\x2705 " <> T.pack fp <> " \8212 OK (" <> tshow (length ss) <> " statements, "
+                  <> tshow (length warns) <> " warning" <> (if length warns == 1 then "" else "s") <> ")"
+                mapM_ (TIO.putStrLn . formatDiagnostic) warns
           else mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
       if reportSuccess report then exitSuccess else exitFailure
 

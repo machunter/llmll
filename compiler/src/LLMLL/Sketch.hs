@@ -47,7 +47,7 @@ import LLMLL.Syntax (typeLabel)
 -- ---------------------------------------------------------------------------
 
 schemaVersion :: T.Text
-schemaVersion = "0.3.0"  -- v0.3.5: added scope env to holes
+schemaVersion = "0.4.0"  -- v0.10.2: identifier-shape regex on ExprApp.fn / ExprQualApp.qual_fn
 
 -- ---------------------------------------------------------------------------
 -- Error sorting: holeSensitive:false before holeSensitive:true (spec requirement)

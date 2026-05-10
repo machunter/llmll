@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.3.0'. The compiler rejects files with an unrecognised version.",
+          "description": "Must be '0.4.0'. The compiler rejects files with an unrecognised version. Bumped from 0.3.0 in v0.10.2 to signal the new identifier-shape regex constraints on ExprApp.fn and ExprQualApp.qual_fn.",
           "type": "string",
-          "const": "0.3.0"
+          "const": "0.4.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -627,7 +627,7 @@
       "additionalProperties": false,
       "properties": {
         "kind": { "type": "string", "const": "app" },
-        "fn":   { "type": "string", "description": "Name of the function. ASCII only. No dots." },
+        "fn":   { "type": "string", "pattern": "^[^.]+$", "description": "Name of the function. No dots. Use qual-app for qualified calls." },
         "args": { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
       }
     },
@@ -639,7 +639,7 @@
       "additionalProperties": false,
       "properties": {
         "kind":    { "type": "string", "const": "qual-app" },
-        "qual_fn": { "type": "string", "description": "Dot-separated qualified name, e.g. 'wasi.io.stdout'." },
+        "qual_fn": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_?\\-]*(\\.[A-Za-z_][A-Za-z0-9_?\\-]*)+$", "description": "Dot-separated qualified name with at least one dot, e.g. 'wasi.io.stdout'." },
         "args":    { "type": "array", "items": { "$ref": "#/$defs/Expr" } }
       }
     },

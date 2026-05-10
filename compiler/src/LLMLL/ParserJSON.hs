@@ -35,8 +35,10 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- ---------------------------------------------------------------------------
 
 -- | The schema version this parser accepts. Compiler rejects any other value.
+-- v0.10.2: bumped from 0.3.0 to 0.4.0 to signal identifier-shape regex
+-- constraints on ExprApp.fn and ExprQualApp.qual_fn.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.3.0"
+expectedSchemaVersion = "0.4.0"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -457,6 +459,9 @@ parseExpr = withObject "Expr" $ \o -> do
     "hole-delegate"       -> EHole . HDelegate      <$> parseDelegateSpec o
     "hole-delegate-async" -> do
       raw <- parseDelegateSpec o
+      case delegateOnFailure raw of
+        Just _ -> fail "on_failure is not supported on hole-delegate-async; use a sync ?delegate with on-failure, or handle errors after (await ...)"
+        Nothing -> pure ()
       case normalizeAsyncDelegateSpec raw of
         Left err -> fail (T.unpack err)
         Right spec -> pure $ EHole (HDelegateAsync spec)

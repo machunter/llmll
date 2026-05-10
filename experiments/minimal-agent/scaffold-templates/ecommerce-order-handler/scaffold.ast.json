@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.3.0",
+  "schemaVersion": "0.4.0",
   "llmll_version": "0.10.0",
   "source_file": "ecommerce-order-handler.scaffold.llmll",
   "statements": [

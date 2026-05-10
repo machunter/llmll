@@ -28,7 +28,8 @@ import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, hole
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
-import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode)
+import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, maxFuel)
+import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
@@ -609,7 +610,7 @@ main = hspec $ do
       -- JSON-AST with done? and on-done fields
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.3.0\","
+            , "  \"schemaVersion\": \"0.4.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","
@@ -636,7 +637,7 @@ main = hspec $ do
     it "parsed done? wires into generated Main.hs (harness terminates)" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.3.0\","
+            , "  \"schemaVersion\": \"0.4.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","
@@ -897,7 +898,7 @@ main = hspec $ do
     it "JSON-AST: pair-type param_type decodes to TPair TInt TString" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.3.0\","
+            , "  \"schemaVersion\": \"0.4.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -955,7 +956,7 @@ main = hspec $ do
     it "let binding with extra 'kind' key is rejected with clear error" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.3.0\","
+            , "  \"schemaVersion\": \"0.4.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -984,7 +985,7 @@ main = hspec $ do
     it "let binding with only 'name' and 'expr' keys accepts successfully" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.3.0\","
+            , "  \"schemaVersion\": \"0.4.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -1236,7 +1237,7 @@ main = hspec $ do
 
   describe "JsonPointer" $ do
     let testAst = object
-          [ "schemaVersion" .= ("0.3.0" :: T.Text)
+          [ "schemaVersion" .= ("0.4.0" :: T.Text)
           , "statements" .= [ object
               [ "kind" .= ("def-logic" :: T.Text)
               , "name" .= ("foo" :: T.Text)
@@ -1561,7 +1562,7 @@ main = hspec $ do
     it "OBLIG-3: patch function with no contracts returns PatchSuccess" $ do
       let tmpDir = "test/_tmp_patch_no_contract"
           astJson = object
-            [ "schemaVersion" .= ("0.3.0" :: T.Text)
+            [ "schemaVersion" .= ("0.4.0" :: T.Text)
             , "llmll_version" .= ("0.3.0" :: T.Text)
             , "statements" .= [object
                 [ "kind" .= ("def-logic" :: T.Text)
@@ -2341,7 +2342,7 @@ main = hspec $ do
       let dir = root ++ "/test-scaffold-tmp"
           file = dir ++ "/scaffold.ast.json"
       createDirectoryIfMissing True dir
-      writeFile file "{\"schemaVersion\": \"0.3.0\", \"statements\": []}"
+      writeFile file "{\"schemaVersion\": \"0.4.0\", \"statements\": []}"
       result <- resolveScaffold "test-scaffold-tmp"
       result `shouldBe` Just file
       removeDirectoryRecursive dir
@@ -2355,7 +2356,7 @@ main = hspec $ do
 
     it "JSON-AST hole-scaffold parses correctly" $ do
       let jsonSrc = BLC.pack $ unlines
-            [ "{ \"schemaVersion\": \"0.3.0\""
+            [ "{ \"schemaVersion\": \"0.4.0\""
             , ", \"statements\": ["
             , "    { \"kind\": \"def-logic\", \"name\": \"f\", \"params\": []"
             , "    , \"body\": { \"kind\": \"hole-scaffold\", \"template\": \"rest-api\" } }"
@@ -4846,6 +4847,163 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "INT-2: isTypeCompatible TVar enables list-head matching" $
       isTypeCompatible Map.empty TInt (TResult (TVar "a") TString) `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- Experiment 001 — soundness blockers (S1, S2, S3, S4, D1)
+  -- Source: experiments/minimal-agent/findings/compiler-engineer.md
+  -- Plan:   compiler-team Rev 4 — verification fixtures 1–13
+  -- -----------------------------------------------------------------------
+  describe "Experiment 001 — soundness blockers" $ do
+
+    -- S1: delegate fallback typecheck (TypeCheck.hs:1037-1042 + 783-786)
+    describe "S1 delegate fallback typecheck" $ do
+      it "accepts well-typed fallback (?delegate -> int (on-failure 0))" $ do
+        let stmts = [ SDefLogic "f" [] (Just TInt)
+                        (Contract Nothing Nothing Nothing Nothing)
+                        (EHole (HDelegate (DelegateSpec "agent" "task" TInt
+                                            (Just (ELit (LitInt 0))))))
+                    ]
+        let report = typeCheck emptyEnv stmts
+        let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+        errs `shouldBe` []
+
+      it "rejects ill-typed fallback (?delegate -> string (on-failure 0))" $ do
+        let stmts = [ SDefLogic "f" [] (Just TString)
+                        (Contract Nothing Nothing Nothing Nothing)
+                        (EHole (HDelegate (DelegateSpec "agent" "task" TString
+                                            (Just (ELit (LitInt 0))))))
+                    ]
+        let report = typeCheck emptyEnv stmts
+        let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+        errs `shouldNotBe` []
+
+      it "rejects if-branch type mismatch when delegate is one branch" $ do
+        let stmts = [ SDefLogic "f" [("b", TBool)] Nothing
+                        (Contract Nothing Nothing Nothing Nothing)
+                        (EIf (EVar "b")
+                             (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
+                             (ELit (LitString "fallback")))
+                    ]
+        let report = typeCheck emptyEnv stmts
+        let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+        errs `shouldNotBe` []
+
+    -- S2: codegen routes through fallback (CodegenHs.hs:670-674)
+    describe "S2 codegen routes through fallback" $ do
+      it "emits fallback expression when present (not error stub)" $ do
+        let spec = DelegateSpec "agent" "task" TInt (Just (ELit (LitInt 42)))
+        let emitted = emitHole (HDelegate spec)
+        emitted `shouldSatisfy` T.isInfixOf "42"
+        emitted `shouldNotSatisfy` T.isInfixOf "error (\"delegate:"
+
+      it "emits error stub when no fallback" $ do
+        let spec = DelegateSpec "agent" "task" TInt Nothing
+        emitHole (HDelegate spec) `shouldSatisfy` T.isInfixOf "error (\"delegate:"
+
+    -- Async parser: defense-in-depth rejection (ParserJSON.hs:457-462)
+    describe "Async parser rejects on_failure" $ do
+      it "ParserJSON fails when hole-delegate-async carries on_failure" $ do
+        let src = BLC.pack $ unlines
+              [ "{"
+              , "  \"schemaVersion\": \"0.4.0\","
+              , "  \"statements\": ["
+              , "    {"
+              , "      \"kind\": \"def-logic\","
+              , "      \"name\": \"f\","
+              , "      \"params\": [],"
+              , "      \"return_type\": {\"kind\": \"primitive\", \"name\": \"int\"},"
+              , "      \"body\": {"
+              , "        \"kind\": \"hole-delegate-async\","
+              , "        \"agent\": \"agent\","
+              , "        \"description\": \"task\","
+              , "        \"return_type\": {\"kind\": \"primitive\", \"name\": \"int\"},"
+              , "        \"on_failure\": {\"kind\": \"int-lit\", \"value\": 0}"
+              , "      }"
+              , "    }"
+              , "  ]"
+              , "}"
+              ]
+        case parseJSONAST "<test>" src of
+          Left _   -> pure ()  -- expected
+          Right _  -> expectationFailure "expected parse error for on_failure on hole-delegate-async"
+
+    -- S3 + evaluator: PBT discards unevaluable, FuncEnv-driven evaluation
+    describe "S3 PBT discard semantics + FuncEnv evaluator" $ do
+      it "delegate without fallback -> PBTSkipped (was vacuous PBTPassed)" $ do
+        let stmts =
+              [ SDefLogic "h" [] (Just TInt)
+                  (Contract Nothing Nothing Nothing Nothing)
+                  (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
+              , SCheck (Property "h-equals-zero" []
+                          (EOp "=" [EApp "h" [], ELit (LitInt 0)]))
+              ]
+        result <- runPropertyTests stmts
+        case pbtResults result of
+          [run] -> pbtStatus run `shouldBe` PBTSkipped
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "delegate with fallback resolves via FuncEnv -> PBTPassed" $ do
+        let stmts =
+              [ SDefLogic "g" [] (Just TInt)
+                  (Contract Nothing Nothing Nothing Nothing)
+                  (EHole (HDelegate (DelegateSpec "agent" "task" TInt
+                                      (Just (ELit (LitInt 42))))))
+              , SCheck (Property "g-equals-42" []
+                          (EOp "=" [EApp "g" [], ELit (LitInt 42)]))
+              ]
+        result <- runPropertyTests stmts
+        case pbtResults result of
+          [run] -> pbtStatus run `shouldBe` PBTPassed
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+    -- Static evaluator: ok/err/is-ok semantics + EMatch + bool/string equality
+    describe "Static evaluator Result semantics" $ do
+      it "(is-ok (ok 42)) evaluates to True" $ do
+        let e = EApp "is-ok" [EApp "ok" [ELit (LitInt 42)]]
+        evalExprStatic Map.empty e `shouldBe` Just (ELit (LitBool True))
+
+      it "(is-ok (err 'fail')) evaluates to False" $ do
+        let e = EApp "is-ok" [EApp "err" [ELit (LitString "fail")]]
+        evalExprStatic Map.empty e `shouldBe` Just (ELit (LitBool False))
+
+      it "match (err 'fail') against Error arm evaluates True" $ do
+        let e = EMatch (EApp "err" [ELit (LitString "fail")])
+                  [ (PConstructor "Error" [PVar "ev"], ELit (LitBool True))
+                  , (PWildcard, ELit (LitBool False))
+                  ]
+        evalExprStaticWith Map.empty maxFuel Map.empty e
+          `shouldBe` Just (ELit (LitBool True))
+
+      it "evalOp = on Bool and String evaluates equal pairs to True" $ do
+        evalExprStatic Map.empty (EOp "=" [ELit (LitBool False), ELit (LitBool False)])
+          `shouldBe` Just (ELit (LitBool True))
+        evalExprStatic Map.empty (EOp "=" [ELit (LitString "hello"), ELit (LitString "hello")])
+          `shouldBe` Just (ELit (LitBool True))
+
+    -- evalContract isolation regression: empty-FuncEnv invariant
+    describe "evalContract isolation regression" $ do
+      it "contract referencing a top-level def-logic does not resolve to its body" $ do
+        -- Precondition that calls a user-defined function. Under the v0.10.2
+        -- evaluator expansion, evalExprStatic uses an empty FuncEnv, so the
+        -- call falls through to evalBuiltinApp (which doesn't know `my-fn`)
+        -- and returns Nothing -> ContractUnchecked. Pins the invariant that
+        -- contract evaluation does not silently inline def-logic calls.
+        let pre      = Just (EApp "my-fn" [ELit (LitInt 1)])
+            contract = Contract pre Nothing Nothing Nothing
+        evalContract "f" contract Map.empty `shouldBe` ContractUnchecked
+
+    -- S4: typecheck warns on dotted fn name in app position (TypeCheck.hs:919-924)
+    describe "S4 dotted-fn typecheck warning" $ do
+      it "(def-logic f [] (Result.Error 0)) produces a dotted-name warning" $ do
+        let src = T.pack "(def-logic f [] (Result.Error 0))"
+        case parseStatements "<test>" src of
+          Left err    -> expectationFailure (show err)
+          Right stmts -> do
+            let report = typeCheck emptyEnv stmts
+            let warns  = filter (\d -> diagSeverity d == SevWarning)
+                                (reportDiagnostics report)
+            any (\d -> "dotted function name" `T.isInfixOf` diagMessage d) warns
+              `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
