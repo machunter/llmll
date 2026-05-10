@@ -277,6 +277,8 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 
 **Critical path:** EVID-0 design review ✅ → v0.8.1b implementation ✅ → COMP-0 design review ✅ → v0.9 implementation ✅ → OBLIG-0 design review ✅ → v0.10 implementation ✅. **All milestones complete.**
 
+**v0.10.2 patch shipped (2026-05-10):** soundness blockers (delegate fallback typecheck, PBT discard, evaluator expansion) + diagnostic surface + JSON-AST schema bump 0.3.0 → 0.4.0. 584 Haskell + 37 Python tests. No milestone advancement. See `CHANGELOG.md` v0.10.2.
+
 **Feature freeze** active from v0.8.1a through v0.10 ship.
 
 **v0.7 result:** All 4 items shipped. 294 Haskell + 37 Python tests. 3 discovered issues resolved (Module.hs `max`, compare tests, round-trip serialization).

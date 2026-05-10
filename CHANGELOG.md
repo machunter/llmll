@@ -2,6 +2,61 @@
 
 ---
 
+## v0.10.2 — Soundness Blockers + Diagnostic Surface (2026-05-10)
+
+### Compiler — Delegate Fallback Typechecking
+
+- **`?delegate (on-failure e)`** — fallback expression now typechecked against delegate return type (`TypeCheck.hs` `inferHole HDelegate`). Previously parsed but never visited; ill-typed fallbacks (`Result.Error DelegationError`, unknown identifiers) silently passed.
+- **`?delegate-async on_failure`** — rejected at parse time (`ParserJSON.hs`). Use sync `?delegate` with `on-failure`, or handle errors after `(await ...)`.
+- **`emitHole (HDelegate spec)`** — codegen routes through fallback when present (`CodegenHs.hs`). Previously emitted unconditional runtime `error`, masking PBT-eligible properties.
+- **EHole unification** — `checkExpr` for hole expressions now unifies inferred against expected type. Previously discarded.
+
+### Compiler — PBT Discard Semantics
+
+- **Unevaluable samples** — `runQC` returns `QC.discard` on samples that do not reduce to `LitBool` (`PBT.hs`). Previously defaulted to `True`, silently counting as success.
+- **FuncEnv-driven evaluation** — `runPropertyWith` threads a top-level function environment built from `def-logic` statements; property bodies reach user-defined logic.
+- **Static evaluator expansion** — `evalExprStaticWith` adds fuel-bounded recursion (`maxFuel = 64`), `ELet`, `EMatch` with pattern bindings, `EHole HDelegate` fallback, and `ok`/`err`/`is-ok` builtin evaluators (`Contracts.hs`). `ok` and `err` canonicalize to internal `Success` and `Error` tags so match patterns evaluate correctly. Pure surface; no VC generation impact.
+- **Operator coverage** — `evalOp` now handles `=`/`!=` on `Bool` and `String`.
+- **`evalContract` isolation preserved** — contract evaluation continues to use the backward-compatible `evalExprStatic` wrapper (empty `FuncEnv`), so contracts do not silently inline `def-logic` calls.
+- **Async PBT limitation** — `?delegate-async` and `await` remain unevaluable in the static evaluator; check blocks involving them report `PBTSkipped`. The async error-recovery path is exercised at runtime via `Result` matching, not compile-time evaluation.
+
+### Compiler — Diagnostic Surface
+
+- **`llmll check` text mode** — accumulated warnings now render on success (`Main.hs doCheck`). Previously suppressed.
+- **Dotted fn warning** — `(EApp "Foo.Bar" ...)` warns at typecheck time (`TypeCheck.hs inferExpr`). Suggests `(open <module-path>)` and bare names.
+
+### Schema — JSON-AST v0.4.0
+
+- **`schemaVersion` const bumped 0.3.0 → 0.4.0** to signal new identifier-shape regex constraints. Compiler enforces via `expectedSchemaVersion`. 20 example fixtures updated to match.
+- **`ExprApp.fn` regex** — `^[^.]+$`. Permissive on purpose: legal `app.fn` values include operator identifiers (`+`, `-`, `<=`, etc.). Stricter identifier-only validation can land in a future release via `oneOf`.
+- **`ExprQualApp.qual_fn` regex** — `^[A-Za-z_][A-Za-z0-9_?\\-]*(\\.[A-Za-z_][A-Za-z0-9_?\\-]*)+$`. Enforces ≥ 1 dot per `LLMLL.md §12` EBNF.
+
+### Spec — Delegate Fallback Typing (§11.2)
+
+- **§11.2 inference rules** — added `?delegate @A "desc" -> T (on-failure e) ⊢ T` with side condition `Γ ⊢ e : T`, alongside the existing rules for `?delegate-async` and `await`. Formalizes the rule the v0.10.1 typechecker silently dropped.
+- **§11.2 example fix** — login-handler `(on-failure ...)` example now uses `(err DelegationError)`. The previous `(Result.Error DelegationError)` form was never a registered constructor name and only typechecked via the v0.10.1 fallback dropthrough.
+
+### Spec — Result Patterns and `?proof-required` (§13.8)
+
+- **Three-layer Result rule** — Result values have three distinct surfaces: *construct* via `(ok x)` / `(err e)`, *match* via `Success` / `Error` patterns, *test* via `(is-ok x)`. `Result.Ok` and `Result.Error` are not registered constructor names.
+- **`?proof-required` pedagogical hook** — Result-returning function contracts whose postconditions are asserted but unverifiable (delegated calls, nonlinear arithmetic, map invariants) should be marked `?proof-required`. Cross-references the formal definition at §6.
+
+### Spec — JSON-AST Identifier Regex (§12)
+
+- **Grammar Key Rule 9** — JSON-AST identifier shape is schema-enforced via `^[^.]+$` on `ExprApp.fn` (no dots; permissive on character class to admit operator identifiers) and the full identifier regex on `ExprQualApp.qual_fn` (≥ 1 dot, identifier character class per §2.1).
+
+### Spec — Identifier Character Class (§2.1)
+
+- **§2.1 identifier character class** — `?` is now documented as accepted in identifier-terminal position only (e.g., `done?`, `string-empty?`, `is-game-over?`). Documents pre-existing compiler behavior since v0.1.
+
+### Spec — PBT Outcome Reporting (§5.1)
+
+- **§5.1 outcomes table** — `check` blocks report one of `pass` / `fail` / `skip`. A `skip` is not a `pass`. Property bodies that fail to reduce to a literal Bool (delegate without fallback, command constructors, await) are reported `skip` and contribute zero trust evidence.
+
+**Tests:** 584 Haskell (was 570; +14 across delegate / PBT / diagnostic / evalContract isolation), 37 Python.
+
+---
+
 ## v0.10.1 — Patch Release (2026-05-09)
 
 ### Compiler — `llmll version` Command

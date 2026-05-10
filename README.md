@@ -1,10 +1,10 @@
-# LLMLL — v0.10.1
+# LLMLL — v0.10.2
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.10.1 is shipped.** Patch release — structural/transitive type alias resolution, async delegate normalization, DelegationError type normalization, exit code fixes, `llmll version` command. 570 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.10.2 is shipped.** Patch release — soundness blockers (delegate fallback typecheck, PBT discard for unevaluable samples, evaluator expansion with `FuncEnv` / `ELet` / `EMatch` / Result builtins) plus diagnostic surface (`llmll check` text mode now surfaces warnings on success) and JSON-AST schema bump 0.3.0 → 0.4.0 with identifier-shape regex. 584 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -14,7 +14,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 
 | Command | What it does |
 |---------|--------------| 
-| `llmll check <file> [--strict]` | Parse + type-check; emit structured diagnostics. With `--strict`: unbound variables, unknown functions, unknown operators, and branch type mismatches are hard errors instead of warnings. |
+| `llmll check <file> [--strict]` | Parse + type-check; emit structured diagnostics. With `--strict`: unbound variables, unknown functions, unknown operators, and branch type mismatches are hard errors instead of warnings. Without `--strict`: text mode renders accumulated warnings on success (v0.10.2). |
 | `llmll holes <file> [--deps] [--deps-out FILE]` | List all `?hole` expressions. With `--deps`: include dependency graph in `--json` output. With `--deps-out`: persist graph to file. |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
@@ -181,7 +181,7 @@ examples/
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog (v0.10 shipped)
-  llmll-ast.schema.json     ← JSON-AST schema v0.2.0 (use with AI agents; CheckoutToken v0.3.0)
+  llmll-ast.schema.json     ← JSON-AST schema v0.4.0 (use with AI agents; CheckoutToken introduced v0.3.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
   wasm-poc-report.md        ← v0.3.2: GHC WASM feasibility assessment

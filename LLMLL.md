@@ -68,7 +68,7 @@ LLMLL's operational semantics are defined by the generated Haskell program. The 
 - **Primitive types:** `int`, `float`, `string`, `bool`, `unit`.
 - **Holes:** Always start with `?` (e.g., `?logic_name`, `?choose(option1, option2)`).
 - **Comments:** `;; text` — from `;;` to end of line. Ignored by the compiler.
-- **Source encoding:** Source files are **UTF-8**. **Identifiers must be ASCII** (letters, digits, `-`, `_`). A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators — see §2.4. All other non-ASCII characters are a lexer error.
+- **Source encoding:** Source files are **UTF-8**. **Identifiers must be ASCII** (letters, digits, `-`, `_`, and `?` in terminal position only — e.g., `done?`, `string-empty?`, `is-game-over?`). A leading `?` denotes a hole (§6) and is lexed separately. A curated set of Unicode mathematical symbols are accepted as **aliases** for specific keywords and operators — see §2.4. All other non-ASCII characters are a lexer error.
 - **S-expression string escapes:** `\n`, `\t`, `\r`, `\\`, `\"`, and `\uXXXX` (added v0.2). Standard Haskell-style character escapes.
 - **JSON-AST string values** follow RFC 8259 — non-ASCII and control characters must be encoded as `\uXXXX` (e.g. `\u001b` for ESC). The C-style `\xNN` form is not valid JSON.
 
@@ -436,6 +436,16 @@ JSON-AST fields: `"pre_source"` / `"post_source"` (optional string).
 ```
 
 The test runner generates at least 100 random samples per `check`. For primitive types it targets edge cases: `0`, `-1`, `MAX_INT`, `MIN_INT`, `""`, `[]`.
+
+**Property outcomes.** Each `check` block reports one of three statuses:
+
+| Status | When | Trust contribution |
+|--------|------|--------------------|
+| `pass` | All samples evaluated to `true` | `tested` evidence (per §5.3.5 lattice) |
+| `fail` | At least one sample evaluated to `false`; counterexample reported | None — verification gate fails |
+| `skip` | Property body could not reduce to a literal Bool on every sample (e.g., body calls `?delegate` without `on-failure`, or calls runtime-only operations like `wasi.io.stdout`) | None — does not contribute trust evidence |
+
+A `skip` is **not** a `pass`. Property bodies that reach unevaluable terms (`?delegate` without fallback, `?proof-required` postcondition references, command constructors, `await`) are reported `skip` and contribute zero trust evidence. Static-evaluator coverage is documented at `compiler/src/LLMLL/Contracts.hs` `evalExprStaticWith` and `compiler/src/LLMLL/PBT.hs` `runPropertyWith` (v0.10.2+).
 
 ### 5.2 Generators for Refinement Types (`gen`)
 
@@ -1264,7 +1274,7 @@ A `?hole` does not always require human intervention. An AI can delegate a sub-t
         [hashed-pw (?delegate @crypto-agent
                      "Implement secure PBKDF2 hashing"
                      -> bytes[64]
-                     (on-failure (Result.Error DelegationError)))]]
+                     (on-failure (err DelegationError)))]]
     (db.insert user hashed-pw)))
 ```
 
@@ -1281,14 +1291,18 @@ hashed-pw (?delegate @crypto-agent "Implement PBKDF2 hashing" -> bytes[64])
 
 `return_type` is the inner type `T`, not `Promise[T]`. The compiler wraps it in `Promise[T]` automatically. A top-level `Promise[...]` in `return_type` is stripped as a legacy compatibility measure. `Promise[Promise[T]]` is a parse error.
 
-**`await` returns `Result[t, DelegationError]`, not bare `t`.** The generated code wraps `Async.wait` in exception handling so that agent failures (crash, timeout, type mismatch) are captured as `Result.Error DelegationError` values rather than propagating as uncaught exceptions. This preserves the LLMLL invariant that logic functions cannot crash from IO.
+**`await` returns `Result[t, DelegationError]`, not bare `t`.** The generated code wraps `Async.wait` in exception handling so that agent failures (crash, timeout, type mismatch) are captured as `Error` values carrying a `DelegationError` payload (constructed via `(err …)`; see §13.8) rather than propagating as uncaught exceptions. This preserves the LLMLL invariant that logic functions cannot crash from IO.
 
 **Inference rules:**
 
 ```
-?delegate-async @A "desc" -> T  ⊢  Promise[T]
-await e : Promise[T]            ⊢  Result[T, DelegationError]
+?delegate @A "desc" -> T                    ⊢  T
+?delegate @A "desc" -> T (on-failure e)     ⊢  T,  given Γ ⊢ e : T
+?delegate-async @A "desc" -> T              ⊢  Promise[T]
+await e : Promise[T]                         ⊢  Result[T, DelegationError]
 ```
+
+The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compiler/src/LLMLL/TypeCheck.hs` `inferHole HDelegate` (v0.10.2+). Ill-typed fallbacks (e.g., a `string`-returning fallback on an `int`-returning delegate) produce a typecheck error.
 
 ```lisp
 (def-logic build-report [state: AppState data: ReportData]
@@ -1314,8 +1328,8 @@ await e : Promise[T]            ⊢  Result[T, DelegationError]
 | Delegation succeeds, type mismatch | Compile error: `TypeMismatch` |
 | Agent unavailable, `on-failure` provided | Fallback expression inserted |
 | Agent unavailable, no `on-failure` | `?delegate-pending` hole — blocks execution |
-| `?delegate-async`, agent succeeds | `await` returns `Result.Success value` |
-| `?delegate-async`, agent fails | `await` returns `Result.Error DelegationError` |
+| `?delegate-async`, agent succeeds | `await` returns a `Success` value (matched as `(Success v)`) |
+| `?delegate-async`, agent fails | `await` returns an `Error` value carrying `DelegationError` (matched as `(Error e)`) |
 
 #### Hole Resolution via JSON-Patch
 
@@ -1606,6 +1620,10 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 6. **`match` must be exhaustive.** Use `_` as the final arm if not all cases are covered explicitly. A `match` without `_` that fails at runtime raises `MatchFailure`.
 7. **`result` is reserved** inside `post` clauses. Do not use it as a variable or parameter name anywhere.
 8. **Named parameters in `fn-type` are doc-only.** `(fn [raw: string] -> bytes[64])` and `(fn [string] -> bytes[64])` are type-equivalent.
+9. **JSON-AST identifier shape is schema-enforced** (schema version `0.4.0`, v0.10.2+). The JSON-AST schema at `docs/llmll-ast.schema.json` enforces:
+   - `ExprApp.fn` matches `^[^.]+$` — no dots permitted in plain function-call position. The character class is intentionally permissive to accept operator identifiers (`+`, `-`, `<=`, `mod`, etc.) that may appear in `app` position when emitted by JSON-AST agents that do not partition operators into `EOp`.
+   - `ExprQualApp.qual_fn` matches `^[A-Za-z_][A-Za-z0-9_?\-]*(\.[A-Za-z_][A-Za-z0-9_?\-]*)+$` — at least one dot required, character class matches `IDENT` per §2.1. This formalizes the `qual-ident = IDENT { "." IDENT }` EBNF rule above.
+   Schema-level rejection happens before parser entry; the typechecker also emits a warning on dotted `app.fn` for S-expression sources where the schema is not consulted (`compiler/src/LLMLL/TypeCheck.hs` `inferExpr`, v0.10.2+).
 
 
 ---
@@ -1738,6 +1756,46 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 | `is-ok` | `Result[a, e] -> bool` | `true` if `Success` |
 | `unwrap` | `Result[a, e] -> a` | Extract value; raises `UnwrapError` on `Error` |
 | `unwrap-or` | `Result[a, e] a -> a` | Default value on `Error` |
+
+**The three layers of Result.**
+
+LLMLL distinguishes three syntactic surfaces for `Result[t, e]` values, each with a distinct constructor name. AI agents must use the right surface in the right position; mixing them is a typecheck error.
+
+| Layer | Surface | Where used | Compiler citation |
+|-------|---------|------------|-------------------|
+| **Construct** | `(ok x)`, `(err e)` | Expression position — function bodies, `on-failure` clauses, `let` RHS | `compiler/src/LLMLL/TypeCheck.hs` (`Result`-related builtins) |
+| **Match** | `(Success v)`, `(Error e)` | `match`-arm pattern position only | `compiler/src/LLMLL/CodegenHs.hs` (rewrites to Haskell `Right`/`Left`) |
+| **Test** | `(is-ok x)` | Boolean test in expression position | `compiler/src/LLMLL/TypeCheck.hs` |
+
+`Result.Ok` and `Result.Error` are **not** registered constructor names. They were tolerated in v0.10.1 because the typechecker did not visit `?delegate`'s `on-failure` expression (fixed in v0.10.2). Use `(ok x)` and `(err e)` for construction and `(Success v)` / `(Error e)` for match arms.
+
+```lisp
+;; Construct
+(def-logic safe-divide [a: int b: int]
+  (if (= b 0) (err "division by zero") (ok (/ a b))))
+
+;; Match
+(match (safe-divide x y)
+  (Success q)  q
+  (Error  msg) -1)
+
+;; Test
+(if (is-ok (safe-divide x y)) "ok" "fail")
+```
+
+**`?proof-required` for Result-returning contracts.**
+
+When a contract on a Result-returning function asserts a property the verifier cannot discharge — typically because the postcondition involves a delegated call, nonlinear arithmetic, or map invariants — mark the contract clause `?proof-required` rather than weakening the spec or relying on `(weakness-ok ...)`. The marker promotes the obligation to the trust channel as `asserted` (per §5.3.5 verification matrix), records the gap in the trust report, and surfaces a structured hole to the obligation report. Agents receive credit for declaring the obligation; weakening the spec to silence the verifier is an anti-pattern.
+
+```lisp
+(def-logic verify-token [token: string]
+  (post (?proof-required (or (is-ok result)
+                             (= result (err "invalid")))))
+  (?delegate @auth-agent "verify the token" -> Result[Claims, string]
+    (on-failure (err "invalid"))))
+```
+
+See §6 for the formal `?proof-required` definition and complexity hints (`:simple` / `:inductive` / `:unknown`).
 
 ### 13.9 Standard Command Constructors
 

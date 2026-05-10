@@ -581,8 +581,8 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.3.0",
-  "llmll_version": "0.3.0",
+  "schemaVersion": "0.4.0",
+  "llmll_version": "0.10.2",
   "statements": [ ... ]
 }
 ```
@@ -593,8 +593,8 @@ The compiler rejects mismatched versions immediately. **Strict mode:** only the 
 
 | Field | Meaning |
 |-------|---------|
-| `schemaVersion` | Version of the JSON-AST schema shape — this is what the compiler gates on |
-| `llmll_version` | Version of the LLMLL language used. Currently always equal to `schemaVersion` |
+| `schemaVersion` | Version of the JSON-AST schema shape — this is what the compiler gates on. v0.10.2 bumped this to `0.4.0` to signal the new identifier-shape regex on `ExprApp.fn` and `ExprQualApp.qual_fn`. |
+| `llmll_version` | Version of the LLMLL compiler that emitted this file. Informational only — the compiler does not validate this field. Decoupled from `schemaVersion` (the schema bumps independently of the language version). |
 
 **Upgrade path:** bump `schemaVersion` in `docs/llmll-ast.schema.json`, update `expectedSchemaVersion` in `ParserJSON.hs`, re-emit fixtures.
 
@@ -1206,6 +1206,47 @@ make benchmark-all
 
 > [!NOTE]
 > Benchmark gates compare **frozen JSON output** against `EXPECTED_RESULTS.json` in each benchmark's directory. If you modify a benchmark's contracts, update the expected results file and re-freeze. The scripts exit non-zero on any divergence.
+
+### §4.19 Result Patterns: Construct, Match, Test (v0.10.2+)
+
+Result values have three syntactic surfaces. Use the right one in the right position; mixing them is a typecheck error after v0.10.2 (`compiler/src/LLMLL/TypeCheck.hs` `inferHole HDelegate` now visits `on-failure` expressions, which previously dropped through silently).
+
+```lisp
+;; Construct — expression position
+(def-logic safe-divide [a: int b: int]
+  (if (= b 0)
+      (err "division by zero")
+      (ok (/ a b))))
+
+;; Match — pattern position only
+(match (safe-divide x y)
+  (Success q)  q
+  (Error  msg) -1)
+
+;; Test — boolean position
+(if (is-ok (safe-divide x y)) "ok" "fail")
+```
+
+`Result.Ok` and `Result.Error` are **not** registered constructor names. Use `(ok x)` and `(err e)` for construction, `Success` / `Error` for match patterns, and `(is-ok x)` for boolean tests. See `LLMLL.md §13.8` for the full rule.
+
+**Old workaround (pre-v0.10.2):** agents sometimes wrote `(Result.Error DelegationError)` inside `(on-failure …)` clauses. The v0.10.1 typechecker tolerated this because it never visited the fallback expression. After v0.10.2, the fallback is typechecked and these forms produce `unknown identifier` diagnostics. Replace with `(err DelegationError)`.
+
+### §4.20 `llmll check` Warning Surface (v0.10.2+)
+
+`llmll check` non-strict mode now surfaces accumulated warnings on success. Previously, the runner printed only `OK` and dropped warning text. Agents should read warnings even when the exit code is 0.
+
+```text
+✅ solution.ast.json — OK (12 statements, 1 warning)
+  (warning) is-Result: unknown identifier at solution.ast.json:42
+```
+
+**Old workaround:** agents had to invoke `llmll check --strict` (warnings → errors with nonzero rc) or `llmll check --json` (structured output with the diagnostics array) to see warning text. Both still work; non-strict text mode now matches the warning surface of `--json`.
+
+### §4.21 PBT Outcome Discipline (v0.10.2+)
+
+`check` blocks report `pass` / `fail` / `skip` per `LLMLL.md §5.1`. A `skip` is **not** a `pass`. Property bodies that touch unevaluable terms — `?delegate` without `on-failure`, `?proof-required` references, `?delegate-async` / `await`, or command constructors (`wasi.io.stdout`, etc.) — are reported `skip` and contribute zero trust evidence.
+
+**Old workaround (pre-v0.10.2):** the runner defaulted unevaluable QuickCheck-eligible samples to `True`, producing vacuous passes that masked unimplemented logic. After v0.10.2, `runQC` returns `QC.discard` on those samples; QuickCheck's `GaveUp` resolves to `PBTSkipped`. Agents must add `(on-failure …)` clauses or factor `?delegate` calls out of property bodies to lift `skip` outcomes to `pass`.
 
 ---
 
