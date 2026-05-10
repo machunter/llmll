@@ -25,14 +25,16 @@ FEATURE_PATTERNS = {
     "await": r"\(await\b|\"kind\"\s*:\s*\"await\"",
     "on-failure": r"\bon-failure\b|\"on_failure\"\s*:",
     "DelegationError": r"\bDelegationError\b",
-    "Result": r"\bResult\b|\"kind\"\s*:\s*\"result\"",
+    # E2: Result detection moved to walk_json_ast — three-signal split
+    # (Result-type / Result-helpers / Result-pattern). Legacy `Result` field
+    # in `found` is preserved as a derived alias of `Result-type`.
     "Promise": r"\bPromise\b|\"kind\"\s*:\s*\"promise\"",
     "proof-required": r"\?proof-required\b|\"kind\"\s*:\s*\"hole-proof-required\"",
     "scaffold": r"\?scaffold\b|\"kind\"\s*:\s*\"hole-scaffold\"",
 }
 
 REQUIRED_FEATURES = {
-    1: ["def-interface", "delegate", "on-failure", "check", "pre", "Result"],
+    1: ["def-interface", "delegate", "on-failure", "check", "pre", "Result-type"],
     2: [
         "def-interface",
         "delegate",
@@ -40,7 +42,7 @@ REQUIRED_FEATURES = {
         "await",
         "DelegationError",
         "Promise",
-        "Result",
+        "Result-type",
         "proof-required",
         "def-invariant",
         "check",
@@ -55,7 +57,7 @@ REQUIRED_FEATURES = {
         "await",
         "on-failure",
         "DelegationError",
-        "Result",
+        "Result-type",
         "proof-required",
         "def-invariant",
         "check",
@@ -67,7 +69,7 @@ REQUIRED_FEATURES = {
 CONTRACT_EXPECTATIONS = {
     1: {
         "login-handler": {
-            "pre": {"proof_required": False},
+            "pre": {"proof_required": True},
         },
     },
     2: {
@@ -321,24 +323,38 @@ def scan_json_ast_features(text: str) -> dict[str, bool]:
 
     found: dict[str, bool] = {}
     walk_json_ast(document, found)
+    # Three-signal Result split (E2): Result-type drives missing_required;
+    # Result-helpers and Result-pattern are informational. Result is
+    # preserved as a back-compat derived alias of Result-type.
+    found.setdefault("Result-type", False)
+    found.setdefault("Result-helpers", False)
+    found.setdefault("Result-pattern", False)
+    found["Result"] = found["Result-type"]
     return found
+
+
+RESULT_HELPER_FNS = {"ok", "err", "is-ok", "unwrap", "unwrap-or"}
+RESULT_PATTERN_CTORS = {"Success", "Error"}
 
 
 def walk_json_ast(value: Any, found: dict[str, bool]) -> None:
     if isinstance(value, dict):
         kind = value.get("kind")
         if kind == "result":
-            found["Result"] = True
+            found["Result-type"] = True
         elif kind == "promise":
             found["Promise"] = True
-
-        constructor = value.get("constructor")
-        if constructor in {"Success", "Error"}:
-            found["Result"] = True
-
-        fn = value.get("fn")
-        if fn in {"Success", "Error"}:
-            found["Result"] = True
+        elif kind == "constructor":
+            # Pattern-position constructor (match arm) per JSON-AST Pattern schema.
+            # Distinguished from expression-position by kind == "constructor"
+            # (Patterns use this; Exprs do not).
+            if value.get("constructor") in RESULT_PATTERN_CTORS:
+                found["Result-pattern"] = True
+        elif kind == "app":
+            # Expression-position function call; the three-layer rule routes
+            # Result construction and testing through these helpers.
+            if value.get("fn") in RESULT_HELPER_FNS:
+                found["Result-helpers"] = True
 
         for child in value.values():
             walk_json_ast(child, found)
@@ -417,19 +433,107 @@ def assess_tests(
     }
 
 
+DELEGATION_KINDS = {"hole-delegate", "hole-delegate-async", "await"}
+DELEGATION_LABEL_RE = re.compile(
+    r"\b(delegate|delegation|fallback|fail-closed|failed|fire-and-forget)\b"
+)
+
+
+def build_function_table(solution_ast: dict[str, Any] | None) -> dict[str, Any]:
+    """E1: Map function name -> body AST over def-logic (includes letrec, which is
+    encoded as def-logic with an optional `decreases` field in JSON-AST).
+    Interface methods are not bodies; def-interface declares signatures only.
+    """
+    table: dict[str, Any] = {}
+    if not isinstance(solution_ast, dict):
+        return table
+    for stmt in solution_ast.get("statements", []):
+        if not isinstance(stmt, dict):
+            continue
+        if stmt.get("kind") == "def-logic":
+            name = stmt.get("name")
+            body = stmt.get("body")
+            if isinstance(name, str) and body is not None:
+                table[name] = body
+    return table
+
+
+def extract_callee_names(value: Any) -> set[str]:
+    """E1: Yield function-call names (ExprApp.fn) reachable from `value`'s AST.
+    Skips qual-app (wasi.*) — those are builtins, not user-defined and not
+    in the function table.
+    """
+    callees: set[str] = set()
+    _collect_callees(value, callees)
+    return callees
+
+
+def _collect_callees(value: Any, callees: set[str]) -> None:
+    if isinstance(value, dict):
+        if value.get("kind") == "app":
+            fn = value.get("fn")
+            if isinstance(fn, str):
+                callees.add(fn)
+        for child in value.values():
+            _collect_callees(child, callees)
+    elif isinstance(value, list):
+        for child in value:
+            _collect_callees(child, callees)
+
+
+def body_reaches_delegation_via_calls(
+    body: Any,
+    function_table: dict[str, Any],
+    visited: set[str] | None = None,
+) -> bool:
+    """E1: True iff `body`'s transitive callees contain a delegation hole.
+    Does NOT inspect `body` itself — caller uses `contains_kind` for that.
+    Cycle-safe via `visited` (function names). Conservative on indirect calls:
+    callees not in function_table (builtins, def-interface methods) are
+    assumed non-delegating; the label-regex fallback in collect_checks catches
+    cases where this assumption fails. Per `findings/experiment-lead.md` E1
+    soundness conditions.
+    """
+    if visited is None:
+        visited = set()
+    for callee in extract_callee_names(body):
+        if callee in visited:
+            continue
+        visited.add(callee)
+        callee_body = function_table.get(callee)
+        if callee_body is None:
+            continue
+        if contains_kind(callee_body, DELEGATION_KINDS):
+            return True
+        if body_reaches_delegation_via_calls(callee_body, function_table, visited):
+            return True
+    return False
+
+
 def collect_checks(solution_ast: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """E1: Classify each check as delegation-dependent via three parallel signals:
+    (1) call-graph traversal from the check body through transitive callees to
+    delegation holes; (2) structural contains_kind on the check's own AST subtree
+    (catches inlined delegates); (3) label regex (defence-in-depth for cases
+    where the call graph misses external/indirect calls). Any signal firing
+    marks the check delegation-dependent; reasons are reported individually.
+    """
     checks: list[dict[str, Any]] = []
     if not solution_ast:
         return checks
+
+    function_table = build_function_table(solution_ast)
 
     for statement in solution_ast.get("statements", []):
         if not isinstance(statement, dict) or statement.get("kind") != "check":
             continue
         label = str(statement.get("label") or "")
         reasons: list[str] = []
-        if contains_kind(statement, {"hole-delegate", "hole-delegate-async", "await"}):
+        if contains_kind(statement, DELEGATION_KINDS):
             reasons.append("contains delegation or await")
-        if re.search(r"\b(delegate|delegation|fallback|fail-closed|failed|fire-and-forget)\b", label):
+        if body_reaches_delegation_via_calls(statement, function_table):
+            reasons.append("call graph reaches delegation")
+        if DELEGATION_LABEL_RE.search(label):
             reasons.append("delegation-related label")
         checks.append(
             {
