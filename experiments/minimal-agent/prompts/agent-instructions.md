@@ -19,10 +19,10 @@ Rules:
 3. Write the solution as `solution.ast.json`.
 4. Use `llmll-ast.schema.json` as the authoritative machine-readable shape for `solution.ast.json`.
 5. Do not edit `LLMLL.md`, `llmll-ast.schema.json`, `problem.md`, or `AGENT_INSTRUCTIONS.md`.
-6. Append every issue, uncertainty, missing feature, failed command, or blocker to `PROBLEMS.md`.
+6. Append every issue, uncertainty, missing feature, failed command, or blocker to `PROBLEMS.md`. Before finalising, include a `## Spec ambiguities resolved by guessing` section listing any place where you consulted `LLMLL.md` or `llmll-ast.schema.json`, found no authoritative answer, and chose a behaviour anyway — cite the spec section consulted and the decision made. Zero entries is valid; bullet-padding to hit a quota is a banned pattern.
 7. Stop at the first error on a build, check, or test command. Exploratory commands, such as `--help` or `--version`, that return nonzero are not blocking errors; record them in `PROBLEMS.md` and continue.
 8. If `problem.md` asks for a scaffold template and `.llmll/templates/<template>/` exists, run `llmll hub scaffold <template> --output scaffold` and use the generated scaffold as the starting point.
-9. After writing the solution, you MUST run `llmll check solution.ast.json` before finishing.
+9. After writing the solution, you MUST run `llmll check solution.ast.json --strict` before finishing. The evaluator runs `--strict` (warnings become errors, nonzero rc on any warning); non-strict text mode also surfaces warnings on success (v0.10.2+) but does not gate grading. Reading the warning text in both modes is required.
 10. If you cannot complete the solution, write `STOPPED.md` with the exact blocker and do not continue.
 
 Expected final files:
