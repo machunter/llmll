@@ -414,3 +414,224 @@ The correct empirical hygiene is **baseline-then-ceiling**, not both simultaneou
 ### No empirical action this turn
 
 This is a design-time decision recorded post-hoc; no run was launched. The Phase-1 apparatus validation results are unaffected because the apparatus is target-adapter-agnostic at the orchestrator and evaluator layer. The change manifests only in Phase 2/3 prerequisite text and (in the future) in which adapter files get authored.
+
+---
+
+## Addendum 4 — Phase-1.5: Go target adapter built and validated; Python toolchain blocked
+
+> **Added:** 2026-05-11
+> **Purpose:** Build and validate the second control-arm target adapter (Go, per Addendum 3). Author per-target adapter scaffolding, exercise it through the orchestrator with a shim agent, and surface any schema-coupling defects — the F-007/F-008/F-009 equivalent work for Go. Also surfaces the Python toolchain situation for user direction.
+
+### Sample composition (Go arm)
+
+- **Cell:** 1 (n=1)
+- **Agent:** real-mode shim that copies `testkits/002-bank-ledger/go/solution.go` into the run directory as `solution.go`. Stub is a minimal but correct Go bank-ledger implementation; not the Phase-2/3 reference solution (agents will write their own).
+- **Experiment:** `002-bank-ledger`
+- **Target:** `go`
+- **Repair budget *k*:** 1
+- **Toolchain pin:** `go version go1.23.0 darwin/amd64` (captured as `raw` string; `go version` does not emit JSON, so `_capture_compiler_version` stored it under the `raw` fallback)
+- **Run directory:** `runs/20260511T151119Z-k1-go-kink-e002-bank-ledger-go/`
+- **Terminal state:** `target-reached` on turn 1; predicate kind `all-pass` matched after `go vet` and `go build` both exited 0.
+
+### F-010. Go target adapter built and end-to-end validated
+
+**Priority:** N/A (Phase-1.5 acceptance criterion satisfied for Go)
+**Consumer:** experiment-lead (closed by this addendum)
+
+#### Evidence
+
+`targets/go.json` authored with `expected_files_priority: ["solution.go"]`, verifier commands `go vet {solution}` and `go build -o /dev/null {solution}`, and `terminal_target_predicates.all-verifier-commands-pass`. `testkits/002-bank-ledger/go/solution.go` contains a minimal working stub (94 lines). The orchestrator ran both verifier commands successfully (`runs/20260511T151119Z-.../context/turn_01_verifier.json`), captured the toolchain version, and the predicate matched. All 4 apparatus checks pass in `evaluation.json:apparatus.checks`.
+
+#### Implication
+
+The cross-language methodology validates: the orchestrator, evaluator, and predicate-dispatch logic are target-adapter-agnostic when the adapter declares the right schema. No code changes were required to the orchestrator's core loop for the Go target beyond the dispatch refactor (F-012 below).
+
+### F-011. Python toolchain not installed; adapter blocked
+
+**Priority:** High (Phase-2 calibration blocker)
+**Consumer:** user (routing decision required)
+
+#### Evidence
+
+Toolchain probe at the start of Phase 1.5: `which pyright` → not found, `which pytest` → not found, `python3 --version` → `Python 3.9.6` (system Python on macOS; the Run Plan quoted `3.11`). The Python adapter as originally scoped — `pyright solution.py` for type-check, `pytest` for tests — cannot be authored without installing the toolchain, and the Python version differs from the Run Plan's assumption.
+
+#### Why we saw what we saw
+
+I scoped the Python adapter against my Run Plan's assumption without first probing the environment. The toolchain reality (pyright + pytest absent, Python 3.9.6 rather than 3.11) is a real Phase-2 prerequisite gap that the user routes.
+
+#### Implication
+
+Four routing options the user must pick from before the Python adapter can be authored:
+
+| Option | What changes | Cost | Trade-off |
+|---|---|---|---|
+| **(A) Install pyright + pytest, upgrade to 3.11+** | System install; matches Run Plan | One-time setup; ~5 min | Cleanest; pyright is the strongest Python type-check signal |
+| **(B) Use mypy + pytest** | Substitute mypy for pyright; install both | One-time setup; ~5 min | mypy is weaker on inference than pyright but still substantial |
+| **(C) Use built-in Python tooling only** | `python3 -m py_compile` (syntax check only) + `python3 -m unittest` | None (built-in) | Much weaker assurance signal; pyright provides type checking that py_compile does not |
+| **(D) Defer the Python adapter** | Phase 2 calibration runs Go-only as control | None | Loses Python (the most common AI-agent baseline) from Phase 2/3; defeats the design-doc-aligned first-milestone choice |
+
+My recommendation: (A) if the user is comfortable installing toolchain locally (pip is the right channel for both pyright and pytest, though pyright also has an npm distribution). (B) is the second-best — mypy is a real type checker, just weaker than pyright on inference. (C) is technically possible but degrades the Python arm's assurance signal beyond utility. (D) loses too much.
+
+#### Acceptance
+
+User picks one of the four options above. If (A) or (B): I author `targets/python.json` + `testkits/002-bank-ledger/python/solution.py` + a Python kink manifest, run the kink test, and close F-011 in an Addendum 5.
+
+### F-012. Orchestrator predicate dispatch refactored to support non-LLMLL targets
+
+**Priority:** N/A (closed by this addendum)
+**Consumer:** experiment-lead (closed)
+
+#### Evidence
+
+`scripts/run_repair_loop.py:_evaluate_terminal_target` previously hardcoded LLMLL trust-report logic — every call to the predicate ran `_count_bad_trust_tiers` regardless of target. Phase 1.5 required adding the Go adapter whose terminal-target predicate is "all verifier commands exit 0" — a fundamentally different shape from the trust-report predicate. The fix: dispatch on `terminal_target.kind` declared in the manifest. Two kinds supported:
+
+- `"trust-tier"` (LLMLL): existing `_eval_trust_tier_predicate` logic
+- `"all-pass"` (Go, future Python, future Rust): new `_eval_all_pass_predicate` — checks `first_fail is None`, plus a sanity check that at least one command ran
+
+The orchestrator passes `terminal_target` through three call layers (`main` → `_run_one_turn` → `_run_verifier_chain` → `_evaluate_terminal_target`).
+
+#### Regression check
+
+Re-ran the existing LLMLL kink cell (`cp examples/withdraw-demo/withdraw.ast.json solution.ast.json`, manifest pinned to `trust-tier`) after the refactor: `runs/20260511T151023Z-regression-after-refactor-...` produces `terminal_state: target-reached`, predicate matched, all 4 apparatus checks pass. The LLMLL accept-path is unaffected by the dispatch refactor.
+
+#### Implication
+
+The orchestrator is now structurally cross-language-clean at the predicate layer. Future adapters (Python, Rust if Phase 4 happens) can pin `kind: "all-pass"` or — if a target gains a richer assurance-evidence channel — declare a new kind with a corresponding `_eval_<kind>_predicate` helper.
+
+### Cross-cutting note — path-counting kink (minor)
+
+First draft of `manifest.kink-test-go.json` had `cp ../../../testkits/...` (three levels up) as the shim path. From the run directory at `experiments/repair-loop/runs/<timestamp>/`, the correct path to `experiments/repair-loop/testkits/...` is `../../testkits/...` (two levels up). The earlier LLMLL kink test used `../../../../examples/...` (four levels up to repo root, then down to `examples/`), which I had pattern-matched incorrectly. Fixed before run launch; surfaced here as a small ergonomic finding. A future refactor could expose `{harness_root}` and `{repo_root}` interpolation tokens to the shim command, eliminating the by-hand path counting. Defer; no priority.
+
+### Updated priority matrix (post-addendum-4)
+
+| # | Finding | Consumer | Priority | Effort estimate | Status |
+|---|---|---|---|---|---|
+| F-001 | Loop closes cleanly | user | N/A | - | Closed |
+| F-002 | Re-injection empirically proven | user | N/A | - | Closed |
+| F-003 | Verifier output structurally usable | user | Defence-in-depth | tracked | Open |
+| F-004 | Accept-path unexercised | experiment-lead | Medium | - | Closed by Addendum 1 |
+| F-005 | Version pin captured automatically | user | N/A | - | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | 15 min | Open (deferred) |
+| F-007 | `verify` missing `--json` flag | experiment-lead | High | (fixed) | Closed by Addendum 1 |
+| F-008 | Trust-report schema mismatch | experiment-lead | High | (fixed) | Closed by Addendum 1 |
+| F-009 | JSON-AST path unexercised | experiment-lead | High | (validated via shim swap) | Closed by Addendum 2 |
+| F-010 | Go target adapter built and validated | experiment-lead | N/A | - | **Closed by Addendum 4** |
+| F-011 | Python toolchain not installed | user | High (Phase-2 blocker) | (routing required) | **Open — user picks option (A) / (B) / (C) / (D)** |
+| F-012 | Predicate dispatch refactored | experiment-lead | N/A | - | **Closed by Addendum 4** |
+
+### Phase 2 readiness (post-addendum-4)
+
+The Phase 2 prerequisite list is updated:
+
+- ☑ Go target adapter built and validated (F-010).
+- ☑ Orchestrator predicate dispatch supports non-LLMLL targets (F-012).
+- ☐ Python target adapter — blocked on F-011 routing decision.
+- ☐ Per-language test kits proper (with assurance/correctness scoring) — Phase 1.75.
+- ☐ User approval for paid Phase 2 calibration run.
+
+---
+
+## Addendum 5 — Phase-1.5: Python target adapter built and validated (F-011 closed)
+
+> **Added:** 2026-05-11
+> **Purpose:** Close F-011. The user selected option (A) — install pyright + pytest. This addendum records the install path, the Python adapter authoring, and the end-to-end kink-cell validation.
+
+### Toolchain install (one-time, user-authorized)
+
+Two commands run under user authorization:
+
+```bash
+pip3 install --user pytest    # → ~/Library/Python/3.11/bin/pytest (pytest 9.0.3)
+npm install -g pyright        # → ~/.local/state/fnm_multishells/.../bin/pyright (1.1.409)
+```
+
+`pip3` and `npm` both resolve to Homebrew-managed Python 3.11 and fnm-managed Node, respectively. Both targets are user-writable; no sudo required. Both reversible via the corresponding uninstall command.
+
+### F-013. pytest entry point not on default PATH
+
+**Priority:** Low (resolved by `-m pytest` convention)
+**Consumer:** experiment-lead (closed inline in the adapter)
+
+#### Evidence
+
+Post-install probe: `which pyright` → `/Users/burcsahinoglu/.local/state/fnm_multishells/.../bin/pyright` (on PATH). `which pytest` → not found, although `~/Library/Python/3.11/bin/pytest` exists. The Homebrew Python user-install directory is not on the macOS default PATH.
+
+#### Why we saw what we saw
+
+macOS does not put `~/Library/Python/3.x/bin` on PATH automatically; that requires explicit shell-config addition. Modifying shell config is out of scope for harness setup.
+
+#### Fix applied (adapter-level)
+
+`targets/python.json` invokes pytest as `python3.11 -m pytest -v test_solution.py` rather than `pytest -v test_solution.py`. The `-m` form sidesteps PATH discovery, pins the Python version explicitly (avoiding the system `python3` → 3.9.6 vs. Homebrew 3.11 ambiguity), and is the standard portable Python testing convention. No shell config modification required.
+
+#### Acceptance
+
+Closed by the post-install kink-cell run.
+
+### F-011 closure — Sample composition (Python arm)
+
+- **Cell:** 1 (n=1)
+- **Agent:** real-mode shim that copies both `testkits/002-bank-ledger/python/solution.py` and `testkits/002-bank-ledger/python/test_solution.py` into the run directory. Two `cp` invocations chained by `&&` because the orchestrator's `_find_solution` looks only for the priority-1 file; the test file is co-injected as a Phase-1.5 pre-testkit pattern.
+- **Experiment:** `002-bank-ledger`
+- **Target:** `python`
+- **Repair budget *k*:** 1
+- **Toolchain pin:** `Python 3.11.x` (captured as `{"raw": "Python 3.11.x"}`; `python3.11 --version` does not emit JSON); pyright `1.1.409`; pytest `9.0.3`.
+- **Run directory:** `runs/20260511T151907Z-k1-python-kink-e002-bank-ledger-python/`
+- **Terminal state:** `target-reached` on turn 1 (`all-pass` predicate).
+
+### F-011 closure — Evidence
+
+Verifier chain on the post-install Python kink cell:
+
+- `pyright solution.py` → rc=0; stdout: `0 errors, 0 warnings, 0 informations` (clean type-check on the dataclass-based solution stub).
+- `python3.11 -m pytest -v test_solution.py` → rc=0; 6 tests passed (`test_create_ledger_preserves_balances`, `test_successful_transfer_updates_both_accounts`, `test_transfer_preserves_total_balance`, `test_insufficient_funds_rejected`, `test_missing_account_rejected`, `test_non_positive_amount_rejected`).
+- Apparatus 4/4 checks pass.
+
+F-011 is closed.
+
+### Cross-cutting note — testkit injection pattern
+
+The Python kink test introduced a new pattern: the shim copies *two* files (solution + colocated test) into the run directory. The Go kink test copied only one (`solution.go`; no test file in the verifier chain yet). The LLMLL kink test copied only one (the agent's tests are in-source via `(check ...)` blocks; `llmll test` discovers them in the same file).
+
+This is an early surface of an asymmetry that Phase 1.75 will need to handle structurally: per-language test-file injection. Three patterns observed:
+
+| Target | Pattern | File count emitted into run_dir |
+|---|---|---|
+| `llmll` | In-source check blocks; agent emits one solution file | 1 (`solution.llmll` or `solution.ast.json`) |
+| `python` | Adjacent test file; testkit must inject it | 2 (`solution.py` + `test_solution.py`) |
+| `go` | Adjacent `_test.go` file; Go test discovery + module structure | 2+ when `go test` lands in Phase 1.75 (`solution.go` + `solution_test.go` + `go.mod`) |
+
+Phase 1.75 should formalize this with adapter-declared `testkit_files: [...]` plus orchestrator logic to inject them from `testkits/<experiment>/<target>/` into the run directory at prep-time. The shim-copy workaround is fine for kink tests but does not scale to a paid matrix.
+
+### Updated priority matrix (post-addendum-5)
+
+| # | Finding | Consumer | Priority | Effort estimate | Status |
+|---|---|---|---|---|---|
+| F-001 | Loop closes cleanly | user | N/A | - | Closed |
+| F-002 | Re-injection empirically proven | user | N/A | - | Closed |
+| F-003 | Verifier output structurally usable | user | Defence-in-depth | tracked | Open |
+| F-004 | Accept-path unexercised | experiment-lead | Medium | - | Closed by Addendum 1 |
+| F-005 | Version pin captured automatically | user | N/A | - | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | 15 min | Open (deferred) |
+| F-007 | `verify` missing `--json` flag | experiment-lead | High | (fixed) | Closed by Addendum 1 |
+| F-008 | Trust-report schema mismatch | experiment-lead | High | (fixed) | Closed by Addendum 1 |
+| F-009 | JSON-AST path unexercised | experiment-lead | High | - | Closed by Addendum 2 |
+| F-010 | Go target adapter built and validated | experiment-lead | N/A | - | Closed by Addendum 4 |
+| F-011 | Python toolchain not installed | user | High (Phase-2 blocker) | (install authorized) | **Closed by Addendum 5** |
+| F-012 | Predicate dispatch refactored | experiment-lead | N/A | - | Closed by Addendum 4 |
+| F-013 | pytest entry point not on default PATH | experiment-lead | Low | - | **Closed by Addendum 5 (adapter uses `python3.11 -m pytest`)** |
+
+### Phase 2 readiness (post-addendum-5)
+
+The Phase 2 prerequisite list is updated again:
+
+- ☑ Go target adapter built and validated (F-010).
+- ☑ Python target adapter built and validated (F-011, F-013).
+- ☑ Orchestrator predicate dispatch supports non-LLMLL targets (F-012).
+- ☐ **Phase 1.75: testkit injection pattern + assurance/correctness scoring extension.** Three open sub-items:
+  1. Adapter-declared `testkit_files: [...]` + orchestrator pre-injection.
+  2. `evaluate_run.py` extension to compute correctness + assurance scores from per-target verifier outputs (currently `scoring.status = "pending"` for real runs).
+  3. Per-language testkit content for `002-bank-ledger` beyond the Phase-1.5 smoke tests (LLMLL check blocks, Go `_test.go`, Python `test_solution.py` expanded to the harness-test list in `problems/002-bank-ledger.md`).
+- ☐ User approval for paid Phase 2 calibration run.
+
+Phase 1.5 is fully closed. Phase 1.75 (testkit infrastructure + scoring) is the next bounded engineering work before Phase 2 calibration becomes meaningful.

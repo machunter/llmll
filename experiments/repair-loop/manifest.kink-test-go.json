@@ -1,0 +1,19 @@
+{
+  "_purpose": "Ad-hoc Phase-1.5 kink-finding manifest for the Go target. k=1 real-agent run using the testkits/002-bank-ledger/go/solution.go stub as the agent's emission.",
+  "experiments": ["002-bank-ledger"],
+  "targets": ["go"],
+  "run_count": 1,
+  "repair_budget_k": 1,
+  "terminal_target": {
+    "kind": "all-pass",
+    "value": "all-verifier-commands-pass"
+  },
+  "timeout_seconds_per_turn": 120,
+  "agents": [
+    {
+      "name": "shim-go-stub",
+      "cmd": "cp ../../testkits/002-bank-ledger/go/solution.go solution.go",
+      "note": "Real-agent code-path test for the Go adapter; uses the in-tree Phase-1.5 stub as the agent's emission."
+    }
+  ]
+}

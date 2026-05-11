@@ -101,6 +101,7 @@ def main() -> int:
             turn_idx=turn_idx,
             run_dir=run_dir,
             target=target,
+            terminal_target=terminal_target,
             args=args,
             timeout_per_turn=timeout_per_turn,
             llmll_cmd=llmll_cmd,
@@ -194,6 +195,7 @@ def _run_one_turn(
     turn_idx: int,
     run_dir: Path,
     target: dict[str, Any],
+    terminal_target: dict[str, Any],
     args,
     timeout_per_turn: int,
     llmll_cmd: str,
@@ -217,6 +219,7 @@ def _run_one_turn(
 
     verifier_results, terminal_match, terminal_reason = _run_verifier_chain(
         target=target,
+        terminal_target=terminal_target,
         run_dir=run_dir,
         llmll_cmd=llmll_cmd,
     )
@@ -296,7 +299,7 @@ def _invoke_real_agent(
 
 
 def _run_verifier_chain(
-    *, target: dict[str, Any], run_dir: Path, llmll_cmd: str
+    *, target: dict[str, Any], terminal_target: dict[str, Any], run_dir: Path, llmll_cmd: str
 ) -> tuple[list[dict[str, Any]], bool, str]:
     """Run all verifier commands; return per-command results and terminal match.
 
@@ -347,7 +350,10 @@ def _run_verifier_chain(
             first_fail = cmd_spec["name"]
 
     terminal_match, terminal_reason = _evaluate_terminal_target(
-        target=target, results=results, first_fail=first_fail
+        target=target,
+        terminal_target=terminal_target,
+        results=results,
+        first_fail=first_fail,
     )
     return results, terminal_match, terminal_reason
 
@@ -372,13 +378,36 @@ def _materialize_argv(argv: list[str], solution: Path, run_dir: Path, llmll_cmd:
 
 
 def _evaluate_terminal_target(
-    *, target: dict[str, Any], results: list[dict[str, Any]], first_fail: str | None
+    *,
+    target: dict[str, Any],
+    terminal_target: dict[str, Any],
+    results: list[dict[str, Any]],
+    first_fail: str | None,
 ) -> tuple[bool, str]:
-    """Phase-1 predicate: all_expected_contracts_verified_or_asserted.
+    """Dispatch on `terminal_target.kind` declared in the manifest.
 
-    Strict reading: every command exits 0; verify's JSON output is parseable
-    and has zero contracts at tier 'unproved' or worse.
+    Supported kinds:
+      - "trust-tier" (LLMLL):  all commands rc=0 AND verify's JSON trust
+        report has zero entries below the accepted-level set.
+      - "all-pass" (general):  all commands in the chain rc=0. No
+        target-specific output parsing. Suitable for Python, Go, Rust,
+        TypeScript, or any target whose verifier exit codes alone are
+        the load-bearing signal.
+
+    Unknown kinds return False with a clear error so misconfiguration
+    surfaces immediately.
     """
+    kind = (terminal_target or {}).get("kind", "trust-tier")
+    if kind == "trust-tier":
+        return _eval_trust_tier_predicate(results=results, first_fail=first_fail)
+    if kind == "all-pass":
+        return _eval_all_pass_predicate(results=results, first_fail=first_fail)
+    return False, f"unknown terminal_target.kind: {kind!r}"
+
+
+def _eval_trust_tier_predicate(
+    *, results: list[dict[str, Any]], first_fail: str | None
+) -> tuple[bool, str]:
     if first_fail is not None:
         return False, f"command failed: {first_fail}"
 
@@ -393,6 +422,16 @@ def _evaluate_terminal_target(
     if bad > 0:
         return False, f"trust report has {bad} entries below 'asserted'"
     return True, "all expected contracts verified or asserted"
+
+
+def _eval_all_pass_predicate(
+    *, results: list[dict[str, Any]], first_fail: str | None
+) -> tuple[bool, str]:
+    if first_fail is not None:
+        return False, f"command failed: {first_fail}"
+    if not results:
+        return False, "no verifier commands ran"
+    return True, f"all {len(results)} verifier commands exited 0"
 
 
 def _count_bad_trust_tiers(parsed: Any) -> int:

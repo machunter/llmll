@@ -1,0 +1,40 @@
+{
+  "target": "python",
+  "version_pin_command": ["python3.11", "--version"],
+  "expected_files_priority": ["solution.py"],
+  "verifier_commands": [
+    {
+      "name": "pyright",
+      "argv": ["pyright", "{solution}"],
+      "capture": "exit_and_text",
+      "_note": "pyright is on PATH via `npm install -g pyright`."
+    },
+    {
+      "name": "pytest",
+      "argv": ["python3.11", "-m", "pytest", "-v", "test_solution.py"],
+      "capture": "exit_and_text",
+      "_note": "Uses `python3.11 -m pytest` rather than `pytest` directly because pytest's entry point is installed in ~/Library/Python/3.11/bin/ which is not on the default macOS PATH. The `-m` form sidesteps PATH and pins the Python version. Test file is `test_solution.py`; agent must emit it alongside solution.py, or the testkit harness copies it in (Phase-1.75)."
+    }
+  ],
+  "terminal_target_predicates": {
+    "all-verifier-commands-pass": {
+      "description": "All configured verifier commands exit 0. For Phase-1.5 Python: pyright clean + pytest 0 failures (test_solution.py must exist; pytest exits 5 = 'no tests collected', which fails the predicate by design).",
+      "applies_to_commands": ["pyright", "pytest"]
+    }
+  },
+  "scoring": {
+    "correctness_rubric": "docs/design/language-comparison-experiments.md:198-211",
+    "assurance_rubric": "docs/design/language-comparison-experiments.md:213-226",
+    "python_assurance_sources": [
+      "pyright (static type checking; strongest Python assurance signal)",
+      "pytest test pass rate",
+      "agent-authored type annotations density (assurance subscore, Phase 1.75)"
+    ]
+  },
+  "context_injection": {
+    "turn_artifact_path": "context/turn_{turn:02d}_verifier.json",
+    "agent_instruction_path": "AGENT_INSTRUCTIONS.md",
+    "problem_path": "problem.md",
+    "target_descriptor_path": "TARGET.md"
+  }
+}
