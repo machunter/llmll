@@ -157,7 +157,39 @@ def _prepare_run_dir(args, manifest, target, problem_path: Path) -> Path:
     agent_instructions = run_dir / "AGENT_INSTRUCTIONS.md"
     agent_instructions.write_text(_agent_instructions(target, manifest))
 
+    _inject_harness_files(args=args, target=target, run_dir=run_dir)
+
     return run_dir
+
+
+def _inject_harness_files(*, args, target: dict[str, Any], run_dir: Path) -> None:
+    """Pre-inject harness-owned files (testkit tests, fixtures) into run_dir.
+
+    Adapter declares `harness_files: [...]` listing files relative to
+    `testkits/<experiment>/<target>/`. Each is copied verbatim into the run
+    directory before the agent runs. This is the load-bearing seam that
+    separates harness-owned artefacts (test_solution.py, go.mod) from
+    agent-emitted artefacts (solution.py, solution.go).
+
+    Adapters without `harness_files` get no injection (backward-compat).
+    """
+    harness_files = target.get("harness_files", [])
+    if not harness_files:
+        return
+    testkit_root = HARNESS_ROOT / "testkits" / args.experiment / args.target
+    if not testkit_root.is_dir():
+        raise SystemExit(
+            f"adapter declares harness_files but testkit dir is missing: {testkit_root}"
+        )
+    for rel in harness_files:
+        src = testkit_root / rel
+        if not src.is_file():
+            raise SystemExit(
+                f"harness_file declared in adapter not found: {src}"
+            )
+        dst = run_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, dst)
 
 
 def _target_descriptor(target: dict[str, Any]) -> str:

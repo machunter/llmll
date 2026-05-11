@@ -635,3 +635,67 @@ The Phase 2 prerequisite list is updated again:
 - ☐ User approval for paid Phase 2 calibration run.
 
 Phase 1.5 is fully closed. Phase 1.75 (testkit infrastructure + scoring) is the next bounded engineering work before Phase 2 calibration becomes meaningful.
+
+---
+
+## Addendum 6 — Phase-1.75: testkit-injection seam (sub-item #1 of three)
+
+> **Added:** 2026-05-11
+> **Purpose:** Close the first of three Phase-1.75 sub-items: adapter-declared file injection. The orchestrator now pre-injects harness-owned files (test files, fixtures) into the run directory before the agent runs, separating the *harness-owned* artefact channel from the *agent-emitted* one.
+
+### F-014. `harness_files` adapter declaration + orchestrator pre-injection
+
+**Priority:** Phase 1.75 prerequisite (closed by this addendum)
+**Consumer:** experiment-lead (closed)
+
+#### Design
+
+Each target adapter may declare a `harness_files: [filenames]` field. At run-directory prep time, the orchestrator's new `_inject_harness_files` reads this list and copies each file from `testkits/<experiment>/<target>/<filename>` into the run directory. Adapters without `harness_files` get no injection (backward-compat). Source-file absence is a hard error (`SystemExit`), surfaced before any agent invocation — better than silent skipping that would only manifest later as a verifier failure.
+
+#### Why this is the right seam
+
+Three asymmetric patterns surfaced in Phase 1.5 (Addendum 5's cross-cutting note table):
+
+| Target | Solution emission | Harness-owned artefacts |
+|---|---|---|
+| `llmll` | `solution.llmll` (in-source `(check ...)` blocks) | None (`harness_files: []`) |
+| `python` | `solution.py` | `test_solution.py` |
+| `go` | `solution.go` | (Phase 1.75 next: `go.mod`, `solution_test.go`) |
+
+Without a structural seam, shim agents (and real agents) would have to write harness files themselves — a contract violation. The `harness_files` mechanism makes the harness/agent boundary explicit in the adapter schema.
+
+#### Evidence
+
+- `scripts/run_repair_loop.py` adds `_inject_harness_files`; `_prepare_run_dir` calls it after writing `AGENT_INSTRUCTIONS.md`.
+- `targets/python.json` declares `harness_files: ["test_solution.py"]`.
+- `manifest.kink-test-python.json` shim simplified to a single `cp solution.py` (no longer chains the test-file cp).
+- Validation cell: `runs/20260511T152256Z-k1-python-injection-...` — pyright clean, pytest 6 passed, predicate matched. `ls *.py` shows both `solution.py` (from shim) and `test_solution.py` (from injection).
+- Regression cells:
+  - LLMLL (`harness_files` absent): `runs/20260511T152257Z-regression-after-injection-llmll-...` — `target-reached`. Backward compat confirmed.
+  - Go (`harness_files` absent): `runs/20260511T152257Z-regression-after-injection-go-...` — `target-reached`. Backward compat confirmed.
+
+#### Acceptance
+
+Closed. Phase 1.75 sub-item #1 complete.
+
+### Updated priority matrix (post-addendum-6)
+
+| # | Finding | Consumer | Priority | Effort estimate | Status |
+|---|---|---|---|---|---|
+| F-001..F-005 | (Phase 1) | various | various | - | Closed (Addendum 0/1/2) |
+| F-006 | No CLI override for *k* | experiment-lead | Low | 15 min | Open (deferred) |
+| F-007..F-013 | (Phase 1.5) | various | various | - | Closed (Addenda 1/2/4/5) |
+| F-014 | `harness_files` injection seam | experiment-lead | Phase-1.75 prereq | - | **Closed by Addendum 6** |
+
+### Phase 1.75 readiness (post-addendum-6)
+
+Three sub-items, ordered:
+
+1. ☑ **Adapter-declared `harness_files` + orchestrator pre-injection** — closed by this addendum.
+2. ☐ **Per-language testkit content expansion** for `002-bank-ledger`:
+   - Python: expand `test_solution.py` from 6 smoke tests to full harness-test list per `problems/002-bank-ledger.md` (sequence-preservation, leave-unchanged-on-failure semantics).
+   - Go: author `go.mod` + `solution_test.go`; switch Go adapter from single-file mode (`go vet solution.go`) to module mode (`go vet ./...`, `go build ./...`, `go test ./...`); add `harness_files: ["go.mod", "solution_test.go"]`.
+   - LLMLL: relies on agent-emitted `(check ...)` blocks; no harness-owned testkit (documented asymmetry). Scoring will measure check-block density and contract diversity directly from solution.
+3. ☐ **`evaluate_run.py` scoring extension**: implement two-axis scoring per `docs/design/language-comparison-experiments.md:198-226`. Minimum viable: score the categories with clean per-target evidence (Build/typecheck = 15 pts, API conformance = 15 pts, Core behavior = 35 pts via test pass rate, Proof or trust evidence = 20 pts for LLMLL only). Stub the rest with placeholder + TODO. Currently `scoring.status = "pending"` for real runs; this becomes a real score.
+
+Phase 2 (paid calibration) still gated on (2) and (3) plus user approval.

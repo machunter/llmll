@@ -12,8 +12,8 @@
   "agents": [
     {
       "name": "shim-python-stub",
-      "cmd": "cp ../../testkits/002-bank-ledger/python/solution.py solution.py && cp ../../testkits/002-bank-ledger/python/test_solution.py test_solution.py",
-      "note": "Real-agent code-path test for the Python adapter. Two cp invocations (solution + colocated test) because the orchestrator's _find_solution looks only for the priority-1 file; the test file is copied alongside as a Phase-1.5 testkit pre-injection."
+      "cmd": "cp ../../testkits/002-bank-ledger/python/solution.py solution.py",
+      "note": "Real-agent code-path test for the Python adapter. Shim emits only solution.py; the harness test (test_solution.py) is pre-injected by the orchestrator via the adapter's `harness_files` declaration (Phase-1.75 testkit-injection seam)."
     }
   ]
 }

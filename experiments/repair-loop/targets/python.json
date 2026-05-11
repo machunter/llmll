@@ -2,6 +2,7 @@
   "target": "python",
   "version_pin_command": ["python3.11", "--version"],
   "expected_files_priority": ["solution.py"],
+  "harness_files": ["test_solution.py"],
   "verifier_commands": [
     {
       "name": "pyright",
