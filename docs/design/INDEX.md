@@ -17,6 +17,7 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 | [verification-debate.md](verification-debate.md) | Archive of a formal methods critique. Answers 5 Socratic questions (TCB, logic authority, unproven contracts, totality, cross-agent assumptions). Establishes "sound modulo trust" as the defensible position. | Active reference |
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |
+| [proof-required-predicate-carrier.md](proof-required-predicate-carrier.md) | Deferred exploration: extending `?proof-required` from a leaf reason-tag hole to a predicate-carrying form. Would let the intended-but-unverifiable property be machine-readable in the AST instead of buried in adjacent prose. Out of scope under feature freeze; revisit conditions specified. Captured from LT-B Risk #4 after recurrent agent ambiguity (5/12 attempts) on the broken LT-A D3 example. | Deferred exploration (post-v0.10 candidate) |
 
 ---
 
