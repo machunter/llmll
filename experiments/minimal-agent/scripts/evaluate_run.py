@@ -33,6 +33,23 @@ FEATURE_PATTERNS = {
     "scaffold": r"\?scaffold\b|\"kind\"\s*:\s*\"hole-scaffold\"",
 }
 
+# REQUIRED_FEATURES: each item is either a string (must appear in `found`)
+# or a list of strings (any-of disjunction — at least one must appear).
+# Disjunctions are formatted with " | " in the `missing_required` output
+# (e.g. "Result-type | Result-pattern") so downstream tooling that iterates
+# over strings remains compatible.
+#
+# Experiment 002/003 loosening (F-301, postmortem-002-el-a): Promise is
+# inferred from ?delegate-async per LLMLL.md §11.2 inference rules and
+# almost never written explicitly in agent code; requiring it is asking
+# for redundant annotations. Result-type (kind:"result") is similarly
+# inferred when (await x) is followed by a match on Success/Error —
+# agents typically elide the explicit annotation. Allowing
+# Result-pattern (match arms with Success/Error constructors) as a
+# satisfying alternative aligns the gate with v0.10.2 ergonomics.
+# Experiment 001's Result-type requirement is preserved because the
+# spec explicitly mandates `Result[string, string]` as login-handler's
+# return type (001-two-agent-auth.md:23).
 REQUIRED_FEATURES = {
     1: ["def-interface", "delegate", "on-failure", "check", "pre", "Result-type"],
     2: [
@@ -41,8 +58,8 @@ REQUIRED_FEATURES = {
         "delegate-async",
         "await",
         "DelegationError",
-        "Promise",
-        "Result-type",
+        # Promise removed (inferred from ?delegate-async per §11.2).
+        ["Result-type", "Result-pattern"],  # disjunction (F-301 loosening)
         "proof-required",
         "def-invariant",
         "check",
@@ -57,7 +74,7 @@ REQUIRED_FEATURES = {
         "await",
         "on-failure",
         "DelegationError",
-        "Result-type",
+        ["Result-type", "Result-pattern"],  # disjunction (F-301 loosening)
         "proof-required",
         "def-invariant",
         "check",
@@ -65,6 +82,23 @@ REQUIRED_FEATURES = {
         "post",
     ],
 }
+
+
+def feature_present(spec: Any, found: dict[str, bool]) -> bool:
+    """True iff the feature `spec` is satisfied in `found`. String specs require
+    the named feature; list specs (disjunctions) require at least one named
+    feature in the list to be true."""
+    if isinstance(spec, list):
+        return any(found.get(name, False) for name in spec)
+    return bool(found.get(spec, False))
+
+
+def feature_label(spec: Any) -> str:
+    """Render a feature spec for output. Strings render as-is; list disjunctions
+    render as ' | '-joined names."""
+    if isinstance(spec, list):
+        return " | ".join(spec)
+    return str(spec)
 
 CONTRACT_EXPECTATIONS = {
     1: {
@@ -300,9 +334,9 @@ def scan_features(solution: Path, metadata: dict[str, Any], run_dir: Path) -> di
     except (TypeError, ValueError):
         pid = 0
     required = required_features_for(pid, metadata)
-    missing = [name for name in required if not found.get(name, False)]
+    missing = [feature_label(spec) for spec in required if not feature_present(spec, found)]
     return {
-        "required": required,
+        "required": [feature_label(spec) for spec in required],
         "found": found,
         "missing_required": missing,
     }

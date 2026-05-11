@@ -380,6 +380,81 @@ class ContractExpectationE3Tests(unittest.TestCase):
         )
 
 
+class FeaturePresentAndLabelTests(unittest.TestCase):
+    def test_string_spec_present_when_true(self):
+        self.assertTrue(evaluate_run.feature_present("Result-type", {"Result-type": True}))
+
+    def test_string_spec_absent_when_false_or_missing(self):
+        self.assertFalse(evaluate_run.feature_present("Result-type", {"Result-type": False}))
+        self.assertFalse(evaluate_run.feature_present("Result-type", {}))
+
+    def test_disjunction_satisfied_by_either_alternative(self):
+        # F-301 loosening: ["Result-type", "Result-pattern"] is satisfied if
+        # either name is True in found.
+        self.assertTrue(
+            evaluate_run.feature_present(
+                ["Result-type", "Result-pattern"],
+                {"Result-type": False, "Result-pattern": True},
+            )
+        )
+        self.assertTrue(
+            evaluate_run.feature_present(
+                ["Result-type", "Result-pattern"],
+                {"Result-type": True, "Result-pattern": False},
+            )
+        )
+
+    def test_disjunction_unsatisfied_when_all_alternatives_false(self):
+        self.assertFalse(
+            evaluate_run.feature_present(
+                ["Result-type", "Result-pattern"],
+                {"Result-type": False, "Result-pattern": False},
+            )
+        )
+
+    def test_feature_label_string_passthrough(self):
+        self.assertEqual(evaluate_run.feature_label("Result-type"), "Result-type")
+
+    def test_feature_label_disjunction_joins_with_pipe(self):
+        self.assertEqual(
+            evaluate_run.feature_label(["Result-type", "Result-pattern"]),
+            "Result-type | Result-pattern",
+        )
+
+
+class RequiredFeaturesShapeTests(unittest.TestCase):
+    """Regression guards for the F-301 002/003 loosening — Promise dropped from
+    REQUIRED_FEATURES[2]; Result-type|Result-pattern disjunction in 002 and 003.
+    """
+
+    def test_001_requires_explicit_result_type(self):
+        # Experiment 001 still requires explicit Result-type — the spec
+        # mandates `Result[string, string]` as login-handler's return type
+        # (001-two-agent-auth.md:23). Don't accidentally apply the
+        # disjunction loosening to 001.
+        self.assertIn("Result-type", evaluate_run.REQUIRED_FEATURES[1])
+
+    def test_002_promise_removed(self):
+        # F-301: Promise is inferred from ?delegate-async per LLMLL.md §11.2
+        # and should not be in the required list.
+        self.assertNotIn("Promise", evaluate_run.REQUIRED_FEATURES[2])
+
+    def test_002_result_uses_disjunction(self):
+        # F-301: Result-type | Result-pattern disjunction.
+        self.assertIn(
+            ["Result-type", "Result-pattern"],
+            evaluate_run.REQUIRED_FEATURES[2],
+        )
+
+    def test_003_result_uses_disjunction(self):
+        # Same loosening applied to 003 for consistency (003 also uses
+        # ?delegate-async + await, same inferred-annotation pattern).
+        self.assertIn(
+            ["Result-type", "Result-pattern"],
+            evaluate_run.REQUIRED_FEATURES[3],
+        )
+
+
 class QualityGradeTests(unittest.TestCase):
     def _grade(self, **kwargs) -> str:
         # Minimal report shape sufficient for quality_grade().
