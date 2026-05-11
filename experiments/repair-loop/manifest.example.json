@@ -1,0 +1,24 @@
+{
+  "experiments": ["002-bank-ledger"],
+  "targets": ["llmll"],
+  "run_count": 1,
+  "repair_budget_k": 3,
+  "terminal_target": {
+    "kind": "trust-tier",
+    "value": "all-expected-contracts-verified-or-asserted"
+  },
+  "timeout_seconds_per_turn": 600,
+  "llmll_cmd": "llmll",
+  "agents": [
+    {
+      "name": "stub",
+      "cmd": "STUB",
+      "note": "Sentinel value; use --stub-agent on the CLI to engage the deterministic stub for apparatus validation."
+    },
+    {
+      "name": "claude-opus-4-7",
+      "cmd": "REPLACE WITH AGENT COMMAND",
+      "note": "Replace cmd with the actual agent invocation. Cwd will be set to the run directory; agent reads problem.md / TARGET.md / context/turn_NN_verifier.json and writes solution files."
+    }
+  ]
+}

@@ -216,5 +216,9 @@ can create three independent prepared runs per agent/experiment cell by default.
 - `evaluate_run.py` stops at the first failing compiler/tool command or emitted
   compiler diagnostic.
 
-This keeps the measurement focused on first-round effectiveness rather than
-repair-loop effectiveness.
+This keeps the measurement focused on **first-round effectiveness** — one
+empirical regime under the project's governing design criterion
+(`docs/compiler-team-roadmap.md:6`, disambiguated 2026-05-11; rationale in
+`docs/design/empirical-methodology.md`). Repair-loop effectiveness is a
+sibling regime measured by a separate harness (`experiments/repair-loop/`,
+in design); it is not measured here by design.
