@@ -176,8 +176,8 @@ None written for this run. Phase 1 findings are integrated only. Per-consumer sc
 Phase 1 satisfies its stated acceptance criterion. Phase 2 (calibration) prerequisites:
 
 1. **F-004 resolution.** Phase 2 must include at least one cell where the terminal target is reached. Recommended: a 1-cell calibration run with `claude-opus-4-7` on `002-bank-ledger × llmll × k=5 × 1 try`, deliberately targeting a verifying solution.
-2. **Python target adapter.** Phase 2's calibration matrix spans 3 languages. The `llmll` target adapter is built; `python` and `rust` adapters need to be authored. Approx 30-60 min per adapter following the shape of `targets/llmll.json`.
-3. **Test kits for `002-bank-ledger` per language.** Empty `testkits/002-bank-ledger/{llmll,python,rust}/` directories exist; per-language black-box tests need authoring against the spec in `problems/002-bank-ledger.md`.
+2. **Python and Go target adapters.** Phase 2's calibration matrix spans 3 languages. The `llmll` target adapter is built; `python` and `go` adapters need to be authored. Approx 30-60 min per adapter following the shape of `targets/llmll.json`. (Original plan named Rust as the second control; switched to Go per Addendum 3 below.)
+3. **Test kits for `002-bank-ledger` per language.** Empty `testkits/002-bank-ledger/{llmll,python,go}/` directories exist; per-language black-box tests need authoring against the spec in `problems/002-bank-ledger.md`.
 4. **Phase 2 user approval.** Per my skill contract, separate approval from Phase 1.
 
 Phase 2 estimated cost (indicative, pending separate approval): ≤ 45 agent invocations, ≤ $50 API spend, ≤ 6 hours wall-clock serial.
@@ -310,7 +310,7 @@ F-007 and F-008 were both schema-coupling defects that the stub run could not ha
 
 ### Phase 2 readiness (revised)
 
-The original Phase 2 readiness list is unchanged with one addition: F-004 now closes, so the predicate's accept-path is no longer a Phase-2 prerequisite to validate — it is empirically established. The remaining Phase-2 prerequisites (Python/Rust target adapters, per-language test kits, user approval) are unchanged.
+The original Phase 2 readiness list is unchanged with one addition: F-004 now closes, so the predicate's accept-path is no longer a Phase-2 prerequisite to validate — it is empirically established. The remaining Phase-2 prerequisites (Python/Go target adapters, per-language test kits, user approval; see Addendum 3 for the Rust→Go switch rationale) are unchanged.
 
 ---
 
@@ -372,4 +372,45 @@ Restated as guidance, parallel to Addendum 1's stub-validation-is-not-sufficient
 
 ### Phase 2 readiness (re-revised)
 
-The Phase 2 prerequisite list is unchanged except that the meta-finding above is now an explicit prerequisite: Phase-2 calibration must include both fallback-form and canonical-form kink cells before paid agent matrices. Other prerequisites (Python/Rust target adapters, per-language test kits, user approval) are unchanged.
+The Phase 2 prerequisite list is unchanged except that the meta-finding above is now an explicit prerequisite: Phase-2 calibration must include both fallback-form and canonical-form kink cells before paid agent matrices. Other prerequisites (Python/Go target adapters, per-language test kits, user approval; see Addendum 3 for the Rust→Go switch rationale) are unchanged.
+
+---
+
+## Addendum 3 — Control-arm refinement: Python + Go (not Python + Rust)
+
+> **Added:** 2026-05-11
+> **Origin:** User question, this session: *"Why Rust vs. Go?"* My original Run Plan named Rust as the second non-LLMLL control without justifying it against Go. The Run Plan also deviated silently from `docs/design/language-comparison-experiments.md:594-602` (the *Recommended First Milestone* which lists `python`, `go`, `typescript` — Rust does not appear). This addendum records the deviation, surfaces the tradeoff, and reverts to the design-doc-aligned choice.
+
+### Decision
+
+Phase 2 and Phase 3 controls switch from **Python + Rust** to **Python + Go**. Rust moves to a deferred Phase 4 as a stretch ceiling test, contingent on Phase 3 results showing Go is beaten on the assurance axis.
+
+### Rationale
+
+Three confounder reasons favor Go for a first paid run, against the one sharp-test reason that favored Rust:
+
+1. **Agent friction is lower with Go.** Cross-language LLM-agent benchmarks (HumanEval-X, MultiPL-E) consistently report Rust as the highest agent-failure-rate target — the borrow checker traps lifetime-incorrect emissions that are otherwise logically correct. That noise blurs the H1/H2 signal the experiment is designed to isolate ("does the verification surface help?" — not "is the language easy to write?"). Go's static type surface admits cleaner agent output, which makes the LLMLL-vs-control delta more interpretable.
+2. **Toolchain reliability favors Go.** `go build` and `go test` are deterministic and fast. Cargo can fail opaquely (network, lockfile drift, target installation). The design doc's "report toolchain failures distinctly" discipline (`docs/design/language-comparison-experiments.md:241`) is satisfiable with either, but Go has materially fewer excluded `toolchain-fail` cells in practice.
+3. **Wall-clock and cost favor Go.** Rust compile times across an 81-cell Phase-3 matrix add real elapsed time and billable tool-time. Go compiles sub-second. The Phase-3 wall-clock estimate I quoted earlier (~10 days serial) is dominated by Rust compile latency; switching to Go shaves a non-trivial fraction.
+
+Against these, the case for Rust was: it's the harshest assurance baseline among the design-doc's four candidates. H1 ("LLMLL terminal assurance > controls") is a *strong* test if LLMLL beats Rust. That sharpness is real but premature for Phase 3.
+
+### Sequencing
+
+The correct empirical hygiene is **baseline-then-ceiling**, not both simultaneously. Phase 3 establishes whether LLMLL beats a typical static-typed control (Go) — the floor claim. If yes, Phase 4 tests whether LLMLL beats a strong-typed control (Rust) — the ceiling claim. Running both controls in Phase 3 conflates two distinct hypothesis tests and produces results that cannot be unambiguously attributed.
+
+### Affected sections of this postmortem (already updated)
+
+- *Phase 2 readiness (initial)*: `python` and `rust` adapter prerequisite → `python` and `go`.
+- *Phase 2 readiness (revised)*: same.
+- *Phase 2 readiness (re-revised)*: same.
+- *testkits/002-bank-ledger/{...}/* directory list: `{llmll,python,rust}` → `{llmll,python,go}`.
+
+### Affected sections of `experiments/repair-loop/README.md` (already updated)
+
+- *Phases* table: added Phase 4 row for the deferred Rust stretch baseline; Phase 1 status moved to *Closed*; Phase 2/3 sample line names the languages explicitly.
+- *Hypotheses* §H1: "Python or Rust agents" → "Python or Go agents"; parenthetical cross-reference to this addendum added.
+
+### No empirical action this turn
+
+This is a design-time decision recorded post-hoc; no run was launched. The Phase-1 apparatus validation results are unaffected because the apparatus is target-adapter-agnostic at the orchestrator and evaluator layer. The change manifests only in Phase 2/3 prerequisite text and (in the future) in which adapter files get authored.
