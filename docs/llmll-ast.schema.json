@@ -795,7 +795,7 @@
           "additionalProperties": false,
           "properties": {
             "kind":        { "type": "string", "const": "hole-delegate" },
-            "agent":       { "type": "string" },
+            "agent":       { "type": "string", "description": "Bare agent identifier (without the surface `@` sigil). The `@` is S-expression surface syntax; in JSON-AST the bare name is stored. Example: 'crypto-agent', not '@crypto-agent'. See LLMLL.md §11.2." },
             "description": { "type": "string" },
             "return_type": { "$ref": "#/$defs/Type" },
             "on_failure":  { "$ref": "#/$defs/Expr" }
@@ -808,7 +808,7 @@
           "additionalProperties": false,
           "properties": {
             "kind":        { "type": "string", "const": "hole-delegate-async" },
-            "agent":       { "type": "string" },
+            "agent":       { "type": "string", "description": "Bare agent identifier (without the surface `@` sigil). The `@` is S-expression surface syntax; in JSON-AST the bare name is stored. Example: 'crypto-agent', not '@crypto-agent'. See LLMLL.md §11.2." },
             "description": { "type": "string" },
             "return_type": { "$ref": "#/$defs/Type", "description": "The inner type T. The compiler wraps this in Promise[T] automatically. A top-level Promise wrapper is stripped as legacy compatibility; nested Promise wrappers are rejected." }
           }

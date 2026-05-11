@@ -183,6 +183,21 @@ User-defined tagged unions (also called ADTs or discriminated unions) are declar
 
 **Destruction:** Use `match` (see §3.4). Every `match` on a sum type must be exhaustive.
 
+**Pattern arity:** match patterns mirror constructor arity. Payload-bearing constructors match with sub-patterns equal in number to the declared payload. Unit-payload variants (e.g. `(| AgentTimeout unit)`) accept either zero sub-patterns or a single wildcard:
+
+```lisp
+(match status
+  (Red)              "stop"        ;; unit payload elided
+  (Green _)          "go"          ;; unit wildcard — equivalent to elided
+  (Blue)             "wait")
+
+(match event
+  (Start word)       ...           ;; payload bound to `word`
+  (Guess letter)     ...)
+```
+
+Both unit-payload forms are accepted; the elided form (`(Red)`) is recommended for readability. Non-unit-payload patterns require sub-pattern arity matching the declared payload structure — a constructor declared `(| Circle float)` matches with exactly one sub-pattern.
+
 
 
 ### 3.4 Refinement Type Aliases (Logic-Constrained)
@@ -662,6 +677,9 @@ A program with holes can be **parsed, type-checked, and analyzed** but **not exe
 | `?delegate @agent "description" -> Type` | Delegate implementation to a named agent (see §11.2). |
 | `?delegate-async @agent "description" -> Type` | Non-blocking delegation. `return_type` is the inner type `T`; the compiler wraps it in `Promise[T]` (see §11.2). |
 | `?proof-required` | A contract predicate that is outside the decidable QF arithmetic fragment (v0.2+). The compiler assigns a complexity hint: `:simple` (liquid-fixpoint track), `:inductive` (Leanstral track), or `:unknown`. Non-blocking in v0.2; resolved by Leanstral (Lean 4) in v0.3. |
+
+> [!NOTE]
+> **`?proof-required` is a gap signal, not a predicate carrier.** The marker does *not* carry the predicate it stands in for — it records that the clause involves reasoning outside the verifier's decidable fragment. The intended predicate is documented in source comments, function docstrings, or trust-report annotations; the compiler treats the clause as `asserted` for trust-level purposes (per §5.3.5). `HoleKind.HProofRequired` (`compiler/src/LLMLL/Syntax.hs`) carries only a reason tag (`"manual"`, `"non-linear-contract"`, `"complex-decreases"`), not an expression payload.
 
 **Usage in expressions:** A hole can appear anywhere an expression is expected:
 
@@ -1304,6 +1322,10 @@ await e : Promise[T]                         ⊢  Result[T, DelegationError]
 
 The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compiler/src/LLMLL/TypeCheck.hs` `inferHole HDelegate` (v0.10.2+). Ill-typed fallbacks (e.g., a `string`-returning fallback on an `int`-returning delegate) produce a typecheck error.
 
+**Delegate return type vs interface method signature.** The `?delegate ... -> T` return type is determined at the delegation site, not by any `def-interface` method the agent identifier might also satisfy. A `def-interface` declares the agent's contract surface; a `?delegate` is a placeholder for a value of type `T` to be supplied at the delegation site. The two are linked by the agent identifier (`@agent-name`), not by syntactic return-type equality — the agent may produce a `T` shaped differently than any specific interface method's signature, and the typechecker checks only the local `?delegate -> T` and the `Γ ⊢ e : T` side condition on the fallback.
+
+**JSON-AST `agent` field convention.** In JSON-AST, the `agent` field of `hole-delegate` / `hole-delegate-async` stores the **bare agent identifier without the `@` sigil**. The `@` is surface S-expression syntax (and `llmll holes` display-time rendering); it is not part of the stored identifier in the typed AST or the JSON. Example: surface `?delegate @crypto-agent ...` corresponds to JSON-AST `"agent": "crypto-agent"`.
+
 ```lisp
 (def-logic build-report [state: AppState data: ReportData]
   (let [[chart-future (?delegate-async @viz-agent
@@ -1789,11 +1811,15 @@ When a contract on a Result-returning function asserts a property the verifier c
 
 ```lisp
 (def-logic verify-token [token: string]
-  (post (?proof-required (or (is-ok result)
-                             (= result (err "invalid")))))
+  ;; Postcondition intent: result is Success or `err "invalid"`.
+  ;; The predicate is non-linear (depends on the delegated body),
+  ;; so the verifier cannot discharge it. Marker emitted; trust=asserted.
+  (post ?proof-required)
   (?delegate @auth-agent "verify the token" -> Result[Claims, string]
     (on-failure (err "invalid"))))
 ```
+
+The `?proof-required` marker is a *gap signal*, not a predicate carrier — see §6. In JSON-AST: `{"kind": "hole-proof-required", "reason": "non-linear-contract"}` as the whole `post` body. The intended predicate is documented in the surrounding source comment or trust-report annotation, not embedded in the marker.
 
 See §6 for the formal `?proof-required` definition and complexity hints (`:simple` / `:inductive` / `:unknown`).
 
