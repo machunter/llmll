@@ -1,0 +1,20 @@
+{
+  "_purpose": "Phase 2.0 probe — single real-agent LLMLL cell. Pre-calibration gap-finding before the 9-cell Phase-2 matrix. Phase 2.0a (this version): k=1 with 540s per-turn budget. Secondary hypothesis (turn 2 differs from turn 1) deferred to a follow-up probe once primary hypothesis lands. Tests apparatus end-to-end with gemini (real LLM) on 002-bank-ledger × llmll × k=1 × 1 try.",
+  "experiments": ["002-bank-ledger"],
+  "targets": ["llmll"],
+  "run_count": 1,
+  "repair_budget_k": 1,
+  "terminal_target": {
+    "kind": "trust-tier",
+    "value": "all-expected-contracts-verified-or-asserted"
+  },
+  "timeout_seconds_per_turn": 540,
+  "llmll_cmd": "llmll",
+  "agents": [
+    {
+      "name": "gemini-default",
+      "cmd": "gemini -y --skip-trust -p 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your LLMLL solution to the filename indicated in TARGET.md.'",
+      "note": "Gemini CLI 0.41.2, default model. -y auto-approves all tool actions (required for unattended subprocess use). --skip-trust bypasses the workspace-trust prompt. Model captured in agent.stdout.log."
+    }
+  ]
+}

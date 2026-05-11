@@ -863,6 +863,190 @@ Phase 2 (paid calibration) is now ready, conditional on:
 
 Both are defensible. The first produces cleaner Phase-2 numbers; the second is faster to data. User adjudicates.
 
+---
+
+## Addendum 9 — Phase-2.0 probe (gemini × llmll × 002-bank-ledger × k=1)
+
+> **Added:** 2026-05-11
+> **Purpose:** Pre-calibration gap-finding probe. Two runs: an initial probe (`phase2-probe`, infrastructure-fail at 240s timeout on Gemini's sandboxed-read denials) that surfaced F-021 and F-023; a re-launched probe (`phase2-probe-2`, k=1, 540s budget) after the fixes that completed cleanly and demonstrated the apparatus is Phase-2-ready.
+
+### Sample composition
+
+- **Cells:** 2 (one infra-fail under F-021/F-023; one budget-exhausted post-fix that produced real scoring).
+- **Agent:** `gemini-default` (Gemini CLI 0.41.2, default model; `-y --skip-trust -p '...'`).
+- **Experiment:** `002-bank-ledger`.
+- **Target:** `llmll`.
+- **Repair budget *k*:** 2 (original probe; infra-fail) → 1 (re-launch after F-022 timeout-cap reduction).
+- **Toolchain pins:** `llmll 0.10.2`; gemini `0.41.2`.
+- **Run directories:**
+  - `runs/20260511T183006Z-phase2-probe-...` (infra-fail; surfaced F-021 + F-022)
+  - `runs/20260511T183807Z-phase2-probe-2-...` (clean; primary hypothesis met)
+
+### F-021. Orchestrator does not seed `LLMLL.md` and `llmll-ast.schema.json` into the run dir
+
+**Priority:** High (blocks LLMLL agent operation; closed by this addendum)
+**Consumer:** experiment-lead (closed)
+
+#### Evidence
+
+First-probe stderr (`runs/20260511T183006Z-phase2-probe-.../turns/turn_01/agent.stderr.log`) contained four `Error executing tool read_file: Path not in workspace` errors. Gemini CLI's workspace sandbox blocks file reads outside the cwd. The agent attempted: `/Users/burcsahinoglu/Documents/llmll/LLMLL.md`, `/Users/burcsahinoglu/Documents/llmll/docs/design/language-comparison-experiments.md`, plus the home-directory `.llmll` and `.gemini` discovery probes. All denied. Without the spec, Gemini fell back to priors and emitted a 3-line non-LLMLL fragment before timing out at 240s.
+
+Precedent: `experiments/minimal-agent/scripts/prepare_run.py:267-268` copies both `LLMLL.md` and `docs/llmll-ast.schema.json` into every run dir as a load-bearing precondition. The repair-loop orchestrator's `_prepare_run_dir` (which I authored) cargo-culted the file list partially and omitted both. Day-1 design omission on my part.
+
+#### Fix applied (no commit yet; bundled into Phase-2.0 commit)
+
+`scripts/run_repair_loop.py:_prepare_run_dir` now copies `LLMLL.md` and `docs/llmll-ast.schema.json` into the run directory conditionally on `args.target == "llmll"`. Mirrors the minimal-agent precedent. Uses `REPO_ROOT` already defined at module top.
+
+#### Acceptance
+
+Re-launched probe (`runs/20260511T183807Z-phase2-probe-2-...`) shows zero "Path not in workspace" errors in stderr. Closed.
+
+---
+
+### F-022. Agent timeout calibration — 240s was insufficient under F-021 conditions
+
+**Priority:** Medium (resolved by reducing `repair_budget_k` from 2 to 1 in the probe manifest, allowing a wider per-turn budget within Bash's 10-min cap)
+**Consumer:** experiment-lead (closed)
+
+#### Evidence
+
+First probe: agent rc=124 (TimeoutExpired from `_invoke_real_agent`) at 240s. The agent was making many tool calls (most denied by F-021's workspace sandbox) and presumably still emitting when the timeout fired. Whether 240s is sufficient *under* F-021-fixed conditions is unknown — the re-launched probe used 540s, which completed (Gemini emitted ~60 lines of well-structured LLMLL plus an own check block within budget, though the total turn time is unmeasured precisely from the artefacts).
+
+#### Implication
+
+Phase 2 calibration's `timeout_seconds_per_turn` should remain ≥ 540s for LLMLL cells. The 9-cell matrix runs serially; each cell can take up to 540s × 5 turns = 2700s = 45 min. Worst-case Phase-2 wall-clock with 9 cells is ~7 hours serial, ~2.5 hours with reasonable parallelism. Within the originally-estimated `~6 hours wall-clock serial`.
+
+The wider implication for the experiment-lead's tooling: my Bash subprocess cap (10 min) is *below* a full Phase-2 cell's worst-case latency. For the actual Phase-2 matrix launch, the user should invoke the orchestrator directly from their own shell, not via my Bash tool. Or use `run_matrix.py` (which doesn't exist yet for repair-loop but is the natural next harness addition).
+
+#### Acceptance
+
+Closed (resolved by manifest revision). Wider Phase-2 timeout discipline noted for the calibration run.
+
+---
+
+### F-023. `AGENT_INSTRUCTIONS.md` should advertise spec-local availability and sandbox boundary
+
+**Priority:** Low (closed inline alongside F-021)
+**Consumer:** experiment-lead (closed)
+
+#### Fix applied
+
+`_agent_instructions` for LLMLL targets now includes:
+
+> ## LLMLL spec and JSON-AST schema
+>
+> `LLMLL.md` and `llmll-ast.schema.json` are present in the run directory. These are your authoritative language references. Read them before emitting. Do not attempt to read repo-level files outside this directory — your sandbox is the run directory; reads outside it will be denied.
+
+This pre-empts the discovery-probe pattern F-021 surfaced (agent fishes for spec in repo root, hits sandbox-deny errors, falls back to priors).
+
+#### Acceptance
+
+Re-launched probe shows the agent emitted spec-aligned LLMLL (`(module ...)`, refinement types, pre/post contracts, `?proof-required` markers, Result types). Closed.
+
+---
+
+### F-024. Gemini emits snake_case identifiers; LLMLL parser rejects them
+
+**Priority:** Medium (downstream; not a harness defect — exactly the kind of agent-vs-language friction the Phase-2 matrix is meant to measure)
+**Consumer:** language-team or documentation-lead (decision: who owns the pedagogical surface for naming conventions)
+
+#### Evidence
+
+Re-launched probe (`runs/20260511T183807Z-phase2-probe-2-...`) — Gemini's emitted `solution.llmll`:
+
+```
+(def-logic create_ledger [accounts: map[string, int]]
+  ...)
+(def-logic balance [ledger: Ledger account_id: string]
+  ...)
+(def-logic total_balance [ledger: Ledger]
+  ...)
+(def-logic transfer [ledger: Ledger from: string to: string amount: int]
+  ...)
+```
+
+Parser output (`check` command stdout):
+```
+(error :phase parse :file "solution.llmll" :line 32 :col 25
+  :message "unexpected 'a' expecting ')'"
+  :hint "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)")
+```
+
+Identifier convention in shipping LLMLL: kebab-case (`safe-subtract`, `clamp-withdraw`, `withdraw-twice`, `compute-fee` in `examples/banking_ledger/banking.llmll`). Gemini used snake_case throughout, mirroring the Python-style names in `problems/002-bank-ledger.md` (which uses snake_case in the spec's English description: `create_ledger`, `apply_guess`, etc., to keep the cross-language problem statement language-neutral).
+
+#### Why we saw what we saw
+
+The problem statement uses snake_case API names because it is language-neutral (per the cross-language design doc's intent). Per-target adapters should translate the conventions; for LLMLL, the canonical form is kebab-case (`create-ledger`, `apply-guess`). The translation isn't currently documented anywhere agents see; even with `LLMLL.md` in scope, the naming convention is not prominent in the spec's first sections, and Gemini may not have read deeply enough to discover it before emitting.
+
+#### Implication
+
+For Phase 2/3 H1/H2 measurement: this is a real piece of agent-vs-language friction that the matrix should capture. *Don't* fix the harness to translate names automatically — that would mask the friction that the experiment is meant to measure. *Do* consider whether the per-target adapter (`targets/llmll.json`) or `TARGET.md` should include a brief naming-convention callout: "LLMLL identifiers use kebab-case. The problem's snake_case API names should be transliterated: `create_ledger` → `create-ledger`, `total_balance` → `total-balance`, etc." This is a `language-team` or `documentation-lead` call. The empirical evidence supports either: (a) include the callout (reduces the noise floor; LLMLL agents stop losing points to naming alone), or (b) omit it (keeps the agent-vs-spec friction visible; LLMLL agents will need to read the spec carefully or fail at parse).
+
+If (a): the apparatus change is a one-line addition to the LLMLL target descriptor. If (b): no change; this is data for the Phase-3 H1/H2 report.
+
+#### Acceptance
+
+Recorded as a Phase-2/3 observation. Closure depends on user routing decision.
+
+---
+
+### Primary hypothesis: MET
+
+The apparatus produced a non-degenerate scoreable cell from a real agent invocation. Verified via `runs/20260511T183807Z-phase2-probe-2-.../evaluation.json`:
+
+- `apparatus.status: passed` (4/4 checks)
+- `scoring.status: scored` (8 sub-categories produced values; 4 with `TODO(sub-3-v2)`; 1 deferred)
+- `correctness_subscores.solution_discovery.value: true` (agent emitted a file)
+- `correctness_subscores.build_typecheck.value: false` (correctly captured the parse failure from F-024)
+- `correctness_subscores.core_behavior: passed=0/failed=0/skipped=0` (no PBT could run; parse blocked)
+- `assurance_subscores.test_quality.agent_emitted_test_count: 1` (Gemini emitted one `(check ...)` block — the agent intent was captured even though execution failed)
+- `assurance_subscores.proof_or_trust_evidence.locally_verified_obligations: 0` (no fixpoint discharge possible without parse)
+- `headline_metrics.trust_declarations_per_kloc: 0.0` (Gemini emitted no `(trust ...)` declarations)
+
+This is the EVIDENCE PATTERN a parse-failing LLMLL cell will produce in Phase-2/3. The v2 rubric carries the signal: the agent tried (file emitted), structured (test block emitted), but failed at the parser. Distinguishable from an agent that didn't emit at all (where `solution_discovery` would be false).
+
+### Secondary hypothesis: not tested
+
+The k=1 probe does not exercise turn-2-vs-turn-1 differences. Two options for closing the secondary:
+
+1. **One follow-up probe at k=2.** Single additional Gemini call (~$0.50–2). Validates the turn-2-context-injection path under real agents.
+2. **Let it surface naturally in Phase 2 calibration.** k=5 cells will exercise it across all three agents. If turn 2 systematically equals turn 1 (i.e., agents ignore `context/turn_NN_verifier.json`), the Phase-2 result will surface it as a finding.
+
+### Apparatus changes bundled into the post-probe commit (uncommitted)
+
+`scripts/run_repair_loop.py`:
+- F-021 fix: copy `LLMLL.md` and `docs/llmll-ast.schema.json` into LLMLL run dirs.
+- F-023 fix: extend `_agent_instructions` with spec-availability block for LLMLL targets.
+- Per-turn solution snapshot (`_snapshot_solution` helper + `_run_one_turn` call site) — landed earlier in this session as a probe-preparation change.
+
+`manifest.phase2-probe-llmll.json` (new):
+- Phase-2.0 manifest with `gemini-default` agent cmd, k=1, 540s per-turn budget.
+
+### Updated priority matrix (post-addendum-9)
+
+| # | Finding | Consumer | Priority | Status |
+|---|---|---|---|---|
+| F-001..F-016 | (earlier addenda) | various | various | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | Open (deferred) |
+| F-018 | PBT FuncEnv lacks imported-module def-logic | compiler-engineer | High | Open |
+| F-019 | verify chain missing fixpoint-discharge step | experiment-lead | High | Closed by Addendum 8 |
+| F-020 | Per-axis scoring rubric implemented | experiment-lead | Phase-1.75 prereq | Closed by Addendum 8 |
+| F-021 | Run dir does not seed LLMLL.md + schema | experiment-lead | High | **Closed by Addendum 9** |
+| F-022 | Agent timeout calibration (240s insufficient under F-021) | experiment-lead | Medium | **Closed by Addendum 9 (manifest reduction to k=1 + 540s)** |
+| F-023 | AGENT_INSTRUCTIONS.md needs spec-availability note | experiment-lead | Low | **Closed by Addendum 9** |
+| F-024 | Gemini emits snake_case identifiers | language-team / documentation-lead | Medium | **Open — user routes** |
+
+### Phase 2 calibration readiness (post-probe)
+
+Apparatus is **Phase-2-ready**. The probe found and closed three real gaps (F-021, F-022, F-023) plus surfaced one downstream agent-side finding (F-024) that is itself the kind of evidence Phase-2 should produce.
+
+Phase-2 launch decision:
+
+1. **Pre-Phase-2: tooling caveat.** My Bash subprocess cap (10 min) is below a worst-case Phase-2 cell's latency (~45 min at 540s × 5 turns + verifier). The user should launch the Phase-2 matrix from their own shell, not via this conversation's Bash tool. Alternatively, a `run_matrix.py` script can be authored for the repair-loop harness (mirroring the minimal-agent precedent) and the user invokes it directly.
+2. **Phase 2 cost estimate (revised).** 9 cells × ≤45 min per cell ≈ 7 hours serial wall-clock. API spend depends on agent mix; under $50 at typical token costs across Claude Opus + Sonnet + Gemini.
+3. **F-024 routing decision.** User picks: include naming-convention callout in `targets/llmll.json` TARGET.md (reduces noise) or leave it out (preserves the agent-vs-language friction as Phase-3 H1/H2 evidence).
+4. **Optional follow-up k=2 probe.** Single Gemini call to validate secondary hypothesis (turn-2 reads turn-1 context). Recommended if F-024 isn't routed via TARGET.md change, since a k=2 cell with parse failure on turn 1 would directly demonstrate whether the agent ATTEMPTS to consume the parse-error diagnostic on turn 2.
+
 Phase 2 (paid calibration) still gated on (2) and (3) plus user approval.
 
 ---

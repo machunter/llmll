@@ -157,6 +157,18 @@ def _prepare_run_dir(args, manifest, target, problem_path: Path) -> Path:
     agent_instructions = run_dir / "AGENT_INSTRUCTIONS.md"
     agent_instructions.write_text(_agent_instructions(target, manifest))
 
+    # F-021: seed the language spec + JSON-AST schema for LLMLL targets.
+    # Agents are typically sandboxed to the run dir (Gemini CLI's workspace,
+    # minimal-agent precedent); reads of repo-level docs from the run dir are
+    # blocked. Mirrors prepare_run.py:267-268 in the minimal-agent harness.
+    if args.target == "llmll":
+        llmll_spec = REPO_ROOT / "LLMLL.md"
+        ast_schema = REPO_ROOT / "docs" / "llmll-ast.schema.json"
+        if llmll_spec.exists():
+            shutil.copy(llmll_spec, run_dir / "LLMLL.md")
+        if ast_schema.exists():
+            shutil.copy(ast_schema, run_dir / "llmll-ast.schema.json")
+
     _inject_harness_files(args=args, target=target, run_dir=run_dir)
 
     return run_dir
@@ -209,10 +221,21 @@ def _target_descriptor(target: dict[str, Any]) -> str:
 
 
 def _agent_instructions(target: dict[str, Any], manifest: dict[str, Any]) -> str:
+    target_name = target.get("target", "?")
+    spec_block = ""
+    if target_name == "llmll":
+        spec_block = (
+            "## LLMLL spec and JSON-AST schema\n\n"
+            "`LLMLL.md` and `llmll-ast.schema.json` are present in the run directory.\n"
+            "These are your authoritative language references. Read them before emitting.\n"
+            "Do not attempt to read repo-level files outside this directory — your\n"
+            "sandbox is the run directory; reads outside it will be denied.\n\n"
+        )
     return (
         "# Agent Instructions — Repair Loop\n\n"
         f"You are participating in a repair-loop experiment ({manifest.get('repair_budget_k', 3)} turn budget).\n\n"
-        "Each turn:\n"
+        + spec_block
+        + "## Per-turn protocol\n\n"
         "1. Read `problem.md` and `TARGET.md`.\n"
         "2. If `context/turn_NN_verifier.json` exists from prior turns, read the latest one and use the verifier output to revise your solution.\n"
         "3. Write your solution to the expected solution file(s) for this target (see TARGET.md).\n"
@@ -248,6 +271,16 @@ def _run_one_turn(
             timeout=timeout_per_turn,
         )
     agent_finished = _utc_now()
+
+    # Snapshot the agent's emission for THIS turn before the next turn
+    # overwrites the file. Required to verify the secondary hypothesis of
+    # repair-loop probes (turn N+1 differs from turn N in a way explainable
+    # by the verifier output from turn N).
+    _snapshot_solution(
+        turn_dir=turn_dir,
+        run_dir=run_dir,
+        expected_files_priority=target.get("expected_files_priority", []),
+    )
 
     verifier_results, terminal_match, terminal_reason = _run_verifier_chain(
         target=target,
@@ -306,6 +339,23 @@ def _invoke_stub_agent(turn_idx: int, run_dir: Path, target: dict[str, Any]) -> 
         f"wrote {solution_path.relative_to(run_dir)}\n"
     )
     return 0, None
+
+
+def _snapshot_solution(
+    *, turn_dir: Path, run_dir: Path, expected_files_priority: list[str]
+) -> None:
+    """Copy whichever expected solution file currently exists into the turn
+    directory, before the next turn's agent invocation overwrites it.
+
+    Records `NO_SOLUTION` sentinel file if no expected file is present (for
+    apparatus debugging and downstream evidence trails).
+    """
+    for name in expected_files_priority:
+        src = run_dir / name
+        if src.exists():
+            shutil.copy(src, turn_dir / name)
+            return
+    (turn_dir / "NO_SOLUTION").touch()
 
 
 def _invoke_real_agent(
