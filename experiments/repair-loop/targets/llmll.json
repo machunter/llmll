@@ -24,13 +24,19 @@
       "capture": "exit_and_text"
     },
     {
+      "name": "verify-fixpoint",
+      "argv": ["llmll", "verify", "{solution}"],
+      "capture": "exit_and_text",
+      "_note": "F-019: bare `llmll verify` runs liquid-fixpoint and writes the .verified.json sidecar. The subsequent --trust-report invocation reads that sidecar to surface verified-tier evidence. Without this step, the trust report floors at `asserted` even for QF-LIA-verifiable programs."
+    },
+    {
       "name": "verify",
       "argv": [
         "llmll", "--json", "verify", "{solution}",
         "--trust-report", "--weakness-check", "--spec-coverage"
       ],
       "capture": "exit_and_json",
-      "_note": "Top-level --json flag is required to get structured trust-report output; --trust-report alone produces human-readable text."
+      "_note": "Top-level --json flag is required to get structured trust-report output; --trust-report alone produces human-readable text. Reads the .verified.json sidecar written by the verify-fixpoint step above."
     }
   ],
   "terminal_target_predicates": {

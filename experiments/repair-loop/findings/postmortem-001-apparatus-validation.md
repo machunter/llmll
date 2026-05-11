@@ -698,6 +698,171 @@ Three sub-items, ordered:
    - LLMLL: relies on agent-emitted `(check ...)` blocks; no harness-owned testkit (documented asymmetry). Scoring will measure check-block density and contract diversity directly from solution.
 3. ☐ **`evaluate_run.py` scoring extension**: implement two-axis scoring per `docs/design/language-comparison-experiments.md:198-226`. Minimum viable: score the categories with clean per-target evidence (Build/typecheck = 15 pts, API conformance = 15 pts, Core behavior = 35 pts via test pass rate, Proof or trust evidence = 20 pts for LLMLL only). Stub the rest with placeholder + TODO. Currently `scoring.status = "pending"` for real runs; this becomes a real score.
 
+---
+
+## Addendum 8 — Phase-1.75: scoring extension (sub-item #3) + F-018 + F-019
+
+> **Added:** 2026-05-11
+> **Purpose:** Close Phase-1.75 sub-item #3. Implements the per-axis scoring rubric settled by `language-team` v2 (Addenda 6/7 of this postmortem, plus the language-team `revise` turn after professor critique). Surfaces F-018 (compiler-engineer routing required), closes F-019 (orchestrator adapter fix). Empirically validates the v2 rubric against three target adapters via re-evaluation of existing kink cells plus two new LLMLL cells with the verify-fixpoint chain.
+
+### F-018. PBT static evaluator's `FuncEnv` does not include imported-module def-logic
+
+**Priority:** High (blocks LLMLL harness-test injection; defers but does not stall Phase 2)
+**Consumer:** compiler-engineer
+
+#### Evidence
+
+R1 smoke cell (`/tmp/llmll-r1-smoke/`, three variants):
+
+| Cell | check discovered | property evaluated | outcome |
+|---|---|---|---|
+| `(open solution) ... (check (plus-one n) ...)` (cross-module via open) | yes (1 property) | no | 0 Passed, 1 Skipped (1000 discards) |
+| `(import solution) ... (check (solution.plus-one n) ...)` (cross-module via qualified name) | yes (1 property) | no | 0 Passed, 1 Skipped (1000 discards) |
+| All inline in one file (host-module call) | yes | yes | **1 Passed, 0 Skipped** |
+
+#### Why we saw what we saw
+
+`llmll test` traverses the module graph and discovers cross-file `(check ...)` blocks; the discovery surface works. The **PBT static evaluator's `FuncEnv`** (per v0.10.2 CHANGELOG entry on `runPropertyWith` threading top-level def-logic environments — likely in `compiler/src/LLMLL/Contracts.hs` or `PBT.hs`) is built from the host module's `def-logic` statements only. Cross-module `def-logic` reached via `(open ...)` or qualified names is in type-checker scope but **not** in PBT evaluator scope. The property body cannot reduce to a literal Bool when the imported function is encountered, producing `Skipped` per `LLMLL.md §5.1` outcome semantics.
+
+This is spec/code drift: `LLMLL.md §8.6` ([line 867](../../../LLMLL.md)) promises `(open path)` bare-name injection; the PBT evaluator does not honor it. The type-checker honors it (cross-module type-check works, per `compiler/src/LLMLL/Module.hs:checkInterfaceMismatch`).
+
+#### Implication
+
+For compiler-engineer: extend the FuncEnv builder used by `runPropertyWith` to merge def-logic statements from imported modules, mirroring how `buildModuleEnv` populates the type-checker's `TypeEnv` (`Module.hs:mergeModuleEnvs`). The fix is bounded: PBT scope should follow type-checker scope under `(open ...)`. Until this lands, the language-team's recommended cross-module harness-test pattern (Addenda 6/7) cannot be used; LLMLL agents are scored on their own in-source `(check ...)` blocks only, not on a harness-injected baseline.
+
+#### Acceptance
+
+R1's `(open solution)` variant reports `Passed: 1` instead of `Skipped: 1` after the fix. The LLMLL adapter then gains `harness_files: ["test_solution.llmll"]`; the LLMLL testkit at `testkits/002-bank-ledger/llmll/` is authored against the imported solution.
+
+---
+
+### F-019. Orchestrator's verify chain did not produce a `.verified.json` sidecar
+
+**Priority:** High (blocks verified-tier signal in trust report; blocked the entire `locally_verified_obligations` and `compositionally_verified_module_rate` evidence channel)
+**Consumer:** experiment-lead (fixed in this addendum)
+
+#### Evidence
+
+Pre-fix `targets/llmll.json` verifier chain: `check` → `check-strict` → `holes` → `test` → `verify` (with `--trust-report --weakness-check --spec-coverage`). Per `llmll verify --help`: *"--trust-report: Print transitive trust summary **instead of** running fixpoint."* The chain never invoked liquid-fixpoint; no `.verified.json` sidecar was written; the trust report floored at `asserted` even for QF-LIA-verifiable programs.
+
+Empirical confirmation: a fresh `llmll --json verify banking-fresh.llmll --trust-report` (no prior bare-verify) reports `post_level: asserted` on all 6 functions. After a bare `llmll verify banking-fresh.llmll` runs liquid-fixpoint and writes the sidecar, the same `--json verify --trust-report` invocation reports `post_level: "verified (liquid-fixpoint)"` on all 6 functions.
+
+#### Why we saw what we saw
+
+I designed the verify chain against the spec text in `LLMLL.md` without empirically verifying that `--trust-report` triggered the fixpoint discharge. Mirror image of F-007/F-008 (the predicate design failure that wrote against a guessed schema rather than the live compiler output). Same Day-1 design pattern; same outside-PL discipline reminder: read the live `--help` output before scoping the verifier chain.
+
+#### Fix applied (no compiler change)
+
+`targets/llmll.json` adds a new verifier command `verify-fixpoint` *before* the existing `verify`:
+
+```
+"name": "verify-fixpoint",
+"argv": ["llmll", "verify", "{solution}"],
+"capture": "exit_and_text"
+```
+
+The bare invocation runs liquid-fixpoint, writes `solution.{llmll,ast.json}.verified.json` in the run directory, exits 0 on SAFE. The subsequent `verify` (with `--json --trust-report ...`) reads the sidecar and reports `post_level: verified` where the fixpoint discharged. The chain now has six commands per LLMLL cell.
+
+#### Acceptance
+
+Two re-run LLMLL kink cells under the new chain:
+
+- `runs/20260511T174356Z-k1-f019-banking-...` (banking_ledger.llmll): `locally_verified_obligations: 6` ✓, `outstanding_trust_acknowledgments: 0` ✓, `compositionally_verified_module_rate: 0.0` ✓.
+- `runs/20260511T174412Z-k1-f019-withdraw-...` (withdraw-demo.ast.json): `locally_verified_obligations: 0` (verify-fixpoint stdout reports `body-fallback: withdraw` — the `PositiveInt` refinement-type predicate is not body-faithfully discharged), `compositionally_verified_module_rate: 0.0` ✓.
+
+Both runs `target-reached` on turn 1. Apparatus 4/4 passes. F-019 closed.
+
+#### Cross-cutting observation
+
+The two LLMLL cells now distinguish each other on the proof-evidence axis: 6 vs. 0 `locally_verified_obligations`. This is exactly the v2 rubric's design intent — the local-proof channel carries information that the compositional-verification rate does not (both cells score 0.0 there, but the local-proof split tells you which program reached body-faithful verification). The professor's G2 concern about double-counting was correct in principle; the v2 split is also correct: `effective_level` is derived, `pre_level`/`post_level` are independent.
+
+---
+
+### F-020. Phase-1.75 sub-item #3 — per-axis scoring rubric implemented end-to-end
+
+**Priority:** Phase-1.75 prerequisite (closed by this addendum)
+**Consumer:** experiment-lead (closed)
+
+#### Implementation
+
+`scripts/evaluate_run.py` `_evaluate_scoring` replaced. New structure:
+
+- 12 sub-categories total (6 correctness + 6 assurance).
+- 8 implemented end-to-end across the three targets (LLMLL, Go, Python).
+- 4 stubbed with explicit `status: "TODO(sub-3-v2)"` and per-target rationale notes.
+- 1 hard-deferred (`specification_adequacy`); also `determinism_isolation` is hard-deferred via `status: "deferred"`.
+- No 100-pt aggregate (professor G3); per-axis subscores only.
+- Two headline metrics for LLMLL: `trust_declarations_per_kloc` and `compositionally_verified_module_rate` (replaces the dropped aggregate).
+- "Test quality" is itself split into three independent sub-axes per the v2 rubric: `example_based_test_pass_rate`, `pbt_sample_pass_rate`, `agent_emitted_test_count`. None aggregated.
+- "Proof or trust evidence" is split into three sub-axes for LLMLL: `locally_verified_obligations`, `outstanding_trust_acknowledgments`, `compositionally_verified_module_rate`. Reports `null` with note for non-LLMLL targets (no analogous channel).
+
+#### Per-target evidence parsers (new)
+
+- `_parse_llmll_test_results` — regex for `Passed:`/`Failed:`/`Skipped:` from `llmll test` text output.
+- `_parse_go_test_results` — count `--- PASS:`, `--- FAIL:`, `--- SKIP:` markers from `go test -v` output.
+- `_parse_pytest_results` — regex for `N passed`, `M failed`, `K skipped` from pytest summary.
+- `_parse_pyright_results` — regex for `N errors, M warnings` from pyright summary.
+- `_summarize_trust_report` — read the live JSON schema for `entries[].pre_level`/`post_level`/`effective_level`, compute locally_verified and compositionally_verified rates.
+- `_count_llmll_check_blocks` / `_count_llmll_trust_declarations` — dual-path source parsing (regex for `.llmll`, JSON-AST traversal for `.ast.json`).
+- `_count_program_kloc` — line-count for `.llmll`, statement-count × 5 approximation for `.ast.json`.
+
+#### Validation evidence — five re-evaluated cells
+
+| Cell | Target | core_behavior pass rate | locally_verified | comp_rate | trust_per_kloc |
+|---|---|---|---|---|---|
+| `20260511T174356Z-k1-f019-banking` | llmll | n/a (no checks) | 6 | 0.0 | 0.0 |
+| `20260511T174412Z-k1-f019-withdraw` | llmll | n/a (no checks) | 0 (body-fallback) | 0.0 | 0.0 |
+| `20260511T153812Z-k1-go-module` | go | 1.0 (8/8) | n/a | n/a | n/a |
+| `20260511T161928Z-k1-python-expanded` | python | 1.0 (8/8) | n/a | n/a | n/a |
+| `20260511T134926Z-k1-kink-ast` (pre-F-019) | llmll | n/a | 0 (no fixpoint run) | 0.0 | 0.0 |
+
+The pre-F-019 cell's `locally_verified=0` is now correctly read as "the orchestrator never ran fixpoint" — the scorer is the right tool to surface adapter-chain defects retrospectively.
+
+#### Acceptance
+
+Closed. The per-axis subscores are computed and emitted into `evaluation.json` for any cell with a real (non-stub) agent. Phase-2 calibration cells will produce meaningful empirical numbers on the implemented axes; the 4 stubbed sub-categories carry `status: "TODO(sub-3-v2)"` markers visible in the JSON for downstream review.
+
+### Cross-cutting note — sample/test-quality and proof-evidence asymmetries are now empirically observable
+
+Three target asymmetries now visible in the scoring output (where pre-Phase-1.75 they were structural-but-unmeasured):
+
+1. **Test channel asymmetry.** Go/Python `core_behavior` populates from `example_based_test_pass_rate`; LLMLL from `pbt_sample_pass_rate`. Both report `value` under `core_behavior` so the subscore is comparable per-cell. The underlying evidence type is distinguished by the `channel` field (`go-example-based`, `python-example-based`, `llmll-pbt`).
+2. **Proof-evidence asymmetry.** Only LLMLL contributes `proof_or_trust_evidence` subscores; Go and Python report `null` with explicit `note: "Target has no analogous proof-evidence channel."` This is the principled cross-language posture — the assurance axis does NOT aggregate across targets; the LLMLL contribution is reported, the absence in Go/Python is reported.
+3. **Harness-test asymmetry.** F-018 blocks LLMLL from receiving a harness-injected test baseline; Go/Python receive harness `_test.go`/`test_solution.py` via the `harness_files` seam. The `agent_emitted_test_count` axis is populated for LLMLL only; for Go/Python it currently reports `null` because the shim agents copy stubs without their own tests, but the field is in place for Phase-2/3 real agents.
+
+### Updated priority matrix (post-addendum-8)
+
+| # | Finding | Consumer | Priority | Status |
+|---|---|---|---|---|
+| F-001..F-016 | (Phase 1 / 1.5 / 1.75 sub-items #1, #2) | various | various | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | Open (deferred) |
+| F-017 | LLMLL in-source-test asymmetry (revised by language-team v2; no longer a structural gap, blocked on F-018 instead) | experiment-lead | (revised) | Closed by Addendum 7, F-018 supersedes |
+| F-018 | PBT FuncEnv lacks imported-module def-logic | compiler-engineer | High | **Open (route to /compiler-engineer)** |
+| F-019 | verify chain missing fixpoint-discharge step | experiment-lead | High (fixed) | **Closed by Addendum 8** |
+| F-020 | Per-axis scoring rubric implemented | experiment-lead | Phase-1.75 prereq | **Closed by Addendum 8** |
+
+### Phase 1.75 readiness (post-addendum-8)
+
+All three sub-items closed:
+
+- ☑ Adapter-declared `harness_files` + orchestrator pre-injection (Addendum 6, F-014).
+- ☑ Per-language testkit content expansion (Addendum 7, F-015/F-016/F-017).
+- ☑ `evaluate_run.py` scoring extension per v2 rubric (Addendum 8, F-019/F-020).
+
+Phase 2 (paid calibration) is now ready, conditional on:
+
+1. **F-018 routing decision.** If user routes F-018 to compiler-engineer and the fix lands, Phase 2 runs with full cross-target test-quality coverage. If F-018 is deferred, Phase 2 runs with the documented LLMLL harness-baseline-test asymmetry (LLMLL contributes 0 on the harness-baseline subscore, agent-emitted check blocks only).
+2. **User approval for paid agent matrix.** The calibration run remains ≤45 agent invocations, ~$50 API spend, ~6 hours wall-clock serial.
+
+### Open question for the user
+
+**Phase-2 launch decision.** The harness is end-to-end ready. F-018 is the only remaining quality-of-life issue; it does not block Phase 2 launch, but it does affect the defensibility of LLMLL's test-quality subscore. Two paths:
+
+1. Route F-018 to `compiler-engineer` first, land the fix, then launch Phase 2 with clean cross-target coverage.
+2. Launch Phase 2 now under the documented asymmetry; route F-018 in parallel.
+
+Both are defensible. The first produces cleaner Phase-2 numbers; the second is faster to data. User adjudicates.
+
 Phase 2 (paid calibration) still gated on (2) and (3) plus user approval.
 
 ---
