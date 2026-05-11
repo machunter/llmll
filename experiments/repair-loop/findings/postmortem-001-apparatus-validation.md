@@ -311,3 +311,65 @@ F-007 and F-008 were both schema-coupling defects that the stub run could not ha
 ### Phase 2 readiness (revised)
 
 The original Phase 2 readiness list is unchanged with one addition: F-004 now closes, so the predicate's accept-path is no longer a Phase-2 prerequisite to validate — it is empirically established. The remaining Phase-2 prerequisites (Python/Rust target adapters, per-language test kits, user approval) are unchanged.
+
+---
+
+## Addendum 2 — k=1 Real-Agent Cell, JSON-AST Form (F-009)
+
+> **Added:** 2026-05-11
+> **Purpose:** Close F-009 below. The first k=1 real-agent cell ran against `solution.llmll` (S-expression form, priority-2 in the solution-file lookup). The JSON-AST form (priority-1, the AI-canonical schema-constrained variant — `docs/llmll-ast.schema.json` is shipped into every minimal-agent run for this reason) was unexercised. F-009 records the gap; this addendum closes it.
+
+### Sample composition
+
+- **Cell:** 1 (n=1)
+- **Agent:** real-mode shim that copies `examples/withdraw-demo/withdraw.ast.json` into the run directory as `solution.ast.json`. The `withdraw-demo/` directory ships both `.llmll` and `.ast.json` forms, so the JSON-AST is verifying-by-construction.
+- **Experiment:** `002-bank-ledger`
+- **Target:** `llmll`
+- **Repair budget *k*:** 1
+- **Run directory:** `runs/20260511T134926Z-k1-kink-ast-e002-bank-ledger-llmll/`
+- **Terminal state:** `target-reached`
+
+### F-009. JSON-AST solution-file path unexercised by Phase-1 apparatus validation
+
+**Priority:** High (closed by this addendum, but high-class while open — same class as F-007/F-008)
+**Consumer:** experiment-lead (closed in this addendum)
+
+#### Evidence
+
+The first kink test (Addendum 1) used `cp examples/banking_ledger/banking.llmll solution.llmll`. The orchestrator's `_find_solution` walks `expected_files_priority = ["solution.ast.json", "solution.llmll"]` from `targets/llmll.json` and selected priority-2 because priority-1 did not exist. Every verifier command across that run received `solution.llmll` as `{solution}`. The priority-1 branch of `_find_solution` returned the first match without ever being exercised through verifier-command construction or `_evaluate_terminal_target` on JSON-AST output.
+
+Confirmed empirically in the post-fix run's `context/turn_01_verifier.json`: every `argv` ends with `solution.llmll`, none with `solution.ast.json`.
+
+#### Why we saw what we saw
+
+I chose `examples/banking_ledger/` for the shim because it was the in-tree compositional-verification example most aligned with the `002-bank-ledger` problem. That directory ships only `.llmll`; I did not engineer the shim to materialize a `.ast.json` form (e.g., via `llmll build --emit json-ast` from the source). The `.ast.json` path through the orchestrator was simply not exercised — same failure mode in shape as the F-004 stub gap, one level lower.
+
+#### Fix applied (no compiler/orchestrator change)
+
+Re-ran the kink test against `examples/withdraw-demo/withdraw.ast.json`, which ships pre-built JSON-AST. Run directory: `runs/20260511T134926Z-k1-kink-ast-e002-bank-ledger-llmll/`. All five verifier commands resolved `{solution}` to `solution.ast.json` (confirmed in `context/turn_01_verifier.json:verifier_results[*].argv`). All five exited rc=0. Terminal predicate matched. Apparatus status: passed.
+
+#### Acceptance
+
+Closed. Both solution-file forms (`.llmll` priority-2, `.ast.json` priority-1) are now empirically validated end-to-end through the orchestrator. Predicate logic is form-agnostic — `_count_bad_trust_tiers` operates on `verify`'s structured JSON output regardless of which source form produced it.
+
+### Cross-cutting meta-finding — **canonical-form-first kink discipline**
+
+Restated as guidance, parallel to Addendum 1's stub-validation-is-not-sufficient finding: **every Phase-1 harness ramp-up should additionally include at least one real-agent cell against the priority-1 (canonical) solution form**, not only the fallback form. JSON-AST is the AI-canonical form for LLMLL; `docs/llmll-ast.schema.json` is shipped into every minimal-agent run for this reason. A kink test that exercises only the fallback form will miss schema-coupling defects specific to the JSON-AST path, the same way stub runs miss success-path predicate defects. For Phase 2 calibration, the prerequisite list expands to include this discipline.
+
+### Updated priority matrix (post-addendum-2)
+
+| # | Finding | Consumer | Priority | Effort estimate | Status |
+|---|---|---|---|---|---|
+| F-001 | Loop closes cleanly | user | N/A | - | Closed |
+| F-002 | Re-injection empirically proven | user | N/A | - | Closed |
+| F-003 | Verifier output structurally usable | user | Defence-in-depth | tracked | Open |
+| F-004 | Accept-path unexercised | experiment-lead | Medium | - | Closed by Addendum 1 |
+| F-005 | Version pin captured automatically | user | N/A | - | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | 15 min | Open (deferred) |
+| F-007 | `verify` missing `--json` flag | experiment-lead | High | (fixed) | Closed by Addendum 1 |
+| F-008 | Trust-report schema mismatch | experiment-lead | High | (fixed) | Closed by Addendum 1 |
+| F-009 | JSON-AST path unexercised | experiment-lead | High | (validated via shim swap) | **Closed by Addendum 2** |
+
+### Phase 2 readiness (re-revised)
+
+The Phase 2 prerequisite list is unchanged except that the meta-finding above is now an explicit prerequisite: Phase-2 calibration must include both fallback-form and canonical-form kink cells before paid agent matrices. Other prerequisites (Python/Rust target adapters, per-language test kits, user approval) are unchanged.
