@@ -120,6 +120,23 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
   [verify-token  (λ [token: string] → bool)])
 ```
 
+### 2.5 Naming Conventions
+
+LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shipping language uses **kebab-case** as its canonical form. Agents emitting LLMLL should follow these conventions to remain idiomatic:
+
+| Construct | Convention | Example |
+|---|---|---|
+| Function / variable / parameter names | **kebab-case** | `safe-subtract`, `account-id`, `from-balance` |
+| Type names | **PascalCase** | `Ledger`, `Balance`, `PositiveInt` |
+| Constructor / variant names | **PascalCase** | `Success`, `Error`, `Ok` |
+| Boolean predicates | **kebab-case + trailing `?`** | `empty?`, `string-empty?`, `is-game-over?` |
+| Built-in keywords and builtins | **kebab-case** (no underscore) | `def-logic`, `for-all`, `map-get`, `list-empty` |
+| Reserved identifiers | **lowercase** | `result`, `unit`, `true`, `false` |
+
+**Cross-language API spec translation.** When a language-neutral problem statement uses snake_case (`create_ledger`, `total_balance`) or camelCase (`createLedger`), the LLMLL solution must transliterate to kebab-case: `create-ledger`, `total-balance`. The grammar **accepts** snake_case and camelCase identifiers, but the canonical examples and built-in surface use only kebab-case; emitting non-kebab identifiers produces parseable but non-idiomatic LLMLL.
+
+**Note on `_` vs `-` in the grammar.** Both characters are accepted in the identifier character class per §2.1. The choice is stylistic, not syntactic. The convention exists for consistency with shipping examples and built-ins, not because the grammar forbids alternative forms.
+
 ---
 
 ## 3. The Type System
