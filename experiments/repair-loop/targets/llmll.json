@@ -26,10 +26,11 @@
     {
       "name": "verify",
       "argv": [
-        "llmll", "verify", "{solution}",
+        "llmll", "--json", "verify", "{solution}",
         "--trust-report", "--weakness-check", "--spec-coverage"
       ],
-      "capture": "exit_and_json"
+      "capture": "exit_and_json",
+      "_note": "Top-level --json flag is required to get structured trust-report output; --trust-report alone produces human-readable text."
     }
   ],
   "terminal_target_predicates": {

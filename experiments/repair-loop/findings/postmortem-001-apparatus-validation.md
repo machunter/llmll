@@ -181,3 +181,133 @@ Phase 1 satisfies its stated acceptance criterion. Phase 2 (calibration) prerequ
 4. **Phase 2 user approval.** Per my skill contract, separate approval from Phase 1.
 
 Phase 2 estimated cost (indicative, pending separate approval): ≤ 45 agent invocations, ≤ $50 API spend, ≤ 6 hours wall-clock serial.
+
+---
+
+## Addendum — k=1 Real-Agent Cell (kink-finding)
+
+> **Added:** 2026-05-11
+> **Purpose:** Exercise the real-agent code path through the orchestrator before committing to Phase 2. The stub run validated the loop but, by construction, never produced a verifying solution; the accept-path of the terminal-target predicate was untested (F-004).
+
+### Sample composition
+
+- **Cell:** 1 (n=1)
+- **Agent:** real-mode shim that copies `examples/banking_ledger/banking.llmll` into the run directory as `solution.llmll` (the in-tree compositional-verification example becomes the agent's emission)
+- **Experiment:** `002-bank-ledger`
+- **Target:** `llmll`
+- **Repair budget *k*:** 1 (smallest exercisable budget; pre-Phase-2 sanity check)
+- **Compiler version pin:** `0.10.2` (auto-captured)
+- **Manifest:** `experiments/repair-loop/manifest.kink-test.json` (ad-hoc; preserved for future kink runs)
+- **Run directories:** `runs/20260511T132932Z-k1-kink-e002-bank-ledger-llmll/` (pre-fix), `runs/20260511T133355Z-k1-kink-fixed-e002-bank-ledger-llmll/` (post-fix)
+
+### Kinks found and fixed
+
+#### F-006. No CLI override for `repair_budget_k`
+
+**Priority:** Low (ergonomic)
+**Consumer:** experiment-lead (self, future enhancement)
+
+#### Evidence
+
+`scripts/run_repair_loop.py:main` reads `k` from `manifest.get("repair_budget_k", 3)` only; no `--k` argparse override. Surfaced when trying to run the kink test with `k=1` against the existing `manifest.example.json` which pins `k=3`. Workaround: created `manifest.kink-test.json` with `k=1`.
+
+#### Implication
+
+For Phase 2/3 matrix runs the manifest is canonical, so this kink does not block. For ad-hoc one-off exercises (small calibration probes, recovery debugging) a `--k` override would prevent the manifest-proliferation pattern. Defer until Phase 2 design pass.
+
+#### Acceptance
+
+`scripts/run_repair_loop.py` gains a `--k` CLI flag that overrides `manifest.repair_budget_k`. Not fixed in this addendum.
+
+---
+
+#### F-007. `verify` argv missing top-level `--json` flag
+
+**Priority:** High (blocker for terminal-target predicate accuracy)
+**Consumer:** experiment-lead (fixed in this addendum)
+
+#### Evidence
+
+Pre-fix run: `runs/20260511T132932Z-k1-kink-.../context/turn_01_verifier.json:verifier_results[verify]` shows `exit_code=0` but `parsed_json=null` and `stdout` begins with `"Trust Report\n──────...\n  clamp-withdraw:\n    pre:  asserted  |  post: asserted\n..."` — human-readable text, not JSON.
+
+`llmll verify --help` clarifies: `--trust-report` (subcommand flag) prints a human-readable summary; the structured JSON variant requires the top-level `--json` flag (per the existing `holes` invocation pattern in `targets/llmll.json`).
+
+#### Why we saw what we saw
+
+The original `targets/llmll.json` `verify` argv read `["llmll", "verify", "{solution}", "--trust-report", ...]` — the top-level `--json` flag was omitted. Stub runs masked the defect because every command failed at parse phase; the orchestrator short-circuited the predicate at `first_fail is not None` before reaching the trust-report traversal.
+
+#### Fix applied (no commit)
+
+`targets/llmll.json` `verify` argv updated to `["llmll", "--json", "verify", "{solution}", "--trust-report", "--weakness-check", "--spec-coverage"]`. Note added in the adapter explaining the flag position.
+
+#### Acceptance
+
+Post-fix run (`runs/20260511T133355Z-k1-kink-fixed-...`) shows verify's `parsed_json` is now a populated dict; predicate's JSON-parse fallthrough no longer engages. Closed.
+
+---
+
+#### F-008. `_count_bad_trust_tiers` traversed wrong schema
+
+**Priority:** High (blocker; coupled to F-007)
+**Consumer:** experiment-lead (fixed in this addendum)
+
+#### Evidence
+
+Pre-fix predicate logic looked for `parsed.get("trust_report")` and per-entry `tier` field. The actual JSON schema emitted by `llmll --json verify --trust-report` is:
+
+```json
+{
+  "entries": [
+    {"name": "safe-subtract",
+     "effective_level": "asserted",
+     "pre_level": "asserted",
+     "post_level": "verified (liquid-fixpoint)",
+     "dependencies": [...], "drifts": []},
+    ...
+  ],
+  "summary": {"verified": 0, "contract_checked": 0, "tested": 0,
+              "asserted": 6, "no_contract": 0, "drifts": 0},
+  "suppressions": []
+}
+```
+
+Top-level key is `entries`, per-entry level field is `effective_level`. The post-fix run captures this schema verbatim into `context/turn_01_verifier.json:verifier_results[verify].parsed_json`.
+
+#### Why we saw what we saw
+
+Wrote `_count_bad_trust_tiers` against a guessed schema, did not verify against the live compiler output before stub validation. Stub runs masked the defect (predicate never reached the traversal). The k=1 real-agent run is the smallest empirical instrument that could have surfaced this. Validates the experiment-lead skill's "read the code to verify the spec" discipline applied to harness adapters as well.
+
+#### Fix applied (no commit)
+
+`scripts/run_repair_loop.py:_count_bad_trust_tiers` updated to look up `entries` (with fallback to legacy keys for tolerance), per-entry `effective_level` (with fallback to legacy keys), and added `_normalize_level` to strip parenthetical engine tags (`"verified (liquid-fixpoint)"` → `"verified"`). The accepted-level set expanded to `{verified, proved, asserted, contract-checked, contract_checked, checked, tested}`.
+
+#### Acceptance
+
+Post-fix run produces `terminal_state: target-reached`, `terminal_reason: "terminal predicate matched at turn 1"`. The summary block's `asserted: 6, no_contract: 0` tallies match `_count_bad_trust_tiers` returning 0. Closed.
+
+---
+
+### F-004 status update — **CLOSED**
+
+Per the original F-004 acceptance criterion ("A Phase-2 cell produces `terminal_state: target-reached` with `terminal_reason: 'all expected contracts verified or asserted'`. The `_count_bad_trust_tiers` traversal executes and returns 0."): satisfied by the post-fix k=1 run (`runs/20260511T133355Z-k1-kink-fixed-e002-bank-ledger-llmll/evaluation.json`). The predicate's accept-path is empirically validated. F-004 closes.
+
+### Cross-cutting meta-finding — **stub validation is necessary but not sufficient**
+
+F-007 and F-008 were both schema-coupling defects that the stub run could not have surfaced, because stub solutions never advance past the parse-failure short-circuit. The k=1 real-agent cell — at a cost of zero API spend (because the "agent" was a `cp` shim against an in-tree example) — found both. This pattern argues that **every Phase-1 harness ramp-up should include at least one real-agent cell against a known-verifying solution** before promoting to a paid matrix. Phase 2's calibration step should embed this discipline as a structural prerequisite, not a one-off practice. Recorded as guidance, not a finding requiring action.
+
+### Updated priority matrix (post-addendum)
+
+| # | Finding | Consumer | Priority | Effort estimate | Status |
+|---|---|---|---|---|---|
+| F-001 | Loop closes cleanly | user | N/A | - | Closed |
+| F-002 | Re-injection empirically proven | user | N/A | - | Closed |
+| F-003 | Verifier output structurally usable | user | Defence-in-depth | tracked | Open (reinforced by addendum) |
+| F-004 | Accept-path unexercised | experiment-lead | Medium | - | **Closed by addendum** |
+| F-005 | Version pin captured automatically | user | N/A | - | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | 15 min | Open (deferred) |
+| F-007 | `verify` missing `--json` flag | experiment-lead | High | (fixed) | Closed by addendum |
+| F-008 | Trust-report schema mismatch | experiment-lead | High | (fixed) | Closed by addendum |
+
+### Phase 2 readiness (revised)
+
+The original Phase 2 readiness list is unchanged with one addition: F-004 now closes, so the predicate's accept-path is no longer a Phase-2 prerequisite to validate — it is empirically established. The remaining Phase-2 prerequisites (Python/Rust target adapters, per-language test kits, user approval) are unchanged.

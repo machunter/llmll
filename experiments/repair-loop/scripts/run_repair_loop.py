@@ -398,25 +398,52 @@ def _evaluate_terminal_target(
 def _count_bad_trust_tiers(parsed: Any) -> int:
     """Count trust-report entries below 'asserted'.
 
+    Schema (per `llmll --json verify --trust-report`):
+        {
+          "entries": [
+            {"name": str, "effective_level": str,
+             "pre_level": str, "post_level": str, ...},
+            ...
+          ],
+          "summary": {"verified": int, "contract_checked": int,
+                      "tested": int, "asserted": int, "no_contract": int,
+                      "drifts": int},
+          "suppressions": [...]
+        }
+
     Tolerant of schema variation; if the trust report structure cannot be
     located, returns 1 (conservative — predicate does not match).
     """
-    accepted = {"verified", "proved", "asserted", "checked", "contract-checked"}
-    trust = None
+    accepted_levels = {
+        "verified", "proved", "asserted",
+        "contract-checked", "contract_checked", "checked",
+        "tested",
+    }
+    entries = None
     if isinstance(parsed, dict):
-        trust = parsed.get("trust_report") or parsed.get("trustReport") or parsed.get("trust")
-    if not isinstance(trust, list):
+        entries = parsed.get("entries") or parsed.get("trust_report") or parsed.get("trust")
+    if not isinstance(entries, list):
         return 1
     bad = 0
-    for entry in trust:
+    for entry in entries:
         if not isinstance(entry, dict):
             bad += 1
             continue
-        tier = entry.get("tier") or entry.get("trust_tier") or entry.get("level")
-        if isinstance(tier, str) and tier.lower() in accepted:
+        level = (
+            entry.get("effective_level")
+            or entry.get("tier")
+            or entry.get("trust_tier")
+            or entry.get("level")
+        )
+        if isinstance(level, str) and _normalize_level(level) in accepted_levels:
             continue
         bad += 1
     return bad
+
+
+def _normalize_level(level: str) -> str:
+    """`verified (liquid-fixpoint)` → `verified`; otherwise lowercase as-is."""
+    return level.lower().split()[0] if level else ""
 
 
 def _capture_compiler_version(llmll_cmd: str, target: dict[str, Any]) -> dict[str, Any]:

@@ -1,0 +1,20 @@
+{
+  "_purpose": "Ad-hoc Phase-1 kink-finding manifest. k=1 real-agent run before Phase-2 calibration. Not gitignored; remove if not useful long-term.",
+  "experiments": ["002-bank-ledger"],
+  "targets": ["llmll"],
+  "run_count": 1,
+  "repair_budget_k": 1,
+  "terminal_target": {
+    "kind": "trust-tier",
+    "value": "all-expected-contracts-verified-or-asserted"
+  },
+  "timeout_seconds_per_turn": 120,
+  "llmll_cmd": "llmll",
+  "agents": [
+    {
+      "name": "shim-banking-ledger",
+      "cmd": "cp ../../../../examples/banking_ledger/banking.llmll solution.llmll",
+      "note": "Real-agent code-path test; uses the in-tree banking_ledger example as the agent's emission."
+    }
+  ]
+}
