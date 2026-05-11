@@ -68,8 +68,18 @@ REQUIRED_FEATURES = {
 
 CONTRACT_EXPECTATIONS = {
     1: {
+        # E3-revert (post-EL-A re-validation, batch 20260510T235111Z):
+        # flipping this to True over-restricted the experiment. The pre clause
+        # `(password not empty)` is QF-LIA-tractable; ?proof-required is
+        # scoped to postconditions the verifier cannot discharge (LLMLL.md
+        # §13.8 / §5.3.5), not preconditions on input shape. Top-tier agents
+        # (correctly) did not emit the marker → 8/9 attempts dropped B→C.
+        # Reverted to False; B ceiling on 001 is the honest reflection of
+        # the verification matrix until experiment 001 is restructured to
+        # encapsulate the delegate in an uncontracted helper (Option 2 of
+        # the E3 finding, deferred).
         "login-handler": {
-            "pre": {"proof_required": True},
+            "pre": {"proof_required": False},
         },
     },
     2: {

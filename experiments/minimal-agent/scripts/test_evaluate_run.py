@@ -355,19 +355,28 @@ class ScanFeaturesMissingRequiredTests(unittest.TestCase):
 
 
 class ContractExpectationE3Tests(unittest.TestCase):
-    def test_experiment_001_login_handler_pre_proof_required_is_true(self):
-        # E3: confirms the contract expectation flip landed and stays landed.
-        # Regression guard: if anyone flips this back to False, the test fails
-        # loudly so the grade-A ceiling on 001 isn't silently re-imposed.
+    def test_experiment_001_login_handler_pre_proof_required_is_false(self):
+        # E3-revert (post-EL-A re-validation, batch 20260510T235111Z):
+        # The original EL-A E3 change flipped this to True to lift the B
+        # ceiling, but in production all 9 top-tier attempts dropped B→C
+        # because top-tier agents (correctly) do not emit ?proof-required
+        # on the pre clause — `(password not empty)` is QF-LIA-tractable
+        # and ?proof-required is scoped to postconditions the verifier
+        # cannot discharge (LLMLL.md §13.8 / §5.3.5).
+        # Regression guard: keep this at False until experiment 001 is
+        # restructured to encapsulate the delegate in an uncontracted
+        # helper (Option 2 of the E3 finding, deferred).
         expectations = evaluate_run.CONTRACT_EXPECTATIONS
         self.assertIn(1, expectations)
         self.assertIn("login-handler", expectations[1])
         self.assertIn("pre", expectations[1]["login-handler"])
-        self.assertTrue(
+        self.assertFalse(
             expectations[1]["login-handler"]["pre"]["proof_required"],
-            "E3 regression: login-handler.pre.proof_required must be True so "
-            "?proof-required marker is the documented escape, lifting the "
-            "grade-A ceiling.",
+            "E3-revert regression: login-handler.pre.proof_required must "
+            "remain False. Flipping to True over-restricts the experiment "
+            "because the pre clause is QF-LIA-tractable and does not need "
+            "a ?proof-required marker. See postmortem-001-el-a-revalidation "
+            "F-201 for the empirical evidence.",
         )
 
 
