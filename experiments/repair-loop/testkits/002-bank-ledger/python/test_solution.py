@@ -1,8 +1,9 @@
-"""Phase-1.5 smoke tests for the bank-ledger Python stub.
+"""Phase-1.75 harness tests for the 002-bank-ledger Python stub.
 
-Not the full testkit — Phase-1.75 will expand to the canonical harness suite
-listed in problems/002-bank-ledger.md. These tests exist to validate that
-the pytest path through the orchestrator wires correctly.
+Coverage parallels the Go testkit and the harness-test list in
+problems/002-bank-ledger.md. Tests are harness-owned (injected by the
+orchestrator via targets/python.json `harness_files`); agents do NOT
+write or modify this file.
 """
 import pytest
 
@@ -30,17 +31,44 @@ def test_successful_transfer_updates_both_accounts():
     assert balance(after, "bob") == 750
 
 
-def test_transfer_preserves_total_balance():
+def test_transfer_preserves_total_balance_single_step():
     ledger = create_ledger({"alice": 1000, "bob": 500})
     before = total_balance(ledger)
     after = transfer(ledger, "alice", "bob", 250)
     assert total_balance(after) == before
 
 
+def test_sequence_of_transfers_preserves_total_balance():
+    ledger = create_ledger({"alice": 1000, "bob": 500, "carol": 200})
+    before = total_balance(ledger)
+    steps = [
+        ("alice", "bob", 100),
+        ("bob", "carol", 50),
+        ("carol", "alice", 25),
+        ("alice", "carol", 75),
+    ]
+    curr = ledger
+    for frm, to, amount in steps:
+        curr = transfer(curr, frm, to, amount)
+        assert total_balance(curr) == before, f"after {(frm, to, amount)}"
+
+
 def test_insufficient_funds_rejected():
     ledger = create_ledger({"alice": 100, "bob": 0})
     with pytest.raises(InsufficientFundsError):
         transfer(ledger, "alice", "bob", 250)
+
+
+def test_insufficient_funds_leaves_ledger_unchanged():
+    ledger = create_ledger({"alice": 100, "bob": 0})
+    before_balances = dict(ledger.balances)
+    before_log = ledger.log
+    with pytest.raises(InsufficientFundsError):
+        transfer(ledger, "alice", "bob", 250)
+    # Frozen dataclass guarantees immutability, but the test asserts
+    # the contract explicitly for cross-language symmetry with Go.
+    assert dict(ledger.balances) == before_balances
+    assert ledger.log == before_log
 
 
 def test_missing_account_rejected():
@@ -51,7 +79,6 @@ def test_missing_account_rejected():
 
 def test_non_positive_amount_rejected():
     ledger = create_ledger({"alice": 100, "bob": 0})
-    with pytest.raises(NonPositiveAmountError):
-        transfer(ledger, "alice", "bob", 0)
-    with pytest.raises(NonPositiveAmountError):
-        transfer(ledger, "alice", "bob", -50)
+    for amount in (0, -1, -100):
+        with pytest.raises(NonPositiveAmountError):
+            transfer(ledger, "alice", "bob", amount)

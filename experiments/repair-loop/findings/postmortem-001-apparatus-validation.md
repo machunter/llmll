@@ -699,3 +699,98 @@ Three sub-items, ordered:
 3. ☐ **`evaluate_run.py` scoring extension**: implement two-axis scoring per `docs/design/language-comparison-experiments.md:198-226`. Minimum viable: score the categories with clean per-target evidence (Build/typecheck = 15 pts, API conformance = 15 pts, Core behavior = 35 pts via test pass rate, Proof or trust evidence = 20 pts for LLMLL only). Stub the rest with placeholder + TODO. Currently `scoring.status = "pending"` for real runs; this becomes a real score.
 
 Phase 2 (paid calibration) still gated on (2) and (3) plus user approval.
+
+---
+
+## Addendum 7 — Phase-1.75: testkit content expansion (sub-item #2 of three)
+
+> **Added:** 2026-05-11
+> **Purpose:** Close the second of three Phase-1.75 sub-items: per-language testkit content. Go switches from single-file mode to module mode with `go.mod` + `solution_test.go`; Python `test_solution.py` expands from 6 smoke tests to 8 harness tests matching the harness-test list in `problems/002-bank-ledger.md`; LLMLL's in-source-test asymmetry is confirmed and documented.
+
+### F-015. Go testkit upgraded to module mode with 8-test harness suite
+
+**Priority:** Phase 1.75 prerequisite (closed by this addendum)
+**Consumer:** experiment-lead (closed)
+
+#### Design and evidence
+
+Three changes:
+
+1. **Solution stub refactor.** `testkits/002-bank-ledger/go/solution.go` renames the previous `Transfer` type to `TransferRecord`, freeing the function name `Transfer` (formerly `Transferr` — a one-r hack from Phase 1.5 to avoid the type/function collision). The renaming is cosmetic; the public API surface for harness tests is now idiomatic Go (`Transfer(...) (*Ledger, error)`).
+2. **Module structure added.** `testkits/002-bank-ledger/go/go.mod` declares `module solution; go 1.23`. The harness now operates in module mode, which is the prerequisite for `go test ./...`.
+3. **Test file added.** `testkits/002-bank-ledger/go/solution_test.go` carries 8 tests against the harness-test list in `problems/002-bank-ledger.md`:
+   - `TestCreateLedgerPreservesBalances`
+   - `TestSuccessfulTransferUpdatesBothAccounts`
+   - `TestTransferPreservesTotalBalanceSingleStep`
+   - `TestSequenceOfTransfersPreservesTotalBalance`
+   - `TestInsufficientFundsRejected`
+   - `TestInsufficientFundsLeavesLedgerUnchanged` (covers the "failed transfer leaves ledger unchanged" requirement)
+   - `TestMissingAccountRejected`
+   - `TestNonPositiveAmountRejected`
+
+`targets/go.json` declares `harness_files: ["go.mod", "solution_test.go"]` and switches `verifier_commands` from single-file mode (`go vet solution.go`, `go build solution.go`) to module mode (`go vet ./...`, `go build ./...`, `go test ./...`).
+
+Validation cell `runs/20260511T153812Z-k1-go-module-...`: `vet rc=0`, `build rc=0`, `test rc=0` with all 8 tests passing in 0.586s. Run dir contains `go.mod` (injected), `solution.go` (shimmed), `solution_test.go` (injected).
+
+#### Acceptance
+
+Closed. The Go target adapter is ready for Phase 2 calibration.
+
+### F-016. Python testkit expanded to 8-test harness suite
+
+**Priority:** Phase 1.75 prerequisite (closed by this addendum)
+**Consumer:** experiment-lead (closed)
+
+#### Design and evidence
+
+`testkits/002-bank-ledger/python/test_solution.py` expands from 6 Phase-1.5 smoke tests to 8 tests matching the Go list:
+
+- 2 tests renamed for clarity (`test_transfer_preserves_total_balance` → `test_transfer_preserves_total_balance_single_step`).
+- 2 tests added: `test_sequence_of_transfers_preserves_total_balance` (covers the "sequence of valid transfers" harness requirement), `test_insufficient_funds_leaves_ledger_unchanged` (covers the "leaves ledger unchanged on failure" requirement; Python's frozen dataclass design guarantees immutability structurally, but the test asserts it explicitly for cross-language symmetry).
+- 6 tests preserved unchanged.
+
+Validation cell `runs/20260511T161928Z-k1-python-expanded-...`: pyright clean, pytest `8 passed in 0.01s`.
+
+#### Cross-language parity
+
+Go and Python testkits now exercise identical behavioral coverage. The two test lists are line-by-line equivalent (modulo language-idiomatic assertion syntax). This makes Phase-3 H1/H2 comparisons defensible at the "same product specification, same behavioral test surface" axis required by [language-comparison-experiments.md:234](../../../docs/design/language-comparison-experiments.md#L234).
+
+#### Acceptance
+
+Closed.
+
+### F-017. LLMLL in-source-test asymmetry confirmed; no testkit content authored
+
+**Priority:** N/A (documented, not blocking)
+**Consumer:** experiment-lead (closed by note)
+
+#### Evidence
+
+LLMLL's testing model is in-source `(check ...)` blocks within the solution file (`llmll test solution.llmll` runs them). There is no separate harness-test-file pattern in LLMLL today, and engineering one — via `(open <module>)` cross-file imports against an agent-emitted solution module — is out of scope for Phase 1.75 (requires module-system features and design work that belongs in `language-team`, not `experiment-lead`).
+
+Consequence: `targets/llmll.json` continues to declare no `harness_files`; the LLMLL testkit at `testkits/002-bank-ledger/llmll/` remains empty (its existence is documentary).
+
+#### Implication for Phase-2/3 scoring
+
+For Go and Python, "Test quality" (assurance rubric, 20 pts) is split across two evidence sources: harness-owned tests (the baseline guaranteed by injection) and agent-emitted tests (additive — agents can add their own). For LLMLL, harness-owned tests do not exist; "Test quality" is entirely derived from agent-emitted `(check ...)` blocks. This asymmetry must be reflected in the scoring extension (sub-item #3) — LLMLL's test-quality score should reward check-block density and contract-coverage diversity, not raw test-pass count.
+
+Documented here as a Phase 1.75 sub-item #3 constraint. Will be cited in Addendum 8 when scoring lands.
+
+### Updated priority matrix (post-addendum-7)
+
+| # | Finding | Consumer | Priority | Effort estimate | Status |
+|---|---|---|---|---|---|
+| F-001..F-013 | (Phase 1 / 1.5) | various | various | - | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | 15 min | Open (deferred) |
+| F-014 | `harness_files` injection seam | experiment-lead | Phase-1.75 prereq | - | Closed by Addendum 6 |
+| F-015 | Go module-mode + 8-test suite | experiment-lead | Phase-1.75 prereq | - | **Closed by Addendum 7** |
+| F-016 | Python 8-test suite (parity with Go) | experiment-lead | Phase-1.75 prereq | - | **Closed by Addendum 7** |
+| F-017 | LLMLL in-source-test asymmetry | experiment-lead | N/A | - | **Closed by Addendum 7 (documented)** |
+
+### Phase 1.75 readiness (post-addendum-7)
+
+Three sub-items, ordered:
+
+1. ☑ Adapter-declared `harness_files` + orchestrator pre-injection (Addendum 6).
+2. ☑ Per-language testkit content expansion (Addendum 7).
+3. ☐ `evaluate_run.py` scoring extension — the final Phase-1.75 prerequisite before Phase 2 calibration can run with real (non-placeholder) correctness/assurance numbers.

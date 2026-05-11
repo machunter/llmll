@@ -1,11 +1,10 @@
-// Phase-1.5 stub bank-ledger solution for Go adapter validation.
+// Phase-1.75 stub bank-ledger solution for Go adapter validation.
 //
-// Minimal working implementation: satisfies the 002-bank-ledger API surface
-// with correct types and basic invariants, compiles cleanly under `go vet`
-// and `go build`. Not the canonical Phase-2/3 solution — agents will write
-// their own. Used here only to validate that the Go target adapter wires
-// `go vet` and `go build` through the orchestrator without schema-coupling
-// defects.
+// Module-mode upgrade from Phase-1.5: paired with go.mod and
+// solution_test.go (both harness-owned via targets/go.json
+// `harness_files`). Verifier chain runs `go vet ./...`, `go build ./...`,
+// `go test ./...`. Not the canonical Phase-2/3 solution — agents will
+// write their own.
 package main
 
 import (
@@ -15,10 +14,10 @@ import (
 
 type Ledger struct {
 	balances map[string]int64
-	log      []Transfer
+	log      []TransferRecord
 }
 
-type Transfer struct {
+type TransferRecord struct {
 	From   string
 	To     string
 	Amount int64
@@ -46,7 +45,7 @@ func Balance(l *Ledger, accountID string) (int64, error) {
 	return b, nil
 }
 
-func Transferr(l *Ledger, from, to string, amount int64) (*Ledger, error) {
+func Transfer(l *Ledger, from, to string, amount int64) (*Ledger, error) {
 	if amount <= 0 {
 		return nil, ErrNonPositiveAmount
 	}
@@ -66,8 +65,8 @@ func Transferr(l *Ledger, from, to string, amount int64) (*Ledger, error) {
 	}
 	newBalances[from] -= amount
 	newBalances[to] += amount
-	newLog := append([]Transfer(nil), l.log...)
-	newLog = append(newLog, Transfer{From: from, To: to, Amount: amount})
+	newLog := append([]TransferRecord(nil), l.log...)
+	newLog = append(newLog, TransferRecord{From: from, To: to, Amount: amount})
 	return &Ledger{balances: newBalances, log: newLog}, nil
 }
 
@@ -80,8 +79,8 @@ func TotalBalance(l *Ledger) int64 {
 }
 
 func main() {
-	// Smoke: not exercised by the harness; here only so `go build` produces
-	// an executable rather than a library (single-file mode requires a main).
+	// Smoke main: not exercised by the harness. Exists only so `go build`
+	// in package-main mode produces an executable.
 	l := CreateLedger(map[string]int64{"alice": 1000, "bob": 500})
 	fmt.Println("total:", TotalBalance(l))
 }

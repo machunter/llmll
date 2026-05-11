@@ -2,23 +2,28 @@
   "target": "go",
   "version_pin_command": ["go", "version"],
   "expected_files_priority": ["solution.go"],
+  "harness_files": ["go.mod", "solution_test.go"],
   "verifier_commands": [
     {
       "name": "vet",
-      "argv": ["go", "vet", "{solution}"],
+      "argv": ["go", "vet", "./..."],
       "capture": "exit_and_text"
     },
     {
       "name": "build",
-      "argv": ["go", "build", "-o", "/dev/null", "{solution}"],
-      "capture": "exit_and_text",
-      "_note": "Single-file mode: no go.mod required. Phase-1.75 will expand to module-mode with `go test ./...` once testkit-injection lands."
+      "argv": ["go", "build", "-o", "/dev/null", "./..."],
+      "capture": "exit_and_text"
+    },
+    {
+      "name": "test",
+      "argv": ["go", "test", "-v", "./..."],
+      "capture": "exit_and_text"
     }
   ],
   "terminal_target_predicates": {
     "all-verifier-commands-pass": {
-      "description": "All configured verifier commands exit 0. For Phase-1.5 Go: vet + build succeed. Phase-1.75 will add test.",
-      "applies_to_commands": ["vet", "build"]
+      "description": "All configured verifier commands exit 0. For Phase-1.75 Go: vet + build + test succeed. Module-mode operation requires go.mod (harness-injected). Test file solution_test.go is harness-owned.",
+      "applies_to_commands": ["vet", "build", "test"]
     }
   },
   "scoring": {
@@ -27,7 +32,8 @@
     "go_assurance_sources": [
       "go vet (basic static analysis)",
       "go build (type-check + compile)",
-      "go test (test pass rate, when testkit-injection lands in Phase 1.75)"
+      "go test (test pass rate)",
+      "exported-type density (assurance subscore, Phase 1.75+)"
     ]
   },
   "context_injection": {
