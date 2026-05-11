@@ -1,9 +1,11 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.10.1 shipped (Patch Release). 570 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.10.2 shipped (Soundness Blockers + Diagnostic Surface). 584 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
-> **Governing design criterion:** Every deliverable is evaluated against *one-shot correctness* — an AI agent writes a program once, the compiler accepts it, contracts verify, no iteration required.
+> **Governing design criterion:** Every compiler deliverable is evaluated against *progress toward one-shot correctness* — does this release reduce the iteration burden, increase obligation completeness, or shorten the repair distance for an AI agent producing LLMLL code? The intended terminal state is that an agent writes a program once, the compiler accepts it, contracts verify.
+>
+> We measure progress toward that state empirically, including via repair-loop experiments where the verification surface's iteration aid is the dependent variable. First-round measurement is one such empirical regime; it is not the only one, and it is not load-bearing for every feature. See [`docs/design/empirical-methodology.md`](design/empirical-methodology.md) for the diagnosis and rationale.
 >
 > **Relationship to `LLMLL.md §14`:** The two documents are **complementary, not competing**. `LLMLL.md §14` is the *language-visible feature list* (what users and AI agents see). This document is the *engineering backlog* — implementation tickets, acceptance criteria, decision records, and bug tracking. When a feature ships it is marked complete here and the user-visible description is kept in `LLMLL.md §14`.
 

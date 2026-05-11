@@ -2,6 +2,14 @@
 
 ---
 
+## Unreleased
+
+### Roadmap — Governing Criterion Disambiguation
+
+- **Governing design criterion (roadmap header)** — Disambiguated the v0.10-era criterion text. Previous wording read as both (a) a design criterion for compiler deliverables and (b) a measurement stop-policy for empirical instruments. The revision preserves (a) as *progress toward one-shot correctness* and removes (b) by explicitly endorsing repair-loop experiments as a measurement regime. Resolves the internal contradiction between the roadmap header (line 6) and the v0.10 OBLIG-B success metric (line 98). Diagnosis and rationale in [`docs/design/empirical-methodology.md`](docs/design/empirical-methodology.md). Unblocks repair-loop experiment design under `experiment-lead`.
+
+---
+
 ## v0.10.2 — Soundness Blockers + Diagnostic Surface (2026-05-10)
 
 ### Compiler — Delegate Fallback Typechecking
