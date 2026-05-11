@@ -945,48 +945,88 @@ Re-launched probe shows the agent emitted spec-aligned LLMLL (`(module ...)`, re
 
 ---
 
-### F-024. Gemini emits snake_case identifiers; LLMLL parser rejects them
+### F-024. Gemini's match-arm surface drifts from the §17 grammar (revised diagnosis 2026-05-11)
 
-**Priority:** Medium (downstream; not a harness defect — exactly the kind of agent-vs-language friction the Phase-2 matrix is meant to measure)
-**Consumer:** language-team or documentation-lead (decision: who owns the pedagogical surface for naming conventions)
+**Priority:** Medium (downstream; agent-vs-language friction; documentation surface)
+**Consumer:** language-team (canonical match-arm surface decision) + documentation-lead (§3.3 example correction)
+**Status:** revised 2026-05-11 after isolation testing disconfirmed both prior diagnoses
 
-#### Evidence
+#### Original hypothesis (withdrawn)
 
-Re-launched probe (`runs/20260511T183807Z-phase2-probe-2-...`) — Gemini's emitted `solution.llmll`:
+The probe report attributed the parse failure to Gemini's snake_case identifiers (`create_ledger`, `account_id`). Bisection against `llmll 0.10.2` shows snake_case identifiers parse cleanly in isolation; the §2.1 identifier character class accepts both `_` and `-`, and the canonical-form pedagogy in §2.5 (shipped in commit `2c80eec`) clarifies this for future agents. The original diagnosis is withdrawn.
+
+A second hypothesis raised during the revision pass — that Gemini invented a user-defined sum-type surface LLMLL does not support — is also withdrawn. LLMLL §3.3 ships user-defined sum types with the exact `(type Name (| Constructor Payload))` form Gemini emitted, and `(type Transaction (| Transfer (string, (string, Amount))))` parses cleanly in isolation against `llmll 0.10.2`. R3 (sum-types non-goal callout) is withdrawn — the data does not support it.
+
+#### Revised root cause (verified by bisection)
+
+The actual parse failure is match-arm wrapping. `LLMLL.md` §17 grammar line 1618:
 
 ```
-(def-logic create_ledger [accounts: map[string, int]]
-  ...)
-(def-logic balance [ledger: Ledger account_id: string]
-  ...)
-(def-logic total_balance [ledger: Ledger]
-  ...)
-(def-logic transfer [ledger: Ledger from: string to: string amount: int]
-  ...)
+match-arm = "(" pattern expr ")"
 ```
 
-Parser output (`check` command stdout):
+Each arm shares one set of parens around pattern and body. Gemini emitted siblings:
+
 ```
-(error :phase parse :file "solution.llmll" :line 32 :col 25
-  :message "unexpected 'a' expecting ')'"
-  :hint "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)")
+(match ledger
+  (LedgerState (pair accounts _))     ;; pattern in its own parens
+  (map-get accounts account_id))      ;; body as sibling form
 ```
 
-Identifier convention in shipping LLMLL: kebab-case (`safe-subtract`, `clamp-withdraw`, `withdraw-twice`, `compute-fee` in `examples/banking_ledger/banking.llmll`). Gemini used snake_case throughout, mirroring the Python-style names in `problems/002-bank-ledger.md` (which uses snake_case in the spec's English description: `create_ledger`, `apply_guess`, etc., to keep the cross-language problem statement language-neutral).
+The parser, having closed the pattern at the end of line 31, expects the closing `)` of the `match` form. The bare `(map-get accounts account_id)` at line 32 col 25 produces the `unexpected 'a' expecting ')'` token. Re-wrapping the arm parses cleanly:
 
-#### Why we saw what we saw
+```
+(match ledger
+  ((LedgerState (pair accounts _)) (map-get accounts account_id)))
+```
 
-The problem statement uses snake_case API names because it is language-neutral (per the cross-language design doc's intent). Per-target adapters should translate the conventions; for LLMLL, the canonical form is kebab-case (`create-ledger`, `apply-guess`). The translation isn't currently documented anywhere agents see; even with `LLMLL.md` in scope, the naming convention is not prominent in the spec's first sections, and Gemini may not have read deeply enough to discover it before emitting.
+Bisection runs (`llmll 0.10.2`, n=1 each, `/tmp/*.llmll`):
+
+| Minimal pair | Result |
+|---|---|
+| Bare snake_case (`def-logic create_ledger [accounts: ...]`) | parses OK |
+| Gemini's literal sum-type `(type Transaction (\| Transfer (string, (string, Amount))))` | parses OK |
+| Full match arm with snake_case body, sibling form | fails at col 25 with `unexpected 'a' expecting ')'` |
+| Same match arm with kebab-case identifiers throughout, sibling form | fails at col 25 with same error |
+| Same match arm with arms wrapped per §17 grammar, snake_case body | parses OK |
+
+The variable that drives parse / no-parse is the arm wrapping, not the casing and not the sum-type declaration.
+
+#### Cross-evidence: spec self-inconsistency
+
+LLMLL §3.3 lines 206–213 give informal `match` examples in the *sibling* form:
+
+```
+(match status
+  (Red)              "stop"
+  (Green _)          "go"
+  (Blue)             "wait")
+```
+
+The §17 grammar rejects this form. The same parser error fires verbatim on the §3.3 informal example when copy-pasted into a complete module. The §3.3 example surface drifts from the shipping grammar. Shipping examples (e.g., `examples/pair_type_test/pair_destruct_let.llmll:14`) already use the wrapped form, which points to §17 being correct and §3.3's informal example being the documentation defect.
 
 #### Implication
 
-For Phase 2/3 H1/H2 measurement: this is a real piece of agent-vs-language friction that the matrix should capture. *Don't* fix the harness to translate names automatically — that would mask the friction that the experiment is meant to measure. *Do* consider whether the per-target adapter (`targets/llmll.json`) or `TARGET.md` should include a brief naming-convention callout: "LLMLL identifiers use kebab-case. The problem's snake_case API names should be transliterated: `create_ledger` → `create-ledger`, `total_balance` → `total-balance`, etc." This is a `language-team` or `documentation-lead` call. The empirical evidence supports either: (a) include the callout (reduces the noise floor; LLMLL agents stop losing points to naming alone), or (b) omit it (keeps the agent-vs-spec friction visible; LLMLL agents will need to read the spec carefully or fail at parse).
+For `language-team`: decide which match-arm surface is canonical. Options:
 
-If (a): the apparatus change is a one-line addition to the LLMLL target descriptor. If (b): no change; this is data for the Phase-3 H1/H2 report.
+- (a) §17 grammar is canonical (arms wrapped). §3.3 informal examples must be corrected to `((Red) "stop") ((Green _) "go") ...` form. Shipping `examples/` already use this form, so no compiler or example change is needed.
+- (b) §3.3 informal surface is canonical (sibling form). The §17 grammar and parser must extend to accept it.
+
+Empirical evidence (shipping `examples/`, surviving repair-loop solutions, current parser behaviour) points to (a). The §3.3 informal example is then a documentation defect.
+
+For `documentation-lead`: after the `language-team` decision, publish whichever side is correct. If (a): patch §3.3 examples to wrapped form. If (b): patch §17 grammar.
+
+For Phase-2/3 H1/H2 measurement: this remains the kind of agent-vs-spec friction the matrix is meant to capture. The decision above governs the expected noise floor — under (a) with §3.3 corrected, LLMLL agents that read the spec consistently should converge on wrapped arms.
 
 #### Acceptance
 
-Recorded as a Phase-2/3 observation. Closure depends on user routing decision.
+- `language-team` produces a canonical-form decision and writes it to `docs/design/` or directly into `LLMLL.md` §3.3 / §17.
+- `documentation-lead` patches the losing side.
+- A k=1 re-probe with Gemini on `002-bank-ledger` produces a `solution.llmll` that parses (assuming the spec is internally consistent and Gemini reads the corrected §3.3).
+
+#### Related: §2.5 naming pedagogy (closed)
+
+The naming-convention noise source addressed by §2.5 in commit `2c80eec` is closed as originally intended, even though naming was not F-024's actual root cause. §2.5 removes a separate friction source from future cells and remains valuable.
 
 ---
 
@@ -1034,7 +1074,7 @@ The k=1 probe does not exercise turn-2-vs-turn-1 differences. Two options for cl
 | F-021 | Run dir does not seed LLMLL.md + schema | experiment-lead | High | **Closed by Addendum 9** |
 | F-022 | Agent timeout calibration (240s insufficient under F-021) | experiment-lead | Medium | **Closed by Addendum 9 (manifest reduction to k=1 + 540s)** |
 | F-023 | AGENT_INSTRUCTIONS.md needs spec-availability note | experiment-lead | Low | **Closed by Addendum 9** |
-| F-024 | Gemini emits snake_case identifiers | language-team / documentation-lead | Medium | **Open — user routes** |
+| F-024 | Match-arm wrapping drift (§3.3 informal examples vs §17 grammar); naming-convention surface closed via §2.5 / `2c80eec` | language-team + documentation-lead | Medium | **Revised 2026-05-11 — match-arm canonical form open; §2.5 naming pedagogy closed; R3 sum-types non-goal withdrawn** |
 
 ### Phase 2 calibration readiness (post-probe)
 
@@ -1044,7 +1084,7 @@ Phase-2 launch decision:
 
 1. **Pre-Phase-2: tooling caveat.** My Bash subprocess cap (10 min) is below a worst-case Phase-2 cell's latency (~45 min at 540s × 5 turns + verifier). The user should launch the Phase-2 matrix from their own shell, not via this conversation's Bash tool. Alternatively, a `run_matrix.py` script can be authored for the repair-loop harness (mirroring the minimal-agent precedent) and the user invokes it directly.
 2. **Phase 2 cost estimate (revised).** 9 cells × ≤45 min per cell ≈ 7 hours serial wall-clock. API spend depends on agent mix; under $50 at typical token costs across Claude Opus + Sonnet + Gemini.
-3. **F-024 routing decision.** User picks: include naming-convention callout in `targets/llmll.json` TARGET.md (reduces noise) or leave it out (preserves the agent-vs-language friction as Phase-3 H1/H2 evidence).
+3. **F-024 routing decision (revised 2026-05-11).** Route to `language-team` for §3.3-vs-§17 match-arm canonical-form decision (recommended; this gates the parse-error noise floor for any match-heavy problem in Phase 2/3). The original naming-convention TARGET.md callout question is moot — §2.5 pedagogy in commit `2c80eec` already closed the naming surface, and bisection showed naming was not the actual root cause anyway.
 4. **Optional follow-up k=2 probe.** Single Gemini call to validate secondary hypothesis (turn-2 reads turn-1 context). Recommended if F-024 isn't routed via TARGET.md change, since a k=2 cell with parse failure on turn 1 would directly demonstrate whether the agent ATTEMPTS to consume the parse-error diagnostic on turn 2.
 
 Phase 2 (paid calibration) still gated on (2) and (3) plus user approval.
@@ -1143,3 +1183,97 @@ Three sub-items, ordered:
 1. ☑ Adapter-declared `harness_files` + orchestrator pre-injection (Addendum 6).
 2. ☑ Per-language testkit content expansion (Addendum 7).
 3. ☐ `evaluate_run.py` scoring extension — the final Phase-1.75 prerequisite before Phase 2 calibration can run with real (non-placeholder) correctness/assurance numbers.
+
+---
+
+## Addendum 10 — F-024 revised diagnosis + Phase-2 cell pin
+
+> **Added:** 2026-05-11
+> **Revised:** 2026-05-11 (second pass — see below; original sum-type-non-goal framing withdrawn)
+> **Purpose:** Correct the F-024 record from Addendum 9 (misdiagnosed as snake_case parse failure), document the naming pedagogy that landed in `LLMLL.md §2.5`, and pin the Phase-2 cell composition for a downstream launcher turn.
+
+### F-024 revised — real cause is match-arm wrapping (§3.3 informal vs §17 grammar)
+
+Addendum 9's record at line 948 named the parse failure as `Gemini emits snake_case identifiers`. That diagnosis is wrong. A first-pass revision of this addendum then attributed the failure to user-defined sum-type surface invention; that diagnosis is also wrong. Re-bisection against `llmll 0.10.2` against the verbatim probe artefact ([turns/turn_01/solution.llmll](runs/20260511T183807Z-phase2-probe-2-e002-bank-ledger-llmll/turns/turn_01/solution.llmll)):
+
+| Snippet under test | Result |
+|---|---|
+| Bare snake_case (`def-logic create_ledger [accounts: ...]`) | parses OK |
+| Bare kebab-case (`def-logic plus-one [n-val: int] ...`) | parses OK |
+| Gemini's literal sum-type `(type Transaction (\| Transfer (string, (string, Amount))))` — single tuple payload | **parses OK** |
+| Multi-arg constructor `(type T (\| Cons string string int))` — different surface, not what Gemini emitted | fails at col 40 (LLMLL constructors take one payload type per §3.3) |
+| Full match arm with snake_case body, sibling form (Gemini's emission) | **fails at col 25** with `unexpected 'a' expecting ')'` |
+| Same match arm with kebab-case identifiers throughout, sibling form | **fails at col 25** with same error |
+| Same match arm with arms wrapped per §17 grammar, snake_case body | parses OK |
+
+The probe's actual parse failure at `solution.llmll:32:25` reproduces only when the match arm is unwrapped. Snake_case and the sum-type declaration are both innocent.
+
+`LLMLL.md §17` line 1618 grammar: `match-arm = "(" pattern expr ")"`. Each arm shares one set of parens around pattern and body. Gemini emitted:
+
+```
+(match ledger
+  (LedgerState (pair accounts _))     ;; pattern alone in parens
+  (map-get accounts account_id))      ;; body as a sibling form
+```
+
+The §3.3 informal example at LLMLL.md lines 206–213 uses this same sibling form:
+
+```
+(match status
+  (Red)              "stop"
+  (Green _)          "go"
+  (Blue)             "wait")
+```
+
+That informal example does not parse. The §3.3 example surface drifts from the shipping §17 grammar. Shipping examples (e.g., `examples/pair_type_test/pair_destruct_let.llmll:14`) already use the wrapped form, so the grammar is correct and §3.3's informal example is the defect.
+
+Gemini's match arm form mirrors the §3.3 informal example. The most likely mechanism is that Gemini read §3.3 and reproduced the surface there, not the §17 grammar.
+
+### Resolution — naming pedagogy landed; match-arm canonical-form decision pending
+
+**Surface-style portion (closed):** `LLMLL.md §2.5 Naming Conventions` shipped in commit `2c80eec` (2026-05-11). Pedagogical only; grammar unchanged. CHANGELOG entry under `Unreleased`. Promoted from a `/language-team` proposal via `/documentation-lead` spec-track hand-off. Closes the naming-convention noise source, even though naming was not F-024's actual root cause.
+
+**Withdrawn (R3 — user-defined sum-types non-goal callout):** The proposal to add a non-goal callout for user-defined sum types is withdrawn. LLMLL §3.3 ships user-defined sum types and the parser accepts Gemini's literal emission of `(type Transaction (| Transfer (string, (string, Amount))))`. The first-pass bisection table that triggered this proposal used the multi-arg constructor form `(| Transfer string string int)` — a synthetic surface Gemini did not emit. Synthetic snippet → synthetic finding. Withdrawn.
+
+**R5 — match-arm canonical form (new, open):** §3.3 informal `match` examples disagree with the §17 grammar. Decision options:
+
+- **R5a:** §17 grammar is canonical (arms wrapped). Patch §3.3 informal examples to wrapped form. Shipping `examples/` already use wrapped form; no compiler or example change is needed. Smallest spec change.
+- **R5b:** §3.3 informal surface is canonical (sibling form). Patch the §17 grammar and parser to accept it. Larger compiler change.
+- **R5c:** Leave silent; accept Phase-2/3 evidence noise.
+
+Empirical evidence (shipping `examples/`, the parser's current behaviour, the working solutions on disk) points to **R5a**. Closure depends on user routing via a separate `/language-team` turn followed by a `/documentation-lead` patch.
+
+### Phase 2 launch-readiness — cell composition pinned
+
+Gate (3) from Addendum 9 ("F-024 routing decision") is **decided**: option (a) selected, but routed via `LLMLL.md §2.5` rather than `targets/llmll.json` TARGET.md. Effect on Phase-2 noise floor is equivalent — agents reading the spec will see the convention.
+
+**Phase 2 cell composition (pinned for launcher turn):**
+
+- **Problem:** `002-bank-ledger` (only problem on disk; QF-LIA-dominant per `README.md:56`).
+- **Targets:** `llmll`, `python`, `go` (per `targets/*.json` adapters).
+- **Agent:** `gemini-default` recommended for continuity with the Phase-2.0 probe (same model, same invocation pattern). Phase 2 is k-calibration on a *known-tractable* cell; rotating the agent introduces a confound with k. Phase 3 rotates agents.
+- **Tries per cell:** 3 (per `README.md:27`).
+- **k (repair budget):** 5 (per `README.md:27`).
+- **Cell count:** 1 problem × 3 targets × 3 tries = 9 cells.
+- **Wall-clock estimate:** 9 cells × ≤45 min (540s × 5 turns + verifier) ≈ 6.75 h serial.
+- **Cost estimate:** under $20 at typical Gemini token costs (Gemini-only mix; Claude/Codex deferred to Phase 3).
+
+### Remaining gap before Phase 2 kick-off
+
+No `run_matrix.py` exists for the repair-loop harness. `run_repair_loop.py` runs one cell per invocation. Options:
+
+- **Option A (recommended):** Author `experiments/repair-loop/scripts/run_matrix.py` that iterates cells from a Phase-2 manifest and supports `--resume-from-cell N`. Mirrors the `experiments/minimal-agent/scripts/run_matrix.py` precedent. ~1 hour of work; amortizes across Phase 2 + Phase 3 (Phase 3 multiplies by 3 agents × 3 problems = 81 cells).
+- **Option B:** Bash loop the user pastes. Trades reproducibility for speed.
+
+A `manifest.phase2-calibration.json` also needs to be written, with the cell composition above. Recommended payload: clone `manifest.phase2-probe-llmll.json`, set `repair_budget_k: 5`, set `run_count: 3`, expand `targets: ["llmll", "python", "go"]`, keep `experiments: ["002-bank-ledger"]` and the `gemini-default` agent. Recommended downstream-turn invocation:
+
+```
+/experiment-lead Phase 2 launcher: author manifest.phase2-calibration.json
+(composition pinned in postmortem-001 Addendum 10) and run_matrix.py with
+--resume-from-cell N support. Cells: 1 problem × 3 targets × 3 tries = 9 cells.
+Agent: gemini-default. k=5, 540s per turn.
+```
+
+### Priority matrix delta
+
+F-024 row at line 1037 updated to point to this addendum; status changed from `Open — user routes` to `Surface-style closed (commit 2c80eec); R3 open`.

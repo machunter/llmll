@@ -24,7 +24,7 @@ Phase 2 calibrates *k*; Phase 3 runs the full matrix.
 | Phase | Purpose | Sample | Status |
 |---|---|---|---|
 | 1 | Apparatus validation: prove the loop closes | 1 stub agent × 1 problem × 1 language × k=3, plus k=1 real-agent kink cells on both `.llmll` and `.ast.json` forms | **Closed** (postmortem-001 Addenda 1–2) |
-| 2 | Calibration: tune *k* and verify scoring on a known-tractable cell | 1 agent × 1 problem × 3 languages (`llmll` + Python + Go) × k=5 × 3 tries | Pending |
+| 2 | Calibration: tune *k* and verify scoring on a known-tractable cell | `gemini-default` × `002-bank-ledger` × 3 languages (`llmll` + Python + Go) × k=5 × 3 tries = 9 cells | Pending (composition pinned per `findings/postmortem-001-apparatus-validation.md` Addendum 10; launcher and manifest still to author) |
 | 3 | Full campaign: test H1/H2/H3 across QF-LIA boundary | 3 agents × 3 problems × 3 languages (`llmll` + Python + Go) × k=5 × 3 tries | Pending |
 | 4 | Ceiling test against a strong-typed control | + Rust as a stretch baseline; contingent on Phase 3 results | Deferred |
 
