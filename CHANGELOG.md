@@ -12,6 +12,10 @@
 
 - **`LLMLL.md` §2.5 (new)** — Documents the canonical naming conventions for LLMLL identifiers: kebab-case for functions / variables / parameters; PascalCase for type names and constructors; trailing `?` for boolean predicates; kebab-case for keywords and builtins; lowercase for reserved identifiers (`result`, `unit`, `true`, `false`). Includes a cross-language API translation note: when a language-neutral problem statement uses snake_case or camelCase, the LLMLL solution transliterates to kebab-case. Pedagogical only — the grammar continues to accept both `_` and `-` per §2.1's identifier character class; the convention is stylistic, not syntactic. Closes the gap surfaced by the repair-loop Phase-2.0 probe where agents emitted parseable but non-idiomatic identifiers and consumed evaluation budget on style drift.
 
+### Spec — Match-Arm Surface Form Correction
+
+- **`LLMLL.md` §3.3 / §9 / §13.5** — Corrected the informal `match` examples to use the canonical wrapped match-arm form `(pattern body)`. The §17 grammar (`match-arm = "(" pattern expr ")"`), the parser, the AST (`EMatch Expr [(Pattern, Expr)]`), the JSON-AST schema (`MatchArm = { pattern, body }`), and every shipping example in `examples/` already use the wrapped form; only the informal prose at three sites had drifted to the sibling form `(pattern) body`. Documentation-only — grammar, parser, schema, and examples are unchanged. Closes the spec self-inconsistency surfaced by the repair-loop Phase-2.0 probe (Gemini reproduced the drifted §3.3 surface and hit a parse failure at the first arm body; bisection in [`experiments/repair-loop/findings/postmortem-001-apparatus-validation.md`](experiments/repair-loop/findings/postmortem-001-apparatus-validation.md) Addendum 10).
+
 ---
 
 ## v0.10.2 — Soundness Blockers + Diagnostic Surface (2026-05-10)

@@ -204,13 +204,13 @@ User-defined tagged unions (also called ADTs or discriminated unions) are declar
 
 ```lisp
 (match status
-  (Red)              "stop"        ;; unit payload elided
-  (Green _)          "go"          ;; unit wildcard — equivalent to elided
-  (Blue)             "wait")
+  ((Red)        "stop")             ;; unit payload elided
+  ((Green _)    "go")               ;; unit wildcard — equivalent to elided
+  ((Blue)       "wait"))
 
 (match event
-  (Start word)       ...           ;; payload bound to `word`
-  (Guess letter)     ...)
+  ((Start word)      ...)           ;; payload bound to `word`
+  ((Guess letter)    ...))
 ```
 
 Both unit-payload forms are accepted; the elided form (`(Red)`) is recommended for readability. Non-unit-payload patterns require sub-pattern arity matching the declared payload structure — a constructor declared `(| Circle float)` matches with exactly one sub-pattern.
@@ -1350,8 +1350,8 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
                          -> ImageBytes)]]
     (let [[chart-result (await chart-future)]]
       (match chart-result
-        (Success img) (pair state (wasi.http.response 200 img))
-        (Error err)   (pair state (wasi.http.response 500 "Agent failed")))))))
+        ((Success img) (pair state (wasi.http.response 200 img)))
+        ((Error err)   (pair state (wasi.http.response 500 "Agent failed"))))))))
 ```
 
 > [!IMPORTANT]
@@ -1815,8 +1815,8 @@ LLMLL distinguishes three syntactic surfaces for `Result[t, e]` values, each wit
 
 ;; Match
 (match (safe-divide x y)
-  (Success q)  q
-  (Error  msg) -1)
+  ((Success q)  q)
+  ((Error  msg) -1))
 
 ;; Test
 (if (is-ok (safe-divide x y)) "ok" "fail")
