@@ -149,7 +149,7 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | `float` | 64-bit IEEE 754 double | `3.14`, `-0.5` |
 | `string` | Immutable UTF-8 byte sequence | `"hello"`, `""` |
 | `bool` | Boolean | `true`, `false` |
-| `unit` | No-value type (result of pure IO commands) | _(no literal; only appears as a type)_ |
+| `unit` | No-value type (result of pure IO commands) | `()` |
 
 ### 3.2 Compound Types
 
@@ -176,11 +176,11 @@ User-defined tagged unions (also called ADTs or discriminated unions) are declar
   (| Start  Word)    ;; carries a Word value
   (| Guess  Letter)) ;; carries a Letter value
 
-;; A sum type with unit constructors (no payload)
+;; A sum type with nullary constructors (no payload)
 (type Color
-  (| Red   unit)
-  (| Green unit)
-  (| Blue  unit))
+  (| Red)
+  (| Green)
+  (| Blue))
 
 ;; A sum type with multiple fields (use pair encoding)
 (type Shape
@@ -188,32 +188,41 @@ User-defined tagged unions (also called ADTs or discriminated unions) are declar
   (| Rect    (float, float))) ;; width, height
 ```
 
-**Construction:** Use the constructor name as a function call:
+**Construction:** A nullary constructor (`(| Variant)`) is written as a bareword identifier. A payload-bearing constructor is written as a function call with the payload:
 
 ```lisp
-(let [[ev (Start "hangman")]]   ;; ev : GameInput
+(let [[c Red]]                  ;; c : Color (nullary, bareword)
   ...)
 
-(let [[c (Red unit)]]           ;; c : Color
+(let [[ev (Start "hangman")]]   ;; ev : GameInput (payload-bearing, call form)
+  ...)
+```
+
+For unit-payload constructors (discouraged for new code; see "Idiomatic guidance" below), the unit literal `()` is the payload — not the bareword `unit`, which parses only as a type:
+
+```lisp
+(let [[s (Idle ())]]            ;; s : Status, where Status is declared (| Idle unit)
   ...)
 ```
 
 **Destruction:** Use `match` (see §3.4). Every `match` on a sum type must be exhaustive.
 
-**Pattern arity:** match patterns mirror constructor arity. Payload-bearing constructors match with sub-patterns equal in number to the declared payload. Unit-payload variants (e.g. `(| AgentTimeout unit)`) accept either zero sub-patterns or a single wildcard:
+**Pattern arity.** Each constructor pattern's sub-pattern count must equal the declared arity of the constructor at its declaration site. A constructor declared `(| Red)` has arity 0 and matches with zero sub-patterns. A constructor declared `(| Red unit)` has arity 1 and matches with one sub-pattern (conventionally `_`). A constructor declared `(| Circle float)` has arity 1 and matches with one sub-pattern bound to the payload. Mismatch produces a typechecker warning.
 
 ```lisp
-(match status
-  ((Red)        "stop")             ;; unit payload elided
-  ((Green _)    "go")               ;; unit wildcard — equivalent to elided
-  ((Blue)       "wait"))
+(match light
+  ((Red)    "stop")
+  ((Green)  "go")
+  ((Blue)   "wait"))
 
 (match event
   ((Start word)      ...)           ;; payload bound to `word`
   ((Guess letter)    ...))
 ```
 
-Both unit-payload forms are accepted; the elided form (`(Red)`) is recommended for readability. Non-unit-payload patterns require sub-pattern arity matching the declared payload structure — a constructor declared `(| Circle float)` matches with exactly one sub-pattern.
+**Idiomatic guidance.** For Boolean-style enums where no constructor carries a payload, declare each variant in the **nullary form** `(| Variant)`. The unit-payload form `(| Variant unit)` is accepted by the parser and produces a distinct AST shape — the generated Haskell encodes it as `Variant ()`, not `Variant` (per `compiler/src/LLMLL/CodegenHs.hs:413-419`) — but is **discouraged** for new declarations. The unit-payload form is preserved for backward compatibility and for the narrow case of Haskell-codegen interop where a downstream consumer destructures the `Variant ()` shape directly.
+
+**Note on `unit`.** The type `unit` is a singleton, with sole inhabitant `()`. A wildcard match `((Variant _) body)` against a unit-payload variant is information-free at the value level, but the AST and the generated Haskell preserve the unit-payload slot regardless. The arity-1 requirement is what keeps the surface consistent with the AST and the codegen target.
 
 
 
