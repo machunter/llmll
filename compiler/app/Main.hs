@@ -48,7 +48,7 @@ import LLMLL.HoleAnalysis
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings)
-import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.PBT (runPropertyTests, assembleTestStatements, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..))
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
@@ -505,18 +505,20 @@ doHoles json fp deps mDepsOut = do
 
 doTest :: Bool -> FilePath -> Bool -> IO ()
 doTest json fp emitOnly = do
-  -- P4 fix: use loadStatements so .ast.json is routed to JSON parser
-  mStmts <- loadStatements json fp
-  case mStmts of
+  -- MOD-PBT-1: use loadStatementsMulti so PBT FuncEnv can see imported
+  -- def-logic via assembleTestStatements (F-018 closure).
+  mResult <- loadStatementsMulti json fp
+  case mResult of
     Left ()    -> exitFailure
-    Right stmts -> do
+    Right (stmts, cache, _loadOrder) -> do
+      let mergedStmts = assembleTestStatements stmts cache
       -- --emit-only: generate the QuickCheck Haskell source and print it,
       -- but skip running stack test (avoids Stack project lock deadlock when
       -- called from inside a running `stack exec llmll` session).
       if emitOnly
         then do
           let modName = T.pack $ takeBaseName fp
-              result  = generateHaskell modName stmts
+              result  = generateHaskell modName mergedStmts
               libSrc  = cgHsSource result
           if json
             then TIO.putStrLn . T.pack . BLC.unpack . encode $
@@ -527,7 +529,7 @@ doTest json fp emitOnly = do
               TIO.putStrLn    "   (stack test skipped — --emit-only)"
           exitSuccess
         else do
-          result <- runPropertyTests stmts
+          result <- runPropertyTests mergedStmts
           if json
             then TIO.putStrLn (pbtResultJson fp result)
             else printPbtResult fp result

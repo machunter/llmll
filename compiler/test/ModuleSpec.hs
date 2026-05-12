@@ -21,6 +21,10 @@ import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheckStrictWithCache, emptyEnv)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch)
+import LLMLL.PBT
+  ( runPropertyTests, assembleTestStatements
+  , PBTResult(..), PBTRun(..), PBTStatus(..)
+  )
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -229,3 +233,111 @@ moduleSpec = describe "Module System" $ do
           diags = checkInterfaceMismatch ["importer"] "TestIface" expected modA_env
       length diags `shouldBe` 1
       diagMessage (head diags) `shouldSatisfy` T.isInfixOf "not exported"
+
+  -- -----------------------------------------------------------------------
+  -- M-08: PBT cross-module FuncEnv via (open ...) — F-018 / MOD-PBT-1
+  -- -----------------------------------------------------------------------
+  describe "M-08: PBT cross-module FuncEnv via (open ...)" $ do
+    let plusOneStmt =
+          defLogic "plus-one" [("n", TInt)] (Just TInt)
+            (EOp "+" [EVar "n", ELit (LitInt 1)])
+        timesTwoStmt =
+          defLogic "times-two" [("n", TInt)] (Just TInt)
+            (EOp "*" [EVar "n", ELit (LitInt 2)])
+        checkProp desc body = SCheck (Property desc [] body)
+
+    it "M-08.1: (open imported) makes imported def-logic resolve in FuncEnv" $ do
+      -- Imported: (def-logic plus-one [n: int] (+ n 1))
+      -- Local:    (import imported) (open imported) (check (= (plus-one 1) 2))
+      let importedEnv = mkEnv ["imported"] [plusOneStmt]
+          localStmts =
+            [ SImport (Import "imported" Nothing Nothing)
+            , SOpen ["imported"] Nothing
+            , checkProp "plus-one-of-1-is-2"
+                (EOp "=" [EApp "plus-one" [ELit (LitInt 1)], ELit (LitInt 2)])
+            ]
+          cache  = mkCache [importedEnv]
+          merged = assembleTestStatements localStmts cache
+      result <- runPropertyTests merged
+      case pbtResults result of
+        [run] -> pbtStatus run `shouldBe` PBTPassed
+        rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+    it "M-08.2: selective (open imported (plus-one)) forwards plus-one but not times-two" $ do
+      let importedEnv = mkEnv ["imported"] [plusOneStmt, timesTwoStmt]
+          localStmts =
+            [ SImport (Import "imported" Nothing Nothing)
+            , SOpen ["imported"] (Just ["plus-one"])
+            , checkProp "plus-one-passes"
+                (EOp "=" [EApp "plus-one" [ELit (LitInt 1)], ELit (LitInt 2)])
+            , checkProp "times-two-not-resolved"
+                (EOp "=" [EApp "times-two" [ELit (LitInt 3)], ELit (LitInt 6)])
+            ]
+          cache  = mkCache [importedEnv]
+          merged = assembleTestStatements localStmts cache
+      result <- runPropertyTests merged
+      let byName n = head [r | r <- pbtResults result, pbtDescription r == n]
+      length (pbtResults result) `shouldBe` 2
+      pbtStatus (byName "plus-one-passes")       `shouldBe` PBTPassed
+      pbtStatus (byName "times-two-not-resolved") `shouldNotBe` PBTPassed
+
+    it "M-08.3: non-exported def-logic is not forwarded even under full (open)" $ do
+      -- Imported module exports only plus-one. times-two is defined but excluded.
+      let importedStmts =
+            [ SExport ["plus-one"]
+            , plusOneStmt
+            , timesTwoStmt
+            ]
+          importedEnv = mkEnv ["imported"] importedStmts
+          localStmts =
+            [ SImport (Import "imported" Nothing Nothing)
+            , SOpen ["imported"] Nothing  -- "open all exports"
+            , checkProp "plus-one-passes"
+                (EOp "=" [EApp "plus-one" [ELit (LitInt 1)], ELit (LitInt 2)])
+            , checkProp "times-two-not-exported"
+                (EOp "=" [EApp "times-two" [ELit (LitInt 3)], ELit (LitInt 6)])
+            ]
+          cache  = mkCache [importedEnv]
+          merged = assembleTestStatements localStmts cache
+      result <- runPropertyTests merged
+      let byName n = head [r | r <- pbtResults result, pbtDescription r == n]
+      pbtStatus (byName "plus-one-passes")        `shouldBe` PBTPassed
+      pbtStatus (byName "times-two-not-exported") `shouldNotBe` PBTPassed
+
+    it "M-08.4: local def-logic shadows imported def-logic of the same name" $ do
+      -- Imported f returns 1; local f returns 0. Local must win.
+      let importedF = defLogic "f" [] (Just TInt) (ELit (LitInt 1))
+          localF    = defLogic "f" [] (Just TInt) (ELit (LitInt 0))
+          importedEnv = mkEnv ["imported"] [importedF]
+          localStmts =
+            [ SImport (Import "imported" Nothing Nothing)
+            , SOpen ["imported"] Nothing
+            , localF
+            , checkProp "local-f-wins"
+                (EOp "=" [EApp "f" [], ELit (LitInt 0)])
+            ]
+          cache  = mkCache [importedEnv]
+          merged = assembleTestStatements localStmts cache
+      result <- runPropertyTests merged
+      case pbtResults result of
+        [run] -> pbtStatus run `shouldBe` PBTPassed
+        rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+    it "M-08.5: fixture-driven loadModule + PBT closes F-018 acceptance criterion" $ do
+      -- Files: test/fixtures/pbt-cross-module/{imported,local}.llmll
+      -- Local: (import imported) (open imported) (check (= (plus-one 1) 2))
+      let srcRoot = "test/fixtures/pbt-cross-module"
+      result <- loadModule False srcRoot [] Map.empty [] ["local"]
+      case result of
+        Left diags -> expectationFailure $
+          "Failed to load fixture: " ++ show (length diags) ++ " diagnostics"
+        Right (cache, _loadOrder, _path) -> do
+          case Map.lookup ["local"] cache of
+            Nothing -> expectationFailure "local module missing from cache"
+            Just localEnv -> do
+              let localStmts = meStatements localEnv
+                  merged    = assembleTestStatements localStmts cache
+              pbtResult <- runPropertyTests merged
+              pbtPassed pbtResult  `shouldBe` 1
+              pbtSkipped pbtResult `shouldBe` 0
+              pbtFailed pbtResult  `shouldBe` 0

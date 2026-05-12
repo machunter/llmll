@@ -1,0 +1,10 @@
+;; F-018 / MOD-PBT-1 fixture: local module that exercises the imported
+;; def-logic via a (check ...) property. Before MOD-PBT-1 this property
+;; Skipped because the PBT FuncEnv did not see imported def-logic; after
+;; the fix it must Pass.
+(import imported)
+(open imported)
+
+(check "plus-one increments correctly"
+  (for-all [n: int]
+    (= (plus-one n) (+ n 1))))

@@ -15,6 +15,9 @@ module LLMLL.PBT
     runPropertyTests
   , runPropertyTestsIO
 
+    -- * Driver helpers
+  , assembleTestStatements
+
     -- * Results
   , PBTResult(..)
   , PBTRun(..)
@@ -25,6 +28,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck
@@ -63,6 +67,53 @@ data PBTResult = PBTResult
   , pbtSkipped :: Int
   , pbtResults :: [PBTRun]
   } deriving (Show, Eq)
+
+-- ---------------------------------------------------------------------------
+-- Driver helpers
+-- ---------------------------------------------------------------------------
+
+-- | Assemble the statement list that the PBT runner should see, given the
+-- local module's statements and the module cache produced by
+-- 'LLMLL.Module.loadModule' / 'loadStatementsMulti'.
+--
+-- F-018 / MOD-PBT-1: extends PBT FuncEnv visibility to honor @(open path)@ —
+-- imported modules' @def-logic@ declarations are concatenated ahead of the
+-- local statement list so that 'buildFuncEnv' (which extracts SDefLogic only)
+-- picks them up. Restrictions:
+--
+--   * Only 'SDefLogic' is forwarded from imports — 'SCheck' blocks and
+--     'SDefInterface' laws from imported modules stay with their owning
+--     module; running them from @llmll test local.llmll@ would surprise the
+--     user (their own test target).
+--   * Each forwarded name must be in 'meExports' of the source module
+--     (respects the imported module's @(export ...)@ clause).
+--   * If @(open path (names))@ restricts the open, only those names are
+--     forwarded.
+--   * Imports come first, local stmts last — 'Map.fromList' right-bias gives
+--     local-shadows-import semantics matching the type-checker.
+--
+-- Qualified-name resolution (@solution.plus-one@) is intentionally out of
+-- scope: per @LLMLL.md §8.5@, qualified names do not resolve at runtime
+-- under the flat-codegen model; PBT honoring them would over-promise
+-- relative to the rest of the runtime.
+assembleTestStatements :: [Statement] -> ModuleCache -> [Statement]
+assembleTestStatements localStmts cache =
+  let openSpecs   = [(openPath o, openNames o) | o@SOpen{} <- localStmts]
+      importedDLs = concatMap importedDefLogics openSpecs
+  in importedDLs ++ localStmts
+  where
+    importedDefLogics (path, mNames) =
+      case Map.lookup path cache of
+        Nothing   -> []
+        Just menv ->
+          let nameFilter = case mNames of
+                Nothing -> const True
+                Just ns -> let s = Set.fromList ns in (`Set.member` s)
+              isExported n = Map.member n (meExports menv)
+          in [ s | s@SDefLogic{defLogicName = n} <- meStatements menv
+                 , isExported n
+                 , nameFilter n
+                 ]
 
 -- ---------------------------------------------------------------------------
 -- Entry Points
