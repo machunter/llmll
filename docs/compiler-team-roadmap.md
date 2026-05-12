@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.10.2 shipped (Soundness Blockers + Diagnostic Surface). 584 Haskell + 37 Python tests passing  
+> **Status:** Active — v0.10.3 shipped (Cross-Module PBT + Spec Pedagogy). 589 Haskell + 37 Python tests passing  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every compiler deliverable is evaluated against *progress toward one-shot correctness* — does this release reduce the iteration burden, increase obligation completeness, or shorten the repair distance for an AI agent producing LLMLL code? The intended terminal state is that an agent writes a program once, the compiler accepts it, contracts verify.
@@ -281,6 +281,8 @@ SPEC-* ✅          ROADMAP-1/2 ✅      EVID-3 (trust ✅)    COMP-3 (EMatch �
 **Critical path:** EVID-0 design review ✅ → v0.8.1b implementation ✅ → COMP-0 design review ✅ → v0.9 implementation ✅ → OBLIG-0 design review ✅ → v0.10 implementation ✅. **All milestones complete.**
 
 **v0.10.2 patch shipped (2026-05-10):** soundness blockers (delegate fallback typecheck, PBT discard, evaluator expansion) + diagnostic surface + JSON-AST schema bump 0.3.0 → 0.4.0. 584 Haskell + 37 Python tests. No milestone advancement. See `CHANGELOG.md` v0.10.2.
+
+**v0.10.3 patch shipped (2026-05-12):** cross-module PBT visibility (MOD-PBT-1 / F-018 — `(open ...)`-targeted `def-logic` now reaches the PBT FuncEnv, closing the Phase-3 gating finding from the repair-loop apparatus postmortem) + spec pedagogy corrections (§2.5 Naming Conventions, §3.3 / §9 / §13.5 match-arm canonical form, §3.2 / §3.3 unit-payload vs nullary constructor) + roadmap disambiguation of the one-shot correctness criterion. 589 Haskell + 37 Python tests. No milestone advancement. See `CHANGELOG.md` v0.10.3.
 
 **Feature freeze** active from v0.8.1a through v0.10 ship.
 

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+---
+
+## v0.10.3 — Cross-Module PBT + Spec Pedagogy (2026-05-12)
+
 ### Compiler — PBT Cross-Module Visibility (MOD-PBT-1, F-018)
 
 - **`llmll test` now resolves cross-module `def-logic` in `(check ...)` bodies.** `doTest` switches from `loadStatements` (single-module) to `loadStatementsMulti`; a new `assembleTestStatements` helper in `LLMLL.PBT` concatenates each `(open path)`-targeted imported module's `SDefLogic` declarations ahead of the local statement list before invoking `runPropertyTests`. The PBT static evaluator's `FuncEnv` (built unchanged by `buildFuncEnv`) now sees imported function bodies, so a `(check ...)` block calling an imported function evaluates instead of silently skipping. Closes F-018 / F-030 (repair-loop Phase-2 postmortem Addendum 8 / Addendum 11); LLMLL cells whose `(check ...)` blocks depend on standard-prelude or sibling-module `def-logic` can now elevate trust-report entries from `asserted` to `tested` tier.

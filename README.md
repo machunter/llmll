@@ -1,10 +1,10 @@
-# LLMLL — v0.10.2
+# LLMLL — v0.10.3
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.10.2 is shipped.** Patch release — soundness blockers (delegate fallback typecheck, PBT discard for unevaluable samples, evaluator expansion with `FuncEnv` / `ELet` / `EMatch` / Result builtins) plus diagnostic surface (`llmll check` text mode now surfaces warnings on success) and JSON-AST schema bump 0.3.0 → 0.4.0 with identifier-shape regex. 584 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.10.3 is shipped.** Patch release — cross-module PBT visibility (`llmll test` now resolves imported `def-logic` in `(check ...)` blocks via the PBT FuncEnv, closing MOD-PBT-1 / F-018) plus spec pedagogy corrections (§2.5 Naming Conventions, §3.3 / §9 / §13.5 match-arm canonical form, §3.2 / §3.3 unit-payload vs nullary constructor) and a roadmap disambiguation of the one-shot correctness criterion. 589 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
