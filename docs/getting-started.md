@@ -810,6 +810,23 @@ After fetching a package with `llmll hub fetch`, import it with the `hub.` prefi
 
 The `hub.` prefix tells the resolver to search only `~/.llmll/modules/`, never the local source tree.
 
+#### Cross-module `(check ...)` bodies
+
+Property-based tests can call functions defined in imported modules, provided the test module brings them into bare-name scope with `(open ...)`:
+
+```lisp
+(import imported)
+(open imported)
+
+(check "plus-one increments correctly"
+  (for-all [n: int]
+    (= (plus-one n) (+ n 1))))
+```
+
+Without `(open ...)`, the PBT static evaluator cannot resolve the cross-module call: the property body fails to reduce to a literal Bool and `llmll test` reports the check as `Skipped` rather than `Passed` or `Failed`. The fix is always to add `(open imported)` — qualified references (`imported.plus-one ...`) inside check bodies inherit the codegen limitation described under "Prefixed access (default)" above and do not currently resolve at runtime.
+
+If `imported` declares `(export ...)`, only the listed names are visible to the test module's PBT evaluator (consistent with the type-checker's behavior).
+
 #### JSON-AST nodes for `open` and `export`
 
 ```json

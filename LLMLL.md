@@ -903,6 +903,8 @@ This will become operational when codegen emits per-module Haskell files with pr
 
 > **Collision policy:** If two `(open ...)` declarations export the same bare name, the second `open` wins (last wins). The compiler emits a `WARNING` diagnostic.
 
+> **Property-based testing.** The PBT static evaluator used by `llmll test` honors the same bare-name injection rule: a `(check ...)` block whose body calls an imported function evaluates only when the imported module is in bare-name scope via `(open ...)`. Without `open`, the property body cannot reduce to a literal Bool and `llmll test` reports the check as `Skipped`. Qualified references (`module.fn ...`) inside check bodies share the codegen limitation described in §8.5.1 and currently do not resolve at runtime.
+
 ### 8.7 `export` — Visibility Control
 
 ```lisp
