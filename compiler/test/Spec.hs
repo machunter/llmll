@@ -36,7 +36,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..))
+import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
@@ -2268,6 +2268,98 @@ main = hspec $ do
       humanText `shouldSatisfy` T.isInfixOf "asserted"
 
   -- =========================================================================
+  -- v0.10.4 (R6d): Tier-count profile aggregate
+  --
+  -- Six-Int profile over the trust report's per-function effective tier
+  -- classification. The harness consumes this to compose its credibility
+  -- predicate; LLMLL itself defines no Cred or scalar.
+  -- =========================================================================
+
+  describe "v0.10.4 tier-count profile (R6d)" $ do
+    let mkEntry name pre post =
+          TrustEntry
+            { teName           = name
+            , tePre            = fmap (\dl -> EvidenceRecord dl False Nothing) pre
+            , tePost           = fmap (\dl -> EvidenceRecord dl False Nothing) post
+            , teDeps           = []
+            , teDrifts         = []
+            , teEffectiveLevel = Nothing  -- aggregateTiers falls back to ContractStatus meet
+            }
+
+    -- TP-1: Empty obligation set yields zero vector
+    it "empty report → zero profile" $ do
+      aggregateTiers [] `shouldBe` TierProfile 0 0 0 0 0 0
+
+    -- TP-2: Uniform verified entries concentrate in tpVerified
+    it "uniform verified report → verified-only profile" $ do
+      let entries = [ mkEntry "f1" (Just (DLVerified "liquid-fixpoint")) (Just (DLVerified "liquid-fixpoint"))
+                    , mkEntry "f2" (Just (DLVerified "liquid-fixpoint")) (Just (DLVerified "liquid-fixpoint"))
+                    , mkEntry "f3" (Just (DLVerified "liquid-fixpoint")) (Just (DLVerified "liquid-fixpoint"))
+                    ]
+      aggregateTiers entries `shouldBe` TierProfile 3 0 0 0 0 0
+
+    -- TP-3: Diamond-asymmetry — contract-checked ⊥ tested, with mixed-meet edge case
+    -- Locks in LLMLL.md:344 incomparability against future regression.
+    it "diamond asymmetry: contract-checked, tested, and incomparable meet → asserted" $ do
+      let ccEntries = [ mkEntry ("cc" <> T.pack (show i))
+                                (Just (DLContractChecked "z3"))
+                                (Just (DLContractChecked "z3"))
+                      | i <- [1..3 :: Int] ]
+          tsEntries = [ mkEntry ("ts" <> T.pack (show i))
+                                (Just (DLTested 100))
+                                (Just (DLTested 100))
+                      | i <- [1..3 :: Int] ]
+          -- One entry with incomparable diamond branches:
+          -- meet(DLContractChecked, DLTested) = DLAsserted (Syntax.hs:356-357)
+          mixedEntry = [ mkEntry "mixed"
+                                 (Just (DLContractChecked "z3"))
+                                 (Just (DLTested 100)) ]
+      aggregateTiers ccEntries  `shouldBe` TierProfile 0 0 3 0 0 0
+      aggregateTiers tsEntries  `shouldBe` TierProfile 0 0 0 3 0 0
+      -- Mixed-meet must NOT double-count: increments asserted, not cc/tested
+      aggregateTiers mixedEntry `shouldBe` TierProfile 0 0 0 0 1 0
+
+    -- TP-4: Mixed-tier report → component-correct counts
+    -- proved is zero by construction (no DLProved constructor exists)
+    it "mixed-tier report → component-correct profile" $ do
+      let entries = [ mkEntry "fv" (Just (DLVerified "lean")) (Just (DLVerified "lean"))
+                    , mkEntry "fc" (Just (DLContractChecked "z3")) (Just (DLContractChecked "z3"))
+                    , mkEntry "ft" (Just (DLTested 100)) (Just (DLTested 100))
+                    , mkEntry "fa" (Just DLAsserted) (Just DLAsserted)
+                    , mkEntry "fn" Nothing Nothing
+                    ]
+      aggregateTiers entries `shouldBe` TierProfile 1 0 1 1 1 1
+
+    -- TP-5: JSON emit carries trust_report_version and a structurally-valid tier_profile
+    it "formatTrustReportJson includes trust_report_version and tier_profile" $ do
+      let stmts =
+            [ SDefLogic "fn1" [("x", TInt)] (Just TInt)
+                (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+                (EVar "x")
+            ]
+          report   = buildTrustReport DM.empty stmts Map.empty
+          jsonText = formatTrustReportJson report
+          decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
+      case decoded of
+        Just (Object o) -> do
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.0.0")
+          case KM.lookup "tier_profile" o of
+            Just (Object tp) -> do
+              -- All six required fields present
+              KM.lookup "verified"         tp `shouldSatisfy` (/= Nothing)
+              KM.lookup "proved"           tp `shouldSatisfy` (/= Nothing)
+              KM.lookup "contract_checked" tp `shouldSatisfy` (/= Nothing)
+              KM.lookup "tested"           tp `shouldSatisfy` (/= Nothing)
+              KM.lookup "asserted"         tp `shouldSatisfy` (/= Nothing)
+              KM.lookup "no_contract"      tp `shouldSatisfy` (/= Nothing)
+              -- proved is structural-zero (no DLProved constructor today)
+              KM.lookup "proved"           tp `shouldBe` Just (Number 0)
+            _ -> expectationFailure "tier_profile missing or not an object"
+          -- Pre-existing summary block is unchanged
+          KM.lookup "summary" o `shouldSatisfy` (/= Nothing)
+        _ -> expectationFailure "trust-report JSON did not decode as an object"
+
+  -- =========================================================================
   -- v0.3 #14: Async/Await codegen test coverage (10 tests)
   -- =========================================================================
 
@@ -3650,14 +3742,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -3669,7 +3761,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -3682,7 +3774,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -3695,7 +3787,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -3707,7 +3799,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"

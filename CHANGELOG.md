@@ -4,6 +4,23 @@
 
 ## Unreleased
 
+### Compiler — Trust Report Tier-Count Aggregate (R6d)
+
+- **`llmll verify --trust-report --json` now emits a `tier_profile` aggregate** alongside the existing `entries` / `summary` / `suppressions` blocks. The aggregate is a six-Int record `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications (the same path that backs `summary` — `teEffectiveLevel`, falling back to the local meet of `tePre` / `tePost`). The repair-loop harness consumes this profile to compose its credibility predicate `Cred(R)` over LLMLL cells without ranking the diamond-incomparable `contract_checked ‖ tested` levels.
+- **Diamond-meet semantics.** Per `LLMLL.md §4.4.1:344` and `Syntax.hs:356-357` (`evidenceMeet`), a function with `pre = contract-checked` and `post = tested` has effective level `asserted` (the diamond meet) and increments only `tpAsserted` — never both `tpContractChecked` and `tpTested`. Test `TP-3` in `Spec.hs` regression-locks this against future drift.
+- **`proved` slot is structural-zero in v1.0.0.** No `DLProved` constructor exists in `DisplayLevel` today; the field is reserved for a future Lean-discharged tier so that a later compiler version can populate it without bumping the trust-report emit's major version. Documented in `docs/llmll-trust-report.schema.json`.
+- **No spec change.** `LLMLL.md` gains no consumer-predicate prose; per R6d, `Cred` lives in `experiments/repair-loop/` harness docs, not in the language spec. The trust-report emit's pre-existing `summary` block is unchanged (consumers and the v0.3.2 substring tests at `Spec.hs:2253-2256` keep passing).
+- **No verifier delta.** `aggregateTiers` is a pure traversal over the already-enriched entries; zero solver work, zero EMatch instantiations, zero new VC constraints, sub-microsecond runtime on a typical module.
+- **Tests:** 5 new tests under a `v0.10.4 tier-count profile (R6d)` describe block in `Spec.hs` covering (a) empty → zero vector, (b) uniform-`verified`, (c) diamond-asymmetry (contract-checked / tested / mixed-meet → asserted), (d) mixed-tier, (e) JSON emit carries `trust_report_version` and structurally-valid `tier_profile`. 589 → 594 Haskell tests; 37 Python tests unchanged.
+
+### Schema — Trust-Report Output Schema v1.0.0
+
+- **New file `docs/llmll-trust-report.schema.json`** documents the trust-report JSON emit shape. Independent of the source JSON-AST schema (`docs/llmll-ast.schema.json`); the two surfaces are versioned separately because they describe different artifacts — parser input vs verifier emit. `$id`: `https://llmll.dev/schemas/v0.2/trust-report.schema.json`.
+- **New `trust_report_version: "1.0.0"` field** on every `--trust-report --json` emit. Consumers can pin to this version to detect breaking shape changes; additive-only changes within a major version.
+- **`tier_profile` shape**: six required integer fields (`verified`, `proved`, `contract_checked`, `tested`, `asserted`, `no_contract`), each with `minimum: 0` and `additionalProperties: false`. Schema explicitly documents the diamond-meet classification rule and the structural-zero `proved` slot.
+- **Source JSON-AST `schemaVersion` is NOT bumped.** `expectedSchemaVersion` stays `"0.4.0"` (`ParserJSON.hs:41`). The change is to an emit-only output, semantically orthogonal to the source-input parser version; bumping the source schema would force ~22 `.ast.json` fixture rewrites for a change those fixtures do not touch. The R6d plan's `schemaVersion 0.4.0 → 0.5.0` line is honored by the new emit-side `trust_report_version` field instead — same versioning intent, smaller blast radius.
+- **Round-trip semantics.** The trust-report JSON is emit-only; `ParserJSON.hs` and `AstEmit.hs` do not ingest or emit it. JSON-level re-decode (via `Aeson.Value`) preserves the field; full Haskell-side `TrustReport ↔ JSON` round-trip is N/A by design.
+
 ---
 
 ## v0.10.3 — Cross-Module PBT + Spec Pedagogy (2026-05-12)

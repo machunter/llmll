@@ -12,10 +12,13 @@ module LLMLL.TrustReport
   , TrustEntry(..)
   , TrustDependency(..)
   , TrustSummary(..)
+  , TierProfile(..)
   , buildTrustReport
   , formatTrustReport
   , formatTrustReportJson
   , effectiveLevel     -- v0.10: for obligation trust labels (F9)
+  , aggregateTiers     -- v0.10.4: fixed-arity tier-count profile (R6d)
+  , trustReportEmitVersion
   ) where
 
 import Data.Map.Strict (Map)
@@ -58,6 +61,7 @@ data TrustReport = TrustReport
   { trEntries      :: [TrustEntry]
   , trSummary      :: TrustSummary
   , trSuppressions :: [(Name, Text)]  -- ^ v0.6: (function name, reason) from SWeaknessOk
+  , trTierProfile  :: TierProfile     -- ^ v0.10.4: fixed-arity tier-count aggregate (R6d)
   } deriving (Show, Eq)
 
 data TrustSummary = TrustSummary
@@ -68,6 +72,31 @@ data TrustSummary = TrustSummary
   , tsNone     :: Int  -- ^ Functions with no contracts
   , tsDrifts   :: Int  -- ^ Total epistemic drift warnings
   } deriving (Show, Eq)
+
+-- | v0.10.4 (R6d): Fixed-arity tier-count profile over the trust report.
+--
+-- Six independent counts of per-function effective tier classifications. Never
+-- reduced to a scalar — the harness composes its own Cred(R) predicate over
+-- these six fields. Component-wise dominance is the only legitimate ordering;
+-- the diamond-incomparability of contract-checked vs tested (LLMLL.md:344) is
+-- preserved by refusing to total-order the components.
+--
+-- The 'tpProved' slot is reserved for a future Lean-discharged tier and is
+-- zero by construction in the current emit — no DLProved constructor exists.
+data TierProfile = TierProfile
+  { tpVerified        :: Int
+  , tpProved          :: Int
+  , tpContractChecked :: Int
+  , tpTested          :: Int
+  , tpAsserted        :: Int
+  , tpNoContract      :: Int
+  } deriving (Show, Eq)
+
+-- | Version string for the trust-report JSON emit shape.
+-- Independent of the source JSON-AST 'expectedSchemaVersion'; the trust report
+-- is emit-only and never re-parsed.
+trustReportEmitVersion :: Text
+trustReportEmitVersion = "1.0.0"
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -105,7 +134,9 @@ buildTrustReport cache entryStmts sidecar =
       suppressions = extractSuppressions entryStmts
       -- Compute summary
       summary = computeSummary enrichedEntries
-  in TrustReport enrichedEntries summary suppressions
+      -- v0.10.4 (R6d): tier-count profile over the same enriched entries
+      tierProfile = aggregateTiers enrichedEntries
+  in TrustReport enrichedEntries summary suppressions tierProfile
 
 -- | v0.6: Extract weakness-ok suppressions from statements.
 -- Deduplicates by name (WO-3 idempotence).
@@ -308,6 +339,47 @@ computeSummary entries =
     isAss (Just DLAsserted) = True
     isAss _                 = False
 
+-- | v0.10.4 (R6d): Aggregate per-function effective tiers into a six-Int profile.
+--
+-- Classification uses the same path as 'computeSummary' — 'teEffectiveLevel'
+-- (meet of self pre/post and transitive callees), falling back to the local
+-- ContractStatus meet when enrichment did not populate the field.
+--
+-- Diamond meet (LLMLL.md:344) is honored: an entry whose effective level is
+-- DLAsserted because pre and post sit in incomparable diamond branches
+-- increments 'tpAsserted', not both 'tpContractChecked' and 'tpTested'.
+--
+-- 'tpProved' is zero by construction in the current emit: there is no
+-- DLProved constructor in 'DisplayLevel'. The field is reserved for a future
+-- Lean-discharged tier.
+aggregateTiers :: [TrustEntry] -> TierProfile
+aggregateTiers entries =
+  let classify e = case teEffectiveLevel e of
+                     Just lvl -> Just lvl
+                     Nothing  -> effectiveLevel (ContractStatus (tePre e) (tePost e) [])
+      verified        = length [e | e <- entries, isVer (classify e)]
+      contractChecked = length [e | e <- entries, isCC  (classify e)]
+      tested          = length [e | e <- entries, isTst (classify e)]
+      asserted        = length [e | e <- entries, isAss (classify e)]
+      noContract      = length [e | e <- entries, classify e == Nothing]
+  in TierProfile
+       { tpVerified        = verified
+       , tpProved          = 0
+       , tpContractChecked = contractChecked
+       , tpTested          = tested
+       , tpAsserted        = asserted
+       , tpNoContract      = noContract
+       }
+  where
+    isVer (Just dl) = isVerifiedLevel dl
+    isVer _         = False
+    isCC (Just DLContractChecked{}) = True
+    isCC _                          = False
+    isTst (Just DLTested{}) = True
+    isTst _                 = False
+    isAss (Just DLAsserted) = True
+    isAss _                 = False
+
 -- ---------------------------------------------------------------------------
 -- Formatting (human-readable)
 -- ---------------------------------------------------------------------------
@@ -361,11 +433,15 @@ formatSuppressions supps =
 -- Formatting (JSON)
 -- ---------------------------------------------------------------------------
 
+-- | JSON emit for the trust report. Emit-only — no parser ingests this; round-trip
+-- is JSON-level (re-decode as 'Value'), not Haskell-level.
 formatTrustReportJson :: TrustReport -> Text
 formatTrustReportJson report =
   T.pack . BLC.unpack . encode $ object
-    [ "entries" .= map entryJson (trEntries report)
-    , "summary" .= summaryJson (trSummary report)
+    [ "trust_report_version" .= trustReportEmitVersion
+    , "entries"      .= map entryJson (trEntries report)
+    , "summary"      .= summaryJson (trSummary report)
+    , "tier_profile" .= tierProfileJson (trTierProfile report)
     , "suppressions" .= map suppJson (trSuppressions report)
     ]
   where
@@ -391,6 +467,15 @@ formatTrustReportJson report =
       , "asserted"         .= tsAsserted s
       , "no_contract"      .= tsNone s
       , "drifts"           .= tsDrifts s
+      ]
+    -- v0.10.4 (R6d): six-Int tier-count aggregate, never scalarized.
+    tierProfileJson tp = object
+      [ "verified"         .= tpVerified tp
+      , "proved"           .= tpProved tp
+      , "contract_checked" .= tpContractChecked tp
+      , "tested"           .= tpTested tp
+      , "asserted"         .= tpAsserted tp
+      , "no_contract"      .= tpNoContract tp
       ]
     suppJson (name, reason) = object
       [ "name"   .= name

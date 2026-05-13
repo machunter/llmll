@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://llmll.dev/schemas/v0.2/trust-report.schema.json",
+  "title": "LLMLL Trust Report JSON Emit Schema",
+  "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major.",
+
+  "type": "object",
+  "required": ["trust_report_version", "entries", "summary", "tier_profile", "suppressions"],
+  "additionalProperties": false,
+  "properties": {
+
+    "trust_report_version": {
+      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs.",
+      "type": "string",
+      "const": "1.0.0"
+    },
+
+    "entries": {
+      "description": "Per-function trust entries. One entry per def-logic / letrec across the entry module and the imported module cache.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/TrustEntry" }
+    },
+
+    "summary": {
+      "description": "Pre-existing six-Int counts plus a drift total. Predates v0.10.4. Preserved unchanged; the new `tier_profile` aggregate sits alongside, not replacing.",
+      "$ref": "#/$defs/TrustSummary"
+    },
+
+    "tier_profile": {
+      "description": "v0.10.4 (R6d) — fixed-arity six-Int tier-count aggregate over per-function effective tier classifications. Never reduced to a scalar (LLMLL.md §4.4.1:344 declares contract_checked ‖ tested incomparable; the load-bearing diamond is preserved by refusing total order). Classification uses the diamond meet of pre and post per entry: a function with pre=contract_checked and post=tested has effective level `asserted` and increments only `asserted`, not both `contract_checked` and `tested`.",
+      "$ref": "#/$defs/TierProfile"
+    },
+
+    "suppressions": {
+      "description": "v0.6 weakness-ok declarations: (function name, reason). Acknowledges intentional contract gaps.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Suppression" }
+    }
+  },
+
+  "$defs": {
+
+    "TrustEntry": {
+      "type": "object",
+      "required": ["name", "pre_level", "post_level", "dependencies", "drifts"],
+      "additionalProperties": true,
+      "properties": {
+        "name":         { "type": "string" },
+        "pre_level":    { "$ref": "#/$defs/LevelLabel" },
+        "post_level":   { "$ref": "#/$defs/LevelLabel" },
+        "pre_source":   { "type": "string" },
+        "post_source":  { "type": "string" },
+        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/TrustDependency" } },
+        "drifts":       { "type": "array", "items": { "type": "string" } },
+        "effective_level": { "$ref": "#/$defs/LevelLabel" }
+      }
+    },
+
+    "TrustDependency": {
+      "type": "object",
+      "required": ["name", "pre_level", "post_level"],
+      "additionalProperties": false,
+      "properties": {
+        "name":       { "type": "string" },
+        "pre_level":  { "$ref": "#/$defs/LevelLabel" },
+        "post_level": { "$ref": "#/$defs/LevelLabel" }
+      }
+    },
+
+    "TrustSummary": {
+      "type": "object",
+      "required": ["verified", "contract_checked", "tested", "asserted", "no_contract", "drifts"],
+      "additionalProperties": false,
+      "properties": {
+        "verified":         { "type": "integer", "minimum": 0 },
+        "contract_checked": { "type": "integer", "minimum": 0 },
+        "tested":           { "type": "integer", "minimum": 0 },
+        "asserted":         { "type": "integer", "minimum": 0 },
+        "no_contract":      { "type": "integer", "minimum": 0 },
+        "drifts":           { "type": "integer", "minimum": 0, "description": "Total epistemic drift warnings across all entries. Not a tier — a violation count on the tier classification." }
+      }
+    },
+
+    "TierProfile": {
+      "description": "Six-Int aggregate of per-function effective tier classifications. Component-wise dominance is the only legitimate partial order; never total-ordered into a scalar.",
+      "type": "object",
+      "required": ["verified", "proved", "contract_checked", "tested", "asserted", "no_contract"],
+      "additionalProperties": false,
+      "properties": {
+        "verified": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Functions whose effective level is `verified` (body-faithful SMT proof). See LLMLL.md §4.4.1."
+        },
+        "proved": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reserved for a future Lean-discharged tier. Zero by construction in v1.0.0 emits — no DLProved constructor exists in the compiler's DisplayLevel ADT yet. Forward-compatible slot so the field shape is stable across future tier additions."
+        },
+        "contract_checked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Functions whose effective level is `contract-checked` (SMT proof of pre⇒post consistency, body not encoded). Incomparable with `tested` per the diamond lattice (LLMLL.md §4.4.1:344)."
+        },
+        "tested": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Functions whose effective level is `tested` (PBT passed N samples, no static proof). Incomparable with `contract_checked` per the diamond lattice."
+        },
+        "asserted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Functions whose effective level is `asserted` (runtime assertion only). Includes the diamond meet `contract_checked ⊓ tested = asserted` when pre and post sit in incomparable branches."
+        },
+        "no_contract": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Functions with no contract clauses at all. Distinct from `asserted`, which has clauses but no static evidence."
+        }
+      }
+    },
+
+    "Suppression": {
+      "type": "object",
+      "required": ["name", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "name":   { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+
+    "LevelLabel": {
+      "description": "Human-readable level label as emitted by `dlLabel` (Syntax.hs). Examples: `\"verified (liquid-fixpoint)\"`, `\"verified (lean)\"`, `\"contract-checked (z3)\"`, `\"tested (100 samples)\"`, `\"asserted\"`. JSON `null` when the corresponding clause is absent.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    }
+  }
+}
