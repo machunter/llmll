@@ -300,7 +300,7 @@ The orchestration loop is a state machine: `(State, Input) → (State, Command)`
 
 ```lisp
 (type OrchestraState
-  (| Discovering   unit)              ;; waiting for holes --json response
+  (| Discovering)                     ;; waiting for holes --json response
   (| CheckingOut   HoleInfo)          ;; waiting for checkout response
   (| WaitingAgent  CheckoutToken)     ;; waiting for LLM response
   (| Patching      PatchPayload)      ;; waiting for patch verification
@@ -311,7 +311,7 @@ The orchestration loop is a state machine: `(State, Input) → (State, Command)`
   (| Escalated string))    ;; pointer, needs human
 (def-logic orchestrate-step [state: OrchestraState input: string]
   (match state
-    (Discovering _)
+    (Discovering)
       ;; input = JSON response from llmll holes --json
       ;; parse holes, checkout the first one
       (let [[holes (parse-holes input)]]
