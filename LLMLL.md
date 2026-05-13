@@ -406,7 +406,7 @@ stack exec llmll -- verify program.llmll --trust-report
 #     ↳ calls safe-subtract (pre: asserted, post: verified (liquid-fixpoint))
 ```
 
-Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling.
+Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling. The JSON emit carries a `trust_report_version` field plus a six-Int `tier_profile` aggregate `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications, intended for downstream tooling that needs a fixed-arity summary without scalarizing the diamond lattice — see [`docs/llmll-trust-report.schema.json`](docs/llmll-trust-report.schema.json) for the full shape.
 
 The report walks the full module cache (entry-point module plus all imported modules) and computes the transitive trust closure. An agent auditing a module can use the trust report to identify all points where the formal verification chain breaks down.
 
