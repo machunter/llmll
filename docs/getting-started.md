@@ -1265,6 +1265,23 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 
 **Old workaround (pre-v0.10.2):** the runner defaulted unevaluable QuickCheck-eligible samples to `True`, producing vacuous passes that masked unimplemented logic. After v0.10.2, `runQC` returns `QC.discard` on those samples; QuickCheck's `GaveUp` resolves to `PBTSkipped`. Agents must add `(on-failure …)` clauses or factor `?delegate` calls out of property bodies to lift `skip` outcomes to `pass`.
 
+### §4.22 PBT Complex-Type `for-all` Bindings (v0.10.5+)
+
+```lisp
+(check "pair-sum-commutative"
+  (for-all [p: (int, int)]
+    (= (+ (first p) (second p)) (+ (second p) (first p)))))
+```
+
+✅ **Works under v0.10.5+.** `for-all` bindings at `(a, b)`, `list[a]`, `result[a, e]`, sum types declared via `(type Color (Red | Green | Blue))`, and user-defined aliases (`(type Ledger (list[Account]))`) now generate well-typed samples and reduce end-to-end. Recursive aliases (e.g. `(type Tree (list[Tree]))`) terminate at the depth cap.
+
+**Old workaround (pre-v0.10.5):** any non-primitive binding silently skipped with reason "Property contains non-constant expressions — requires full runtime evaluation"; `LitInt` was generated for every non-primitive type. The previous workaround was to manually destructure complex state into primitive `for-all` bindings.
+
+**Generator caps.** `maxGenDepth = 5` (recursion depth on aliases and nested types); `listMaxLen = 8` (max generated list length). Properties whose bindings include function types, promises, or free type variables still skip — the catch-all falls back to an integer sample those types cannot accept.
+
+> [!NOTE]
+> **F-033 limitation.** A `PBTPassed` result does not yet lift trust-report obligations from `asserted` to `tested`. The PBT-to-trust-report write-back is tracked as OBLIG-PBT-3.
+
 ---
 
 ## Part 5 — Core Language Quick Reference
