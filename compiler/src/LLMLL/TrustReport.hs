@@ -18,6 +18,9 @@ module LLMLL.TrustReport
   , formatTrustReportJson
   , effectiveLevel     -- v0.10: for obligation trust labels (F9)
   , aggregateTiers     -- v0.10.4: fixed-arity tier-count profile (R6d)
+  , aggregateTiersPre  -- OBLIG-PBT-3: per-pre-clause tier-count profile
+  , aggregateTiersPost -- OBLIG-PBT-3: per-post-clause tier-count profile
+  , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
   , trustReportEmitVersion
   ) where
 
@@ -34,6 +37,7 @@ import qualified Data.ByteString.Lazy.Char8 as BLC
 
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
+import LLMLL.PBT (canonicalPropBodyHash)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -47,6 +51,11 @@ data TrustEntry = TrustEntry
   , teDeps           :: [TrustDependency]     -- ^ Cross-module calls with their trust levels
   , teDrifts         :: [Text]                -- ^ Epistemic drift warnings
   , teEffectiveLevel :: Maybe DisplayLevel    -- ^ v0.8.1b: meet(self, transitive deps)
+  -- OBLIG-PBT-3: per-clause effective levels — each clause meets its own ER
+  -- with the transitive-callee effective level. Nothing iff the clause is
+  -- absent in the source contract.
+  , teEffectivePreLevel  :: Maybe DisplayLevel
+  , teEffectivePostLevel :: Maybe DisplayLevel
   } deriving (Show, Eq)
 
 -- | A dependency on another function with its trust level.
@@ -58,10 +67,18 @@ data TrustDependency = TrustDependency
 
 -- | The complete trust report.
 data TrustReport = TrustReport
-  { trEntries      :: [TrustEntry]
-  , trSummary      :: TrustSummary
-  , trSuppressions :: [(Name, Text)]  -- ^ v0.6: (function name, reason) from SWeaknessOk
-  , trTierProfile  :: TierProfile     -- ^ v0.10.4: fixed-arity tier-count aggregate (R6d)
+  { trEntries          :: [TrustEntry]
+  , trSummary          :: TrustSummary
+  , trSuppressions     :: [(Name, Text)]  -- ^ v0.6: (function name, reason) from SWeaknessOk
+  , trTierProfile      :: TierProfile     -- ^ v0.10.4: fixed-arity tier-count aggregate (R6d)
+  -- OBLIG-PBT-3: parallel per-clause tier-count profiles. Exposes the post-side
+  -- empirical evidence directly, sidestepping the per-function meet that pins
+  -- 'trTierProfile' to DLAsserted on a contracted function with an unproved
+  -- pre clause (proposal §9).
+  , trTierProfilePre   :: TierProfile
+  , trTierProfilePost  :: TierProfile
+  -- OBLIG-PBT-3: per-clause downgrade diagnostics (stale pbt_witnesses).
+  , trStaleDowngrades  :: [Text]
   } deriving (Show, Eq)
 
 data TrustSummary = TrustSummary
@@ -95,8 +112,12 @@ data TierProfile = TierProfile
 -- | Version string for the trust-report JSON emit shape.
 -- Independent of the source JSON-AST 'expectedSchemaVersion'; the trust report
 -- is emit-only and never re-parsed.
+--
+-- OBLIG-PBT-3 (1.1.0): parallel 'tier_profile_pre' and 'tier_profile_post'
+-- emitted alongside the unchanged scalar 'tier_profile'; existing 'tier_profile'
+-- consumers ignore the new fields. No source-AST schema delta.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.0.0"
+trustReportEmitVersion = "1.1.0"
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -110,12 +131,18 @@ trustReportEmitVersion = "1.0.0"
 --   3. Whether those callees have lower trust levels (epistemic drift)
 buildTrustReport :: ModuleCache -> [Statement] -> Map Name ContractStatus -> TrustReport
 buildTrustReport cache entryStmts sidecar =
-  let -- Collect all contract statuses: qualified names from cache + entry module
+  let -- OBLIG-PBT-3: read-side validation. Compute the set of live property-body
+      -- hashes (local + cached modules); downgrade any sidecar evidence record
+      -- whose pbt_witnesses do not intersect the live set. The downgrade is
+      -- strict (DLTested → DLAsserted) and surfaces as a diagnostic.
+      liveSet            = liveCheckHashes cache entryStmts
+      (sidecar', stales) = downgradeStaleSidecar liveSet sidecar
+      -- Collect all contract statuses: qualified names from cache + entry module
       baseCS      = collectAllContractStatus cache entryStmts
       -- v0.9.0: merge sidecar evidence (verified, contract-checked, etc.)
       -- into the base contract status map. Sidecar upgrades; base defaults remain
       -- if the sidecar is missing a clause.
-      allCS       = Map.unionWith mergeCS sidecar baseCS
+      allCS       = Map.unionWith mergeCS sidecar' baseCS
       -- Collect all exports from cache for type-checking call resolution
       allExports  = collectAllExports cache
       -- Build entries for every function that has contracts
@@ -136,7 +163,68 @@ buildTrustReport cache entryStmts sidecar =
       summary = computeSummary enrichedEntries
       -- v0.10.4 (R6d): tier-count profile over the same enriched entries
       tierProfile = aggregateTiers enrichedEntries
-  in TrustReport enrichedEntries summary suppressions tierProfile
+      -- OBLIG-PBT-3: parallel per-clause aggregates (proposal §9)
+      tierProfilePre  = aggregateTiersPre  enrichedEntries
+      tierProfilePost = aggregateTiersPost enrichedEntries
+  in TrustReport
+       { trEntries         = enrichedEntries
+       , trSummary         = summary
+       , trSuppressions    = suppressions
+       , trTierProfile     = tierProfile
+       , trTierProfilePre  = tierProfilePre
+       , trTierProfilePost = tierProfilePost
+       , trStaleDowngrades = stales
+       }
+
+-- | OBLIG-PBT-3: collect SHA-256 hashes of every live property body across
+-- the entry module and the cached module set. Used by 'buildTrustReport' on
+-- read to detect property-body drift / deletion and downgrade stale
+-- 'DLTested' entries to 'DLAsserted'. Includes 'SDefInterface' law bodies
+-- defensively in anticipation of OBLIG-PBT-4's law-lift admission.
+liveCheckHashes :: ModuleCache -> [Statement] -> Set Text
+liveCheckHashes cache entryStmts =
+  let entryHashes = collect entryStmts
+      cacheHashes = Set.unions
+        [ collect (meStatements menv) | (_, menv) <- Map.toList cache ]
+  in Set.union entryHashes cacheHashes
+  where
+    collect stmts = Set.fromList $
+      [ canonicalPropBodyHash (propBody p) | SCheck p <- stmts ]
+      ++
+      [ canonicalPropBodyHash (propBody p)
+      | SDefInterface _ _ laws <- stmts, p <- laws ]
+
+-- | OBLIG-PBT-3: walk every sidecar ContractStatus and downgrade any
+-- 'EvidenceRecord' whose 'erPbtWitnesses' is non-empty but disjoint from the
+-- live-hash set. Strict: 'DLTested' → 'DLAsserted'; 'DLVerified' /
+-- 'DLContractChecked' records are not produced by PBT writeback and so
+-- their witness lists are empty, so they are unaffected. Returns the
+-- downgraded map and a per-clause diagnostic list (qualified-name + cached
+-- description).
+downgradeStaleSidecar :: Set Text -> Map Name ContractStatus -> (Map Name ContractStatus, [Text])
+downgradeStaleSidecar liveSet =
+  Map.foldlWithKey' step (Map.empty, [])
+  where
+    step (mAcc, dAcc) name cs =
+      let (cs', ds) = downgradeCS name cs
+      in (Map.insert name cs' mAcc, dAcc ++ ds)
+
+    downgradeCS name cs =
+      let (mPre,  dPre)  = downgradeER name "pre"  (csPre cs)
+          (mPost, dPost) = downgradeER name "post" (csPost cs)
+      in (cs { csPre = mPre, csPost = mPost }, dPre ++ dPost)
+
+    downgradeER _    _      Nothing   = (Nothing, [])
+    downgradeER name clause (Just er) =
+      let ws = erPbtWitnesses er
+          live = any (\w -> Set.member (pwHash w) liveSet) ws
+      in if null ws || live
+           then (Just er, [])
+           else let descs = T.intercalate ", " (map (\w -> "\"" <> pwDescription w <> "\"") ws)
+                    diag  = name <> "." <> clause <> " was previously tested by property "
+                          <> descs <> "; no live property body matches the cached hash. "
+                          <> "Evidence downgraded to asserted."
+                in (Just (er { erDisplayLevel = DLAsserted, erPbtWitnesses = [] }), [diag])
 
 -- | v0.6: Extract weakness-ok suppressions from statements.
 -- Deduplicates by name (WO-3 idempotence).
@@ -160,8 +248,8 @@ collectAllContractStatus cache entryStmts =
     mkCS name c
       | contractPre c /= Nothing || contractPost c /= Nothing =
           Just (name, ContractStatus
-            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing)) (contractPre c)
-            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing)) (contractPost c)
+            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [])) (contractPre c)
+            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [])) (contractPost c)
             , csAssumptions = []
             })
       | otherwise = Nothing
@@ -204,12 +292,14 @@ mkEntry qname contract body allCS =
       -- Compute epistemic drift: this function is solver-backed but depends on non-solver-backed
       drifts = computeDrifts qname ownCS deps
   in TrustEntry
-       { teName           = qname
-       , tePre            = csPre ownCS
-       , tePost           = csPost ownCS
-       , teDeps           = deps
-       , teDrifts         = drifts
-       , teEffectiveLevel = Nothing  -- computed later by enrichEntry
+       { teName               = qname
+       , tePre                = csPre ownCS
+       , tePost               = csPost ownCS
+       , teDeps               = deps
+       , teDrifts             = drifts
+       , teEffectiveLevel     = Nothing  -- computed later by enrichEntry
+       , teEffectivePreLevel  = Nothing  -- OBLIG-PBT-3: computed by enrichEntry
+       , teEffectivePostLevel = Nothing  -- OBLIG-PBT-3: computed by enrichEntry
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -262,6 +352,9 @@ transitiveClose graph = fixpoint initial
       in if next == current then current else fixpoint next
 
 -- | v0.8.1b: Enrich an entry with transitive drift and effective level.
+-- OBLIG-PBT-3: also populates per-clause effective levels (pre and post
+-- each meet only their own ER with the transitive-callee effective level,
+-- not with the sibling clause).
 enrichEntry :: Map Name ContractStatus -> Map Name (Set Name) -> TrustEntry -> TrustEntry
 enrichEntry allCS reachable entry =
   let qname = teName entry
@@ -288,11 +381,25 @@ enrichEntry allCS reachable entry =
               (Nothing, _) -> Nothing
               (_, Nothing) -> selfLevel
               (Just s, Just c) -> Just (evidenceMeet s c)
-  in entry { teDrifts = drifts, teEffectiveLevel = eff }
+      -- OBLIG-PBT-3: per-clause effective level (proposal §9).
+      preLevel  = fmap erDisplayLevel (csPre ownCS)
+      postLevel = fmap erDisplayLevel (csPost ownCS)
+      effPre  = clauseEff preLevel  calleeMinLevel
+      effPost = clauseEff postLevel calleeMinLevel
+  in entry
+       { teDrifts             = drifts
+       , teEffectiveLevel     = eff
+       , teEffectivePreLevel  = effPre
+       , teEffectivePostLevel = effPost
+       }
   where
     minLevel Nothing b  = b
     minLevel a Nothing  = a
     minLevel (Just a) (Just b) = Just (evidenceMeet a b)
+
+    clauseEff Nothing  _              = Nothing
+    clauseEff (Just s) Nothing        = Just s
+    clauseEff (Just s) (Just c)       = Just (evidenceMeet s c)
 
 -- | The effective (minimum) display level for a contract status.
 effectiveLevel :: ContractStatus -> Maybe DisplayLevel
@@ -357,7 +464,39 @@ aggregateTiers entries =
   let classify e = case teEffectiveLevel e of
                      Just lvl -> Just lvl
                      Nothing  -> effectiveLevel (ContractStatus (tePre e) (tePost e) [])
-      verified        = length [e | e <- entries, isVer (classify e)]
+  in classifyToProfile classify entries
+
+-- | OBLIG-PBT-3: per-pre-clause tier profile. Each entry contributes by
+-- its 'teEffectivePreLevel' (pre clause meets transitive-callee effective);
+-- absent pre clauses increment 'tpNoContract'. Distinguished from
+-- 'aggregateTiers' which meets pre and post per entry — the per-clause
+-- split surfaces a 'DLTested' post that would otherwise be hidden behind
+-- a 'DLAsserted' pre under the per-function meet (proposal §9, Gap 4).
+aggregateTiersPre :: [TrustEntry] -> TierProfile
+aggregateTiersPre entries =
+  let classify e = case teEffectivePreLevel e of
+                     Just lvl -> Just lvl
+                     Nothing  -> fmap erDisplayLevel (tePre e)
+  in classifyToProfile classify entries
+
+-- | OBLIG-PBT-3: per-post-clause tier profile. Symmetric to
+-- 'aggregateTiersPre'. PBT-derived 'DLTested' evidence is structurally
+-- post-only (proposal §4 side condition 6); this aggregate is the one the
+-- downstream H1-Assurance discriminator should consume.
+aggregateTiersPost :: [TrustEntry] -> TierProfile
+aggregateTiersPost entries =
+  let classify e = case teEffectivePostLevel e of
+                     Just lvl -> Just lvl
+                     Nothing  -> fmap erDisplayLevel (tePost e)
+  in classifyToProfile classify entries
+
+-- | Shared classification kernel for the three aggregate functions.
+-- Honors the diamond meet at 'LLMLL.md:344': an entry whose classification
+-- is 'DLAsserted' because pre and post sit in incomparable diamond branches
+-- increments 'tpAsserted', not both 'tpContractChecked' and 'tpTested'.
+classifyToProfile :: (TrustEntry -> Maybe DisplayLevel) -> [TrustEntry] -> TierProfile
+classifyToProfile classify entries =
+  let verified        = length [e | e <- entries, isVer (classify e)]
       contractChecked = length [e | e <- entries, isCC  (classify e)]
       tested          = length [e | e <- entries, isTst (classify e)]
       asserted        = length [e | e <- entries, isAss (classify e)]
@@ -391,7 +530,10 @@ formatTrustReport report =
       entryLines = concatMap formatEntry (sortOn teName (trEntries report))
       suppressionLines = formatSuppressions (trSuppressions report)
       summaryLines = formatSummary (trSummary report)
-  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ [separator] ++ summaryLines)
+      staleLines = case trStaleDowngrades report of
+                     []  -> []
+                     dgs -> "" : "PBT staleness:" : map ("  ⚠ " <>) dgs
+  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ [separator] ++ summaryLines)
 
 formatEntry :: TrustEntry -> [Text]
 formatEntry e =
@@ -441,8 +583,13 @@ formatTrustReportJson report =
     [ "trust_report_version" .= trustReportEmitVersion
     , "entries"      .= map entryJson (trEntries report)
     , "summary"      .= summaryJson (trSummary report)
-    , "tier_profile" .= tierProfileJson (trTierProfile report)
-    , "suppressions" .= map suppJson (trSuppressions report)
+    , "tier_profile"      .= tierProfileJson (trTierProfile     report)
+    -- OBLIG-PBT-3 (1.1.0): parallel per-clause aggregates. Existing v1.0.0
+    -- consumers ignore unknown keys; new consumers may read either profile.
+    , "tier_profile_pre"  .= tierProfileJson (trTierProfilePre  report)
+    , "tier_profile_post" .= tierProfileJson (trTierProfilePost report)
+    , "suppressions"      .= map suppJson (trSuppressions report)
+    , "stale_downgrades"  .= trStaleDowngrades report
     ]
   where
     entryJson e = object $

@@ -48,7 +48,8 @@ import LLMLL.HoleAnalysis
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings)
-import LLMLL.PBT (runPropertyTests, assembleTestStatements, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..))
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
@@ -530,9 +531,26 @@ doTest json fp emitOnly = do
           exitSuccess
         else do
           result <- runPropertyTests mergedStmts
+          -- OBLIG-PBT-3: write back PBTPassed evidence to .verified.json.
+          -- Singleton head-position contracted callee lifts to DLTested n;
+          -- multi-subject / skipped / failed produce diagnostics, no lift.
+          let (pbtCS, pbtDiags) = pbtTrustWriteback stmts cache result
+          unless (Map.null pbtCS) $ do
+            existing <- loadVerified fp
+            -- pbtCS on the sidecar side so DLTested upgrades any DLAsserted;
+            -- existing DLVerified / DLContractChecked are preserved by
+            -- evidenceCovers (Syntax.hs:363) — DLTested does not cover them.
+            saveVerified fp (Map.unionWith mergeCS pbtCS existing)
           if json
-            then TIO.putStrLn (pbtResultJson fp result)
-            else printPbtResult fp result
+            then TIO.putStrLn (pbtResultJson fp result pbtDiags)
+            else do
+              printPbtResult fp result
+              unless (null pbtDiags) $ do
+                TIO.putStrLn "   .verified.json write-back diagnostics:"
+                mapM_ (\d -> TIO.putStrLn ("     ⚠ " <> d)) pbtDiags
+              unless (Map.null pbtCS) $
+                TIO.putStrLn $ "   .verified.json updated: "
+                            <> tshow (Map.size pbtCS) <> " PBT witness(es) recorded"
           if pbtFailed result > 0 then exitFailure else exitSuccess
 
 printPbtResult :: FilePath -> PBTResult -> IO ()
@@ -549,8 +567,8 @@ printPbtResult fp r = do
         mapM_ (\cx -> TIO.putStrLn $ "     counterexample: " <> cx) (pbtCounterexample run)
       _ -> pure ()
 
-pbtResultJson :: FilePath -> PBTResult -> T.Text
-pbtResultJson fp r =
+pbtResultJson :: FilePath -> PBTResult -> [T.Text] -> T.Text
+pbtResultJson fp r writebackDiags =
   T.pack . BLC.unpack . encode $ object
     [ "file"    .= fp
     , "total"   .= pbtTotal r
@@ -558,6 +576,8 @@ pbtResultJson fp r =
     , "failed"  .= pbtFailed r
     , "skipped" .= pbtSkipped r
     , "results" .= map runJson (pbtResults r)
+    -- OBLIG-PBT-3: additive — pre-existing v0.10.5 consumers ignore the key.
+    , "writeback_diagnostics" .= writebackDiags
     ]
   where
     runJson run = object
@@ -1193,13 +1213,13 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
                   -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c)))
+                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) []))
                                        (contractPre c)
                             -- Pre remains asserted: no call-site VCs in v0.8.1b
                         , csPost = if Set.member n bodyFaithfulSet
-                                   then fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c)))
+                                   then fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) []))
                                              (contractPost c)
-                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c)))
+                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) []))
                                              (contractPost c)
                             -- Post verified only when body-faithful VC succeeded
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9

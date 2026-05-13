@@ -18,6 +18,12 @@ module LLMLL.PBT
     -- * Driver helpers
   , assembleTestStatements
 
+    -- * OBLIG-PBT-3: trust-report write-back
+  , HeadResolution(..)
+  , headContractedSubject
+  , canonicalPropBodyHash
+  , pbtTrustWriteback
+
     -- * Results
   , PBTResult(..)
   , PBTRun(..)
@@ -26,9 +32,14 @@ module LLMLL.PBT
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.List (foldl')
+import qualified Data.ByteString as BS
+import Numeric (showHex)
 
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck
@@ -36,6 +47,7 @@ import Test.QuickCheck
   , Arbitrary(..), quickCheckResult, Result(..)
   , counterexample, forAll, NonNegative(..))
 import Control.Exception (try, SomeException)
+import qualified Crypto.Hash.SHA256 as SHA256
 
 import LLMLL.Syntax
 import LLMLL.Contracts (evalExprStaticWith, FuncEnv, buildFuncEnv, maxFuel)
@@ -451,3 +463,278 @@ formatRun r =
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
+
+-- ---------------------------------------------------------------------------
+-- OBLIG-PBT-3: PBT-to-trust-report write-back
+-- ---------------------------------------------------------------------------
+
+-- | Resolution outcome for the singleton-head-position subject linkage rule
+-- (proposal §3). A @(check ...)@ block lifts at most one function; the
+-- contracted callees mentioned in head position determine which.
+data HeadResolution
+  = HRNone               -- ^ No contracted callee in head position; no lift
+  | HRSingleton Name     -- ^ Exactly one contracted callee; lift target
+  | HRMulti [Name]       -- ^ ≥2 distinct contracted callees; diagnostic, no lift
+  deriving (Show, Eq)
+
+-- | Resolve the contracted subject of a property body against the assembled
+-- (post-'assembleTestStatements') statement list. Walks head-position 'EApp'
+-- operators reachable through 'EApp'-args, 'ELet', 'EIf', 'EMatch', 'EPair',
+-- 'ELambda', 'EDo', 'EOp'-args (proposal §3 — same shape set as
+-- 'TrustReport.extractCalls'). Filters to operators that resolve to an
+-- 'SDefLogic'/'SLetrec' with @contractPost /= Nothing@; returns 'HRSingleton'
+-- iff that set is exactly one name.
+headContractedSubject :: [Statement] -> Expr -> HeadResolution
+headContractedSubject mergedStmts body =
+  let contractedPostNames = Set.fromList
+        [ n | SDefLogic{defLogicName=n, defLogicContract=c} <- mergedStmts
+            , contractPost c /= Nothing ]
+        `Set.union` Set.fromList
+        [ n | SLetrec{letrecName=n, letrecContract=c} <- mergedStmts
+            , contractPost c /= Nothing ]
+      mentioned = Set.fromList (collectHeadOps body)
+      hits = Set.toList (Set.intersection mentioned contractedPostNames)
+  in case hits of
+       []   -> HRNone
+       [x]  -> HRSingleton x
+       xs   -> HRMulti xs
+
+-- | Collect every 'EApp' operator name reachable by recursive descent through
+-- the shapes listed in proposal §3. 'EOp' is not collected — operators
+-- (@+@, @=@, etc.) cannot be contracted user functions.
+collectHeadOps :: Expr -> [Name]
+collectHeadOps = go
+  where
+    go (EApp n args)        = n : concatMap go args
+    go (EOp _ args)         = concatMap go args
+    go (ELet binds body)    = concatMap (\(_, _, e) -> go e) binds ++ go body
+    go (EIf c t e)          = go c ++ go t ++ go e
+    go (EMatch e cases)     = go e ++ concatMap (go . snd) cases
+    go (EPair a b)          = go a ++ go b
+    go (ELambda _ b)        = go b
+    go (EDo steps)          = concatMap (\(DoStep _ e) -> go e) steps
+    go (EAwait e)           = go e
+    go (ELit _)             = []
+    go (EVar _)             = []
+    go (EHole _)            = []
+
+-- | SHA-256 of the canonical s-expression serialization of a property body.
+-- Output shape: @\"sha256:\" <> 64 hex chars@. The canonical serializer
+-- ('canonicalExpr' below) is exhaustive over every 'Expr' constructor — it is
+-- deliberately independent of 'ObligationAssembly.exprToSExpr', which falls
+-- through to Haskell @show@ for several shapes that occur in property bodies
+-- ('ELet'/'EIf'/'EMatch'/'EPair'/'ELambda'/'EDo'). The hash is used by
+-- 'TrustReport.buildTrustReport' on read to detect property-body drift and
+-- downgrade stale 'DLTested n' entries to 'DLAsserted' (proposal §7).
+canonicalPropBodyHash :: Expr -> Text
+canonicalPropBodyHash e =
+  let bytes = SHA256.hash (TE.encodeUtf8 (canonicalExpr e))
+      hex   = T.pack $ concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
+                                 (BS.unpack bytes)
+  in "sha256:" <> hex
+
+-- | Exhaustive canonical serialization. Total over 'Expr'. Structurally
+-- stable: alpha-equivalent variations in 'ELambda' bindings are NOT
+-- normalized (the user-visible binding names are part of the hash), so
+-- renaming a bound variable in a property invalidates the cached hash —
+-- the conservative direction, consistent with §7's "editing a property
+-- body invalidates the cached DLTested."
+canonicalExpr :: Expr -> Text
+canonicalExpr (ELit (LitInt n))    = "(int " <> T.pack (show n) <> ")"
+canonicalExpr (ELit (LitFloat f))  = "(float " <> T.pack (show f) <> ")"
+canonicalExpr (ELit (LitString s)) = "(str " <> escapeText s <> ")"
+canonicalExpr (ELit (LitBool b))   = if b then "(true)" else "(false)"
+canonicalExpr (ELit LitUnit)       = "(unit)"
+canonicalExpr (EVar n)             = "(var " <> n <> ")"
+canonicalExpr (EApp n args)        = "(app " <> n <> spaceList (map canonicalExpr args) <> ")"
+canonicalExpr (EOp n args)         = "(op " <> n <> spaceList (map canonicalExpr args) <> ")"
+canonicalExpr (EIf c t e)          = "(if " <> canonicalExpr c <> " " <> canonicalExpr t <> " " <> canonicalExpr e <> ")"
+canonicalExpr (ELet binds body)    = "(let " <> spaceList (map canonicalBinding binds) <> " " <> canonicalExpr body <> ")"
+canonicalExpr (EMatch e cases)     = "(match " <> canonicalExpr e <> spaceList (map canonicalCase cases) <> ")"
+canonicalExpr (EPair a b)          = "(pair " <> canonicalExpr a <> " " <> canonicalExpr b <> ")"
+canonicalExpr (EHole h)            = "(hole " <> T.pack (show h) <> ")"
+canonicalExpr (EAwait e)           = "(await " <> canonicalExpr e <> ")"
+canonicalExpr (ELambda params b)   = "(lam " <> spaceList (map canonicalParam params) <> " " <> canonicalExpr b <> ")"
+canonicalExpr (EDo steps)          = "(do " <> spaceList (map canonicalStep steps) <> ")"
+
+canonicalBinding :: (Pattern, Maybe Type, Expr) -> Text
+canonicalBinding (p, mTy, e) =
+  "(bind " <> canonicalPattern p <> " " <> maybe "_" (T.pack . show) mTy <> " " <> canonicalExpr e <> ")"
+
+canonicalCase :: (Pattern, Expr) -> Text
+canonicalCase (p, e) = "(case " <> canonicalPattern p <> " " <> canonicalExpr e <> ")"
+
+canonicalPattern :: Pattern -> Text
+canonicalPattern (PConstructor n ps) = "(ctor " <> n <> spaceList (map canonicalPattern ps) <> ")"
+canonicalPattern (PVar n)            = "(pvar " <> n <> ")"
+canonicalPattern (PLiteral l)        = canonicalExpr (ELit l)
+canonicalPattern PWildcard           = "(_)"
+
+canonicalParam :: (Name, Type) -> Text
+canonicalParam (n, ty) = "(param " <> n <> " " <> T.pack (show ty) <> ")"
+
+canonicalStep :: DoStep -> Text
+canonicalStep (DoStep mName e) = "(step " <> maybe "_" id mName <> " " <> canonicalExpr e <> ")"
+
+spaceList :: [Text] -> Text
+spaceList [] = ""
+spaceList xs = " " <> T.intercalate " " xs
+
+escapeText :: Text -> Text
+escapeText s = "\"" <> T.replace "\"" "\\\"" s <> "\""
+
+-- | Build the PBT-derived contract-status map and the informational
+-- diagnostics for non-lifting cases (multi-subject, skipped, error,
+-- no-contracted-callee, no-post-clause). Pure; called by 'doTest' which
+-- handles the file I/O.
+--
+-- Takes the *local* statement list (pre-'assembleTestStatements') and the
+-- 'ModuleCache' separately, so that name attribution (local vs imported)
+-- is precise: a name defined in 'localStmts' is local; a name reachable
+-- only through an 'SOpen' is imported and qualified for the sidecar key.
+--
+-- Per proposal §6 the within-channel join across multiple 'PBTPassed'
+-- properties on the same subject uses @max@ on sample counts and union on
+-- 'erPbtWitnesses' (deduplicated by 'pwHash'). This is @mergePbtWriteback@
+-- below — distinct from 'Module.mergeCS' which is the sidecar-vs-base
+-- lattice-monotonic merge.
+--
+-- Per proposal §8 the sidecar key is the qualified import path when the
+-- subject came from @(open path …)@, bare-local otherwise.
+pbtTrustWriteback :: [Statement]
+                  -> ModuleCache
+                  -> PBTResult
+                  -> (Map Name ContractStatus, [Text])
+pbtTrustWriteback localStmts cache result =
+  let -- Local names: only those defined in the local file. SOpen-forwarded
+      -- imports do not appear here even after 'assembleTestStatements'
+      -- because we work off 'localStmts' directly.
+      localNames = Set.fromList
+        ([n | SDefLogic{defLogicName=n} <- localStmts] ++
+         [n | SLetrec{letrecName=n} <- localStmts])
+      qualMap     = buildQualMap localStmts cache localNames
+      mergedStmts = assembleTestStatements localStmts cache
+      -- Subject resolution happens against the merged list so imported
+      -- def-logic statements are visible. Right-bias of the iteration order
+      -- ('importedDLs ++ localStmts' in 'assembleTestStatements') means
+      -- 'Map.fromList' gives local-shadows-import semantics, matching the
+      -- type-checker.
+      contractByName = Map.fromList $
+        [ (n, c) | SDefLogic{defLogicName=n, defLogicContract=c} <- mergedStmts ]
+        ++
+        [ (n, c) | SLetrec{letrecName=n, letrecContract=c} <- mergedStmts ]
+      -- SCheck blocks stay with the owning module (assembleTestStatements
+      -- comment line 124-126); property descriptions are local-only.
+      propsByDesc = Map.fromList $
+        [ (propDescription p, p)
+        | SCheck p <- localStmts
+        ] ++
+        [ (ifName <> "_law_" <> T.pack (show idx), p)
+        | SDefInterface ifName _ laws <- localStmts
+        , (idx, p) <- zip [(1::Int)..] laws
+        ]
+      processed = map (processRun contractByName qualMap propsByDesc) (pbtResults result)
+      (mapsList, diagsList) = unzip processed
+      mergedMap = foldl' (Map.unionWith mergePbtWriteback) Map.empty mapsList
+  in (mergedMap, concat diagsList)
+
+-- | Process a single PBTRun: lift on PBTPassed-singleton-contracted-callee,
+-- diagnostic-no-lift otherwise.
+processRun :: Map Name Contract
+           -> Map Name Name      -- ^ bare → qualified sidecar key
+           -> Map Name LLMLL.Syntax.Property
+           -> PBTRun
+           -> (Map Name ContractStatus, [Text])
+processRun contractByName qualMap propsByDesc run =
+  case pbtStatus run of
+    PBTPassed ->
+      case Map.lookup (pbtDescription run) propsByDesc of
+        Nothing -> (Map.empty, [])  -- no matching property body; cannot lift
+        Just prop ->
+          let body = propBody prop
+              -- HEAD-contracted resolution depends on contractByName, which is
+              -- already restricted to contracted post functions below.
+              contractedNames = Map.keysSet (Map.filter (\c -> contractPost c /= Nothing) contractByName)
+              mentioned = Set.fromList (collectHeadOps body)
+              hits = Set.toList (Set.intersection mentioned contractedNames)
+          in case hits of
+               [] -> (Map.empty, [])
+               [f] ->
+                 let n      = pbtSamplesRun run
+                     desc   = pbtDescription run
+                     h      = canonicalPropBodyHash body
+                     w      = PbtWitness h desc
+                     er     = EvidenceRecord (DLTested n) False Nothing [w]
+                     cs     = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
+                     key    = Map.findWithDefault f f qualMap
+                 in (Map.singleton key cs, [])
+               fs ->
+                 let diag = "property \"" <> pbtDescription run
+                          <> "\" covers multiple contracted callees ("
+                          <> T.intercalate ", " fs
+                          <> "); no trust evidence recorded — split the property or wait for :subject metadata in OBLIG-PBT-4"
+                 in (Map.empty, [diag])
+    PBTFailed -> (Map.empty, ["property \"" <> pbtDescription run <> "\" failed; no trust evidence recorded"])
+    PBTSkipped -> (Map.empty, [])
+    PBTError _ -> (Map.empty, [])
+
+-- | Within-channel join across PBTPassed properties on the same subject
+-- (proposal §6). @max@ on 'DLTested' sample counts; union of
+-- 'erPbtWitnesses' deduplicated by 'pwHash'. Falls through to a
+-- 'mergeCS'-like lattice rule on asymmetric / non-tested inputs (defensive;
+-- @pbtTrustWriteback@ only produces 'DLTested' clauses).
+mergePbtWriteback :: ContractStatus -> ContractStatus -> ContractStatus
+mergePbtWriteback a b = ContractStatus
+  { csPre  = mergePbtER (csPre a) (csPre b)
+  , csPost = mergePbtER (csPost a) (csPost b)
+  , csAssumptions = case csAssumptions a of [] -> csAssumptions b; xs -> xs
+  }
+  where
+    mergePbtER Nothing y = y
+    mergePbtER x Nothing = x
+    mergePbtER (Just x) (Just y) = Just (joinER x y)
+
+    joinER x y =
+      let lvl = case (erDisplayLevel x, erDisplayLevel y) of
+                  (DLTested n1, DLTested n2) -> DLTested (max n1 n2)
+                  (lx, ly) | evidenceCovers lx ly -> lx
+                           | otherwise            -> ly
+          ws  = dedupWitnesses (erPbtWitnesses x ++ erPbtWitnesses y)
+      in EvidenceRecord
+           { erDisplayLevel = lvl
+           , erBodyFaithful = erBodyFaithful x || erBodyFaithful y
+           , erSource       = case erSource x of { Just s -> Just s; Nothing -> erSource y }
+           , erPbtWitnesses = ws
+           }
+
+    dedupWitnesses ws =
+      let go _    []     = []
+          go seen (w:rest)
+            | Set.member (pwHash w) seen = go seen rest
+            | otherwise = w : go (Set.insert (pwHash w) seen) rest
+      in go Set.empty ws
+
+-- | Build a map @bare name → qualified sidecar key@ for names that came from
+-- an @(open path)@ import. Local names are excluded so locally-shadowed
+-- imports use the bare key, matching 'assembleTestStatements' right-bias
+-- semantics. Qualified key is @T.intercalate \".\" path <> \".\" <> name@,
+-- consistent with 'TrustReport.collectAllContractStatus'.
+buildQualMap :: [Statement] -> ModuleCache -> Set Name -> Map Name Name
+buildQualMap localStmts cache localNames =
+  Map.fromList
+    [ (n, qual)
+    | SOpen{openPath = path, openNames = mNames} <- localStmts
+    , Just menv <- [Map.lookup path cache]
+    , s <- meStatements menv
+    , Just n <- [extractContractedName s]
+    , Map.member n (meExports menv)
+    , maybe True (n `elem`) mNames
+    , not (Set.member n localNames)
+    , let qual = T.intercalate "." path <> "." <> n
+    ]
+  where
+    extractContractedName (SDefLogic{defLogicName=n, defLogicContract=c})
+      | contractPost c /= Nothing = Just n
+    extractContractedName (SLetrec{letrecName=n, letrecContract=c})
+      | contractPost c /= Nothing = Just n
+    extractContractedName _ = Nothing
