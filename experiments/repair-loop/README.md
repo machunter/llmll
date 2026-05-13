@@ -70,7 +70,8 @@ experiments/repair-loop/
   testkits/                     # per-language black-box tests (per problem)
     002-bank-ledger/            # populated as targets are added
   scripts/
-    run_repair_loop.py          # orchestrator
+    run_repair_loop.py          # single-cell orchestrator
+    run_matrix.py               # matrix runner over run_repair_loop
     evaluate_run.py             # target-aware evaluator
   findings/                     # per-consumer postmortems
     postmortem-001-apparatus-validation.md
@@ -103,6 +104,45 @@ Each matrix cell is `agent × problem × target × attempt`. A cell's run direct
 contains per-turn logs (`turn_NN/agent.stdout.log`, `turn_NN/verifier.json`),
 the agent's accumulating solution files, and an integrated `repair_loop_log.json`.
 
+### Matrix-runner extensions
+
+`run_matrix.py` layers three optional manifest fields on top of the single-cell
+shape:
+
+- **`terminal_target_per_target`** — map of `target → terminal_target`. Resolved
+  per cell when the matrix spans mixed verification surfaces (Phase 2 uses
+  trust-tier for `llmll` and all-pass for Python / Go). Falls back to the
+  manifest-level `terminal_target` when a target is not in the map.
+- **`batch_label`** — string suffix on the batch directory name (default
+  `matrix`). Useful when several manifests share a run timestamp.
+- **Per-agent `required_env` / `required_executables`** — lists checked before
+  any cell launches. The matrix exits early with the full prereq-failure list,
+  so the operator sees the entire surface in one pass rather than discovering
+  gaps cell-by-cell.
+
+```json
+{
+  "batch_label": "phase2-calibration",
+  "experiments": ["002-bank-ledger"],
+  "targets": ["llmll", "python", "go"],
+  "run_count": 3,
+  "repair_budget_k": 5,
+  "terminal_target_per_target": {
+    "llmll":  { "kind": "trust-tier", "value": "all-expected-contracts-verified-or-asserted" },
+    "python": { "kind": "all-pass" },
+    "go":     { "kind": "all-pass" }
+  },
+  "timeout_seconds_per_turn": 540,
+  "agents": [
+    {
+      "name": "gemini-default",
+      "cmd": "<agent-command>",
+      "required_executables": ["gemini"]
+    }
+  ]
+}
+```
+
 ## Run a Single Cell
 
 ```bash
@@ -125,6 +165,63 @@ python3 experiments/repair-loop/scripts/run_repair_loop.py \
   --agent-name stub \
   --stub-agent
 ```
+
+## Run a Matrix
+
+For multi-cell campaigns use `run_matrix.py`, which enumerates cells, generates
+per-cell synthetic manifests, invokes `run_repair_loop.py` once per cell, runs
+`evaluate_run.py` after each, and aggregates `matrix_report.json` /
+`matrix_summary.md`.
+
+```bash
+python3 experiments/repair-loop/scripts/run_matrix.py \
+  experiments/repair-loop/manifest.phase2-calibration.json
+```
+
+**Cell ordering.** Cells are enumerated `target × experiment × agent × attempt`
+(outer to inner). All tries of a single `(target, experiment, agent)` are
+contiguous, which keeps adapter-specific failure clusters readable in the
+report. The 1-based cell index is the unit `--resume-from-cell` operates on.
+
+**Resume.** A 9-cell Phase-2 run at `k=5 × 540s/turn` has a ~6.75h wall-clock
+ceiling, so partial-progress recovery is load-bearing. To resume:
+
+```bash
+python3 experiments/repair-loop/scripts/run_matrix.py \
+  experiments/repair-loop/manifest.phase2-calibration.json \
+  --batch-id 20260512T031938Z \
+  --resume-from-cell 5
+```
+
+The runner skips cells before `--resume-from-cell` and any cell index already
+recorded in the batch's `matrix_report.json` (force a retry by passing a fresh
+`--batch-id`).
+
+**Outputs (per batch).**
+
+```text
+runs/<batch-id>-<batch_label>/
+  matrix_manifest.json    # snapshot of the input manifest + harness git SHA
+  matrix_plan.json        # enumerated cells (cell, target, experiment, agent, attempt)
+  matrix_report.json      # rolling per-cell results, rewritten after each cell
+  matrix_summary.md       # human-readable per-cell status table
+  cells/cell_NN/
+    manifest.json         # synthetic per-cell manifest passed to run_repair_loop.py
+    orchestrator.stdout.log
+    orchestrator.stderr.log
+```
+
+**Flags.**
+
+- `--prepare-only` — enumerate cells, write `matrix_plan.json`, skip launch.
+- `--fail-fast` — stop the matrix on the first `infrastructure-fail` /
+  `harness-error` cell.
+- `--skip-prereqs` — bypass per-agent `required_env` / `required_executables`
+  checks (offline harness work only).
+- `--no-evaluate` — do not invoke `evaluate_run.py` after each cell.
+- `--batch-id <id>` — reuse an existing batch directory (required when
+  resuming).
+- `--llmll-cmd <cmd>` — override `manifest.llmll_cmd` for this invocation.
 
 ## Stop Policy
 
