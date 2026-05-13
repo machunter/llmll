@@ -5,6 +5,14 @@
 > **Context:** The v0.3 compiler delivers the *primitives* for multi-agent coordination (`?delegate`, checkout/patch, `?proof-required`). This document discusses the *workflow layer* that uses those primitives to actually coordinate agents.
 ---
 
+> **Status update (2026-05-13, v0.10.4).** The Phase-1 Python orchestrator described below (`## Implementation Language` → Option A; `## Recommended path` → Phase 1) has shipped in experimental form as the `experiments/repair-loop/` harness (`scripts/run_repair_loop.py` + `scripts/run_matrix.py`, ratified in v0.10.4 via commits `90a5bb9` + `5895792`) and the `experiments/minimal-agent/` harness (first-round-effectiveness measurement). The orchestration-loop diagram in `## The Orchestration Loop` and its pseudocode match the harness's actual shape — read those sections as the realized Phase-1 contract, not future work.
+>
+> **Phase 2 (self-hosted-in-LLMLL orchestrator) remains freeze-gated.** The feature-freeze policy (`docs/compiler-team-roadmap.md:28-31`) prohibits new builtins, FFI tiers, WASI capabilities, and orchestration features through v0.10 ship; v0.10 has shipped (v0.10.4 / 2026-05-13), but the freeze close-out signal in the roadmap has not been explicitly declared. Phase 2's prerequisites cross every prohibited category — `json-parse` as new §13 builtin (Feature-gap-analysis table), Haskell-FFI alternative as new FFI use (same table), and `wasi.http.post` / `wasi.fs.read` / `wasi.io.stdout` as WASI capabilities (same table). Each needs an explicit freeze-lift declaration or alternative routing before Phase 2 can land.
+>
+> **Spec-drift candidates needing reconciliation** (any reader using this doc as input to a v0.11+ proposal should verify these against current `LLMLL.md`): `?scaffold` (in `## Open Questions` Q4) — not currently in shipped spec, may have been deferred; `def-invariant` (in `## Implementation Language` → Option B "Why this matters") — lives in the design folder's `invariant-discovery-proposal.md` + review pair, not in shipped `LLMLL.md`; `HoleInfo` / `HoleResult` sketch types — predate OBLIG-1's `CheckoutToken` expansion (v0.10.0, 7 new fields); the "Lead Agent" framing — predates the `experiments/` harness vocabulary, where the agent under test IS the orchestration participant rather than a Lead in a hierarchy. Q1 (orchestrator-shipped-with-compiler) and Q2 (hole dependency graph) in `## Open Questions` are now partially answered: Q1 by the experiment harnesses landing as separate Python packages; Q2 by the `llmll holes --deps` flag shipped in v0.10.1. Q3, Q4, Q5 remain open.
+
+---
+
 ## The Boundary
 
 The LLMLL compiler is a **verifier**, not a **scheduler**. It answers one question: *"Is this program correct?"* — and provides primitives for agents to submit partial answers.
