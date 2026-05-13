@@ -534,17 +534,28 @@ def _parse_pyright_results(text: str) -> dict[str, int]:
 def _summarize_trust_report(parsed_verify: Any) -> dict[str, Any]:
     """Extract the per-axis evidence counts from llmll verify --trust-report JSON.
 
-    Schema (per F-008's discovery + the v0.10.2 verify --json output):
-        {"entries": [{"name", "pre_level", "post_level", "effective_level", ...}],
+    Schema (per F-008's discovery + the v0.10.2 verify --json output, plus
+    R6d's bb1bd98 `tier_profile` aggregate and `trust_report_version` field):
+        {"trust_report_version": "1.0.0",
+         "entries": [{"name", "pre_level", "post_level", "effective_level", ...}],
          "summary": {"verified", "contract_checked", "tested", "asserted",
                      "no_contract", "drifts"},
+         "tier_profile": {"verified", "proved", "contract_checked",
+                          "tested", "asserted", "no_contract"},
          "suppressions": [...]}
+
+    R6d adds `tier_profile` (six-Int aggregate, harness-side Assurance signal)
+    and `cred` (harness-derived universal-Cred binary) to the returned dict.
+    Both are None on pre-R6d trust reports that lack the aggregate field.
     """
     if not isinstance(parsed_verify, dict):
         return {
             "locally_verified_obligations": None,
             "compositionally_verified_rate": None,
             "n_entries": 0,
+            "tier_profile": None,
+            "cred": None,
+            "trust_report_version": None,
         }
     entries = parsed_verify.get("entries") or []
     if not isinstance(entries, list):
@@ -552,6 +563,9 @@ def _summarize_trust_report(parsed_verify: Any) -> dict[str, Any]:
             "locally_verified_obligations": None,
             "compositionally_verified_rate": None,
             "n_entries": 0,
+            "tier_profile": None,
+            "cred": None,
+            "trust_report_version": None,
         }
 
     locally_verified = 0
@@ -568,10 +582,26 @@ def _summarize_trust_report(parsed_verify: Any) -> dict[str, Any]:
             compositionally_verified += 1
 
     comp_rate = (compositionally_verified / n_entries) if n_entries > 0 else None
+
+    # R6d: tier_profile is the spec-blessed Assurance signal, Cred is the
+    # harness-derived loop-control binary. See experiments/repair-loop/README.md
+    # "Credibility predicate and the H1 split (R6d)".
+    tp = parsed_verify.get("tier_profile")
+    if isinstance(tp, dict):
+        n_asserted = int(tp.get("asserted") or 0)
+        n_no_contract = int(tp.get("no_contract") or 0)
+        cred = (n_entries > 0) and (n_asserted == 0) and (n_no_contract == 0)
+    else:
+        tp = None
+        cred = None
+
     return {
         "locally_verified_obligations": locally_verified,
         "compositionally_verified_rate": round(comp_rate, 3) if comp_rate is not None else None,
         "n_entries": n_entries,
+        "tier_profile": tp,
+        "cred": cred,
+        "trust_report_version": parsed_verify.get("trust_report_version"),
     }
 
 

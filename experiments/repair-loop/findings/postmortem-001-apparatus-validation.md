@@ -1245,7 +1245,7 @@ Empirical evidence (shipping `examples/`, the parser's current behaviour, the wo
 
 ### Phase 2 launch-readiness — cell composition pinned
 
-Gate (3) from Addendum 9 ("F-024 routing decision") is **decided**: option (a) selected, but routed via `LLMLL.md §2.5` rather than `targets/llmll.json` TARGET.md. Effect on Phase-2 noise floor is equivalent — agents reading the spec will see the convention.
+Gate (3) from Addendum 9 ("F-024 routing decision") is **partially decided**. The original Addendum-9 framing (TARGET.md naming callout) is moot — §2.5 pedagogy in commit `2c80eec` closed the naming surface independently. The real F-024 root cause (match-arm wrapping, R5 above) is a separate item routed to `language-team` + `documentation-lead`; Phase-2 can launch in parallel with that turn, since match-arm wrapping affects the noise floor but does not gate the apparatus.
 
 **Phase 2 cell composition (pinned for launcher turn):**
 
@@ -1276,4 +1276,670 @@ Agent: gemini-default. k=5, 540s per turn.
 
 ### Priority matrix delta
 
-F-024 row at line 1037 updated to point to this addendum; status changed from `Open — user routes` to `Surface-style closed (commit 2c80eec); R3 open`.
+F-024 row updated to point to this addendum. Status (post-second-revision): `Surface-style closed (LLMLL.md §2.5, commit 2c80eec); match-arm canonical form open (R5); R3 sum-types non-goal withdrawn`.
+
+## Addendum 11 — Phase 2 calibration outcomes (gemini × 002-bank-ledger × 3 targets × k=5 × 3 tries)
+
+> **Added:** 2026-05-12
+> **Purpose:** Record Phase-2 calibration outcomes from the 9-cell matrix authorized in Addendum 10. Two cells of data: the apparatus event (Plan Mode regression diagnosed, fixed, validated — F-025) and the experimental data itself (F-026 through F-030). The integrated headline: apparatus held cleanly on relaunch; **experiment design has structural issues that gate Phase 3**.
+
+### Sample composition
+
+- **Cells run:** 9 / 9 (1 problem × 3 targets × 3 tries).
+- **Agent:** `gemini-default` (Gemini CLI 0.41.2, default model; `gemini -y --skip-trust -p '...'`).
+- **Experiment:** `002-bank-ledger`.
+- **Targets:** `llmll`, `python`, `go`.
+- **Repair budget *k*:** 5; **timeout per turn:** 540s.
+- **Toolchain pins:** `llmll 0.10.2`; gemini `0.41.2`; harness git SHA stamped per-batch into `matrix_manifest.json` (`944be1a...`, dirty).
+- **Active batch:** `runs/20260512T031938Z-matrix/`.
+- **Aborted batch (apparatus event, evidence preserved):** `runs/20260512T015249Z-matrix/` + per-cell `cells/` and run dirs; see `ABORTED.md` in that batch.
+
+### Headline by-target
+
+| Target | target-reached | budget-exhausted | Convergence turns | Predicate kind |
+|---|---|---|---|---|
+| `llmll` | 1 / 3 | 2 / 3 | {5, –, –} | `trust-tier` |
+| `python` | 3 / 3 | 0 / 3 | {1, 2, 1} | `all-pass` |
+| `go` | 3 / 3 | 0 / 3 | {1, 1, 1} | `all-pass` |
+
+The LLMLL win used the full k=5 budget; Python and Go converged in 1–2 turns each. Cross-target turn comparison is **confounded by predicate-strictness asymmetry** (F-026 below) — the bars are not equivalent. Calibration interpretation requires unpacking before the numbers carry weight.
+
+---
+
+### F-025. Workspace-scoped agent state pinned Plan Mode across the matrix relaunch
+
+**Priority:** High (closed by user intervention; capability-probe proposal preserved for prereq path)
+**Consumer:** experiment-lead (closed) + harness-design (open recommendation)
+
+#### Evidence
+
+First Phase-2 launch (`runs/20260512T015249Z-matrix/`) put cell 1 through 5 turns of structural failure. Each turn's stderr (`runs/20260512T015250Z-gemini-default-try01-of-03-c01-e002-bank-ledger-llmll/turns/turn_01/agent.stderr.log:6-8`):
+
+```
+YOLO mode is enabled. All tool calls will be automatically approved.
+Error executing tool write_file: Tool execution denied by policy. You are in Plan Mode...
+Error executing tool run_shell_command: Tool "run_shell_command" not found...
+```
+
+YOLO and Plan Mode are independent policy axes; `-y` engaged YOLO but did not unset Plan Mode. The agent's stdout simultaneously **hallucinated successful completion** — claimed file emissions that the stderr proved were denied. `_find_solution` returned None each turn; the cell budget-exhausted with no solution written. Cell 2 was killed mid-turn-1 on user halt; cells 3–9 never launched.
+
+Root cause: per-project Plan Mode pin at `~/.gemini/tmp/llmll/`, set by an interactive Gemini session against this repo between the Phase-2.0 probe (which succeeded) and this matrix launch. The Gemini CLI walks up from cwd to a `.git` root, resolves the project to `llmll`, and inherits the pinned mode. `--skip-trust` and `-y` do not override `/plan-mode`. The Phase-2.0 probe (`runs/20260511T183807Z-phase2-probe-2-...`) succeeded under identical flags because Plan Mode had not yet been pinned for the `llmll` project at probe time.
+
+#### Diagnosis sequence
+
+1. Verify scaffold (`/tmp/verify_gemini_writes.sh`) reproduced from a `/tmp/`-scoped scratch dir — file write **succeeded** under the same `-y --skip-trust` flags. cwd was outside the `.git` ancestry; project root resolved to a fresh, unpinned project.
+2. Hypothesis: pin is project-scoped. Inspection of `~/.gemini/tmp/llmll/chats/session-2026-05-12T02-09-d8b58aed.jsonl` confirmed an interactive `/plan-mode off` issued by the user at 02:09Z, mid-diagnosis. The session log's model response acknowledged *exiting* plan mode — proving the project had been *in* plan mode prior.
+3. In-repo verify scaffold (`/tmp/verify_in_repo.sh`, probe A) wrote `hello.txt` cleanly from inside the LLMLL repo with the same flags; `/plan-mode off` stuck.
+
+#### Fix applied
+
+User-side, not harness-side: the interactive `/plan-mode off` at 02:09Z unpinned the project state. Matrix relaunch on this corrected state produced 0 Plan Mode hits across 9 cells × all turns. No code change to the manifest or harness.
+
+#### Implication (proposed harness change, deferred)
+
+The `required_executables` and `required_env` prereq checks in `run_matrix.py` (Addendum 10's launcher) verify the agent binary is present and authenticates — they do not verify the agent can *do work from cwd*. The hallucination-while-blocked failure mode (rc=0 + persuasive stdout + zero successful tool calls) is invisible to single-cell apparatus validation. A pre-flight **capability probe** is the next prereq layer:
+
+- From a scratch dir under the harness root (so the agent's project-root walk matches the matrix condition), invoke the agent with a trivial "write a file" prompt.
+- Verify the file lands with expected content.
+- Fail-fast before launching cell 1 if not.
+
+This generalizes beyond Plan Mode: every additional agent (Claude CLI, codex, Antigravity-flavored variants) will bring its own workspace-scoped state the manifest doesn't see. Routed as a Phase-2-postmortem item to experiment-lead's next harness turn; deliberately not bundled into the F-026/F-027 design gate.
+
+#### Acceptance
+
+Relaunched batch shows **0 Plan Mode hits across 9 cells × every turn**. 9/9 cells wrote real solution files (3.2–5.0 KB for LLMLL, 2.4–4.2 KB for Python, 2.2–3.2 KB for Go). Apparatus closed for this batch.
+
+---
+
+### F-026. Cross-target predicate-strictness asymmetry — the matrix cannot answer H1 as configured
+
+**Priority:** High (blocks Phase 3 H1 read)
+**Consumer:** experiment-lead (apparatus / experiment design) + language-team (predicate-vocabulary decision)
+
+#### Evidence
+
+LLMLL cells use `terminal_target.kind = trust-tier`; Python and Go cells use `kind = all-pass` (per `manifest.phase2-calibration.json:terminal_target_per_target` and the per-cell synthetic manifests under `runs/20260512T031938Z-matrix/cells/cell_NN/manifest.json`).
+
+What each predicate measures:
+
+- **`trust-tier`** (LLMLL): all verifier commands rc=0, AND every entry in the `--trust-report` is at `asserted` tier or above. Per `run_repair_loop.py:_count_bad_trust_tiers:538-562`, the accepted set includes `verified`, `proved`, `asserted`, `contract-checked`, `contract_checked`, `checked`, `tested`. **`asserted` is the weakest tier** — the obligation exists in the source but has not been discharged by SMT, runtime check, or test.
+- **`all-pass`** (Python/Go): all verifier commands rc=0. For Python, `pyright` + `pytest`; for Go, `gofmt` + `go vet` + `go test`. The testkit ships 8 behavioral tests per target (`testkits/002-bank-ledger/{python,go}/test_solution.py` / `solution_test.go`).
+
+In this batch, Python and Go matched the predicate by **passing 8/8 behavioral tests** — real behavioral correctness signal. LLMLL matched the predicate (cell 02 only) by **producing a trust report with 6 entries all at `asserted` tier** — declared obligations, zero discharged. The bars are not equivalent.
+
+| Cell | Target | Status | core_behavior | test_quality | proof_or_trust_evidence |
+|---|---|---|---|---|---|
+| 1 | llmll | budget-exhausted | 0.0 (0/0/3 skipped) | pbt_pass_rate=0.0, tests=3 | verified=0, ack=0, comp=0.0 |
+| 2 | llmll | target-reached | 0.0 (0/0/2 skipped) | pbt_pass_rate=0.0, tests=2 | verified=0, ack=0, comp=0.0 |
+| 3 | llmll | budget-exhausted | 0.0 (0/0/2 skipped) | pbt_pass_rate=0.0, tests=2 | verified=0, ack=0, comp=0.0 |
+| 4–6 | python | target-reached | 1.0 (8/0/0 passed) | (target-N/A) | (target-N/A) |
+| 7–9 | go | target-reached | 1.0 (8/0/0 passed) | (target-N/A) | (target-N/A) |
+
+#### Why we saw what we saw
+
+H1 in the README hypothesis block reads: *"at fixed k, LLMLL agents reach a higher terminal assurance score than Python or Go agents on the same problem, holding correctness constant."* The matrix design implicitly assumes the terminal-target predicate is *comparable* across targets — i.e., that target-reached means equivalent "done" semantics across LLMLL / Python / Go. It doesn't. LLMLL's predicate is satisfied by *declared* obligations; Python/Go's predicate is satisfied by *executed* behavioral tests. A cross-target turn-count or pass-rate comparison conflates these two axes.
+
+#### Implication
+
+This is an experiment-design item, not a compiler-engineer item. Two options for downstream `/language-team`:
+
+- **R6a (tighten the trust-tier predicate):** remove `asserted` from the accepted-levels set; require at least one of `verified` / `contract_checked` / `tested` per entry. Under this rule, all three LLMLL cells in this batch invert to budget-exhausted — Phase 2 reads as 0/3 LLMLL wins. n=3 is small but the directional signal is strong: gemini-default does not push past `asserted` under k=5 on this cell.
+- **R6b (split the predicate into two axes):** keep `target-reached` as a binary signal ("the agent stopped without an open error") and add an *assurance score* extracted from the trust report as the H1 measurement. Cross-target comparison happens on the assurance score, not on terminal-reached status.
+
+Empirical evidence (this batch's data) does not adjudicate R6a vs R6b — both are coherent design moves. Surfaced to `/language-team` for routing.
+
+#### Acceptance
+
+Closure when `manifest.phase2-calibration.json:terminal_target_per_target` is rewritten under one of R6a / R6b and a re-probe cell is run to confirm the predicate behaves as designed.
+
+---
+
+### F-027. The `asserted` trust tier is a no-op in the current predicate
+
+**Priority:** High (tightly coupled to F-026; logically a refinement)
+**Consumer:** language-team (predicate-vocabulary decision) + compiler-engineer (if R6a routes through a compiler check)
+
+#### Evidence
+
+Across n=3 LLMLL cells × the final-turn trust report:
+
+| Cell | Status | Entries | `verified` | `proved` | `contract_checked` | `tested` | `asserted` | `null` (no_contract) |
+|---|---|---|---|---|---|---|---|---|
+| 01 | budget-exhausted | 7 | 0 | 0 | 0 | 0 | **7** | 0 |
+| 02 | target-reached | 6 | 0 | 0 | 0 | 0 | **6** | 0 |
+| 03 | budget-exhausted | 6 | 0 | 0 | 0 | 0 | 3 | 3 |
+
+**Across 19 obligations declared by the agent in this batch, 0 reached `verified` / `proved` / `contract_checked` / `tested` tier.** Every clause the agent wrote remained at `asserted` (declared, not validated). Cell 02's target-reached status is structurally a *match on stated intentions*, not on verified evidence.
+
+#### Why we saw what we saw
+
+Two non-exclusive readings, distinguishable only with more data:
+
+- **Agent-side:** gemini-default declares obligations (it wrote 6–7 `(post)` clauses, 1 `(pre)` clause, 2–4 `(where)` refinement-type predicates per cell, plus `:source "..."` annotations) but does not push toward `(check ...)`-runs that engage the test channel or toward fixpoint-friendly obligation shapes that SMT can discharge. The repair loop's feedback channel may not be routing the agent toward this.
+- **Compiler-side:** the verifier's discharge channels (SMT / liquid-fixpoint / contract-runner / PBT) may not be firing on these obligation shapes. The trust-tier ladder includes `verified` and `tested` and `contract_checked` as nominal targets, but if the verifier cannot reach them, the agent has no path to push obligations past `asserted` no matter how it iterates. F-028 below partially probes this.
+
+#### Implication
+
+The current trust-tier predicate is satisfied by *any* well-formed solution with declared obligations — including a solution where the agent has put zero effort into making those obligations true. The predicate doesn't reward verification; it rewards declaration. Phase 3 with this predicate produces a measurable that the experiment cannot defend (H1 cannot be evaluated; only "did the agent declare obligations at all").
+
+#### Acceptance
+
+Closure shared with F-026 — either the predicate accepts only above-`asserted` tiers (R6a), or terminal-reached and assurance score split (R6b), so that `asserted` is no longer a free pass.
+
+---
+
+### F-028. verify-fixpoint diagnostics are not captured — the repair loop's feedback channel is partially blind on the LLMLL side
+
+**Priority:** High (compromises the repair-loop hypothesis)
+**Consumer:** compiler-engineer (primary) + harness-design (orchestrator stderr capture)
+
+#### Evidence
+
+`verify-fixpoint` exit codes per turn distinguish the three LLMLL cells more cleanly than any other signal:
+
+| Cell | turn 1 | turn 2 | turn 3 | turn 4 | turn 5 |
+|---|---|---|---|---|---|
+| 01 | fail | fail | **pass** | fail | fail |
+| 02 | fail | fail | **pass** | pass | pass |
+| 03 | fail | fail | fail | fail | fail |
+
+But across 15 LLMLL turns, **verify-fixpoint's stderr is empty in every single failing turn** (sampled via `repair_loop_log.json:turns[*].verifier_results`). The harness captures exit code, no other diagnostic. Whatever caused verify-fixpoint to fail in cell 03's turn 5, or in cell 01's turn 4 (regression — see F-029), is not visible to the agent's next turn.
+
+#### Why we saw what we saw
+
+Two possibilities to disambiguate:
+
+- The verifier emits diagnostics on stdout (not stderr) and the orchestrator's verifier-chain capture loses them. `_run_verifier_chain` in `run_repair_loop.py:383-440` captures both, but the per-turn `verifier_results[*].stdout` / `stderr` payload may be truncated or the verifier may emit to a side channel.
+- The verifier emits nothing on failure — exit-1 is the entire signal. If so, the agent's next turn has no actionable information about *what* the fixpoint discharger objected to.
+
+Either way, the repair-loop hypothesis (H1/H2/H3 in the README) rests on the agent being able to *use* verifier feedback to iterate. F-028 says: for the failure mode that empirically distinguishes win from lose in this batch, the feedback channel is silent.
+
+#### Implication
+
+Compiler-engineer item: probe `llmll verify-fixpoint` invocation on cell 01's turn-4 solution to determine what (if anything) the discharger emits on failure. If diagnostic surface exists but the harness drops it: harness fix. If diagnostic surface doesn't exist: compiler-engineer plan to add it. Either fix unblocks the H1/H2 cycle.
+
+#### Acceptance
+
+Closure when verify-fixpoint failures produce a non-empty diagnostic payload that the orchestrator captures into `context/turn_NN_verifier.json`, and a re-probe of cell 01-shape solution shows the next turn's agent receives the payload.
+
+---
+
+### F-029. Non-monotonic repair — the agent broke its own previously-passing solution
+
+**Priority:** Medium (design observation; informs Phase-3 sample sizing)
+**Consumer:** experiment-lead (Phase-3 sample-size review) + language-team (informs H2 measurement design)
+
+#### Evidence
+
+Cell 01's verify-fixpoint trajectory (above): fail / fail / **pass** / fail / fail. The agent reached a verify-fixpoint-passing solution at turn 3, then the turn-4 emission regressed to failing again. The solution.llmll snapshot at `runs/20260512T031939Z-gemini-default-try01-of-03-c01-e002-bank-ledger-llmll/turns/turn_03/solution.llmll` versus turn 4's snapshot would isolate which lines the agent rewrote between them; not extracted in this addendum, but the artefact is on disk for a follow-up turn.
+
+Cell 02 (the winner): fail / fail / **pass** / pass / pass. Once it reached, it stayed.
+
+#### Implication
+
+Repair-loop progress is not strictly monotonic in turns. n=3 already shows it. Phase-3 sample sizes must be wide enough to characterize regression rate, not just terminal-state directionality. Rough estimate: at the rate of 1 regression in 15 LLMLL turns observed here, n=3 per cell will misestimate regression frequency in either direction; n≥8 per cell is closer to the bar for a stable rate estimate, though that number wants a power calc before Phase 3 commits.
+
+The wider H2 measurement implication: turns-to-converge as a univariate signal undersells what the repair loop is doing. A per-turn fixpoint-status trajectory captures the regression signal that aggregate convergence-rate does not.
+
+#### Acceptance
+
+Closure when Phase-3 sample sizing (or a preliminary re-probe) records regression rate per cell as a first-class signal alongside terminal turn count.
+
+---
+
+### F-030. LLMLL in-source test channel does not land — F-017 confirmed empirically
+
+**Priority:** Medium (cross-references Addendum 7's F-017)
+**Consumer:** language-team (test-channel design) + experiment-lead (in-source-test prerequisite for trust-tier credit)
+
+#### Evidence
+
+All three LLMLL solutions in this batch emitted `(check ...)` blocks (cell 01: 3 checks; cells 02–03: 2 checks each). Per the v2 scoring rubric's `core_behavior` sub-score, all three cells scored 0.0 with `passed=0, failed=0, skipped=2-3, channel=llmll-pbt`. The PBT runner saw the tests but skipped them.
+
+The trust-report entries for these solutions are all at `asserted`, never at `tested` — the in-source `(check ...)` blocks do not engage the test channel that would lift entries to `tested` tier.
+
+This is **F-017** (Addendum 7's "LLMLL in-source-test asymmetry") observed live in Phase-2 data rather than predicted from structural analysis.
+
+#### Implication
+
+LLMLL's in-source `(check ...)` form is documented but is not currently a path by which the verifier elevates obligations above `asserted` tier in the trust report. F-018 (Addendum 8 — PBT FuncEnv lacks imported-module def-logic, open against compiler-engineer) may be the underlying mechanism — but n=3 in this batch is not enough to establish that. The empirical observation stands independent of the mechanism: under current conditions, the test channel does not produce trust-tier credit on this problem with this agent.
+
+#### Acceptance
+
+Closure shared with F-018 (compiler-engineer). When F-018 lands, a re-probe cell should show `tested` entries in the trust report on `(check ...)`-engaged solutions, and `core_behavior` should produce a non-zero PBT pass rate.
+
+---
+
+### Withdrawn items (none new this addendum)
+
+No claims withdrawn during this analysis pass. The pre-scoring read I gave ("LLMLL solutions had zero contracts") was wrong (wrong grep patterns — `(contract )` instead of `(post )` / `(pre )` / `(where )`); corrected before this addendum drafted, did not propagate to a finding.
+
+### Null results
+
+- **H2 (convergence differential on QF-LIA) — not evaluable from this matrix.** The cross-target turn comparison is confounded by F-026; Python/Go's 1–2 turns vs LLMLL's 5 is uninterpretable until predicate strictness is comparable. **n=9 was not enough to test H2; the design wasn't.**
+- **Apparatus regression rate — null.** 0 Plan Mode hits across 9 cells × all turns post-fix. n=9 is small but supports "the F-025 fix held for this batch under user-side discipline (no interactive Gemini sessions on the repo mid-run)."
+
+### What the data tells us — synthesized
+
+Five lessons of unequal weight, ordered by Phase-3 blocking importance:
+
+1. **The matrix as configured cannot answer H1.** F-026 + F-027: LLMLL's trust-tier predicate accepts `asserted` (declared-but-unverified) and Python/Go's all-pass requires 8/8 behavioral tests. Different bars. Cell 02's "win" is a vacuous predicate match in the strict sense (verifier discharged nothing) even though the solution contains substantive `(pre)` / `(post)` / `(where)` machinery. Phase 3 with this predicate produces a number that doesn't measure H1's claim.
+
+2. **gemini-default engages LLMLL's verification surface but doesn't push it.** This was the surprise — the agent wrote 6–7 `(post)` clauses per cell, refinement-typed `Balance`, `:source` annotations, the lot. But not one obligation crossed from `asserted` into `verified` / `contract_checked` / `tested`. Two readings — agent-side or compiler-side — distinguishable only with F-028 resolved.
+
+3. **verify-fixpoint diagnostics are silent, so the repair loop is partially blind on LLMLL.** F-028. Without verify-fixpoint stderr, the agent's iteration on LLMLL solutions is informed only by exit codes. The repair-loop hypothesis's *whole point* is that verifier feedback drives the agent toward terminal state; missing fixpoint diagnostics undermines that feedback channel where it matters most.
+
+4. **Repair-loop progress is non-monotonic.** F-029. Cell 01 reached fixpoint pass at turn 3 then broke it at turn 4. n=3 already showed this; Phase-3 sample size needs to characterize variance, not just centrality.
+
+5. **The apparatus has an environment-state dimension we didn't model.** F-025. The Phase-2.0 probe's success was insufficient to predict Phase-2 success — the Plan Mode pin was set between them in state the manifest doesn't see. The capability-probe proposal is the next prereq layer; deferred (deliberately) to a post-Phase-3-gate harness turn, since Phase 3 won't launch until F-026/F-027/F-028 land.
+
+### Combined implication for Phase 3
+
+Do not launch Phase 3 as currently designed. Three items gate it:
+
+- **F-026 (experiment design):** route to `/language-team` for R6a vs R6b decision. The predicate vocabulary needs to either tighten (exclude `asserted`) or split (binary terminal-reached + numeric assurance score).
+- **F-027 (predicate refinement):** logically follows F-026; same routing.
+- **F-028 (compiler / harness):** route to `/compiler-engineer` for diagnostic-surface probe on verify-fixpoint. Can land in parallel with F-026/F-027.
+
+The cheapest data move that advances the question is a **small re-probe** (k≥5, 1–2 cells) of one LLMLL cell with the F-026 predicate tightened and F-028 diagnostics surfaced, to see whether gemini-default can push past `asserted` under repair pressure when the feedback channel is informative. If yes, Phase 3 is worth the spend. If no, the experiment design needs a third channel (agent-prompted toward proof-obligation discharge — possibly via expansion of AGENT_INSTRUCTIONS.md for LLMLL targets) before the matrix carries weight.
+
+### R5 status (Addendum 10's open item — match-arm canonical form)
+
+Unchanged by this batch. Gemini emitted wrapped-form match arms in cell 02's solution (`runs/20260512T033017Z-.../solution.llmll`) and the parser accepted them across all 5 turns — empirical confirmation that the §17 grammar holds under repair iteration, no observable noise in the matrix data attributable to match-arm wrapping. R5 closure still depends on the separate `/language-team` + `/documentation-lead` turn to canonicalize §3.3 informal examples (recommended option R5a per Addendum 10). Not a Phase-3 gate; tracked as Addendum 10's open item.
+
+### Apparatus changes in this addendum
+
+`experiments/repair-loop/manifest.phase2-calibration.json` (new, landed pre-Phase-2 per Addendum 10): no further changes.
+
+`experiments/repair-loop/scripts/run_matrix.py` (new, landed pre-Phase-2 per Addendum 10): no further changes. Proposed addition (capability-probe in prereq path, F-025) deferred to a post-Phase-3-gate harness turn.
+
+`experiments/repair-loop/runs/20260512T015249Z-matrix/ABORTED.md` (new): documents the Plan-Mode-pin batch abort for evidence-trail integrity.
+
+### Updated priority matrix (post-addendum-11)
+
+| # | Finding | Consumer | Priority | Status |
+|---|---|---|---|---|
+| F-001..F-016 | (earlier addenda) | various | various | Closed |
+| F-006 | No CLI override for *k* | experiment-lead | Low | Open (deferred) |
+| F-018 | PBT FuncEnv lacks imported-module def-logic | compiler-engineer | High | Open |
+| F-019 | verify chain missing fixpoint-discharge step | experiment-lead | High | Closed by Addendum 8 |
+| F-020 | Per-axis scoring rubric implemented | experiment-lead | Phase-1.75 prereq | Closed by Addendum 8 |
+| F-021 | Run dir does not seed LLMLL.md + schema | experiment-lead | High | Closed by Addendum 9 |
+| F-022 | Agent timeout calibration | experiment-lead | Medium | Closed by Addendum 9 |
+| F-023 | AGENT_INSTRUCTIONS.md spec-availability note | experiment-lead | Low | Closed by Addendum 9 |
+| F-024 | Match-arm wrapping drift + unit-payload pedagogy | language-team + documentation-lead | Medium | **Closed 2026-05-12 — spec-side: `ecdf42f` (§3.3/§9/§13.5) + `f5dce77` (§3.2/§3.3); empirical: `runs/20260512T164907Z-f024-reprobe-…` (n=1, Gemini, k=1, `check.rc=0`). See Addendum 13.** |
+| F-025 | Workspace-scoped agent state pinned Plan Mode | experiment-lead | High | **Closed by user `/plan-mode off` 2026-05-12; capability-probe proposal preserved** |
+| F-026 | Cross-target predicate-strictness asymmetry | experiment-lead + language-team | High (Phase-3 gate) | **Open** |
+| F-027 | `asserted` trust tier is a no-op in current predicate | language-team + compiler-engineer | High (Phase-3 gate; couples F-026) | **Open** |
+| F-028 | verify-fixpoint diagnostics not captured | compiler-engineer + harness-design | High (Phase-3 gate) | **Open** |
+| F-029 | Non-monotonic repair (turn-3 pass → turn-4 fail) | experiment-lead + language-team | Medium | **Open** (sample-sizing input) |
+| F-030 | LLMLL `(check)` blocks skip — F-017 confirmed live | language-team + experiment-lead | Medium (couples F-018) | **Open** |
+
+### Phase 3 readiness (post-Addendum-11)
+
+Apparatus is Phase-3-ready (F-025 closed, harness held over 9 cells). Experiment design is **not** Phase-3-ready — F-026, F-027, F-028 are the gate. Recommended downstream-turn invocations:
+
+```
+/language-team Phase-2 calibration surfaced F-026 (cross-target predicate
+asymmetry) and F-027 (`asserted` trust tier as no-op). Adjudicate R6a (tighten
+trust-tier predicate to exclude `asserted`) vs R6b (split terminal-reached
+binary from numeric assurance score). See postmortem-001 Addendum 11.
+```
+
+```
+/compiler-engineer Phase-2 surfaced F-028 (verify-fixpoint stderr empty across
+15 LLMLL turns; the repair loop's actionable-feedback channel is silent on the
+failure mode that distinguishes win/lose). Probe diagnostic surface on
+verify-fixpoint failure; propose harness or compiler patch as evidence
+indicates. See postmortem-001 Addendum 11.
+```
+
+Phase-3 manifest authoring waits on those two turns landing. The small re-probe described in "Combined implication" is the data move that decides Phase-3 spend.
+
+## Addendum 12 — F-024 spec-side closure (both R5 sub-axes)
+
+> **Added:** 2026-05-12
+> **Purpose:** Record the spec-side closure of F-024. Both R5 sub-axes
+> identified in the Addendum 10 re-bisection table have now landed in
+> `LLMLL.md`. Empirical acceptance (a re-probe Gemini run on `002-bank-ledger`
+> that produces a parsing `solution.llmll`) is the remaining sub-condition.
+
+### Spec landings
+
+**R5a — match-arm canonical form (closed).** Commit `ecdf42f`
+(`docs(spec): correct match-arm informal examples in LLMLL.md §3.3 / §9
+/ §13.5 (R5a)`) selects R5a (§17 grammar canonical; arms wrapped) and
+patches the §3.3 / §9 / §13.5 informal examples to the wrapped form. No
+grammar or parser change. Closes the surface drift documented in
+Addendum 10 lines 1211–1230.
+
+**R5 second sub-axis — unit-payload vs nullary constructor pedagogy
+(closed).** Commit `f5dce77` (`docs(spec): correct unit-payload vs
+nullary constructor pedagogy in §3.2 / §3.3`) clarifies the unit-payload
+vs nullary constructor distinction in §3.2 / §3.3. Addresses the
+secondary surface confusion that the Addendum 10 bisection table
+surfaced implicitly (lines 1203–1207, 1219–1226 — pattern shapes such
+as `(Red)` / `(Blue)` and the single-tuple-payload constructor form).
+
+### Acceptance status
+
+The F-024 acceptance criterion has two halves. The **spec-side half is
+met**: both informal-surface defects that the Addendum 10 re-bisection
+isolated are now patched in `LLMLL.md`, and the shipping `examples/`
+already use the canonical forms.
+
+The **empirical half remains open**: a re-probe cell — Gemini on
+`002-bank-ledger` against the `llmll` target, post-`ecdf42f`/`f5dce77`
+spec state — must produce a `solution.llmll` that parses on the first
+turn (i.e., the parse-failure mode bisected to match-arm wrapping in
+Addendum 10 does not recur). Not a Phase-3 gate. Recommended bundle:
+fold into the small re-probe described in Addendum 11's "Combined
+implication for Phase 3" (which is currently scoped to F-026 / F-028 on
+the LLMLL cell anyway), so the F-024 empirical close lands as a
+by-product of the F-026/F-028 probe rather than a separate run.
+
+### Priority matrix delta
+
+F-024 row in the Addendum 11 priority matrix (line 1570) updates to:
+
+| F-024 | Match-arm wrapping drift + unit-payload pedagogy | language-team + documentation-lead | Medium | **Spec-side closed 2026-05-12 (R5a → `ecdf42f` §3.3/§9/§13.5; unit-payload → `f5dce77` §3.2/§3.3); empirical re-probe pending — bundle with F-026/F-028 re-probe per Addendum 11** |
+
+## Addendum 13 — F-024 empirical close
+
+> **Added:** 2026-05-12
+> **Purpose:** Record empirical closure of F-024. The spec-side patches in
+> Addendum 12 (`ecdf42f` match-arm wrapping; `f5dce77` unit-payload pedagogy)
+> were exercised against a fresh Gemini cell on `002-bank-ledger × llmll ×
+> k=1 × 1 try`. The Addendum-10 parse-failure mode does not recur.
+
+### Sample composition
+
+- **Cells:** 1 (n=1)
+- **Agent:** `gemini-default` (Gemini CLI 0.41.2, default model — continuity
+  with the original F-024 probe and the Addendum 9 Phase-2.0 probe)
+- **Experiment:** `002-bank-ledger`; **Target:** `llmll`
+- **Repair budget *k*:** 1; **Tries:** 1
+- **Compiler version pin:** `0.10.2`
+- **Harness commit:** `f5dce77` (working tree; orchestrator code unchanged
+  since the Phase-2.0 probe)
+- **Run directory:**
+  `experiments/repair-loop/runs/20260512T164907Z-f024-reprobe-e002-bank-ledger-llmll/`
+- **Terminal state:** `budget-exhausted` (expected at k=1; downstream
+  verification could not close in a single turn — see "out-of-scope" note
+  below)
+- **Manifest:** `experiments/repair-loop/manifest.phase2-probe-llmll.json`
+  (reused verbatim from the original F-024 probe)
+
+### F-024 acceptance criterion — met
+
+`evaluation.json:correctness_subscores`:
+- `solution_discovery.value = true`
+- `build_typecheck.value = true` (parse + typecheck (non-strict) on turn 1)
+
+`repair_loop_log.json:turns[0].verifier_results[name="check"].exit_code = 0`,
+with stdout `✅ solution.llmll — OK (6 statements, 7 warnings)`. Compare the
+original F-024 probe (`runs/20260511T183807Z-phase2-probe-2-…`):
+`build_typecheck.value = false`; `check.exit_code = 1` with parse-phase
+error at `solution.llmll:32:25`.
+
+Full verifier-rc breakdown for this turn:
+
+| Command | rc | Note |
+|---|---|---|
+| `check` | 0 | 6 statements, 7 warnings (unknown-function warnings on `map-*`) |
+| `check-strict` | 1 | unknown-function errors on `map-*` (out-of-scope for F-024 — see below) |
+| `holes` | 0 | one non-blocking `?proof-required` hole at `def-logic transfer [post]` |
+| `test` | 0 | 0 properties defined; 0 fail |
+| `verify-fixpoint` | 1 | same `map-*` errors as `check-strict` |
+| `verify` | 1 | same `map-*` errors as `check-strict` |
+
+### Match-arm form in the new emission
+
+Wrapped form, per `LLMLL.md §17` grammar and the §3.3 informal examples
+patched in `ecdf42f`. Citation: `solution.llmll:13-15, 29-39`:
+
+```
+(match (map-get ledger id)
+  ((Success b) (ok b))
+  ((Error _)   (err "account missing")))
+```
+
+Each arm is `(pattern body)`. No sibling-form arms anywhere in the
+emission. No nullary-vs-unit-payload constructor confusion in the
+constructor usage either (`Success x`, `Error x` carry payloads
+consistently). The `f5dce77` pedagogy patch and `ecdf42f` example patch
+are both empirically vindicated by this single cell at n=1.
+
+### F-024 status
+
+Closed. Both halves:
+
+- **Spec-side:** closed per Addendum 12 (`ecdf42f` + `f5dce77`).
+- **Empirical:** closed per this run.
+
+F-024 row in the Addendum 11 priority matrix (line 1570) updates to:
+
+| F-024 | Match-arm wrapping drift + unit-payload pedagogy | language-team + documentation-lead | Medium | **Closed 2026-05-12 — spec-side: `ecdf42f` (§3.3/§9/§13.5) + `f5dce77` (§3.2/§3.3); empirical: `runs/20260512T164907Z-f024-reprobe-…` (n=1, Gemini, k=1, `check.rc=0`). See Addendum 13.** |
+
+### Out-of-scope for F-024 — candidate finding F-031 flagged for Phase-2 calibration
+
+`check-strict`, `verify`, and `verify-fixpoint` all reject the emission
+with `call to unknown function 'map-get' | 'map-set' | 'map-values'`. The
+names appear in `LLMLL.md:133` (§2.5 Naming Conventions example list) and
+`LLMLL.md:1464` (a §13 reasoning example), implying they are spec'd
+builtins. `compiler/src/LLMLL/TypeCheck.hs:68-145` registers `builtinEnv`
+across §13.1 (arithmetic) – §13.9 (commands) and §13.11 (crypto); no map
+operations are registered. The agent inferred from the spec surface that
+map ops exist; the compiler disagrees.
+
+This is a distinct surface from F-024 (parse-only acceptance bar) and is
+**not** rolled into F-024's closure. Routing decision deferred to the
+Phase-2 calibration matrix
+(`experiments/repair-loop/manifest.phase2-calibration.json`): the 9-cell
+matrix at k=5 × 3 tries on `002-bank-ledger × {llmll, python, go}` will
+surface the issue at higher n if it is real. If it surfaces on ≥2/3 LLMLL
+cells, open as a new finding **F-031** (next free index after F-030,
+line 1576) routed to `language-team` (decide: register `map-*` builtins
+in §13.X, or remove the misleading example mentions). If `language-team`
+resolves toward registration, downstream consumer is `compiler-engineer`
+(add to `builtinEnv` with appropriate signatures for a polymorphic map
+type).
+
+No spec-side or compiler-side action this turn. F-031 is flagged but not
+opened — n=1 is below the bar for routing a new finding.
+
+### Withdrawn items
+
+None this turn.
+
+### Null results
+
+None this turn. Pre-stated null definition (parse succeeds but emission
+is semantically empty, e.g., a single hole) is not met: the emission has
+6 non-trivial statements + one well-targeted `?proof-required`
+post-condition hole on `transfer`.
+
+### Implications
+
+- **Phase-2 calibration unblocked on the F-024 axis.** The match-arm parse
+  failure was the highest-priority pedagogical noise source identified by
+  Addendum 10 after F-021/F-022/F-023 closure. Calibration cells should
+  now reach the `check rc=0` floor on first turn for any match-heavy
+  LLMLL solution; this is the empirical precondition the matrix needs.
+- **No `language-team` or `compiler-engineer` hand-off this turn.** F-024
+  is closed; the map-builtin candidate (F-031) is flagged but not yet
+  routed — pending Phase-2 calibration evidence.
+- **No `documentation-lead` hand-off this turn.** The §2.5 / §3.3 patches
+  have already shipped through the doc-track.
+
+## Addendum 14 — F-028 reframing + F-031 Phase-2 evidence check
+
+> **Added:** 2026-05-12
+> **Purpose:** Correct the F-028 framing landed in Addendum 11. The `verify-fixpoint` diagnostic surface is **not** silent — diagnostics are emitted on stdout (not stderr) and the harness already captures and propagates them. My Addendum 11 evidence pass checked the wrong field. Also: verify that Addendum 13's flagged F-031 candidate (`map-*` spec/compiler disagreement) does not retroactively explain Phase-2's LLMLL budget-exhaustions. Both corrections are read-only retrospective analysis against existing Phase-2 artefacts; no new run.
+
+### F-028 reframed — diagnostics exist; agent does not productively iterate on them
+
+Phase-2 LLMLL cells' `verifier_results[*].stdout` for the `verify-fixpoint` command (final turn, `runs/20260512T031938Z-matrix/...`):
+
+- **Cell 02 (target-reached), turn 5 — `verify-fixpoint.exit_code = 0`:**
+  > `.fq written to /tmp/solution.fq | body-fallback: map_get, map_insert, create_ledger, balance, total_balance, transfer | Running liquid-fixpoint ... ✅ solution.llmll — SAFE (liquid-fixpoint) | .verified.json written to solution.llmll.verified.json`
+- **Cell 01 (budget-exhausted), turn 3 — `verify-fixpoint.exit_code = 0`** (the reach point in the regression sequence):
+  > `.fq written to /tmp/solution.fq | body-fallback: update-balance, transfer | Running liquid-fixpoint ... ✅ solution.llmll — SAFE (liquid-fixpoint) | .verified.json written to solution.llmll.verified.json`
+- **Cell 01 (budget-exhausted), turn 4 — `verify-fixpoint.exit_code = 1`** (the regression point one turn later):
+  > `(error :phase parse :file "solution.llmll" :line 52 :col 10 :message "reserved word post used as identifier" :hint "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)")`
+- **Cell 03 (budget-exhausted), turn 5 — `verify-fixpoint.exit_code = 1`:**
+  > `.fq written to /tmp/solution.fq | body-fallback: total-balance, update-account, transfer | Running liquid-fixpoint ... ERROR: liquid-fixpoint: Liquid-Fixpoint Copyright 2013-21 Regents of the U...` (continues with the fixpoint solver's diagnostic body, truncated at the 16,000-char harness cap)
+
+These stdout payloads are present in `repair_loop_log.json:turns[*].verifier_results[name="verify-fixpoint"].stdout` for every turn of every LLMLL cell. The orchestrator at `scripts/run_repair_loop.py:_run_verifier_chain:383-440` captures both stdout and stderr per command and writes them to `context/turn_NN_verifier.json`, which is the agent's next-turn input. The feedback channel is intact end-to-end.
+
+Addendum 11 §F-028 (postmortem-001:1431-1465) claimed "verify-fixpoint stderr is empty across 15 LLMLL turns" and concluded "the feedback channel is silent on the failure mode that empirically distinguishes win from lose." The stderr observation was correct but the conclusion did not follow — I never sampled stdout. The diagnostics live there.
+
+**Reframed claim:** the diagnostic *surface* is present and actionable; the *agent* does not productively iterate on it in n=3 LLMLL cells. Cell 01 most starkly: a Liquid-Fixpoint-SAFE solution at turn 3, broken to a parse-phase error at turn 4 by the agent's own edit (mis-placing `(post ...)` as a non-top-level identifier per the turn-4 diagnostic above), and not recovered by turn 5. The agent had structurally clean Liquid-Fixpoint and parse-phase feedback to act on and did not converge.
+
+#### Status update
+
+F-028 as written in Addendum 11 — **closed by this addendum** (mis-framed; diagnostics exist).
+
+The open question that F-028's framing pointed at (why does gemini-default not push LLMLL obligations past `asserted` tier?) reattaches to **F-029 (non-monotonic repair)** — same agent-capability axis, not a harness or compiler-surface defect. F-029 stays open, sized accordingly.
+
+#### Implication for Phase-3 gate
+
+F-028 is removed from the Phase-3 gate. The remaining experiment-lead-routed gates are:
+
+- **F-026 + F-027** (language-team, predicate vocabulary R6a/R6b/R6c). UNCHANGED.
+- **F-018 / F-030** (compiler-engineer, PBT FuncEnv visibility). UNCHANGED.
+
+#### Acceptance
+
+Closed inline. No re-probe, no spec touch, no compiler patch.
+
+---
+
+### F-031 status check against Phase-2 evidence — does not retroactively apply
+
+Addendum 13 (postmortem-001:1724-1749) flagged F-031: gemini emitted calls to `map-get` / `map-set` / `map-values` referenced as examples in `LLMLL.md:133` (§2.5) and `:1464` (§13), but `compiler/src/LLMLL/TypeCheck.hs:68-145` does not register map operations in `builtinEnv`. At n=1 (the F-024 re-probe cell), routing was deferred to Phase-2 evidence.
+
+Phase-2 LLMLL cells' final-turn `solution.llmll`, surveyed for usage of spec'd-but-unregistered `map-*` operations:
+
+- **Cell 01 (budget-exhausted):** kebab-case agent-defined `def-logic` for `find-balance`, `update-balance`, `has-account?`, `create-ledger`, `balance`, `total-balance`, `transfer`. No `map-get` / `map-set` / `map-values` calls. The agent constructed its own balance-lookup machinery in-solution.
+- **Cell 02 (target-reached):** snake_case agent-defined `def-logic` for `map_get`, `map_insert`, `create_ledger`, `balance`, `total_balance`, `transfer`. Calls in-module only; no reference to spec'd `map-*` builtins.
+- **Cell 03 (budget-exhausted):** agent-defined `update-account`, `total-balance`, `transfer`. Same pattern.
+
+None of the three Phase-2 LLMLL cells trip the F-031 mechanism. The agent worked around the spec/compiler disagreement by emitting its own map ops as `def-logic` in-module. F-031 stays at n=1 from Addendum 13's re-probe; the Phase-2 LLMLL budget-exhaustions have a different mechanism (F-029-shaped — agent regression under repair pressure, as documented above).
+
+#### Status update
+
+F-031 — **flagged at n=1; routing remains deferred per Addendum 13.** Phase 3 will produce more data on it if real. No retrospective routing change.
+
+---
+
+### Revised "What the data tells us — synthesized" (correction to Addendum 11)
+
+Addendum 11 §"What the data tells us" lesson 3 (line 1530) read: *"verify-fixpoint diagnostics are silent, so the repair loop is partially blind on LLMLL."* This is wrong as established above. The corrected synthesis:
+
+3'. **Diagnostics are present; agent capability is the bottleneck.** `verify-fixpoint` emits actionable stdout (Liquid-Fixpoint SAFE / ERROR; parse-phase errors with file:line:col + reserved-word hints). The harness captures and propagates them. n=3 LLMLL cells show the agent does not consistently converge under repair pressure even when feedback is clean — cell 01's turn-3 reach followed by turn-4 self-inflicted parse error is the starkest example. **This collapses F-028 into F-029**: the open question is agent capability against extant diagnostics, not diagnostic absence. The question routes to experiment design (does AGENT_INSTRUCTIONS.md need explicit guidance toward obligation discharge?) and to language-team (does the trust-tier ladder reward the iterative behaviour we want?), not to compiler-engineer.
+
+Addendum 11 lessons 1, 2, 4, 5 stand as written. Lesson 4 (F-029, non-monotonic repair) absorbs F-028's substance and should be read as the load-bearing agent-capability finding from this batch.
+
+### Apparatus changes in this addendum
+
+None. Documentation correction only. No change to:
+- `experiments/repair-loop/scripts/run_matrix.py` / `run_repair_loop.py` — the orchestrator's stdout/stderr capture path was correct as shipped.
+- `experiments/repair-loop/manifest.phase2-calibration.json` — Phase-3 launch still depends on language-team predicate decision.
+- `LLMLL.md` — no spec touch from this correction.
+- `compiler/src/LLMLL/` — no compiler patch from this correction.
+
+The companion file `experiments/repair-loop/findings/compiler-engineer.md` §CE-A is revised to a closure note in the same turn — see that file's edit.
+
+### Updated priority matrix (post-addendum-14)
+
+| # | Finding | Consumer | Priority | Status |
+|---|---|---|---|---|
+| F-024 | Match-arm wrapping drift + unit-payload pedagogy | language-team + documentation-lead | Medium | Closed 2026-05-12 (see Addendum 12 + 13) |
+| F-025 | Workspace-scoped agent state pinned Plan Mode | experiment-lead | High | Closed 2026-05-12 (Addendum 11); capability-probe deferred |
+| F-026 | Cross-target predicate-strictness asymmetry | experiment-lead + language-team | High (Phase-3 gate) | **Open** |
+| F-027 | `asserted` trust tier is a no-op in current predicate | language-team + compiler-engineer | High (Phase-3 gate; couples F-026) | **Open** |
+| F-028 | (mis-framed) verify-fixpoint diagnostics not captured | compiler-engineer + harness-design | (was High; was Phase-3 gate) | **Closed by this addendum** — diagnostics are emitted on stdout; collapses into F-029 |
+| F-029 | Non-monotonic repair (turn-3 SAFE → turn-4 parse error) | experiment-lead + language-team | Medium (absorbs F-028's substance; agent-capability axis) | **Open** (broadened) |
+| F-030 | LLMLL `(check)` blocks skip — F-017 confirmed live | language-team + experiment-lead | Medium (couples F-018) | Open |
+| F-031 | `map-*` spec/compiler disagreement (Addendum 13) | language-team (decide) → compiler-engineer | Medium (deferred at n=1) | Flagged, not routed. Phase-2 evidence (Addendum 14) confirms Phase-2 LLMLL cells did not trip it |
+
+### Phase-3 readiness (post-Addendum-14)
+
+The Phase-3 gate narrows to **two open items**, both routed in Addendum 11:
+
+- **F-026 + F-027 (language-team)** — predicate vocabulary decision R6a / R6b / R6c. Until adjudicated, the matrix cannot evaluate H1 cross-target.
+- **F-018 / F-030 (compiler-engineer)** — PBT FuncEnv extension to see imported-module def-logic. Until this lands, LLMLL `(check ...)` blocks cannot elevate obligations to `tested` tier under any tightened predicate.
+
+No new experiment-lead action is productive until at least one of those gates lands. The previously-recommended cheap re-probe (Addendum 11's "Combined implication for Phase 3") is **narrowed**: with F-028 closed, the re-probe scope reduces to "1–2 LLMLL cells under whatever predicate R6a/R6b/R6c lands, plus the F-018-patched compiler" — the F-028-diagnostics-surfaced rider drops out. F-025 capability-probe in the harness prereq path stays deferred.
+
+### Answer to the framing question
+
+The experiment-lead's work on Phase 2 is **complete**. Phase-3 launch waits on `/language-team` (R6a/R6b/R6c adjudication) and `/compiler-engineer` (F-018 patch). The role is paused on downstream; the harness, manifest, and analysis are in a coherent state to resume when those land.
+
+---
+
+## Addendum 15 — R6d adoption + §LT-A / F-026 / F-027 empirical close (2026-05-13)
+
+**Status:** F-026, F-027, §LT-A → **CLOSED**. Phase-3 readiness on the predicate-vocabulary axis restored. The two upstream gates named in Addendum 14's framing — language-team's R6a/R6b/R6c adjudication and compiler-engineer's F-018 — have both landed (F-018 in v0.10.3 / MOD-PBT-1 on 2026-05-12; R6d in `bb1bd98` + `bbab67b` + the harness patch on 2026-05-12 → 2026-05-13).
+
+### Resolution
+
+The `/language-team` adjudication of R6a / R6b / R6c (`findings/language-team.md` §LT-A, settled 2026-05-12 after a `/professor` pass) produced a fourth option, **R6d**:
+
+- **Universal `Cred(R)`** (R6a-style tightening, lattice-meet reading) — the predicate refuses any cell with one or more `asserted` or `no_contract` entries.
+- **Six-Int `tier_profile` aggregate** emitted by the compiler in the trust-report JSON (`docs/llmll-trust-report.schema.json`, introduced in `bb1bd98`) — replaces R6b's cardinal-weighted `S(R)` with a fixed-arity profile that respects `LLMLL.md §4.4.1:344` diamond incomparability between `contract_checked` and `tested`.
+- **Spec-vs-tool boundary** — the consumer predicate and the H1 split are hosted in `experiments/repair-loop/README.md` ("Credibility predicate and the H1 split (R6d)"), not in `LLMLL.md`, per professor critique of R6c's spec-side hosting.
+- **H1 bifurcation** restored — H1-Correctness (cross-target testkit, LLMLL via `CodegenHs`) + H1-Assurance (per-target profile, never scalarized cross-paradigm). Realigns with `docs/design/language-comparison-experiments.md:29-35`'s prior commitment that R6c had walked back.
+
+The R6c cardinal-weighted scalar `S(R)` was withdrawn on professor critique — any total order over `contract_checked` vs `tested` weights collapses the §4.4.1 diamond into a total order, contradicting the load-bearing epistemic-status note at `LLMLL.md §4.4.1:346-347`. This empirical batch did not arbitrate that withdrawal; the spec contradiction did.
+
+### Sample composition (re-probe)
+
+- **Cells:** 3 × LLMLL × `002-bank-ledger` × gemini-default × k=5 — the same three cells from Addendum 11's Phase-2 calibration batch (cell IDs c01, c02, c03 in `runs/20260512T031938Z-matrix/matrix_report.json`). No new agent runs.
+- **Compiler:** `llmll version` reports `0.10.3` (cabal pin not yet bumped to v0.10.4); binary contains R6d code from `bb1bd98` merged into `main` 2026-05-12. Verified by `which llmll` → `/Users/burcsahinoglu/.local/bin/llmll` (stack-install path) and a behavioural sanity check on cell_02's final-turn solution showing `trust_report_version: "1.0.0"` + `tier_profile` in the trust-report JSON.
+- **Harness:** `main` at `bbab67b` plus four working-tree harness edits (`experiments/repair-loop/README.md` new R6d section; `scripts/run_repair_loop.py:_count_bad_trust_tiers` `accepted_levels` drops `"asserted"`, `_run_turn` captures `tier_profile`; `scripts/evaluate_run.py:_summarize_trust_report` extended with `tier_profile` / `cred` / `trust_report_version`; `manifest.phase2-calibration.json` `terminal_target.value` relabelling).
+- **Re-probe method:** re-verify each cell's final-turn `solution.llmll` under the patched compiler (two-step: `llmll verify` to refresh `.verified.json` sidecar, then `llmll --json verify ... --trust-report --weakness-check --spec-coverage` to emit the R6d trust-report shape). No re-run of the repair loop. No new API spend.
+
+### Per-cell results
+
+| Cell | Final turn | `n_entries` | `tier_profile` (non-zero fields) | R6d `Cred` | Old predicate (2026-05-11) |
+|---|---|---|---|---|---|
+| c01 | turn_05 | 7 | `asserted=7` | **false** | budget-exhausted |
+| c02 | turn_05 | 6 | `asserted=6` | **false** | **target-reached** (the false win) |
+| c03 | turn_05 | 6 | `asserted=3, no_contract=3` | **false** | budget-exhausted |
+
+All three trust reports emit `trust_report_version: "1.0.0"`. Cell c02's inversion (target-reached → `Cred=false`) is the empirical correction R6d was designed to make. The §LT-A finding "all 3 land at `asserted` under k=5" holds — and is now refused as terminal.
+
+### Sub-finding (cell c01 non-monotonicity, unchanged from Addendum 11 / 14)
+
+c01's R6d `Cred=false` agrees with the old predicate's `budget-exhausted`, but the *route* differs. Under the old predicate c01 was budget-exhausted because turn_05's verifier chain had a rc>0 command (the agent's self-inflicted parse error per Addendum 14, caught by `_eval_trust_tier_predicate`'s first-fail short-circuit). Under R6d the trust-tier composition itself (7/7 `asserted`) would have refused c01 regardless. Both predicates agree on c01's terminal_state via different paths. The asymmetry is worth noting for Phase-3 sample-size reasoning: the predicate has two routes to refuse a cell; tier-composition is the R6d route; rc>0 short-circuit is the structural route, unchanged.
+
+### Sub-finding (cell c03's `no_contract` half, surfaced by R6d's profile)
+
+c03's `tier_profile` shows 3 obligations at `asserted` and 3 at `no_contract` — meaning the agent declared contracts for only half the obligation sites in its solution. The pre-R6d `summary.no_contract: 3` field carried this signal but the predicate flattened it (any below-`asserted` entry already disqualified the cell). R6d's `tier_profile` preserves the distinction at the consumer level: cells with contract-omission are visibly different from cells with stated-but-unverified contracts. A hypothetical scalar `S(R)` averaging the `R6c` weights (`asserted=0.0`, `no_contract=0.0`, etc.) would have collapsed c02 (6 asserted) and c03 (3 asserted + 3 no_contract) to the same number — R6d's six-Int profile differentiates them, which is the empirical justification for the no-scalarization discipline beyond the §4.4.1 spec argument.
+
+### Withdrawn items
+
+- **R6c cardinal-weighted assurance score `S(R)`.** Withdrawn 2026-05-12 per the professor pass; the §4.4.1 diamond-lattice contradiction was the load-bearing reason, not this empirical batch. Recorded here for hygiene per the experiment-lead findings discipline (`findings/language-team.md:180-188` precedent for Withdrawn Items section).
+
+### Acceptance — closed
+
+- ✅ Predicate vocabulary decision (R6d) documented in `experiments/repair-loop/README.md` "Credibility predicate and the H1 split (R6d)" section.
+- ✅ Harness predicate dispatch in `experiments/repair-loop/scripts/run_repair_loop.py:_count_bad_trust_tiers` updated (`accepted_levels` drops `"asserted"`; docstrings cite R6d).
+- ✅ Re-probe cells' fresh trust-report JSON reflects the new measurable (`tier_profile` + `trust_report_version` extracted by patched `_summarize_trust_report`).
+- ✅ Phase-2 calibration manifest's `terminal_target` block uses updated `value` labelling (`"all-expected-contracts-above-asserted"`).
+
+### Implication
+
+Phase-3 readiness on the predicate-vocabulary axis is restored. The matrix can now evaluate H1 as bifurcated **H1-Correctness** (cross-target testkit, structurally comparable) + **H1-Assurance** (per-target profile, never scalarized cross-paradigm). The Correctness / Assurance split prescribed in `docs/design/language-comparison-experiments.md:29-35` is now operationalized in the harness, restoring the discipline R6c had walked back.
+
+### Status of adjacent findings
+
+- **F-028 (verify-fixpoint diagnostics):** unchanged from Addendum 14 closure. Not engaged by R6d work.
+- **F-029 (non-monotonic repair):** unchanged. Still routed to experiment-lead + language-team. R6d's predicate tightening makes the *empirical* signal of non-monotonicity more visible (trust-tier composition is the R6d gate, not just rc>0) but does not change the agent-capability question.
+- **F-018 / F-030 / CE-B (PBT FuncEnv imported-module def-logic):** closed 2026-05-12 by MOD-PBT-1 / v0.10.3 (commits `d1b7a58` + `b9b5eee`). LT-B's contingent "does `(check ...)` elevate obligations to `tested` under the patched compiler" question was *not* directly tested in the R6d re-probe — the re-probe was re-verify only, not re-test. A focused LT-B re-probe (`llmll test` on the three Phase-2 cells' solutions under v0.10.4-pre) is a follow-up question outside the R6d closure scope; tracked under `findings/language-team.md` §LT-B.
+
+### Phase-3 readiness
+
+With §LT-A closed and F-018 / CE-B closed, the two gates Addendum 14 named are both resolved. Phase 3 launch is unblocked on the empirical-apparatus axis. Remaining open items before Phase-3 launch are scope decisions (matrix composition, agent set, k value, problem set) and the v0.10.4 release cut (cabal version bump + doc-lead CHANGELOG / roadmap close-out + tag), not apparatus blockers.

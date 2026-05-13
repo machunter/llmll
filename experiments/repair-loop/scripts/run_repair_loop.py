@@ -289,6 +289,18 @@ def _run_one_turn(
         llmll_cmd=llmll_cmd,
     )
 
+    # R6d (bb1bd98): surface the spec-blessed tier_profile aggregate at the
+    # turn-record level for downstream consumption (evaluate_run.py, human
+    # inspection of verifier.json). None for non-LLMLL targets or pre-R6d
+    # trust reports that lack the field.
+    _verify_result = next((r for r in verifier_results if r["name"] == "verify"), None)
+    _verify_parsed = (_verify_result or {}).get("parsed_json")
+    tier_profile = (
+        _verify_parsed.get("tier_profile")
+        if isinstance(_verify_parsed, dict)
+        else None
+    )
+
     turn_artifact = turn_dir / "verifier.json"
     context_artifact = run_dir / "context" / f"turn_{turn_idx:02d}_verifier.json"
     payload = {
@@ -296,6 +308,7 @@ def _run_one_turn(
         "verifier_results": verifier_results,
         "terminal_target_match": terminal_match,
         "terminal_target_reason": terminal_reason,
+        "tier_profile": tier_profile,
     }
     _write_json(turn_artifact, payload)
     _write_json(context_artifact, payload)
@@ -309,6 +322,7 @@ def _run_one_turn(
         "verifier_results": verifier_results,
         "terminal_target_match": terminal_match,
         "terminal_target_reason": terminal_reason,
+        "tier_profile": tier_profile,
     }
 
 
@@ -490,6 +504,12 @@ def _evaluate_terminal_target(
 def _eval_trust_tier_predicate(
     *, results: list[dict[str, Any]], first_fail: str | None
 ) -> tuple[bool, str]:
+    """R6d (settled 2026-05-12, `findings/language-team.md` §LT-A): universal
+    Cred(R). All entries must clear above-`asserted`; a single `asserted` or
+    `no_contract` entry fails the cell. Implements the diamond-meet reading;
+    no total order over contract_checked vs tested. See
+    `README.md` "Credibility predicate and the H1 split (R6d)".
+    """
     if first_fail is not None:
         return False, f"command failed: {first_fail}"
 
@@ -502,8 +522,8 @@ def _eval_trust_tier_predicate(
 
     bad = _count_bad_trust_tiers(parsed)
     if bad > 0:
-        return False, f"trust report has {bad} entries below 'asserted'"
-    return True, "all expected contracts verified or asserted"
+        return False, f"trust report has {bad} entries below the R6d credibility threshold (asserted or no_contract)"
+    return True, "all expected contracts above asserted (R6d Cred=true)"
 
 
 def _eval_all_pass_predicate(
@@ -517,10 +537,11 @@ def _eval_all_pass_predicate(
 
 
 def _count_bad_trust_tiers(parsed: Any) -> int:
-    """Count trust-report entries below 'asserted'.
+    """Count trust-report entries that fail R6d's universal Cred predicate.
 
-    Schema (per `llmll --json verify --trust-report`):
+    Schema (per `llmll --json verify --trust-report`, `bb1bd98` onward):
         {
+          "trust_report_version": "1.0.0",
           "entries": [
             {"name": str, "effective_level": str,
              "pre_level": str, "post_level": str, ...},
@@ -529,14 +550,19 @@ def _count_bad_trust_tiers(parsed: Any) -> int:
           "summary": {"verified": int, "contract_checked": int,
                       "tested": int, "asserted": int, "no_contract": int,
                       "drifts": int},
+          "tier_profile": {"verified": int, "proved": int,
+                           "contract_checked": int, "tested": int,
+                           "asserted": int, "no_contract": int},
           "suppressions": [...]
         }
 
+    R6d (2026-05-12): `asserted` is no longer an accepted level. A bad entry
+    is any whose effective level is `asserted`, `no_contract`, or absent.
     Tolerant of schema variation; if the trust report structure cannot be
     located, returns 1 (conservative — predicate does not match).
     """
     accepted_levels = {
-        "verified", "proved", "asserted",
+        "verified", "proved",
         "contract-checked", "contract_checked", "checked",
         "tested",
     }

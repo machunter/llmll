@@ -149,6 +149,70 @@ invoke) and toolchain failures (per-language adapter could not run) are logged
 distinctly from agent failures, per
 `docs/design/language-comparison-experiments.md:241`.
 
+## Credibility predicate and the H1 split (R6d)
+
+The trust-tier predicate that decides target-reached is split from the
+*assurance* signal that flows into H1. Both derive from the trust report,
+but they answer different questions.
+
+**`Cred(R)`** — boolean, loop-control. `Cred(R) ≡ (|R| > 0) ∧
+(n_asserted(R) = 0) ∧ (n_no_contract(R) = 0)`. Universal lattice-meet
+reading: every obligation must clear above-`asserted` for the cell to
+count as target-reached. The pre-R6d predicate accepted `asserted` as
+terminal; the R6d adjudication (`findings/language-team.md` §LT-A,
+settled 2026-05-12 after a professor pass) tightens that to the meet
+over the diamond at-or-above the asserted threshold. The reading is
+universal, not existential — a single `asserted` or `no_contract` entry
+fails the cell.
+
+**`tier_profile`** — six-Int aggregate emitted by the compiler in the
+trust-report JSON (`docs/llmll-trust-report.schema.json`, introduced
+2026-05-12 via `bb1bd98`). Fields: `verified, proved, contract_checked,
+tested, asserted, no_contract`. Reported per-cell as the LLMLL-side
+**Assurance** signal. Component-wise dominance is the only legitimate
+partial order; reports incomparable under it are *legitimately
+incomparable*, faithful to `LLMLL.md §4.4.1:344` (`contract_checked ‖
+tested`).
+
+The split implements the H1 bifurcation:
+
+- **H1-Correctness** — same testkit black-box tests applied to all three
+  targets (LLMLL testable here via `CodegenHs`). Cross-paradigm-
+  comparable measurement.
+- **H1-Assurance** — reported per-target in native vocabulary, never
+  scalarized cross-paradigm. LLMLL reports `tier_profile`; Python and Go
+  report their native binaries (`all-tests-pass`-style). The harness
+  refuses to aggregate `tier_profile` into a single number — six fields
+  are reported side-by-side; component-wise dominance is the only
+  operation that respects the diamond.
+
+**No-scalarization discipline.** A cardinal-weighted mean over
+`tier_profile` (`verified=1.0, contract_checked=0.75, tested=0.5, …`)
+was proposed during the language-team adjudication and rejected on
+review: any total order over `contract_checked` vs `tested` collapses
+`LLMLL.md §4.4.1:344`'s diamond, contradicting the spec's
+epistemic-status note at `:346-347` (logical evidence vs statistical
+evidence as categorically different kinds of trust signal). The design
+folder's prior commitment (`docs/design/language-comparison-experiments.md:27`:
+*"avoid a single 'winner' score that treats unit tests and body-faithful
+verification as equivalent"*) stands. If a scalar becomes operationally
+necessary later for plotting, the harness must derive it outside this
+section with explicit `weights_version` plus a monotonicity-preservation
+invariant under re-tune.
+
+**References.**
+
+- `LLMLL.md §4.4.1:344` — diamond incomparability declaration
+- `LLMLL.md §4.4.1:346-347` — epistemic-status rationale (load-bearing)
+- `docs/design/language-comparison-experiments.md:20-35` — Correctness /
+  Assurance separation; single-winner-score prohibition
+- `docs/llmll-trust-report.schema.json:5` — trust-report versioning is
+  independent of the AST schema
+- `findings/language-team.md` §LT-A — R6a / R6b / R6c framing; R6d
+  resolution
+- `findings/postmortem-001-apparatus-validation.md` F-026 / F-027 — the
+  empirical batch that surfaced the predicate-vocabulary question
+
 ## Scoring
 
 The repair-loop harness reuses the two-axis scoring rubric proposed in

@@ -1,0 +1,38 @@
+{
+  "_purpose": "Phase 2 calibration matrix — gemini × 002-bank-ledger × 3 targets × k=5 × 3 tries = 9 cells. Composition pinned per findings/postmortem-001-apparatus-validation.md Addendum 10. Tunes k and validates per-axis scoring on a known-tractable cell across LLMLL + Python + Go before Phase 3 escalates to 3 agents × 3 problems × 3 targets = 27+ cells. Same model, same invocation pattern as the Phase 2.0 probe (Addendum 9); rotating agents introduces a confound with k.",
+  "experiments": ["002-bank-ledger"],
+  "targets": ["llmll", "python", "go"],
+  "run_count": 3,
+  "repair_budget_k": 5,
+  "terminal_target": {
+    "kind": "trust-tier",
+    "value": "all-expected-contracts-above-asserted",
+    "_note": "Default applied when no per-target override matches. The matrix spans mixed verification surfaces (trust-tier for LLMLL, all-pass for Python/Go); see `terminal_target_per_target` below.",
+    "_r6d_note": "Value relabelled 2026-05-12 from 'all-expected-contracts-verified-or-asserted' to 'all-expected-contracts-above-asserted' to match the R6d universal Cred predicate (asserted dropped from accepted_levels in scripts/run_repair_loop.py). The labelling is documentation only; the active predicate is whatever scripts/run_repair_loop.py:_count_bad_trust_tiers accepts. See experiments/repair-loop/README.md 'Credibility predicate and the H1 split (R6d)'."
+  },
+  "terminal_target_per_target": {
+    "llmll": {
+      "kind": "trust-tier",
+      "value": "all-expected-contracts-above-asserted"
+    },
+    "python": {
+      "kind": "all-pass",
+      "value": "all-verifier-commands-pass"
+    },
+    "go": {
+      "kind": "all-pass",
+      "value": "all-verifier-commands-pass"
+    }
+  },
+  "timeout_seconds_per_turn": 540,
+  "llmll_cmd": "llmll",
+  "agents": [
+    {
+      "name": "gemini-default",
+      "cmd": "gemini -y --skip-trust -p 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "required_env": ["GEMINI_API_KEY"],
+      "required_executables": ["gemini"],
+      "note": "Gemini CLI 0.41.2, default model. Continuity with Phase 2.0 probe (Addendum 9). -y auto-approves tool actions (required for unattended subprocess use); --skip-trust bypasses the workspace-trust prompt. Model captured in agent.stdout.log per turn."
+    }
+  ]
+}
