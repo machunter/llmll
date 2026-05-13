@@ -1,10 +1,10 @@
-# LLMLL — v0.10.3
+# LLMLL — v0.10.4
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.10.3 is shipped.** Patch release — cross-module PBT visibility (`llmll test` now resolves imported `def-logic` in `(check ...)` blocks via the PBT FuncEnv, closing MOD-PBT-1 / F-018) plus spec pedagogy corrections (§2.5 Naming Conventions, §3.3 / §9 / §13.5 match-arm canonical form, §3.2 / §3.3 unit-payload vs nullary constructor) and a roadmap disambiguation of the one-shot correctness criterion. 589 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.10.4 is shipped.** Patch release — R6d trust-report tier-count profile (`llmll verify --trust-report --json` now emits a six-Int `tier_profile` aggregate alongside the existing `summary`, plus a new `trust_report_version: "1.0.0"` field, documented in the new `docs/llmll-trust-report.schema.json` versioned independently of the source AST schema) plus repair-loop harness `Cred(R)` + H1 bifurcation (the harness predicate drops `asserted` from accepted-levels and operationalizes the Correctness / Assurance split prescribed in `docs/design/language-comparison-experiments.md`; closes §LT-A / F-026 / F-027 with empirical evidence from re-probing the three Phase-2 cells). 594 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

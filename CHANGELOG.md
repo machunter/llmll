@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+---
+
+## v0.10.4 — R6d (Trust-Report Tier Profile + Harness Predicate) (2026-05-13)
+
 ### Compiler — Trust Report Tier-Count Aggregate (R6d)
 
 - **`llmll verify --trust-report --json` now emits a `tier_profile` aggregate** alongside the existing `entries` / `summary` / `suppressions` blocks. The aggregate is a six-Int record `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications (the same path that backs `summary` — `teEffectiveLevel`, falling back to the local meet of `tePre` / `tePost`). The repair-loop harness consumes this profile to compose its credibility predicate `Cred(R)` over LLMLL cells without ranking the diamond-incomparable `contract_checked ‖ tested` levels.
@@ -20,6 +24,22 @@
 - **`tier_profile` shape**: six required integer fields (`verified`, `proved`, `contract_checked`, `tested`, `asserted`, `no_contract`), each with `minimum: 0` and `additionalProperties: false`. Schema explicitly documents the diamond-meet classification rule and the structural-zero `proved` slot.
 - **Source JSON-AST `schemaVersion` is NOT bumped.** `expectedSchemaVersion` stays `"0.4.0"` (`ParserJSON.hs:41`). The change is to an emit-only output, semantically orthogonal to the source-input parser version; bumping the source schema would force ~22 `.ast.json` fixture rewrites for a change those fixtures do not touch. The R6d plan's `schemaVersion 0.4.0 → 0.5.0` line is honored by the new emit-side `trust_report_version` field instead — same versioning intent, smaller blast radius.
 - **Round-trip semantics.** The trust-report JSON is emit-only; `ParserJSON.hs` and `AstEmit.hs` do not ingest or emit it. JSON-level re-decode (via `Aeson.Value`) preserves the field; full Haskell-side `TrustReport ↔ JSON` round-trip is N/A by design.
+
+### Experiments — Repair-Loop Harness Cred(R) + H1 Bifurcation (R6d)
+
+- **`experiments/repair-loop/README.md`** — new "Credibility predicate and the H1 split (R6d)" section. Defines `Cred(R) ≡ (|R| > 0) ∧ (n_asserted = 0) ∧ (n_no_contract = 0)` as the universal lattice-meet reading; defines the H1 bifurcation (H1-Correctness via testkit cross-target; H1-Assurance via per-target `tier_profile`, never scalarized cross-paradigm); states the no-scalarization discipline with citations to `LLMLL.md §4.4.1:344, :346-347` and `docs/design/language-comparison-experiments.md:27, :29-35`.
+- **`experiments/repair-loop/scripts/run_repair_loop.py`** — `_count_bad_trust_tiers` drops `"asserted"` from `accepted_levels` (R6d universal tightening); docstrings cite §LT-A. `_run_turn` extracts `tier_profile` from the verify result and surfaces it at the per-turn `verifier.json` payload and the returned turn-record dict.
+- **`experiments/repair-loop/scripts/evaluate_run.py`** — `_summarize_trust_report` extended with `tier_profile`, `cred`, `trust_report_version` fields (None on pre-R6d trust reports).
+- **`experiments/repair-loop/manifest.phase2-calibration.json`** — `terminal_target.value` strings relabelled `"all-expected-contracts-verified-or-asserted"` → `"all-expected-contracts-above-asserted"`. Added `_r6d_note` field cross-referencing the README section.
+- **Closes §LT-A / F-026 / F-027.** Re-probe of three Phase-2 cells (`runs/20260512T031938Z-matrix/`) under the v0.10.4-pre compiler: all three invert to `Cred=false`; `tier_profile` distinguishes c02 (6 asserted) from c03 (3 asserted + 3 no_contract). Full evidence: `experiments/repair-loop/findings/postmortem-001-apparatus-validation.md` Addendum 15. No new agent runs, no API spend.
+
+### Experiments — Repair-Loop Matrix Runner
+
+- **New `experiments/repair-loop/scripts/run_matrix.py`** (`5895792`) — matrix runner layered on top of `run_repair_loop.py` that enumerates cells in `(target × experiment × agent × attempt)` order, generates per-cell synthetic manifests, invokes the single-cell orchestrator, runs `evaluate_run.py` after each cell, and aggregates `matrix_report.json` / `matrix_summary.md`. Cells contiguous-by-`(target, experiment, agent)` for adapter-specific debugging.
+- **`--resume-from-cell N`** — 1-based cell indexing required under the ~6.75h wall-clock ceiling of a 9-cell Phase-2 run at k=5 × 540s/turn. Load-bearing for crash recovery.
+- **Pre-flight prereq checks** — per-agent `required_env` and `required_executables` declared in the manifest, validated before any cell launches; failures accumulated and surfaced in one pass.
+- **`terminal_target_per_target` dispatch** — matrices spanning mixed verification surfaces (Phase 2 uses `trust-tier` for `llmll` and `all-pass` for Python / Go) resolve the per-target terminal target from a manifest-level map, falling back to the manifest's default `terminal_target` when a target is not in the map. This is the dispatch the R6d harness patch's predicate change rides on top of.
+- **Harness README** (`experiments/repair-loop/README.md`) — new "Run a Matrix" and "Matrix-runner extensions" sections documenting the script and its manifest extensions.
 
 ---
 
