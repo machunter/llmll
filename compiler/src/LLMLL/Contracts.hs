@@ -299,8 +299,16 @@ evalContract funcName contract env =
 type FuncEnv = Map Name ([Name], Expr)
 
 -- | Maximum unfolding depth — prevents hangs on recursive def-logic.
+--
+-- v0.10.5 / OBLIG-PBT-2: raised from 64 → 256. With F-032's complex-type
+-- generators producing lists of bounded length 8 and depth-5 nested aliases,
+-- a property body that calls @transfer → find-balance → list-fold@ over a
+-- realistic Ledger exhausts the prior 64-step budget before reaching a
+-- terminal Bool. The 4× bump preserves the non-termination guard on
+-- self-recursive def-logic (which would hit any finite cap eventually) while
+-- giving real property bodies room to reduce.
 maxFuel :: Int
-maxFuel = 64
+maxFuel = 256
 
 -- | Build a function environment from def-logic statements.
 -- Excludes SLetrec (explicitly recursive — would need decreases measure).
@@ -358,7 +366,7 @@ evalExprStaticWith fe fuel env (EApp func args) = do
           let paramEnv = Map.fromList (zip paramNames argVals)
           in evalExprStaticWith fe (fuel - 1) paramEnv funcBody
       | otherwise -> Nothing  -- arity mismatch
-    Nothing -> evalBuiltinApp func argVals
+    Nothing -> evalBuiltinApp fe fuel func argVals
 
 -- Delegate holes: evaluate fallback if present
 evalExprStaticWith fe fuel env (EHole (HDelegate spec)) =
@@ -373,24 +381,137 @@ evalExprStaticWith fe fuel env (EMatch scrutinee arms) = do
   scrVal <- evalExprStaticWith fe fuel env scrutinee
   matchArms fe fuel env scrVal arms
 
+-- OBLIG-PBT-2 / F-032: pairs and lambdas are values that need to flow through
+-- the evaluator unchanged so higher-order builtins (list-fold, list-map) and
+-- pair-destructuring builtins (first, second) can operate on PBT-generated
+-- samples. Pairs reduce element-wise; lambdas are first-class values handled
+-- by applyLambda when invoked.
+evalExprStaticWith fe fuel env (EPair a b) = do
+  va <- evalExprStaticWith fe fuel env a
+  vb <- evalExprStaticWith fe fuel env b
+  pure (EPair va vb)
+
+evalExprStaticWith _ _ _ lam@(ELambda _ _) = Just lam
+
 evalExprStaticWith _ _ _ _ = Nothing
 
 -- ---------------------------------------------------------------------------
 -- Built-in Function Applications
 -- ---------------------------------------------------------------------------
 
--- | Evaluate built-in function applications that don't need a FuncEnv lookup.
--- ok/err are the expression-level constructors; they canonicalize to
--- Success/Error tags internally so match patterns (which use Success/Error
--- constructor names) work correctly.
-evalBuiltinApp :: Name -> [Expr] -> Maybe Expr
-evalBuiltinApp "ok"  [val] = Just (EApp "Success" [val])
-evalBuiltinApp "err" [val] = Just (EApp "Error" [val])
--- is-ok: only canonical Success/Error tags after evaluation
-evalBuiltinApp "is-ok" [EApp "Success" _] = Just (ELit (LitBool True))
-evalBuiltinApp "is-ok" [EApp "Error" _]   = Just (ELit (LitBool False))
-evalBuiltinApp "is-ok" _                  = Nothing
-evalBuiltinApp _ _ = Nothing
+-- | Evaluate built-in function applications.
+--
+-- OBLIG-PBT-2 / F-032: signature takes FuncEnv + fuel so higher-order builtins
+-- (list-fold, list-map) can apply lambdas via 'applyLambda' under the existing
+-- fuel discipline. Pair, list, result, and option builtins ground out the
+-- §13 core required for PBT to evaluate realistic property bodies.
+--
+-- Lists are encoded as cons/nil chains, mirroring how @ok@/@err@ encode
+-- @Result@ at the AST level (see 'matchPattern' at line 414 — patterns
+-- expect EApp ConstructorName).
+evalBuiltinApp :: FuncEnv -> Int -> Name -> [Expr] -> Maybe Expr
+-- Result constructors (already canonical to Success/Error tags for match)
+evalBuiltinApp _ _ "ok"  [val] = Just (EApp "Success" [val])
+evalBuiltinApp _ _ "err" [val] = Just (EApp "Error" [val])
+evalBuiltinApp _ _ "is-ok" [EApp "Success" _] = Just (ELit (LitBool True))
+evalBuiltinApp _ _ "is-ok" [EApp "Error" _]   = Just (ELit (LitBool False))
+evalBuiltinApp _ _ "is-ok" _                  = Nothing
+
+-- Pair constructors and destructors
+evalBuiltinApp _ _ "pair"   [a, b]      = Just (EPair a b)
+evalBuiltinApp _ _ "first"  [EPair a _] = Just a
+evalBuiltinApp _ _ "second" [EPair _ b] = Just b
+evalBuiltinApp _ _ "first"  _           = Nothing
+evalBuiltinApp _ _ "second" _           = Nothing
+
+-- List constructors (cons/nil are the canonical list shape; downstream
+-- builtins pattern-match on EApp "cons" / EApp "nil" exactly as match
+-- patterns would under 'matchPattern').
+evalBuiltinApp _ _ "cons" [hd, tl] = Just (EApp "cons" [hd, tl])
+evalBuiltinApp _ _ "nil"  []       = Just (EApp "nil" [])
+
+-- List destructors and length
+evalBuiltinApp _ _ "list-head" [EApp "cons" [hd, _]] = Just hd
+evalBuiltinApp _ _ "list-tail" [EApp "cons" [_, tl]] = Just tl
+evalBuiltinApp _ _ "list-is-empty?" [EApp "nil"  []]      = Just (ELit (LitBool True))
+evalBuiltinApp _ _ "list-is-empty?" [EApp "cons" [_, _]]  = Just (ELit (LitBool False))
+evalBuiltinApp _ _ "list-length" [list]
+  | Just n <- listLengthCons list = Just (ELit (LitInt (toInteger n)))
+  | otherwise                     = Nothing
+
+-- List append: append element to end (per builtinEnv: list[a] -> a -> list[a])
+evalBuiltinApp _ _ "list-append" [list, elt]
+  | Just appended <- consAppendElt list elt = Just appended
+  | otherwise                               = Nothing
+
+-- Higher-order list operations: fold and map invoke a lambda.
+evalBuiltinApp fe fuel "list-fold" [list, acc, fn] = foldCons fe fuel list acc fn
+evalBuiltinApp fe fuel "list-map"  [list, fn]      = mapCons  fe fuel list fn
+
+-- Option-like helpers: unwrap-or extracts Success payload or returns fallback.
+evalBuiltinApp _ _ "unwrap-or" [EApp "Success" [v], _]   = Just v
+evalBuiltinApp _ _ "unwrap-or" [EApp "Error"   [_], def] = Just def
+evalBuiltinApp _ _ "unwrap-or" _                         = Nothing
+-- Some / None / is-some: Option-shaped helpers commonly used by agent emissions.
+-- Treat 'some'/'none' as Result-shaped tags (Success payload / Error unit) so
+-- pattern-matching and is-ok stay consistent.
+evalBuiltinApp _ _ "some" [val] = Just (EApp "Success" [val])
+evalBuiltinApp _ _ "none" []    = Just (EApp "Error" [ELit LitUnit])
+evalBuiltinApp _ _ "is-some" [EApp "Success" _] = Just (ELit (LitBool True))
+evalBuiltinApp _ _ "is-some" [EApp "Error"   _] = Just (ELit (LitBool False))
+evalBuiltinApp _ _ "is-some" _                  = Nothing
+
+evalBuiltinApp _ _ _ _ = Nothing
+
+-- ---------------------------------------------------------------------------
+-- List Helpers (OBLIG-PBT-2 / F-032)
+-- ---------------------------------------------------------------------------
+-- These walk the cons/nil AST encoding. Fuel is shared with the static
+-- evaluator (see 'evalExprStaticWith'); each step into a lambda application
+-- decrements it.
+
+-- | Length of a fully-evaluated cons-chain ending in nil. Returns Nothing if
+-- the structure is not a list (e.g., a variable that did not resolve).
+listLengthCons :: Expr -> Maybe Int
+listLengthCons (EApp "nil"  [])           = Just 0
+listLengthCons (EApp "cons" [_, tl])      = succ <$> listLengthCons tl
+listLengthCons _                          = Nothing
+
+-- | Append a single element to the end of a cons-chain.
+consAppendElt :: Expr -> Expr -> Maybe Expr
+consAppendElt (EApp "nil"  [])      elt = Just (EApp "cons" [elt, EApp "nil" []])
+consAppendElt (EApp "cons" [hd, tl]) elt = do
+  tl' <- consAppendElt tl elt
+  pure (EApp "cons" [hd, tl'])
+consAppendElt _ _ = Nothing
+
+-- | Fold over a cons-chain: list-fold xs acc (fn [acc, x] body) → final acc.
+foldCons :: FuncEnv -> Int -> Expr -> Expr -> Expr -> Maybe Expr
+foldCons _  _    (EApp "nil"  []) acc _  = Just acc
+foldCons fe fuel (EApp "cons" [hd, tl]) acc fn = do
+  acc' <- applyLambda fe (fuel - 1) fn [acc, hd]
+  foldCons fe (fuel - 1) tl acc' fn
+foldCons _ _ _ _ _ = Nothing
+
+-- | Map over a cons-chain: list-map xs (fn [x] body) → cons-chain of body
+-- results, preserving order.
+mapCons :: FuncEnv -> Int -> Expr -> Expr -> Maybe Expr
+mapCons _  _    (EApp "nil"  []) _  = Just (EApp "nil" [])
+mapCons fe fuel (EApp "cons" [hd, tl]) fn = do
+  hd' <- applyLambda fe (fuel - 1) fn [hd]
+  tl' <- mapCons fe (fuel - 1) tl fn
+  pure (EApp "cons" [hd', tl'])
+mapCons _ _ _ _ = Nothing
+
+-- | Apply a lambda to argument values via beta reduction. Fuel-decremented
+-- per call so recursive use under higher-order builtins terminates.
+applyLambda :: FuncEnv -> Int -> Expr -> [Expr] -> Maybe Expr
+applyLambda fe fuel (ELambda params body) args
+  | length params == length args =
+      let paramEnv = Map.fromList (zip (map fst params) args)
+      in evalExprStaticWith fe fuel paramEnv body
+  | otherwise = Nothing
+applyLambda _ _ _ _ = Nothing
 
 -- ---------------------------------------------------------------------------
 -- Pattern Matching

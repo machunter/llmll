@@ -5072,6 +5072,128 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         evalExprStatic Map.empty (EOp "=" [ELit (LitString "hello"), ELit (LitString "hello")])
           `shouldBe` Just (ELit (LitBool True))
 
+    -- OBLIG-PBT-2 / F-032: complex-type PBT generators + extended static
+    -- evaluator. The previous evaluator skipped any property whose for-all
+    -- bindings included a non-primitive type ('Property contains non-constant
+    -- expressions — requires full runtime evaluation'); these tests pin the
+    -- generator/evaluator pipeline that lifts trust-report obligations from
+    -- 'asserted' → 'tested' on product-typed properties. See
+    -- experiments/repair-loop/findings/postmortem-001-apparatus-validation.md
+    -- Addendum 16 for the empirical motivation.
+    describe "OBLIG-PBT-2 complex-type PBT generators" $ do
+      it "TPair binding: (= (+ (first p) (second p)) (+ (second p) (first p)))" $ do
+        let prop = Property "pair-comm" [("p", TPair TInt TInt)]
+                     (EOp "="
+                       [ EOp "+" [EApp "first"  [EVar "p"], EApp "second" [EVar "p"]]
+                       , EOp "+" [EApp "second" [EVar "p"], EApp "first"  [EVar "p"]]
+                       ])
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TList binding: list-length distributes over list-append by 1" $ do
+        let prop = Property "list-append-length"
+                     [("xs", TList TInt)]
+                     (EOp "="
+                       [ EApp "list-length" [EApp "list-append" [EVar "xs", ELit (LitInt 1)]]
+                       , EOp "+" [ELit (LitInt 1), EApp "list-length" [EVar "xs"]]
+                       ])
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TResult binding: (is-ok r) is a Bool — body always holds" $ do
+        let prop = Property "result-tag-is-bool"
+                     [("r", TResult TInt TString)]
+                     (EIf (EApp "is-ok" [EVar "r"])
+                          (ELit (LitBool True))
+                          (EOp "not" [EApp "is-ok" [EVar "r"]]))
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TSumType binding: match arm catches every constructor" $ do
+        let colorTy = TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)]
+            prop   = Property "color-match-total"
+                     [("c", colorTy)]
+                     (EMatch (EVar "c")
+                       [ (PConstructor "Red"   [], ELit (LitBool True))
+                       , (PConstructor "Green" [], ELit (LitBool True))
+                       , (PConstructor "Blue"  [], ELit (LitBool True))
+                       ])
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TCustom alias resolves through STypeDef and runs" $ do
+        let stmts =
+              [ STypeDef "Pt" (TPair TInt TInt)
+              , SCheck (Property "pt-first-stable" [("p", TCustom "Pt")]
+                  (EOp "=" [EApp "first" [EVar "p"], EApp "first" [EVar "p"]]))
+              ]
+        result <- runPropertyTests stmts
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "self-recursive STypeDef terminates at depth cap (no hang)" $ do
+        -- A recursive alias (Tree = list[Tree]) must terminate via maxGenDepth.
+        -- The body is trivially true so the test exercises only the generator.
+        let stmts =
+              [ STypeDef "Tree" (TList (TCustom "Tree"))
+              , SCheck (Property "tree-trivial" [("t", TCustom "Tree")]
+                  (ELit (LitBool True)))
+              ]
+        result <- runPropertyTests stmts
+        case pbtResults result of
+          [run] -> pbtStatus run `shouldBe` PBTPassed
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+    -- OBLIG-PBT-2 / F-032: static-evaluator coverage for EPair and the
+    -- list/fold builtins that PBT requires. Each test pins the reduction of
+    -- a specific AST shape to its expected literal.
+    describe "OBLIG-PBT-2 static evaluator extensions" $ do
+      it "evalExprStaticWith reduces EPair element-wise" $ do
+        let e = EPair (ELit (LitInt 1)) (ELit (LitInt 2))
+        evalExprStaticWith Map.empty maxFuel Map.empty e
+          `shouldBe` Just (EPair (ELit (LitInt 1)) (ELit (LitInt 2)))
+
+      it "evalBuiltinApp first/second project pair components" $ do
+        let p = EPair (ELit (LitInt 10)) (ELit (LitInt 20))
+        evalExprStatic Map.empty (EApp "first"  [p]) `shouldBe` Just (ELit (LitInt 10))
+        evalExprStatic Map.empty (EApp "second" [p]) `shouldBe` Just (ELit (LitInt 20))
+
+      it "list-fold sums a 3-element cons-chain via lambda" $ do
+        let l3   = EApp "cons" [ ELit (LitInt 1)
+                               , EApp "cons" [ ELit (LitInt 2)
+                                             , EApp "cons" [ ELit (LitInt 3)
+                                                           , EApp "nil" [] ]] ]
+            fn   = ELambda [("acc", TInt), ("x", TInt)]
+                            (EOp "+" [EVar "acc", EVar "x"])
+            expr = EApp "list-fold" [l3, ELit (LitInt 0), fn]
+        evalExprStatic Map.empty expr `shouldBe` Just (ELit (LitInt 6))
+
+      it "list-length / list-append compose to length+1" $ do
+        let l2   = EApp "cons" [ ELit (LitInt 7)
+                               , EApp "cons" [ ELit (LitInt 8)
+                                             , EApp "nil" [] ]]
+            expr = EApp "list-length" [EApp "list-append" [l2, ELit (LitInt 9)]]
+        evalExprStatic Map.empty expr `shouldBe` Just (ELit (LitInt 3))
+
     -- evalContract isolation regression: empty-FuncEnv invariant
     describe "evalContract isolation regression" $ do
       it "contract referencing a top-level def-logic does not resolve to its body" $ do
