@@ -338,13 +338,16 @@ contract-checked  tested
 |-------|---------|---------------|
 | `verified` | Body-faithful SMT proof: the solver proved the function body satisfies the contract for all well-typed inputs. | `llmll verify` reports SAFE and the function's body VC was emitted |
 | `contract-checked` | The solver proved contract consistency (pre ⇒ post is valid — holds for all models of the contract pair), but the function body was not encoded as a VC. | `llmll verify` reports SAFE for a fallback function (non-QF-LIA body, `letrec`, path-limit exceeded) |
-| `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` passes; `llmll verify` skips or emits `?proof-required` |
+| `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` reports `pass` and the property body resolves to a singleton head-position contracted callee under the PBT-Lift rule in §4.4.5 (a unique `def-logic`/`letrec` reachable as an `EApp` operator inside `propBody` whose contract has a `post` clause). Multi-subject properties produce a diagnostic and no lift. Also assignable via `:trust tested` source annotation. |
 | `asserted` | Enforced as a runtime assertion only. No static or dynamic evidence of correctness beyond the assertion itself. | Default for any contract not yet run through `verify` or `test` |
 
 `contract-checked` and `tested` are **incomparable** — neither implies the other. Their meet (greatest lower bound) is `asserted`. This prevents a `tested`-only function from being silently treated as equivalent to a solver-checked function, or vice versa.
 
 > [!NOTE]
 > **Epistemic status distinction.** `contract-checked` provides **logical evidence** over the contract pair: the solver proved that the pre/post relationship is internally consistent, independent of the function body. It cannot be falsified by a counterexample (though the body may still violate it). `tested` provides **statistical evidence** over a random sample of size N (default 100): the property was not falsified, but may fail on the N+1th input. These are categorically different kinds of evidence and should not be treated as interchangeable trust signals.
+
+> [!NOTE]
+> **Design divergence from Liquid Haskell.** LLMLL admits a statistical evidence channel (`tested`) into the trust-report partial order. This is a deliberate departure from Liquid Haskell (Vazou et al., *Refinement Types for Haskell*, POPL 2014), which restricts its refinement-display to logical evidence only. The rationale is that AI-agent-emitted code is often outside the QF-LIA fragment that admits liquid-fixpoint discharge, and an empirical channel — honest about its statistical character per the epistemic-status note above — gives the trust report something to surface for that majority. The diamond lattice's incomparability between `contract-checked` and `tested` prevents agents or readers from silently treating statistical evidence as logical (their meet is `asserted`, not either of them).
 
 The display level is recorded per-clause in an `EvidenceRecord` that also carries a `body-faithful` flag and an optional `:source` provenance annotation. Display levels are stored per-function in the module's exported metadata (see §8 — `ModuleEnv` extensions).
 
@@ -408,7 +411,51 @@ stack exec llmll -- verify program.llmll --trust-report
 
 Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling. The JSON emit carries a `trust_report_version` field plus a six-Int `tier_profile` aggregate `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications, intended for downstream tooling that needs a fixed-arity summary without scalarizing the diamond lattice — see [`docs/llmll-trust-report.schema.json`](docs/llmll-trust-report.schema.json) for the full shape.
 
+**OBLIG-PBT-3 (v0.10.5).** `trust_report_version` bumps `1.0.0 → 1.1.0` and the JSON emit gains two new top-level fields parallel to `tier_profile`: `tier_profile_pre` and `tier_profile_post`. Each classifies functions by their per-clause effective level (the clause's own evidence record meeting the transitive-callee effective level), rather than by the per-function meet of pre and post. A function with `pre = asserted` and `post = tested n` increments `tier_profile_pre.asserted` and `tier_profile_post.tested`, where the unchanged scalar `tier_profile.asserted` collapses both clauses via the diamond meet at §4.4.1. Downstream tooling that needs the post-side empirical signal (the R6d harness `Cred(R)` predicate is the canonical consumer) reads `tier_profile_post`. Existing v1.0.0 consumers see the new fields as unknown keys and ignore them.
+
+**Sidecar invariant change.** The `.verified.json` sidecar for a source file `S` may carry entries keyed by **qualified imported names** (e.g., `lib.f`) when a `(check ...)` block in `S` lifted the contract of an imported function `f` from module `lib`. This extends the prior invariant that sidecars were keyed by locally-defined names only. Downstream consumers must accept qualified keys; the trust-report's `collectAllContractStatus` build path already merges by qualified name across the module cache (`compiler/src/LLMLL/TrustReport.hs:148-155`), so the change is read-side compatible. The sidecar-write target for a PBT-lifted entry is the source file's sidecar (where the `(check)` lives), not the imported module's sidecar.
+
+**`pbt_witnesses` provenance and staleness.** Each PBT-derived `tested` evidence record in `.verified.json` carries a `pbt_witnesses` list of `[{hash, description}]` entries, where `hash` is `sha256:` + 64 hex chars over a canonical s-expression serialization of `propBody`. On read, `buildTrustReport` validates each record's witnesses against the set of live property-body hashes (entry module + every cached imported module); records whose witness list is non-empty and disjoint from the live set are downgraded to `asserted` with a per-clause diagnostic in `--trust-report`. Editing a property body invalidates the cached `tested` evidence (next `llmll test` re-lifts with fresh hashes); deleting the property removes the lift entirely. This composes with the existing `ctVerifiedHash` staleness guard for imported-sidecar drift.
+
 The report walks the full module cache (entry-point module plus all imported modules) and computes the transitive trust closure. An agent auditing a module can use the trust report to identify all points where the formal verification chain breaks down.
+
+#### 4.4.5 PBT-Derived Trust Evidence
+
+The `tested` display level can be assigned to a function's post clause from either (a) a source-annotated `(trust f :level tested)` declaration, or (b) a passing `(check ...)` block under the OBLIG-PBT-3 lift rule. The lift rule, formalised:
+
+```
+              (SCheck p) ∈ Σ
+              status(p) = PBTPassed
+              evaluatedSamples(p) = n
+              HEAD-contracted(propBody p, Σ) = {f}     (singleton)
+              SDefLogic f _ _ c _  ∈  Σ ∪ importedExposed(Σ)
+              contractPost c = Just _
+              hash(propBody p) = h
+            ─────────────────────────────────────────────────────       (PBT-Lift)
+            csPost(f) ⊑  DLTested n   with  pbt_witnesses ∋ {h, desc(p)}
+```
+
+where `⊑` denotes lattice-respecting monotonic upgrade: the lift applies only when `csPost.erDisplayLevel` is currently `DLAsserted`. Pre-existing `DLTested`, `DLContractChecked`, or `DLVerified` entries are preserved by the `evidenceCovers` rule at §4.4.1.
+
+**Side conditions.**
+
+1. **Subject scoping.** `f` may be a name local to the source file or a name imported via `(open path …)` and resolved through the assembled test statement list (`compiler/src/LLMLL/PBT.hs` `assembleTestStatements`). Imported subjects are keyed in the local sidecar under their qualified name `lib.f` per the sidecar invariant at §4.4.4.
+2. **Multi-subject suppression.** Properties whose head-position set contains two or more contracted callees do not lift any of them; the property is reported as an informational diagnostic from `llmll test` ("property covers multiple contracted callees; no trust evidence recorded"). The explicit-attribution route is `:subject` metadata, tracked as OBLIG-PBT-4.
+3. **Skip and fail suppress the lift.** `PBTSkipped` (static-evaluator bottoms, QuickCheck-discard saturation) contributes zero evidence per §5.1's outcome table. `PBTFailed` runs are surfaced as user-facing diagnostics but record no `pbt_witnesses` and do not retract any prior `DLTested` evidence.
+4. **`PBTError` is treated as `PBTSkipped` for write-back.** Exceptions during QuickCheck propagate as user-facing diagnostics; the trust-report channel ignores them.
+5. **Interface laws do not lift `def-logic` posts.** Properties extracted from `def-interface :laws` are parametric over implementations, not concrete evidence for `def-logic` functions invoked in the law body; they live on a distinct trust channel.
+6. **Lift targets `csPost` only.** Preconditions are caller-side obligations whose evidence channel is the call-site VC at §5.3.4. Lifting `csPre` from PBT would conflate two evidence channels and produce false trust; the lift rule above is therefore strictly asymmetric.
+
+**Multi-property accumulation.** When multiple `(check ...)` blocks lift the same `f` (each singleton on `f`, each `PBTPassed`):
+
+```
+n_total(f)       = max  { evaluatedSamples(p) | p covers f, status(p) = PBTPassed }
+pbt_witnesses(f) =   ⋃  {     hash(p), desc(p) | p covers f, status(p) = PBTPassed }
+```
+
+`max` is the **within-channel join**: independent passing properties each constitute a witness; the strongest single witness dominates. This is distinct from `evidenceMeet` at §4.4.1, which uses `min` on `(DLTested, DLTested)` pairs by design — that operation is the GLB across pre/post of a single function, not the join across independent properties on the same clause.
+
+The compiler implementation, including the within-channel join and the sidecar staleness mechanic, lives at `compiler/src/LLMLL/PBT.hs` (`pbtTrustWriteback`, `mergePbtWriteback`, `canonicalPropBodyHash`).
 
 ### 4.5 Suppression Governance (`weakness-ok`)
 
@@ -482,11 +529,15 @@ The test runner generates at least 100 random samples per `check`. For primitive
 
 | Status | When | Trust contribution |
 |--------|------|--------------------|
-| `pass` | All samples evaluated to `true` | `tested` evidence (per §5.3.5 lattice) |
+| `pass` | All samples evaluated to `true` | `tested` evidence on the singleton head-position contracted callee's post clause per the PBT-Lift rule in §4.4.5 (multi-subject properties produce a diagnostic and no lift). Persisted in `.verified.json` with a `pbt_witnesses` hash for staleness invalidation. |
 | `fail` | At least one sample evaluated to `false`; counterexample reported | None — verification gate fails |
 | `skip` | Property body could not reduce to a literal Bool on every sample (e.g., body calls `?delegate` without `on-failure`, or calls runtime-only operations like `wasi.io.stdout`) | None — does not contribute trust evidence |
 
 A `skip` is **not** a `pass`. Property bodies that reach unevaluable terms (`?delegate` without fallback, `?proof-required` postcondition references, command constructors, `await`) are reported `skip` and contribute zero trust evidence. Static-evaluator coverage is documented at `compiler/src/LLMLL/Contracts.hs` `evalExprStaticWith` and `compiler/src/LLMLL/PBT.hs` `runPropertyWith` (v0.10.2+).
+
+#### 5.1.1 `evaluatedSamples` Semantics
+
+`DLTested n` records that `n` property-body evaluations reduced to `True`, with no evaluation reducing to `False`. This is a **lower bound on assertions of the postcondition**: under an implication-shape property `(if pre then post else true)`, samples for which `pre` fails count as `True` evaluations vacuously. A coverage-instrumented count distinguishing genuine postcondition witnesses from vacuous evaluations is a follow-on (OBLIG-PBT-4); under v0.10.5, `n` is honest about evaluation but not about exercise. The static-evaluator path always reports `n = 100`; the QuickCheck fallback path reports the non-discarded evaluation count from `Result.Success.numTests`.
 
 ### 5.2 Generators for Refinement Types (`gen`)
 

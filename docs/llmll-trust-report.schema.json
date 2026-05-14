@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llmll.dev/schemas/v0.2/trust-report.schema.json",
   "title": "LLMLL Trust Report JSON Emit Schema",
-  "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major.",
+  "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major. v1.1.0 (OBLIG-PBT-3, v0.10.5) added parallel `tier_profile_pre` and `tier_profile_post` aggregates plus an optional `stale_downgrades` array, all additive over v1.0.0.",
 
   "type": "object",
   "required": ["trust_report_version", "entries", "summary", "tier_profile", "suppressions"],
@@ -12,7 +12,7 @@
     "trust_report_version": {
       "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs.",
       "type": "string",
-      "const": "1.0.0"
+      "const": "1.1.0"
     },
 
     "entries": {
@@ -29,6 +29,22 @@
     "tier_profile": {
       "description": "v0.10.4 (R6d) — fixed-arity six-Int tier-count aggregate over per-function effective tier classifications. Never reduced to a scalar (LLMLL.md §4.4.1:344 declares contract_checked ‖ tested incomparable; the load-bearing diamond is preserved by refusing total order). Classification uses the diamond meet of pre and post per entry: a function with pre=contract_checked and post=tested has effective level `asserted` and increments only `asserted`, not both `contract_checked` and `tested`.",
       "$ref": "#/$defs/TierProfile"
+    },
+
+    "tier_profile_pre": {
+      "description": "v1.1.0 (OBLIG-PBT-3) — per-pre-clause tier-count aggregate. Each entry contributes by its per-clause effective level (the pre-clause evidence record meeting the transitive-callee effective level). Distinct from the scalar `tier_profile` which uses the per-function meet of pre and post. Optional in v1.1.0 to preserve back-compat for v1.0.0 strict-validation consumers; populated on every v1.1.0+ emit.",
+      "$ref": "#/$defs/TierProfile"
+    },
+
+    "tier_profile_post": {
+      "description": "v1.1.0 (OBLIG-PBT-3) — per-post-clause tier-count aggregate. PBT-derived `tested` evidence is structurally post-only (the PBT-Lift rule at LLMLL.md §4.4.5 targets `csPost` only); downstream consumers reading the post-side empirical signal should consume this aggregate rather than the diamond-collapsed scalar `tier_profile`. Optional in v1.1.0 to preserve back-compat for v1.0.0 strict-validation consumers; populated on every v1.1.0+ emit.",
+      "$ref": "#/$defs/TierProfile"
+    },
+
+    "stale_downgrades": {
+      "description": "v1.1.0 (OBLIG-PBT-3) — per-clause diagnostic strings for sidecar evidence records whose `pbt_witnesses` did not match any live property-body hash on read. Each downgrade reflects a `DLTested → DLAsserted` strict downgrade of a stale cached entry. Optional; empty array when no downgrades occurred.",
+      "type": "array",
+      "items": { "type": "string" }
     },
 
     "suppressions": {
