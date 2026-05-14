@@ -2,7 +2,7 @@
 
 ---
 
-## v0.10.5 — PBT Complex-Type Generators + Trust-Report Write-Back (2026-05-13)
+## v0.10.5 — PBT Complex-Type Generators + PBT-to-Trust-Report Write-Back (2026-05-13)
 
 ### Compiler — PBT Complex-Type Generators + Static Evaluator Extensions (OBLIG-PBT-2, F-032)
 
