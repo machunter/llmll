@@ -29,14 +29,17 @@ import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, maxFuel)
-import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
+                 , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
+                 , canonicalPropBodyHash)
+import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers)
+import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
@@ -1816,8 +1819,8 @@ main = hspec $ do
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
         defaultCS = ContractStatus Nothing Nothing []
-        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) []
-        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing)) []
+        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) []
+        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) []
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -1933,8 +1936,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])
-          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) Nothing [])
+          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
+          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) Nothing [])
           ]
         emptyMap = DM.empty
 
@@ -1963,8 +1966,8 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing)) [])
-            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) Nothing [])
+            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [])) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [])) [])
+            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) Nothing [])
             ]
       saveVerified testFile statuses
       loaded <- loadVerified testFile
@@ -1993,7 +1996,7 @@ main = hspec $ do
           , meAliasMap = DM.empty
           , mePath = modPath
           , meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing)) [])]
+              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])]
           , meContracts = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
@@ -2006,7 +2009,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])] }
+              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache provenCache emptyEnv callerStmts
@@ -2060,28 +2063,28 @@ main = hspec $ do
 
     -- Test 1: Asserted contracts emit trust-gap warnings
     it "asserted contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [])) (Just (EvidenceRecord (DLTested 100) False Nothing [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -2090,7 +2093,7 @@ main = hspec $ do
 
     -- Test 5: Trust declaration at DLTested suppresses DLTested gap
     it "trust declaration at tested level suppresses tested trust-gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [])) (Just (EvidenceRecord (DLTested 100) False Nothing [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" (DLTested 0)
@@ -2104,7 +2107,7 @@ main = hspec $ do
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
     -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
     it "trust at asserted does NOT suppress tested-level gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [])) (Just (EvidenceRecord (DLTested 100) False Nothing [])) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" DLAsserted  -- asserted < tested
@@ -2125,7 +2128,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])]
+                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])]
             , meContracts      = DM.empty
             }
           cryptoEnv = ModuleEnv
@@ -2135,7 +2138,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
-                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) Nothing [])]
+                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) Nothing [])]
             , meContracts      = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
@@ -2191,9 +2194,9 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           -- Entry function is proven but calls asserted crypto.hash
           stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
@@ -2211,7 +2214,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing)
@@ -2224,9 +2227,9 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing) (EVar "x")
@@ -2258,7 +2261,7 @@ main = hspec $ do
     -- Test 6: Human-readable format contains function names and levels
     it "formatTrustReport contains function names and verification levels" $ do
       let assertedMod = mkModEnv "verify-token" ["auth"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing)) Nothing [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) Nothing [])
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
           report = buildTrustReport cache stmts Map.empty
@@ -2278,12 +2281,14 @@ main = hspec $ do
   describe "v0.10.4 tier-count profile (R6d)" $ do
     let mkEntry name pre post =
           TrustEntry
-            { teName           = name
-            , tePre            = fmap (\dl -> EvidenceRecord dl False Nothing) pre
-            , tePost           = fmap (\dl -> EvidenceRecord dl False Nothing) post
-            , teDeps           = []
-            , teDrifts         = []
-            , teEffectiveLevel = Nothing  -- aggregateTiers falls back to ContractStatus meet
+            { teName               = name
+            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing []) pre
+            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing []) post
+            , teDeps               = []
+            , teDrifts             = []
+            , teEffectiveLevel     = Nothing  -- aggregateTiers falls back to ContractStatus meet
+            , teEffectivePreLevel  = Nothing  -- OBLIG-PBT-3: not exercised in TP-* tests
+            , teEffectivePostLevel = Nothing
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -2342,7 +2347,7 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.0.0")
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.1.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All six required fields present
@@ -3742,14 +3747,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -3761,7 +3766,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -3774,7 +3779,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -3787,7 +3792,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -3799,7 +3804,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -5071,6 +5076,348 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           `shouldBe` Just (ELit (LitBool True))
         evalExprStatic Map.empty (EOp "=" [ELit (LitString "hello"), ELit (LitString "hello")])
           `shouldBe` Just (ELit (LitBool True))
+
+    -- OBLIG-PBT-2 / F-032: complex-type PBT generators + extended static
+    -- evaluator. The previous evaluator skipped any property whose for-all
+    -- bindings included a non-primitive type ('Property contains non-constant
+    -- expressions — requires full runtime evaluation'); these tests pin the
+    -- generator/evaluator pipeline that lifts trust-report obligations from
+    -- 'asserted' → 'tested' on product-typed properties. See
+    -- experiments/repair-loop/findings/postmortem-001-apparatus-validation.md
+    -- Addendum 16 for the empirical motivation.
+    describe "OBLIG-PBT-2 complex-type PBT generators" $ do
+      it "TPair binding: (= (+ (first p) (second p)) (+ (second p) (first p)))" $ do
+        let prop = Property "pair-comm" [("p", TPair TInt TInt)]
+                     (EOp "="
+                       [ EOp "+" [EApp "first"  [EVar "p"], EApp "second" [EVar "p"]]
+                       , EOp "+" [EApp "second" [EVar "p"], EApp "first"  [EVar "p"]]
+                       ])
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TList binding: list-length distributes over list-append by 1" $ do
+        let prop = Property "list-append-length"
+                     [("xs", TList TInt)]
+                     (EOp "="
+                       [ EApp "list-length" [EApp "list-append" [EVar "xs", ELit (LitInt 1)]]
+                       , EOp "+" [ELit (LitInt 1), EApp "list-length" [EVar "xs"]]
+                       ])
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TResult binding: (is-ok r) is a Bool — body always holds" $ do
+        let prop = Property "result-tag-is-bool"
+                     [("r", TResult TInt TString)]
+                     (EIf (EApp "is-ok" [EVar "r"])
+                          (ELit (LitBool True))
+                          (EOp "not" [EApp "is-ok" [EVar "r"]]))
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TSumType binding: match arm catches every constructor" $ do
+        let colorTy = TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)]
+            prop   = Property "color-match-total"
+                     [("c", colorTy)]
+                     (EMatch (EVar "c")
+                       [ (PConstructor "Red"   [], ELit (LitBool True))
+                       , (PConstructor "Green" [], ELit (LitBool True))
+                       , (PConstructor "Blue"  [], ELit (LitBool True))
+                       ])
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "TCustom alias resolves through STypeDef and runs" $ do
+        let stmts =
+              [ STypeDef "Pt" (TPair TInt TInt)
+              , SCheck (Property "pt-first-stable" [("p", TCustom "Pt")]
+                  (EOp "=" [EApp "first" [EVar "p"], EApp "first" [EVar "p"]]))
+              ]
+        result <- runPropertyTests stmts
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run    `shouldBe` PBTPassed
+            pbtSamplesRun run `shouldSatisfy` (> 0)
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+      it "self-recursive STypeDef terminates at depth cap (no hang)" $ do
+        -- A recursive alias (Tree = list[Tree]) must terminate via maxGenDepth.
+        -- The body is trivially true so the test exercises only the generator.
+        let stmts =
+              [ STypeDef "Tree" (TList (TCustom "Tree"))
+              , SCheck (Property "tree-trivial" [("t", TCustom "Tree")]
+                  (ELit (LitBool True)))
+              ]
+        result <- runPropertyTests stmts
+        case pbtResults result of
+          [run] -> pbtStatus run `shouldBe` PBTPassed
+          rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+    -- OBLIG-PBT-2 / F-032: static-evaluator coverage for EPair and the
+    -- list/fold builtins that PBT requires. Each test pins the reduction of
+    -- a specific AST shape to its expected literal.
+    describe "OBLIG-PBT-2 static evaluator extensions" $ do
+      it "evalExprStaticWith reduces EPair element-wise" $ do
+        let e = EPair (ELit (LitInt 1)) (ELit (LitInt 2))
+        evalExprStaticWith Map.empty maxFuel Map.empty e
+          `shouldBe` Just (EPair (ELit (LitInt 1)) (ELit (LitInt 2)))
+
+      it "evalBuiltinApp first/second project pair components" $ do
+        let p = EPair (ELit (LitInt 10)) (ELit (LitInt 20))
+        evalExprStatic Map.empty (EApp "first"  [p]) `shouldBe` Just (ELit (LitInt 10))
+        evalExprStatic Map.empty (EApp "second" [p]) `shouldBe` Just (ELit (LitInt 20))
+
+      it "list-fold sums a 3-element cons-chain via lambda" $ do
+        let l3   = EApp "cons" [ ELit (LitInt 1)
+                               , EApp "cons" [ ELit (LitInt 2)
+                                             , EApp "cons" [ ELit (LitInt 3)
+                                                           , EApp "nil" [] ]] ]
+            fn   = ELambda [("acc", TInt), ("x", TInt)]
+                            (EOp "+" [EVar "acc", EVar "x"])
+            expr = EApp "list-fold" [l3, ELit (LitInt 0), fn]
+        evalExprStatic Map.empty expr `shouldBe` Just (ELit (LitInt 6))
+
+      it "list-length / list-append compose to length+1" $ do
+        let l2   = EApp "cons" [ ELit (LitInt 7)
+                               , EApp "cons" [ ELit (LitInt 8)
+                                             , EApp "nil" [] ]]
+            expr = EApp "list-length" [EApp "list-append" [l2, ELit (LitInt 9)]]
+        evalExprStatic Map.empty expr `shouldBe` Just (ELit (LitInt 3))
+
+    -- OBLIG-PBT-3 / F-033: PBT-to-trust-report write-back. Singleton
+    -- head-position contracted callee in a PBTPassed property lifts csPost(f)
+    -- to DLTested n with pbt_witnesses provenance; multi-subject / skip / fail
+    -- produce diagnostics, no lift. See docs/design/oblig-pbt-3-proposal.md
+    -- §12 for the edge-case matrix this block pins.
+    describe "OBLIG-PBT-3 PBT-to-trust-report write-back" $ do
+      let mkContractedFn name =
+            SDefLogic name [("x", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+              (EVar "x")
+          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+
+      -- E2: same function in multiple head-positions in one body — lift once.
+      it "E2 same function in multiple head positions lifts once" $ do
+        let f      = mkContractedFn "f"
+            body   = EOp "and" [EApp "f" [ELit (LitInt 1)], EApp "f" [ELit (LitInt 2)]]
+            prop   = Property "f-twice" [] body
+            stmts  = [f, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "f-twice" 100]
+            (m, ds) = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 1
+        ds        `shouldBe` []
+        case Map.lookup "f" m of
+          Just cs -> case csPost cs of
+            Just er -> erDisplayLevel er `shouldBe` DLTested 100
+            Nothing -> expectationFailure "expected csPost lift on f"
+          Nothing -> expectationFailure "expected entry for f in writeback map"
+
+      -- E3: multi-subject property — diagnostic, no lift.
+      it "E3 multi-subject property produces diagnostic and no lift" $ do
+        let f      = mkContractedFn "encrypt"
+            g      = mkContractedFn "decrypt"
+            body   = EOp "=" [EVar "x", EApp "decrypt" [EApp "encrypt" [EVar "x"]]]
+            prop   = Property "roundtrip" [("x", TInt)] body
+            stmts  = [f, g, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "roundtrip" 100]
+            (m, ds) = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 0
+        length ds  `shouldBe` 1
+        any (T.isInfixOf "multiple contracted callees") ds `shouldBe` True
+
+      -- E5: per-clause vs per-function asymmetry — pre asserted, post lifted.
+      it "E5 per-clause split exposes post-tested under asserted-pre meet" $ do
+        let f       = mkContractedFn "f"
+            body    = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            prop    = Property "f-id" [] body
+            stmts   = [f, SCheck prop]
+            result  = PBTResult 1 1 0 0 [passedRun "f-id" 100]
+            (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
+            report  = buildTrustReport Map.empty stmts pbtCS
+            tpFull  = trTierProfile     report
+            tpPre   = trTierProfilePre  report
+            tpPost  = trTierProfilePost report
+        -- per-function meet pins to asserted (pre = DLAsserted ⊓ post = DLTested → DLAsserted)
+        tpAsserted tpFull `shouldBe` 1
+        tpTested   tpFull `shouldBe` 0
+        -- per-clause split surfaces the asymmetry
+        tpAsserted tpPre  `shouldBe` 1
+        tpTested   tpPost `shouldBe` 1
+        tpAsserted tpPost `shouldBe` 0
+
+      -- E6: already-DLVerified post — mergeCS preserves verified; lift non-degrading.
+      it "E6 prior DLVerified post is preserved by mergeCS (non-degrading)" $ do
+        let f          = mkContractedFn "f"
+            body       = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            prop       = Property "f-id" [] body
+            stmts      = [f, SCheck prop]
+            result     = PBTResult 1 1 0 0 [passedRun "f-id" 100]
+            (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
+            -- Prior sidecar entry at DLVerified — replicates the verifier write
+            -- shape at Main.hs:1196-1206.
+            priorCS    = Map.singleton "f" $ ContractStatus
+                           (Just (EvidenceRecord DLAsserted False Nothing []))
+                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing []))
+                           []
+            -- Replicate Main.hs:doTest order: pbtCS on the sidecar side, prior
+            -- sidecar on the base side, merged via Module.mergeCS.
+            mergedReal = Map.unionWith mergeCS pbtCS priorCS
+        case Map.lookup "f" mergedReal >>= csPost of
+          Just er -> case erDisplayLevel er of
+            DLVerified _ -> pure ()
+            other        -> expectationFailure $
+                              "expected DLVerified preserved, got " ++ show other
+          Nothing -> expectationFailure "expected csPost on merged entry"
+
+      -- E8: cross-module subject — sidecar key is qualified.
+      it "E8 cross-module subject keys writeback under qualified name" $ do
+        let libF   = mkContractedFn "f"
+            libEnv = ModuleEnv
+                       { meExports        = Map.fromList [("f", TFn [TInt] TInt)]
+                       , meStatements     = [libF]
+                       , meInterfaces     = Map.empty
+                       , meAliasMap       = Map.empty
+                       , mePath           = ["lib"]
+                       , meContractStatus = Map.empty
+                       , meContracts      = Map.empty
+                       }
+            cache  = Map.singleton ["lib"] libEnv
+            -- Local file: (open lib) + (check ...) covering f. No local
+            -- def-logic for f — so f is imported, sidecar key qualifies.
+            localStmts = [ SOpen ["lib"] Nothing
+                         , SCheck (Property "f-id" []
+                                     (EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]))
+                         ]
+            result      = PBTResult 1 1 0 0 [passedRun "f-id" 100]
+            (m, _)      = pbtTrustWriteback localStmts cache result
+        Map.keys m `shouldBe` ["lib.f"]
+
+      -- E10: idempotent re-run — pbt_witnesses dedup by hash.
+      it "E10 idempotent re-run dedups pbt_witnesses by hash" $ do
+        let f       = mkContractedFn "f"
+            body    = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            prop    = Property "f-id" [] body
+            stmts   = [f, SCheck prop]
+            run     = passedRun "f-id" 100
+            -- Run twice — second invocation should produce the same map (same
+            -- propBody hash, same description → deduplicated witness).
+            result1 = PBTResult 1 1 0 0 [run]
+            (m1, _) = pbtTrustWriteback stmts Map.empty result1
+            (m2, _) = pbtTrustWriteback stmts Map.empty result1
+        m1 `shouldBe` m2
+        case Map.lookup "f" m1 >>= csPost of
+          Just er -> length (erPbtWitnesses er) `shouldBe` 1
+          Nothing -> expectationFailure "expected csPost on f"
+
+      -- E12: mixed pass / fail on the same function — only passing lifts.
+      it "E12 mixed pass+fail on same fn: passing run lifts, failing does not" $ do
+        let f         = mkContractedFn "f"
+            bodyPass  = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            bodyFail  = EOp "=" [EApp "f" [ELit (LitInt 0)], ELit (LitInt 9)]
+            propPass  = Property "f-pass" [] bodyPass
+            propFail  = Property "f-fail" [] bodyFail
+            stmts     = [f, SCheck propPass, SCheck propFail]
+            result    = PBTResult 2 1 1 0
+                         [ passedRun "f-pass" 100
+                         , PBTRun "f-fail" PBTFailed 100 (Just "f(0) ≠ 9")
+                         ]
+            (m, ds)   = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 1
+        case Map.lookup "f" m >>= csPost of
+          Just er -> do
+            erDisplayLevel er `shouldBe` DLTested 100
+            length (erPbtWitnesses er) `shouldBe` 1
+            (pwDescription <$> take 1 (erPbtWitnesses er)) `shouldBe` ["f-pass"]
+          Nothing -> expectationFailure "expected csPost lift from passing run"
+        -- Failing run surfaces as a diagnostic but does not lift.
+        any (T.isInfixOf "failed") ds `shouldBe` True
+
+      -- E13: property body edited → hash mismatch → downgrade to DLAsserted on read.
+      it "E13 edited property body downgrades stale DLTested to DLAsserted" $ do
+        let f         = mkContractedFn "f"
+            staleHash = "sha256:" <> T.replicate 64 "0"  -- never matches a live body
+            staleW    = PbtWitness staleHash "f-id"
+            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW]
+            staleCS   = Map.singleton "f" $ ContractStatus
+                         (Just (EvidenceRecord DLAsserted False Nothing []))
+                         (Just staleEr)
+                         []
+            -- Live property covers f but with a body whose hash ≠ staleHash.
+            liveProp  = Property "f-id-edited" []
+                          (EOp "=" [EApp "f" [ELit (LitInt 2)], ELit (LitInt 2)])
+            stmts     = [f, SCheck liveProp]
+            report    = buildTrustReport Map.empty stmts staleCS
+        -- Find the entry for f; its csPost should have been downgraded.
+        case filter (\e -> teName e == "f") (trEntries report) of
+          [e] -> case tePost e of
+            Just er -> erDisplayLevel er `shouldBe` DLAsserted
+            Nothing -> expectationFailure "expected csPost on f"
+          _   -> expectationFailure "expected single entry for f"
+        length (trStaleDowngrades report) `shouldBe` 1
+
+      -- E14: property deleted between runs → no live hash matches → downgrade.
+      it "E14 deleted property downgrades stale DLTested to DLAsserted" $ do
+        let f         = mkContractedFn "f"
+            staleHash = "sha256:" <> T.replicate 64 "a"
+            staleEr   = EvidenceRecord (DLTested 100) False Nothing
+                          [PbtWitness staleHash "f-id"]
+            staleCS   = Map.singleton "f" $ ContractStatus
+                         (Just (EvidenceRecord DLAsserted False Nothing []))
+                         (Just staleEr)
+                         []
+            stmts     = [f]  -- no SCheck — property deleted
+            report    = buildTrustReport Map.empty stmts staleCS
+        case filter (\e -> teName e == "f") (trEntries report) of
+          [e] -> case tePost e of
+            Just er -> erDisplayLevel er `shouldBe` DLAsserted
+            Nothing -> expectationFailure "expected csPost on f"
+          _   -> expectationFailure "expected single entry for f"
+
+      -- E15: v1.1.0 emit decodes cleanly; tier_profile unchanged in shape,
+      -- tier_profile_pre / tier_profile_post present and structurally parallel.
+      it "E15 v1.1.0 emit carries parallel tier_profile_{pre,post}" $ do
+        let f        = mkContractedFn "f"
+            body     = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            prop     = Property "f-id" [] body
+            stmts    = [f, SCheck prop]
+            result   = PBTResult 1 1 0 0 [passedRun "f-id" 100]
+            (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
+            report   = buildTrustReport Map.empty stmts pbtCS
+            jsonText = formatTrustReportJson report
+        case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
+          Just (Object o) -> do
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.1.0")
+            -- Scalar tier_profile unchanged in shape (six Int fields)
+            case KM.lookup "tier_profile" o of
+              Just (Object tp) -> do
+                KM.lookup "verified"         tp `shouldSatisfy` (/= Nothing)
+                KM.lookup "tested"           tp `shouldSatisfy` (/= Nothing)
+                KM.lookup "asserted"         tp `shouldSatisfy` (/= Nothing)
+              _ -> expectationFailure "tier_profile missing or not an object"
+            -- New parallel aggregates
+            case KM.lookup "tier_profile_pre" o of
+              Just (Object tp) -> KM.lookup "tested" tp `shouldSatisfy` (/= Nothing)
+              _ -> expectationFailure "tier_profile_pre missing or not an object"
+            case KM.lookup "tier_profile_post" o of
+              Just (Object tp) -> KM.lookup "tested" tp `shouldBe` Just (Number 1)
+              _ -> expectationFailure "tier_profile_post missing or not an object"
+          _ -> expectationFailure "trust-report JSON did not decode as an object"
 
     -- evalContract isolation regression: empty-FuncEnv invariant
     describe "evalContract isolation regression" $ do

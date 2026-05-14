@@ -47,6 +47,7 @@ module LLMLL.Syntax
     -- * Evidence Model (v0.8.1b)
   , DisplayLevel(..)
   , EvidenceRecord(..)
+  , PbtWitness(..)
   , AssumptionKind(..)
   , evidenceMeet
   , evidenceCovers
@@ -318,10 +319,25 @@ data DisplayLevel
   deriving (Show, Eq, Generic)
 
 -- | Structured evidence record for a single contract clause.
+-- OBLIG-PBT-3: 'erPbtWitnesses' records property-body hashes that contributed
+-- to a 'DLTested n' lift. Used by 'TrustReport.buildTrustReport' on read to
+-- downgrade stale entries (property edited / deleted) to 'DLAsserted'. Empty
+-- for non-PBT evidence (verifier-written, :trust tested source markers).
 data EvidenceRecord = EvidenceRecord
   { erDisplayLevel :: DisplayLevel   -- ^ What kind of evidence backs this clause
   , erBodyFaithful :: Bool           -- ^ True when body VC was generated and passed
   , erSource       :: Maybe Text     -- ^ :source provenance annotation
+  , erPbtWitnesses :: [PbtWitness]   -- ^ OBLIG-PBT-3: PBT property-body provenance
+  } deriving (Show, Eq, Generic)
+
+-- | OBLIG-PBT-3: SHA-256 hash + description of a property body whose
+-- 'PBTPassed' run lifted a contract clause to 'DLTested n'. Hash is taken
+-- over the canonical 'Expr' serialization of 'propBody' (see
+-- 'LLMLL.PBT.canonicalPropBodyHash'). 'buildTrustReport' validates on read
+-- against live property bodies and downgrades stale entries.
+data PbtWitness = PbtWitness
+  { pwHash        :: Text   -- ^ \"sha256:\" + 64 hex chars
+  , pwDescription :: Text   -- ^ propDescription at write time, for display
   } deriving (Show, Eq, Generic)
 
 -- | Classification of unverified dependencies.

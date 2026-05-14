@@ -19,9 +19,10 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as T
 import System.Directory (doesFileExist)
 
-import LLMLL.Syntax (ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), AssumptionKind(..), Name)
+import LLMLL.Syntax (ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), PbtWitness(..), AssumptionKind(..), Name)
 
 -- ---------------------------------------------------------------------------
 -- Path convention
@@ -71,7 +72,10 @@ erToJSON :: EvidenceRecord -> Value
 erToJSON er = object $
   ["display_level" .= dlToJSON (erDisplayLevel er)] ++
   ["body_faithful" .= True | erBodyFaithful er] ++
-  maybe [] (\s -> ["source" .= s]) (erSource er)
+  maybe [] (\s -> ["source" .= s]) (erSource er) ++
+  -- OBLIG-PBT-3: emit pbt_witnesses only when non-empty (back-compatible read
+  -- against v0.10.4 sidecars that lack the field).
+  (if null (erPbtWitnesses er) then [] else ["pbt_witnesses" .= map pwToJSON (erPbtWitnesses er)])
 
 erFromJSON :: Value -> Maybe EvidenceRecord
 erFromJSON (Object o) = do
@@ -83,8 +87,32 @@ erFromJSON (Object o) = do
       src = case KM.lookup "source" o of
               Just (String s) -> Just s
               _               -> Nothing
-  Just $ EvidenceRecord dl bf src
-erFromJSON _ = Nothing
+      -- OBLIG-PBT-3: optional field; v0.10.4-and-earlier sidecars default to [].
+      ws  = case KM.lookup "pbt_witnesses" o of
+              Just (Array arr) -> [w | v <- foldr (:) [] arr, Just w <- [pwFromJSON v]]
+              _                -> []
+  Just $ EvidenceRecord dl bf src ws
+
+-- ---------------------------------------------------------------------------
+-- JSON encoding — PbtWitness (OBLIG-PBT-3)
+-- ---------------------------------------------------------------------------
+
+pwToJSON :: PbtWitness -> Value
+pwToJSON w = object
+  [ "hash"        .= pwHash w
+  , "description" .= pwDescription w
+  ]
+
+pwFromJSON :: Value -> Maybe PbtWitness
+pwFromJSON (Object o) =
+  let h = case KM.lookup "hash" o of
+            Just (String s) -> s
+            _               -> ""
+      d = case KM.lookup "description" o of
+            Just (String s) -> s
+            _               -> ""
+  in if T.null h then Nothing else Just (PbtWitness h d)
+pwFromJSON _ = Nothing
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — AssumptionKind

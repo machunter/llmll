@@ -1,10 +1,10 @@
-# LLMLL — v0.10.4
+# LLMLL — v0.10.5
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.10.4 is shipped.** Patch release — R6d trust-report tier-count profile (`llmll verify --trust-report --json` now emits a six-Int `tier_profile` aggregate alongside the existing `summary`, plus a new `trust_report_version: "1.0.0"` field, documented in the new `docs/llmll-trust-report.schema.json` versioned independently of the source AST schema) plus repair-loop harness `Cred(R)` + H1 bifurcation (the harness predicate drops `asserted` from accepted-levels and operationalizes the Correctness / Assurance split prescribed in `docs/design/language-comparison-experiments.md`; closes §LT-A / F-026 / F-027 with empirical evidence from re-probing the three Phase-2 cells). 594 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.10.5 is shipped.** Patch release — PBT complex-type generators + static-evaluator extensions (OBLIG-PBT-2, F-032): `PBT.hs:generateValue` retyped to `TypeAliasEnv → Int → Type → IO Expr` with `TPair` / `TList` / `TResult` / `TSumType` / `TCustom` cases (depth-capped at `maxGenDepth = 5`); `evalExprStaticWith` extended for `EPair` and `ELambda`; `evalBuiltinApp` refactored with new §13 builtins (`pair`/`first`/`second`, list ops, `list-fold`/`list-map` via `applyLambda`, `unwrap-or`/option helpers); `maxFuel` raised 64 → 256; `tryQuickCheck`'s `isSimpleType` whitelist removed. Plus PBT-to-trust-report write-back (OBLIG-PBT-3, F-033): `PBTPassed` results now lift the post clause of the singleton head-position contracted callee to `DLTested n` evidence, persisted with `pbt_witnesses` SHA-256 hashes for staleness invalidation; trust-report emit gains parallel `tier_profile_pre` / `tier_profile_post` aggregates (`trust_report_version: "1.0.0"` → `"1.1.0"` additive); PBT-Lift rule formalised in new `LLMLL.md §4.4.5`. Closes F-032 and F-033. 614 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-05-01  
+> **Last updated:** 2026-05-13  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -18,6 +18,8 @@ Documents addressing the formal-methods foundations: what LLMLL guarantees, what
 | [specification-sources.md](specification-sources.md) | Where do good specifications come from? Identifies 5 sources: external standards, Haskell back-translation, progressive refinement, hub retrieval, synthetic corpus generation. | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel (verification as coordination, typed holes as work allocation, trust propagation). What's borrowed. What to stop overclaiming. | Active reference |
 | [proof-required-predicate-carrier.md](proof-required-predicate-carrier.md) | Deferred exploration: extending `?proof-required` from a leaf reason-tag hole to a predicate-carrying form. Would let the intended-but-unverifiable property be machine-readable in the AST instead of buried in adjacent prose. Out of scope under feature freeze; revisit conditions specified. Captured from LT-B Risk #4 after recurrent agent ambiguity (5/12 attempts) on the broken LT-A D3 example. | Deferred exploration (post-v0.10 candidate) |
+| [oblig-pbt-3-proposal.md](oblig-pbt-3-proposal.md) | PBT-to-trust-report write-back (F-033 / OBLIG-PBT-3): singleton-head-position linkage rule, `DLTested n` lift on `csPost`, per-clause `tier_profile_pre`/`tier_profile_post` aggregates (bumps `trust_report_version` 1.0.0 → 1.1.0), property-body SHA-256 provenance with read-side staleness downgrade, explicit `evaluatedSamples` semantics disclosure, design-divergence statement vs Liquid Haskell. `:subject` metadata + coverage instrumentation sequenced to OBLIG-PBT-4. | **Settled** (Rev 2) — awaiting compiler-engineer hand-off |
+| [oblig-pbt-3-review.md](oblig-pbt-3-review.md) | Professor review of OBLIG-PBT-3. Seven gaps + two open questions, all resolved in Rev 2. Recommends approval for compiler-engineer hand-off. | Active reference |
 
 ---
 

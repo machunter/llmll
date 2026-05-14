@@ -1943,3 +1943,161 @@ Phase-3 readiness on the predicate-vocabulary axis is restored. The matrix can n
 ### Phase-3 readiness
 
 With §LT-A closed and F-018 / CE-B closed, the two gates Addendum 14 named are both resolved. Phase 3 launch is unblocked on the empirical-apparatus axis. Remaining open items before Phase-3 launch are scope decisions (matrix composition, agent set, k value, problem set) and the v0.10.4 release cut (cabal version bump + doc-lead CHANGELOG / roadmap close-out + tag), not apparatus blockers.
+
+---
+
+## Addendum 16 — LT-B focused re-probe under v0.10.4 (2026-05-13)
+
+**Status:** §LT-B remains **open**. The hypothesis that F-018 / MOD-PBT-1 was the structural cause of the Phase-2 LLMLL `(check)` skip behavior is **withdrawn** — see Withdrawn items below. A different mechanism, **F-032 (PBT sample generation does not cover complex types)**, is now the load-bearing blocker for lifting obligations from `asserted` → `tested` tier. F-032 is routed to `compiler-engineer` and gates the H1-Assurance `tested`-tier signal on Phase 3.
+
+### Framing
+
+Addendum 15's R6d re-probe was re-verify only; it did not re-test the three Phase-2 cells' solutions under the post-MOD-PBT-1 compiler. Per Addendum 15 §"Status of adjacent findings", this focused re-probe was tracked as a follow-up to confirm whether the v0.10.3 PBT-FuncEnv patch operationally lifts `(check)`-style property tests' obligations from `asserted` → `tested` tier when applied to the actual Phase-2 emissions.
+
+The framing question was: under v0.10.4 (which contains MOD-PBT-1 + R6d), does running `llmll test <solution.llmll>` on each Phase-2 LLMLL cell's final-turn `solution.llmll` produce `passed > 0` for any property, and does at least one trust-report entry cross from `asserted` to `tested` tier?
+
+The empirical answer is **no, none of them lift**. The reason is not the imported-module-visibility mechanism MOD-PBT-1 patched. F-032 is the actual mechanism.
+
+### Sample composition (re-probe)
+
+- **Cells:** 3 × LLMLL × `002-bank-ledger` × gemini-default × k=5 — the same three Phase-2 calibration cells (c01, c02, c03) from `runs/20260512T031938Z-matrix/`. No new agent runs. No API spend.
+- **Compiler:** `llmll version` reports `0.10.4`. Binary at `/Users/burcsahinoglu/.local/bin/llmll`, mtime 2026-05-13 11:08, rebuilt and reinstalled from `compiler/package.yaml:version: 0.10.4` (`daf8bb5`). Contains MOD-PBT-1 (v0.10.3, commits `d1b7a58` + `b9b5eee`) and R6d (`bb1bd98` + `bbab67b`).
+- **Harness:** `main` at `f0c919b`, clean working tree.
+- **Re-probe method:** `llmll test <solution.llmll>` and `llmll --json test <solution.llmll>` per cell. Solutions copied to `/tmp/lt-b-reprobe/` to avoid path-collision with the run-directory artefacts; behaviour is identical (no path-relative dependencies in any of the three solutions).
+
+### Per-cell results
+
+| Cell | Properties | Passed | Failed | Skipped | `(open ...)` lines in solution | Skip reason (verbatim from `--json`) |
+|---|---|---|---|---|---|---|
+| c01 | 3 | 0 | 0 | **3** | 0 | "Property contains non-constant expressions — requires full runtime evaluation" |
+| c02 | 2 | 0 | 0 | **2** | 0 | "Property contains non-constant expressions — requires full runtime evaluation" |
+| c03 | 2 | 0 | 0 | **2** | 0 | "Property contains non-constant expressions — requires full runtime evaluation" |
+
+7 properties total; **0 lifted to `tested` tier; 7 skipped with identical reason; `samples_run: 0` for all**.
+
+Representative JSON record (c01, first property):
+
+```json
+{"counterexample":"Property contains non-constant expressions — requires full runtime evaluation",
+ "description":"transfer-preserves-total-balance","samples_run":0,"status":"PBTSkipped"}
+```
+
+The Addendum 15 `tier_profile` data stands unchanged — re-probing the test channel does not affect the verify channel's classification of the existing entries.
+
+### Why we saw what we saw
+
+The PBT runner at [compiler/src/LLMLL/PBT.hs:154-185](compiler/src/LLMLL/PBT.hs#L154-L185) implements a three-path evaluation strategy:
+
+1. **Static-evaluation path** (`evalExprStaticWith`). Runs 100 random samples through `evalPropertyBodyWith`; if all reduce to concrete `Bool` literals, emit `PBTPassed` / `PBTFailed`. Falls through if any sample returns `Nothing`.
+2. **QuickCheck-fallback path** (`tryQuickCheck`, [PBT.hs:260-266](compiler/src/LLMLL/PBT.hs#L260-L266)) — only enabled when all bound-variable types pass `isSimpleType`:
+   ```haskell
+   isSimpleType TInt = True
+   isSimpleType TBool = True
+   isSimpleType (TDependent _ TInt _) = True
+   isSimpleType _ = False
+   ```
+3. **Skip path** — emit `PBTSkipped` with the verbatim message captured above.
+
+The static-evaluation path depends on `generateValue` ([PBT.hs:216-224](compiler/src/LLMLL/PBT.hs#L216-L224)) to produce well-typed sample literals:
+
+```haskell
+generateValue TInt    = LitInt . getNonNeg <$> generate (arbitrary :: Gen (NonNegative Integer))
+generateValue TFloat  = LitFloat <$> generate (arbitrary :: Gen Double)
+generateValue TString = LitString . T.pack <$> generate (arbitrary :: Gen String)
+generateValue TBool   = LitBool <$> generate (arbitrary :: Gen Bool)
+generateValue TUnit   = pure LitUnit
+generateValue (TBytes _) = LitString . T.pack <$> generate (arbitrary :: Gen String)
+generateValue (TDependent _ base _) = generateValue base
+generateValue _       = LitInt <$> generate (arbitrary :: Gen Integer)  -- catch-all
+```
+
+The Phase-2 bindings are:
+
+- c01 / c03 (property `for-all`-bindings): `[l: Ledger, f: string, t: string, a: PositiveInt]`
+- c02: `[l: Ledger, f: string, t: string, a: (where [x: int] (> x 0))]`
+
+`Ledger` is a user-defined `(type Ledger (Accounts, TransactionLog))` synonym ultimately resolving to `(list[(string, int)], list[(string, (string, int))])`. The catch-all at [PBT.hs:224](compiler/src/LLMLL/PBT.hs#L224) returns `LitInt` for any type the generator does not pattern-match, including `Ledger`'s underlying pair-of-lists, the bare `string` bindings (matched at line 219, so technically *generated* correctly — but `isSimpleType TString = False` excludes them from `tryQuickCheck`), and the `PositiveInt = (where [v: int] (> v 0))` refinement (matched at line 223 to `int` underlying).
+
+For the bank-ledger property bodies, the body calls `(transfer l f t a)` and `(total-balance ...)` and `(balance ...)`. `transfer` expects a `Ledger` (pair-of-lists), receives an `Int` literal from the catch-all generator. `evalExprStaticWith` cannot reduce a function applied to a type-incorrect argument with bounded fuel — returns `Nothing`. All 100 samples produce `Nothing` → static-eval path fails. `tryQuickCheck`'s `isSimpleType` whitelist rejects `Ledger` and `string` → QuickCheck-fallback path skipped. The skip path emits the message we observe.
+
+**MOD-PBT-1's null relevance.** MOD-PBT-1 extends the PBT FuncEnv with imported-module `def-logic` declarations (the `assembleTestStatements` helper introduced in `d1b7a58`). It is the right fix for the failure mode Addendum 8 / F-018 named: an `(open ...)`-imported function called from a `(check)` body becoming unresolvable in the FuncEnv. None of the three Phase-2 solutions has an `(open ...)` line (verified via `grep -nE "\\(open " solution.llmll` per cell). The patched code path's import-walk produces an empty extension on these solutions; the skip mechanism is upstream of FuncEnv composition entirely.
+
+**`tested` tier emit channel.** `DLTested n` is the evidence record at the `tested` tier ([compiler/src/LLMLL/Syntax.hs:315](compiler/src/LLMLL/Syntax.hs#L315) — "QuickCheck passed N samples"). The PBT runner is the only path that emits it on the basis of runtime evidence. `(:trust tested)` annotation parses to `DLTested 0` ([Parser.hs:381](compiler/src/LLMLL/Parser.hs#L381)) but that is a *declared* tier, not evidence (and would be refused under R6d's universal `Cred` if it stood alone — actually it counts as evidence post-classification, but the source-side `:trust` annotation is structurally the same as the `(post)`-clause `:trust` carrier; it requires the test having actually run). With 0 samples actually run for any of these properties, no obligation crosses `asserted → tested`.
+
+### F-032 (new) — PBT sample generation does not cover complex types
+
+**Priority:** High — blocks Phase-3 H1-Assurance `tested`-tier signal on every product-typed property. The Phase-3 problem set (`002-bank-ledger` product-typed `Ledger`; `003-rate-limiter` bounded-counter state; `001-hangman` state-machine record) all have non-primitive bound-variable types, so all three are subject to this mechanism.
+
+**Consumer:** `compiler-engineer` (primary). `language-team` (LT-B is informed — see below).
+
+**Evidence:** Per-cell skip pattern in §Per-cell results above. Catch-all generator at [PBT.hs:216-224](compiler/src/LLMLL/PBT.hs#L216-L224) returning `LitInt` for any non-primitive type. Simple-type whitelist at [PBT.hs:260-266](compiler/src/LLMLL/PBT.hs#L260-L266) rejecting `TString` and all complex types. The `--json` skip reason carries no shaping information for the agent; the agent cannot diagnose which binding caused the catch-all to fire.
+
+**Fix surface (engineer-side hypothesis; the compiler-engineer adjudicates the actual approach).** Extend `generateValue` to cover at minimum:
+- `TPair a b` → generate `EPair (generateValue a) (generateValue b)`.
+- `TList a` → generate a bounded-length list of `generateValue a` as the AST's list representation.
+- User-defined `(type ...)` synonyms → resolve through the type environment to the underlying representation and recurse.
+- User-defined ADTs / sum types → generate a constructor choice + recursive argument generation.
+
+Non-trivial because (a) the generator needs the type environment at generation time (currently it doesn't have one); (b) recursive type definitions (`list[a]` itself, mutually-recursive `(type ...)` chains) need a depth cap to avoid infinite generators; (c) the `tryQuickCheck` simple-type whitelist also needs broadening or replacement so the broader generator can be lifted into QuickCheck's `Gen` monad. The compiler-engineer's plan likely also touches `evalExprStaticWith`'s ability to reduce calls on complex literals — `EPair (LitInt 1) (LitInt 2)` needs to reduce through `(first ...)` and `(second ...)` cleanly.
+
+**Acceptance:**
+- A property with bindings `[l: (int, int) f: string]` runs `passed > 0` under `llmll test`.
+- A property with bindings `[l: list[int]]` runs `passed > 0`.
+- The Phase-2 cells' solutions re-tested under the patched compiler show ≥1 obligation crossing `asserted → tested` in the trust report. Re-probe of c02 specifically (the cell that engages the verification surface most fully — 6 `(post ...)` clauses, 1 `(pre ...)` clause, 4 refinement-type predicates) should be the empirical close: if c02's properties still skip after F-032 ships, the fix is incomplete.
+
+### Implication for `language-team` (LT-B informed, not adjudicated)
+
+The LT-B design question (`findings/language-team.md` §LT-B) reads: *"is `(check ...)` the right surface for the test channel, or should LLMLL provide a separate form for the kind of property-based test that drives the trust-tier `tested` rung?"* This re-probe constrains the question without adjudicating it:
+
+- The current `(check ...)` *surface form* is not the structural blocker for `tested`-tier credit. The evaluation strategy ([PBT.hs:generateValue + tryQuickCheck]) is.
+- Under a hypothetical F-032 fix, `(check)` could become a functional test channel without a spec-side surface change.
+- If F-032 is judged infeasible or too costly (engineer-side decision; not arbitrable by this re-probe), the LT-B design question reopens on the axis: should `(check)` be reserved for assertion-style invariants that statically reduce to constants, and a new `(property ...)` form added that explicitly invokes a QuickCheck-style runtime sample-based test channel with type-directed generators? The advantage of the split would be giving the agent — and the spec — a vocabulary distinction that maps cleanly to the trust-tier diamond (`contract_checked` vs `tested`).
+
+The language-team decision waits on the compiler-engineer's F-032 plan and feasibility read; this experiment-lead role does not adjudicate.
+
+### Withdrawn items
+
+- **The Addendum 11 / 14 hypothesis that F-018 / MOD-PBT-1 was the structural cause of the Phase-2 LLMLL `(check)` skip behavior.** Withdrawn 2026-05-13 by this re-probe. Disconfirming evidence: (a) `grep -nE "\\(open " solution.llmll` returns 0 matches in all three cell solutions, so MOD-PBT-1's import-walk-derived FuncEnv extension is empty for them and the patched code path does not engage; (b) the `--json` skip reason verbatim is "Property contains non-constant expressions — requires full runtime evaluation", a specific message emitted from [PBT.hs:184](compiler/src/LLMLL/PBT.hs#L184) by the static-eval-fails-and-not-simple-type path, not from any unknown-symbol resolution failure that MOD-PBT-1 would address. The F-018 fix and closure are *correct for the imported-module case* (Addendum 8's compiler-side prediction is empirically intact for that case). Addendum 8's *inference* that the Phase-2 cells were that case was wrong — the cells are a different case (F-032) that produces a surface-identical observation (`passed=0, failed=0, skipped=2-3, channel=llmll-pbt`).
+- **F-030's attribution.** F-030 (Phase-2 empirical confirmation of F-017's prediction, Addendum 11) carried the same misattribution. The empirical observation (`passed=0, failed=0, skipped=2-3, channel=llmll-pbt`) stands as a faithful Phase-2 measurement; the root-cause attribution to F-017 / F-018 is wrong and reattaches to F-032.
+
+### Null results
+
+- **MOD-PBT-1 changed behavior on the Phase-2 cells.** Pre-stated hypothesis going into the re-probe (per Addendum 15 §"Status of adjacent findings"): the v0.10.3 PBT-FuncEnv patch produces a *behavioral* change visible in `llmll test`'s output on c01 / c02 / c03 — either a different skip reason, an executed property, or a different pass/fail/skip distribution. **Null.** Behavior is identical to the Phase-2 pre-patch state on these solutions: 7/7 skip with the same reason and the same `samples_run: 0`. The patch is structurally correct on its declared scope (imported-module visibility) but operationally inert on the empirical sample this re-probe addresses.
+
+### Priority matrix delta
+
+| # | Finding | Consumer | Priority | Status |
+|---|---|---|---|---|
+| F-018 | PBT FuncEnv lacks imported-module def-logic | compiler-engineer | High → Closed | **Closed** (unchanged from Addendum 11 closure) |
+| F-030 | LLMLL `(check)` skip — F-017 prediction live | language-team + experiment-lead | Medium | **Closed by F-032 supersession** — observation reattached, root-cause attribution withdrawn |
+| **F-032** | **PBT sample generation does not cover complex types — checks with non-primitive bindings skip silently** | **compiler-engineer (primary), language-team (LT-B informed)** | **High — blocks Phase-3 H1-Assurance `tested`-tier signal** | **Open** (new) |
+| §LT-B | `(check)` test-channel surface design | language-team | Medium — informed by F-032 | Open (informed) |
+
+### Apparatus changes in this addendum
+
+None. No harness edits, no manifest edits, no script changes. This re-probe was a read-only empirical pass against the compiled `llmll` binary. The findings will route to `compiler-engineer` (F-032) and `language-team` (LT-B status update) via per-consumer fragments in `findings/compiler-engineer.md` and `findings/language-team.md` after the routing decision settles.
+
+### Phase-3 readiness — revised
+
+The Addendum 15 framing (*"Phase 3 launch is unblocked on the empirical-apparatus axis"*) stands narrowly: the apparatus runs, the predicate is sound, the R6d profile is emitted, the harness consumes it. What changes is the **interpretation band** for any Phase-3 H1-Assurance result.
+
+Under v0.10.4 (no F-032), Phase 3's LLMLL cells produce an H1-Assurance `tier_profile` whose non-zero fields are bounded to `verified` (via SMT / liquid-fixpoint discharging `(post)` / `(pre)` clauses), `proved` (theorem-prover-discharged clauses, if any agent produces them — rare in Phase 2), `contract_checked` (clauses checked by the verifier under refinement-type reasoning), `asserted` (agent-declared but unverified), and `no_contract` (no clause at the obligation site). The `tested` field is **structurally unreachable** on any property whose `for-all` bindings include a non-primitive type — which, for the three Phase-3 problems, is every property an agent could plausibly write that exercises the product state.
+
+Two operational paths:
+
+1. **Route F-032 to `compiler-engineer` before Phase 3 launches.** When F-032 ships (v0.10.5 candidate), re-run the LT-B re-probe (cheap, no API spend); confirm c02's properties lift ≥1 obligation to `tested`. Then launch Phase 3 with the full six-Int profile reachable. **Pro:** H1-Assurance signal is richer; the assurance differential against Python/Go can include `tested`-tier credit as a discriminator. **Con:** delays Phase 3 by F-032's engineer-time (non-trivial — type-directed generators with recursion bounding + env-threading).
+2. **Launch Phase 3 under v0.10.4 with the F-032 caveat documented.** H1-Assurance signal narrows to `verified` / `proved` / `contract_checked` / `asserted` / `no_contract` distribution; `tested` is documented as structurally unreachable. The H1-Assurance hypothesis becomes "LLMLL produces `verified` or `contract_checked` credit on at least one obligation on at least one problem, where Python/Go produce only test-pass counts" — a narrower but still substantive cross-paradigm assurance claim. F-032 routes after Phase 3 lands, with Phase-3 data as additional evidence on the question.
+
+The choice is a scope decision. The user has selected path (1): F-032 routes now; Phase 3 delays until it ships.
+
+### Routing
+
+- **F-032 → `compiler-engineer`** via `findings/compiler-engineer.md` §CE-D fragment (text deferred until sequencing settles per user direction; the fragment in working draft cites this addendum's §"Why we saw what we saw" and §"F-032 (new)" as the source-of-truth).
+- **§LT-B → `language-team`** via `findings/language-team.md` §LT-B status update (text deferred per same direction; informed-by-F-032 framing).
+- **Withdrawn items + null result documented above per `findings/language-team.md:180-188` discipline.**
+- **No documentation-lead routing this addendum** — the v0.10.4 release notes already shipped (`7c7393b`); the F-032 patch's release notes are part of the future v0.10.5 cut, doc-lead's slot at that time.
+- **`/schedule` not relevant** — F-032 is unbounded engineer work; no dated artefact to schedule against.
+
+### Implication
+
+LT-B remains open. The structural mechanism is now correctly identified. F-032 is the engineer work needed to make `(check)`-style property tests operational on the Phase-3 problem set. Until F-032 ships, H1-Assurance's `tested`-tier signal is unreachable for product-typed properties — a known, bounded narrowing of the Phase-3 evidence band, not an apparatus defect.
