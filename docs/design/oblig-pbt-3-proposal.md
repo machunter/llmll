@@ -233,8 +233,8 @@ OBLIG-PBT-3 introduces **no new proof obligations**. The PBT-to-trust pipeline i
 |---|---|---|
 | `LLMLL.md §4.4.1` | Tighten `tested` "When assigned" line; add design-divergence paragraph (§10) | doc-lead |
 | `LLMLL.md §4.4.4` | Sidecar invariant statement (§8); per-clause aggregate description (§9); `pbt_witnesses` mechanic | doc-lead |
-| `LLMLL.md §5.1` | Tighten outcome table for singleton-head-position linkage; `evaluatedSamples` semantics disclosure (§5) | doc-lead |
-| `LLMLL.md §11` | New inference rule `PBT-Lift` (§4) | doc-lead |
+| `LLMLL.md §4.4.5` (new subsection) | New subsection "PBT-derived trust evidence" hosting the `PBT-Lift` inference rule (§4) and its side conditions. Slots between §4.4.4 and §4.5. | doc-lead |
+| `LLMLL.md §5.1` | Tighten outcome table for singleton-head-position linkage; `evaluatedSamples` semantics disclosure (§5); cross-reference §4.4.5 for the formal lift rule | doc-lead |
 | `compiler/src/LLMLL/PBT.hs` | `headContractedSubject :: [Statement] -> Expr -> Maybe Name`; `pbtTrustWriteback :: [Statement] -> PBTResult -> Map Name ContractStatus` | engineer |
 | `compiler/app/Main.hs` `doTest` | After `runPropertyTests`: load `.verified.json`, build PBT-derived map, `Map.unionWith mergeCS`, save. `max` over multi-property coverage | engineer |
 | `compiler/src/LLMLL/TrustReport.hs` | `aggregateTiers` extended to emit three TierProfiles; `pbt_witnesses` validated on read; `trustReportEmitVersion` bumps to `1.1.0` | engineer |
