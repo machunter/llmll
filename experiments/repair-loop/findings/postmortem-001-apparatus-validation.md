@@ -2101,3 +2101,281 @@ The choice is a scope decision. The user has selected path (1): F-032 routes now
 ### Implication
 
 LT-B remains open. The structural mechanism is now correctly identified. F-032 is the engineer work needed to make `(check)`-style property tests operational on the Phase-3 problem set. Until F-032 ships, H1-Assurance's `tested`-tier signal is unreachable for product-typed properties — a known, bounded narrowing of the Phase-3 evidence band, not an apparatus defect.
+
+## Addendum 17 — OBLIG-PBT-3 lift validation re-probe under v0.10.5 (2026-05-14)
+
+### Headline finding
+
+Under v0.10.5 (commit d220632 — merge of `oblig-pbt-3/pbt-trust-writeback`), zero of three Phase-2 sealed solutions (c01/c02/c03 on `002-bank-ledger`) lifted any obligation from `asserted` to `tested` in `tier_profile_post` across k=5 tries each (15 compiler runs total; 0 `.verified.json` sidecars produced; 0 `stale_downgrades`). The strong-form H1-Assurance hypothesis at Addendum 16:2088 (path 1) is **falsified** for these three representative shapes. The blocker is dual, not single: c01 hits the OBLIG-PBT-4 `:subject` boundary at [PBT.hs:660-676](../../../compiler/src/LLMLL/PBT.hs#L660-L676); c02/c03 hit body-side static-eval discard saturation at [PBT.hs:401-403](../../../compiler/src/LLMLL/PBT.hs#L401-L403). F-032 (the v0.10.5 PBT-to-trust-report write-back) shipped and is operational on `examples/withdraw.llmll` (six-Int profile, schema `1.1.0`); its predicted unblocking of c02-shape `tested` credit did not materialize.
+
+### Sample composition
+
+- Compiler: `llmll 0.10.5`. Prerequisite gate passed: `trust_report_version` = "1.1.0" and `tier_profile_post` six-Int present on `examples/withdraw.llmll` (`asserted/contract_checked/no_contract/proved/tested/verified` × pre/post/effective).
+- Cells (copied to `runs/20260514T060100Z-reprobe-pbt3-c01c02c03-v0.10.5/<cell>/`; source run-dirs untouched per Addendum 16:2078 hygiene):
+  - **c01** — `runs/20260512T031939Z-gemini-default-try01-of-03-c01-e002-bank-ledger-llmll/solution.llmll`: 7 def-logics, 3 `(check)` blocks; flat `Accounts` list × `TransactionLog` pair (the "shallow product" shape).
+  - **c02** — `runs/20260512T033017Z-gemini-default-try02-of-03-c02-e002-bank-ledger-llmll/solution.llmll`: 6 def-logics, 2 `(check)` blocks; `AccountMap × TransactionLog` pair (the deep-unfold shape the prompt scoped as load-bearing).
+  - **c03** — `runs/20260512T034826Z-gemini-default-try03-of-03-c03-e002-bank-ledger-llmll/solution.llmll`: 6 def-logics, 2 `(check)` blocks; `?proof-required(manual)` embedded in `transfer.post` at solution.llmll:59.
+- k=5 per cell. 15 compiler runs (15 `--json test` + 15 `--json verify --trust-report`). Zero agent invocations. Wall-clock ≈ 4 min; cost $0.
+
+### Per-(cell, try) outcome table
+
+| cell | k | PBTPassed | PBTSkipped | samples_run on Skipped | `tier_profile_post.tested` | `tier_profile_post.asserted` | `stale_downgrades` | writeback diagnostics |
+|---|---|---|---|---|---|---|---|---|
+| c01 | 1 | 3 | 0 | — | 0 | 7 | 0 | 3 (multi-callee) |
+| c01 | 2 | 2 | 1 | 86 | 0 | 7 | 0 | 2 (multi-callee on the 2 Passed) |
+| c01 | 3 | 3 | 0 | — | 0 | 7 | 0 | 3 (multi-callee) |
+| c01 | 4 | 3 | 0 | — | 0 | 7 | 0 | 3 (multi-callee) |
+| c01 | 5 | 1 | 2 | 58 / 35 | 0 | 7 | 0 | 1 (multi-callee on the 1 Passed) |
+| c02 | 1-5 | 0/0/0/0/0 | 2/2/2/2/2 | 0 on every Skipped | 0 | 6 | 0 | 0 (Skipped → silent arm) |
+| c03 | 1-5 | 0/0/0/0/0 | 2/2/2/2/2 | 0 on every Skipped | 0 | 3 | 0 | 0 (Skipped → silent arm) |
+
+c01 PBT-pass variance is near-threshold QC-discard (samples_run 35/58/86 on the 3 PBTSkipped tries) — orthogonal to the lift question because every c01 PBTPassed property body also fails the writeback guard. c02/c03 are categorical: every pre-generated sample fails body reduction, `quickCheckResult` returns `GaveUp { numTests = 0 }` ([PBT.hs:421](../../../compiler/src/LLMLL/PBT.hs#L421)), and `processRun`'s `PBTSkipped` arm at [PBT.hs:678](../../../compiler/src/LLMLL/PBT.hs#L678) emits no diagnostic.
+
+### Verified findings
+
+#### F-033 (new). OBLIG-PBT-5 mechanism is body-side static-eval coverage, not generator coverage
+
+**Priority:** High — blocks strong-form Phase-3 `tested`-tier signal on c02-shape (deep product) and c03-shape (`?proof-required`-in-post) problems.
+**Consumer:** `compiler-engineer` (primary); `language-team` informed.
+
+##### Evidence
+
+[PBT.hs:399-403](../../../compiler/src/LLMLL/PBT.hs#L399-L403):
+
+```haskell
+preSamples <- generateSamples aliasEnv bindings 100
+let prop :: Map Name Expr -> QC.Property
+    prop env = case evalExprStaticWith funcEnv maxFuel env body of
+      Just (ELit (LitBool b)) -> QC.property b
+      _                       -> QC.discard
+```
+
+`runQC` pre-generates 100 environments (generator runs fine — n=100 samples produced) and then folds the property body through `evalExprStaticWith funcEnv maxFuel env body`. A sample discards iff the body does not reduce to `Just (ELit (LitBool _))`. Across c02 + c03 = 20/20 PBTSkipped properties × 100 pre-samples = 2,000 sample evaluations, the body evaluator returned `Nothing` on every one, producing `samples_run = 0` and `GaveUp { numTests = 0 }`. The generator is not the proximate cause.
+
+c02 bodies dereference `(unwrap (balance new_l f))` over an `AccountMap` representation; c03 bodies match-deconstruct `(transfer l from to amt)` whose postcondition embeds `?proof-required(manual)`. Both are unmodeled by `evalExprStaticWith` and discard universally. This refines the prompt's hypothesis ("generator-side discard saturation") and the §LT-B Addendum 16:2088 framing.
+
+##### Why we saw what we saw
+
+`evalExprStaticWith` has limited reduction coverage. The Phase-3 problem surface relies on three classes of body operations the static evaluator does not currently model: (a) match-deconstruction of `Result`-typed values (`Success`/`Error` arms) returned from a contracted callee; (b) `unwrap` / `unwrap-or` projections from `Result`; (c) map/list-lookup primitives over user-defined product types (`AccountMap` in c02, `list[Account]` in c03). c03 additionally returns bottom on `?proof-required(manual)` embedded in `transfer.post`, which the body evaluator carries into the property context via the callee-return shape. None of these is exotic — they are the natural shape of a property body that observes the result of a contracted operation.
+
+##### Implication
+
+The OBLIG-PBT-5 scope is bounded by the Phase-3 problem surface, not "all of Core." Acceptance criterion: a re-run of this addendum's matrix shows c02 properties producing `samples_run > 0` and at least one PBTPassed property whose body mentions exactly one contracted callee (or split into one per OBLIG-PBT-4 sequencing) lifting `tier_profile_post.tested ≥ 1`.
+
+##### Acceptance
+
+A v0.10.6 (or later) compiler run on `runs/20260514T060100Z-reprobe-pbt3-c01c02c03-v0.10.5/c02/solution.k1.llmll` reports `samples_run ≥ 1` on either property. Optional: a re-run on c03 likewise reports `samples_run ≥ 1` (covers the `?proof-required` case if c03's mechanism is the same; if it isn't, the c03 result discriminates).
+
+#### F-032 (existing). PBT-to-trust-report write-back — empirical close
+
+**Status:** **Closed-shipped, predicted-unblocking-falsified.** Parallel `tier_profile_pre` / `tier_profile_post` and `pbt_witnesses` sidecar machinery emitted as specified ([VerifiedCache.hs:76-91](../../../compiler/src/LLMLL/VerifiedCache.hs#L76-L91)); schema bump 1.0.0 → 1.1.0 is live. The Addendum 16:2088 prediction — *"c02's properties lift ≥1 obligation to `tested`"* — did not materialize. F-033 gates the only path to a `DLTested` record before the writeback ever fires.
+
+#### §LT-B (informed). c01 multi-callee result strengthens the OBLIG-PBT-4 `:subject` question
+
+n = 12/12 PBTPassed properties across c01 hit the `fs`-arm at [PBT.hs:671-676](../../../compiler/src/LLMLL/PBT.hs#L671-L676):
+
+> property "..." covers multiple contracted callees (X, transfer); no trust evidence recorded — split the property or wait for :subject metadata in OBLIG-PBT-4
+
+Every plausible "transfer-preserves-X" property body mentions both `transfer` and one of `total-balance` / `balance` / `has-account?`. Single-subject bodies appear to be the exception, not the rule, on this problem family. No new language-team scope opened in this addendum — the implication is *informed-by* on the existing §LT-B / OBLIG-PBT-4 question: subject-disambiguation priority is now empirically load-bearing on shallow-product shapes too, not only on the deep-product c02 case the v0.10.5 cut was scoped against.
+
+### Withdrawn / refined
+
+- **Withdrawn from prompt prediction:** *"c01 lifts cleanly under v0.10.5 — `tier_profile_post.tested ≥ 1` on at least one of the contracted def-logics."* Disconfirmed; n=12/12 PBTPassed bodies hit the multi-callee guard.
+- **Refined from prompt + Addendum-16 framing:** OBLIG-PBT-5 mechanism characterized as *"generator-side discard saturation"* → corrected to *"body-side static-eval discard at PBT.hs:401-403."* The generator emits 100 samples per run; the body evaluator rejects all of them.
+
+### Null results
+
+- **`pbt_witnesses` field on `DLTested` entries — not observable.** No `DLTested` entry was produced anywhere in the matrix, so the staleness mechanism could not be exercised here. Tautology of the falsification, not a defect. The staleness mechanism's separate test surface (e.g., an explicit `.verified.json` injection cell against a single-subject PBTPassed property on `examples/withdraw.llmll`) is unblocked but not in this re-probe's scope.
+
+### Binary answer to the decision question
+
+> **Strong-form H1-Assurance hypothesis is falsified.** Under v0.10.5, the canonical Phase-3 cell shape does *not* lift any obligation from `asserted` to `tested` in `tier_profile_post` on these three representative Phase-2 sealed solutions. The proximate mechanism is **body-side static-eval discard saturation in `evalExprStaticWith` (F-033)** on c02/c03; **c01 additionally hits the OBLIG-PBT-4 `:subject` multi-callee boundary** — an independent blocker on shallow-product shapes that the v0.10.5 cut did not address and was not scoped to address.
+
+Two operational paths remain — unchanged in shape from Addendum 16:2086-2091, sharper in mechanism:
+
+1. **Sequence OBLIG-PBT-5 (F-033) before strong-form Phase 3.** Optional: pair with OBLIG-PBT-4 (`:subject`) sequencing if the c01 multi-callee shape is judged a Phase-3 blocker too. Engineer-time non-trivial; scope bounded by the Phase-3 problem surface.
+2. **Launch Phase 3 under v0.10.5 on the narrow form per Addendum 16:2089.** `tested` documented as structurally unreachable for the c01/c02/c03 representative shapes; H1-Assurance signal narrows to `verified` / `proved` / `contract_checked` / `asserted` / `no_contract` distribution.
+
+Choice is the user's; this re-probe does not adjudicate.
+
+### Apparatus changes in this addendum
+
+None. No harness edits, no manifest edits, no script changes. Read-only re-probe against the v0.10.5 binary on PATH; working copies under `experiments/repair-loop/runs/20260514T060100Z-reprobe-pbt3-c01c02c03-v0.10.5/{c01,c02,c03}/` (15 `solution.k{1..5}.llmll` + matched `test.k*.json` + `verify.k*.json`; `README.md` in that run-dir documents provenance and reproduction commands). Source Phase-2 run-dirs untouched; new re-probe-result dir is additive.
+
+### Updated priority matrix (post-addendum-17)
+
+| # | Finding | Consumer | Priority | Status |
+|---|---|---|---|---|
+| F-032 | PBT-to-trust-report write-back | compiler-engineer | High → Shipped | **Closed-shipped** (v0.10.5); predicted unblocking falsified by F-033 |
+| **F-033** | **OBLIG-PBT-5 mechanism: body-side static-eval discard in `evalExprStaticWith`** | **compiler-engineer (primary), language-team informed** | **High — gates strong-form Phase-3 `tested` signal** | **Open** (new) |
+| §LT-B | `(check)` test-channel surface design | language-team | Medium — informed by F-033 + c01 multi-callee n=12/12 | Open (informed; no new scope opened here) |
+
+### Routing
+
+- **F-033 → `compiler-engineer`** via `findings/compiler-engineer.md` fragment (text drafted in §"F-033 / Evidence" + §"F-033 / Implication" above; cite [PBT.hs:399-403](../../../compiler/src/LLMLL/PBT.hs#L399-L403) as the source-of-truth).
+- **§LT-B → `language-team`** informed-by F-033 + c01 multi-callee empirical strengthening. No new language-team scope opened in this addendum; the OBLIG-PBT-4 `:subject` track absorbs the c01 finding.
+- **No `documentation-lead` routing this addendum** — v0.10.5 release notes shipped; the next doc-lead surface attaches to whichever of (a) F-033 lands or (b) the narrow-Phase-3 path is selected.
+- **Phase-3 launch decision → user.** Two paths above; this re-probe was scoped to inform the choice, not make it.
+
+### Implication
+
+§LT-B remains open. F-032 shipped on schedule; its predicted operational consequence on c02-shape was bottlenecked by a layer Addendum 16 did not foreseeably scope to — `evalExprStaticWith` body-reduction coverage, named precisely by F-033. The harness Cred(R) update to consume `tier_profile_post.tested` (Addendum 16 adjacent item) remains its own experiment-lead item; under path 2 it consumes `tested = 0` cleanly as a documented narrow-form result.
+
+## Addendum 18 — OBLIG-PBT-4 + OBLIG-PBT-5 lift validation re-probe under v0.10.6-candidate (2026-05-14)
+
+### Headline finding
+
+Under the v0.10.6-candidate binary built from working-tree branch `oblig-pbt-4-5/subject-metadata-and-eval-coverage` atop merge `d220632`, the joint acceptance criterion ("samples_run ≥ 1 on c02/c03 + tier_profile_post.tested ≥ 1 on c01 with `:subjects` annotation") **does not hold**. The c01-subjects half passes empirically — 4 of 5 tries lift `tier_profile_post.tested = 1` (n=1 = `total-balance`), confirming OBLIG-PBT-4 (`:subjects` opt-in path through `pbtTrustWriteback`) is operational end-to-end; 5 of 5 tries emit a `.verified.json` sidecar with 3 per-subject `DLTested(100)` records sharing the same `pbt_witnesses` hash, exactly as `docs/design/oblig-pbt-3-proposal.md` §11.1 (pinned 2026-05-14) prescribed. The c02/c03 half fails — 0 of 10 properties on each cell produce `samples_run ≥ 1`. F-033's diagnostic refinement (out-of-band body-discard counting, refined GaveUp text) is operational and now correctly attributes every c02/c03 discard to the body evaluator (verified: 1,000 evaluated, 0 returned bool per Skipped property). The proximate cause has shifted: Addendum 17 named the residual coverage gap as "`unwrap` / `match` on `Result` / map-lookup primitives"; this branch adds `unwrap` only, but c02's and c03's transfer-body call chains route through **`list-filter`, `list-prepend`, `list-empty`, `string-concat-many`, `int-to-string`** — a different builtin surface, all unmodeled in `evalBuiltinApp` at [Contracts.hs:412-472](../../../compiler/src/LLMLL/Contracts.hs#L412-L472); a separate `list-head` clause at [Contracts.hs:434](../../../compiler/src/LLMLL/Contracts.hs#L434) returns a raw element instead of the `Result` shape its type signature ([TypeCheck.hs:100](../../../compiler/src/LLMLL/TypeCheck.hs#L100)) declares. This is F-034 (a refinement and re-targeting of F-033's residual coverage gap, not a new mechanism).
+
+Path-1 stages 3 (doc-lead) and 4 (Phase 3 launch) do not proceed per the joint criterion. F-034 is the remaining engineer item; once it lands, a third matrix re-probe closes the criterion.
+
+### Sample composition
+
+- Compiler: v0.10.6-candidate. Self-reported `llmll version` = `0.10.5` (package.yaml version bump deferred to doc-lead seal). Working-tree git atop merge `d220632`; 35 modified files (+700/−102 LOC); schema bump `0.4.0` → `0.5.0` (additive optional `CheckDecl.subjects` per [docs/llmll-ast.schema.json:13-32, 197-216](../../../docs/llmll-ast.schema.json)); `trust_report_version` unchanged at `"1.1.0"`.
+- Binary path: `compiler/dist-newstyle/build/aarch64-osx/ghc-9.6.4/llmll-0.10.5/x/llmll/build/llmll/llmll`. Fresh `cabal build`. Not installed to `~/.local/bin/`.
+- Cells: c01, c02, c03 (byte-identical copies of the Addendum-17 re-probe sources), plus **c01-subjects** (sed-augmented c01 with `:subjects` keyword on three `(check ...)` blocks per language-team §11.1 pinned commitment 2026-05-14).
+- k=5 per cell. 20 compiler runs each of `--json test` and `--json verify --trust-report` = 40 invocations; 5 `.verified.json` sidecars produced (c01-subjects only). Wall-clock ≈ 5 min; cost $0.
+- Run dir: `experiments/repair-loop/runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/{c01,c02,c03,c01-subjects}/` (README.md in that dir documents provenance + reproduction). Source Phase-2 run-dirs and Addendum-17 re-probe dir untouched per Addendum 16:2078 hygiene.
+
+### Per-(cell, try) outcome table
+
+| cell | k | PBTPassed | PBTSkipped | samples_run on Skipped | samples_run on Passed | `tier_profile_post.tested` | `.verified.json` sidecar | writeback diagnostics |
+|---|---|---|---|---|---|---|---|---|
+| c01 | 1 | 3 | 0 | — | 100/100/100 | 0 | no | 3 (multi-callee, as Addendum-17) |
+| c01 | 2 | 3 | 0 | — | 100/100/100 | 0 | no | 3 |
+| c01 | 3 | 3 | 0 | — | 100/100/100 | 0 | no | 3 |
+| c01 | 4 | 2 | 1 | 96 | 100/100 | 0 | no | 2 |
+| c01 | 5 | 3 | 0 | — | 100/100/100 | 0 | no | 3 |
+| c02 | 1-5 | 0/0/0/0/0 | 2/2/2/2/2 | 0 on every property | — | 0 | no | 0 (PBTSkipped → silent arm at [PBT.hs:678](../../../compiler/src/LLMLL/PBT.hs#L678)) |
+| c03 | 1-5 | 0/0/0/0/0 | 2/2/2/2/2 | 0 on every property | — | 0 | no | 0 (silent arm) |
+| **c01-subjects** | 1 | 2 | 1 | 92 (property 3) | 100/100 | **1** (`total-balance`) | **yes** | 0 |
+| **c01-subjects** | 2 | 2 | 1 | 66 (property 1) | 100/100 | **0** (`total-balance` Skipped; orthogonal QC variance) | **yes** | 0 |
+| **c01-subjects** | 3 | 2 | 1 | 57 (property 3) | 100/100 | **1** (`total-balance`) | **yes** | 0 |
+| **c01-subjects** | 4 | 2 | 1 | 72 (property 3) | 100/100 | **1** (`total-balance`) | **yes** | 0 |
+| **c01-subjects** | 5 | 3 | 0 | — | 100/100/100 | **1** (`total-balance`) | **yes** | 0 |
+
+c01-subjects sidecar shape on every k (e.g., k=1, `c01-subjects/solution.k1.llmll.verified.json`): three top-level keys `balance` / `total-balance` / `transfer`, each with `post.display_level = {"level":"tested","samples":100}` and `post.pbt_witnesses` listing the property descriptions and their canonical-body hashes. `transfer` carries two witnesses (`transfer-preserves-total-balance` and `transfer-updates-balances-correctly`) because it appears in both subject lists; `balance` and `total-balance` carry one each. The `:subjects` opt-in's "shared `pbt_witnesses` hash" property holds across the matrix — canonical-body hashing is content-stable.
+
+c01-subjects k=2 mechanism note: property 1's `:subjects [transfer total-balance]` PBTSkipped at `samples_run = 66`. Properties 2 and 3 passed → `transfer` accumulated DLTested records from both; `balance` and `has-account?` each from one. verify.k2 shows `transfer post=tested (100 samples)`, `balance post=tested (100 samples)`, `has-account? post=tested (100 samples)`. But `total-balance` received no DLTested record → `post=asserted`, `effective=asserted` → `tier_profile_post.tested = 0`. The other tries (k1/k3/k4/k5) had property 1 PBTPassed, which lifted `total-balance.post` to tested and (because `total-balance` has zero contracted dependencies) the effective_level lifted too — yielding `tier_profile_post.tested = 1`. Mechanism is near-threshold QC discard variance, identical to the Addendum-17 c01 k4 (`samples_run=96`) and k5 (`samples_run=58/35`) variance — orthogonal to OBLIG-PBT-4 / OBLIG-PBT-5. The empirical frequency 4/5 stays above the user's `≥ 1` bar; the conjunct passes.
+
+### Verified findings
+
+#### F-033 (refined). Body-evaluator coverage on c02/c03 — partial close, F-033 diagnostic refinement operational
+
+**Status:** **Partial close.** `unwrap` clause shipped at [Contracts.hs:455-462](../../../compiler/src/LLMLL/Contracts.hs#L455-L462); F-033 GaveUp diagnostic refinement shipped at [PBT.hs:419-451](../../../compiler/src/LLMLL/PBT.hs#L419-L451). The new diagnostic correctly attributes c02/c03 discards: every property in c02 and c03 reports `"property body did not reduce on any sample (1000 evaluated, 0 returned bool — likely unmodeled builtin or unreduced callee body in property body)"`. The diagnostic is doing its job — its message correctly tells us the proximate cause is *still* unmodeled-builtin-or-unreduced-callee, just on a different surface than v0.10.5 OBLIG-PBT-3 anticipated.
+
+##### Evidence
+
+[Contracts.hs:412-472](../../../compiler/src/LLMLL/Contracts.hs#L412-L472) — `evalBuiltinApp` clause set. Missing clauses on c02/c03's call chains:
+
+| builtin | type-checker signature ([TypeCheck.hs:90-120](../../../compiler/src/LLMLL/TypeCheck.hs#L90-L120)) | used in | clause in evalBuiltinApp? |
+|---|---|---|---|
+| `list-filter` | `[list[a], fn[a] -> bool] -> list[a]` | c02 `map_get`, `map_insert`; c03 `find-account` | **no** |
+| `list-prepend` | `[a, list[a]] -> list[a]` | c02 `map_insert` | **no** |
+| `list-empty` | `[] -> list[a]` | c02 `create_ledger`; c03 `create-ledger` | **no** |
+| `string-concat-many` | `[list[string]] -> string` | c02 `transfer` (log entry construction) | **no** |
+| `int-to-string` | `[int] -> string` | c02 `transfer` (log entry construction) | **no** |
+| `list-head` | `[list[a]] -> Result a string` (returns `Result`) | c02 `map_get`; c03 `find-account` | **bug**: existing clause at [Contracts.hs:434](../../../compiler/src/LLMLL/Contracts.hs#L434) returns `Just hd` (raw element) instead of `Just (EApp "Success" [hd])`; falls through on `[EApp "nil" []]` (should return `Just (EApp "Error" [...])`) |
+
+Any property body evaluating `(transfer l f t a)` in c02 reduces transfer's body, which reduces `(map_get accounts from)` (uses `list-filter`), which returns `Nothing` from `evalBuiltinApp`. The `Maybe Expr` short-circuits up; the prop closure returns `QC.discard`; `bodyDiscardCount` increments. Repeat 1000 times → GaveUp with the new diagnostic text. c03's `find-account` uses `list-filter` directly; same propagation.
+
+The `list-head`-returns-raw-element bug is independent of the missing-clauses set: even if `list-filter` were modeled, c02 `map_get` body's `(match (list-head matches) ((Success p) ...) ((Error _) ...))` would still fail to reduce because `list-head` returns `hd` not `(Success hd)`. Both must move for c02 to lift. c03's `find-account` similarly does `(list-head matches)` after `list-filter`.
+
+##### Why we saw what we saw
+
+OBLIG-PBT-5's Addendum-17 framing identified the mechanism class correctly (body-side static-eval discard) but undersized the scope. The v0.10.6-candidate ships exactly the surface Addendum 17 named (`unwrap` and the GaveUp-text refinement) and that named surface is correctly closed. The empirical surface for c02/c03 is a **superset** of Addendum 17's named surface — five missing builtin clauses + one wrong-return-type clause. The diagnostic now lets future re-probes name "samples_run = 0 with 1000-of-1000 body discards" precisely, which discriminates this finding from precondition-failure shapes; future iterations can target builtin coverage gaps with one re-probe rather than three.
+
+##### Implication
+
+F-034 is the residual engineer scope: extend `evalBuiltinApp` with the five missing clauses + fix `list-head`'s return shape, then re-run the Addendum-18 matrix. Acceptance bar is unchanged in shape from Addendum-17 F-033 / Acceptance: c02 / c03 each show `samples_run > 0` on ≥1 property, and at least one PBTPassed property on c02 (under a future `:subjects [transfer ...]` annotation pass) lifts `tier_profile_post.tested ≥ 1`. The clause set is mechanical — five missing builtins + one return-type fix; no design surface to litigate. Engineer scope estimate: low (each clause is a 2-3-line pattern match analogous to the existing `list-fold` / `list-map` / `unwrap-or` clauses).
+
+##### Acceptance
+
+A v0.10.6+ compiler run on `runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll` reports `samples_run ≥ 1` on either property; likewise for c03. Optional but recommended: a c02-subjects variant (analogous to c01-subjects in this addendum) constructed with `:subjects [transfer total_balance]` etc. confirms the OBLIG-PBT-4 path is end-to-end-functional on c02-shape too — the c01-subjects pass above demonstrates only the path's correctness on c01-shape.
+
+#### F-OBLIG-PBT-4 (new). OBLIG-PBT-4 `:subjects` opt-in — closed-shipped, predicted-unblocking-confirmed-on-c01
+
+**Status:** **Closed-shipped, mechanism confirmed.** All design-surface S1-S7 commitments per `docs/design/oblig-pbt-3-proposal.md` §11 (pinned 2026-05-14) observed empirically:
+
+- **S1 (parser surface):** `:subject f` sugar and `:subjects [f g …]` both parse cleanly ([Parser.hs:290-326](../../../compiler/src/LLMLL/Parser.hs#L290-L326)). c01-subjects/solution.k1.llmll uses three `:subjects [...]` instances on three `(check ...)` blocks; `llmll check` reports `OK (18 statements)`.
+- **S2 (writeback path):** the `subjects` non-empty branch in `processRun` at [PBT.hs:687-720](../../../compiler/src/LLMLL/PBT.hs#L687-L720) fires; per-subject `DLTested n` records emit with shared `PbtWitness` hash (verified: c01-subjects k=1 sidecar has `transfer.post.pbt_witnesses` carrying two distinct hashes from the two properties that listed `transfer`; `total-balance.post.pbt_witnesses` carries one; the hash on property 1 matches across all tries within the cell).
+- **S3 (no-postcondition subject diagnostic):** not exercised in this matrix (every c01 subject has a postcondition). Latent capability.
+- **S6 (empty subjects rejected):** not exercised; the textual parser refuses with `(check :subjects []) must declare ≥1 subject` per [Parser.hs:317](../../../compiler/src/LLMLL/Parser.hs#L317). Latent.
+- **S7 (dedupe):** not exercised; latent.
+
+##### Evidence
+
+[c01-subjects k=1 sidecar — `solution.k1.llmll.verified.json`](../runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c01-subjects/solution.k1.llmll.verified.json):
+
+```json
+{
+  "transfer":      { "post": { "display_level": {"level":"tested","samples":100},
+                               "pbt_witnesses": [
+                                 {"description":"transfer-preserves-total-balance",    "hash":"sha256:2b805ceafa..."},
+                                 {"description":"transfer-updates-balances-correctly", "hash":"sha256:ddd5fe62d2..."}
+                               ]}},
+  "balance":       { "post": { "display_level": {"level":"tested","samples":100},
+                               "pbt_witnesses": [{"description":"transfer-updates-balances-correctly","hash":"sha256:ddd5fe62d2..."}]}},
+  "total-balance": { "post": { "display_level": {"level":"tested","samples":100},
+                               "pbt_witnesses": [{"description":"transfer-preserves-total-balance","hash":"sha256:2b805ceafa..."}]}}
+}
+```
+
+The aggregate `tier_profile_post.tested` value on c01-subjects is 1 (not 3) because R6d's `effective_level` machinery bounds `balance.effective_level` and `transfer.effective_level` to `asserted` via their transitive dependencies on the still-`asserted` `find-balance` and `update-balance`. This is correct R6d behavior — the trust report is body-faithful, not isolation-faithful. Only `total-balance` (zero contracted dependencies) lifts effective. The `post_level` row in the trust-report entry shows the per-callee lift cleanly: `transfer post=tested (100 samples)`, `balance post=tested (100 samples)`, `has-account? post=tested (100 samples)` on tries where property 3 passed.
+
+##### Why we saw what we saw
+
+The design-surface inference rule in `docs/design/oblig-pbt-3-proposal.md` §11.1 — *"per-subject `DLTested n` lifts under explicit-annotation opt-in, with shared `pbt_witnesses` cross-link"* — translates directly to the `processRun` implementation at [PBT.hs:702-720](../../../compiler/src/LLMLL/PBT.hs#L702-L720), which folds over `propSubjects` and emits one `EvidenceRecord` per subject, all sharing the same `canonicalPropBodyHash` witness. The empirical signal is consistent across 5 tries; no `writeback_diagnostics` fire on the c01-subjects cell because the singleton-head-position scan is bypassed entirely. The interaction with R6d's `effective_level` machinery is the expected one — per-subject lift is `post_level`-scoped, not `effective_level`-scoped, exactly as language-team scope at the rule-design boundary.
+
+##### Implication
+
+**For language-team:** §LT-B's c01-shape half is now empirically settled — the surface works on metamorphic-relation / observer-of-operation properties (Hughes 2020 *How to Specify It!* §3) once `:subjects` is supplied. The remaining §LT-B uncertainty narrows to the c02/c03-shape half (does the surface work on deep-product / `?proof-required` property bodies once F-034 lands), which is bottlenecked on engineer work, not spec work.
+
+**For compiler-engineer:** OBLIG-PBT-4 is done. No follow-up scope from this addendum; the only path-1 engineer item remaining is F-034.
+
+**For documentation-lead:** *(deferred — see Routing.)* The doc-lead surface for OBLIG-PBT-4 (`docs/compiler-team-roadmap.md` row 8 close-out cite; `LLMLL.md §4.4.5` `PBT-Lift` rule extension with `:subject` / `:subjects` premise; `CHANGELOG.md` v0.10.6 entry; AST schema bump literal `0.4.0`→`0.5.0` in any spec-doc reference) is well-defined and parsable from the working-tree diff. But triggering doc-lead now would seal `v0.10.6` with c02/c03 still unblocked — the joint criterion's c02/c03 half doesn't pass. Doc-lead's surface should remain unscheduled until F-034 lands; at that point one combined v0.10.6 release ship-seal covers OBLIG-PBT-4 + OBLIG-PBT-5(F-034) atomically. Splitting into v0.10.6 (OBLIG-PBT-4 only) + v0.10.7 (F-034) is engineer-adjudicated; the experiment-lead view is that the empirical signal is cleaner under one combined cut because c02/c03 cannot be re-probed under the standalone-OBLIG-PBT-4 binary as a separate gate.
+
+#### §LT-B (informed). c01-shape question empirically closed; c02/c03-shape question gated on F-034
+
+The Addendum-17 framing of §LT-B as needing both OBLIG-PBT-4 (c01-shape) and OBLIG-PBT-5 / F-033 (c02/c03-shape) to close is unchanged in structure. The c01-shape half is now closed empirically (15/15 properties on c01-subjects produced sidecar writes; 4/5 tries achieved `tier_profile_post.tested ≥ 1` with the orthogonal QC variance explained). The c02/c03-shape half re-routes to F-034 (refined scope of the residual body-evaluator coverage gap). No new language-team scope opened by this addendum; the §LT-B closure criteria remain as stated in `findings/language-team.md:166-169`, with the c02/c03 conjunct now waiting on F-034 rather than the originally-named F-033.
+
+### Withdrawn / refined
+
+- **Withdrawn from prompt prediction:** *"the joint acceptance criterion holds."* Disconfirmed; c02/c03 conjunct fails. The c01-subjects conjunct does pass, but the conjunction does not hold.
+- **Refined from Addendum 17 F-033:** Addendum 17 F-033 (`§F-033 / Acceptance`) named the residual coverage gap as "`evalExprStaticWith` body-reduction coverage" and exemplified it with "`unwrap` / `match` on `Result` / map-lookup primitives." Empirical: `unwrap` is now modeled and shipping; the residual gap on c02/c03 is **`list-filter`, `list-prepend`, `list-empty`, `string-concat-many`, `int-to-string`** + a `list-head` return-shape bug. F-034 is the refined scope statement.
+- **Refined from prompt sequencing assumption:** *"path-1 stages 3 (doc-lead) and 4 (Phase 3 launch) proceed [if the joint criterion holds]."* The contrapositive is the operational consequence: stages 3 and 4 do not proceed under the current binary. The user's path-1 framing remains correct in shape; the binary delivering it is the v0.10.6+F-034 combined cut, not the v0.10.6-candidate that exists in the working tree today.
+
+### Null results
+
+- **`stale_downgrades` field on `tier_profile_post` — observable but null.** All 5 c01-subjects tries produced `.verified.json` sidecars consistent across k=1..5 (canonical-body hashes are content-stable; no body-edit drift to detect). The staleness-detection machinery is not exercised by this addendum's matrix. Future test: an explicit `.verified.json` injection cell with a stale hash, e.g., manually editing one of the c01-subjects sidecars and re-running `verify` — out of this re-probe's scope.
+
+### Binary answer to the decision question
+
+> **Joint acceptance criterion does not hold under v0.10.6-candidate.** c01-subjects conjunct passes empirically (4/5 tries; OBLIG-PBT-4 mechanism confirmed end-to-end including per-subject DLTested record emission, shared pbt_witnesses cross-link, R6d effective_level dependency bounding behaving body-faithfully). c02/c03 conjunct fails (0/10 properties; body-evaluator coverage gap is a superset of Addendum 17 F-033's named surface). **Path-1 stages 3 (doc-lead) and 4 (Phase 3 launch) do not proceed.** Routing F-034 → `compiler-engineer` is the remaining engineer item; a third matrix re-probe under the F-034-shipped binary closes the criterion.
+
+### Apparatus changes in this addendum
+
+None to harness scripts. One new run-dir created (`runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/{c01,c02,c03,c01-subjects}/` — 20 solution files + 20 test outputs + 20 verify outputs + 5 verified-sidecars + 40 `*.stderr` files; plus `README.md` documenting provenance and reproduction). One new derived cell (c01-subjects, sed-augmented from c01 with three `:subjects` annotations chosen from the property body's contracted-callee mentions). Source Phase-2 run-dirs and Addendum-17 re-probe dir untouched.
+
+### Updated priority matrix (post-addendum-18)
+
+| # | Finding | Consumer | Priority | Status |
+|---|---|---|---|---|
+| F-032 | PBT-to-trust-report write-back | compiler-engineer | shipped | **Closed-shipped** (v0.10.5) |
+| F-033 | OBLIG-PBT-5 mechanism + diagnostic refinement | compiler-engineer | partial | **Partially closed** — `unwrap` clause + GaveUp diagnostic refinement shipped; residual coverage re-named F-034 |
+| F-OBLIG-PBT-4 | OBLIG-PBT-4 `:subjects` opt-in | compiler-engineer + language-team (informed) | shipped | **Closed-shipped, predicted-unblocking-confirmed on c01-shape** (v0.10.6-candidate); c02/c03-shape end-to-end gated on F-034 |
+| **F-034 (new)** | **`evalBuiltinApp` clause-set extension for `list-filter` / `list-prepend` / `list-empty` / `string-concat-many` / `int-to-string` + `list-head` return-shape fix** | **compiler-engineer (primary), language-team informed** | **High — gates strong-form Phase-3 `tested` signal on c02/c03-shape** | **Open** (new) |
+| §LT-B | `(check)` test-channel surface design | language-team | Medium — c01-shape closed; c02/c03-shape gated on F-034 | Open (informed; no new scope opened here) |
+
+### Routing
+
+- **F-034 → `compiler-engineer`** via `findings/compiler-engineer.md` fragment (text drafted in §F-033 (refined) / Evidence + §F-033 (refined) / Implication above; cite [Contracts.hs:412-472](../../../compiler/src/LLMLL/Contracts.hs#L412-L472) as source-of-truth; cite [TypeCheck.hs:90-120](../../../compiler/src/LLMLL/TypeCheck.hs#L90-L120) for signature reference; cite this addendum's per-builtin scope table).
+- **F-OBLIG-PBT-4 closure → `language-team` (informed) + `compiler-engineer` (closure)**: routing fragment text already drafted in §F-OBLIG-PBT-4 above. No new engineer scope from this finding; the routing is closure-only.
+- **§LT-B → `language-team`** informed-by F-OBLIG-PBT-4 c01-shape close + F-034 c02/c03-shape pending. No new language-team scope opened in this addendum; the closure criteria at `findings/language-team.md:166-169` remain unchanged in shape.
+- **`documentation-lead` → NOT INVOKED this turn.** Per `findings/language-team.md:176`, the doc-lead surface attaches "after both compiler items ship" — that condition is partially satisfied (OBLIG-PBT-4 done) but not fully (F-034 outstanding). Splitting the seal is engineer-adjudicated.
+- **Phase-3 launch decision → user.** Joint criterion as stated does not hold; under path-1's framing, stages 3 and 4 wait on F-034.
+- **`/schedule` not relevant** — F-034 is bounded but unscheduled engineer work; no dated artefact to schedule against. The user's path-1 framing already pre-committed the doc-lead + Phase-3 sequencing as conditional on the criterion holding.
+
+### Implication
+
+OBLIG-PBT-4's design is empirically confirmed correct: per-subject DLTested lifts work end-to-end, the shared pbt_witnesses cross-link is hash-stable, the R6d effective_level interaction is body-faithful, and the parser surface is sound. The path-1 sequencing premise that "OBLIG-PBT-4 + OBLIG-PBT-5 ship → joint criterion holds → doc-lead + Phase 3 launch" remains structurally correct; the empirical surface of OBLIG-PBT-5 (the body-evaluator coverage half) was undersized in the Addendum-17 F-033 scoping. F-034 is the refined, fully-scoped statement of the remaining work; the experiment surface for verifying F-034's close is identical to this addendum's matrix (re-run on the same four cells), so the engineer-experiment-lead feedback loop is tight.

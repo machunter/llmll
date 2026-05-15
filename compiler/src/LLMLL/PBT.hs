@@ -47,6 +47,7 @@ import Test.QuickCheck
   , Arbitrary(..), quickCheckResult, Result(..)
   , counterexample, forAll, NonNegative(..))
 import Control.Exception (try, SomeException)
+import Data.IORef (IORef, newIORef, modifyIORef', readIORef)
 import qualified Crypto.Hash.SHA256 as SHA256
 
 import LLMLL.Syntax
@@ -397,10 +398,19 @@ runQC funcEnv aliasEnv bindings body = do
   -- This keeps the generator implementation single-source (no Gen-monad
   -- duplicate) while still letting QuickCheck report sample counts.
   preSamples <- generateSamples aliasEnv bindings 100
+  -- F-033: count body-evaluator discards out of band so PBTSkipped can
+  -- distinguish "body never reduced to a bool" (likely an unmodeled
+  -- builtin in the property body) from "precondition kept failing"
+  -- (a useful signal, not a compiler gap). 'forAll' calls 'prop' once
+  -- per sample inside QC's IO scope, so an IORef closed over here is
+  -- safe and correct.
+  bodyDiscardCount <- newIORef (0 :: Int)
   let prop :: Map Name Expr -> QC.Property
       prop env = case evalExprStaticWith funcEnv maxFuel env body of
         Just (ELit (LitBool b)) -> QC.property b
-        _                       -> QC.discard
+        _                       -> QC.ioProperty $ do
+                                      modifyIORef' bodyDiscardCount (+1)
+                                      pure (QC.discard :: QC.Property)
 
       -- forAll the pre-built samples by indexing — QuickCheck picks an int
       -- in [0, len-1] and we project to the corresponding env.
@@ -410,17 +420,35 @@ runQC funcEnv aliasEnv bindings body = do
         pure (preSamples !! i)
 
   result <- (try (quickCheckResult (forAll genIdx prop)) :: IO (Either SomeException Result))
+  bodyDiscards <- readIORef bodyDiscardCount
   case result of
     Left ex -> pure $ QCRun (PBTError (T.pack (show ex))) 0 Nothing
-    Right r  -> pure $ resultsToQCRun r
+    Right r  -> pure $ resultsToQCRun bodyDiscards r
 
-resultsToQCRun :: Result -> QCRun
-resultsToQCRun r = case r of
+-- | Convert a QC 'Result' to a 'QCRun'. The 'bodyDiscards' argument is the
+-- out-of-band count of samples whose body did not reduce to a 'LitBool'
+-- (F-033 discard-classification); used to refine the GaveUp diagnostic.
+resultsToQCRun :: Int -> Result -> QCRun
+resultsToQCRun bodyDiscards r = case r of
   Success { numTests = n }                        -> QCRun PBTPassed n Nothing
   Failure { numTests = n, output = out }          -> QCRun PBTFailed n (Just (T.pack out))
-  GaveUp  { numTests = n }                        -> QCRun PBTSkipped n (Just "QuickCheck gave up — too many precondition failures")
+  GaveUp  { numTests = n }                        -> QCRun PBTSkipped n (Just (gaveUpDiag bodyDiscards n))
   NoExpectedFailure { numTests = n }              -> QCRun PBTFailed n (Just "Property was expected to fail but passed")
   _                                               -> QCRun PBTSkipped 0 (Just "Unknown QuickCheck result")
+
+-- | F-033 GaveUp diagnostic: classify by whether the body evaluator or the
+-- precondition path dominated the discards. If the body discarded on every
+-- attempted sample (samples_run = 0, bodyDiscards > 0), the proximate cause
+-- is almost certainly an unmodeled builtin or an unreduced callee body in
+-- the property body — not a hard-to-satisfy precondition.
+gaveUpDiag :: Int -> Int -> Text
+gaveUpDiag bodyDiscards samplesRun
+  | samplesRun == 0 && bodyDiscards > 0 =
+      "property body did not reduce on any sample ("
+      <> T.pack (show bodyDiscards)
+      <> " evaluated, 0 returned bool — likely unmodeled builtin or unreduced callee body in property body)"
+  | otherwise =
+      "QuickCheck gave up — too many precondition failures"
 
 -- ---------------------------------------------------------------------------
 -- Formatting
@@ -638,8 +666,15 @@ pbtTrustWriteback localStmts cache result =
       mergedMap = foldl' (Map.unionWith mergePbtWriteback) Map.empty mapsList
   in (mergedMap, concat diagsList)
 
--- | Process a single PBTRun: lift on PBTPassed-singleton-contracted-callee,
--- diagnostic-no-lift otherwise.
+-- | Process a single PBTRun: lift on PBTPassed.
+--
+-- OBLIG-PBT-4: when the property carries an explicit ':subject f' or
+-- ':subjects [f₁ … fₖ]' annotation ('propSubjects' non-empty), the
+-- head-position scan is bypassed entirely and each declared subject with a
+-- post-condition receives its own 'DLTested n' record, all sharing the same
+-- 'pbt_witnesses' hash (per proposal §11.1 inference rule, 2026-05-14). On
+-- absence of the annotation, the v0.10.5 singleton-head-position semantics
+-- continue to apply unchanged.
 processRun :: Map Name Contract
            -> Map Name Name      -- ^ bare → qualified sidecar key
            -> Map Name LLMLL.Syntax.Property
@@ -652,28 +687,52 @@ processRun contractByName qualMap propsByDesc run =
         Nothing -> (Map.empty, [])  -- no matching property body; cannot lift
         Just prop ->
           let body = propBody prop
-              -- HEAD-contracted resolution depends on contractByName, which is
-              -- already restricted to contracted post functions below.
-              contractedNames = Map.keysSet (Map.filter (\c -> contractPost c /= Nothing) contractByName)
-              mentioned = Set.fromList (collectHeadOps body)
-              hits = Set.toList (Set.intersection mentioned contractedNames)
-          in case hits of
-               [] -> (Map.empty, [])
-               [f] ->
-                 let n      = pbtSamplesRun run
-                     desc   = pbtDescription run
-                     h      = canonicalPropBodyHash body
-                     w      = PbtWitness h desc
-                     er     = EvidenceRecord (DLTested n) False Nothing [w]
-                     cs     = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
-                     key    = Map.findWithDefault f f qualMap
-                 in (Map.singleton key cs, [])
-               fs ->
-                 let diag = "property \"" <> pbtDescription run
-                          <> "\" covers multiple contracted callees ("
-                          <> T.intercalate ", " fs
-                          <> "); no trust evidence recorded — split the property or wait for :subject metadata in OBLIG-PBT-4"
-                 in (Map.empty, [diag])
+              subjects = propSubjects prop
+              n      = pbtSamplesRun run
+              desc   = pbtDescription run
+              h      = canonicalPropBodyHash body
+              w      = PbtWitness h desc
+              mkEntry f =
+                let er  = EvidenceRecord (DLTested n) False Nothing [w]
+                    cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
+                    key = Map.findWithDefault f f qualMap
+                in (key, cs)
+          in if not (null subjects)
+               then
+                 -- OBLIG-PBT-4 path: explicit annotation. For each declared
+                 -- subject: (a) absent from contractByName → silent skip; the
+                 -- type-checker is the source of truth for resolution and
+                 -- already rejects unbound names. (b) present but post=Nothing
+                 -- → S3 informational diagnostic. (c) present with post → lift.
+                 let go f (accMap, accDiags) =
+                       case Map.lookup f contractByName of
+                         Just c | contractPost c /= Nothing ->
+                           let (k, cs) = mkEntry f
+                           in (Map.insert k cs accMap, accDiags)
+                         Just _ ->
+                           let d = "property \"" <> desc
+                                 <> "\" declares subject \"" <> f
+                                 <> "\" which has no postcondition; no slot to lift"
+                           in (accMap, d : accDiags)
+                         Nothing -> (accMap, accDiags)
+                     (m, ds) = foldr go (Map.empty, []) subjects
+                 in (m, reverse ds)
+               else
+                 -- v0.10.5 path: singleton-head-position scan, unchanged.
+                 let contractedNames = Map.keysSet (Map.filter (\c -> contractPost c /= Nothing) contractByName)
+                     mentioned       = Set.fromList (collectHeadOps body)
+                     hits            = Set.toList (Set.intersection mentioned contractedNames)
+                 in case hits of
+                      [] -> (Map.empty, [])
+                      [f] ->
+                        let (key, cs) = mkEntry f
+                        in (Map.singleton key cs, [])
+                      fs ->
+                        let diag = "property \"" <> desc
+                                 <> "\" covers multiple contracted callees ("
+                                 <> T.intercalate ", " fs
+                                 <> "); no trust evidence recorded — split the property or wait for :subject metadata in OBLIG-PBT-4"
+                        in (Map.empty, [diag])
     PBTFailed -> (Map.empty, ["property \"" <> pbtDescription run <> "\" failed; no trust evidence recorded"])
     PBTSkipped -> (Map.empty, [])
     PBTError _ -> (Map.empty, [])

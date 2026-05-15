@@ -38,7 +38,7 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- v0.10.2: bumped from 0.3.0 to 0.4.0 to signal identifier-shape regex
 -- constraints on ExprApp.fn and ExprQualApp.qual_fn.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.4.0"
+expectedSchemaVersion = "0.5.0"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -155,7 +155,7 @@ parseLawProperty = withObject "LawProperty" $ \o -> do
   bindings <- o .: "bindings" >>= mapM parseTypedParam
   body     <- o .: "body"     >>= parseExpr
   desc     <- o .:? "description" .!= ""
-  pure $ Property desc bindings body
+  pure $ Property desc bindings body []
 
 parseIfaceMethod :: Value -> Parser (Name, Type)
 parseIfaceMethod = withObject "IfaceMethod" $ \o -> do
@@ -216,15 +216,26 @@ parseGenDecl o = do
 
 parseCheckDecl :: Object -> Parser Statement
 parseCheckDecl o = do
-  label  <- o .: "label"
-  forAll <- o .: "for_all" >>= parseForAll label
-  pure $ SCheck forAll
+  label    <- o .: "label"
+  forAll   <- o .: "for_all" >>= parseForAll label
+  -- OBLIG-PBT-4: optional 'subjects' field on CheckDecl. Empty or absent =
+  -- no annotation; non-empty = explicit-subject opt-in (proposal §11.1).
+  -- Reject empty-list-with-key per S6; dedupe per S7.
+  subs0    <- o .:? "subjects" .!= ([] :: [Name])
+  subjects <- case subs0 of
+    [] -> case KM.lookup (Key.fromText "subjects") o of
+            Just _  -> fail "(check) 'subjects' must declare ≥1 subject"
+            Nothing -> pure []
+    xs -> pure (dedupeNames xs)
+  pure $ SCheck (forAll { propSubjects = subjects })
+  where
+    dedupeNames = foldr (\n acc -> if n `elem` acc then acc else n : acc) []
 
 parseForAll :: Text -> Value -> Parser Property
 parseForAll label = withObject "ForAll" $ \o -> do
   bindings <- o .: "bindings" >>= mapM parseTypedParam
   body     <- o .: "body"     >>= parseExpr
-  pure $ Property label bindings body
+  pure $ Property label bindings body []
 
 parseImportDecl :: Object -> Parser Statement
 parseImportDecl o = do

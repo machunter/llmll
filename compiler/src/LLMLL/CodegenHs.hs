@@ -475,7 +475,7 @@ emitInterface name fns laws = T.unlines $
 -- | Emit a single interface law as a QuickCheck property.
 -- Naming convention: prop_InterfaceName_law_N (auto-numbered).
 emitLaw :: Name -> (Int, Property) -> [Text]
-emitLaw ifaceName (idx, Property _desc bindings body) =
+emitLaw ifaceName (idx, Property _desc bindings body _subjects) =
   let propName = "prop_" <> toHsIdent ifaceName <> "_law_" <> tshow idx
       paramNames = T.unwords (map (toHsIdent . fst) bindings)
       paramTypes = map (toHsType . snd) bindings

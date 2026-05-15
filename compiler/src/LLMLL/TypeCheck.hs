@@ -655,7 +655,7 @@ checkStatement (SDefInterface name fns laws) = do
         "interface '" <> name <> "' function '" <> fname
         <> "' must have fn type, got " <> typeLabel other
   -- v0.6.2: type-check :laws as Properties (for-all bindings + bool body)
-  forM_ laws $ \(Property _desc bindings body) -> do
+  forM_ laws $ \(Property _desc bindings body _subjects) -> do
     let ifaceBindings = fns  -- interface method signatures as env
     withEnv ifaceBindings $ withEnv bindings $ do
       bodyType <- inferExpr body

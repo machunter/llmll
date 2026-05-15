@@ -422,10 +422,17 @@ akLabel AKExternalOpaque   = "external-opaque"
 -- ---------------------------------------------------------------------------
 
 -- | A property-based test specification.
+--
+-- OBLIG-PBT-4: 'propSubjects' carries explicit ':subject f' / ':subjects [f₁ … fₖ]'
+-- keyword metadata on '(check …)' blocks. Empty list = no annotation (the
+-- v0.10.5 head-position scan still applies); non-empty = the head-position
+-- scan is bypassed and the listed names are the lift targets per
+-- 'docs/design/oblig-pbt-3-proposal.md' §11.1 (pinned 2026-05-14).
 data Property = Property
   { propDescription :: Text
   , propBindings    :: [(Name, Type)]   -- ^ for-all bindings
   , propBody        :: Expr             -- ^ Property body (must be bool)
+  , propSubjects    :: [Name]           -- ^ OBLIG-PBT-4 explicit-subject opt-in
   } deriving (Show, Eq, Generic)
 
 -- ---------------------------------------------------------------------------

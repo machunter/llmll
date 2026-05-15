@@ -2,6 +2,48 @@
 
 ---
 
+## v0.10.6 — :subjects Metadata + PBT Body-Static-Eval Coverage + Residual Builtin Coverage (2026-05-14)
+
+### Compiler — OBLIG-PBT-4 `:subject` / `:subjects` Metadata on `(check ...)`
+
+- **`(check "d" :subject f (for-all …))` and `(check "d" :subjects [f₁ … fₖ] (for-all …))` accepted.** Optional keyword metadata between the description and the for-all opts a property into explicit-subject lift mode at the OBLIG-PBT-3 writeback site. Absent annotation = the v0.10.5 head-position singleton-fallback continues to apply; non-empty annotation = head-position scan is bypassed entirely and each declared subject with a postcondition receives its own `DLTested n` evidence record, all sharing one `pbt_witnesses` hash (per `docs/design/oblig-pbt-3-proposal.md` §11.1, pinned 2026-05-14). Empty `:subjects []` is rejected at parse time per S6. Duplicates are deduped.
+- **`Property` record gains `propSubjects :: [Name]`.** Default `[]` preserves all existing constructions; both parsers (sexp `Parser.hs:pCheckBlock`, JSON `ParserJSON.hs:parseCheckDecl`) populate from the new keyword/field. `AstEmit.hs` emits `subjects` only when non-empty.
+- **`pbtTrustWriteback`'s `processRun` branches on `propSubjects`.** When non-empty: fold over the subject list, emit one `csPost` `EvidenceRecord` per subject (with shared `PbtWitness`); subjects without a postcondition skip with an info diagnostic (S3); cross-module subjects key under their qualified path via the existing `qualMap` (S8). When empty: the v0.10.5 singleton-head-position path is unchanged.
+- **Pacheco-Lahiri-Ernst overallocation mitigation: explicit annotation is the agent's consent to joint-evidence allocation.** The unannotated multi-callee diagnostic at `PBT.hs:pbtTrustWriteback` continues to refuse implicit lift; the new keyword opts in. Matches the JML `@testing`-per-method route over the conjoint-record alternative on schema-cost grounds (no `trust_report_version` bump, no `EvidenceRecord` reshape).
+
+### Compiler — F-033 Body-Side Static-Eval Coverage Extension
+
+- **`Contracts.hs:evalBuiltinApp` gains `unwrap` clauses.** `unwrap (Success v) → Just v`; `unwrap (Error _) → Nothing`; `unwrap _ → Nothing`. The `unwrap` builtin was already registered in `TypeCheck.hs:128` but had no static-evaluator clause — c02-shape property bodies dereferencing `(unwrap (balance …))` discarded universally on every pre-generated sample (`experiments/repair-loop/findings/postmortem-001-apparatus-validation.md` Addendum 17 §"F-033 / Evidence"). The Error path returns `Nothing` because the static evaluator has no panic value; the property body then discards on Error samples, which is the soundness-preserving conservative.
+- **`PBT.hs:runQC` threads an `IORef`-counted body-discard counter through the `forAll` property.** `resultsToQCRun` consumes the count alongside QuickCheck's `Result`; on `GaveUp { numTests = 0 }` with `bodyDiscards > 0`, the new `gaveUpDiag` returns `"property body did not reduce on any sample (… likely unmodeled builtin or unreduced callee body in property body)"` instead of the previous misleading `"too many precondition failures"`. The `samples_run > 0` `GaveUp` arm keeps the precondition-failure phrasing.
+
+### Compiler — F-034 Residual `evalBuiltinApp` Coverage on c02/c03-shape
+
+- **Five missing clauses added at `Contracts.hs:evalBuiltinApp`** for builtins already registered in `TypeCheck.hs:88-119` but absent from the static evaluator: `list-empty` (returns `(nil)`), `list-prepend` (cons cell with head prepended; distinct from `list-append` which appends at the tail), `list-filter` (delegates to a new `filterCons` helper mirroring `mapCons`' fuel discipline), `int-to-string` (canonical decimal via `T.pack ∘ show`), `string-concat-many` (delegates to a new `stringConcatMany` helper walking a cons-chain of `LitString` literals; returns `Nothing` on non-literal elements so the property body discards). Addendum-18 surfaced these clauses as the proximate c02/c03 unblocker — every transfer-body dispatch through `map_get` / `map_insert` / `create_ledger` / `find-account` short-circuited to `Nothing` and the property discarded universally on every QuickCheck sample.
+- **`list-head` / `list-tail` return-shape correctness fix.** The pre-F-034 clauses at `Contracts.hs:434-435` returned the raw element / tail, but the type-checker signatures at `TypeCheck.hs:100-101` are `[list[a]] -> Result a string` / `[list[a]] -> Result (list[a]) string`. Any property body matching `(match (list-head xs) ((Success v) ...) ((Error _) ...))` against the typed surface failed to reduce. Post-F-034: `list-head [hd, …]` → `(Success hd)`, `list-head [nil]` → `(Error "list-head: empty list")`; symmetric for `list-tail`. The fix is back-compatible with `(unwrap-or (list-head xs) default)` patterns widespread in `examples/*` (e.g., `life_json/world.ast.json`, `tictactoe_json_verifier/tictactoe.ast.json`) — `unwrap-or` of a `Success`-tag returns the payload exactly as before; the only behavior change is that `(match (list-head xs) ((Success v) ...) ((Error _) ...))` now reduces instead of discarding.
+- **`filterCons` returns `Nothing` if the predicate fails to reduce to a `Bool` literal** — conservative behavior matching `mapCons` / `foldCons`. `stringConcatMany` returns `Nothing` on any non-literal cons element or unresolved structure. Both helpers share `applyLambda`'s existing fuel decrement.
+
+### JSON-AST Schema — Additive `CheckDecl.subjects` Field
+
+- **`schemaVersion` bumped `0.4.0 → 0.5.0`** (`ParserJSON.hs:41` and `docs/llmll-ast.schema.json`). `CheckDecl` now has an optional `subjects: [string]` field with `minItems: 1` — `additionalProperties: false` is preserved. Existing fixtures (~30 `.ast.json`) bumped mechanically; no shape changes elsewhere.
+- **`trust_report_version` stays `1.1.0`.** No change to `EvidenceRecord`, `tier_profile_pre`/`tier_profile_post`, `DLTested n`, or `pbt_witnesses` shape. The per-subject records under `:subjects [f g]` reuse the same record kind; the shared `pbt_witnesses` hash is detectable by inspection.
+
+### Test surface
+
+- **640 Haskell tests + 37 Python tests** (up from 614 + 37 at v0.10.5). New: F-033 `unwrap` static-eval coverage (3 tests), F-033 PBTSkipped diagnostic classification (1 test), F-034 residual builtin coverage `F-034 evalBuiltinApp residual builtin coverage` block (10 tests covering `list-empty`, `list-prepend`, `list-filter` true/false predicates, `int-to-string`, `string-concat-many`, `list-head`/`list-tail` Success-wrap and nil-Error arms, end-to-end `list-filter ∘ list-head` chain), OBLIG-PBT-4 `:subjects` edge cases S1/S2/S3/S4/S5/S7/S9 (7 tests), OBLIG-PBT-4 parser surface sexp + JSON (4 tests), OBLIG-PBT-4 S8 cross-module in `ModuleSpec.hs` (1 test).
+- **No solver-time delta.** PBT does not feed liquid-fixpoint; verifier surface unchanged. F-034 is body-evaluator-only.
+
+### Empirical close-state
+
+- **c01-shape (OBLIG-PBT-4) closed empirically** under the Addendum-18 re-probe: c01-subjects (5/5 tries) emit per-subject `DLTested(100)` records with shared canonical-body hash; 4/5 tries lift `tier_profile_post.tested = 1` (the remaining 1/5 missed on orthogonal near-threshold QC variance, not an OBLIG-PBT-4 defect). The 3 contracted callees with `asserted` upstream dependencies remain correctly bounded by R6d's `effective_level` body-faithful meet.
+- **c02/c03-shape (F-034) gated on Addendum-18 acceptance.** The named acceptance criterion (`samples_run ≥ 1` on `c02/solution.k*.llmll` and `c03/solution.k*.llmll`) is the empirical re-run gate; static-evaluator coverage above is the engineer-side change.
+
+### What this does NOT close
+
+- **Coverage-instrumented `evaluatedSamples` (QC `classify`/`cover`)** named in the original OBLIG-PBT-4 row is sequenced to a later iteration. The current ship is the linkage rule + diagnostic — sufficient for the c01 / c02 / c03 representative shapes per the Addendum-18 close-state above.
+- **R6d `effective_level` upgrade past `asserted`** for `transfer` / `balance` on c01-shape requires upstream `find-balance` / `update-balance` to reach `contract_checked` or `tested` independently — body-faithful behavior, not a F-034 / OBLIG-PBT-4 defect.
+
+---
+
 ## v0.10.5 — PBT Complex-Type Generators + PBT-to-Trust-Report Write-Back (2026-05-13)
 
 ### Compiler — PBT Complex-Type Generators + Static Evaluator Extensions (OBLIG-PBT-2, F-032)
