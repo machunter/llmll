@@ -86,7 +86,7 @@ stmtToJson (SDefInterface name fns laws) =
   where
     ifaceMethodToJson (n, ty) =
       object ["name" .= n, "fn_type" .= typeToJson ty]
-    lawToJson (Property desc bindings body) = object $
+    lawToJson (Property desc bindings body _subjects) = object $
       [ "kind"     .= ("for-all" :: Text)
       , "bindings" .= map typedParamToJson bindings
       , "body"     .= exprToJson body
@@ -99,8 +99,8 @@ stmtToJson (STypeDef name ty) =
     , "body" .= typeBodyToJson ty
     ]
 
-stmtToJson (SCheck (Property desc bindings body)) =
-  object
+stmtToJson (SCheck (Property desc bindings body subjects)) =
+  object $
     [ "kind"    .= ("check" :: Text)
     , "label"   .= desc
     , "for_all" .= object
@@ -109,6 +109,7 @@ stmtToJson (SCheck (Property desc bindings body)) =
         , "body"     .= exprToJson body
         ]
     ]
+    ++ (if null subjects then [] else ["subjects" .= subjects])
 
 stmtToJson (SImport (Import path mIface mCap)) =
   object $

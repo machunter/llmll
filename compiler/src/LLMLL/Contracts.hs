@@ -429,10 +429,29 @@ evalBuiltinApp _ _ "second" _           = Nothing
 -- patterns would under 'matchPattern').
 evalBuiltinApp _ _ "cons" [hd, tl] = Just (EApp "cons" [hd, tl])
 evalBuiltinApp _ _ "nil"  []       = Just (EApp "nil" [])
+-- F-034: 'list-empty' is the nullary alias for 'nil' (TypeCheck.hs:95).
+evalBuiltinApp _ _ "list-empty" [] = Just (EApp "nil" [])
+-- F-034: 'list-prepend a xs' is the spec-surface name for 'cons a xs'
+-- (TypeCheck.hs:97). Distinct from 'list-append', which appends at the tail.
+evalBuiltinApp _ _ "list-prepend" [x, list] = Just (EApp "cons" [x, list])
 
--- List destructors and length
-evalBuiltinApp _ _ "list-head" [EApp "cons" [hd, _]] = Just hd
-evalBuiltinApp _ _ "list-tail" [EApp "cons" [_, tl]] = Just tl
+-- List destructors and length.
+-- F-034: 'list-head' / 'list-tail' signatures per TypeCheck.hs:100-101 are
+-- '[list[a]] -> Result a string' and '[list[a]] -> Result (list[a]) string'.
+-- The pre-F-034 clauses returned the raw element / raw tail, which mis-typed
+-- the evaluator output relative to the type-checker — any property body
+-- pattern-matching '(match (list-head xs) ((Success v) ...) ((Error _) ...))'
+-- failed to reduce. Empty-list arms were absent and fell through to Nothing;
+-- post-F-034 they return Error-tagged so 'unwrap-or (list-head xs) def' and
+-- '(match (list-head xs) ((Success ...) ...) ((Error _) ...))' both reduce.
+evalBuiltinApp _ _ "list-head" [EApp "cons" [hd, _]] =
+  Just (EApp "Success" [hd])
+evalBuiltinApp _ _ "list-head" [EApp "nil"  []]      =
+  Just (EApp "Error" [ELit (LitString "list-head: empty list")])
+evalBuiltinApp _ _ "list-tail" [EApp "cons" [_, tl]] =
+  Just (EApp "Success" [tl])
+evalBuiltinApp _ _ "list-tail" [EApp "nil"  []]      =
+  Just (EApp "Error" [ELit (LitString "list-tail: empty list")])
 evalBuiltinApp _ _ "list-is-empty?" [EApp "nil"  []]      = Just (ELit (LitBool True))
 evalBuiltinApp _ _ "list-is-empty?" [EApp "cons" [_, _]]  = Just (ELit (LitBool False))
 evalBuiltinApp _ _ "list-length" [list]
@@ -444,14 +463,39 @@ evalBuiltinApp _ _ "list-append" [list, elt]
   | Just appended <- consAppendElt list elt = Just appended
   | otherwise                               = Nothing
 
--- Higher-order list operations: fold and map invoke a lambda.
-evalBuiltinApp fe fuel "list-fold" [list, acc, fn] = foldCons fe fuel list acc fn
-evalBuiltinApp fe fuel "list-map"  [list, fn]      = mapCons  fe fuel list fn
+-- Higher-order list operations: fold, map, filter invoke a lambda.
+evalBuiltinApp fe fuel "list-fold"   [list, acc, fn] = foldCons   fe fuel list acc fn
+evalBuiltinApp fe fuel "list-map"    [list, fn]      = mapCons    fe fuel list fn
+-- F-034: 'list-filter xs (fn [x] body)' keeps cons cells whose predicate
+-- reduces to True. Mirrors mapCons' fuel discipline.
+evalBuiltinApp fe fuel "list-filter" [list, fn]      = filterCons fe fuel list fn
+
+-- F-034: 'int-to-string' (TypeCheck.hs:119): canonical decimal, includes
+-- sign for negative values. Required by c02 transfer log-entry bodies.
+evalBuiltinApp _ _ "int-to-string" [ELit (LitInt n)] =
+  Just (ELit (LitString (T.pack (show n))))
+evalBuiltinApp _ _ "int-to-string" _ = Nothing
+
+-- F-034: 'string-concat-many xs' (TypeCheck.hs:115) concatenates a
+-- fully-evaluated cons-chain of string literals. Returns Nothing on
+-- non-literal elements or unresolved structure (property body discards,
+-- conservative behaviour).
+evalBuiltinApp _ _ "string-concat-many" [list]
+  | Just s <- stringConcatMany list = Just (ELit (LitString s))
+  | otherwise                       = Nothing
 
 -- Option-like helpers: unwrap-or extracts Success payload or returns fallback.
 evalBuiltinApp _ _ "unwrap-or" [EApp "Success" [v], _]   = Just v
 evalBuiltinApp _ _ "unwrap-or" [EApp "Error"   [_], def] = Just def
 evalBuiltinApp _ _ "unwrap-or" _                         = Nothing
+-- 'unwrap' extracts Success payload; Error is irreducible in the static
+-- evaluator (no panic value), so the property body discards on Error
+-- samples. F-033: 'unwrap' is registered in TypeCheck.hs:128 but had no
+-- clause here, so c02-shape bodies dereferencing '(unwrap (balance …))'
+-- discarded universally.
+evalBuiltinApp _ _ "unwrap" [EApp "Success" [v]] = Just v
+evalBuiltinApp _ _ "unwrap" [EApp "Error"   [_]] = Nothing
+evalBuiltinApp _ _ "unwrap" _                    = Nothing
 -- Some / None / is-some: Option-shaped helpers commonly used by agent emissions.
 -- Treat 'some'/'none' as Result-shaped tags (Success payload / Error unit) so
 -- pattern-matching and is-ok stay consistent.
@@ -502,6 +546,29 @@ mapCons fe fuel (EApp "cons" [hd, tl]) fn = do
   tl' <- mapCons fe (fuel - 1) tl fn
   pure (EApp "cons" [hd', tl'])
 mapCons _ _ _ _ = Nothing
+
+-- | Filter a cons-chain by a predicate lambda: list-filter xs (fn [x] body) →
+-- cons-chain of elements for which body reduces to True. Returns Nothing on
+-- unresolved structure or if the predicate fails to reduce to a Bool literal
+-- (conservative: property body discards). Fuel discipline mirrors mapCons.
+filterCons :: FuncEnv -> Int -> Expr -> Expr -> Maybe Expr
+filterCons _  _    (EApp "nil"  []) _  = Just (EApp "nil" [])
+filterCons fe fuel (EApp "cons" [hd, tl]) fn = do
+  predVal <- applyLambda fe (fuel - 1) fn [hd]
+  tl'     <- filterCons fe (fuel - 1) tl fn
+  case predVal of
+    ELit (LitBool True)  -> pure (EApp "cons" [hd, tl'])
+    ELit (LitBool False) -> pure tl'
+    _                    -> Nothing
+filterCons _ _ _ _ = Nothing
+
+-- | Concatenate a fully-evaluated cons-chain of LitString literals. Returns
+-- Nothing on unresolved structure or non-string elements; the property body
+-- then discards on such samples (soundness-preserving).
+stringConcatMany :: Expr -> Maybe Text
+stringConcatMany (EApp "nil"  [])                       = Just T.empty
+stringConcatMany (EApp "cons" [ELit (LitString s), tl]) = (s <>) <$> stringConcatMany tl
+stringConcatMany _                                      = Nothing
 
 -- | Apply a lambda to argument values via beta reduction. Fuel-decremented
 -- per call so recursive use under higher-order builtins terminates.

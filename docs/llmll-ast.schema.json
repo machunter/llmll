@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.4.0'. The compiler rejects files with an unrecognised version. Bumped from 0.3.0 in v0.10.2 to signal the new identifier-shape regex constraints on ExprApp.fn and ExprQualApp.qual_fn.",
+          "description": "Must be '0.5.0'. The compiler rejects files with an unrecognised version. Bumped from 0.4.0 in v0.10.6 to signal the additive optional CheckDecl.subjects field (OBLIG-PBT-4).",
           "type": "string",
-          "const": "0.4.0"
+          "const": "0.5.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -197,14 +197,20 @@
     },
 
     "CheckDecl": {
-      "description": "A property-based test. Must contain exactly one for-all. Corresponds to EBNF 'check'.",
+      "description": "A property-based test. Must contain exactly one for-all. Corresponds to EBNF 'check'. OBLIG-PBT-4 (v0.10.6): optional 'subjects' array carries explicit ':subject f' / ':subjects [f g …]' keyword metadata; absent or empty omission keeps the v0.10.5 head-position-scan semantics at the PBT writeback site.",
       "type": "object",
       "required": ["kind", "label", "for_all"],
       "additionalProperties": false,
       "properties": {
-        "kind":    { "type": "string", "const": "check" },
-        "label":   { "type": "string" },
-        "for_all": { "$ref": "#/$defs/ForAll" }
+        "kind":     { "type": "string", "const": "check" },
+        "label":    { "type": "string" },
+        "for_all":  { "$ref": "#/$defs/ForAll" },
+        "subjects": {
+          "description": "Optional explicit-subject opt-in (OBLIG-PBT-4). Each entry is a contracted function name receiving its own DLTested record on the property's pass; all entries share the same pbt_witnesses hash. Must contain ≥1 entry when present (S6); duplicates are deduped (S7).",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
       }
     },
 

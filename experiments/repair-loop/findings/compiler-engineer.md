@@ -92,8 +92,92 @@ No follow-up engineer track from R6d. The pending v0.10.4 release will ship the 
 
 ---
 
+## CE-D · F-034 — `evalBuiltinApp` residual builtin coverage on c02/c03-shape (post-Addendum-18, 2026-05-14)
+
+**Status:** **Open.** Routed from postmortem-001 Addendum 18. Re-targeting of Addendum 17's F-033 residual: F-033's named scope (`unwrap` + GaveUp diagnostic refinement) shipped on this branch and that surface is closed; the empirical c02/c03 unblocker is a **superset** of that surface.
+
+**Priority:** **High — gates strong-form Phase-3 `tested`-tier signal on c02/c03-shape problems**, which is the load-bearing axis for H1-Assurance on the Phase-3 problem suite. OBLIG-PBT-4 closure on c01-shape is empirically confirmed (15/15 properties on c01-subjects produced `.verified.json` sidecar writes; 4/5 tries lift `tier_profile_post.tested = 1`); the only path-1 engineer item remaining before Phase 3 launch is this one.
+
+### Evidence
+
+Addendum-18 matrix on the v0.10.6-candidate binary built atop merge `d220632` shows c02 0/10 properties and c03 0/10 properties achieving `samples_run ≥ 1` under the new F-033 diagnostic. The diagnostic correctly attributes every Skipped property's GaveUp to body-evaluator discard:
+
+> `"property body did not reduce on any sample (1000 evaluated, 0 returned bool — likely unmodeled builtin or unreduced callee body in property body)"`
+
+[Contracts.hs:412-472](../../../compiler/src/LLMLL/Contracts.hs#L412-L472) — `evalBuiltinApp` clause set. Missing clauses on c02/c03's transfer-body call chains:
+
+| builtin | type-checker signature ([TypeCheck.hs:90-120](../../../compiler/src/LLMLL/TypeCheck.hs#L90-L120)) | used in (c02/c03) | clause? |
+|---|---|---|---|
+| `list-filter` | `[list[a], fn[a] -> bool] -> list[a]` | c02 `map_get`/`map_insert`; c03 `find-account` | **no** |
+| `list-prepend` | `[a, list[a]] -> list[a]` | c02 `map_insert` | **no** |
+| `list-empty` | `[] -> list[a]` | c02 `create_ledger`; c03 `create-ledger` | **no** |
+| `string-concat-many` | `[list[string]] -> string` | c02 `transfer` (log entry construction) | **no** |
+| `int-to-string` | `[int] -> string` | c02 `transfer` (log entry construction) | **no** |
+| `list-head` | `[list[a]] -> Result a string` (returns `Result`!) | c02 `map_get`; c03 `find-account` | **bug**: existing clause at [Contracts.hs:434](../../../compiler/src/LLMLL/Contracts.hs#L434) returns `Just hd` (raw element) instead of `Just (EApp "Success" [hd])`; the `[EApp "nil" []]` arm is also absent (should return `Just (EApp "Error" [...])`) |
+
+Mechanism: a c02 property body `(match (transfer l f t a) ((Success new_l) ...) ((Error _) true))` reduces transfer's body, which reduces `(map_get accounts from)` (uses `list-filter`), which returns `Nothing` from `evalBuiltinApp`. The `Maybe Expr` short-circuits up; the prop closure returns `QC.discard`; `bodyDiscardCount` increments. Repeat 1000 times → GaveUp with the new diagnostic text. c03's `find-account` uses `list-filter` directly; same propagation.
+
+The `list-head`-returns-raw-element bug is independent of the missing-clauses set: even if `list-filter` were modeled, c02 `map_get` body's `(match (list-head matches) ((Success p) ...) ((Error _) ...))` would still fail to reduce because `list-head` returns `hd` not `(Success hd)`. Both must move for c02 to lift. c03's `find-account` similarly does `(list-head matches)` after `list-filter`.
+
+### Scope
+
+Mechanical. Each clause is a 2-3-line pattern match analogous to existing clauses (`list-fold`, `list-map`, `unwrap-or`). Suggested patches:
+
+```haskell
+-- Add to Contracts.hs:412+ (placement adjacent to existing list-* clauses)
+evalBuiltinApp _ _ "list-empty"   []          = Just (EApp "nil" [])
+evalBuiltinApp _ _ "list-prepend" [x, list]   = Just (EApp "cons" [x, list])
+evalBuiltinApp fe fuel "list-filter" [list, fn] = filterCons fe fuel list fn
+evalBuiltinApp _ _ "int-to-string" [ELit (LitInt n)] = Just (ELit (LitString (T.pack (show n))))
+evalBuiltinApp _ _ "string-concat-many" [list] = stringConcatMany list
+
+-- Fix the existing list-head clauses:
+evalBuiltinApp _ _ "list-head" [EApp "cons" [hd, _]] = Just (EApp "Success" [hd])
+evalBuiltinApp _ _ "list-head" [EApp "nil"  []]      = Just (EApp "Error" [ELit (LitString "list-head: empty list")])
+```
+
+`filterCons` mirrors `foldCons` / `mapCons` at [Contracts.hs:497+](../../../compiler/src/LLMLL/Contracts.hs#L497) — apply the predicate lambda per element, keep cons cells where predicate reduces to `True`. `stringConcatMany` walks the cons-chain of `LitString` literals and concatenates. Both share the existing fuel discipline.
+
+### Acceptance
+
+A v0.10.6+ compiler run on `experiments/repair-loop/runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll` reports `samples_run ≥ 1` on either property; likewise for c03. Optional but recommended: a c02-subjects variant (analogous to the c01-subjects cell in Addendum-18) constructed with `:subjects [transfer total_balance]` etc. confirms the OBLIG-PBT-4 path is end-to-end-functional on c02-shape too — the c01-subjects pass confirms only the path's correctness on c01-shape; the c02 end-to-end test additionally validates the F-034 + OBLIG-PBT-4 interaction.
+
+### Sequencing
+
+Engineer-adjudicated. Two options:
+
+1. **Combined cut v0.10.6** (OBLIG-PBT-4 + F-034 in one release). Experiment-lead view: cleaner empirical signal because c02/c03 cannot be re-probed against a standalone-OBLIG-PBT-4 binary as a separate gate; doc-lead's combined seal covers both atomically; the v0.10.6 CHANGELOG entry reads as one OBLIG-PBT-4-and-PBT-5 release.
+2. **Split cut v0.10.6 (OBLIG-PBT-4 only) + v0.10.7 (F-034)**. Faster ship cadence on the OBLIG-PBT-4 surface; doc-lead splits into two passes; Phase 3 launch waits on v0.10.7 either way.
+
+Doc-lead's surface is the same in both options; only the release-grouping differs.
+
+### Routing
+
+- **F-034 → compiler-engineer** (this entry). No design decision pending.
+- **OBLIG-PBT-4 closure → already shipped on this branch**, no action; routing here is closure-only for the compiler-engineer file (see CE-D-OBLIG-PBT-4 below).
+- **Doc-lead waits** on F-034 land; do not invoke until both items are in the release branch (or, under option 2, invoke once per release cut).
+
+---
+
+## CE-D-OBLIG-PBT-4 · OBLIG-PBT-4 `:subjects` opt-in — closed-shipped, mechanism confirmed (Addendum 18, 2026-05-14)
+
+**Status:** **Closed-shipped, mechanism empirically confirmed on c01-shape.** No further engineer action from this finding. Tracked here for closure-bookkeeping symmetry with CE-A/CE-B/CE-C.
+
+Implementation: [Syntax.hs:425-437](../../../compiler/src/LLMLL/Syntax.hs#L425-L437) (`propSubjects` field on `Property`), [Parser.hs:290-326](../../../compiler/src/LLMLL/Parser.hs#L290-L326) (text-syntax parsing), [ParserJSON.hs:216-241](../../../compiler/src/LLMLL/ParserJSON.hs#L216-L241) (JSON-AST parsing + dedupe + empty-list rejection), [PBT.hs:687-720](../../../compiler/src/LLMLL/PBT.hs#L687-L720) (`processRun` per-subject-DLTested writeback branch), [docs/llmll-ast.schema.json](../../../docs/llmll-ast.schema.json) (schema bump `0.4.0` → `0.5.0` for additive optional `CheckDecl.subjects`).
+
+Acceptance (Addendum 18 §F-OBLIG-PBT-4):
+- ✅ Parser accepts `:subject f` sugar and `:subjects [f g …]` form.
+- ✅ Writeback emits per-subject `DLTested n` records.
+- ✅ Shared `pbt_witnesses` hash across all per-subject records of one property (canonical-body hashing is content-stable across the matrix).
+- ✅ R6d `effective_level` machinery bounds dependent callees correctly (body-faithful, not isolation-faithful).
+- ✅ End-to-end: c01-subjects 4/5 tries achieve `tier_profile_post.tested ≥ 1`; the remaining 1/5 misses on orthogonal near-threshold QC variance.
+
+---
+
 ## Routing
 
 - **CE-A is closed** (postmortem-001 Addendum 14). No compiler-engineer action.
 - **CE-B is closed** (MOD-PBT-1 / v0.10.3, 2026-05-12). Was structurally the blocker behind F-030; F-018's PBT FuncEnv extension shipped. The empirical question "does `(check ...)` now elevate obligations to `tested` under realistic agent emissions?" remains open under `findings/language-team.md` §LT-B and is an experiment-lead re-probe, not compiler-engineer work.
 - **CE-C is closed** (R6d / `bb1bd98` + `bbab67b`, 2026-05-12). No follow-up engineer track from R6d.
+- **CE-D is open** (F-034, routed 2026-05-14 from postmortem-001 Addendum 18). Mechanical scope; gates Phase-3 strong-form `tested`-tier signal on c02/c03-shape; sequencing engineer-adjudicated (combined v0.10.6 cut or split v0.10.6 + v0.10.7).
+- **CE-D-OBLIG-PBT-4 is closed** (`oblig-pbt-4-5/subject-metadata-and-eval-coverage` working tree atop merge `d220632`, mechanism confirmed by Addendum 18). Tracked here for closure-bookkeeping only.

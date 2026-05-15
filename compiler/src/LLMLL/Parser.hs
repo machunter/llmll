@@ -222,7 +222,7 @@ pLawForAll = parens $ do
   _ <- try (symbol "for-all") <|> (T.singleton <$> char '\x2200' <* sc)
   bindings <- brackets (many pTypedParam)
   body <- pExpr
-  pure $ Property "" bindings body
+  pure $ Property "" bindings body []
 
 -- | Parse a function signature in a def-interface:
 --   [name (fn [arg-types] -> ret-type)]
@@ -290,14 +290,39 @@ pSumTypeMultiArm = do
   arms <- some (try pSumArm)
   pure $ TSumType arms
 
--- | Parse (check "description" (for-all [...] body))
+-- | Parse (check "description" [:subject f | :subjects [f g …]] (for-all [...] body))
+--
+-- OBLIG-PBT-4: optional ':subject f' (sugar for ':subjects [f]') or
+-- ':subjects [f₁ … fₖ]' keyword metadata appears between the description
+-- and the for-all. Names are deduplicated; empty ':subjects []' is rejected
+-- with a parse error (proposal §11.1 S6). Absence of the keyword keeps the
+-- v0.10.5 head-position-scan behavior at the writeback site.
 pCheckBlock :: Parser Statement
 pCheckBlock = do
   _ <- try (symbol "(" *> symbol "check")
   desc <- pStringLiteral
+  subjects <- pCheckSubjects
   prop <- pForAll
   _ <- symbol ")"
-  pure $ SCheck (Property desc (propBindings prop) (propBody prop))
+  pure $ SCheck (Property desc (propBindings prop) (propBody prop) subjects)
+
+-- | Parse the optional ':subject f' / ':subjects [f g …]' keyword on a check
+-- block. Returns @[]@ when absent. Dedupes; rejects an empty list.
+pCheckSubjects :: Parser [Name]
+pCheckSubjects =
+      -- ':subjects' must be tried before ':subject' (longest-match — the
+      -- former is a prefix of the latter at the byte level).
+      try (do _ <- symbol ":subjects"
+              ns <- brackets (many pIdent)
+              if null ns
+                then fail "(check :subjects []) must declare ≥1 subject"
+                else pure (dedupeNames ns))
+  <|> try (do _ <- symbol ":subject"
+              n <- pIdent
+              pure [n])
+  <|> pure []
+  where
+    dedupeNames = foldr (\n acc -> if n `elem` acc then acc else n : acc) []
 
 -- | Parse (gen TypeName generator-expr)
 -- Introduces a custom PBT generator for a named type (LLMLL v0.1.1 §5.2).
@@ -316,7 +341,7 @@ pForAll = parens $ do
   _ <- try (symbol "for-all") <|> (T.singleton <$> char '\x2200' <* sc)  -- for-all or ∀
   bindings <- brackets (many pTypedParam)
   body <- pExpr
-  pure $ Property "" bindings body
+  pure $ Property "" bindings body []
 
 -- | Parse an import statement.
 -- (import foo.bar.baz)

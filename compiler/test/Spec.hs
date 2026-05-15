@@ -4,7 +4,7 @@ module Main (main) where
 import Test.Hspec
 import Control.Monad (forM_)
 import Control.Exception (finally)
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (fromJust, isJust, listToMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
@@ -613,7 +613,7 @@ main = hspec $ do
       -- JSON-AST with done? and on-done fields
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.4.0\","
+            , "  \"schemaVersion\": \"0.5.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","
@@ -640,7 +640,7 @@ main = hspec $ do
     it "parsed done? wires into generated Main.hs (harness terminates)" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.4.0\","
+            , "  \"schemaVersion\": \"0.5.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","
@@ -901,7 +901,7 @@ main = hspec $ do
     it "JSON-AST: pair-type param_type decodes to TPair TInt TString" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.4.0\","
+            , "  \"schemaVersion\": \"0.5.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -959,7 +959,7 @@ main = hspec $ do
     it "let binding with extra 'kind' key is rejected with clear error" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.4.0\","
+            , "  \"schemaVersion\": \"0.5.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -988,7 +988,7 @@ main = hspec $ do
     it "let binding with only 'name' and 'expr' keys accepts successfully" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.4.0\","
+            , "  \"schemaVersion\": \"0.5.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -1240,7 +1240,7 @@ main = hspec $ do
 
   describe "JsonPointer" $ do
     let testAst = object
-          [ "schemaVersion" .= ("0.4.0" :: T.Text)
+          [ "schemaVersion" .= ("0.5.0" :: T.Text)
           , "statements" .= [ object
               [ "kind" .= ("def-logic" :: T.Text)
               , "name" .= ("foo" :: T.Text)
@@ -1565,7 +1565,7 @@ main = hspec $ do
     it "OBLIG-3: patch function with no contracts returns PatchSuccess" $ do
       let tmpDir = "test/_tmp_patch_no_contract"
           astJson = object
-            [ "schemaVersion" .= ("0.4.0" :: T.Text)
+            [ "schemaVersion" .= ("0.5.0" :: T.Text)
             , "llmll_version" .= ("0.3.0" :: T.Text)
             , "statements" .= [object
                 [ "kind" .= ("def-logic" :: T.Text)
@@ -2439,7 +2439,7 @@ main = hspec $ do
       let dir = root ++ "/test-scaffold-tmp"
           file = dir ++ "/scaffold.ast.json"
       createDirectoryIfMissing True dir
-      writeFile file "{\"schemaVersion\": \"0.4.0\", \"statements\": []}"
+      writeFile file "{\"schemaVersion\": \"0.5.0\", \"statements\": []}"
       result <- resolveScaffold "test-scaffold-tmp"
       result `shouldBe` Just file
       removeDirectoryRecursive dir
@@ -2453,7 +2453,7 @@ main = hspec $ do
 
     it "JSON-AST hole-scaffold parses correctly" $ do
       let jsonSrc = BLC.pack $ unlines
-            [ "{ \"schemaVersion\": \"0.4.0\""
+            [ "{ \"schemaVersion\": \"0.5.0\""
             , ", \"statements\": ["
             , "    { \"kind\": \"def-logic\", \"name\": \"f\", \"params\": []"
             , "    , \"body\": { \"kind\": \"hole-scaffold\", \"template\": \"rest-api\" } }"
@@ -3935,7 +3935,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               name `shouldBe` "Normalizer"
               length fns `shouldBe` 1
               length laws `shouldBe` 1
-              let Property desc bindings _body = head laws
+              let Property desc bindings _body _subjects = head laws
               desc `shouldBe` ""
               length bindings `shouldBe` 1
               fst (head bindings) `shouldBe` "x"
@@ -3996,7 +3996,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let stmts =
             [ SDefInterface "BadIface"
                 [("f", TFn [TInt] TInt)]
-                [Property "" [("x", TInt)] (EApp "f" [EVar "x"])]  -- returns int, not bool
+                [Property "" [("x", TInt)] (EApp "f" [EVar "x"]) []]  -- returns int, not bool
             ]
           report = typeCheck emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
@@ -4008,7 +4008,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let stmts =
             [ SDefInterface "BadIface2"
                 [("f", TFn [TInt] TBool)]
-                [Property "" [("x", TInt)] (EApp "undefined-fn" [EVar "x"])]
+                [Property "" [("x", TInt)] (EApp "undefined-fn" [EVar "x"]) []]
             ]
           report = typeCheck emptyEnv stmts
           diags = reportDiagnostics report
@@ -4021,6 +4021,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                      (EOp "=" [ EApp "normalize" [EApp "normalize" [EVar "x"]]
                               , EApp "normalize" [EVar "x"]
                               ])
+                     []
                  ]
           original = [ SDefInterface "Normalizer"
                          [("normalize", TFn [TString] TString)]
@@ -4045,7 +4046,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                       [("normalize", TFn [TString] TString)]
                       [Property "" [("x", TString)]
                         (EOp "=" [ EApp "normalize" [EApp "normalize" [EVar "x"]]
-                                 , EApp "normalize" [EVar "x"]])]
+                                 , EApp "normalize" [EVar "x"]])
+                        []]
                   ]
           result = generateHaskell "test" stmts
           source = cgHsSource result
@@ -4054,7 +4056,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- T9: Codegen emits multiple prop_ functions for multiple laws
     it "T9: laws_codegen_multi — 3 laws → 3 prop_ functions" $ do
-      let mkLaw body = Property "" [("x", TInt)] body
+      let mkLaw body = Property "" [("x", TInt)] body []
           stmts = [ SDefInterface "Codec"
                       [("encode", TFn [TInt] TString), ("decode", TFn [TString] TInt)]
                       [ mkLaw (EOp "=" [EApp "decode" [EApp "encode" [EVar "x"]], EVar "x"])
@@ -4077,7 +4079,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                       [("normalize", TFn [TString] TString)]
                       [Property "" [("x", TString)]
                         (EOp "=" [ EApp "normalize" [EApp "normalize" [EVar "x"]]
-                                 , EApp "normalize" [EVar "x"]])]
+                                 , EApp "normalize" [EVar "x"]])
+                        []]
                   ]
           report = runCoverage stmts emptyCS
       -- Laws should appear in crLaws, not inflate effective_coverage
@@ -5002,7 +5005,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "ParserJSON fails when hole-delegate-async carries on_failure" $ do
         let src = BLC.pack $ unlines
               [ "{"
-              , "  \"schemaVersion\": \"0.4.0\","
+              , "  \"schemaVersion\": \"0.5.0\","
               , "  \"statements\": ["
               , "    {"
               , "      \"kind\": \"def-logic\","
@@ -5032,7 +5035,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (Contract Nothing Nothing Nothing Nothing)
                   (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
               , SCheck (Property "h-equals-zero" []
-                          (EOp "=" [EApp "h" [], ELit (LitInt 0)]))
+                          (EOp "=" [EApp "h" [], ELit (LitInt 0)]) [])
               ]
         result <- runPropertyTests stmts
         case pbtResults result of
@@ -5046,7 +5049,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (EHole (HDelegate (DelegateSpec "agent" "task" TInt
                                       (Just (ELit (LitInt 42))))))
               , SCheck (Property "g-equals-42" []
-                          (EOp "=" [EApp "g" [], ELit (LitInt 42)]))
+                          (EOp "=" [EApp "g" [], ELit (LitInt 42)]) [])
               ]
         result <- runPropertyTests stmts
         case pbtResults result of
@@ -5092,6 +5095,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        [ EOp "+" [EApp "first"  [EVar "p"], EApp "second" [EVar "p"]]
                        , EOp "+" [EApp "second" [EVar "p"], EApp "first"  [EVar "p"]]
                        ])
+                     []
         result <- runPropertyTests [SCheck prop]
         case pbtResults result of
           [run] -> do
@@ -5106,6 +5110,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        [ EApp "list-length" [EApp "list-append" [EVar "xs", ELit (LitInt 1)]]
                        , EOp "+" [ELit (LitInt 1), EApp "list-length" [EVar "xs"]]
                        ])
+                     []
         result <- runPropertyTests [SCheck prop]
         case pbtResults result of
           [run] -> do
@@ -5119,6 +5124,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                      (EIf (EApp "is-ok" [EVar "r"])
                           (ELit (LitBool True))
                           (EOp "not" [EApp "is-ok" [EVar "r"]]))
+                     []
         result <- runPropertyTests [SCheck prop]
         case pbtResults result of
           [run] -> do
@@ -5135,6 +5141,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        , (PConstructor "Green" [], ELit (LitBool True))
                        , (PConstructor "Blue"  [], ELit (LitBool True))
                        ])
+                     []
         result <- runPropertyTests [SCheck prop]
         case pbtResults result of
           [run] -> do
@@ -5146,7 +5153,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts =
               [ STypeDef "Pt" (TPair TInt TInt)
               , SCheck (Property "pt-first-stable" [("p", TCustom "Pt")]
-                  (EOp "=" [EApp "first" [EVar "p"], EApp "first" [EVar "p"]]))
+                  (EOp "=" [EApp "first" [EVar "p"], EApp "first" [EVar "p"]]) [])
               ]
         result <- runPropertyTests stmts
         case pbtResults result of
@@ -5161,7 +5168,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts =
               [ STypeDef "Tree" (TList (TCustom "Tree"))
               , SCheck (Property "tree-trivial" [("t", TCustom "Tree")]
-                  (ELit (LitBool True)))
+                  (ELit (LitBool True)) [])
               ]
         result <- runPropertyTests stmts
         case pbtResults result of
@@ -5199,6 +5206,140 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             expr = EApp "list-length" [EApp "list-append" [l2, ELit (LitInt 9)]]
         evalExprStatic Map.empty expr `shouldBe` Just (ELit (LitInt 3))
 
+    -- F-033: 'unwrap' static-eval coverage. Postmortem 17 surfaced this as
+    -- the proximate cause of c02-shape property bodies discarding
+    -- universally: 'unwrap' was registered in TypeCheck.hs:128 but had no
+    -- clause in Contracts.hs:evalBuiltinApp. Error reduces to Nothing
+    -- (no panic value in the static evaluator); the property body then
+    -- discards on Error samples — the conservative, soundness-preserving
+    -- choice.
+    describe "F-033 unwrap static-eval coverage" $ do
+      it "unwrap (ok v) reduces to v" $ do
+        let v = ELit (LitInt 42)
+        evalExprStatic Map.empty (EApp "unwrap" [EApp "ok" [v]])
+          `shouldBe` Just v
+      it "unwrap (err _) does not reduce" $ do
+        evalExprStatic Map.empty (EApp "unwrap" [EApp "err" [ELit (LitString "boom")]])
+          `shouldBe` Nothing
+      it "unwrap on a non-Result expression does not reduce" $ do
+        evalExprStatic Map.empty (EApp "unwrap" [ELit (LitInt 7)])
+          `shouldBe` Nothing
+
+    -- F-033: PBTSkipped diagnostic classification. The post-Addendum-17
+    -- diagnostic distinguishes "body never reduced to a bool" (likely
+    -- an unmodeled builtin in the property body) from "precondition kept
+    -- failing." Pre-F-033 every GaveUp surfaced as "too many precondition
+    -- failures," which was actively misleading on the c02 / c03 shapes.
+    describe "F-033 PBTSkipped diagnostic classification" $ do
+      it "body universally discards -> 'did not reduce on any sample' diag" $ do
+        -- A property body containing an unsupported hole reduces to
+        -- Nothing on every sample. samples_run = 0, bodyDiscards = 100.
+        let prop = Property "body-unreducible" [("x", TInt)]
+                     (EHole (HProofRequired "manual"))
+                     []
+        result <- runPropertyTests [SCheck prop]
+        case pbtResults result of
+          [run] -> do
+            pbtStatus run `shouldBe` PBTSkipped
+            case pbtCounterexample run of
+              Just msg -> msg `shouldSatisfy` T.isInfixOf "did not reduce on any sample"
+              Nothing  -> expectationFailure "expected diagnostic on PBTSkipped"
+          rs -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+    -- F-034: residual evalBuiltinApp coverage on c02/c03-shape transfer
+    -- bodies. Addendum 18 surfaced five missing clauses and one bug:
+    --   * list-empty / list-prepend / list-filter / int-to-string /
+    --     string-concat-many had no static-evaluator clause despite being
+    --     registered in TypeCheck.hs:88-119, so any c02/c03 transfer-body
+    --     dispatch through them returned Nothing and the property body
+    --     discarded universally on every QuickCheck sample.
+    --   * list-head / list-tail returned the raw element / tail at
+    --     Contracts.hs:434-435 but their type-checker signatures are
+    --     '[list[a]] -> Result a string' / '[list[a]] -> Result (list[a]) string';
+    --     property bodies matching '(match (list-head xs) ((Success v) ...))'
+    --     against the typed surface failed to reduce. Empty-list arms were
+    --     absent and fell through to Nothing.
+    -- Each test pins a single clause; the last test exercises the full
+    -- list-filter ∘ list-head reduction chain that c02/c03 transfer bodies
+    -- require.
+    describe "F-034 evalBuiltinApp residual builtin coverage" $ do
+      it "list-empty reduces to nil" $
+        evalExprStatic Map.empty (EApp "list-empty" [])
+          `shouldBe` Just (EApp "nil" [])
+
+      it "list-prepend produces a cons cell with head prepended" $ do
+        let xs = EApp "cons" [ELit (LitInt 2), EApp "nil" []]
+        evalExprStatic Map.empty (EApp "list-prepend" [ELit (LitInt 1), xs])
+          `shouldBe` Just (EApp "cons" [ELit (LitInt 1), xs])
+
+      it "list-filter keeps elements satisfying a predicate lambda" $ do
+        let l3   = EApp "cons" [ ELit (LitInt 1)
+                               , EApp "cons" [ ELit (LitInt 2)
+                                             , EApp "cons" [ ELit (LitInt 3)
+                                                           , EApp "nil" [] ]] ]
+            fn   = ELambda [("x", TInt)]
+                            (EOp ">=" [EVar "x", ELit (LitInt 2)])
+            expr = EApp "list-filter" [l3, fn]
+            want = EApp "cons" [ ELit (LitInt 2)
+                               , EApp "cons" [ ELit (LitInt 3)
+                                             , EApp "nil" [] ]]
+        evalExprStatic Map.empty expr `shouldBe` Just want
+
+      it "list-filter with always-false predicate yields nil" $ do
+        let l2   = EApp "cons" [ ELit (LitInt 1)
+                               , EApp "cons" [ ELit (LitInt 2)
+                                             , EApp "nil" [] ]]
+            fn   = ELambda [("x", TInt)] (ELit (LitBool False))
+            expr = EApp "list-filter" [l2, fn]
+        evalExprStatic Map.empty expr `shouldBe` Just (EApp "nil" [])
+
+      it "int-to-string reduces a literal int to its decimal string" $ do
+        evalExprStatic Map.empty (EApp "int-to-string" [ELit (LitInt 42)])
+          `shouldBe` Just (ELit (LitString "42"))
+        evalExprStatic Map.empty (EApp "int-to-string" [ELit (LitInt (-7))])
+          `shouldBe` Just (ELit (LitString "-7"))
+
+      it "string-concat-many concatenates a cons-chain of string literals" $ do
+        let xs = EApp "cons" [ ELit (LitString "a-")
+                             , EApp "cons" [ ELit (LitString "b-")
+                                           , EApp "cons" [ ELit (LitString "c")
+                                                         , EApp "nil" [] ]] ]
+        evalExprStatic Map.empty (EApp "string-concat-many" [xs])
+          `shouldBe` Just (ELit (LitString "a-b-c"))
+
+      it "list-head on cons returns Success-wrapped element (Addendum-18 bugfix)" $ do
+        let xs = EApp "cons" [ELit (LitInt 9), EApp "nil" []]
+        evalExprStatic Map.empty (EApp "list-head" [xs])
+          `shouldBe` Just (EApp "Success" [ELit (LitInt 9)])
+
+      it "list-head on nil returns Error-tagged empty-list message" $ do
+        case evalExprStatic Map.empty (EApp "list-head" [EApp "nil" []]) of
+          Just (EApp "Error" [ELit (LitString msg)]) ->
+            msg `shouldSatisfy` T.isInfixOf "empty list"
+          other -> expectationFailure $ "expected Error on nil, got " ++ show other
+
+      it "list-tail on cons returns Success-wrapped tail (Addendum-18 bugfix)" $ do
+        let xs = EApp "cons" [ ELit (LitInt 1)
+                             , EApp "cons" [ELit (LitInt 2), EApp "nil" []] ]
+            tl = EApp "cons" [ELit (LitInt 2), EApp "nil" []]
+        evalExprStatic Map.empty (EApp "list-tail" [xs])
+          `shouldBe` Just (EApp "Success" [tl])
+
+      it "list-filter ∘ list-head reduces end-to-end on a 3-element list" $ do
+        -- Mirrors the c02/c03 transfer-body shape: filter accounts by a
+        -- predicate then take the head, matching '(match (list-head matches)
+        -- ((Success p) ...) ((Error _) ...))'. Pre-F-034 either step
+        -- short-circuited to Nothing.
+        let l3   = EApp "cons" [ ELit (LitInt 10)
+                               , EApp "cons" [ ELit (LitInt 20)
+                                             , EApp "cons" [ ELit (LitInt 30)
+                                                           , EApp "nil" [] ]] ]
+            fn   = ELambda [("x", TInt)]
+                            (EOp ">=" [EVar "x", ELit (LitInt 20)])
+            expr = EApp "list-head" [EApp "list-filter" [l3, fn]]
+        evalExprStatic Map.empty expr
+          `shouldBe` Just (EApp "Success" [ELit (LitInt 20)])
+
     -- OBLIG-PBT-3 / F-033: PBT-to-trust-report write-back. Singleton
     -- head-position contracted callee in a PBTPassed property lifts csPost(f)
     -- to DLTested n with pbt_witnesses provenance; multi-subject / skip / fail
@@ -5216,7 +5357,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "E2 same function in multiple head positions lifts once" $ do
         let f      = mkContractedFn "f"
             body   = EOp "and" [EApp "f" [ELit (LitInt 1)], EApp "f" [ELit (LitInt 2)]]
-            prop   = Property "f-twice" [] body
+            prop   = Property "f-twice" [] body []
             stmts  = [f, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "f-twice" 100]
             (m, ds) = pbtTrustWriteback stmts Map.empty result
@@ -5233,7 +5374,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f      = mkContractedFn "encrypt"
             g      = mkContractedFn "decrypt"
             body   = EOp "=" [EVar "x", EApp "decrypt" [EApp "encrypt" [EVar "x"]]]
-            prop   = Property "roundtrip" [("x", TInt)] body
+            prop   = Property "roundtrip" [("x", TInt)] body []
             stmts  = [f, g, SCheck prop]
             result = PBTResult 1 1 0 0 [passedRun "roundtrip" 100]
             (m, ds) = pbtTrustWriteback stmts Map.empty result
@@ -5245,7 +5386,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "E5 per-clause split exposes post-tested under asserted-pre meet" $ do
         let f       = mkContractedFn "f"
             body    = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
-            prop    = Property "f-id" [] body
+            prop    = Property "f-id" [] body []
             stmts   = [f, SCheck prop]
             result  = PBTResult 1 1 0 0 [passedRun "f-id" 100]
             (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
@@ -5265,7 +5406,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "E6 prior DLVerified post is preserved by mergeCS (non-degrading)" $ do
         let f          = mkContractedFn "f"
             body       = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
-            prop       = Property "f-id" [] body
+            prop       = Property "f-id" [] body []
             stmts      = [f, SCheck prop]
             result     = PBTResult 1 1 0 0 [passedRun "f-id" 100]
             (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
@@ -5302,7 +5443,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- def-logic for f — so f is imported, sidecar key qualifies.
             localStmts = [ SOpen ["lib"] Nothing
                          , SCheck (Property "f-id" []
-                                     (EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]))
+                                     (EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]) [])
                          ]
             result      = PBTResult 1 1 0 0 [passedRun "f-id" 100]
             (m, _)      = pbtTrustWriteback localStmts cache result
@@ -5312,7 +5453,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "E10 idempotent re-run dedups pbt_witnesses by hash" $ do
         let f       = mkContractedFn "f"
             body    = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
-            prop    = Property "f-id" [] body
+            prop    = Property "f-id" [] body []
             stmts   = [f, SCheck prop]
             run     = passedRun "f-id" 100
             -- Run twice — second invocation should produce the same map (same
@@ -5330,8 +5471,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             bodyPass  = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
             bodyFail  = EOp "=" [EApp "f" [ELit (LitInt 0)], ELit (LitInt 9)]
-            propPass  = Property "f-pass" [] bodyPass
-            propFail  = Property "f-fail" [] bodyFail
+            propPass  = Property "f-pass" [] bodyPass []
+            propFail  = Property "f-fail" [] bodyFail []
             stmts     = [f, SCheck propPass, SCheck propFail]
             result    = PBTResult 2 1 1 0
                          [ passedRun "f-pass" 100
@@ -5361,6 +5502,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- Live property covers f but with a body whose hash ≠ staleHash.
             liveProp  = Property "f-id-edited" []
                           (EOp "=" [EApp "f" [ELit (LitInt 2)], ELit (LitInt 2)])
+                          []
             stmts     = [f, SCheck liveProp]
             report    = buildTrustReport Map.empty stmts staleCS
         -- Find the entry for f; its csPost should have been downgraded.
@@ -5394,7 +5536,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "E15 v1.1.0 emit carries parallel tier_profile_{pre,post}" $ do
         let f        = mkContractedFn "f"
             body     = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
-            prop     = Property "f-id" [] body
+            prop     = Property "f-id" [] body []
             stmts    = [f, SCheck prop]
             result   = PBTResult 1 1 0 0 [passedRun "f-id" 100]
             (pbtCS, _) = pbtTrustWriteback stmts Map.empty result
@@ -5418,6 +5560,176 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               Just (Object tp) -> KM.lookup "tested" tp `shouldBe` Just (Number 1)
               _ -> expectationFailure "tier_profile_post missing or not an object"
           _ -> expectationFailure "trust-report JSON did not decode as an object"
+
+    -- OBLIG-PBT-4 :subjects metadata. Explicit-subject opt-in on a
+    -- '(check ...)' block bypasses the v0.10.5 head-position scan and
+    -- credits each declared subject with its own DLTested record sharing
+    -- one pbt_witnesses hash. Edge-case table is proposal §11.1 (pinned
+    -- 2026-05-14). S6 (empty-list rejection) is parser-level; lives in the
+    -- parser describe block below.
+    describe "OBLIG-PBT-4 :subjects metadata" $ do
+      let mkContractedFn name =
+            SDefLogic name [("x", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+              (EVar "x")
+          mkContractedFnNoPost name =
+            SDefLogic name [("x", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                        Nothing Nothing)
+              (EVar "x")
+          passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+
+      -- S1: :subject f singleton is sugar for :subjects [f]
+      it "S1 :subject f singleton lifts as :subjects [f]" $ do
+        let f      = mkContractedFn "f"
+            body   = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            prop   = Property "f-id" [] body ["f"]
+            stmts  = [f, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "f-id" 100]
+            (m, ds) = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 1
+        ds        `shouldBe` []
+        case Map.lookup "f" m >>= csPost of
+          Just er -> erDisplayLevel er `shouldBe` DLTested 100
+          Nothing -> expectationFailure "expected csPost lift on f"
+
+      -- S2: :subjects [f g] — both contracted — two records, shared hash
+      it "S2 :subjects [f g] credits both with shared pbt_witnesses hash" $ do
+        let f      = mkContractedFn "encrypt"
+            g      = mkContractedFn "decrypt"
+            body   = EOp "=" [EVar "x", EApp "decrypt" [EApp "encrypt" [EVar "x"]]]
+            prop   = Property "roundtrip" [("x", TInt)] body ["encrypt", "decrypt"]
+            stmts  = [f, g, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "roundtrip" 100]
+            (m, ds) = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 2
+        ds        `shouldBe` []
+        let fHash = (csPost =<< Map.lookup "encrypt" m) >>= fmap pwHash . listToMaybe . erPbtWitnesses
+            gHash = (csPost =<< Map.lookup "decrypt" m) >>= fmap pwHash . listToMaybe . erPbtWitnesses
+        fHash `shouldBe` gHash
+        fHash `shouldSatisfy` (/= Nothing)
+
+      -- S3: declared subject has no post → diag, no lift on that subject
+      it "S3 declared subject without postcondition: info diag, others still lift" $ do
+        let f      = mkContractedFnNoPost "f"  -- no post
+            g      = mkContractedFn       "g"
+            body   = EOp "=" [EApp "g" [ELit (LitInt 1)], ELit (LitInt 1)]
+            prop   = Property "fg" [] body ["f", "g"]
+            stmts  = [f, g, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "fg" 100]
+            (m, ds) = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 1
+        Map.keys m `shouldBe` ["g"]
+        any (T.isInfixOf "has no postcondition") ds `shouldBe` True
+
+      -- S4: explicit annotation overrides head-position scan
+      it "S4 :subjects [f] overrides multi-callee inferred head-set" $ do
+        let f      = mkContractedFn "f"
+            g      = mkContractedFn "g"
+            -- Body mentions both f and g in head position; annotation says only f.
+            body   = EOp "and" [EApp "f" [ELit (LitInt 1)], EApp "g" [ELit (LitInt 2)]]
+            prop   = Property "fg-but-f" [] body ["f"]
+            stmts  = [f, g, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "fg-but-f" 100]
+            (m, ds) = pbtTrustWriteback stmts Map.empty result
+        Map.keys m `shouldBe` ["f"]
+        ds         `shouldBe` []
+        -- Crucial: the multi-callee diagnostic is NOT produced under explicit annotation.
+        any (T.isInfixOf "multiple contracted callees") ds `shouldBe` False
+
+      -- S5: declarative annotation — body need not mention the declared subjects
+      it "S5 :subjects credits declared subjects even if body does not mention them" $ do
+        let f      = mkContractedFn "f"
+            g      = mkContractedFn "g"
+            -- Body mentions neither.
+            body   = ELit (LitBool True)
+            prop   = Property "trivial" [] body ["f", "g"]
+            stmts  = [f, g, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "trivial" 100]
+            (m, _) = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 2
+
+      -- S7: duplicate subjects are deduped (assumed already deduped by parser;
+      -- writeback is robust to a duplicate slipping through.
+      it "S7 duplicate :subjects [f f] yields one record" $ do
+        let f      = mkContractedFn "f"
+            body   = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            -- Simulate a duplicate that escaped parser dedup
+            prop   = Property "f-id" [] body ["f", "f"]
+            stmts  = [f, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun "f-id" 100]
+            (m, _) = pbtTrustWriteback stmts Map.empty result
+        Map.size m `shouldBe` 1
+        case Map.lookup "f" m >>= csPost of
+          Just er -> length (erPbtWitnesses er) `shouldBe` 1
+          Nothing -> expectationFailure "expected csPost on f"
+
+      -- S9: overlapping :subjects across check blocks join via mergePbtWriteback
+      it "S9 overlapping :subjects across two checks merge by mergePbtWriteback" $ do
+        let f         = mkContractedFn "f"
+            g         = mkContractedFn "g"
+            body1     = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
+            body2     = EOp "=" [EApp "g" [ELit (LitInt 2)], ELit (LitInt 2)]
+            prop1     = Property "p1" [] body1 ["f"]
+            prop2     = Property "p2" [] body2 ["f", "g"]
+            stmts     = [f, g, SCheck prop1, SCheck prop2]
+            result    = PBTResult 2 2 0 0 [passedRun "p1" 100, passedRun "p2" 50]
+            (m, _)    = pbtTrustWriteback stmts Map.empty result
+        -- f appears in both → DLTested 100 (max), 2 witnesses
+        case Map.lookup "f" m >>= csPost of
+          Just er -> do
+            erDisplayLevel er `shouldBe` DLTested 100
+            length (erPbtWitnesses er) `shouldBe` 2
+          Nothing -> expectationFailure "expected csPost on f"
+        -- g appears only in p2 → DLTested 50, 1 witness
+        case Map.lookup "g" m >>= csPost of
+          Just er -> do
+            erDisplayLevel er `shouldBe` DLTested 50
+            length (erPbtWitnesses er) `shouldBe` 1
+          Nothing -> expectationFailure "expected csPost on g"
+
+    -- OBLIG-PBT-4 :subject / :subjects parser surface (sexp + JSON).
+    describe "OBLIG-PBT-4 :subjects parsing" $ do
+      it "sexp: (check :subject f (for-all …)) parses with propSubjects = [f]" $ do
+        let src = T.pack
+                  "(check \"d\" :subject foo (for-all [x: int] (= x x)))"
+        case parseStatements "<test>" src of
+          Right [SCheck p] -> propSubjects p `shouldBe` ["foo"]
+          other -> expectationFailure $ "unexpected: " ++ show other
+      it "sexp: (check :subjects [f g] (for-all …)) parses both names" $ do
+        let src = T.pack
+                  "(check \"d\" :subjects [foo bar] (for-all [x: int] (= x x)))"
+        case parseStatements "<test>" src of
+          Right [SCheck p] -> propSubjects p `shouldBe` ["foo", "bar"]
+          other -> expectationFailure $ "unexpected: " ++ show other
+      it "sexp: (check :subjects [] …) is rejected with S6 diag" $ do
+        let src = T.pack
+                  "(check \"d\" :subjects [] (for-all [x: int] (= x x)))"
+        case parseStatements "<test>" src of
+          Left _  -> pure ()
+          Right _ -> expectationFailure "expected parse failure on empty :subjects"
+      it "JSON: CheckDecl with subjects array decodes to propSubjects" $ do
+        let src = BLC.pack $ unlines
+              [ "{"
+              , "  \"schemaVersion\": \"0.5.0\","
+              , "  \"statements\": ["
+              , "    {"
+              , "      \"kind\": \"check\","
+              , "      \"label\": \"d\","
+              , "      \"subjects\": [\"foo\", \"bar\"],"
+              , "      \"for_all\": {"
+              , "        \"kind\": \"for-all\","
+              , "        \"bindings\": [{ \"name\": \"x\", \"param_type\": { \"kind\": \"primitive\", \"name\": \"int\" } }],"
+              , "        \"body\": { \"kind\": \"op\", \"op\": \"=\", \"args\": [ { \"kind\": \"var\", \"name\": \"x\" }, { \"kind\": \"var\", \"name\": \"x\" } ] }"
+              , "      }"
+              , "    }"
+              , "  ]"
+              , "}"
+              ]
+        case parseJSONAST "<test>" src of
+          Right [SCheck p] -> propSubjects p `shouldBe` ["foo", "bar"]
+          other -> expectationFailure $ "unexpected: " ++ show other
 
     -- evalContract isolation regression: empty-FuncEnv invariant
     describe "evalContract isolation regression" $ do

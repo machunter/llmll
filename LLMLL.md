@@ -440,7 +440,7 @@ where `⊑` denotes lattice-respecting monotonic upgrade: the lift applies only 
 **Side conditions.**
 
 1. **Subject scoping.** `f` may be a name local to the source file or a name imported via `(open path …)` and resolved through the assembled test statement list (`compiler/src/LLMLL/PBT.hs` `assembleTestStatements`). Imported subjects are keyed in the local sidecar under their qualified name `lib.f` per the sidecar invariant at §4.4.4.
-2. **Multi-subject suppression.** Properties whose head-position set contains two or more contracted callees do not lift any of them; the property is reported as an informational diagnostic from `llmll test` ("property covers multiple contracted callees; no trust evidence recorded"). The explicit-attribution route is `:subject` metadata, tracked as OBLIG-PBT-4.
+2. **Multi-subject suppression (default path).** Properties whose head-position set contains two or more contracted callees, *without* explicit `:subject` / `:subjects` metadata, do not lift any of them; the property is reported as an informational diagnostic from `llmll test` ("property covers multiple contracted callees; no trust evidence recorded"). The explicit-attribution route is `:subject` / `:subjects` metadata, shipped in v0.10.6; see the **Annotated-subject branch** below.
 3. **Skip and fail suppress the lift.** `PBTSkipped` (static-evaluator bottoms, QuickCheck-discard saturation) contributes zero evidence per §5.1's outcome table. `PBTFailed` runs are surfaced as user-facing diagnostics but record no `pbt_witnesses` and do not retract any prior `DLTested` evidence.
 4. **`PBTError` is treated as `PBTSkipped` for write-back.** Exceptions during QuickCheck propagate as user-facing diagnostics; the trust-report channel ignores them.
 5. **Interface laws do not lift `def-logic` posts.** Properties extracted from `def-interface :laws` are parametric over implementations, not concrete evidence for `def-logic` functions invoked in the law body; they live on a distinct trust channel.
@@ -456,6 +456,27 @@ pbt_witnesses(f) =   ⋃  {     hash(p), desc(p) | p covers f, status(p) = PBTPa
 `max` is the **within-channel join**: independent passing properties each constitute a witness; the strongest single witness dominates. This is distinct from `evidenceMeet` at §4.4.1, which uses `min` on `(DLTested, DLTested)` pairs by design — that operation is the GLB across pre/post of a single function, not the join across independent properties on the same clause.
 
 The compiler implementation, including the within-channel join and the sidecar staleness mechanic, lives at `compiler/src/LLMLL/PBT.hs` (`pbtTrustWriteback`, `mergePbtWriteback`, `canonicalPropBodyHash`).
+
+**Annotated-subject branch (OBLIG-PBT-4, v0.10.6+).** When a `(check ...)` block carries explicit subject metadata — sexp `(check "d" :subject f (for-all …))` (singleton sugar) or `(check "d" :subjects [f₁ … fₖ] (for-all …))` (joint form), JSON-AST `CheckDecl.subjects: [...]` under the v0.5.0 schema — the head-position scan is bypassed entirely and the lift rule fires per declared subject:
+
+```
+              (SCheck p) ∈ Σ
+              status(p) = PBTPassed
+              evaluatedSamples(p) = n
+              subjects(p) = [f₁ … fₖ]                  (non-empty)
+              SDefLogic fᵢ _ _ cᵢ _  ∈  Σ ∪ importedExposed(Σ)     for each i
+              contractPost cᵢ = Just _                              for each i in lifted
+              hash(propBody p) = h
+            ──────────────────────────────────────────────────────  (PBT-Lift-Annotated)
+            csPost(fᵢ) ⊑  DLTested n     with shared pbt_witnesses ∋ {h, desc(p)}
+                                          for each fᵢ with contractPost cᵢ = Just _
+```
+
+Subjects declared in `:subjects` but lacking a `post` clause are skipped with an informational diagnostic (the S3 case from `processRun`); the remaining annotated subjects still lift. Duplicate names are deduped (`:subjects [f f]` produces one record per `f`). Empty `:subjects []` is rejected at parse time (S6). The shared `pbt_witnesses` hash across all per-subject records of one property is the canonical-body-hash invariant from the PBT-Lift rule above; consumers can detect joint provenance by inspection of the shared hash. Cross-module subjects key under their qualified path via the existing `qualMap` (the S8 case), preserving the §4.4.4 sidecar invariant.
+
+The annotated branch is the language's explicit-attribution route for **metamorphic-relation properties** (Hughes 2020 *How to Specify It! A Guide to Specifying Properties*, §3 — a single property over a structural relation across multiple callees, where joint evidence is the agent's intent). LLMLL does not adopt `eqc_statem`-style command sequences ("state-machine properties" in the QuickCheck literature); `:subjects` is per-property explicit attribution at a single point, not a state machine.
+
+**Pacheco-Lahiri-Ernst overallocation discipline.** The unannotated multi-callee diagnostic at side-condition 2 above continues to refuse implicit lift; the `:subjects` metadata is the agent's explicit consent to joint-evidence allocation across the declared callees. The schema-cost trade was deliberate: the additive optional `subjects: [Name]` AST field is a minor bump (`schemaVersion 0.4.0 → 0.5.0`); a conjoint-record alternative (`DLJointTested [Name] n` or a `subjects: [Name]` field on `DLTested`) would have required `trust_report_version 1.2.0`, coupling downstream tooling (notably the repair-loop harness's `Cred(R)` consumer) with a trust-report schema change at Phase 3 launch.
 
 ### 4.5 Suppression Governance (`weakness-ok`)
 

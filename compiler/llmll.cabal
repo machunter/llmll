@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           llmll
-version:        0.10.5
+version:        0.10.6
 synopsis:       LLMLL compiler - AI-to-AI programming language
 description:    Compiler for the Large Language Model Logical Language
 author:         LLMLL Team

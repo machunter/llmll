@@ -24,6 +24,7 @@ import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterface
 import LLMLL.PBT
   ( runPropertyTests, assembleTestStatements
   , PBTResult(..), PBTRun(..), PBTStatus(..)
+  , pbtTrustWriteback
   )
 
 -- ---------------------------------------------------------------------------
@@ -244,7 +245,7 @@ moduleSpec = describe "Module System" $ do
         timesTwoStmt =
           defLogic "times-two" [("n", TInt)] (Just TInt)
             (EOp "*" [EVar "n", ELit (LitInt 2)])
-        checkProp desc body = SCheck (Property desc [] body)
+        checkProp desc body = SCheck (Property desc [] body [])
 
     it "M-08.1: (open imported) makes imported def-logic resolve in FuncEnv" $ do
       -- Imported: (def-logic plus-one [n: int] (+ n 1))
@@ -322,6 +323,45 @@ moduleSpec = describe "Module System" $ do
       case pbtResults result of
         [run] -> pbtStatus run `shouldBe` PBTPassed
         rs    -> expectationFailure $ "expected one run, got " ++ show (length rs)
+
+    -- OBLIG-PBT-4 S8 (proposal §11.1, 2026-05-14): cross-module subjects.
+    -- A ':subjects [localF importedG]' annotation must resolve through
+    -- qualMap so the imported subject keys the writeback under its
+    -- qualified path. The local subject stays bare-local.
+    it "M-08.6: :subjects [local imported] writeback uses qualified key for imported" $ do
+      let importedG = defLogic "g" [("x", TInt)] (Just TInt) (EVar "x")
+          -- Add a postcondition so writeback has a slot to lift on g.
+          importedGContracted =
+            case importedG of
+              SDefLogic n p r _c b ->
+                SDefLogic n p r
+                  (Contract Nothing Nothing
+                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                  b
+              other -> other
+          localF =
+            case defLogic "f" [("x", TInt)] (Just TInt) (EVar "x") of
+              SDefLogic n p r _c b ->
+                SDefLogic n p r
+                  (Contract Nothing Nothing
+                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                  b
+              other -> other
+          importedEnv = mkEnv ["imported"] [importedGContracted]
+          localStmts =
+            [ SImport (Import "imported" Nothing Nothing)
+            , SOpen ["imported"] Nothing
+            , localF
+            , SCheck (Property "cross-mod" []
+                        (EOp "and" [EApp "f" [ELit (LitInt 1)], EApp "g" [ELit (LitInt 2)]])
+                        ["f", "g"])
+            ]
+          cache  = mkCache [importedEnv]
+          result = PBTResult 1 1 0 0 [PBTRun "cross-mod" PBTPassed 100 Nothing]
+          (m, _ds) = pbtTrustWriteback localStmts cache result
+      Map.size m `shouldBe` 2
+      Map.member "f" m         `shouldBe` True   -- bare-local
+      Map.member "imported.g" m `shouldBe` True  -- qualified import
 
     it "M-08.5: fixture-driven loadModule + PBT closes F-018 acceptance criterion" $ do
       -- Files: test/fixtures/pbt-cross-module/{imported,local}.llmll

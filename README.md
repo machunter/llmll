@@ -1,10 +1,10 @@
-# LLMLL — v0.10.5
+# LLMLL — v0.10.6
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
 > See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
-> **v0.10.5 is shipped.** Patch release — PBT complex-type generators + static-evaluator extensions (OBLIG-PBT-2, F-032): `PBT.hs:generateValue` retyped to `TypeAliasEnv → Int → Type → IO Expr` with `TPair` / `TList` / `TResult` / `TSumType` / `TCustom` cases (depth-capped at `maxGenDepth = 5`); `evalExprStaticWith` extended for `EPair` and `ELambda`; `evalBuiltinApp` refactored with new §13 builtins (`pair`/`first`/`second`, list ops, `list-fold`/`list-map` via `applyLambda`, `unwrap-or`/option helpers); `maxFuel` raised 64 → 256; `tryQuickCheck`'s `isSimpleType` whitelist removed. Plus PBT-to-trust-report write-back (OBLIG-PBT-3, F-033): `PBTPassed` results now lift the post clause of the singleton head-position contracted callee to `DLTested n` evidence, persisted with `pbt_witnesses` SHA-256 hashes for staleness invalidation; trust-report emit gains parallel `tier_profile_pre` / `tier_profile_post` aggregates (`trust_report_version: "1.0.0"` → `"1.1.0"` additive); PBT-Lift rule formalised in new `LLMLL.md §4.4.5`. Closes F-032 and F-033. 614 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **v0.10.6 is shipped.** Patch release — `:subject` / `:subjects` keyword metadata on `(check ...)` blocks (OBLIG-PBT-4): explicit-attribution metadata opts a property into per-subject `DLTested n` writeback with shared `pbt_witnesses` cross-link, closing the Pacheco-Lahiri-Ernst overallocation gap left by the v0.10.5 head-position singleton fallback on multi-callee metamorphic-relation properties; JSON-AST `schemaVersion` bumped `0.4.0 → 0.5.0` (additive optional `CheckDecl.subjects`); PBT-Lift rule extended at `LLMLL.md §4.4.5` with the annotated-subject branch. Plus body-side static-eval coverage extension (F-033): `Contracts.hs:evalBuiltinApp` gains an `unwrap` clause; `PBT.hs:runQC` threads an `IORef`-counted body-discard counter through `forAll`; the refined `gaveUpDiag` distinguishes "property body did not reduce on any sample" from precondition-saturation discards. Plus residual builtin coverage (F-034): five new `evalBuiltinApp` clauses (`list-empty`, `list-prepend`, `list-filter`, `int-to-string`, `string-concat-many`) and the `list-head` / `list-tail` Success-wrap correctness fix matching their `Result a string` / `Result (list[a]) string` type-checker signatures. `trust_report_version` stays `1.1.0`; verification fragment unchanged. 640 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -181,7 +181,7 @@ examples/
 docs/
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog (v0.10 shipped)
-  llmll-ast.schema.json     ← JSON-AST schema v0.4.0 (use with AI agents; CheckoutToken introduced v0.3.0)
+  llmll-ast.schema.json     ← JSON-AST schema v0.5.0 (use with AI agents; CheckoutToken introduced v0.3.0; CheckDecl.subjects introduced v0.5.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
   wasm-poc-report.md        ← v0.3.2: GHC WASM feasibility assessment
