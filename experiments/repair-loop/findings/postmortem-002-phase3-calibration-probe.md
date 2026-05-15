@@ -184,3 +184,35 @@ Pre-launch checklist for Phase-3 (from `commit 24ad6a4` surfacing, status update
 | Audit `Launch-commit-hash` field fill | language-team | ⏳ pending (at launch) |
 | `experiments/repair-loop/README.md` phase-table flip | experiment-lead | ⏳ pending (after re-probe clean) |
 | `docs/design/INDEX.md` row for phase3-problem-shape-audit | doc-lead | ⏳ optional, non-blocking |
+
+---
+
+## Addendum 1 (2026-05-15) — F-036 hypothesis 4 (upstream Anthropic service incident) added; re-probe held pending status clear
+
+Operator-supplied context post-postmortem-002 authoring (commit `d149980`): `status.claude.com` was reporting a Claude API / Claude Code incident at the time. The probe window for the Claude cell (2026-05-15T19:24:19Z → 19:33:19Z) plausibly overlapped the incident. This adds a fourth candidate hypothesis to F-036 that postmortem-002 did not enumerate at authoring time:
+
+**4. Upstream Anthropic service incident.** The Claude CLI's API request hung waiting on a degraded backend that returned no response within the 540s ceiling. Produces the same 0-byte-output signature as hypotheses 1–3, but the root cause is service-side and not addressable by harness, manifest, or auth-model changes.
+
+### Implication for the F-036 diagnostic discipline
+
+Re-probing during an active Anthropic service incident contaminates the F-036 signal because hypothesis 4 cannot be distinguished from hypotheses 1–3 on output-shape alone — all four produce 0 bytes. The bumped-timeout re-probe (F-035 remediation, commit `d149980`) was framed in postmortem-002 as the first-pass diagnostic for hypothesis 1 (output buffering). That framing is correct only under the assumption that the Anthropic service is healthy across the re-probe window.
+
+**Re-probe gate:** the calibration probe is held until `status.claude.com` reports Claude API healthy across the intended probe window. Until then, the probe is paused on service-state, not on harness or manifest readiness. Once status is clear and a re-probe runs cleanly, the four-hypothesis space collapses progressively:
+
+- If Claude completes within 1800s with non-zero output: hypotheses 1 / 4 distinguished from 2 / 3 (and the bumped timeout is sufficient remediation; no further harness work needed).
+- If Claude still silent at 1800s under a confirmed-healthy service window: hypotheses 2 / 3 become live and operator-side `ANTHROPIC_API_KEY` work is the next diagnostic.
+- If Claude still silent under a confirmed-healthy window AND `ANTHROPIC_API_KEY` already in scope: a fifth hypothesis is required and postmortem-002's diagnostic landscape was incomplete; surface as Addendum 2.
+
+### Codex side unaffected
+
+Hypothesis 4 is Anthropic-specific. The Codex cell's substantive emission (23-statement solution, 839KB reasoning-trace stderr, 2 verified obligations, 2/6 PBT pass per F-035 evidence) is unaffected by Anthropic service state and remains the clean datum from this probe. F-035's manifest remediation (timeout bump to 1800) and the cost-extrapolation table in F-035's Implication block stand without revision.
+
+### No remediation in this addendum
+
+- No manifest change (the F-035 timeout bump at `d149980` already covers the harness side).
+- No new pre-launch checklist items.
+- The "Claude silence diagnostic" and "Calibration probe end-to-end" rows in the Phase-3 pre-launch checklist remain ⏳ pending with the additional gate-condition: *Anthropic service healthy at probe window*.
+
+### Re-probe authorization, restated
+
+Re-probe requires user authorization *and* a healthy service state. Operator confirms the latter by checking `status.claude.com` at the time of re-probe; if a fresh incident has opened between authorization and launch, the probe is deferred again. The circuit breaker (discipline B at threshold 2) provides a final safety net: if hypothesis 4 recurs at re-probe time, the matrix halts at cell 2 with rc=2 the same way it did at the first attempt, bounding wasted cost.
