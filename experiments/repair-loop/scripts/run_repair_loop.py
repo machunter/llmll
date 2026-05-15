@@ -375,12 +375,22 @@ def _snapshot_solution(
 def _invoke_real_agent(
     *, turn_idx: int, run_dir: Path, turn_dir: Path, agent_cmd: str, timeout: int
 ) -> tuple[int, str | None]:
+    # Substitute the {run_dir} placeholder in the agent cmd with the
+    # absolute per-cell run dir before invocation. Matches the existing
+    # {solution} placeholder pattern at _materialize_argv:472. Used by
+    # agents whose CLIs need an explicit allowed-directory flag
+    # (e.g., `claude --add-dir {run_dir}` per F-036 hypothesis 5 closure,
+    # postmortem-002 Addendum 2). Manifests that do not use the
+    # placeholder are unaffected (str.replace is a no-op when the token
+    # is absent).
+    materialized_cmd = agent_cmd.replace("{run_dir}", str(run_dir.resolve()))
+
     stdout_path = turn_dir / "agent.stdout.log"
     stderr_path = turn_dir / "agent.stderr.log"
     try:
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             result = subprocess.run(
-                agent_cmd,
+                materialized_cmd,
                 cwd=run_dir,
                 shell=True,
                 stdin=subprocess.DEVNULL,

@@ -28,10 +28,10 @@
   "agents": [
     {
       "name": "claude-default",
-      "cmd": "claude --print --allow-dangerously-skip-permissions --no-session-persistence 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "cmd": "claude --print --allow-dangerously-skip-permissions --no-session-persistence --add-dir {run_dir} 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
       "required_env": [],
       "required_executables": ["claude"],
-      "note": "Claude Code CLI 2.1.141; OAuth/keychain auth (ANTHROPIC_API_KEY UNSET on this machine). Stage-1 verified 2026-05-15 at commit 7f323f6. Carried verbatim from manifest.phase3.json."
+      "note": "Claude Code CLI 2.1.141; OAuth/keychain auth (ANTHROPIC_API_KEY UNSET on this machine). Stage-1 verified 2026-05-15 at commit 7f323f6. --add-dir {run_dir} added per postmortem-002 Addendum 2 (F-036 hypothesis 5 remediation): the second probe surfaced that --allow-dangerously-skip-permissions alone is insufficient — Claude Code's session sandbox requires the run dir explicitly added to its allowed-working-directories set before Write/Bash tools can emit solution files. The {run_dir} placeholder is substituted with the absolute per-cell run dir by run_repair_loop.py:_invoke_real_agent before subprocess invocation (matching the existing {solution} placeholder pattern at _materialize_argv:472)."
     },
     {
       "name": "codex-default",

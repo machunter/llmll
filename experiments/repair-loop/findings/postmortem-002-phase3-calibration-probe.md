@@ -216,3 +216,112 @@ Hypothesis 4 is Anthropic-specific. The Codex cell's substantive emission (23-st
 ### Re-probe authorization, restated
 
 Re-probe requires user authorization *and* a healthy service state. Operator confirms the latter by checking `status.claude.com` at the time of re-probe; if a fresh incident has opened between authorization and launch, the probe is deferred again. The circuit breaker (discipline B at threshold 2) provides a final safety net: if hypothesis 4 recurs at re-probe time, the matrix halts at cell 2 with rc=2 the same way it did at the first attempt, bounding wasted cost.
+
+---
+
+## Addendum 2 (2026-05-15) — Re-probe under bumped timeout: F-035 closed; F-036 hypotheses 1–4 refuted; hypothesis 5 confirmed and remediation landed; F-038 (Codex quota) new
+
+Re-probe launched 2026-05-15T21:23:26Z after user authorization at commit `c969c49` (post pre-launch service-status-check codification). Operator confirmed `status.claude.com` Clean before re-launch. Matrix completed at ~21:55Z, rc=1.
+
+### Sample composition (re-probe)
+
+- **Matrix dir:** `experiments/repair-loop/runs/20260515T212326Z-matrix/`.
+- **Wall clock:** ~32 minutes for both cells.
+- **Compiler:** 0.10.6 (discipline A pin verified).
+- **Harness commit:** `d149980` (post-timeout-bump).
+- **Per-cell results:**
+
+| Cell | Agent | Terminal state | Turns | agent_rc | Diagnosis |
+|---|---|---|---|---|---|
+| 1 | `claude-default` | `budget-exhausted` | 5 | 0 (clean each turn) | F-036 hypothesis 5: Claude can't write to run dir |
+| 2 | `codex-default` | `infrastructure-fail` | 1 | 1 (error) | F-038 (new): OpenAI quota exhausted |
+
+### F-035 status — closed
+
+The 540s/turn timeout that motivated postmortem-002 is closed by the 1800s bump at commit `d149980`. Claude completed 5 full turns under the new ceiling with per-turn durations 2:52 to 12:50 (cleanly bounded; no `agent_rc=124`). Codex never hit the ceiling either — it failed at a different point (F-038). The bumped timeout is sufficient remediation for the timeout class of failure; the F-035 finding closes.
+
+### F-036 status — hypotheses 1–4 refuted; hypothesis 5 confirmed
+
+The bumped timeout exposed Claude's actual failure mode, which postmortem-002 did not enumerate. Cell 1 `turns/turn_01/agent.stdout.log` contains 1722 bytes of Claude's own diagnostic narration. Verbatim excerpt:
+
+> **Blocker:** every write attempt to the run directory returns either `Claude requested permissions to write… but you haven't granted it yet` (Write tool) or `Output redirection… was blocked. For security, Claude Code may only write to files in the allowed working directories for this session: '<run-dir>'` (Bash) — even though the destination path is inside the listed allowed directory and `realpath` confirms no symlink mismatch. `dangerouslyDisableSandbox=true` did not change the outcome. … the orchestrator needs to grant `Write` and `Bash(>)` permission for this run directory before re-invoking. No solution file was emitted on this turn.
+
+Claude repeated this diagnosis across all 5 turns with `agent_rc=0` each exit. Terminal state is `budget-exhausted` (not `infrastructure-fail`) because the agent did not error — it ran to budget without producing a solution.
+
+| Original hypothesis (postmortem-002 + Addendum 1) | Status post-re-probe | Why refuted |
+|---|---|---|
+| 1. Output buffering until completion | Refuted | 1722 bytes of stdout in turn 1; no buffering |
+| 2. Subprocess keychain hang | Refuted | Claude authed cleanly and produced reasoning output |
+| 3. Slow startup | Refuted | Claude reached productive task work in <1 min |
+| 4. Anthropic service incident | Refuted | Service responsive; 5 clean exits in ~25 min |
+| **5. Claude Code session sandbox blocks writes to orchestrator-created run dirs** | **Confirmed** | Claude's own narration identifies it |
+
+**Why we saw what we saw.** `--allow-dangerously-skip-permissions` bypasses per-tool confirmation *prompts* but does not extend the *allowed-working-directories sandbox*. The orchestrator creates the per-cell run dir at runtime; Claude Code's session may include it in the allowed-dirs set by cwd (per Claude's own check) yet still gate Write / Bash-redirect tool access behind a separate sandbox-policy check that `--allow-dangerously-skip-permissions` does not override. Codex's `--dangerously-bypass-approvals-and-sandbox` is broader (it explicitly disables the sandbox layer), which is why first-probe Codex emitted a solution file cleanly while Claude across both probes could not.
+
+### F-036 hypothesis 5 remediation — landed in this commit
+
+Two coupled changes:
+
+1. **`run_repair_loop.py:_invoke_real_agent`** gains a `{run_dir}` placeholder substitution. The agent cmd string is `.replace`d with the absolute per-cell run dir before `subprocess.run`. Matches the existing `{solution}` placeholder pattern at `_materialize_argv:472`. Manifests that do not use the placeholder are unaffected (no-op).
+2. **Claude `cmd` in `manifest.phase3.json` and `manifest.phase3-calibration-probe.json`** gains `--add-dir {run_dir}` flag. Per Claude help: `--add-dir <directories...>  Additional directories to allow tool access to`. The substitution at invocation time produces `claude --print --allow-dangerously-skip-permissions --no-session-persistence --add-dir /Users/.../runs/<ts>-<label>-c<NN>-... 'Read AGENT_INSTRUCTIONS.md ...'`.
+
+This is the cheapest candidate from the remediation menu surfaced at Addendum 1's hypothesis-collapse discussion. If `--add-dir` proves insufficient (possible — Claude's narration suggests the run-dir is already in the allowed list per its own read, so adding it explicitly may be a no-op), the next escalation is settings.json injection with explicit Write/Bash permissions per-cell. Third probe is the data move that disambiguates.
+
+### F-038 (new). OpenAI quota exhausted on Codex; operator-side resolution
+
+**Priority:** High (blocks any further Codex-side data this session).
+**Consumer:** operator (no harness or compiler implication).
+
+**Evidence.** Cell 2 `agent.stderr.log` contains:
+
+```
+ERROR: You've hit your usage limit. To get more access now, send a request to your admin or try again at 4:23 PM.
+ERROR: You've hit your usage limit. To get more access now, send a request to your admin or try again at 4:23 PM.
+```
+
+Codex exited rc=1 immediately on first invocation. No reasoning trace, no work product.
+
+**Why we saw what we saw.** OpenAI quota is per-account, per-tier. The first probe (commit `bcnchnm3z`, 19:33–19:42Z) burned Codex tokens at `xhigh` reasoning effort with an 839KB reasoning-trace stderr; combined with any other operator usage that day, the quota was exhausted by the re-probe.
+
+**Implication.** Operator-side, not a harness defect. Resolutions:
+
+1. Wait until the quota reset window (per the error: 4:23 PM operator-timezone).
+2. Upgrade OpenAI plan tier.
+3. Reduce Codex reasoning effort to `medium` (R2 path from F-035 table) to stretch quota per cell; quality-vs-cost trade-off pending baseline data.
+
+The `## Pre-Launch Service Status Check` section at `experiments/repair-loop/README.md` (commit `c969c49`) does not cover this case because OpenAI quota exhaustion is per-account, not service-wide; `status.openai.com` would still show Clean during the operator's quota outage. A procedural pre-launch addition for "API quota headroom" is worth considering but not blocking now — operator-side judgment.
+
+**Acceptance.** Post-quota-reset, a Codex smoke-test or third-probe cell produces non-zero stderr volume and runs through at least one tool-call round.
+
+### F-037 status — discipline B did not fire this time (correct behavior)
+
+Probe configuration: `_circuit_breaker_consecutive_infra_fail: 2`. Cell 1 ended `budget-exhausted` (not infra-fail; `agent_rc=0`); cell 2 ended `infrastructure-fail`. The trailing-1 count of infra-fails when cell 2 finished was 1, below threshold. Discipline B correctly did not trip — the breaker is calibrated to halt cascading service / auth failures, not single-cell quota errors mixed with a non-fail outcome. F-037's defence-in-depth posture preserved.
+
+### Cumulative cost across both probes
+
+| Probe | Claude | Codex | Total |
+|---|---|---|---|
+| First (commit `bcnchnm3z`, 540s timeout) | ~$0–$1 (silent, killed at 540s; small inference cost only) | ~$3–$5 (23-statement solution + 839KB reasoning trace; killed mid-stream) | ~$3–$6 |
+| Re-probe (this addendum, 1800s timeout) | ~$3–$8 (5 turns × default model × multi-tool reasoning) | ~$0 (immediate quota error) | ~$3–$8 |
+| **Cumulative** | **~$3–$9** | **~$3–$5** | **~$6–$14** |
+
+Within the original $5–$15-per-probe budget envelope (cumulative across two probes). No clean per-cell wall+cost datum yet — both probes produced infrastructure-level findings instead of clean H1/H2/H3 signal. Third probe (post-remediation, post-quota-reset) is the data move that pins per-cell numbers for the 81-cell Phase-3 launch budget.
+
+### Re-probe gate-conditions, updated for third probe
+
+| Gate | Status post-this-commit |
+|---|---|
+| Anthropic service Clean at `status.claude.com` | Operator-checks at third-probe launch authorization |
+| OpenAI quota headroom on operator account | ⏳ wait for reset (~4:23 PM operator-time) or upgrade |
+| F-036 hypothesis 5 remediation (Claude `--add-dir` + harness placeholder substitution) | ✅ landed in this commit |
+| Manifest 1800s timeout for paid agents (F-035) | ✅ landed at commit `d149980` |
+| Pre-launch service status check codified in README | ✅ landed at commit `c969c49` |
+
+### No further postmortem-002 addenda anticipated
+
+Third probe outcomes (clean or otherwise) will land as either:
+
+- A short follow-up entry in `experiments/repair-loop/README.md` Phase-3 row table if the probe is clean and Phase-3 launch becomes the next live work item.
+- A new `findings/postmortem-003-...md` if the third probe surfaces sufficiently new findings to warrant a fresh document (e.g., the `--add-dir` remediation proves insufficient and settings.json-injection escalation needs adjudication).
+
+Addendum 2 closes the postmortem-002 active findings cycle on F-035, F-036, and F-038 modulo third-probe confirmation. F-037 stays defence-in-depth status.
