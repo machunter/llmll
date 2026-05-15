@@ -51,17 +51,17 @@
   "agents": [
     {
       "name": "claude-default",
-      "cmd": "claude --print 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
-      "required_env": ["ANTHROPIC_API_KEY"],
+      "cmd": "claude --print --allow-dangerously-skip-permissions --no-session-persistence 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "required_env": [],
       "required_executables": ["claude"],
-      "note": "PLACEHOLDER — verify Claude Code CLI invocation pattern against current `claude --version` install before launch. The --print form passes a single-shot prompt; confirm quoting conventions and any required flags (--model, --output-format) for the launch model. Phase-3 launch checklist item; do not run as-is."
+      "note": "Claude Code CLI 2.1.141, default model. Verified 2026-05-15 — smoke-test of `claude --print --allow-dangerously-skip-permissions --no-session-persistence 'Reply with the literal word OK'` returned OK cleanly. Flag rationale: --print = non-interactive entry; --allow-dangerously-skip-permissions = bypass per-tool confirmation prompts (subprocess analog of gemini --skip-trust; safe under per-cell run-dir isolation); --no-session-persistence = clean per-cell isolation, sessions not saved to disk. AUTH NOTE: --bare flag was considered but dropped because it requires ANTHROPIC_API_KEY env var; on this machine Claude auths via OAuth/keychain session (no env var set). If operator wants API-key auth: set ANTHROPIC_API_KEY, add --bare back to the cmd, and set required_env: [\"ANTHROPIC_API_KEY\"]. Current required_env is empty — pre-flight check trusts the OAuth session is alive, which the stage-1 smoke test confirmed."
     },
     {
       "name": "codex-default",
-      "cmd": "codex exec 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
       "required_env": ["OPENAI_API_KEY"],
       "required_executables": ["codex"],
-      "note": "PLACEHOLDER — verify OpenAI Codex CLI invocation pattern against current install before launch. Confirm `exec` subcommand and prompt-arg quoting. Phase-3 launch checklist item; do not run as-is."
+      "note": "Codex CLI 0.130.0, default model gpt-5.5 (xhigh reasoning effort per Codex defaults). Verified 2026-05-15 — smoke-test of `codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check 'Reply with the literal word OK'` returned OK cleanly in 1,367 tokens. Flag rationale: exec = non-interactive subcommand; --dangerously-bypass-approvals-and-sandbox = bypass per-tool confirmation prompts (intended for externally-sandboxed environments, which the per-cell run-dir provides); --skip-git-repo-check = allow running outside a git repo (per-cell run dirs are not git repos). Auth via OPENAI_API_KEY env var."
     },
     {
       "name": "gemini-default",
