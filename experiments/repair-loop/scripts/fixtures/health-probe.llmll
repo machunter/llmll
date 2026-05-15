@@ -1,18 +1,17 @@
 ;; Stop-fast discipline C — minimal LLMLL fixture exercised by
-;; run_matrix.py:check_prereqs to confirm the `llmll` binary on PATH is
-;; healthy (can parse, type-check, and run the verifier end-to-end on a
-;; trivial program). Acceptance: `llmll check` exits 0 on this file.
-;; If `llmll` is on PATH but broken (missing runtime dep, corrupt
-;; binary, stale ~/.llmll/ cache), this probe fails and the matrix
-;; aborts before any cell runs.
+;; run_matrix.py:check_prereqs (check_compiler_health) to confirm the
+;; `llmll` binary on PATH is healthy: it can parse and type-check a
+;; trivial program. Acceptance: `llmll check` exits 0 on this file.
+;;
+;; If `llmll` is on PATH but broken (corrupt binary, missing runtime
+;; dep, stale ~/.llmll/ cache), this probe fails and the matrix aborts
+;; before any cell runs.
 ;;
 ;; Keep this fixture minimal — additional features risk false-negatives
-;; under future compiler changes. Only int arithmetic + a trivial
-;; contracted function. No imports, no holes, no PBT.
+;; under future compiler changes. Trivial int-identity with a post
+;; clause that type-checks but does not exercise SMT verification
+;; (discipline C calls `llmll check`, not `llmll verify`).
 
-(def-logic identity-int
-  :type [(int) -> int]
-  :pre  (true)
-  :post (= result n)
-  (lambda (n)
-    n))
+(def-logic identity-int [n: int]
+  (post (= result n))
+  n)
