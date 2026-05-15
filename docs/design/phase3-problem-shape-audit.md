@@ -19,10 +19,10 @@ The immutability property — that registered predictions cannot be silently ret
 Per-problem prediction bindings differ by what exists on disk at audit-authoring time:
 
 - **`002-bank-ledger`** — binds to the testkit problem statement at `experiments/repair-loop/problems/002-bank-ledger.md` (67 lines; commit `7a9b379` parent state). This is the only Phase-3-style testkit problem statement on disk; the binding is direct and full.
-- **`001-hangman`** — binds to the design-doc *sketch* at `docs/design/language-comparison-experiments.md:253-301` (commit `7a9b379` state). No testkit problem statement file exists on disk; the binding is sketch-only.
-- **`003-rate-limiter`** — binds to the design-doc *sketch* at `docs/design/language-comparison-experiments.md:354-401` (commit `7a9b379` state). No testkit problem statement file exists on disk; the binding is sketch-only.
+- **`001-hangman`** — binds to the testkit problem statement at `experiments/repair-loop/problems/001-hangman.md` (commit `24ad6a4` state). Authored at the Phase-3 bootstrap as an additive sharpening of the design-doc sketch at `docs/design/language-comparison-experiments.md:253-301` (commit `7a9b379` state); no material divergence found by language-team comparison 2026-05-15 (Required state, Required API, Behavioral Requirements, and LLMLL Assurance Requirements all preserved; additive content: explicit QF-LIA Classification section, explicit lower-bound `post apply-guess` clause, sharper API contract wording, explicit H3 expectation). Sketch-bound predictions stand without revision.
+- **`003-rate-limiter`** — binds to the testkit problem statement at `experiments/repair-loop/problems/003-rate-limiter.md` (commit `24ad6a4` state). Authored at the Phase-3 bootstrap as an additive sharpening of the design-doc sketch at `docs/design/language-comparison-experiments.md:354-401` (commit `7a9b379` state); no material divergence found by language-team comparison 2026-05-15 (Required state, Required API, Behavioral Requirements, and LLMLL Assurance Requirements all preserved; additive content: explicit QF-LIA Classification section, sharper refill-semantics description with explicit `last_tick`-advance-on-deny clarification, stronger directive against silent assertion on the refill nonlinearity, explicit H3 expectation). Sketch-bound predictions stand without revision.
 
-If a testkit problem statement file for `001-hangman` or `003-rate-limiter` is authored later by the experiment-lead and diverges from the sketch this audit binds to, the divergence is recorded as a dated addendum naming the new testkit pin and re-stating the affected predictions against the new statement. The original sketch-bound predictions stand in this file at the launch-commit hash.
+Testkit files for `001-hangman` and `003-rate-limiter` were authored at bootstrap commit `24ad6a4` (2026-05-15). Language-team comparison against the design-doc sketches found no material divergence on either problem (both files are additive sharpenings — Required state, API, Behavioral Requirements, and LLMLL Assurance Requirements preserved; new content limited to explicit QF-LIA Classification sections, sharper API / semantics wording, and explicit H3 expectations). Pin bindings have been rebound in place to the testkit files under the pre-launch in-place-edit window; no addendum was required. The per-problem prediction bands below stand without revision. If the testkit files are subsequently revised between this in-place rebind and matrix launch, divergence handling reverts to the original protocol: dated addendum at file end re-stating affected predictions, never an in-place edit.
 
 **Calibration-informed-extrapolation caveat (002 only).** The `002-bank-ledger` predictions are *informed by* Phase-2 Addendum-19 empirical data on gemini-default × c01 / c02 / c03 / c01-subjects / c02-subjects (`experiments/repair-loop/findings/postmortem-001-apparatus-validation.md` Addendum 19, 2026-05-15). Predictions about Phase-3 cells on agents (Claude, Codex) that did not run Phase-2 are unseen-data predictions; predictions about gemini-default Phase-3 cells on `002-bank-ledger` are informed extrapolation rather than blind pre-registration. Post-hoc analysis on the gemini-default-002 cells is read with this caveat. The audit's predictions for the unseen agent rotation are the primary pre-registration claim on this problem; the gemini-default cells function as a sanity-check anchor.
 
@@ -77,7 +77,7 @@ Recommended-first-milestone Phase-3 shape (`docs/design/language-comparison-expe
 
 ## 001 — Hangman
 
-**Binding:** `docs/design/language-comparison-experiments.md:253-301` (sketch; commit `7a9b379` state). No testkit problem statement file on disk at audit pin.
+**Binding:** `experiments/repair-loop/problems/001-hangman.md` (commit `24ad6a4` state). Rebound from design-doc sketch at `docs/design/language-comparison-experiments.md:253-301` (commit `7a9b379` state) in place 2026-05-15; no material divergence. See §"Pin bindings" header for the comparison summary.
 
 ### Canonical body shape (predicted)
 
@@ -122,7 +122,7 @@ n = 9 LLMLL cells (3 agents × 3 tries) under recommended-first-milestone shape.
 
 ## 003 — Token Bucket Rate Limiter
 
-**Binding:** `docs/design/language-comparison-experiments.md:354-401` (sketch; commit `7a9b379` state). No testkit problem statement file on disk at audit pin.
+**Binding:** `experiments/repair-loop/problems/003-rate-limiter.md` (commit `24ad6a4` state). Rebound from design-doc sketch at `docs/design/language-comparison-experiments.md:354-401` (commit `7a9b379` state) in place 2026-05-15; no material divergence. See §"Pin bindings" header for the comparison summary.
 
 ### Canonical body shape (predicted)
 
