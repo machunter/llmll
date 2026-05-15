@@ -5,7 +5,8 @@
   "targets": ["llmll", "python", "go"],
   "run_count": 3,
   "repair_budget_k": 5,
-  "timeout_seconds_per_turn": 540,
+  "timeout_seconds_per_turn": 1800,
+  "_timeout_note": "Bumped from 540 to 1800 per postmortem-002-phase3-calibration-probe.md F-035 (2026-05-15). Phase-2 calibration's 540s was Gemini-calibrated; Claude Code 2.1.141 and Codex 0.130.0 at default reasoning effort need more headroom. Gemini under 1800 still completes well under the ceiling — the higher ceiling does not slow Gemini cells. Wall-clock budget implication: 81 cells × k=5 worst-case × 1800s = ~200 hrs serial; typical 30-40 min/cell × 81 ≈ 40-55 hrs. Cost re-estimate: $200-$800 depending on per-cell turn count and agent reasoning effort. Pre-launch calibration re-probe is the data move that pins the actual numbers.",
   "llmll_cmd": "llmll",
 
   "terminal_target": {

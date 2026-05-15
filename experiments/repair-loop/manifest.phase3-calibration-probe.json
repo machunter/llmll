@@ -5,7 +5,8 @@
   "targets": ["llmll"],
   "run_count": 1,
   "repair_budget_k": 5,
-  "timeout_seconds_per_turn": 540,
+  "timeout_seconds_per_turn": 1800,
+  "_timeout_note": "Bumped from 540 to 1800 per postmortem-002-phase3-calibration-probe.md F-035 (2026-05-15): both Claude Code 2.1.141 and Codex 0.130.0 hit the 540s ceiling on turn 1 in the first probe attempt. Codex emitted a substantive 23-statement solution before being killed; Claude emitted 0 bytes (F-036 is the orthogonal diagnostic on Claude's silence — bumped timeout may also disambiguate it if hypothesis 1 / output-buffering is the cause). Phase-2 calibration's 540s was Gemini-calibrated; paid agents at default reasoning effort need more headroom.",
   "llmll_cmd": "llmll",
 
   "terminal_target_per_target": {
