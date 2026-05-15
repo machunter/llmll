@@ -223,6 +223,24 @@ runs/<batch-id>-<batch_label>/
   resuming).
 - `--llmll-cmd <cmd>` — override `manifest.llmll_cmd` for this invocation.
 
+## Pre-Launch Service Status Check
+
+Before launching any matrix that includes paid agents, confirm each LLM provider's status page reports a healthy service across the intended probe / launch window. Provider incidents produce the same 0-byte-output failure signature as harness or auth bugs (`findings/postmortem-002-phase3-calibration-probe.md` F-036 hypothesis 4, 2026-05-15) and silently contaminate the diagnostic signal — circuit breaker B catches the consequence but does not distinguish the cause, so a probe launched during a degraded window costs probe-budget and answers no design question.
+
+| Provider | Agent | Status URL |
+|---|---|---|
+| Anthropic | `claude-default` (Claude Code CLI) | `https://status.claude.com` |
+| OpenAI | `codex-default` (codex-cli) | `https://status.openai.com` |
+| Google | `gemini-default` (Gemini CLI) | `https://status.cloud.google.com` — Gemini API runs under the Google Cloud / Vertex AI status surface; verify the operator-relevant region and product are reporting Clean before launch |
+
+Operator-side discipline (no harness-side automation):
+
+1. Open each provider's status URL at the time of launch authorization. Confirm Clean state across all of: the API endpoint the agent CLI calls, the region the operator's account uses, and the model identifier in the manifest.
+2. If any provider reports a degraded incident affecting any of the above, defer the matrix launch until the incident clears. A fresh incident opening between this check and `run_matrix.py` invocation re-introduces the contamination risk; tightening the gate to "Clean throughout the launch window" is operator judgment.
+3. Once launched, the provider's status state during the run is captured implicitly via per-cell `agent.stdout.log` and `agent.stderr.log` artifacts plus `repair_loop_log.json:agent_rc`. If a cell exits with `agent_rc=124` (Unix timeout) and 0-byte agent stdout/stderr, the diagnostic landscape includes a service-incident hypothesis alongside output-buffering / auth / startup hypotheses (postmortem-002 F-036).
+
+Programmatic status-check automation (HTTP fetch + parse of each provider's status page) is *not* implemented as a stop-fast discipline because provider status-page formats vary, change without notice, and are slow-moving relative to the probe cadence. Operator-side 30-second check is the cheaper discipline. Circuit breaker B remains the runtime safety net if an incident opens mid-run.
+
 ## Stop Policy
 
 Each cell runs *up to* `repair_budget_k` turns. Each turn:
