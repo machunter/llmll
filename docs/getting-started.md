@@ -581,8 +581,8 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.4.0",
-  "llmll_version": "0.10.2",
+  "schemaVersion": "0.5.0",
+  "llmll_version": "0.10.6",
   "statements": [ ... ]
 }
 ```
@@ -593,7 +593,7 @@ The compiler rejects mismatched versions immediately. **Strict mode:** only the 
 
 | Field | Meaning |
 |-------|---------|
-| `schemaVersion` | Version of the JSON-AST schema shape — this is what the compiler gates on. v0.10.2 bumped this to `0.4.0` to signal the new identifier-shape regex on `ExprApp.fn` and `ExprQualApp.qual_fn`. |
+| `schemaVersion` | Version of the JSON-AST schema shape — this is what the compiler gates on. v0.10.2 bumped this to `0.4.0` to signal the new identifier-shape regex on `ExprApp.fn` and `ExprQualApp.qual_fn`; v0.10.6 bumped it to `0.5.0` for the additive optional `CheckDecl.subjects` field (OBLIG-PBT-4 `:subject` / `:subjects` keyword metadata on `(check ...)` blocks). |
 | `llmll_version` | Version of the LLMLL compiler that emitted this file. Informational only — the compiler does not validate this field. Decoupled from `schemaVersion` (the schema bumps independently of the language version). |
 
 **Upgrade path:** bump `schemaVersion` in `docs/llmll-ast.schema.json`, update `expectedSchemaVersion` in `ParserJSON.hs`, re-emit fixtures.
@@ -1280,7 +1280,33 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 **Generator caps.** `maxGenDepth = 5` (recursion depth on aliases and nested types); `listMaxLen = 8` (max generated list length). Properties whose bindings include function types, promises, or free type variables still skip — the catch-all falls back to an integer sample those types cannot accept.
 
 > [!NOTE]
-> **F-033 limitation.** A `PBTPassed` result does not yet lift trust-report obligations from `asserted` to `tested`. The PBT-to-trust-report write-back is tracked as OBLIG-PBT-3.
+> **F-033 status.** Closed by OBLIG-PBT-3 / v0.10.5: `PBTPassed` lifts `csPost` on the singleton head-position contracted callee to `DLTested n`. For multi-callee properties, see §4.23 below.
+
+### §4.23 PBT Subject Annotation (`:subject` / `:subjects`) (v0.10.6+)
+
+`(check ...)` blocks can carry an optional `:subject f` (singleton sugar) or `:subjects [f₁ … fₖ]` (joint form) keyword between the description string and the `(for-all …)` body. Annotated properties bypass the head-position scan at the OBLIG-PBT-3 PBT-Lift writeback site and explicitly attribute the `DLTested n` evidence to each named subject under the [LLMLL.md §4.4.5](../LLMLL.md#445-pbt-derived-trust-evidence) `PBT-Lift-Annotated` rule.
+
+```lisp
+;; Singleton sugar — equivalent to (check :subjects [transfer] …)
+(check "transfer preserves total balance" :subject transfer
+  (for-all [l: Ledger, f: Account, t: Account, a: int]
+    (= (total-balance l)
+       (total-balance (unwrap-or (transfer l f t a) l)))))
+
+;; Joint form — three subjects share one pbt_witnesses hash
+(check "transfer well-formedness" :subjects [transfer balance has-account?]
+  (for-all [l: Ledger, f: Account, t: Account, a: int]
+    (and (>= (balance (unwrap-or (transfer l f t a) l) f) 0)
+         (has-account? (unwrap-or (transfer l f t a) l) f))))
+```
+
+✅ **Works under v0.10.6+.** Each declared subject `fᵢ` whose contract has a `post` clause receives its own `DLTested n` evidence record in `.verified.json`; all per-subject records share one `pbt_witnesses` hash (the canonical-body serialization of `propBody`), so joint provenance is detectable by inspection of the shared hash. Subjects without a postcondition are skipped with an informational diagnostic from `llmll test` — the remaining annotated subjects still lift. Cross-module subjects (declared on imported functions reached via `(open path …)`) key under their qualified path `lib.f` in the local sidecar.
+
+**Parse-time rules.** Empty `:subjects []` is rejected with a parse-time diagnostic (S6). Duplicates are deduped (`:subjects [f f]` produces one record per `f`). Both sexp and JSON-AST surfaces support the metadata: the JSON-AST shape is `CheckDecl.subjects: ["f₁", …]` under the v0.5.0 schema.
+
+**When to use.** Use `:subjects` when one property's body covers multiple contracted callees and you want each to receive its own `DLTested` evidence — for example metamorphic-relation properties (Hughes 2020 *How to Specify It!* §3) where a structural identity holds across a chain of operations. Without the annotation, the v0.10.5 head-position-singleton fallback applies: the unannotated multi-callee diagnostic at [LLMLL.md §4.4.5](../LLMLL.md#445-pbt-derived-trust-evidence) refuses implicit lift to avoid Pacheco-Lahiri-Ernst overallocation across independent callees. The annotation is the agent's explicit consent to joint-evidence allocation.
+
+**Old workaround (pre-v0.10.6):** the only routes to per-callee evidence on a multi-callee property were (a) splitting the single property into one `(check ...)` block per callee (which often loses the metamorphic shape the property was designed to test) or (b) accepting the singleton-fallback diagnostic and recording no PBT-derived evidence. Both routes lost the joint-evidence signal.
 
 ---
 
