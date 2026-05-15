@@ -35,7 +35,7 @@
 ### Empirical close-state
 
 - **c01-shape (OBLIG-PBT-4) closed empirically** under the Addendum-18 re-probe: c01-subjects (5/5 tries) emit per-subject `DLTested(100)` records with shared canonical-body hash; 4/5 tries lift `tier_profile_post.tested = 1` (the remaining 1/5 missed on orthogonal near-threshold QC variance, not an OBLIG-PBT-4 defect). The 3 contracted callees with `asserted` upstream dependencies remain correctly bounded by R6d's `effective_level` body-faithful meet.
-- **c02/c03-shape (F-034) gated on Addendum-18 acceptance.** The named acceptance criterion (`samples_run ≥ 1` on `c02/solution.k*.llmll` and `c03/solution.k*.llmll`) is the empirical re-run gate; static-evaluator coverage above is the engineer-side change.
+- **c02/c03-shape (F-034) closed empirically** under the Addendum-19 re-probe (2026-05-15) on the v0.10.6-shipped binary: c02 **10/10** and c03 **10/10** property×try records achieve `samples_run ≥ 1` (Addendum-18 candidate-binary baseline: 0/10 + 0/10). PBTPassed rates c02 9/10, c03 7/10; residual PBTSkipped on both shapes is near-threshold QC precondition-failure discard, orthogonal to F-034. Run: `experiments/repair-loop/runs/20260515T072155Z-reprobe-pbt45-c01c02c03-v0.10.6-shipped/`. Addendum-19 additionally validates the OBLIG-PBT-4 `:subjects` path on c02-shape end-to-end (c02-subjects 3/5 tries `tier_profile_post.tested ≥ 1`).
 
 ### What this does NOT close
 
