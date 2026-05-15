@@ -41,7 +41,7 @@ This lets LLMLL's verification surface matter without making the experiment unfa
 ## Proposed Framework Shape
 
 ```text
-experiments/language-comparison/
+experiments/repair-loop/
   README.md
   manifest.example.json
   problems/
@@ -70,6 +70,8 @@ experiments/language-comparison/
     evaluate_run.py
     compare_runs.py
 ```
+
+**Implementation status (2026-05-15).** This framework shape is implemented at `experiments/repair-loop/` (the directory name is historical — the harness originated as repair-loop apparatus validation and matured into the cross-language harness over Phase 1 / Phase 2). The shape above describes the *intended* surface; the actual repair-loop has three targets (`llmll`, `python`, `go`), three scripts (`evaluate_run.py`, `run_matrix.py`, `run_repair_loop.py`) absorbing the work of the five sketched, and one of three problems (`002-bank-ledger`) with full Python + Go testkits. TypeScript / Rust adapters and the `001-hangman` / `003-rate-limiter` problem-and-testkit subtrees are pending in-place extension before Phase-3 launch. The framework shape above remains the canonical *design* statement; deltas relative to it are tracked in `experiments/language-comparison-backlog.md` and addressed by the experiment-lead.
 
 The split between `problems/`, `targets/`, and `testkits/` is the main design point.
 

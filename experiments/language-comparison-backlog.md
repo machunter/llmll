@@ -1,8 +1,8 @@
 # Experiment-Lead Backlog — Cross-Language Harness (pre-bootstrap)
 
-**Status:** Pre-bootstrap. The cross-language harness directory `experiments/language-comparison/` does not yet exist; bootstrapping it is a separate authorize-and-do step against the design note at `docs/design/language-comparison-experiments.md`. This file is the experiment-lead's pre-bootstrap tracking surface for items routed to the role but blocked on trigger conditions that have not yet fired.
+**Status:** Pre-Phase-3-launch. The cross-language harness is implemented at `experiments/repair-loop/` (the historical directory name; the harness matured from repair-loop apparatus validation into the cross-language harness over Phase 1 / Phase 2). This file is the experiment-lead's tracking surface for items routed to the role but blocked on trigger conditions that have not yet fired. Phase-3 launch readiness is addressed by in-place extension of `experiments/repair-loop/`, not by greenfield bootstrap of a new directory.
 **Date opened:** 2026-05-15.
-**Locus rationale:** Single file at the `experiments/` root. Minimum scaffolding — does not speculatively create `experiments/language-comparison/` ahead of full bootstrap. On bootstrap, this file moves to `experiments/language-comparison/BACKLOG.md` via `git mv`; references in `docs/design/language-comparison-experiments.md` are updated at that time. The repair-loop directory at `experiments/repair-loop/` is the de-facto current cross-language harness in Phase 2/3 calibration scope, but is not the eventual launch home for the items below.
+**Locus rationale:** Single file at the `experiments/` root. The cross-language harness at `experiments/repair-loop/` is the launch home; this backlog file is the experiment-lead's pre-Phase-3 tracking surface and lives at the root rather than inside `experiments/repair-loop/` to keep it visible as cross-cutting work (it lists items that span the harness, the design doc, and the methodology surface). It can later move into `experiments/repair-loop/BACKLOG.md` via `git mv` if cross-cutting visibility ceases to matter; the cost of the move is small and decoupled from Phase-3 launch.
 **Source for both entries:** Language-team adjudication 2026-05-15, routed from professor's three assignments. Methodology-discipline bundle (A1 immutability extension + A2-spec `prediction_match` field + A3 documentation-scope footnote) landed in the same turn at `docs/design/language-comparison-experiments.md` §"Experimental Controls" #7a, §"Target Adapter Shape", §"Reporting Output", §"Open Design Questions" #3.
 
 ---
@@ -14,7 +14,7 @@
 
 ### Trigger
 
-Cross-language harness exists at `experiments/language-comparison/` (or successor directory) with per-cell `evaluation.json` emission. The repair-loop harness at `experiments/repair-loop/scripts/run_repair_loop.py` does **not** satisfy this trigger — it is calibration-scoped (Phase 2/3 of `findings/postmortem-001-apparatus-validation.md`) and emits a different result row structure (`repair_loop_log.json:turns[].verifier_results`, not `evaluation.json`).
+The cross-language harness at `experiments/repair-loop/` gains per-cell `prediction_match`-aware result aggregation. The harness currently emits `matrix_report.json` (top-level) plus `cells/cell_NN/manifest.json` (per-cell) and per-attempt turn-by-turn artifacts (`solution.kN.llmll`, `verify.kN.json`, etc.); it does not currently emit a per-cell `evaluation.json` in the schema sketched at `docs/design/language-comparison-experiments.md:549-580`. B-1's substantive work is the schema extension — either growing a per-cell `evaluation.json` analog or threading `prediction_match` into the existing `matrix_report.json:cells[]` entries — whichever the experiment-lead adjudicates at implementation time as the smaller change.
 
 ### Deliverable when triggered
 
@@ -77,7 +77,7 @@ A side-arm postmortem produces a per-target signal comparable in shape to the la
 - **S7 audit substantive content** (`docs/design/phase3-problem-shape-audit.md` per-problem predicted verification-path engagement) — language-team-owned; the upstream artifact B-1's comparison logic binds to.
 - **`manifest.phase3.json` authoring** — blocked on user adjudication of S1–S8 from the 2026-05-15 language-team Phase-3 scope-decision turn (S1 per-target predicate shape, S2 `:subjects` discipline, S3 cross-paradigm Assurance tuple, S4 `--strict-verified-core` policy, S5 spec-coverage role in `Cred`, S6 R5a doc-lead hand-off, S7 audit, S8 documentation depth at run-prep). Manifest authoring is experiment-lead-owned downstream of those adjudications.
 - **R5a match-arm canonical-form patch** (`LLMLL.md §3.3` informal examples) — documentation-lead-owned via the S6 hand-off.
-- **Cross-language harness bootstrap** (the `experiments/language-comparison/{README.md, manifest.example.json, problems/, prompts/, targets/, testkits/}` scaffold per `docs/design/language-comparison-experiments.md` §"Proposed Framework Shape") — blocks both B-1 and B-2; is itself an authorize-and-do step that the user orchestrates against the design note.
+- **In-place Phase-3 extension of `experiments/repair-loop/`** — authoring the `001-hangman` and `003-rate-limiter` problem statements and Python + Go testkits, plus `manifest.phase3.json`, plus toolchain pins (Python / Go versions in the manifest preamble). This is the experiment-lead's substantive pre-launch work and is not a backlog item — it is a same-session bootstrap directly downstream of S1–S5 / S8 adjudication. Once it lands, B-1's "harness emits the field" precondition is unblocked.
 
 ## Closure protocol
 
