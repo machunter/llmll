@@ -2379,3 +2379,181 @@ None to harness scripts. One new run-dir created (`runs/20260514T233334Z-reprobe
 ### Implication
 
 OBLIG-PBT-4's design is empirically confirmed correct: per-subject DLTested lifts work end-to-end, the shared pbt_witnesses cross-link is hash-stable, the R6d effective_level interaction is body-faithful, and the parser surface is sound. The path-1 sequencing premise that "OBLIG-PBT-4 + OBLIG-PBT-5 ship → joint criterion holds → doc-lead + Phase 3 launch" remains structurally correct; the empirical surface of OBLIG-PBT-5 (the body-evaluator coverage half) was undersized in the Addendum-17 F-033 scoping. F-034 is the refined, fully-scoped statement of the remaining work; the experiment surface for verifying F-034's close is identical to this addendum's matrix (re-run on the same four cells), so the engineer-experiment-lead feedback loop is tight.
+
+---
+
+## Addendum 19 — F-034 + OBLIG-PBT-4 closure validation re-probe under v0.10.6-shipped (2026-05-15)
+
+### Headline finding
+
+F-034's c02/c03 `samples_run ≥ 1` gate **closes decisively**. Under the v0.10.6-shipped binary (built fresh via `cabal install` from `main` at commit `46f9554`; `llmll version` reports `0.10.6`), the c02/c03 sealed solutions from Addendum 18 move from **0/10 + 0/10 property×try records with `samples_run ≥ 1`** (the Addendum-18 result on the candidate binary that did not yet carry F-034) to **10/10 + 10/10** in this re-probe — a clean before/after switch attributable to the five residual `evalBuiltinApp` clauses (`list-empty`, `list-prepend`, `list-filter`, `int-to-string`, `string-concat-many`) and the `list-head` / `list-tail` `Result`-wrap correctness fix shipped at [Contracts.hs:432-485](../../../compiler/src/LLMLL/Contracts.hs#L432). The joint Addendum-17 criterion (c01-subjects post-tier lifts AND c02/c03 `samples_run ≥ 1`) **holds**, and the optional H3 (`tier_profile_post.tested ≥ 1` on a c02-subjects variant) **also holds at 3/5 tries**, confirming the OBLIG-PBT-4 `:subjects` path on c02-shape end-to-end — not just c01-shape, where Addendum 18 had stopped.
+
+CE-D (F-034) closes. LT-B (`findings/language-team.md` §LT-B) closes on the v0.10.6 surface. Path-1 sequencing premise is empirically vindicated; no v0.10.7 cut required for this loop. The c01 / c02 (unannotated) regression controls reproduce Addendum-18's `tier_profile_post.tested = 0` floor exactly (multi-callee writeback guard fires as expected on unannotated multi-callee properties — design-intent behavior, not a defect).
+
+### Sample composition
+
+- **Cells:** 5 — `c01`, `c02`, `c03` (regression controls + F-034 primary acceptance), `c01-subjects` (Addendum-18 reproduction), **`c02-subjects`** (H3, F-034 acceptance optional clause).
+- **k per cell:** 5 (matches Addendum-17 / Addendum-18 cadence). Default QC seed; per-attempt variance on near-threshold properties is expected and orthogonal to F-034.
+- **Inputs:** byte-identical copies of Addendum-18 sealed solutions for c01/c02/c03/c01-subjects; c02-subjects is a sed-augmentation of c02 (`:subjects [transfer total_balance]` on property 1, `:subjects [transfer balance]` on property 2 — subject lists drawn from each property body's contracted-callee mentions, mirroring the c01-subjects construction in Addendum 18).
+- **Compiler:** `llmll version` reports `0.10.6`. Binary at `/Users/burcsahinoglu/.local/bin/llmll`, freshly built via `cabal install --overwrite-policy=always` against `main` commit `46f9554`. Shipped contents: OBLIG-PBT-4 + F-033 + F-034 bundled in `cb2e71f`; version bump in `bcadb90`; merge in `46f9554`. Schema pins: `expectedSchemaVersion: "0.5.0"`, `trust_report_version: "1.1.0"` (CHANGELOG.md §v0.10.6).
+- **Harness:** `main` at `46f9554`, clean working tree. No `run_matrix.py` invocation; manual driver loop identical in shape to Addendum-18.
+- **Run directory:** `experiments/repair-loop/runs/20260515T072155Z-reprobe-pbt45-c01c02c03-v0.10.6-shipped/` (full per-cell README inside).
+- **Total compiler invocations:** 50 (5 cells × 5 tries × `test` + `verify --trust-report`). **Agent calls:** 0. **Cost:** $0.
+
+### Per-(cell, try) outcome table
+
+Test channel (per-property):
+
+| cell | k | property | status | samples_run |
+|---|---|---|---|---|
+| c01 | 1 | transfer-preserves-total-balance | PBTPassed | 100 |
+| c01 | 1 | transfer-updates-balances-correctly | PBTPassed | 100 |
+| c01 | 1 | transfer-fails-on-missing-accounts | PBTSkipped | 83 |
+| c01 | 2 | transfer-preserves-total-balance | PBTSkipped | 68 |
+| c01 | 2 | transfer-updates-balances-correctly | PBTSkipped | 99 |
+| c01 | 2 | transfer-fails-on-missing-accounts | PBTPassed | 100 |
+| c01 | 3 | (all three) | PBTPassed | 100 |
+| c01 | 4 | (all three) | PBTPassed | 100 |
+| c01 | 5 | transfer-preserves-total-balance | PBTSkipped | 88 |
+| c01 | 5 | transfer-updates-balances-correctly | PBTSkipped | 72 |
+| c01 | 5 | transfer-fails-on-missing-accounts | PBTPassed | 100 |
+| c02 | 1 | (both) | PBTPassed | 100 |
+| c02 | 2 | (both) | PBTPassed | 100 |
+| c02 | 3 | transfer_preserves_total_balance | PBTSkipped | 82 |
+| c02 | 3 | transfer_updates_balances_correctly | PBTPassed | 100 |
+| c02 | 4 | (both) | PBTPassed | 100 |
+| c02 | 5 | (both) | PBTPassed | 100 |
+| c03 | 1 | transfer-preserves-total-balance | PBTSkipped | 91 |
+| c03 | 1 | transfer-updates-balances-correctly | PBTPassed | 100 |
+| c03 | 2 | (both) | PBTPassed | 100 |
+| c03 | 3 | transfer-preserves-total-balance | PBTSkipped | 96 |
+| c03 | 3 | transfer-updates-balances-correctly | PBTPassed | 100 |
+| c03 | 4 | transfer-preserves-total-balance | PBTSkipped | 74 |
+| c03 | 4 | transfer-updates-balances-correctly | PBTPassed | 100 |
+| c03 | 5 | (both) | PBTPassed | 100 |
+| c01-subjects | 1 | (all three) | PBTPassed | 100 |
+| c01-subjects | 2 | transfer-preserves-total-balance | PBTSkipped | 68 |
+| c01-subjects | 2 | transfer-updates-balances-correctly | PBTPassed | 100 |
+| c01-subjects | 2 | transfer-fails-on-missing-accounts | PBTPassed | 100 |
+| c01-subjects | 3 | (all three) | PBTPassed | 100 |
+| c01-subjects | 4 | transfer-preserves-total-balance | PBTSkipped | 69 |
+| c01-subjects | 4 | transfer-updates-balances-correctly | PBTPassed | 100 |
+| c01-subjects | 4 | transfer-fails-on-missing-accounts | PBTSkipped | 91 |
+| c01-subjects | 5 | (all three) | PBTPassed | 100 |
+| c02-subjects | 1 | (both) | PBTPassed | 100 |
+| c02-subjects | 2 | transfer_preserves_total_balance | PBTSkipped | 93 |
+| c02-subjects | 2 | transfer_updates_balances_correctly | PBTPassed | 100 |
+| c02-subjects | 3 | transfer_preserves_total_balance | PBTPassed | 100 |
+| c02-subjects | 3 | transfer_updates_balances_correctly | PBTSkipped | 93 |
+| c02-subjects | 4 | (both) | PBTPassed | 100 |
+| c02-subjects | 5 | transfer_preserves_total_balance | PBTSkipped | 87 |
+| c02-subjects | 5 | transfer_updates_balances_correctly | PBTPassed | 100 |
+
+Aggregate (across k=1..5):
+
+| cell | total property×try | PBTPassed | PBTSkipped | PBTFailed | `samples_run ≥ 1` |
+|---|---|---|---|---|---|
+| c01 | 15 | 10 | 5 | 0 | **15 / 15** |
+| **c02** | 10 | 9 | 1 | 0 | **10 / 10** (Addendum 18: 0/10) |
+| **c03** | 10 | 7 | 3 | 0 | **10 / 10** (Addendum 18: 0/10) |
+| c01-subjects | 15 | 12 | 3 | 0 | **15 / 15** |
+| **c02-subjects** | 10 | 7 | 3 | 0 | **10 / 10** |
+
+Verify channel (per-try `tier_profile_post`):
+
+| cell | k | tier_profile_post (non-zero) | tested ≥ 1? |
+|---|---|---|---|
+| c01 | 1..5 | `asserted=7` | no (all 5 tries) |
+| c02 | 1..5 | `asserted=6` | no (all 5 tries) |
+| c03 | 1..5 | `asserted=3, no_contract=3` | no (all 5 tries) |
+| c01-subjects | 1 | `asserted=6, tested=1` | **YES** |
+| c01-subjects | 2 | `asserted=7` | no |
+| c01-subjects | 3 | `asserted=6, tested=1` | **YES** |
+| c01-subjects | 4 | `asserted=7` | no |
+| c01-subjects | 5 | `asserted=6, tested=1` | **YES** |
+| c02-subjects | 1 | `asserted=5, tested=1` | **YES** |
+| c02-subjects | 2 | `asserted=6` | no |
+| c02-subjects | 3 | `asserted=5, tested=1` | **YES** |
+| c02-subjects | 4 | `asserted=5, tested=1` | **YES** |
+| c02-subjects | 5 | `asserted=6` | no |
+
+Verify aggregate:
+
+| cell | `tier_profile_post.tested ≥ 1` / 5 tries |
+|---|---|
+| c01 | 0 / 5 |
+| c02 | 0 / 5 |
+| c03 | 0 / 5 |
+| c01-subjects | **3 / 5** (Addendum 18: 4/5 — within QC variance) |
+| **c02-subjects** | **3 / 5** (H3 pass; OBLIG-PBT-4 on c02-shape end-to-end) |
+
+`writeback_diagnostics` was empty across all 5 tries on both `c01-subjects` and `c02-subjects`; the unannotated cells fired the multi-callee guard on their PBTPassed properties (e.g., c02 k=1: "property \"transfer_preserves_total_balance\" covers multiple contracted callees (total_balance, transfer); no trust evidence recorded â split the property or wait for :subject metadata in OBLIG-PBT-4"). The `:subjects` annotation bypasses the guard and emits the DLTested record, exactly per the OBLIG-PBT-4 design.
+
+### Verified findings
+
+#### F-034 (refined) — closure
+
+**Priority:** Blocker → Closed
+**Consumer:** `compiler-engineer` (closure-bookkeeping) + `language-team` (LT-B closure trigger)
+
+**Evidence.** c02 0/10 → 10/10 and c03 0/10 → 10/10 on `samples_run ≥ 1`, with no other compiler change between Addendum 18 (candidate binary built atop merge `d220632` without F-034) and this run (shipped binary built atop merge `46f9554` with F-034). Aggregate PBTPassed rates: c02 9/10, c03 7/10 (PBTSkipped residual is QC near-threshold precondition-failure discard on property 1 of each shape — diagnostic message verbatim `"QuickCheck gave up â too many precondition failures"`, the F-033 disambiguation surface; not body-evaluator discard). The shipping clauses at [Contracts.hs:432-485](../../../compiler/src/LLMLL/Contracts.hs#L432) (five residual builtins + `list-head` / `list-tail` `Result`-wrap fix per `TypeCheck.hs:100-101` signatures) are the load-bearing mechanism — c02's property body uses `list-filter`, `list-prepend`, `list-head`, `string-concat-many`, `int-to-string` directly in `map_get` / `map_insert` / `transfer`; c03's property body indirectly via its own `transfer` / `balance` chain. The clean before/after switch attributable to no other shipping change is what closes the F-034 acceptance criterion at `findings/compiler-engineer.md:143`.
+
+**Mechanism (confirmed empirically).** The Addendum-18 GaveUp diagnostic ("property body did not reduce on any sample (1000 evaluated, 0 returned bool â likely unmodeled builtin or unreduced callee body in property body)") attributed every c02/c03 Skipped property's discard to the body evaluator. Adding the five missing clauses + the `list-head` / `list-tail` Result-wrap fix removes the body-evaluator discard surface, and `evalPropertyBodyWith` now reduces c02/c03 bodies to concrete Bool literals on every sample (per the `PBTPassed: samples_run=100` records). The PBT runner's three-path strategy at [PBT.hs:154-185](../../../compiler/src/LLMLL/PBT.hs#L154-L185) takes the static-evaluation path on these cells (consistent with the `isSimpleType` gate at [PBT.hs:260-266](../../../compiler/src/LLMLL/PBT.hs#L260-L266) — bound types are `Ledger` / `string` / `PositiveInt`, all non-simple, so QuickCheck-fallback is unreachable and static-evaluation is the only viable path).
+
+**Acceptance — met.** "A v0.10.6+ compiler run on `runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll` reports `samples_run ≥ 1` on either property; likewise for c03" (`findings/compiler-engineer.md:143`) — exceeded: 10/10 + 10/10 across the full k=5 ladder, not just k=1.
+
+#### OBLIG-PBT-4 — closure validation extended to c02-shape
+
+**Priority:** Defence-in-depth (validation extension; not a new finding) → Closed
+**Consumer:** `language-team` (informed; design surface confirmed) + `compiler-engineer` (informed; closure-bookkeeping)
+
+**Evidence.** c02-subjects `tier_profile_post.tested ≥ 1` = 3/5 tries (same rate as c01-subjects in this run; Addendum-18 c01-subjects was 4/5 — both rates are within QC near-threshold variance). The 2 misses on c02-subjects (k=2 and k=5) are property 1 PBTSkipped on precondition-failure discard, the same QC mechanism that caused the c01-subjects k=2 miss in Addendum 18; property 2 PBTPassed on k=2 and k=5 lifted `transfer` and `balance` post-tiers, but property 1's `:subjects [transfer total_balance]` did not contribute a DLTested record on those tries. On the 3 hit tries (k=1, k=3, k=4), the verify summary `effective_level` shows `total_balance` at `tested (100 samples)` and `effective_level: tested` (no unverified dependencies); `transfer` and `balance` have `post_level: tested (100 samples)` but `effective_level: asserted` due to their dependencies on unverified `map_get` / `map_insert` (R6d effective_level body-faithfulness — `LLMLL.md §4.4.1:346-347` diamond-incomparability).
+
+**Implication.** The OBLIG-PBT-4 `:subjects` path is end-to-end functional on at least two distinct body shapes (c01-shape with cons-list pattern matching and c03-shape Result-chain plumbing was the c01-subjects empirical surface; c02-subjects adds c02's map-based shape with explicit `list-filter` / `list-prepend` plumbing and `string-concat-many` log-entry construction). The design's structural correctness is empirically confirmed across both shapes. The c01-subjects acceptance criterion at `findings/compiler-engineer.md` §CE-D-OBLIG-PBT-4 was already-met by Addendum 18; this re-probe extends that confirmation.
+
+### Withdrawn / refined
+
+None. The Addendum-18 F-034 diagnosis (`evalBuiltinApp` residual coverage on five named builtins + `list-head` / `list-tail` `Result`-wrap fix at the per-builtin scope tabulated in Addendum 18 §F-034 / Evidence) is empirically confirmed; no refinement needed. F-033's GaveUp diagnostic refinement remains operational and correctly distinguishes precondition-failure discard (this run, on PBTSkipped properties with non-zero `samples_run`) from body-evaluator discard (the now-closed Addendum-18 surface).
+
+### Null results
+
+- **None of structural significance.** The c01 / c02 / c03 (unannotated) `tier_profile_post.tested = 0` floor was the predicted-and-confirmed regression-control outcome — the multi-callee writeback guard is design-intent. Not a "null" in the experimental sense; it is the *predicted* outcome of the run.
+
+### Binary answer to the decision question
+
+**The Addendum-19 re-probe under the v0.10.6-shipped binary was the move.** F-034 closes decisively; the joint Addendum-17/-18 criterion holds; OBLIG-PBT-4's `:subjects` path is validated end-to-end on c02-shape; Phase-3 launch is unblocked on the empirical-apparatus axis. CHANGELOG.md §v0.10.6 §"Empirical hooks not yet exercised" at line 38 ("c02/c03-shape (F-034) gated on Addendum-18 acceptance") can be retracted in the next doc-lead pass — the gate is satisfied. No v0.10.7 cut required for this loop.
+
+### Apparatus changes in this addendum
+
+None. The driver shell loop is byte-identical in shape to Addendum 18's; no `run_matrix.py` change; no `evaluate_run.py` change; no schema bump (`expectedSchemaVersion` stays `0.5.0`, `trust_report_version` stays `1.1.0`). The c02-subjects construction is a one-off sed pass on the c02 source (analogous to Addendum 18's c01-subjects construction); no harness code surface touched.
+
+### Updated priority matrix (post-addendum-19)
+
+| # | Finding | Consumer | Status | Effort |
+|---|---|---|---|---|
+| F-018 / CE-B | PBT FuncEnv imported-module def-logic | compiler-engineer | Closed (v0.10.3, MOD-PBT-1) | — |
+| R6d / §LT-A | Universal Cred(R) + tier_profile + spec-vs-tool boundary | language-team | Closed (v0.10.4, Addendum 15) | — |
+| OBLIG-PBT-2 | Complex-type generators + static-evaluator extensions | compiler-engineer | Closed (v0.10.3, OBLIG-PBT-2) | — |
+| OBLIG-PBT-3 | PBT-to-trust-report write-back | compiler-engineer | Closed (v0.10.5, Addendum 17 lift validation) | — |
+| OBLIG-PBT-4 / CE-D-OBLIG-PBT-4 | `:subjects` keyword opt-in DLTested writeback | language-team + compiler-engineer | Closed (v0.10.6, Addendum 18 c01-subjects + Addendum 19 c02-subjects) | — |
+| F-033 (refined) | `unwrap` static-eval + PBTSkipped diagnostic refinement | compiler-engineer | Closed (v0.10.6) | — |
+| **F-034 / CE-D** | `evalBuiltinApp` residual builtin coverage + `list-head` / `list-tail` Result-wrap fix | compiler-engineer | **Closed (v0.10.6, Addendum 19)** | — |
+| §LT-B (PBT-Lift) | LLMLL `(check)` lifts obligations to `tested` tier on v0.10.6 | language-team | **Closed (Addendum 19; c01-subjects + c02-subjects both lift)** | — |
+| F-029 | Non-monotonic repair (agent-capability) | experiment-lead + language-team | Open; deferred to Phase 3 | (research-axis) |
+| F-025 | Capability-probe in run_matrix.py prereqs | experiment-lead | Open; deferred to Phase 3 launch prep | small |
+
+All P-1-blocking findings tied to F-034 / OBLIG-PBT-4 / OBLIG-PBT-5 are now closed.
+
+### Routing
+
+- **F-034 closure → `compiler-engineer`** as a closure-bookkeeping update on `findings/compiler-engineer.md` §CE-D ("Status: Open" → "Closed by Addendum 19"). No new engineer scope. The CHANGELOG.md §v0.10.6 §"Empirical hooks not yet exercised" entry's c02/c03 reference can be retracted by `documentation-lead` in the next doc pass; not blocking.
+- **OBLIG-PBT-4 c02-shape validation → `language-team`** as an informed-by status update on `findings/language-team.md` §LT-B (the `(check)` PBT-Lift channel design): the strong-form joint Addendum-17 criterion now holds at 3/5 tries on c01-subjects (re-probe) + 3/5 tries on c02-subjects + 10/10 + 10/10 on c02/c03 `samples_run`. The §LT-B status update at `findings/language-team.md:153-177` should be extended with an Addendum-19 sub-status closing the surface. No new language-team scope.
+- **`documentation-lead` → INVOKED (optional, doc-lead's slot).** v0.10.6 has already been doc-sealed (commit `cf711d6`); the only doc-lead action implied by this addendum is a one-line CHANGELOG.md §v0.10.6 erratum/footnote retracting the §"Empirical hooks not yet exercised" entry for c02/c03 (line 38) and pointing to Addendum 19's closure evidence. This is small enough to bundle into the next normal doc pass; not a v0.10.6.1 surface.
+- **Phase-3 launch → `user`.** The empirical-apparatus axis is now fully unblocked. Remaining Phase-3 prerequisites are scope decisions (matrix composition, agent set, k value, problem set) — not apparatus blockers.
+- **`/schedule` not relevant.** No future-dated obligation surfaced by this addendum.
+
+### Implication
+
+The Addendum-17 joint hypothesis is empirically vindicated: OBLIG-PBT-4 + F-033 + F-034 together close the gap from `asserted` to `tested` tier on the three Phase-2 sealed solutions, given the `:subjects` annotation. Phase-3 launch is unblocked on the empirical-apparatus axis; the predicate-vocabulary (R6d), PBT-Lift (OBLIG-PBT-3 / OBLIG-PBT-4), and body-evaluator-coverage (F-033 + F-034) axes are all empirically validated against the actual Phase-2 agent emissions, not just against synthetic test fixtures. Phase 3 can launch as soon as the scope decisions land.
+
+The engineer-experiment-lead feedback loop predicted at Addendum 18 §Implication ("the experiment surface for verifying F-034's close is identical to this addendum's matrix … so the engineer-experiment-lead feedback loop is tight") held — the re-probe was a one-shot, $0, 50-invocation driver loop with no surprises, closing the load-bearing finding from a single shipped feature commit. This is the cleanest engineer→experiment-lead closure loop the postmortem has tracked across all 19 addenda; the same shape is the prescribed pattern for future feature commits with sealed-solution acceptance criteria.

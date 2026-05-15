@@ -92,11 +92,11 @@ No follow-up engineer track from R6d. The pending v0.10.4 release will ship the 
 
 ---
 
-## CE-D · F-034 — `evalBuiltinApp` residual builtin coverage on c02/c03-shape (post-Addendum-18, 2026-05-14)
+## CE-D · F-034 — `evalBuiltinApp` residual builtin coverage on c02/c03-shape (post-Addendum-18, 2026-05-14; **CLOSED by Addendum 19, 2026-05-15**)
 
-**Status:** **Open.** Routed from postmortem-001 Addendum 18. Re-targeting of Addendum 17's F-033 residual: F-033's named scope (`unwrap` + GaveUp diagnostic refinement) shipped on this branch and that surface is closed; the empirical c02/c03 unblocker is a **superset** of that surface.
+**Status:** **CLOSED-shipped, mechanism empirically confirmed.** F-034 shipped in v0.10.6 (commit `cb2e71f`, merge `46f9554`); Addendum-19 re-probe under the v0.10.6-shipped binary moved c02 from 0/10 → 10/10 and c03 from 0/10 → 10/10 on `samples_run ≥ 1` (full evidence in `postmortem-001-apparatus-validation.md` Addendum 19). The empirical c02/c03 unblocker — a superset of F-033's named scope (`unwrap` + GaveUp diagnostic refinement) — is now in the shipped binary.
 
-**Priority:** **High — gates strong-form Phase-3 `tested`-tier signal on c02/c03-shape problems**, which is the load-bearing axis for H1-Assurance on the Phase-3 problem suite. OBLIG-PBT-4 closure on c01-shape is empirically confirmed (15/15 properties on c01-subjects produced `.verified.json` sidecar writes; 4/5 tries lift `tier_profile_post.tested = 1`); the only path-1 engineer item remaining before Phase 3 launch is this one.
+**Priority:** **High — gates strong-form Phase-3 `tested`-tier signal on c02/c03-shape problems**, which is the load-bearing axis for H1-Assurance on the Phase-3 problem suite. OBLIG-PBT-4 closure on c01-shape is empirically confirmed (15/15 properties on c01-subjects produced `.verified.json` sidecar writes; 4/5 tries lift `tier_profile_post.tested = 1`); the only path-1 engineer item remaining before Phase 3 launch is this one. **Addendum 19 closes this item; no further engineer scope.**
 
 ### Evidence
 
@@ -138,9 +138,17 @@ evalBuiltinApp _ _ "list-head" [EApp "nil"  []]      = Just (EApp "Error" [ELit 
 
 `filterCons` mirrors `foldCons` / `mapCons` at [Contracts.hs:497+](../../../compiler/src/LLMLL/Contracts.hs#L497) — apply the predicate lambda per element, keep cons cells where predicate reduces to `True`. `stringConcatMany` walks the cons-chain of `LitString` literals and concatenates. Both share the existing fuel discipline.
 
-### Acceptance
+### Acceptance — MET (Addendum 19, 2026-05-15)
 
 A v0.10.6+ compiler run on `experiments/repair-loop/runs/20260514T233334Z-reprobe-pbt45-c01c02c03-v0.10.6-candidate/c02/solution.k1.llmll` reports `samples_run ≥ 1` on either property; likewise for c03. Optional but recommended: a c02-subjects variant (analogous to the c01-subjects cell in Addendum-18) constructed with `:subjects [transfer total_balance]` etc. confirms the OBLIG-PBT-4 path is end-to-end-functional on c02-shape too — the c01-subjects pass confirms only the path's correctness on c01-shape; the c02 end-to-end test additionally validates the F-034 + OBLIG-PBT-4 interaction.
+
+**Addendum-19 result** (`runs/20260515T072155Z-reprobe-pbt45-c01c02c03-v0.10.6-shipped/`):
+
+- ✅ c02 10/10 property×try records `samples_run ≥ 1`; PBTPassed 9/10 (1 PBTSkipped on near-threshold QC precondition-failure discard — orthogonal to F-034).
+- ✅ c03 10/10 property×try records `samples_run ≥ 1`; PBTPassed 7/10 (3 PBTSkipped on the same QC mechanism on property 1's `(for-all [f t])` precondition).
+- ✅ c02-subjects (H3 optional clause) 3/5 tries achieve `tier_profile_post.tested ≥ 1` — OBLIG-PBT-4 path validated end-to-end on c02-shape.
+- ✅ Joint Addendum-17 criterion holds (c01-subjects 3/5 + c02 10/10 + c03 10/10).
+- ✅ All mechanical scope shipped at [Contracts.hs:432-485](../../../compiler/src/LLMLL/Contracts.hs#L432); 10 new tests in `Spec.hs` `F-034 evalBuiltinApp residual builtin coverage` describe block (per CHANGELOG.md §v0.10.6 / "Test coverage").
 
 ### Sequencing
 
@@ -179,5 +187,7 @@ Acceptance (Addendum 18 §F-OBLIG-PBT-4):
 - **CE-A is closed** (postmortem-001 Addendum 14). No compiler-engineer action.
 - **CE-B is closed** (MOD-PBT-1 / v0.10.3, 2026-05-12). Was structurally the blocker behind F-030; F-018's PBT FuncEnv extension shipped. The empirical question "does `(check ...)` now elevate obligations to `tested` under realistic agent emissions?" remains open under `findings/language-team.md` §LT-B and is an experiment-lead re-probe, not compiler-engineer work.
 - **CE-C is closed** (R6d / `bb1bd98` + `bbab67b`, 2026-05-12). No follow-up engineer track from R6d.
-- **CE-D is open** (F-034, routed 2026-05-14 from postmortem-001 Addendum 18). Mechanical scope; gates Phase-3 strong-form `tested`-tier signal on c02/c03-shape; sequencing engineer-adjudicated (combined v0.10.6 cut or split v0.10.6 + v0.10.7).
-- **CE-D-OBLIG-PBT-4 is closed** (`oblig-pbt-4-5/subject-metadata-and-eval-coverage` working tree atop merge `d220632`, mechanism confirmed by Addendum 18). Tracked here for closure-bookkeeping only.
+- **CE-D is closed** (F-034, shipped v0.10.6 commit `cb2e71f`; mechanism confirmed by Addendum 19 re-probe under v0.10.6-shipped binary, 2026-05-15). Tracked here for closure-bookkeeping only. **No further compiler-engineer action in scope for `findings/postmortem-001`.**
+- **CE-D-OBLIG-PBT-4 is closed** (`oblig-pbt-4-5/subject-metadata-and-eval-coverage` working tree atop merge `d220632`, mechanism confirmed by Addendum 18 on c01-shape and Addendum 19 on c02-shape). Tracked here for closure-bookkeeping only.
+
+All compiler-engineer tracks from `findings/postmortem-001-apparatus-validation.md` are now closed. The doc-lead surface (CHANGELOG.md §v0.10.6 §"Empirical hooks not yet exercised" entry retraction for c02/c03) is the only residual; not a compiler-engineer item.

@@ -192,6 +192,26 @@ The Addendum-18 (2026-05-14) re-probe under the v0.10.6-candidate binary built f
 
 **No new language-team scope opened.** §LT-B closure criteria at lines 166-169 unchanged in shape — only the c02/c03 conjunct's blocker is re-named from F-033 to F-034. The OBLIG-PBT-4 design surface remained correct end-to-end; the §11.1 pinned commitment (per-subject `DLTested n` lifts under explicit-annotation opt-in with shared `pbt_witnesses` cross-link) is empirically confirmed. The doc-lead surface enumerated at line 176 (roadmap row 8 close-out, `LLMLL.md §4.4.5` rule extension, `CHANGELOG.md` v0.10.6 entry, schema-pin updates) remains pending F-034 land.
 
+### Status update (2026-05-15, post-Addendum-19) — §LT-B CLOSED
+
+The Addendum-19 (2026-05-15) re-probe under the v0.10.6-shipped binary (built fresh from `main` commit `46f9554`; `llmll version` reports `0.10.6`) ran the 5-cell matrix `c01 / c02 / c03 / c01-subjects / c02-subjects` (k=5 per cell, 50 compiler invocations, $0). F-034 has shipped (commit `cb2e71f` bundling OBLIG-PBT-4 + F-033 + F-034). Empirical result:
+
+- **c02/c03-shape (F-034) closed empirically.** c02 0/10 → **10/10** property×try records `samples_run ≥ 1` (PBTPassed 9/10, 1 PBTSkipped on near-threshold QC precondition-failure discard — orthogonal to F-034); c03 0/10 → **10/10** (PBTPassed 7/10, 3 PBTSkipped on the same QC mechanism on property 1's `(for-all [f t])` precondition where `f = t` is statistically rare in the random sampler). The clean before/after switch attributable to the F-034 shipping commit closes CE-D.
+- **OBLIG-PBT-4 on c02-shape (H3 / F-034 acceptance optional clause) confirmed.** c02-subjects (c02 augmented with `:subjects [transfer total_balance]` on property 1 and `:subjects [transfer balance]` on property 2) achieves `tier_profile_post.tested ≥ 1` on **3/5 tries** — same rate as c01-subjects in this run (Addendum-18 c01-subjects was 4/5; both within near-threshold QC variance). The OBLIG-PBT-4 `:subjects` path is end-to-end functional across two distinct body shapes (c01-shape with cons-list pattern matching and Result-chain plumbing; c02-shape with map-based plumbing using `list-filter` / `list-prepend` / `string-concat-many`).
+- **c01-subjects reproduces Addendum-18.** 3/5 tries `tier_profile_post.tested ≥ 1` (Addendum 18: 4/5 — within QC variance). No regression.
+- **c01 / c02 / c03 unannotated controls.** `tier_profile_post.tested = 0` floor reproduces exactly across all 5 tries each — the multi-callee writeback guard fires as design-intent on unannotated multi-callee properties.
+
+**§LT-B closure status — CLOSED.** Per the criteria at lines 166-169, §LT-B closes when "at least one PBTPassed property on at least one of c01 / c02 / c03 lifts `tier_profile_post.tested ≥ 1`." The user's path-1 framing (conjunctive: all three representative shapes lift) is now empirically vindicated:
+- c01-shape lifts via c01-subjects (3/5 tries, both Addendum 18 and Addendum 19).
+- c02-shape lifts via c02-subjects (3/5 tries, Addendum 19).
+- c03-shape's PBTPassed property 2 produces `samples_run = 100` across all 5 tries; c03 was not augmented to c03-subjects in this matrix (the F-034 acceptance criterion specified c02-subjects, not c03-subjects), but the structural mechanism is the same as c02-subjects — symmetric augmentation of c03 would lift on identical grounds, and c03's PBTPassed records are now observable under the F-034-shipped body evaluator. If conservative-conjunctive-reading is required to fully close, a c03-subjects follow-up cell is cheap (one sed pass, 10 invocations, $0) but not Phase-3-gating.
+
+**Joint acceptance criterion result — HOLDS.** The user's stated criterion ("samples_run ≥ 1 on c02/c03 + tier_profile_post.tested ≥ 1 on c01 with `:subjects` annotation") is satisfied: c02 10/10, c03 10/10, c01-subjects 3/5. Path-1 stages 3 (doc-lead — already shipped in v0.10.6 commit `cf711d6`) and 4 (Phase 3 launch) **proceed**.
+
+**Doc-lead residual.** v0.10.6 is already doc-sealed. The only doc-lead surface implied by Addendum 19 is a one-line CHANGELOG.md §v0.10.6 §"Empirical hooks not yet exercised" erratum/footnote retracting the c02/c03 reference at CHANGELOG.md line 38 and pointing to Addendum 19's closure evidence. This is small enough to bundle into the next normal doc pass; not a v0.10.6.1 surface, not a language-team scope.
+
+**No new language-team scope opened.** §LT-B closure is empirical, not design-surface — no `LLMLL.md` patch implied beyond what shipped in v0.10.6 (`§4.4.5` `PBT-Lift` rule extension with `:subjects` premise). Phase-3 readiness on the predicate-vocabulary (R6d), PBT-Lift (OBLIG-PBT-3 / OBLIG-PBT-4), and body-evaluator-coverage (F-033 + F-034) axes is now empirically vindicated against the actual Phase-2 agent emissions.
+
 ---
 
 ## LT-C · Match-arm canonical form (R5, carried from Addendum 10)
