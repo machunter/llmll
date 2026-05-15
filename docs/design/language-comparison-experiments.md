@@ -195,6 +195,8 @@ Example LLMLL adapter:
 
 The evaluator should not require every target to expose identical source syntax. It should require equivalent behavior through an adapter.
 
+The `prediction_match` field defined at §"Reporting Output" is **not** an adapter-emitted field. Adapters report what they mechanically observe (commands run, exit codes, parsed outputs); `prediction_match` is added at the aggregator/reporting layer by post-hoc comparison against the immutable problem-shape audit (§"Experimental Controls" #7a). Adapter implementations should not look for this field, emit it, or model it.
+
 ---
 
 ## Scoring Model
@@ -240,6 +242,9 @@ These controls matter more than the language list.
 5. **Fixed stop policy.** Keep the current first-error policy for first-round effectiveness, or define a separate repair-loop experiment.
 6. **Separate CLI and core logic.** Prefer pure core functions with a thin CLI. This makes cross-language tests cleaner.
 7. **Record problems.** Keep `PROBLEMS.md` so agent confusion is observable.
+7a. **Pre-register expected problem-shape engagement.** Before the matrix launches, the language-team produces a problem-shape audit at `docs/design/phase3-problem-shape-audit.md` recording, per problem, the verification paths each problem is expected to engage (e.g., `OBLIG-PBT-4 :subjects` opt-in, multi-callee writeback guard, body-faithful arithmetic, `?proof-required` escape, `letrec` + `:decreases` totality). The audit is **apparatus, not subject** — it is not shipped into per-cell agent run-prep; the agent never reads it. Post-hoc analysis compares predicted-vs-observed engagement; cells whose observed engagement diverges from the audit's prediction are flagged for separate discussion via the `prediction_match` field (§"Reporting Output"), not silently absorbed into aggregate signal.
+
+    The audit's predictions are immutable from a fixed git commit hash that precedes matrix launch. Post-hoc analysis cites the audit at that commit, not at HEAD; any post-launch revision is recorded as a dated addendum appended to `docs/design/phase3-problem-shape-audit.md` (following the `## Addendum N (YYYY-MM-DD) — <title>` voice established at `experiments/repair-loop/findings/postmortem-001-apparatus-validation.md`), never as an in-place edit. The immutability property — that registered predictions cannot be silently retuned to fit observed data — is the discipline that distinguishes pre-registration from re-narratable expectation (Nosek, Ebersole, DeHaven & Mellor, *The preregistration revolution*, PNAS 115(11):2600–2606, 2018).
 8. **Report toolchain failures distinctly.** A Rust install failure and a Rust program failure are different outcomes.
 9. **Do not collapse proof into tests.** Tests are falsification evidence; LLMLL verification is a stronger but bounded evidence type.
 
@@ -559,6 +564,7 @@ Each run should write an `evaluation.json` with normalized fields:
   "status": "passed",
   "correctness_score": 87,
   "assurance_score": 42,
+  "prediction_match": "unaudited",
   "first_error": null,
   "commands": [],
   "api_conformance": {},
@@ -567,6 +573,8 @@ Each run should write an `evaluation.json` with normalized fields:
   "problems_md": {}
 }
 ```
+
+The `prediction_match` field records whether the cell's observed verification-path engagement matched the language-team's pre-registered prediction in `docs/design/phase3-problem-shape-audit.md` (§"Experimental Controls" #7a). Value vocabulary `{match, divergence, unaudited}`; default `unaudited` for any cell not covered by the audit at its pinned commit. The field is **not emitted by the per-target adapter** (see §"Target Adapter Shape"); it is added at the aggregator/reporting layer by post-hoc comparison against the immutable audit (human judgment now; automatable later if the cross-language harness grows audit-parsing logic). Aggregation rule: cells with `divergence` are excluded from primary H1-Assurance aggregation and reported separately, so that unexpected engagement patterns surface as a distinct signal rather than being silently absorbed into the primary number. Direction and interpretation of any `divergence` cell are written in the post-hoc analysis prose, not pre-coded in the field — the field is a gate, not a score.
 
 The batch summary should include both scores:
 
@@ -585,6 +593,8 @@ This reporting shape supports a nuanced result: Python may score highest on quic
 1. Should the first version require only pure APIs, or include CLI behavior from day one?
 2. Should agents be allowed to add their own tests, and should those tests affect the assurance score?
 3. Should LLMLL receive its full documentation while other targets receive only short target instructions, or should every target receive a compact language-specific guide?
+
+    **Resolution (Phase-3 launch scope).** The launch matrix ships full `LLMLL.md` to LLMLL cells and short target-specific instructions to Python / Go / TypeScript / Rust cells — the asymmetric joint-as-subject framing. This is the *declared scope* of the launch comparison, not an empirical refutation of the rival hypothesis "Python/Go would have won at matched documentation surface." Naming what varies and what is held fixed in cross-language programmer studies has prior discipline in the literature (Hanenberg, *An experiment about static and dynamic type systems*, OOPSLA 2010; Endrikat, Hanenberg, Robbes & Stefik, *How do API documentation and static typing affect API usability?*, ICSE 2014); under that discipline the launch is measuring agent-with-LLMLL-spec-surface joint, not agent-with-symmetric-documentation. A symmetric-documentation dose-response side-arm — a compact LLMLL-flavored discipline guide for Python / Go on one problem at ~⅓ per-cell budget — is registered as an open follow-on, deliberately deferred from the launch matrix. Trigger condition: "after launch matrix completes and H1-Assurance read is on record." (The discipline-guide itself is a non-trivial design artifact — not "LLMLL.md verbatim handed to a Python agent" but a symmetric-in-shape document at matched token weight and matched verification-discipline density — and is the experiment-lead's authoring scope when the trigger fires.)
 4. Should the same agent command be reused across all targets, or should target-specialized agent prompts be allowed?
 5. Should the evaluator permit package dependencies, or require standard-library-only solutions for the first benchmark set?
 6. How should equivalent evidence be scored for Rust and TypeScript without overstating what their type systems prove?
