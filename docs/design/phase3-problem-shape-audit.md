@@ -170,13 +170,13 @@ n = 9 LLMLL cells (3 agents × 3 tries) under recommended-first-milestone shape.
 
 These predictions apply to all three problems and are tracked separately from per-problem predictions to support cross-problem analysis.
 
-### CC-1 — R5a match-arm canonical-form risk
+### CC-1 — R5a match-arm canonical-form risk *(retrospective vacate, 2026-05-15)*
 
-**State at audit pin:** `LLMLL.md §3.3` informal examples use sibling-form match arms; `LLMLL.md §17` grammar accepts wrapped-form (the recommendation pinned at `experiments/repair-loop/findings/language-team.md` §LT-C / Addendum 10 / R5a). The R5a documentation patch has not landed at commit `7a9b379`.
+**State at audit pin (corrected from authoring time):** R5a — the canonicalization of `LLMLL.md §3.3` informal match-arm examples from sibling-form to wrapped-form — already shipped at commit `ecdf42f` (`docs(spec): correct match-arm informal examples in LLMLL.md §3.3 / §9 / §13.5 (R5a)`) as part of v0.10.3's spec pedagogy corrections (2026-05-12; roadmap at `docs/compiler-team-roadmap.md:290`), predating this audit's predecessor commit `7a9b379`. The original authoring of CC-1 read `experiments/repair-loop/findings/language-team.md` §LT-C as a still-open recommended-option; that status entry was stale relative to the spec and has been retrospectively closed in the same turn that this CC-1 revision lands. `LLMLL.md §3.3` at HEAD uses wrapped-form throughout (e.g., `((Red) "stop")` and `((Start word) ...)` on lines 213-220); the matched `§17` grammar and the shipping `examples/` all use wrapped-form. There is no sibling-form-vs-wrapped-form contamination risk for Phase 3 attributable to spec drift.
 
-**Prediction:** If R5a does not land before matrix launch, any agent whose match-arm prior is sibling-form-biased will produce parse failures on any of the three problems. Predicted contamination rate: 0–20% of LLMLL cells across all three problems. Variance band is wide because cross-agent match-arm priors are unknown — Phase-2 Gemini emitted wrapped-form across 15/15 turns (`experiments/repair-loop/findings/language-team.md` §LT-C), but Claude and Codex priors are untested.
+**Prediction:** Empirically vacated. Predicted contamination rate attributable to `§3.3` informal-example drift: 0% across all three problems, across all agents. Falsification would require an `LLMLL.md §3.3` surface to revert to sibling-form between this audit pin and matrix launch (no such revert is in the queue or in the roadmap).
 
-**Channel:** apparatus (parser-front-end). Falsification: a Phase-3 cell with a sibling-form parse failure attributable to `§3.3` divergence.
+**Channel:** apparatus (parser-front-end). The CC-1 entry is preserved in this audit as a paper trail of the original authoring mistake — readers of the launch-commit-pinned audit should see that this risk was at one point flagged, was then verified false during a `/documentation-lead` consultation, and is documented as such in the audit's pre-launch in-place-edit state. The lesson is recorded in `experiments/repair-loop/findings/language-team.md` §LT-C status update at 2026-05-15.
 
 ### CC-2 — Documentation-surface asymmetry (S8 launch-scope)
 

@@ -240,6 +240,14 @@ R5a (patch §3.3 informal examples to wrapped form) remains the recommended opti
 
 R5 routes through a dedicated `/language-team` + `/documentation-lead` turn at convenience. Not Phase-3-gating, not bundled with LT-A. Tracked here for closure-tracking only.
 
+### Status update (2026-05-15) — §LT-C CLOSED (retrospective)
+
+R5a shipped at commit `ecdf42f` (`docs(spec): correct match-arm informal examples in LLMLL.md §3.3 / §9 / §13.5 (R5a)`) as part of v0.10.3's spec pedagogy corrections (2026-05-12; roadmap at `docs/compiler-team-roadmap.md:290`). `LLMLL.md §3.3` at HEAD uses wrapped-form throughout (e.g., `((Red) "stop")` and `((Start word) ...)` on lines 213-220); no sibling-form informal examples remain on the section. The "Status" and "Recommended next moves" entries above were not updated when R5a shipped, leaving §LT-C stale-as-of-v0.10.3 through 2026-05-15.
+
+Closure is **retrospective**: the section is marked closed against the actual shipping commit, not against a future `/documentation-lead` patch. Discovered during a `/documentation-lead` consultation on a (now-withdrawn) S6 hand-off framed against the stale entry; the doc-lead's read of HEAD `LLMLL.md §3.3` caught the drift on the first consult. Phase-3 contamination risk on this axis is empirically vacated; the Phase-3 problem-shape audit's CC-1 prediction at `docs/design/phase3-problem-shape-audit.md` (commit `7623712`) is revised in place pre-pin under the audit's pre-launch in-place-edit window.
+
+§LT-C → **CLOSED (retrospective)** (2026-05-15).
+
 ---
 
 ## Routing
