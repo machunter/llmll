@@ -119,6 +119,8 @@ def main() -> int:
 
     if not args.prepare_only and not args.skip_prereqs:
         prereq_failures = check_prereqs(manifest.get("agents", []))
+        prereq_failures.extend(check_toolchain_pins(manifest, args.llmll_cmd))
+        prereq_failures.extend(check_compiler_health(args.llmll_cmd))
         if prereq_failures:
             for line in prereq_failures:
                 print(f"prereq: {line}", file=sys.stderr)
@@ -156,6 +158,47 @@ def main() -> int:
             if args.fail_fast:
                 print(f"cell {idx:02d}: {entry['status']}; --fail-fast set, halting.", file=sys.stderr)
                 return 1
+
+        # Stop-fast discipline B — per-cell circuit breaker.
+        # Skipped under --prepare-only (no cells actually executed).
+        cb_threshold = int(manifest.get("_circuit_breaker_consecutive_infra_fail") or 0)
+        if cb_threshold > 0 and not args.prepare_only:
+            consecutive = _consecutive_infra_fail_count(results)
+            if consecutive >= cb_threshold:
+                print(
+                    f"circuit-breaker tripped: {consecutive} consecutive cells with "
+                    f"terminal_state=infrastructure-fail (threshold {cb_threshold}). "
+                    "Halting; fix the root cause and resume with --resume-from-cell.",
+                    file=sys.stderr,
+                )
+                report = json.loads((batch_dir / "matrix_report.json").read_text())
+                report["circuit_breaker_tripped"] = {
+                    "consecutive_infra_fail": consecutive,
+                    "threshold": cb_threshold,
+                    "tripped_after_cell": idx,
+                }
+                (batch_dir / "matrix_report.json").write_text(json.dumps(report, indent=2) + "\n")
+                return 2
+
+        # Stop-fast discipline D — interim-pause checkpoint.
+        # Skipped under --prepare-only (no cells actually executed).
+        pause_every = int(manifest.get("_pause_every_n_cells") or 0)
+        if pause_every > 0 and not args.prepare_only:
+            cells_completed_this_run = idx - args.resume_from_cell + 1
+            more_remaining = any(c["cell"] > idx for c in cells)
+            if (
+                cells_completed_this_run >= pause_every
+                and cells_completed_this_run % pause_every == 0
+                and more_remaining
+            ):
+                print(
+                    f"interim pause: completed {cells_completed_this_run} cells in this run "
+                    f"(pause threshold {pause_every}). "
+                    f"Review {batch_dir / 'matrix_report.json'} "
+                    f"and resume with --resume-from-cell {idx + 1}.",
+                    file=sys.stderr,
+                )
+                return 3
 
     return 1 if any_failed else 0
 
@@ -231,6 +274,139 @@ def check_prereqs(agents: list[dict[str, Any]]) -> list[str]:
             if shutil.which(exe) is None:
                 failures.append(f"agent {name!r}: executable {exe!r} not found on PATH")
     return failures
+
+
+def check_toolchain_pins(
+    manifest: dict[str, Any], llmll_cmd_override: str | None = None
+) -> list[str]:
+    """Verify per-target toolchain versions match manifest.toolchain_pins.
+
+    Stop-fast discipline A. The manifest's `toolchain_pins` block declares
+    the expected version string for each target's runtime. For each pin,
+    the corresponding `targets/<target>.json:version_pin_command` is
+    executed and its stdout / stderr is matched against the pinned version.
+    Mismatch aborts the matrix before any cell runs.
+
+    Absent `toolchain_pins` block: skip the check, return empty list (no-op
+    for manifests that predate this discipline). Keys starting with `_`
+    are treated as metadata and ignored (e.g., `_note`).
+
+    Returns a list of human-readable failure messages. Empty list = all OK.
+    """
+    pins = manifest.get("toolchain_pins") or {}
+    if not pins:
+        return []
+    failures: list[str] = []
+    for target_name, expected in pins.items():
+        if target_name.startswith("_"):
+            continue
+        adapter_path = HARNESS_ROOT / "targets" / f"{target_name}.json"
+        if not adapter_path.exists():
+            failures.append(
+                f"toolchain pin: target {target_name!r} has no adapter at {adapter_path}"
+            )
+            continue
+        adapter = json.loads(adapter_path.read_text(encoding="utf-8"))
+        argv = adapter.get("version_pin_command")
+        if not argv:
+            failures.append(
+                f"toolchain pin: target {target_name!r} adapter has no `version_pin_command`"
+            )
+            continue
+        resolved_argv = list(argv)
+        if llmll_cmd_override and resolved_argv and resolved_argv[0] == "llmll":
+            resolved_argv[0] = llmll_cmd_override
+        try:
+            result = subprocess.run(
+                resolved_argv,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            failures.append(
+                f"toolchain pin: {target_name!r} version-pin command "
+                f"{shlex.join(resolved_argv)} failed: {exc}"
+            )
+            continue
+        if result.returncode != 0:
+            failures.append(
+                f"toolchain pin: {target_name!r} version-pin command exited "
+                f"{result.returncode}"
+            )
+            continue
+        output = (result.stdout or "") + (result.stderr or "")
+        if str(expected) not in output:
+            failures.append(
+                f"toolchain pin: {target_name!r} expected version {expected!r} not "
+                f"found in `{shlex.join(resolved_argv)}` output "
+                f"({_truncate_output(output)})"
+            )
+    return failures
+
+
+def check_compiler_health(llmll_cmd_override: str | None = None) -> list[str]:
+    """Probe the `llmll` binary for basic health using a fixture.
+
+    Stop-fast discipline C. Runs `llmll check` on a minimal known-good
+    fixture (`scripts/fixtures/health-probe.llmll`). Catches the case
+    where the binary is on PATH but broken (corrupt binary, missing
+    runtime dep, stale `~/.llmll/` cache that fails to parse a trivial
+    program).
+
+    Returns a list of human-readable failure messages. Empty list = all OK.
+    """
+    fixture_path = SCRIPT_DIR / "fixtures" / "health-probe.llmll"
+    if not fixture_path.exists():
+        return [
+            f"compiler health: fixture missing at {fixture_path} "
+            "(this is a harness bug, not a compiler bug)"
+        ]
+    llmll = llmll_cmd_override or "llmll"
+    try:
+        result = subprocess.run(
+            [llmll, "check", str(fixture_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return [
+            f"compiler health: `{llmll} check` on health-probe fixture failed: {exc}"
+        ]
+    if result.returncode != 0:
+        output = (result.stdout or "") + (result.stderr or "")
+        return [
+            f"compiler health: `{llmll} check` on health-probe fixture exited "
+            f"{result.returncode} (expected 0). Output: {_truncate_output(output)}"
+        ]
+    return []
+
+
+def _truncate_output(text: str, limit: int = 200) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def _consecutive_infra_fail_count(results: list[dict[str, Any]]) -> int:
+    """Count trailing entries with status / terminal_state == infrastructure-fail.
+
+    Stop-fast discipline B helper. Walks the results list backwards and
+    counts how many of the most recent entries are infrastructure-fail. A
+    non-fail entry breaks the streak.
+    """
+    count = 0
+    for r in reversed(results):
+        status = r.get("terminal_state") or r.get("status")
+        if status == "infrastructure-fail":
+            count += 1
+        else:
+            break
+    return count
 
 
 def run_one_cell(

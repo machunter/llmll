@@ -1,0 +1,18 @@
+;; Stop-fast discipline C — minimal LLMLL fixture exercised by
+;; run_matrix.py:check_prereqs to confirm the `llmll` binary on PATH is
+;; healthy (can parse, type-check, and run the verifier end-to-end on a
+;; trivial program). Acceptance: `llmll check` exits 0 on this file.
+;; If `llmll` is on PATH but broken (missing runtime dep, corrupt
+;; binary, stale ~/.llmll/ cache), this probe fails and the matrix
+;; aborts before any cell runs.
+;;
+;; Keep this fixture minimal — additional features risk false-negatives
+;; under future compiler changes. Only int arithmetic + a trivial
+;; contracted function. No imports, no holes, no PBT.
+
+(def-logic identity-int
+  :type [(int) -> int]
+  :pre  (true)
+  :post (= result n)
+  (lambda (n)
+    n))
