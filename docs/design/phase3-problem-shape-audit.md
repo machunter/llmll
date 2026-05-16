@@ -12,7 +12,7 @@ Predictions in this file are immutable from the matrix-launch commit. Revisions 
 
 The immutability property — that registered predictions cannot be silently retuned to fit observed data — is the discipline that distinguishes pre-registration from re-narratable expectation (Nosek, Ebersole, DeHaven & Mellor, *The preregistration revolution*, PNAS 115(11):2600–2606, 2018). The launch-commit hash is recorded here as an in-place edit immediately before launch is authorized; post-launch revisions never re-pin the launch-commit field.
 
-**Launch-commit hash:** *(unfilled until matrix launch; in-place edit at launch time records the hash here)*.
+**Launch-commit hash:** `4078b76` (recorded as an in-place pre-launch edit on 2026-05-16, per the immutability protocol above).
 
 ## Pin bindings
 
