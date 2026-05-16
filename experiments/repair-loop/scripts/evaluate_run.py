@@ -179,7 +179,7 @@ def _evaluate_scoring(run_dir: Path, log: dict[str, Any]) -> dict[str, Any]:
         1 for v in {**correctness, **assurance}.values()
         if isinstance(v, dict) and v.get("status") == "scored"
     )
-    return {
+    out: dict[str, Any] = {
         "status": "scored",
         "reason": (
             f"per-axis v2 rubric: {implemented_count} sub-categories scored end-to-end, "
@@ -190,6 +190,12 @@ def _evaluate_scoring(run_dir: Path, log: dict[str, Any]) -> dict[str, Any]:
         "assurance_subscores": assurance,
         "headline_metrics": headline,
     }
+    # F-040 path 1 (postmortem-003 Addendum 2): surface the import-traversal
+    # diagnostic so evaluation.json readers can see which support modules
+    # were aggregated into the source-text counters. None on non-llmll cells.
+    if "import_traversal" in evidence:
+        out["import_traversal"] = evidence["import_traversal"]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -232,9 +238,21 @@ def _extract_llmll_evidence(
     verify_json = (verify_cmd or {}).get("parsed_json")
     trust_stats = _summarize_trust_report(verify_json)
 
-    check_block_count = _count_llmll_check_blocks(source_text, is_ast)
-    trust_decl_count = _count_llmll_trust_declarations(source_text, is_ast)
-    kloc = _count_program_kloc(source_text, is_ast)
+    # F-040 path 1 (postmortem-003 Addendum 2): aggregate source-text counters
+    # across imported modules so multi-file LLMLL solutions (e.g., codex's
+    # fifth-probe pattern of solution.llmll re-export façade + bank.llmll
+    # support module) don't under-report. The verify command's trust_stats
+    # above is already import-aware at the compiler level — this fix is
+    # specifically for the source-text counters below.
+    imports = _extract_llmll_imports(source_text, is_ast)
+    import_files = _resolve_import_files(run_dir, imports)
+    all_sources: list[tuple[str, bool]] = [(source_text, is_ast)]
+    for f in import_files:
+        all_sources.append((f.read_text(), f.suffix == ".json"))
+
+    check_block_count = sum(_count_llmll_check_blocks(t, ast) for t, ast in all_sources)
+    trust_decl_count = sum(_count_llmll_trust_declarations(t, ast) for t, ast in all_sources)
+    kloc = sum(_count_program_kloc(t, ast) for t, ast in all_sources)
 
     return {
         "target": "llmll",
@@ -245,6 +263,11 @@ def _extract_llmll_evidence(
         "agent_check_block_count": check_block_count,
         "agent_trust_declaration_count": trust_decl_count,
         "program_kloc": kloc,
+        "import_traversal": {
+            "primary": solution.name if solution else None,
+            "imports_extracted": imports,
+            "imports_resolved": [f.name for f in import_files],
+        },
     }
 
 
@@ -679,6 +702,69 @@ def _count_program_kloc(source: str, is_ast: bool) -> float:
         return round((stmts * 5) / 1000.0, 4)
     line_count = source.count("\n") + 1
     return round(line_count / 1000.0, 4)
+
+
+def _extract_llmll_imports(source: str, is_ast: bool) -> list[str]:
+    """Extract local-file import paths from an LLMLL solution source.
+
+    Returns each `(import <path>)` declaration's path, excluding built-in
+    prefixes (`wasi.*`, `haskell.*`, `c.*`, `hub.*`) which the codegen
+    preamble handles without a local-file lookup per
+    `docs/llmll-ast.schema.json:233-239` (ImportDecl description).
+
+    AST form: walk top-level `statements` for `{"kind": "import", "path": ...}`.
+    Surface form: regex on `(import <path>)`. Non-recursive (one level only;
+    nested imports in support modules are not followed — sufficient for the
+    typical multi-file Phase-3 cell shape).
+    """
+    if not source:
+        return []
+    if is_ast:
+        try:
+            data = json.loads(source)
+        except json.JSONDecodeError:
+            return []
+        stmts = data.get("statements") if isinstance(data, dict) else None
+        if not isinstance(stmts, list):
+            return []
+        paths = [
+            s["path"]
+            for s in stmts
+            if isinstance(s, dict)
+            and s.get("kind") == "import"
+            and isinstance(s.get("path"), str)
+        ]
+    else:
+        import re
+        paths = re.findall(r"\(import\s+([a-zA-Z_][\w.\-]*)", source)
+    return [p for p in paths if not p.startswith(("wasi.", "haskell.", "c.", "hub."))]
+
+
+def _resolve_import_files(run_dir: Path, modules: list[str]) -> list[Path]:
+    """Resolve local module paths to solution files in `run_dir`.
+
+    For each module path, tries `<path>.ast.json` then `<path>.llmll`
+    (mirrors `_find_first_existing`'s priority order). For dot-separated
+    paths (e.g., `foo.bar`), also tries `<foo/bar>.ext` to cover the
+    subdirectory convention. Unresolved paths are logged to stderr and
+    skipped; evaluation continues with whatever resolved.
+    """
+    resolved: list[Path] = []
+    for mod in modules:
+        candidates = [run_dir / f"{mod}.ast.json", run_dir / f"{mod}.llmll"]
+        if "." in mod:
+            slashed = mod.replace(".", "/")
+            candidates.extend([run_dir / f"{slashed}.ast.json", run_dir / f"{slashed}.llmll"])
+        for c in candidates:
+            if c.exists():
+                resolved.append(c)
+                break
+        else:
+            print(
+                f"evaluate_run: skipping unresolved import '{mod}' (no .ast.json or .llmll in {run_dir})",
+                file=sys.stderr,
+            )
+    return resolved
 
 
 def _find_first_existing(run_dir: Path, names: list[str]) -> Path | None:
