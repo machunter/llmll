@@ -1,0 +1,36 @@
+{
+  "_purpose": "Path B / claude-only third probe of the Phase-3 calibration lineage. Carved from manifest.phase3-calibration-probe.json (postmortem-002 Addendum 2 closing) because OpenAI quota (F-038) was unresolved at third-probe authorization time (operator confirmed: status pages Clean, OpenAI quota still exhausted). Codex side already proved end-to-end on first probe (23-statement solution, 11 ?proof-required, 2 verified obligations under F-035 evidence) and will re-launch as a separate codex-only cell post-quota-reset. The load-bearing diagnostic this probe answers is F-036 hypothesis 5 disambiguation: does Claude --add-dir {run_dir} suffice, or is settings.json injection escalation required.",
+
+  "experiments": ["002-bank-ledger"],
+  "targets": ["llmll"],
+  "run_count": 1,
+  "repair_budget_k": 5,
+  "timeout_seconds_per_turn": 1800,
+  "_timeout_note": "Carried verbatim from manifest.phase3-calibration-probe.json (F-035 close at commit d149980).",
+  "llmll_cmd": "llmll",
+
+  "terminal_target_per_target": {
+    "llmll": {
+      "kind": "trust-tier",
+      "value": "all-expected-contracts-above-asserted",
+      "_s1_note": "R6d universal Cred predicate. Same as manifest.phase3.json."
+    }
+  },
+
+  "toolchain_pins": {
+    "llmll": "0.10.6"
+  },
+
+  "_circuit_breaker_consecutive_infra_fail": 1,
+  "_circuit_breaker_note": "Threshold 1 (vs probe.json's 2) because this is a single-cell probe — any infra-fail should trip immediately for clean rc=2 surfacing.",
+
+  "agents": [
+    {
+      "name": "claude-default",
+      "cmd": "claude --add-dir {run_dir} --permission-mode bypassPermissions --settings '{\"permissions\":{\"allow\":[\"Write\",\"Bash\"]}}' --print --allow-dangerously-skip-permissions --no-session-persistence 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "required_env": [],
+      "required_executables": ["claude"],
+      "note": "Carried verbatim from manifest.phase3-calibration-probe.json. F-036 hypothesis 5 remediation in place: --add-dir {run_dir} substituted by run_repair_loop.py:_invoke_real_agent at line 386 before subprocess invocation."
+    }
+  ]
+}

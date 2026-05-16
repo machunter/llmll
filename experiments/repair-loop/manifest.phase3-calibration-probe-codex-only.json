@@ -1,0 +1,36 @@
+{
+  "_purpose": "Codex-only mirror probe (fifth in the Phase-3 calibration lineage) to pin codex × 002-bank-ledger × llmll per-cell wall+cost under the F-035 1800s ceiling. Carved from manifest.phase3-calibration-probe.json after postmortem-003 Addendum 1 cleared the Claude side. F-038 (OpenAI quota) reset confirmed by operator before launch — first probe (postmortem-002 F-035) captured codex partial at ~$3-$5 mid-stream-killed (23-statement solution + 11 ?proof-required + 2 verified obligations; killed at 540s); this probe gets the clean-completion datum needed for Phase-3 budget tightening on the codex slice.",
+
+  "experiments": ["002-bank-ledger"],
+  "targets": ["llmll"],
+  "run_count": 1,
+  "repair_budget_k": 5,
+  "timeout_seconds_per_turn": 1800,
+  "_timeout_note": "Carried verbatim from manifest.phase3-calibration-probe.json (F-035 close at commit d149980).",
+  "llmll_cmd": "llmll",
+
+  "terminal_target_per_target": {
+    "llmll": {
+      "kind": "trust-tier",
+      "value": "all-expected-contracts-above-asserted",
+      "_s1_note": "R6d universal Cred predicate. Same as manifest.phase3.json."
+    }
+  },
+
+  "toolchain_pins": {
+    "llmll": "0.10.6"
+  },
+
+  "_circuit_breaker_consecutive_infra_fail": 1,
+  "_circuit_breaker_note": "Threshold 1 because this is a single-cell probe — any infra-fail should trip immediately for clean rc=2 surfacing.",
+
+  "agents": [
+    {
+      "name": "codex-default",
+      "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "required_env": ["OPENAI_API_KEY"],
+      "required_executables": ["codex"],
+      "note": "codex-cli 0.130.0, gpt-5.5 model, xhigh reasoning. Carried verbatim from manifest.phase3-calibration-probe.json. Codex's --dangerously-bypass-approvals-and-sandbox is the broader bypass that worked cleanly on the first probe (postmortem-002 F-035 evidence: 23-statement solution, 11 ?proof-required, 2 verified obligations, killed at 540s mid-stream). No cmd-shape concerns analogous to the F-039 Claude --add-dir variadic-positional collision."
+    }
+  ]
+}
