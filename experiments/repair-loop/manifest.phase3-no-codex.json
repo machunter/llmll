@@ -1,0 +1,76 @@
+{
+  "_purpose": "Phase-3 sibling manifest with codex agent dropped \u2014 F-038 recurrence at cell 24 of batch 20260516T191018Z (monthly OpenAI quota cap hit; reset Jun 12 ~26 days away). Operator chose path C: skip codex Python+Go cells; run Claude+Gemini-only for the Python+Go target slices. Sibling matrix enumerates 54 cells (3 targets \u00d7 3 experiments \u00d7 2 agents \u00d7 3 tries). Launched with --resume-from-cell 19 to skip LLMLL cells 1-18 of this sibling's enumeration (those Claude+Gemini \u00d7 LLMLL cells already have data in the original batch). The 18 Codex Python+Go cells become an explicit data hole, to be filled by a codex-only follow-up matrix when OpenAI quota resolves. Original purpose preserved: Phase 3 cross-language launch matrix \u2014 3 agents \u00d7 3 problems \u00d7 3 targets \u00d7 k=5 \u00d7 3 tries = 81 cells. Tests H1 (assurance differential at fixed k), H2 (convergence differential inside QF-LIA), H3 (boundary-of-value null-watcher) per experiments/repair-loop/README.md:38-58. Per-problem predicted verification-path engagement pinned at docs/design/phase3-problem-shape-audit.md (Launch-commit-hash field filled at launch). S1\u2013S5/S8 defaults from the language-team Phase-3 scope-decision framing (2026-0...",
+  "experiments": [
+    "001-hangman",
+    "002-bank-ledger",
+    "003-rate-limiter"
+  ],
+  "targets": [
+    "llmll",
+    "python",
+    "go"
+  ],
+  "run_count": 3,
+  "repair_budget_k": 5,
+  "timeout_seconds_per_turn": 1800,
+  "_timeout_note": "Bumped from 540 to 1800 per postmortem-002-phase3-calibration-probe.md F-035 (2026-05-15). Phase-2 calibration's 540s was Gemini-calibrated; Claude Code 2.1.141 and Codex 0.130.0 at default reasoning effort need more headroom. Gemini under 1800 still completes well under the ceiling \u2014 the higher ceiling does not slow Gemini cells. Wall-clock budget implication: 81 cells \u00d7 k=5 worst-case \u00d7 1800s = ~200 hrs serial; typical 30-40 min/cell \u00d7 81 \u2248 40-55 hrs. Cost re-estimate: $200-$800 depending on per-cell turn count and agent reasoning effort. Pre-launch calibration re-probe is the data move that pins the actual numbers.",
+  "llmll_cmd": "llmll",
+  "terminal_target": {
+    "kind": "trust-tier",
+    "value": "all-expected-contracts-above-asserted",
+    "_note": "Default applied when no per-target override matches. The matrix spans mixed verification surfaces; see `terminal_target_per_target` below."
+  },
+  "terminal_target_per_target": {
+    "llmll": {
+      "kind": "trust-tier",
+      "value": "all-expected-contracts-above-asserted",
+      "_s1_note": "R6d universal Cred predicate. Encoded per language-team S1 default (Phase-3 scope-decision framing, 2026-05-15). `asserted` is dropped from the accepted-levels set per scripts/run_repair_loop.py:_count_bad_trust_tiers."
+    },
+    "python": {
+      "kind": "all-pass",
+      "value": "all-verifier-commands-pass"
+    },
+    "go": {
+      "kind": "all-pass",
+      "value": "all-verifier-commands-pass"
+    }
+  },
+  "toolchain_pins": {
+    "llmll": "0.10.6",
+    "python": "3.11",
+    "go": "1.23",
+    "_note": "Pin verification enforced by run_matrix.py:check_prereqs at matrix start. Compiler emits `llmll version --json`; Python emits `python3.11 --version`; Go emits `go version`. Mismatch against any of these aborts the matrix per stop-fast discipline A (toolchain pin verification)."
+  },
+  "_circuit_breaker_consecutive_infra_fail": 3,
+  "_circuit_breaker_note": "Stop-fast discipline B (per-cell circuit breaker): if N consecutive cells return terminal_state=infrastructure-fail, abort the matrix and write a partial matrix_report.json with a `circuit_breaker_tripped` field. Default N=3.",
+  "_pause_every_n_cells": 9,
+  "_pause_note": "Stop-fast discipline D (interim-pause checkpoint): after every K cells, write an interim matrix_report.json and exit with status `paused`. Operator resumes with --resume-from-cell. K=9 corresponds to one full agent\u00d7problem\u00d7target slice for one try. Set to null/0 to disable.",
+  "_audit_pin": {
+    "_note": "Per Control #7a at docs/design/language-comparison-experiments.md, the per-problem verification-path-engagement audit is pre-registered at docs/design/phase3-problem-shape-audit.md. The launch-commit-hash field in that audit is filled by language-team in-place edit immediately before this manifest is run. Post-hoc analysis cites the audit at the pinned commit, not at HEAD.",
+    "audit_path": "docs/design/phase3-problem-shape-audit.md",
+    "launch_commit_hash": null
+  },
+  "agents": [
+    {
+      "name": "claude-default",
+      "cmd": "claude --add-dir {run_dir} --permission-mode bypassPermissions --settings '{\"permissions\":{\"allow\":[\"Write\",\"Bash\"]}}' --print --allow-dangerously-skip-permissions --no-session-persistence 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "required_env": [],
+      "required_executables": [
+        "claude"
+      ],
+      "note": "Claude Code CLI 2.1.141, default model. Verified 2026-05-15 \u2014 smoke-test of `claude --print --allow-dangerously-skip-permissions --no-session-persistence 'Reply with the literal word OK'` returned OK cleanly. Flag rationale: --print = non-interactive entry; --allow-dangerously-skip-permissions = bypass per-tool confirmation prompts (subprocess analog of gemini --skip-trust; safe under per-cell run-dir isolation); --no-session-persistence = clean per-cell isolation, sessions not saved to disk; --add-dir {run_dir} = extend Claude Code's session sandbox to allow Write/Bash tools to emit solution files into the per-cell run directory (postmortem-002 Addendum 2 / F-036 hypothesis 5 remediation: --allow-dangerously-skip-permissions alone is insufficient; the sandbox layer requires the dir explicitly added). The {run_dir} placeholder is substituted with the absolute per-cell run dir by run_repair_loop.py:_invoke_real_agent before subprocess invocation. AUTH NOTE: --bare flag was considered but dropped because it requires ANTHROPIC_API_KEY env var; on this machine Claude auths via OAuth/keychain session (no env var set). If operator wants API-key auth: set ANTHROPIC_API_KEY, add --bare back to the cmd, and set required_env: [\"ANTHROPIC_API_KEY\"]. Current required_env is empty \u2014 pre-flight check trusts the OAuth session is alive, which the stage-1 smoke test confirmed."
+    },
+    {
+      "name": "gemini-default",
+      "cmd": "gemini -y --skip-trust -p 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "required_env": [
+        "GEMINI_API_KEY"
+      ],
+      "required_executables": [
+        "gemini"
+      ],
+      "note": "Gemini CLI 0.41.2, default model. Carried verbatim from manifest.phase2-calibration.json (Phase-2 calibration agent). Model captured in agent.stdout.log per turn."
+    }
+  ],
+  "_agents_note": "Codex agent removed from this sibling (vs manifest.phase3.json). See _purpose for context. Codex-only follow-up matrix will run post-OpenAI-quota-reset using a different sibling (manifest.phase3-codex-only-python-go.json, to be authored when quota is alive)."
+}
