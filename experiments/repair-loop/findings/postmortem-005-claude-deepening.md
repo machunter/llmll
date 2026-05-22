@@ -150,3 +150,13 @@ If the Codex × Python/Go fill-in runs after Jun 12 (per postmortem-004 deferred
 - Codex × Go at n=9 (new — Phase-3 hole)
 
 That would resolve the agent-generalizability question postmortem-004 raised and that this deepening intentionally did not address. It would also surface 6 more Codex × LLMLL successes (at the Phase-3 6/9 rate), which would lift the strategy-variance n from 5 to ~11 and let F-V2 cross from "directional" to "confidence-tightening."
+
+---
+
+## Addendum 1 (2026-05-22) — per-consumer routing closed; F-042a/b landed
+
+The §"Per-consumer scoped files" gating note above (:140-142, "F-042a/b are new and would go to `compiler-team.md` if compiler-engineer accepts the harness-side fixes; gating on that acceptance") is **satisfied**. Compiler-engineer accepted both items in `findings/compiler-engineer.md` §CE-E (CE-E-1 for F-042a, CE-E-2 for F-042b); the Python patch landed at commit `8990779` on branch `harness/f-042-batch-id-and-exit-codes` — `resolve_batch_dir` suffix guard + `EXIT_COMPLETED_WITH_PRIOR_FAILURES = 4` end-of-matrix split + argparse epilog documenting the 0/1/2/3/4 exit-code table + two new unit tests in `scripts/test_run_matrix.py` (both green: `test_rejects_suffixed_batch_id`, `test_returns_4_when_matrix_completes_with_prior_failure`).
+
+F-V1/V2/V3 mining surface also landed in the same window: `findings/language-team.md` §LT-D-1..5 (commit `dd5fdc1`, 2026-05-21) adjudicates the load-bearing items across postmortem-004 + postmortem-005, with §LT-D-2 carrying the R-H2-W formal withdrawal and §LT-D-4 the R-S-N strategy-variance adjudication. The ":141 same hand-off is in effect" line was correct as written 2026-05-21; the hand-off has now been executed.
+
+No gating items from this postmortem remain open at apparatus or per-consumer surface.
