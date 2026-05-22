@@ -316,6 +316,22 @@ The bimodality finding (F-V3) attaches to the successor as a **shape constraint*
 
 §LT-D-2 → **CLOSED (R-H2-W formal withdrawal)** (2026-05-21). Successor hypothesis pre-registration is a future-turn item, not gated on this closure.
 
+#### Closure addendum 1 (2026-05-22) — methodological warrant refined (professor turn)
+
+Routed from a professor turn (2026-05-22). The adjudication R-H2-W and the successor-deferral position are unchanged; the citation supporting *why* the successor is deferred is refined to clear an over-claim.
+
+The §LT-D-2:305 invocation of Nosek, Ebersole, DeHaven & Mellor, *The preregistration revolution*, PNAS 115(11):2600–2606, 2018, is correct for the **immutability protocol** at `docs/design/language-comparison-experiments.md:247-249` — i.e., for the prohibition on silently retuning H2 into an H2′ post-hoc. It is over-claimed when carried into the **successor-deferral** position. Deferral rests on two convergent methodological constraints that do not reduce to immutability:
+
+**(a) Testability (Popperian).** R-H2-A requires predicate-bar augmentation on Python / Go to produce comparable-difficulty terminals; R-H2-B requires native body-faithful equivalents on Python / Go that do not currently exist (`postmortem-004:114-117`; §LT-D-2:305). Pre-registration's epistemic function — lock predictions before data — presupposes an apparatus capable of producing the data. With the apparatus absent at HEAD, registration would be paperwork, not falsifiable prediction.
+
+**(b) Stage-1 Registered Reports criterion.** Stage-1 registration of a Registered Report requires methods to be specifiable in advance (Chambers & Tzavella, *The past, present and future of Registered Reports*, Nature Human Behaviour 6(1):29–42, 2022). R-H2-A / R-H2-B fail Stage-1 specifiability until the Phase-4 harness extension is itself designed. The Phase-4 design turn is therefore the correct authoring slot for the successor pre-registration, against an apparatus design produced in the same turn.
+
+The Nosek immutability protocol is retained as the warrant for refusing in-place retuning of withdrawn hypotheses; it is no longer cited as the warrant for *when* the successor is authored. Testability + Stage-1 is.
+
+The absence of a PL-empirical refutation-recovery precedent is itself a finding: the field has not yet settled what successor authorship after empirical refutation should look like in language-comparison studies (Kaijanaho, *Evidence-Based Programming Language Design: A Philosophical and Methodological Exploration*, Jyväskylä Studies in Computing 222, 2015). LLMLL is, in this respect, building methodology slightly ahead of the field, in line with the project's existing posture on the verification-empirical seam.
+
+§LT-D-2 remains **CLOSED (R-H2-W formal withdrawal)**. This addendum refines paper-trail citation only; it does not reopen the adjudication.
+
 ---
 
 ### LT-D-3 · H3 (boundary-of-value, null-watcher) — confirmed-and-extended

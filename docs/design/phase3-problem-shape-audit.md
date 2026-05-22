@@ -253,3 +253,11 @@ The bimodality finding (F-V3) attaches to the successor as a shape constraint: a
 ### Closure
 
 Addendum 1 records H2 raw-form refutation + R-H2-W formal withdrawal at audit-side. No follow-on audit work implied. Successor-hypothesis pre-registration is a deferred Phase-4-design item, not gated on anything closed here.
+
+---
+
+## Addendum 2 (2026-05-22) — Successor-deferral warrant refined (language-team, professor turn)
+
+Refines the methodological citation at §"Adjudication action recorded by language-team" (:241-243), where Addendum 1 invoked Nosek et al. PNAS 2018 to justify successor-hypothesis deferral. The Nosek citation is correct for the **immutability protocol** at `docs/design/language-comparison-experiments.md:247-249` and remains the warrant for refusing in-place retuning of withdrawn hypotheses. It is over-claimed for the **successor-deferral** position, which rests instead on (a) Popperian testability — the apparatus for R-H2-A / R-H2-B does not exist at HEAD, so registration would be paperwork — and (b) the Chambers Stage-1 Registered Reports criterion that methods must be specifiable in advance (Chambers & Tzavella, *The past, present and future of Registered Reports*, Nature Human Behaviour 6(1):29–42, 2022). The Phase-4 design turn is the correct authoring slot for the successor pre-registration, against an apparatus design produced in the same turn. The absence of a PL-empirical refutation-recovery precedent is itself a finding (Kaijanaho, *Evidence-Based Programming Language Design: A Philosophical and Methodological Exploration*, Jyväskylä Studies in Computing 222, 2015).
+
+No per-problem prediction band is touched. R-H2-W formal withdrawal stands. Cross-reference: §LT-D-2 Closure addendum 1 at `experiments/repair-loop/findings/language-team.md`.
