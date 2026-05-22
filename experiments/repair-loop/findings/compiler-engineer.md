@@ -182,12 +182,50 @@ Acceptance (Addendum 18 §F-OBLIG-PBT-4):
 
 ---
 
+## CE-E · F-042 cluster — harness-script defence-in-depth on `run_matrix.py` (postmortem-005, 2026-05-21)
+
+**Status:** **OPEN.** Two small Python edits on `experiments/repair-loop/scripts/run_matrix.py`, sourced from `findings/postmortem-005-claude-deepening.md:91-110`. No Haskell compiler footprint; no spec, schema, or roadmap impact. Routed to compiler-engineer per postmortem-005's priority matrix (`postmortem-005-claude-deepening.md:136-137`) and the prior harness-script convention that placed `experiments/repair-loop/scripts/*` under compiler-engineer scope (CE-D-OBLIG-PBT-4 lineage).
+
+**Priority:** Defence-in-depth. Neither item blocked the Phase-3 deepening probe; both produced procedural noise that is recoverable by hand but would compound across future matrices.
+
+### CE-E-1 · F-042a `--batch-id` double-suffix on resume
+
+**Evidence.** [`experiments/repair-loop/scripts/run_matrix.py:249-253`](../scripts/run_matrix.py#L249-L253) — `resolve_batch_dir` computes `name = f"{batch_id}-{label}"` where `label = manifest.get("batch_label") or "matrix"`. An operator who passes `--batch-id 20260520T173939Z-matrix` (the directory name observed under `runs/`) gets a sibling batch directory `runs/20260520T173939Z-matrix-matrix/` on resume. In the deepening probe, slice 2 (Python, 9 cells) wrote to the sibling directory because the resume from cell 10 was launched with the directory-name form of the batch-id (`postmortem-005-claude-deepening.md:96-98`).
+
+**Fix.** Hard-error on a suffixed `--batch-id` rather than silently rewriting operator input. In `resolve_batch_dir`, after resolving `batch_id` and `label`, raise `SystemExit` with a message naming the bare stamp the operator should pass if `batch_id.endswith(f"-{label}")`. Silent rewriting of operator-supplied identifiers is the wrong discipline for an experiment harness — the existing `check_prereqs` posture (`run_matrix.py:256+`) accumulates and reports failures rather than papering over them, and F-042a should match that.
+
+**Acceptance.** A follow-on probe resumed via the directory-name form fails fast with a clear error message that names the bare-stamp form. New Python test `test_resolve_batch_dir_rejects_suffixed_id` asserts `SystemExit` with the expected message.
+
+### CE-E-2 · F-042b end-of-matrix `rc=1` on prior-cell failure
+
+**Evidence.** [`experiments/repair-loop/scripts/run_matrix.py:203`](../scripts/run_matrix.py#L203) — `return 1 if any_failed else 0` at end-of-matrix overloads `rc=1`. `any_failed` is set True at the first infra-fail or harness-error cell and persists. In the deepening probe, slice 3 (Go, cells 19-27) finished 9/9 target-reached but the matrix returned `rc=1` because cell 5 had earlier infra-failed in slice 1; the task notification surfaced "failed with exit code 1" despite a clean slice 3 (`postmortem-005-claude-deepening.md:104-108`).
+
+**Fix.** Introduce `EXIT_COMPLETED_WITH_PRIOR_FAILURES = 4` as a module-level constant and return it from the end-of-matrix path when `any_failed` is True. `rc=1` retains its current meaning (matrix aborted / internal harness error) and any in-function early returns that emit `rc=1` are unaffected. Document the exit-code table in the `--help` epilog (0 = clean, 1 = aborted, 2 = circuit-breaker, 3 = interim pause, 4 = completed with prior failures).
+
+**Acceptance.** End-of-matrix exit code disambiguates "complete with prior failures" from "aborted." New Python test `test_end_of_matrix_returns_4_on_prior_failures` invokes the matrix entry point on a stub manifest that forces one infra-fail followed by clean cells; asserts `rc == 4`.
+
+### Bundling
+
+Both items touch the same module within adjacent surface; ship as one commit on branch `harness/f-042-batch-id-and-exit-codes`. Estimated diff ≲40 LOC including the two pytest cases. 37 → 39 Python tests. 570 Haskell unchanged.
+
+### Risks
+
+1. **`rc=1` semantic split is visible to external callers.** Grep `experiments/` and `docs/` for `rc=1` / `exit code 1` / `returncode == 1` before shipping; update any caller that consumes the old binary semantic. Postmortem-005:105 itself references the old semantic and is fine to leave as a historical record.
+2. **Out-of-skill-scope routing.** F-042 is harness-Python, not Haskell compiler. The routing convention from CE-D-OBLIG-PBT-4 places this under compiler-engineer; if the user prefers experiment-lead instead, the plan content is unchanged but the slot moves.
+
+### Sequencing
+
+No dependencies. Land any time before the next Phase-3-shape matrix. Not gating on language-team or doc-lead.
+
+---
+
 ## Routing
 
 - **CE-A is closed** (postmortem-001 Addendum 14). No compiler-engineer action.
 - **CE-B is closed** (MOD-PBT-1 / v0.10.3, 2026-05-12). Was structurally the blocker behind F-030; F-018's PBT FuncEnv extension shipped. The empirical question "does `(check ...)` now elevate obligations to `tested` under realistic agent emissions?" remains open under `findings/language-team.md` §LT-B and is an experiment-lead re-probe, not compiler-engineer work.
 - **CE-C is closed** (R6d / `bb1bd98` + `bbab67b`, 2026-05-12). No follow-up engineer track from R6d.
-- **CE-D is closed** (F-034, shipped v0.10.6 commit `cb2e71f`; mechanism confirmed by Addendum 19 re-probe under v0.10.6-shipped binary, 2026-05-15). Tracked here for closure-bookkeeping only. **No further compiler-engineer action in scope for `findings/postmortem-001`.**
+- **CE-D is closed** (F-034, shipped v0.10.6 commit `cb2e71f`; mechanism confirmed by Addendum 19 re-probe under v0.10.6-shipped binary, 2026-05-15). Tracked here for closure-bookkeeping only.
 - **CE-D-OBLIG-PBT-4 is closed** (`oblig-pbt-4-5/subject-metadata-and-eval-coverage` working tree atop merge `d220632`, mechanism confirmed by Addendum 18 on c01-shape and Addendum 19 on c02-shape). Tracked here for closure-bookkeeping only.
+- **CE-E is OPEN** (F-042a + F-042b, postmortem-005, 2026-05-21). Harness-script defence-in-depth on `run_matrix.py`. Plan above; awaiting user approval to land Python patch on branch `harness/f-042-batch-id-and-exit-codes`. No Haskell, schema, spec, or roadmap touch.
 
-All compiler-engineer tracks from `findings/postmortem-001-apparatus-validation.md` are now closed. The doc-lead surface (CHANGELOG.md §v0.10.6 §"Empirical hooks not yet exercised" entry retraction for c02/c03) is the only residual; not a compiler-engineer item.
+All Haskell-compiler tracks from `findings/postmortem-001-apparatus-validation.md` are closed; the doc-lead surface (CHANGELOG.md §v0.10.6 §"Empirical hooks not yet exercised" entry retraction for c02/c03) is the only residual doc-side item. CE-E is the only open compiler-engineer track in the repair-loop arc.

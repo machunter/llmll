@@ -41,10 +41,29 @@ RUN_REPAIR_LOOP = SCRIPT_DIR / "run_repair_loop.py"
 EVALUATE_RUN = SCRIPT_DIR / "evaluate_run.py"
 DEFAULT_RUN_COUNT = 3
 
+EXIT_OK = 0
+EXIT_ABORTED = 1
+EXIT_CIRCUIT_BREAKER = 2
+EXIT_INTERIM_PAUSE = 3
+EXIT_COMPLETED_WITH_PRIOR_FAILURES = 4
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run a repair-loop matrix from a JSON manifest.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exit codes:\n"
+            "  0  matrix completed; all cells target-reached or budget-exhausted\n"
+            "  1  aborted: setup error, prereq failure, or --fail-fast halt\n"
+            "  2  circuit-breaker tripped on consecutive infra-fails\n"
+            "  3  interim-pause checkpoint reached (resume with --resume-from-cell)\n"
+            "  4  matrix completed but contained prior infra-fail or harness-error cells\n"
+            "\n"
+            "--batch-id semantics: pass the bare UTC stamp (e.g. 20260520T173939Z); the\n"
+            "harness appends -{batch_label} automatically. A suffixed batch-id is rejected\n"
+            "to prevent sibling-directory creation on resume (postmortem-005 F-042a)."
+        ),
     )
     parser.add_argument("manifest", type=Path, help="JSON manifest file.")
     parser.add_argument(
@@ -157,7 +176,7 @@ def main() -> int:
             any_failed = True
             if args.fail_fast:
                 print(f"cell {idx:02d}: {entry['status']}; --fail-fast set, halting.", file=sys.stderr)
-                return 1
+                return EXIT_ABORTED
 
         # Stop-fast discipline B — per-cell circuit breaker.
         # Skipped under --prepare-only (no cells actually executed).
@@ -178,7 +197,7 @@ def main() -> int:
                     "tripped_after_cell": idx,
                 }
                 (batch_dir / "matrix_report.json").write_text(json.dumps(report, indent=2) + "\n")
-                return 2
+                return EXIT_CIRCUIT_BREAKER
 
         # Stop-fast discipline D — interim-pause checkpoint.
         # Skipped under --prepare-only (no cells actually executed).
@@ -198,9 +217,9 @@ def main() -> int:
                     f"and resume with --resume-from-cell {idx + 1}.",
                     file=sys.stderr,
                 )
-                return 3
+                return EXIT_INTERIM_PAUSE
 
-    return 1 if any_failed else 0
+    return EXIT_COMPLETED_WITH_PRIOR_FAILURES if any_failed else EXIT_OK
 
 
 def enumerate_cells(manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -249,7 +268,15 @@ def enumerate_cells(manifest: dict[str, Any]) -> list[dict[str, Any]]:
 def resolve_batch_dir(args: argparse.Namespace, manifest: dict[str, Any]) -> Path:
     batch_id = args.batch_id or manifest.get("batch_id") or _utc_batch_stamp()
     label = manifest.get("batch_label") or "matrix"
-    name = f"{batch_id}-{label}"
+    suffix = f"-{label}"
+    if batch_id.endswith(suffix):
+        bare = batch_id[: -len(suffix)]
+        raise SystemExit(
+            f"--batch-id {batch_id!r} already ends with batch_label suffix {suffix!r}; "
+            f"pass the bare stamp {bare!r} instead (the harness appends the suffix). "
+            "See postmortem-005 F-042a."
+        )
+    name = f"{batch_id}{suffix}"
     return args.output / name
 
 
