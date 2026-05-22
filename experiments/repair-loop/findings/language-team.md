@@ -250,8 +250,156 @@ Closure is **retrospective**: the section is marked closed against the actual sh
 
 ---
 
+## LT-D · Phase-3 launch findings — H1/H2/H3 adjudications (postmortem-004 + postmortem-005)
+
+**Priority:** Mixed (H2 raw refutation is the load-bearing adjudication; the other four are confirmation closures or empirical baselines). Post-launch; not Phase-3-gating in retrospect — Phase 3 has shipped — but the language-team-side adjudication on H2 conditions any Phase-4 design turn.
+
+**Source:** `findings/postmortem-004-phase3-launch.md` §"Verified findings (hypothesis-class)" + `findings/postmortem-005-claude-deepening.md` §"Verified findings". Both postmortems flagged a pending per-consumer fragment for `findings/language-team.md` (postmortem-004:490; postmortem-005:142). This section is that fragment.
+
+### Why this fragment was missing
+
+Between 2026-05-17 (postmortem-004 land) and 2026-05-21 (this fragment land), `findings/language-team.md` read as "all three LT items closed" while postmortem-004 carried the H2 refutation, H1-Assurance confirmation, H3 confirmed-and-extension, H1-Correctness cross-agent variance, and the verification-strategy split. A reader landing on `language-team.md` alone would have missed the entire Phase-3-launch outcome. The drift is itself a finding about the per-consumer-fragment authoring discipline: the postmortem author self-flagged the missing fragment at line 490 ("**fragment to be added** in a separate edit") but the explicit hand-off did not generate a follow-up turn until the 2026-05-21 review of all repair-loop findings. Recorded here for the discipline trail; no procedural change proposed (the postmortem self-flag is the correct mechanism; the gap is in the follow-up cadence, not the discipline).
+
+---
+
+### LT-D-1 · H1-Assurance bifurcation — empirically confirmed, R6d validates
+
+#### Evidence
+
+`postmortem-004:42-74` records substantive within-LLMLL `tier_profile` variation across the 10 LLMLL target-reached cells: cells split between `verified`-dominant shapes (cells 4, 12, 13, 15, 19, 20 — verified ranges 2–9) and `tested`-dominant shapes (cells 1, 5, 22, 23 — tested ranges 3–15). The six-Int aggregate distinguishes assurance-by-proof from assurance-by-testing without scalarization across paradigms. Python/Go cells carry the native binary `all-pass`-style signal in parallel; the harness does not scalarize across paradigms. `postmortem-005:50-65` (F-V2) tightens the within-Claude pattern to n=3/5 high-`verified`-tier dominance among successes.
+
+#### Why we saw what we saw
+
+R6d's universal `Cred(R)` + six-Int `tier_profile` (closed in §LT-A 2026-05-13) is the apparatus that makes the bifurcation observable. The diamond-incomparability declaration at `LLMLL.md §4.4.1:344` and the epistemic-status note at `:346-347` are **load-bearing**, not decorative: without the diamond, the verified-vs-tested distinction collapses and the assurance-strategy delta is suppressed. The professor's 2026-05-13 critique of R6c's cardinal-weighted scalarization — which would have collapsed the diamond by the back door — was exactly what protected the empirical signal from being destroyed at design time.
+
+#### Closure
+
+No spec move implied. R6d is empirically validated by the Phase-3 data, and `experiments/repair-loop/README.md:267-330` (the spec-vs-tool boundary surface) reads correctly against the realized data. The closure rests on three references that already converge on the same discipline:
+
+- `LLMLL.md §4.4.1:344-347` — diamond + epistemic-status rationale.
+- `docs/design/language-comparison-experiments.md:20-35,37` — Correctness/Assurance separation with R6d operationalization footnote.
+- `experiments/repair-loop/README.md:283-330` — `tier_profile` Assurance signal + no-scalarization discipline.
+
+§LT-D-1 → **CLOSED (informational)** (2026-05-21).
+
+---
+
+### LT-D-2 · H2 (convergence differential) — raw form empirically refuted; formal withdrawal recorded (R-H2-W)
+
+#### Evidence
+
+`experiments/repair-loop/README.md:45-47` pre-states H2 verbatim: *"On tasks whose dominant invariant class is inside LLMLL's QF-LIA fragment (`LLMLL.md §5.3.3 / §5.3.5`), LLMLL converges in fewer turns than Python."* `postmortem-004:84-97` reports the empirical outcome on the QF-LIA-dominant 002-bank-ledger problem: Claude × LLMLL mean 3.0 turns to terminal; Codex × LLMLL mean 3.2; Claude × Python 1.0 every try; Gemini × Python 1.0 every try. LLMLL converges in **more** turns than Python on the QF-LIA-dominant problem H2 was framed around, not fewer.
+
+`postmortem-005:79-90` (F-V3) tightens the refutation with within-Claude bimodality at n=18: the LLMLL deepening turn-count distribution is `[5,5,5,5,5,5,5,5,1]` with zero cells terminating at turns 2, 3, or 4. At k=5, LLMLL successes terminate at turn ≤2 (right-shape mode) or budget-exhaust at turn 5 (wrong-shape mode); no intermediate convergence sampled. H2's "convergence" framing implicitly assumed gradient sampling of a refinement curve; the data shows two-mode selection at turn 1.
+
+#### Why we saw what we saw
+
+The structural cause is **predicate-bar mismatch**, named at `postmortem-004:99-108`. Python's `manifest.phase3.json:terminal_target_per_target.python.kind = "all-pass"` terminates on testkit pass — satisfiable in one turn because Python is the agents' training distribution. LLMLL's `terminal_target_per_target.llmll.kind = "trust-tier"` terminates on R6d `Cred(R)` — requires structured verification work the agent must iterate through: emit, run verifier, observe trust report, refine obligations, re-emit, repeat. **The "more turns" delta is not "LLMLL agents are slower at the problem"; it is "LLMLL agents are asked to do more per turn."** This is the experiment's *intended design*, not a defect — but H2's framing implicitly assumed comparable predicate difficulty across targets.
+
+The bimodality compounds the refutation: even if the predicate bar were equalized, the LLMLL distribution at k=5 does not gradient-sample, so any "convergence differential" measurement on this k requires re-thinking what is being measured. A k=10 probe might surface intermediate-turn terminals; that is an empirical question, not a defense of H2's raw form.
+
+#### Adjudication — R-H2-W (formal withdrawal)
+
+H2 in its pre-stated form is withdrawn from the Phase-3 hypothesis set as empirically refuted. The withdrawal is the finding, not a defect to be repaired by silent successor.
+
+R-H2-A (matched-difficulty reframing) and R-H2-B (per-tier-of-trust reframing), both surfaced at `postmortem-004:114-117`, are coherent *next* hypotheses for a Phase-4 design turn. Both are untestable in the current harness — R-H2-A requires a predicate-bar augmentation on Python/Go to produce comparable-difficulty terminals; R-H2-B requires native body-faithful equivalents on Python/Go that do not currently exist. **Neither is authored here as a silent successor to H2.** Per the pre-registration discipline at `docs/design/language-comparison-experiments.md:247-249` (Nosek, Ebersole, DeHaven & Mellor, *The preregistration revolution*, PNAS 115(11):2600–2606, 2018), successor hypotheses are new pre-registrations with their own pinned commits, not retunings of refuted ones. The successor hypothesis is *deferred* to a Phase-4 design turn; its authoring is out of scope for this LT-D fragment.
+
+The bimodality finding (F-V3) attaches to the successor as a **shape constraint**: any H2-successor must measure something other than mean turns-to-terminal at k=5, because the LLMLL distribution is two-mode at that k. Per-cell strategy choice (LT-D-4 below), turns-to-first-success-mode, or k-sized-to-expose-modes are the candidate measurables; the design space is open.
+
+#### Affected surface
+
+- `experiments/repair-loop/README.md:45-47` — H2 statement requires an addendum recording the refutation + withdrawal. **This is the experiment-lead's apparatus surface**, not language-team's; routed to `experiment-lead` (see §"Routing" below).
+- `docs/design/phase3-problem-shape-audit.md` — dated addendum recording the H2 raw-form refutation per the immutability protocol at `docs/design/language-comparison-experiments.md:247-249`. Authored same turn as this fragment (2026-05-21).
+- `LLMLL.md`, `CHANGELOG.md`, `README.md`, `docs/llmll-ast.schema.json`, `docs/compiler-team-roadmap.md` — **untouched**. The refutation lives in apparatus and audit surfaces, not in the spec, in accordance with the spec-vs-tool boundary established by R6d's professor critique (`findings/language-team.md:79-86`).
+
+#### Closure
+
+§LT-D-2 → **CLOSED (R-H2-W formal withdrawal)** (2026-05-21). Successor hypothesis pre-registration is a future-turn item, not gated on this closure.
+
+---
+
+### LT-D-3 · H3 (boundary-of-value, null-watcher) — confirmed-and-extended
+
+#### Evidence
+
+`postmortem-004:131-170` reports cross-target rates on the H3 null-watcher problem 001-hangman (state-machine, non-QF-LIA-dominant per `experiments/repair-loop/README.md:58`): LLMLL 3/9 target-reached vs Python 6/6 and Go 6/6. The H3 pre-statement (`experiments/repair-loop/README.md:49-50`: "On tasks whose dominant invariant class is outside QF-LIA, LLMLL produces no measurable advantage. Confirmation bounds the value claim; refutation extends it.") is confirmed in the bounded-value form and empirically extended: LLMLL produces a measurable *terminal-reaching disadvantage* on this problem class at k=5 with the per-target predicates, not just no advantage. H1-Correctness on cells that *do* reach terminal is comparable across paradigms (Claude × LLMLL 1.000 pass rate on hangman; Codex × LLMLL 0.722; Python/Go 1.000) — meaning the disadvantage is in *getting to* terminal under R6d's per-obligation bar, not in solution quality once there.
+
+#### Why we saw what we saw
+
+001-hangman's state machine has non-QF-LIA invariants (guess-letter not in previous-guesses, game-state transitions on hit-vs-miss). R6d `Cred(R)` requires every obligation above `asserted`; for non-QF-LIA invariants this means liquid-fixpoint cannot discharge them (so they fall to `asserted`), the agent must explicitly route to `weakness-ok`, or emit `(check ...)` blocks (with `:subjects` annotation when multi-callee per `LLMLL.md §4.4.5`) to promote them to `tested`. All three paths take iteration; first-turn solutions rarely cover all expected obligations above-asserted. Python/Go on the same problem face `all-pass` only.
+
+#### Closure
+
+No language-team spec move. The confirmation aligns with the audit's per-problem prediction at `docs/design/phase3-problem-shape-audit.md:185` ("LLMLL-disadvantaged or neutral on 003-rate-limiter" + "roughly comparable on 001-hangman"); the empirical 001-hangman disadvantage is slightly stronger than the audit's "roughly comparable" prediction, but inside the variance band the audit declared at `:194-197` (predicted `match` rate 60-85%, `divergence` rate 10-30%, `unaudited` rate 5-15%). Post-hoc whether 001-hangman cells should be marked `match` or `divergence` is the `prediction_match`-field author's call (human judgment per `docs/design/language-comparison-experiments.md:579`); the question is empirical-aggregation, not language-team scope.
+
+The optional narrative-update implication noted at `postmortem-004:163-166` ("Language-team might consider whether the project's value-claim narrative should be updated to lead with 'rich verification surface' rather than 'faster development'") is **out of language-team scope** — `docs/one-pager.md`, `README.md`, and the project's positioning copy are documentation-lead's surface, not language-team's. Routing flagged in §"Routing" below; no action this turn.
+
+§LT-D-3 → **CLOSED (confirmed-and-extended; no spec move)** (2026-05-21).
+
+---
+
+### LT-D-4 · Verification-strategy split — observed pattern; spec-guidance adjudication R-S-N (no spec change)
+
+#### Evidence
+
+`postmortem-004:256-282` documents within-agent strategy variance: Codex on 001-hangman produces cell 4 with `{verified: 2}` (verified-into-tier) and cell 5 with `{tested: 15}` (tested-into-tier) — same agent, same model, same reasoning effort, same problem-shape, different try. Across the n=10 LLMLL target-reached cells: Claude reaches terminal 3-of-4 times via verified-into-tier (cells 12 `verified=9`, 19 `verified=4`, 20 `verified=8`) and once via tested-into-tier (cell 1 `tested=13`); Codex mixes (3 via verified, 3 via tested). `postmortem-005:50-65` (F-V2) tightens the within-Claude verified-into-tier dominance to n=3/5 among combined Phase-3 + deepening successes — directional but small.
+
+#### Why we saw what we saw
+
+Both strategies satisfy R6d `Cred(R)`: `asserted=0 AND no_contract=0`. The agent satisfies the predicate by either (a) promoting all obligations to body-faithful-verified (liquid-fixpoint discharges QF-LIA-decidable arithmetic) or (b) adding PBT-Lift `(check ...)` blocks that cover all obligations and promote them to `tested` (with `:subjects` for multi-callee per `LLMLL.md §4.4.5`'s PBT-Lift-Annotated branch shipped in v0.10.6). The diamond incomparability at `LLMLL.md §4.4.1:344` is the spec's principled position on the question: it admits both strategies as legitimate, with neither implying the other.
+
+#### Adjudication — R-S-N (no spec change)
+
+The spec's existing position is consistent with the empirical pattern. Agents adapt their strategy to the obligation shape and to whatever signal they read from the verifier feedback loop; the diamond incomparability is what makes that adaptation legitimate. The observation that "Claude tends toward verified-into-tier; Codex mixes" is an empirical finding about agents, not a spec-design question about LLMLL.
+
+The two alternatives are rejected:
+
+- **R-S-G (non-normative guidance in `LLMLL.md §4.4.1`).** Adding a paragraph telling agents to prefer body-faithful when obligation is in-fragment, PBT-Lift otherwise, documents what the existing spec already implies. The cost is words; the benefit is small. Deferred — if a future empirical pattern shows agents systematically choosing the wrong strategy for the obligation shape (e.g., tested-into-tier on QF-LIA-trivial obligations), R-S-G reopens. Not the current pattern.
+- **R-S-P (normative ordering — prefer `verified` over `tested` when both available).** Hard-rejected. Collapses the diamond by the back door; contradicts `LLMLL.md §4.4.1:347` (logical vs statistical evidence as categorically different kinds of trust signal); contradicts `LLMLL.md §4.4.1:350` (the deliberate design divergence from Liquid Haskell that admits the `tested` channel into the partial order).
+
+R-S-N stands on n=5–10 Phase-3 LLMLL successes plus the F-V2 n=3/5 deepening signal. The sample is small; the recommendation is appropriately tentative and reopens if Phase-4 codex generalization (Jun-12 quota reset per `postmortem-004:344-348`) surfaces a contradicting pattern.
+
+#### Affected surface
+
+- `LLMLL.md` — **untouched**.
+- `docs/design/language-comparison-experiments.md` — optional one-line empirical-baseline footnote at the §"Soundness Assessment" tail (Phase-3 observation: strategy choice is non-deterministic task-time within the diamond incomparability). Low-priority; defer to next doc-lead pass or absorb into the §LT-D-4 paper trail here. Not authored this turn.
+
+§LT-D-4 → **CLOSED (R-S-N no spec change)** (2026-05-21). Reopens conditionally on Phase-4 codex generalization data.
+
+---
+
+### LT-D-5 · H1-Correctness magnitude at n=18 (within-Claude) — point estimate revised down
+
+#### Evidence
+
+`postmortem-005:28-47` (F-V1) at n=18 within-Claude reports Claude × LLMLL target-reached rate of 5/18 = 28%, revising the Phase-3 standalone Claude × LLMLL rate of 44% (4/9, postmortem-004) as a small-n overestimate. Claude × Python 18/18 = 100%, Claude × Go 15/18 = 83% (after F-037 hole fill in the deepening slice). Cross-paradigm gap at n=18: LLMLL pays ~72pp vs Python, ~55pp vs Go on Claude.
+
+#### Why we saw what we saw
+
+Identical structural mechanism to LT-D-2: predicate-bar mismatch. R6d `Cred(R)` is a harder bar than `all-pass`. The deepening did not surface a new mechanism — F-V1 is *confirms-and-tightens*, not a new finding. The n=9 → n=18 magnitude revision is normal small-sample-tightening behavior; the postmortem-005 slice-1 LLMLL rate of 1/9 (11%) was investigated as a potential service-degradation or model-drift confound and ruled out (null result at `postmortem-005:127`).
+
+#### Closure
+
+Informational. No language-team move. The magnitude revision bears on any *future* external-facing narrative claim about LLMLL ergonomics (the kind of copy that would land in `docs/one-pager.md` or `README.md`); that is documentation-lead's surface, not language-team's. Flagged here so the doc-lead's eventual value-claim narrative update (the optional H3 implication from LT-D-3) lands against the n=18 magnitude, not the n=9 small-sample point estimate.
+
+§LT-D-5 → **CLOSED (informational; n=18 baseline recorded)** (2026-05-21).
+
+---
+
+### Routing emitted from LT-D
+
+- **Experiment-lead-facing.** `experiments/repair-loop/README.md:45-47` requires a one-paragraph addendum recording H2 raw-form refutation + R-H2-W formal withdrawal, citing `postmortem-004:84-97` and `postmortem-005:79-90`. This is **apparatus**, not spec; the experiment-lead owns the harness `README.md`. The language-team does not edit this file. Naming the routing surface here so the user's next experiment-lead turn picks it up.
+- **Documentation-lead-facing.** No direct same-turn surface. Optional future-turn item: a value-claim narrative review of `docs/one-pager.md` and `README.md` against the LT-D-3 + LT-D-5 findings ("lead with rich verification surface, not faster development; n=18 baseline"). Not gated on anything; routes at doc-lead convenience. **Not invoked this turn.**
+- **Language-team-internal.** Same-turn write to `docs/design/phase3-problem-shape-audit.md` as a dated addendum (`## Addendum 1 (2026-05-21) — H2 raw-form refutation; formal withdrawal recorded`), per the immutability protocol at `docs/design/language-comparison-experiments.md:247-249`. Authored adjacent to this fragment.
+- **Compiler-engineer-facing.** None. F-042a/b from postmortem-005:91-110 are harness-script defence-in-depth items routed to compiler-engineer (`scripts/run_matrix.py`), not language-team scope; they live in `findings/compiler-engineer.md`'s natural extension surface, not here.
+
+---
+
 ## Routing
 
-- **LT-A is the Phase-3 gate** in combination with `compiler-engineer.md` §CE-A (verify-fixpoint diagnostics). LT-A is the design decision; CE-A is the diagnostic surface that makes the agent's iteration-under-tightened-predicate measurable.
-- **LT-B is not Phase-3-gating in itself** but conditions Phase-3 LLMLL signal under any tightened predicate (LT-A R6a/R6c). Recommend bundling LT-B's compiler-side F-018 (handled in `compiler-engineer.md` §CE-B) with CE-A in a single compiler-engineer turn for amortization; the language-team decision on LT-B can wait for F-018's empirical outcome.
-- **LT-C is independent of Phase 3** and routes at convenience.
+- **LT-A is closed** (R6d / 2026-05-13; empirically validated by Phase-3 data per LT-D-1). The R6d adjudication's design and the spec-vs-tool boundary it established remain load-bearing for any future predicate-vocabulary work.
+- **LT-B is closed** (OBLIG-PBT-3 / OBLIG-PBT-4 / F-033 / F-034 shipped through v0.10.6; conjunctive criterion holds per Addendum 19). No residual.
+- **LT-C is closed retrospective** (R5a shipped at `ecdf42f` in v0.10.3; closure recorded 2026-05-15).
+- **LT-D is closed** (Phase-3-launch findings adjudicated 2026-05-21). H2 raw form formally withdrawn (R-H2-W); verification-strategy split recorded as observed pattern with no spec move (R-S-N); H1-Assurance / H3 / H1-Correctness-magnitude closures are informational. Two same-turn surface writes: this LT-D fragment + `docs/design/phase3-problem-shape-audit.md` Addendum 1. One next-turn hand-off: experiment-lead update of `experiments/repair-loop/README.md:45-47`. One deferred-future-turn hand-off: documentation-lead optional narrative review.
+
+All four §LT items now closed. Phase-3 outcome on the language-team axis is empirically complete; Phase-4 design (when authorized) starts from this baseline.

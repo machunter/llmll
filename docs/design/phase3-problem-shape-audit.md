@@ -219,3 +219,37 @@ If the realized `divergence` rate exceeds 30% across the matrix, the audit's var
   - `docs/design/language-comparison-experiments.md` §"Reporting Output" — names this file as the `prediction_match` field's pinned-commit referent.
   - `experiments/language-comparison-backlog.md` B-1 — names this file as the upstream artifact the comparison logic binds to.
 - **Open downstream item:** `docs/design/INDEX.md` should gain a row for this file (rubric: "Experimental Methodology" or appended to "Verification & Soundness"). Routes through `documentation-lead` after this audit lands; not a same-turn surface.
+
+---
+
+## Addendum 1 (2026-05-21) — H2 raw-form empirically refuted; formal withdrawal recorded
+
+**Scope.** Post-launch addendum recording the H2 outcome from `experiments/repair-loop/findings/postmortem-004-phase3-launch.md` (2026-05-17) and its n=18 within-Claude tightening in `findings/postmortem-005-claude-deepening.md` (2026-05-21). Authored as a dated addendum, not an in-place edit, per the immutability protocol at `docs/design/language-comparison-experiments.md:247-249` (the audit's predictions are immutable from launch-pin `4078b76`; post-launch revisions land as dated addenda following the `## Addendum N (YYYY-MM-DD) — <title>` voice established at `experiments/repair-loop/findings/postmortem-001-apparatus-validation.md`).
+
+### Outcome
+
+H2 as pre-stated at `experiments/repair-loop/README.md:45-47` — *"On tasks whose dominant invariant class is inside LLMLL's QF-LIA fragment (`LLMLL.md §5.3.3 / §5.3.5`), LLMLL converges in fewer turns than Python."* — is **empirically refuted**. On the QF-LIA-dominant 002-bank-ledger problem (postmortem-004:84-97), Claude × LLMLL mean turns-to-terminal is 3.0 (n=4); Codex × LLMLL is 3.2 (n=6); Python on the same problem terminates at turn 1 on every try across both Claude (9/9) and Gemini-2-exp (9/9). LLMLL converges in **more** turns than Python on the problem class H2 was framed around, not fewer.
+
+n=18 within-Claude deepening (postmortem-005:79-90, F-V3) tightens the refutation and surfaces a shape constraint on any successor: the LLMLL turn-count distribution at k=5 is two-mode (`[5,5,5,5,5,5,5,5,1]` across the deepening slice, with zero terminals at turns 2/3/4). The "convergence" framing implicitly assumed gradient sampling of a refinement curve; the data shows mode-selection at turn 1 followed by either fast-success or budget-exhaust.
+
+### Adjudication relative to audit predictions
+
+This addendum **does not retune any per-problem prediction band** in §"Per-problem audits" or §"Cross-cutting predictions". H2 is a `experiments/repair-loop/README.md`-level pre-statement, not an audit prediction; the audit's per-problem H1-Assurance directional predictions (§CC-2 at `:185`) are independent of H2's convergence-differential framing and remain in force without revision. The audit's prediction-band falsifications and `prediction_match` distributions are evaluated against the audit-pinned `4078b76` state; this addendum touches none of those bands.
+
+What this addendum *does* do: record that one of the three Phase-3 pre-stated hypotheses (H1 / H2 / H3) was empirically refuted in its raw form, so any future post-hoc analysis of `prediction_match` cells against the audit can distinguish "the audit predicted X; X held" from "the audit was silent on Y; Y was the load-bearing finding." H2's refutation falls into the latter category — the audit did not pre-state an H2-directional prediction per problem; the refutation lives in the postmortem evidence trail and now in this addendum.
+
+### Adjudication action recorded by language-team
+
+Per `findings/language-team.md` §LT-D-2 (authored same turn, 2026-05-21), the adjudication is **R-H2-W (formal withdrawal)**. H2 is withdrawn from the Phase-3 pre-registered hypothesis set as empirically refuted; refutation is the finding. Successor hypotheses R-H2-A (matched-difficulty) and R-H2-B (per-tier-of-trust) — both surfaced at `postmortem-004:114-117` — are coherent candidates for a Phase-4 design turn but are **not** authored as silent successors here. Per the pre-registration discipline at `docs/design/language-comparison-experiments.md:247-249` (Nosek et al. PNAS 2018), successor hypotheses are new pre-registrations with their own pinned commits and their own audit-equivalent artifacts, not retunings of refuted ones.
+
+The bimodality finding (F-V3) attaches to the successor as a shape constraint: any H2-successor must measure something other than mean turns-to-terminal at k=5, since the LLMLL distribution is two-mode at that k. Per-cell strategy choice (verified-into-tier vs tested-into-tier, per §LT-D-4), turns-to-first-success-mode, or k sized to expose intermediate-mode terminals are the candidate measurables; the design space is open for whoever authors the successor in a future turn.
+
+### Affected surface and routing
+
+- `experiments/repair-loop/README.md:45-47` — the verbatim H2 pre-statement requires a one-paragraph addendum recording the refutation + R-H2-W formal withdrawal, citing this addendum + `postmortem-004:84-97` + `postmortem-005:79-90`. **Apparatus surface, experiment-lead-owned**; language-team does not edit harness README directly. Routed via §LT-D-2 → §"Routing emitted from LT-D".
+- This audit — Addendum 1 stands as the audit-side record. No further audit revisions implied; immutability of `4078b76`-pin per-problem prediction bands is preserved.
+- `LLMLL.md`, `CHANGELOG.md`, `README.md`, `docs/llmll-ast.schema.json`, `docs/compiler-team-roadmap.md` — **untouched**. The refutation does not engage spec, build, schema, or roadmap surfaces; the spec-vs-tool boundary established by R6d's 2026-05-13 professor critique (`findings/language-team.md:79-86`) is preserved.
+
+### Closure
+
+Addendum 1 records H2 raw-form refutation + R-H2-W formal withdrawal at audit-side. No follow-on audit work implied. Successor-hypothesis pre-registration is a deferred Phase-4-design item, not gated on anything closed here.
