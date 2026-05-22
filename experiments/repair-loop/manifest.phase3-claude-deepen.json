@@ -1,0 +1,65 @@
+{
+  "_purpose": "Phase-3 Claude-only deepening probe — adds 3 attempts per Claude cell to bring Phase-3 sample to n=6 per (problem × target) cell. Carved from manifest.phase3-no-codex.json by dropping the gemini agent. Tightens within-Claude estimates for postmortem-004's three load-bearing claims: (1) Claude × LLMLL 4/9 vs Claude × Python 9/9 split (target-reached rates); (2) within-Claude strategy-variance distribution (verified-into-tier vs tested-into-tier, currently resting on n=2 high-verified anecdotes — cells 12 and 20 of the original batch); (3) within-Claude H2 refutation (LLMLL not faster to converge — load-bearing). Hole-fill: Claude × Go × 003 ran 0 attempts in Phase-3 due to F-037 breaker-collateral; this batch will run 3 attempts for that cell as well, bringing it to n=3 (vs n=6 for the other 8 Claude cells). Combined Phase-3 + deepening dataset will be the source for postmortem-005. Cell count this batch: 3 problems × 3 targets × 3 attempts = 27 cells. Predicted wall: 4-7h + interim pauses. Predicted spend: ~$0 on Claude max-subscription; ~$30-80 if any cell overages. Tests no new hypotheses — descriptive tightening only.",
+  "experiments": [
+    "001-hangman",
+    "002-bank-ledger",
+    "003-rate-limiter"
+  ],
+  "targets": [
+    "llmll",
+    "python",
+    "go"
+  ],
+  "run_count": 3,
+  "repair_budget_k": 5,
+  "timeout_seconds_per_turn": 1800,
+  "_timeout_note": "Bumped from 540 to 1800 per postmortem-002-phase3-calibration-probe.md F-035 (2026-05-15). Preserved verbatim from manifest.phase3-no-codex.json for run-comparability.",
+  "llmll_cmd": "llmll",
+  "terminal_target": {
+    "kind": "trust-tier",
+    "value": "all-expected-contracts-above-asserted",
+    "_note": "Default applied when no per-target override matches. The matrix spans mixed verification surfaces; see `terminal_target_per_target` below."
+  },
+  "terminal_target_per_target": {
+    "llmll": {
+      "kind": "trust-tier",
+      "value": "all-expected-contracts-above-asserted",
+      "_s1_note": "R6d universal Cred predicate. Encoded per language-team S1 default (Phase-3 scope-decision framing, 2026-05-15). `asserted` is dropped from the accepted-levels set per scripts/run_repair_loop.py:_count_bad_trust_tiers."
+    },
+    "python": {
+      "kind": "all-pass",
+      "value": "all-verifier-commands-pass"
+    },
+    "go": {
+      "kind": "all-pass",
+      "value": "all-verifier-commands-pass"
+    }
+  },
+  "toolchain_pins": {
+    "llmll": "0.10.6",
+    "python": "3.11",
+    "go": "1.23",
+    "_note": "Pin verification enforced by run_matrix.py:check_prereqs at matrix start. Verified 2026-05-20 against `llmll version` (0.10.6) — matches Phase-3 launch pin."
+  },
+  "_circuit_breaker_consecutive_infra_fail": 3,
+  "_circuit_breaker_note": "Stop-fast discipline B (per-cell circuit breaker): if N consecutive cells return terminal_state=infrastructure-fail, abort the matrix and write a partial matrix_report.json with a `circuit_breaker_tripped` field. Default N=3.",
+  "_pause_every_n_cells": 9,
+  "_pause_note": "Stop-fast discipline D (interim-pause checkpoint): after every K cells, write an interim matrix_report.json and exit with status `paused`. Operator resumes with --resume-from-cell. K=9 corresponds to one full agent×problem×target slice for one try. Set to null/0 to disable.",
+  "_audit_pin": {
+    "_note": "Phase-3 audit pin carried verbatim from manifest.phase3-no-codex.json. Deepening probe shares the same launch-commit hash for verification-path-engagement audit (4078b76 — F-040 path 1 fix HEAD, locked at Phase-3 launch).",
+    "audit_path": "docs/design/phase3-problem-shape-audit.md",
+    "launch_commit_hash": "4078b76"
+  },
+  "agents": [
+    {
+      "name": "claude-default",
+      "cmd": "claude --add-dir {run_dir} --permission-mode bypassPermissions --settings '{\"permissions\":{\"allow\":[\"Write\",\"Bash\"]}}' --print --allow-dangerously-skip-permissions --no-session-persistence 'Read AGENT_INSTRUCTIONS.md for the repair-loop protocol, then problem.md for the spec and TARGET.md for the target adapter. If context/turn_NN_verifier.json files exist, read the most recent before emitting. Write your solution to the filename(s) indicated in TARGET.md.'",
+      "required_env": [],
+      "required_executables": [
+        "claude"
+      ],
+      "note": "Claude Code CLI 2.1.141, default model. Carried verbatim from manifest.phase3-no-codex.json for run-comparability with the Phase-3 batches."
+    }
+  ],
+  "_agents_note": "Claude-only deepening probe. Codex dropped per Phase-3 F-038 status (Jun 12 reset); Gemini dropped per Phase-3 F-041 status (account-level quota; throttling-class). Cross-agent generalizability is a separate Phase-4 probe (Codex × Python/Go fill-in, planned for post-Jun-12)."
+}
