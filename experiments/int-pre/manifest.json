@@ -1,0 +1,79 @@
+{
+  "experiment": "int-pre",
+  "rev": 2,
+  "manifest_version": "1.0.0",
+  "catalog_ref": {
+    "doc": "docs/design/int-2-boundary-shims.md",
+    "sha": "32a796e",
+    "notes": "Three pending corrections (INT-1 version pin + F-E1 + F-E2); plan stands against Rev 1 content. Catalog correction edit pass routed to language-team."
+  },
+  "contingency_ref": {
+    "doc": "docs/design/int-3-machine-int-sketch.md",
+    "sha": "32a796e"
+  },
+  "variants": [
+    {
+      "label": "variant-a-baseline",
+      "compiler_ref": "009a6f0",
+      "branch_or_tag": "release/v0.10.7",
+      "description": "v0.10.7 head SHA, pre-INT-2 baseline. INT-1 NOT included per v0.10.7 CHANGELOG 'What this does NOT close'; orthogonal to codegen-comparison dimension per language-team withdrawal turn."
+    },
+    {
+      "label": "variant-b-prototype",
+      "compiler_ref": "03d5722",
+      "branch_or_tag": "int-pre/variant-b",
+      "description": "Realizes docs/design/int-2-boundary-shims.md §3 with two engineer refinements (F-E1: toHsType:723 is primary site, both lines flip; F-E2: wasi_http_response classified Class A polymorphic). Polymorphic Integral i => boundary on Class A with SPECIALIZE pragmas; no range_idx synthesized (polymorphism handles index-iteration)."
+    }
+  ],
+  "benchmarks": [
+    {"id": "b1",    "path": "examples/benchmarks/b1-withdraw.llmll",        "phases": ["verify", "build"],                          "check_blocks": 0},
+    {"id": "b3",    "path": "examples/benchmarks/b3-safe-first.llmll",      "phases": ["verify", "build"],                          "check_blocks": 0},
+    {"id": "b5",    "path": "examples/benchmarks/b5-double.llmll",          "phases": ["verify", "build"],                          "check_blocks": 0},
+    {"id": "totp",  "path": "examples/totp_rfc6238/totp_filled.ast.json",   "phases": ["verify", "build", "test", "test-profiled"], "check_blocks": 4},
+    {"id": "erc20", "path": "examples/erc20_token/erc20_filled.ast.json",   "phases": ["verify", "build"],                          "check_blocks": 0}
+  ],
+  "rep_config": {
+    "warmup_reps": 2,
+    "measured_reps": 10,
+    "profiled_reps": 3,
+    "iqr_threshold_ms": 1.0,
+    "fallback_reps_on_noise": 30
+  },
+  "gate": {
+    "primary": {
+      "metric": "totp.test.total_wallclock_ratio",
+      "threshold": 5.0,
+      "action_if_exceeded": "escalate INT-3 to freeze-exception (promote docs/design/int-3-machine-int-sketch.md from Rev 0 contingency to Rev 1 settled proposal)"
+    },
+    "secondary": {
+      "metric": "totp.test.user_only_ratio",
+      "threshold": 10.0,
+      "action_if_exceeded": "INT-2 proceeds with finding routed to language-team on sealed-crypto-dominance contingency; INT-3 stays armed pending OBLIG-B arithmetic-density benchmark"
+    }
+  },
+  "cost_center_classification": {
+    "builtin_patterns": ["hmac_sha1", "sha1_hash", "hmac_sha1_inner", "random_int"],
+    "notes": "Names matched as substring of the cost-center column in the .prof file. Anything not matching counts as user-LLMLL arithmetic. Residual MAIN and runtime cost is absorbed into user totals (worst-case bias is toward higher user_only_ratio, which is conservative for the F2 escalation question)."
+  },
+  "system_pins": {
+    "cpu_governor": "performance",
+    "concurrent_load": "none",
+    "host_metadata_capture": ["uname -a", "ghc --version", "stack --version"]
+  },
+  "control_assertions": [
+    {
+      "name": "verify_spec_coverage_byte_identity",
+      "phase": "verify",
+      "command_suffix": ["--spec-coverage", "--json"],
+      "expectation": "Variant A and Variant B emit byte-identical stdout SHA-256 on every benchmark",
+      "violation_action": "halt and surface to language-team — contradicts the catalog §7 'verifier-side unchanged' prediction"
+    },
+    {
+      "name": "verify_trust_report_byte_identity",
+      "phase": "verify",
+      "command_suffix": ["--trust-report", "--json"],
+      "expectation": "Variant A and Variant B emit byte-identical stdout SHA-256 on every benchmark (vacuous on INT-1 dimension since neither variant has INT-1; F-V1 pre-existing source-provenance bug applies to both)",
+      "violation_action": "halt and surface to compiler-engineer — INT-2 codegen changes leaking into the verifier path"
+    }
+  ]
+}
