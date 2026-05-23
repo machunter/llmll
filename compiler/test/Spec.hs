@@ -5756,6 +5756,96 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             any (\d -> "dotted function name" `T.isInfixOf` diagMessage d) warns
               `shouldBe` True
 
+    -- TC-EOP-1 (v0.10.7): EOp arity + arg-type-check fix at TypeCheck.hs:981.
+    -- Pre-fix `inferExpr (EOp op _args)` ignored args entirely and returned the
+    -- builtinEnv result type, so arity-bad and type-incorrect operator calls
+    -- silently passed. The fix mirrors the EApp loop above (structuralUnify
+    -- with per-call-site substitution + EHole bypass). These tests pin both
+    -- the rejection cases and the positive baselines, plus a JSON-AST parity
+    -- pass to confirm both frontends route through the same typecheck path.
+    describe "TC-EOP-1 EOp arity and arg-type checking" $ do
+      let checkSrc src =
+            case parseStatements "<test>" src of
+              Left err -> Left (T.pack (show err))
+              Right stmts -> Right (typeCheck emptyEnv stmts)
+          errorsOf rep =
+            filter (\d -> diagSeverity d == SevError) (reportDiagnostics rep)
+          anyMsg sub rep = any (\d -> sub `T.isInfixOf` diagMessage d) (errorsOf rep)
+
+      it "(+ 1 2) typechecks (positive baseline)" $ do
+        case checkSrc (T.pack "(def-logic f [] (+ 1 2))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> reportSuccess rep `shouldBe` True
+
+      it "(+ 1) raises arity error" $ do
+        case checkSrc (T.pack "(def-logic f [] (+ 1))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> anyMsg "expects 2 args, got 1" rep `shouldBe` True
+
+      it "(+ 1 2 3) raises arity error" $ do
+        case checkSrc (T.pack "(def-logic f [] (+ 1 2 3))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> anyMsg "expects 2 args, got 3" rep `shouldBe` True
+
+      it "(+ \"x\" 1) raises type error at arg 0" $ do
+        case checkSrc (T.pack "(def-logic f [] (+ \"x\" 1))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> anyMsg "type mismatch in '+'" rep `shouldBe` True
+
+      it "(not 1) raises type error" $ do
+        case checkSrc (T.pack "(def-logic f [] (not 1))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> anyMsg "type mismatch in 'not'" rep `shouldBe` True
+
+      -- Polymorphic equality: structuralUnify's substitution map binds TVar "a"
+      -- to int from arg 0, then fails when arg 1 is string. Pre-fix this
+      -- silently typechecked because `_args` was discarded.
+      it "(= 1 \"1\") raises type error at arg 1 (polymorphic op unified at arg 0)" $ do
+        case checkSrc (T.pack "(def-logic f [] (= 1 \"1\"))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> anyMsg "type mismatch in '='" rep `shouldBe` True
+
+      it "(= true true) typechecks (positive polymorphic baseline)" $ do
+        case checkSrc (T.pack "(def-logic f [] (= true true))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> reportSuccess rep `shouldBe` True
+
+      it "(and true 0) raises type error" $ do
+        case checkSrc (T.pack "(def-logic f [] (and true 0))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> anyMsg "type mismatch in 'and'" rep `shouldBe` True
+
+      -- JSON-AST frontend parity: same typecheck path, same diagnostic.
+      it "JSON-AST (+ \"x\" 1) raises the same type error" $ do
+        let src = BLC.pack $ unlines
+              [ "{"
+              , "  \"schemaVersion\": \"0.5.0\","
+              , "  \"statements\": ["
+              , "    { \"kind\": \"def-logic\""
+              , "    , \"name\": \"f\""
+              , "    , \"params\": []"
+              , "    , \"body\": { \"kind\": \"op\", \"op\": \"+\""
+              , "                , \"args\": [ { \"kind\": \"lit-string\", \"value\": \"x\" }"
+              , "                            , { \"kind\": \"lit-int\", \"value\": 1 } ] }"
+              , "    }"
+              , "  ]"
+              , "}"
+              ]
+        case parseJSONAST "<test>" src of
+          Left err -> expectationFailure (show err)
+          Right stmts -> do
+            let report = typeCheck emptyEnv stmts
+            any (\d -> "type mismatch in '+'" `T.isInfixOf` diagMessage d)
+                (filter (\d -> diagSeverity d == SevError) (reportDiagnostics report))
+              `shouldBe` True
+
+      -- EHole bypass: a hole in an EOp arg position should typecheck (the
+      -- hole is recorded with the expected type, not unified against it).
+      it "(+ ?x 1) typechecks with the hole recorded at int" $ do
+        case checkSrc (T.pack "(def-logic f [] (+ ?x 1))") of
+          Left err  -> expectationFailure (T.unpack err)
+          Right rep -> errorsOf rep `shouldBe` []
+
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------

@@ -978,13 +978,37 @@ inferExpr (EApp func args) = do
       tcError $ "'" <> func <> "' is not a function, it has type " <> typeLabel other
       pure TUnit
 
-inferExpr (EOp op _args) = do
+inferExpr (EOp op args) = do
+  -- TC-EOP-1 (v0.10.7): mirror the EApp arity/type-check loop above. Prior to
+  -- this fix the args were ignored entirely, so (+ 1 "x"), (= 1 "1"), (not 1),
+  -- and arity-bad calls like (+ 1) silently passed. The polymorphic ops
+  -- (=, !=, etc.) declare TVar "a" in builtinEnv; structuralUnify's
+  -- per-call-site substitution map enforces same-tyvar-same-type within one
+  -- call, so (= 1 "1") fails at arg 1 against the int bound from arg 0.
   case Map.lookup op builtinEnv of
-    Just (TFn _paramTypes retType) -> do
-      -- Relax checking for polymorphic operators — just return their result type
-      pure retType
-    _ -> do
-      -- Unknown operator — warn/error and return bool (most ops are comparisons)
+    Just (TFn paramTypes retType) -> do
+      let nArgs = length args
+      when (nArgs /= length paramTypes) $
+        tcError $ "operator '" <> op <> "' expects " <> tshow (length paramTypes)
+                  <> " args, got " <> tshow nArgs
+      finalSubst <- foldM (\subst (j, expected, arg) ->
+        withSegment "args" $ withSegment (tshow (j :: Int)) $ do
+          case arg of
+            EHole hk -> do
+              checkExpr (EHole hk) (applySubst subst expected)
+              pure subst
+            _ -> do
+              actual <- inferExpr arg
+              expected' <- expandAlias expected
+              actual'   <- expandAlias actual
+              structuralUnify op subst (stripDep expected') (stripDep actual')
+        ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
+      pure (applySubst finalSubst retType)
+    Just other -> do
+      tcError $ "operator '" <> op <> "' has non-function type "
+                <> typeLabel other
+      pure TBool
+    Nothing -> do
       tcWarnOrError $ "unknown operator '" <> op <> "'"
       pure TBool
 
