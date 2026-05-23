@@ -2289,6 +2289,7 @@ main = hspec $ do
             , teEffectiveLevel     = Nothing  -- aggregateTiers falls back to ContractStatus meet
             , teEffectivePreLevel  = Nothing  -- OBLIG-PBT-3: not exercised in TP-* tests
             , teEffectivePostLevel = Nothing
+            , teJointPostWitness   = False    -- OBLIG-PBT-5a: not exercised here
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -3747,14 +3748,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -3766,7 +3767,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -3779,7 +3780,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -3792,7 +3793,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -3804,7 +3805,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -5730,6 +5731,128 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseJSONAST "<test>" src of
           Right [SCheck p] -> propSubjects p `shouldBe` ["foo", "bar"]
           other -> expectationFailure $ "unexpected: " ++ show other
+
+    -- OBLIG-PBT-5a (v0.10.7): joint-witness scalar-tested exclusion. The
+    -- OBLIG-PBT-4 ':subjects [f g …]' lift emits N evidence records sharing
+    -- one canonical-body hash; without this exclusion the scalar 'tested'
+    -- count over-credits one property body as N. These tests pin the
+    -- demotion (joint-only DLTested → DLAsserted in scalar tier counts),
+    -- the non-demotion of solo-witnessed entries, the additive JSON emit,
+    -- and the no-version-bump invariant per the 2026-05-23 triage routing.
+    --
+    -- Sidecars are produced by 'pbtTrustWriteback' (the production path)
+    -- so the OBLIG-PBT-3 staleness check sees the SCheck statements that
+    -- generated the witnesses and does not purge them.
+    describe "OBLIG-PBT-5a joint PBT witness exclusion" $ do
+      let mkContractedFn name =
+            SDefLogic name [("x", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+              (EVar "x")
+          passedRun5a desc nSamples = PBTRun desc PBTPassed nSamples Nothing
+
+      -- J1: pure joint lift (:subjects [f g]) — both demoted out of scalar
+      -- tested; grouped emit lists both subjects under one hash.
+      it "J1 joint-only :subjects [f g] demoted from scalar tested count" $ do
+        let f      = mkContractedFn "encrypt"
+            g      = mkContractedFn "decrypt"
+            body   = EOp "=" [EVar "x", EApp "decrypt" [EApp "encrypt" [EVar "x"]]]
+            prop   = Property "roundtrip" [("x", TInt)] body ["encrypt", "decrypt"]
+            stmts  = [f, g, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun5a "roundtrip" 100]
+            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            report       = buildTrustReport Map.empty stmts sidecar
+        tpTested  (trTierProfilePost report) `shouldBe` 0
+        tsTested  (trSummary         report) `shouldBe` 0
+        length (trJointWitnesses report) `shouldBe` 1
+        case trJointWitnesses report of
+          [(_, subs)] -> subs `shouldBe` ["decrypt", "encrypt"]
+          _ -> expectationFailure "expected exactly one joint group"
+
+      -- J2: mixed solo+joint — solo subject keeps the credit, pure-joint
+      -- subject demoted. Locks the "every witness is joint" predicate.
+      -- Two checks: a :subjects [encrypt decrypt] joint, plus a solo
+      -- :subject encrypt property body. encrypt accumulates both
+      -- witnesses; decrypt sees only the joint hash.
+      it "J2 solo+joint mix: solo subject keeps tested credit, joint-only demoted" $ do
+        let f      = mkContractedFn "encrypt"
+            g      = mkContractedFn "decrypt"
+            joint  = Property "roundtrip" [("x", TInt)]
+                       (EOp "=" [EVar "x", EApp "decrypt" [EApp "encrypt" [EVar "x"]]])
+                       ["encrypt", "decrypt"]
+            solo   = Property "encrypt-positive" [("x", TInt)]
+                       (EOp ">=" [EApp "encrypt" [EVar "x"], ELit (LitInt 0)])
+                       ["encrypt"]
+            stmts  = [f, g, SCheck joint, SCheck solo]
+            result = PBTResult 2 2 0 0 [ passedRun5a "roundtrip"        100
+                                       , passedRun5a "encrypt-positive" 100 ]
+            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            report       = buildTrustReport Map.empty stmts sidecar
+        -- encrypt earned a non-joint witness → not demoted.
+        case filter (\e -> teName e == "encrypt") (trEntries report) of
+          [e] -> teJointPostWitness e `shouldBe` False
+          _   -> expectationFailure "expected exactly one entry for encrypt"
+        -- decrypt has only the joint witness → demoted.
+        case filter (\e -> teName e == "decrypt") (trEntries report) of
+          [e] -> teJointPostWitness e `shouldBe` True
+          _   -> expectationFailure "expected exactly one entry for decrypt"
+        -- Scalar tested count = 1 (encrypt), not 2.
+        tpTested (trTierProfilePost report) `shouldBe` 1
+
+      -- J3: source-annotated DLTested with empty pbt_witnesses is NOT
+      -- demoted. The demotion key is "non-empty witnesses AND all joint";
+      -- empty-witness DLTested comes from `:trust tested` source markers.
+      it "J3 source-annotated tested (empty pbt_witnesses) is not demoted" $ do
+        let stmts   = [mkContractedFn "f"]
+            sidecar = Map.fromList
+              [ ("f", ContractStatus
+                  { csPre  = Nothing
+                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [])
+                  , csAssumptions = []
+                  })
+              ]
+            report = buildTrustReport Map.empty stmts sidecar
+        tpTested  (trTierProfilePost report) `shouldBe` 1
+        case trEntries report of
+          [e] -> teJointPostWitness e `shouldBe` False
+          _   -> expectationFailure "expected exactly one entry"
+
+      -- J4: singleton-head-position path (no :subjects) produces unique
+      -- witnesses; no demotion, joint-witness list empty.
+      it "J4 singleton lift with unique witness produces no joint group" $ do
+        let f      = mkContractedFn "f"
+            body   = EOp ">=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 0)]
+            prop   = Property "f-nonneg" [] body []  -- no :subjects, singleton head
+            stmts  = [f, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun5a "f-nonneg" 100]
+            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            report       = buildTrustReport Map.empty stmts sidecar
+        tpTested  (trTierProfilePost report) `shouldBe` 1
+        trJointWitnesses report `shouldBe` []
+
+      -- J5: per-entry flag emitted only when true. v0.10.7 keeps emit
+      -- minimal — a False flag is omitted from the entry JSON.
+      it "J5 entry JSON carries joint_pbt_witness only when true" $ do
+        let f      = mkContractedFn "encrypt"
+            g      = mkContractedFn "decrypt"
+            body   = EOp "=" [EVar "x", EApp "decrypt" [EApp "encrypt" [EVar "x"]]]
+            prop   = Property "roundtrip" [("x", TInt)] body ["encrypt", "decrypt"]
+            stmts  = [f, g, SCheck prop]
+            result = PBTResult 1 1 0 0 [passedRun5a "roundtrip" 100]
+            (sidecar, _) = pbtTrustWriteback stmts Map.empty result
+            report       = buildTrustReport Map.empty stmts sidecar
+            jsonTxt = formatTrustReportJson report
+        -- Both encrypt and decrypt are joint-only → both carry the flag.
+        T.count "\"joint_pbt_witness\":true" jsonTxt `shouldBe` 2
+
+      -- J6: JSON shape is additive. trust_report_version stays "1.1.0"
+      -- (no bump per 2026-05-23 triage row OBLIG-PBT-5a); joint_pbt_witnesses
+      -- key is present even when the list is empty for consumer-stability.
+      it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
+        let report  = buildTrustReport Map.empty [] Map.empty
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"trust_report_version\":\"1.1.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
     -- evalContract isolation regression: empty-FuncEnv invariant
     describe "evalContract isolation regression" $ do
