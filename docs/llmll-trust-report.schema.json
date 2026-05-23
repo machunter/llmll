@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.2/trust-report.schema.json",
+  "$id": "https://llmll.dev/schemas/v1.1/trust-report.schema.json",
   "title": "LLMLL Trust Report JSON Emit Schema",
   "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major. v1.1.0 (OBLIG-PBT-3, v0.10.5) added parallel `tier_profile_pre` and `tier_profile_post` aggregates plus an optional `stale_downgrades` array, all additive over v1.0.0.",
 
