@@ -24,7 +24,7 @@ Until all three conditions are met, the item stays here.
 | Rank | Item | Impact | Rationale |
 |------|------|--------|-----------|
 | **1** | **Differential impl pressure** | **High** | Directly attacks the identified strategic weakness: spec quality. Makes underspecification *painful* by having N agents fill the same hole and flagging divergence. Exploits exactly what LLMLL already has (typed holes + multiple agents + verification gates). External consultant concurs: "prototype differential divergence detection without synthesis" is near-term actionable. |
-| **2** | **Contract discriminative power** | **Medium-high** | Provides a scalar metric for spec quality. Without a number, you can't set CI thresholds, compare approaches, or track improvement over time. External consultant recommends formalizing this with finite observational semantics. |
+| ~~**2**~~ | ~~**Contract discriminative power**~~ → **Promoted to v0.11 CDP-0** | ~~**Medium-high**~~ → **Active v0.11 implementation** | Promoted from research-track per the 2026-05-23 professor direction memo (`docs/design/core-shell-inversion-direction.md` §2) and external-critique triage (`docs/design/critique-2026-05-23-triage.md` §3.2). LT-CDP proposal settled in conversation; promoted to v0.11 implementation built on `compiler/src/LLMLL/WeaknessCheck.hs`. See `docs/compiler-team-roadmap.md` v0.11 milestone. Item #6 below retained for historical record of the formal definition. |
 | **3** | **Spec-from-RFC pipeline** | **Medium-high** | Makes the system useful on real problems where specs already exist. External consultant elevates this: "LLMLL's strongest target domains already have external specs. Require clause provenance: external paragraph → LLMLL pre/post/law → verification level." Traceability from external spec to verification level is the key differentiator. |
 | **4** | **Call-site strict descent** | **Medium** | External consultant correction: "not automatically subsumed by BODY-VC. Body encoding and termination checking are related but not identical proof obligations." Since BODY-VC-0 excludes `letrec`, strict descent still needs its own design rule. Upgraded from Low. |
 | **5** | **Indexed/dependent types** | **High ceiling, high risk** | If the hypothesis holds, it's transformative. But indexed types create preservation, progress, totality, erasure, and type-level normalization obligations. External consultant: "Keep this as a narrow spike; do not let it become half of Idris." **Note (2026-05-01):** The highest-value part of the original "type-driven development" idea — obligation-guided agent coding — has been **promoted to v0.10** on the compiler roadmap. This research item now covers only the indexed-type extension (Vect n a, GADTs, type-level arithmetic), which remains deferred. |
@@ -135,22 +135,29 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 ---
 
-### 6. Contract Discriminative Power
+### 6. Contract Discriminative Power — PROMOTED to v0.11 CDP-0 (2026-05-23)
 
-> **Source:** [invariant-discovery-review.md §6](design/invariant-discovery-review.md)  
-> **Proposed by:** Professor (Lead Consultant for Formal Language Design)
+> **Status:** Retired from research-track on 2026-05-23. Promoted to v0.11 implementation as **CDP-0** under language-team proposal **LT-CDP**. See [`docs/compiler-team-roadmap.md`](compiler-team-roadmap.md) v0.11 milestone for current routing and acceptance criteria; [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) §3.2 for the lattice-valuation framing adopted; [`docs/design/core-shell-inversion-direction.md`](design/core-shell-inversion-direction.md) §2 for the professor-channel argument.
+>
+> **Source:** [invariant-discovery-review.md §6](design/invariant-discovery-review.md)
+> **Originally proposed by:** Professor (Lead Consultant for Formal Language Design)
+> **Promotion driver:** External critique (2026-05-23) consolidated through professor channel; CDP fills a measurable v0.10 blind spot the evidence-lattice cannot — `verified` weak-spec vs `verified` strong-spec receive the same label without it.
 
-**Goal:** Formalize a scalar metric for contract quality:
+**Original goal** (retained for historical record):
 
 > **Contract discriminative power** of a specification `S` over type `T → U`: the inverse of the number of observationally-distinguishable implementations of `T → U` that satisfy `S`, measured over a reference test suite of cardinality `N`.
 
 High discriminative power = strong contract. Low discriminative power = weak or missing invariants.
 
-**Compiler impact if promoted:** New metric in `SpecCoverage.hs` output; possible CI gate threshold.
+**Adopted formalization (lattice-valuation framing, 2026-05-23 amended critic via triage §3.2):**
 
-**Partially shipped precursors:** `--spec-coverage` (v0.6.0) provides function-level coverage. `--weakness-check` (v0.3.5) detects trivially-satisfiable contracts. What remains is the formal discriminative-power scalar and CI integration.
+> Let `B_{T,U,Ω}` be the finite set of observational behaviors for functions `T → U` over observation set `Ω`. Let `⟦S⟧_Ω = { b ∈ B_{T,U,Ω} | b satisfies contract S }`. Normalized discriminative-power score: `DP_Ω(S) = 1 - log(|⟦S⟧_Ω|) / log(|B_{T,U,Ω}|)`. Edge cases: `DP = 0` if S admits every behavior; `DP = 1` if S admits exactly one behavior; `DP undefined/flagged` if S is inconsistent (no behavior satisfies — distinct failure mode from low DP, surfaces as separate diagnostic).
 
-**Promotion criterion:** Math spec ready for implementation (definitions, measurement procedure, example calculations).
+**Lattice-theoretic interpretation:** contracts form a preorder under implication; denotation maps contracts to subobjects of a finite behavior space; DP is a valuation on the subobject lattice (smaller denotation ⇒ higher DP). Patch-merge invariant remains stipulated, not derived from this apparatus (the original critique's larger fibration-based unification was declined per professor adjudication; the amended critic's narrower lattice-valuation unification is what was adopted).
+
+**Operational predecessors** (shipped): `--spec-coverage` (v0.6.0) provides function-level coverage. `--weakness-check` (v0.3.5) detects trivially-satisfiable contracts via the `TrivialBody` enumeration at [`compiler/src/LLMLL/WeaknessCheck.hs:40-90`](../compiler/src/LLMLL/WeaknessCheck.hs). LT-CDP extends the enumeration from binary-flag to counted divergence metric.
+
+**v0.11 implementation surface** (per LT-CDP): two-axis assurance report — paired `(evidence, DP)` per function rather than collapsed scalar; optional `(spec-entropy :strict | :intentional | :unknown)` annotation honors the healthy-diversity-vs-underspecification tension at [`docs/design/invariant-discovery-review.md §4.1`](design/invariant-discovery-review.md); `trust_report_version` bump 1.1.0 → 1.2.0 (additive). The pair disambiguates the four spec-quality cells the project has been heuristically reaching for since `--weakness-check` shipped: *verified-strong* (ideal), *verified-weak* (high evidence, low DP), *tested-strong* (lower evidence, high DP), *asserted-strong* (promising spec, poor evidence).
 
 ---
 
@@ -188,12 +195,12 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 1. ~~Fix the Python dry-run fixture/test drift~~ ✅ Complete
 2. ~~Reconcile LLMLL.md with actual SpecCoverage JSON~~ ✅ Complete
 3. ~~Write BODY-VC-0 design spec~~ ✅ Complete — shipped in v0.8.0
-4. Formalize finite observational contract discriminative power
+4. ~~Formalize finite observational contract discriminative power~~ ✅ Promoted to v0.11 CDP-0 (2026-05-23) — see item #6 above
 5. Prototype differential divergence detection without synthesis
 6. Promote Spec-from-RFC with a worked traceability example
 
 > [!NOTE]
-> Items 1–3 are resolved. Items 4–6 are the remaining research track work.
+> Items 1–4 are resolved (item 4 by promotion to active v0.11 implementation, not by research-track completion). Items 5–6 are the remaining research track work.
 
 ---
 

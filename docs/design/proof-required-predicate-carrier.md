@@ -1,11 +1,13 @@
 # `?proof-required` Predicate-Carrier Expansion — Deferred Design Exploration
 
-> **Status:** Deferred — out of scope under feature freeze (`docs/compiler-team-roadmap.md:28-31`).
+> **Status (2026-05-23): Superseded by LT-PPR (v0.11).** The revisit conditions at §"Conditions for revisit" below are satisfied: (1) feature freeze lifted for v0.11 per [`docs/compiler-team-roadmap.md`](../compiler-team-roadmap.md) Feature Freeze Policy (architectural correction); (2)(b) downstream-consumer benefit recognized via the core/shell inversion at [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1.4 — predicate-carrying form is the natural escape hatch from core into shell with retained semantic content. LT-PPR proposal settled in conversation 2026-05-23 (see [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §6 routing); LT-proposal/review pair lands at `proof-required-predicate-carrier-proposal.md` + `-review.md` (drafting). This deferred-exploration doc is preserved as the seed material; the settled v0.11 design lives in the new proposal doc.
+
+> **Historical status (pre-2026-05-23):** Deferred — out of scope under feature freeze (`docs/compiler-team-roadmap.md:28-31`).
 > **Origin:** LT-B Risk #4 (post-experiment-001/002 batches, 2026-05-11).
 > **Companion:** `findings/postmortem-smoketest-001-002.md` finding #1 (recurrent ambiguity across 5/12 agent attempts).
-> **Last updated:** 2026-05-11.
+> **Last updated:** 2026-05-23 (status flip to superseded; original capture 2026-05-11).
 
-This document captures a deferred language-design idea so it is not lost. It is not a proposal awaiting implementation — it is a placeholder for a future LT-proposal/review pair when the conditions for revisit are met.
+This document captures a deferred language-design idea so it is not lost. It is not a proposal awaiting implementation — it is a placeholder for a future LT-proposal/review pair when the conditions for revisit are met. **The "future" referred to is now v0.11 (2026-05-23); see status note above.**
 
 ---
 
