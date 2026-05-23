@@ -1,0 +1,161 @@
+# External Critique Triage — 2026-05-23
+
+> **Status:** Record of adjudicated triage. Lives here as the durable artifact of the four-turn convergence; downstream skills (compiler-engineer, doc-lead, experiment-lead) consume the routing table at the end.
+> **Companion archives:** [`verification-debate.md`](verification-debate.md) (April 2026 formal-methods critique, archived after Path A adjudication); [`oblig-pbt-3-review.md`](oblig-pbt-3-review.md) (professor review of OBLIG-PBT-3).
+
+This document captures the adjudication of a fourteen-section external technical critique of LLMLL received 2026-05-23, after four turns of internal review: language-team triage → professor adjudication on three open questions → language-team revision → amended external critic response with retractions, ratifications, and three routed decisions. The remaining work is execution (compiler-engineer, doc-lead, experiment-lead); no further design-team adjudication is required for any of the seventeen tagged items below.
+
+---
+
+## 1. The four-turn convergence record
+
+| # | Critique item | Original critic | LT triage | Professor | Amended critic | Status |
+|---|---|---|---|---|---|---|
+| 1 | What gets right | accept | accept | n/a | n/a | settled |
+| 2 | Path B foundations demand | foundations-first push | misread of Path A; cite [`verification-debate.md`](verification-debate.md) | n/a | **retracted** | settled — narrow to integer faithfulness |
+| 3 | Spec drift (LLMLL.md/README/schema) | P0 release blocker | accept; doc-lead + CI gate | n/a | accept + concrete CI gate criteria | **DRIFT-1, DRIFT-CI-1** |
+| 4 | Strict-verified-core admissibility | enumerate rules | accept; codify rule set | n/a | n/a | **STRICT-CORE-1** |
+| 5 | Refinement metatheory of record | five missing pieces | route to professor | all five promotable; 2.4→2.1→2.2→2.5→2.3 | narrower framing: checking-mode rule + explicit non-goals | **REF-META-1..5** (framing flipped — see §3.1) |
+| 6 | `?proof-required` predicate carrier | richer design | already tracked, deferred | n/a | accept deferral | settled — no move |
+| 7 | Termination / `:decreases` | non-negativity ≠ termination | accept; disclaimer + partiality flag | n/a | n/a | **TERM-1** |
+| 8 | PBT evidence — sample counts | enrich schema | extend OBLIG-PBT-3 schema | n/a | accept; OBLIG-PBT-5 acceptance criterion + JSON sketches | (folded into OBLIG-PBT-5) |
+| 8b | PBT — `:subjects` over-credit | independent per-subject is wrong | flag as PBT-5 candidate | n/a | confirm shipped defect; min vs clean fix tiers | **OBLIG-PBT-5a, OBLIG-PBT-5b** |
+| 9 | Module hygiene | per-module codegen | roadmap-tracked MOD-2..MOD-5 | n/a | n/a | settled — already roadmapped |
+| 10 | Typed effects + `do` discard | typed rows + explicit discard | out-of-scope under freeze; `do` clarification inside freeze | n/a | n/a | **DO-1** (rows post-freeze deferred) |
+| 11 | FFI / crypto naming | rename `sha1` → `sha1_stub` | spec is honest; naming-ergonomics has merit | n/a | **retracted verification claim**; keep naming-ergonomics note | **CRYPTO-1** |
+| 12 | `EOp` argument checking | audit obligation | hand to engineer | n/a | real soundness defect; specific fix sketch + regression test enumeration | **TC-EOP-1** |
+| 13 | Categorical reading | unify with patch-merge | route to professor | reject full unification (fibrations disproportionate) | narrower unification: DP as valuation on subobject lattice; patch-merge stays stipulated | **DP-FORM-1, TRUST-DP-1** (see §3.2) |
+| Q1 | Integer semantics | choose one of (a)/(b)/(c) | route to professor | adopt (a); `MachineInt` post-freeze | accept + concrete v0.10.x → v0.11 transition plan | **INT-PRE, INT-1, INT-2, INT-3** |
+
+Convergence: 14 of 16 critique rows settled directly; 2 rows required minor framing adjudication after the amended-critic turn (refinement metatheory framing, narrower categorical unification). Both adjudications recorded in §3 below.
+
+## 2. Retractions on record
+
+The external critic explicitly retracted two sub-claims after the language-team triage:
+
+1. **ASCII / UTF-8 sub-claim** — [`LLMLL.md:71-117`](../../LLMLL.md) is internally coherent: source files are UTF-8, identifiers are ASCII-only, curated Unicode aliases are accepted only for selected tokens (the `->` / `→` example), and Unicode identifiers are disallowed to defend against homoglyph and invisible-character problems in multi-agent AST merging.
+
+2. **Crypto verification claim** — [`LLMLL.md §13.11`](../../LLMLL.md) already classifies crypto primitives as `asserted`/opaque and caps dependent-function tiers accordingly; the implementation note at line 2024 and the codegen comment at [`CodegenHs.hs:370-383`](../../compiler/src/LLMLL/CodegenHs.hs) make the stub status explicit. The only remaining concern is *naming ergonomics* (CRYPTO-1) — adding a trust-tier annotation that surfaces the stub-backend status in machine-readable form so downstream agents do not misread the standards-grade names.
+
+## 3. Adjudicated framing decisions
+
+### 3.1 Refinement metatheory framing (REF-META-1)
+
+Two framings converged on the same content from different reading paths; the language-team adopted the amended critic's narrower framing.
+
+- **Professor framing** (Vazou-style subtyping): subtyping rule from Vazou ICFP 2014 §3.2 verbatim; `{x:Int | P} <: {x:Int | Q}` iff `P ⇒ Q` valid in QF-LIA.
+- **Amended critic framing** (checking-mode-only, non-goals explicit): refinement aliases are transparent (erasure-only) with checking-mode obligation generation. Inference rule:
+
+  ```
+  Γ ⊢ e : τ ⇝ O
+  Γ ⊢ p[e/x] obligation
+  ─────────────────────────
+  Γ ⊢ e ⇐ A ⇝ O ∪ { p[e/x] }
+  ```
+
+  With explicit non-goals: no general refinement subtyping, no dependent pattern matching, no type-level computation, no proof terms, no sigma types, no boolean-expression-as-type-equality.
+
+**Adjudication: adopt the amended critic's framing.** The two are operationally equivalent — Liquid Haskell's "subtyping" is exactly the critic's checking-mode rule under a different name — but the narrower framing matches LLMLL's actual surface (no `<:` relation user-side, only refinement-typed parameters and returns that flow obligations) and pre-empts the implicit Vazou-closure scope (abstract refinements, parametric refinements, bounded refinements) that would creep in under the broader subtyping framing.
+
+**Soundness statement of record** (tier-aware version, adopted verbatim from the amended critic):
+
+> If `Γ ⊢ e : τ ⇝ O`, all obligations in `O` are discharged at solver-backed evidence level, codegen is faithful for the involved constructs, and no trusted FFI/opaque primitive is used, then the erased generated program preserves the declared refinement predicates at checked introduction and elimination sites.
+
+This matches `strict-verified-core`'s operational enforcement exactly. Path B (mechanized soundness theorem against an independently-defined operational semantics) remains explicitly declined — Liquid Haskell shipped without mechanized soundness for a decade, LLMLL inherits the same pragmatic stance, anchored in [`verification-debate.md`](verification-debate.md).
+
+### 3.2 Narrower categorical unification (DP-FORM-1, TRUST-DP-1)
+
+The amended critic substantially narrowed the original critique's §13 unification ask:
+
+- **Original critique:** full categorical apparatus (programs as objects, patches as morphisms, refinements as subobjects, evidence as thin poset, trust as monotone map, `Command` as graded monad, modules as signatures-with-models); patch-merge invariant *derived* as a functoriality law.
+- **Professor adjudication:** reject — fibrations-of-refinements framework exists but is disproportionate (~2-year mechanization for a project under feature freeze); the patch-merge invariant is as good *stipulated* as *derived*; Liquid Haskell, Dafny, F\*, and Lean all stipulate the analogous invariant.
+- **Amended critic (revised):** narrower unification only — contracts form a preorder under implication; denotation maps contracts to subobjects of a finite behavior space; DP is a valuation on that subobject lattice. Patch-merge invariant stays stipulated.
+
+**Adjudication: adopt the narrower unification as the DP formalization stance.** The professor's three rejection arguments map as follows under the amended position:
+
+1. *Constructions not in same neighborhood* — no longer applies; the narrower proposal places both DP and contracts in the same lattice.
+2. *Framework disproportionate* — substantially relaxed; finite-lattice + valuation is undergraduate-level apparatus, not graduate-thesis-level.
+3. *Stipulated is as good as derived* — still applies to the patch-merge invariant, which the amended critic does not try to derive.
+
+Concrete content (lands at [`docs/research-track.md:145-151`](../research-track.md) under DP-FORM-1):
+
+> Let `B_{T,U,Ω}` be the finite set of observational behaviors for functions `T → U` over observation set `Ω`. Let `⟦S⟧_Ω = { b ∈ B_{T,U,Ω} | b satisfies contract S }`. Normalized discriminative-power score:
+> `DP_Ω(S) = 1 - log(|⟦S⟧_Ω|) / log(|B_{T,U,Ω}|)`
+> with edge cases: `DP = 0` if S admits every behavior; `DP = 1` if S admits exactly one behavior; `DP undefined/flagged` if S is inconsistent.
+
+**Two-axis assurance model** (TRUST-DP-1) — trust-report JSON gains a paired `(evidence, DP)` representation per function rather than a collapsed scalar:
+
+```json
+{
+  "function": "transfer",
+  "evidence": "verified",
+  "body_faithful": true,
+  "contract_discriminative_power": 0.82,
+  "dp_basis": {
+    "observation_set": "bank-ledger-v1",
+    "behavior_classes": 500,
+    "satisfying_classes": 12
+  }
+}
+```
+
+The pair disambiguates the four spec-quality cells the project has been heuristically reaching for since `--weakness-check` shipped in v0.3.5: *verified-strong* (ideal), *verified-weak* (high evidence, low DP), *tested-strong* (lower evidence, high DP), *asserted-strong* (promising spec, poor evidence). Patch-merge invariant remains stipulated per Sub-proposal 3 of the language-team triage.
+
+## 4. Routing table — seventeen tagged items
+
+Tags follow the project's `XXX-N` pattern from [`docs/compiler-team-roadmap.md`](../compiler-team-roadmap.md) (OBLIG-, MOD-, TRUST-, EVID-, etc.). Status field tracks downstream-skill progress; lifecycle is *open* → *routed* → *in-progress* → *shipped*.
+
+| Tag | Item | Priority | Owner | Status | Notes |
+|---|---|---|---|---|---|
+| **DRIFT-1** | LLMLL.md v0.10.1 → v0.10.6 catch-up | P0 | doc-lead | open | Covers §3 (after INT-1 lands), §3.2 (TERM-1), §9 (DO-1), §13.11 (CRYPTO-1), §12 grammar (`:subjects`), §13.8 (?proof-required example) |
+| **DRIFT-CI-1** | Version-gate CI (5 criteria from amended critic) | P0 | infra / doc-lead | open | README = LLMLL.md = CHANGELOG version; schema field = parser expected version; schema `$id` aligns with `schemaVersion` policy; examples inside grammar |
+| **TC-EOP-1** | EOp arity/type-check fix + regression suite (both frontends) | P0 | engineer | open | Fix sketch in §12 of language-team triage Rev 2; regression cases enumerated; narrowing fix, sails through freeze |
+| **REF-META-1** | Checking-mode typing rule + non-goals + soundness statement | P0 | language-team draft → doc-lead | open | Adopts amended critic's framing per §3.1 above; lands at `LLMLL.md §3.4 / §5` |
+| **OBLIG-PBT-5a** | Multi-subject minimum fix (`joint_pbt_witness` diagnostic + scalar-count exclusion) | P1 | engineer | open | Additive; no `trust_report_version` bump; ships under v0.10.7 patch |
+| **INT-PRE** | Experiment-lead cost pre-check: `Int` vs `Integer` on TOTP/ERC-20/B1/B3/B5 | P1 | experiment-lead | open | Gates INT-2; if TOTP regresses >5×, INT-3 promotes from P3 to freeze-exception |
+| **INT-1** | Integer semantics v0.10.x overflow-tainted marking; strict-core refusal | P1 | engineer | open | Inside-freeze, narrowing |
+| **TRUST-DP-1** | Two-axis (evidence, DP) trust-report schema delta | P1 | language-team draft → engineer | open | Paired representation; not collapsed scalar; see §3.2 |
+| **INT-2** | `int → Integer` codegen switch (v0.11) | P2 | engineer | gated on INT-PRE | One-line `CodegenHs.hs:441` change + preamble-signature ripple at `:232-360` audit |
+| **OBLIG-PBT-5b** | Multi-subject clean fix (`EvidenceRecord.scope = Singleton subj \| Joint [subjs]`) | P2 | engineer | post-freeze | `trust_report_version` 1.1.0 → 1.2.0; new `tested-joint` display level |
+| **TERM-1** | `:decreases` partiality disclaimer at `LLMLL.md §3.2` | P2 | doc-lead | open | Bundle with DRIFT-1 |
+| **DO-1** | `do`-notation explicit discard clarification at `LLMLL.md §9` + compiler warn-or-error | P2 | doc-lead + engineer | open | Bundle spec text with DRIFT-1; compiler change is separate small item |
+| **CRYPTO-1** | Crypto-stub trust-tier annotation (no rename) at `LLMLL.md §13.11` | P2 | doc-lead | open | Bundle with DRIFT-1; engineer adds `asserted-with-stub-backend` channel if it does not collide with existing `DisplayLevel` lattice |
+| **STRICT-CORE-1** | Strict-verified-core admissibility rules codification | P2 | language-team draft → doc-lead | open | New `LLMLL.md §5.3` sub-section; engineer audit confirms existing `WeaknessCheck.hs` coverage matches before promotion |
+| **REF-META-2..5** | Solver-completeness statement, erasure theorem with construction-side discipline, predicate WF rule, typing judgment | P2–P3 | language-team drafts → doc-lead | open | Sequence after REF-META-1; piece 2.5 (typing judgment) and 2.3 (predicate WF) are multi-page authoring jobs |
+| **DP-FORM-1** | DP formalization promotion at `docs/research-track.md:145-151` (narrower lattice-valuation framing) | P3 | doc-lead | open | Content in §3.2 above; no implementation, only formalization |
+| **INT-3** | `MachineInt` post-freeze alias under QF-BV verification scope | P3 | language-team design | open | Promote to P1 if INT-PRE shows TOTP >5× regression |
+
+## 5. Items explicitly declined or deferred
+
+| Item | Status | Reason |
+|---|---|---|
+| Full categorical unification (fibrations, graded monads, patch-merge derivation) | Declined | Disproportionate per professor adjudication; amended critic did not re-propose |
+| Path B mechanized soundness theorem against independent operational semantics | Declined | Inherited from [`verification-debate.md`](verification-debate.md) Path A stance |
+| `?proof-required` predicate-carrier expansion | Deferred (already tracked) | See [`proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md); revisit conditions stand |
+| `sha1` / `hmac-sha1` symbol rename to `sha1_stub` | Declined | Spec contract is standards-grade; stub status is implementation concern (handled by CRYPTO-1's trust-tier annotation) |
+| Typed effect rows (`Command caps a`) | Deferred to post-freeze (WASM build target) | Out-of-scope under feature freeze per [`compiler-team-roadmap.md:28-31`](../compiler-team-roadmap.md) |
+| Module hygiene MOD-2..MOD-5 | Roadmap-tracked, post-freeze | No new finding; the original critique correctly reads the spec as admitting these limitations |
+
+## 6. Downstream hand-off prompts
+
+Each P0/P1 item below ships as a tight hand-off summary; downstream skill prompts can be derived directly from these.
+
+**To compiler-engineer (P0/P1 bundle):**
+
+> TC-EOP-1: arity/type-check fix at [`compiler/src/LLMLL/TypeCheck.hs:981-988`](../../compiler/src/LLMLL/TypeCheck.hs). The current `inferExpr (EOp op _args)` ignores `_args` and returns `builtinEnv`'s result type. Fix: check `length args == length paramTypes`; unify each arg type against the corresponding `paramType`; compose substitutions; return `applySubst finalSubst retType`. Polymorphic equality (`=`) must require both operands unify with the same type variable, not degrade to `any × any → bool`. Regression tests must exercise both S-expression and JSON-AST frontends; cases: `(+ 1 2)`, `(+ 1)`, `(+ "x" 1)`, `(not 1)`, `(= 1 "1")`, `(first 42)`, `(and true 0)`. Narrowing fix, sails through freeze. OBLIG-PBT-5a: add `joint_pbt_witness = true` diagnostic to trust-report when one witness hash appears on >1 subject; exclude joint-only evidence from scalar `tested` counts. Additive, no `trust_report_version` bump.
+
+**To experiment-lead (P1):**
+
+> INT-PRE: measure runtime cost of `int → Integer` codegen change against current `int → Int` on benchmarks B1, B3, B5, TOTP (`examples/totp_rfc6238/`), ERC-20 (`examples/erc20_token/`). Report per-benchmark regression factor. Gate criterion: if TOTP regresses >5×, escalate INT-3 (`MachineInt` QF-BV alias) from P3 to freeze-exception candidate; otherwise INT-2 proceeds as planned for v0.11.
+
+**To language-team (next design-doc cycle):**
+
+> REF-META-1, STRICT-CORE-1, TRUST-DP-1: three design-doc drafts wanted as proposal/review pairs under `docs/design/`. REF-META-1 lands the checking-mode rule + non-goals + soundness statement (content in §3.1 above). STRICT-CORE-1 codifies the admissibility rule set the language-team triage Sub-proposal 2 enumerated. TRUST-DP-1 specifies the trust-report schema delta for the two-axis assurance model (content in §3.2 above). Each draft can route to professor optionally, then to engineer.
+
+**To doc-lead (P0 bundle):**
+
+> DRIFT-1 + DRIFT-CI-1: catch `LLMLL.md` up from v0.10.1 to v0.10.6 (changelog entries v0.10.2 through v0.10.6 enumerate the deltas); reconcile schema `$id` URL with `schemaVersion` field at [`docs/llmll-ast.schema.json:3,16`](../llmll-ast.schema.json); implement the five-criterion CI gate the amended critic specified. Bundle TERM-1, DO-1, CRYPTO-1 spec text into the same pass.
+
+---
+
+**End of triage record.** Future sessions can read this document plus the routing table at §4 to pick up the work without re-deriving any of the adjudication. New work items adopt the same `XXX-N` tag pattern and either extend the §4 table or open new triage records dated separately.

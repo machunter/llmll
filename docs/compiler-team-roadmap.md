@@ -25,12 +25,15 @@
 
 ---
 
-## Feature Freeze Policy (v0.8.1a through v0.10)
+## Feature Freeze Policy
 
 > [!IMPORTANT]
-> **No new builtins, syntax constructs, FFI tiers, WASI capabilities, or orchestration features until v0.10 ships.** The project's credibility depends on narrowing the verification boundary and deepening the obligation-feedback architecture, not expanding the language surface. Each unverified feature is a semantic escape hatch. Exceptions require explicit team consensus with a written soundness argument.
+> **Original freeze (v0.8.1a through v0.10) — concluded with v0.10.6 ship.** Preserved as historical record. The freeze constrained the project to narrowing the verification boundary and deepening the obligation-feedback architecture rather than expanding the language surface, on the rationale that each unverified feature is a semantic escape hatch. Source: Professor's five-round review (2026-04-30), extended 2026-05-01.
+
+> [!IMPORTANT]
+> **Freeze lifted for v0.11 (architectural correction).** The freeze-exception soundness argument: v0.11's core/shell grammar inversion *narrows* the verification surface by making the verified-core fragment syntactically canonical rather than reachable through a CLI flag; CDP-0 (contract discriminative power as first-class evidence axis) and predicate-carrying `?proof-required` are evidence-channel enrichments without new escape hatches; LT-INT (`int` = mathematical integer, `Integer` backend) closes the documented Z3-Int-vs-Haskell-Int64 misalignment rather than introducing a new surface. See [`docs/design/core-shell-inversion-direction.md`](design/core-shell-inversion-direction.md) §Background for the full rationale and the no-backward-compat-shim position; [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) for the underlying external-critique adjudication.
 >
-> **Source:** Professor's five-round review (2026-04-30), updated 2026-05-01 to extend through v0.10. Consensus of language team and professor.
+> **Source:** Professor direction memo (2026-05-23) consolidating external critique (2026-05-23) into v0.11 routing; consensus of language team and professor. Original freeze (v0.8.1a–v0.10) preserved above as historical record.
 
 
 ---
@@ -133,6 +136,70 @@ The success metric for v0.10:
 
 ---
 
+## v0.11 — Core/Shell Inversion + Evidence-Axis Enrichment
+
+**Theme:** Invert LLMLL's source-grammar polarity so the verified-core fragment is the canonical definition form and the permissive regime is explicitly marked. Pair the syntactic guarantee with an orthogonal spec-strength axis (contract discriminative power) and a richer escape-hatch (predicate-carrying `?proof-required`). Close the long-documented Z3-mathematical-Int vs Haskell-Int64 misalignment by committing `int` to mathematical-integer semantics with `Integer` backend.
+
+**Effort:** Multi-week (LT-INV alone is the largest grammar change since v0.5's U-Full Soundness). Estimated 4–6 weeks engineer + experiment-lead time across all four LT items, sequenced per §8.4 below.
+
+> **Source:** Professor v0.11 direction memo (Rev 2) at [`docs/design/core-shell-inversion-direction.md`](design/core-shell-inversion-direction.md), consolidating external critique (2026-05-23) processed through both the language-team and professor channels. Four LT proposals (LT-INV, LT-CDP, LT-PPR, LT-INT) settled in conversation 2026-05-23; design-doc drafts pending (see Implementation Items below). Two over-corrected memo footnotes (TC-EOP-1, OBLIG-PBT-5) adjudicated and resolved into v0.10.x patch lane, not v0.11.
+
+> [!IMPORTANT]
+> **v0.11 is a deliberate breaking change with no source-level backward-compatibility shim.** The freeze rationale through v0.10 was *narrow the verification boundary*; the v0.11 lift is a *correction* of the architectural default toward the same goal — the core/shell inversion makes the narrowing syntactic rather than flag-gated. Migration of `examples/*` from v0.10 `def-logic` to v0.11 `def` / `def-shell` is mechanical (per memo §1.5); the JSON-AST schema bumps `0.5.0 → 0.6.0`. No source-level compatibility shim is provided.
+
+### Implementation Items
+
+| # | ID | Description | Prerequisite | Status |
+|---|-----|-------------|-------------|--------|
+| 1 | **LT-INV** | **[LT+CT]** Core/shell grammar inversion. Rename `def-logic` → `def` for the strict-core form; introduce `def-shell` for the permissive form. Whitelist grammar production for core bodies (admitted: `ELit`, `EVar` int-typed, QF-LIA `EOp`, `ELet` PVar+int, `EIf` under path-limit, `EApp` to body-faithful callees, `EMatch` on `Result` 2-arm, refinement-aliased base-int types, `?hole`/`?name`/`?choose`/`?request-cap`/`?scaffold`/`?delegate`/`?delegate-async`). Excluded from core: `?proof-required`, `letrec`, general-ADT `EMatch`, `EPair`, `ELambda`, `EDo`, non-linear arithmetic, opaque crypto, untrusted FFI. Transitive body-faithful callee restriction at `EApp` inside `def`. Schema bump `0.5.0 → 0.6.0`. LT-proposal/review pair land at [`docs/design/core-shell-inversion-proposal.md`](design/core-shell-inversion-proposal.md) + `core-shell-inversion-review.md` (pending). | None | ☐ |
+| 2 | **LT-CDP** | **[LT+CT]** Contract discriminative power as first-class evidence axis. Promotes [`docs/research-track.md:145-151`](research-track.md) to v0.11 implementation built on [`compiler/src/LLMLL/WeaknessCheck.hs`](../compiler/src/LLMLL/WeaknessCheck.hs). Two-axis assurance report — paired `(evidence, DP)` per function rather than collapsed scalar. Normalized score `DP_Ω(S) = 1 - log(|⟦S⟧_Ω|) / log(|B_{T,U,Ω}|)`. Optional `(spec-entropy :strict | :intentional | :unknown)` annotation honors the healthy-diversity-vs-underspecification tension at [`docs/design/invariant-discovery-review.md §4.1`](design/invariant-discovery-review.md). `trust_report_version` bump 1.1.0 → 1.2.0 (additive). Subsumes the prior triage rows DP-FORM-1 + TRUST-DP-1. LT-proposal/review pair land at [`docs/design/contract-discriminative-power-proposal.md`](design/contract-discriminative-power-proposal.md) + `-review.md` (pending). | LT-INV (sequenced after) | ☐ |
+| 3 | **LT-PPR** | **[LT+CT]** Predicate-carrying `?proof-required`. Re-opens the deferred design at [`docs/design/proof-required-predicate-carrier.md`](design/proof-required-predicate-carrier.md). Extends `HoleKind.HProofRequired Text` at [`compiler/src/LLMLL/Syntax.hs:243`](../compiler/src/LLMLL/Syntax.hs) to `HProofRequired Text (Maybe Expr)`. Informational only: predicate typechecks as `bool`, recorded in trust report, runtime-assertion fallback emitted in codegen — verifier does NOT consume the predicate; trust label stays `asserted`. Predicate-carrying form is `def-shell`-only; forbidden inside `def` per LT-INV §1.4. LT-proposal/review pair land at [`docs/design/proof-required-predicate-carrier-proposal.md`](design/proof-required-predicate-carrier-proposal.md) + `-review.md` (pending, supersedes the deferred-exploration doc). | LT-INV (sequenced after) | ☐ |
+| 4 | **LT-INT / INT-2** | **[CT]** Integer semantics: `int` = mathematical integer, codegen emits `Integer`. One-line [`CodegenHs.hs:441`](../compiler/src/LLMLL/CodegenHs.hs) change (`Int → Integer`) plus preamble-signature ripple at `:232-360` audit (indexing primitives may stay `Int` and use `fromIntegral` at boundary). `LLMLL.md §3.1` updated post-engineer-ship via doc-lead. Verifier already operates under unbounded integers at [`FixpointEmit.hs:188-194`](../compiler/src/LLMLL/FixpointEmit.hs); no verifier-side change. INT-3 (`MachineInt` post-freeze alias under QF-BV) deferred to v0.12+; promoted to v0.11 freeze-exception only if INT-PRE shows >5× TOTP regression. | INT-PRE | ☐ |
+| 5 | **INT-PRE** | **[experiment-lead]** Cost pre-check: baseline measurement of `int → Int` codegen vs `int → Integer` codegen on benchmark suite (B1, B3, B5, TOTP at `examples/totp_rfc6238/`, ERC-20 at `examples/erc20_token/`). Per-benchmark regression factor reported. Gate criterion: if TOTP regresses >5×, escalate INT-3 to freeze-exception; otherwise INT-2 proceeds. Runs before INT-2 commits. | None | ☐ |
+
+### Empirical Validation Gate (§8 of direction memo)
+
+The v0.11 inversion ships **only if** an empirical pre/post comparison on the existing experimental harness confirms the architectural bet. The original v0.10 obligation report was the project's prior bet on what helps LLMs (*surface rich obligations*); the inversion is a *different* bet (*limit the grammar surface*). Both are defensible. Choosing between them is empirical, and the project has the discipline to make it empirically.
+
+**Instrument:** [`experiments/minimal-agent/001-two-agent-auth`](../experiments/minimal-agent/) (18 attempts × 5 models) plus post-DL-B follow-up batches.
+
+**Axes measured (`experiment-lead` formalizes the protocol):**
+- **Grade distribution** — does the inversion shift the pass/fail distribution on `001-two-agent-auth` and post-DL-B follow-ups, holding model and prompt budget fixed? Improvement on at least one of (a) overall pass rate, (b) `verified` evidence fraction at pass, or (c) `?proof-required` emission rate on out-of-core contracts is the success signal.
+- **First-pass success vs retry count** — does the inversion reduce agent-loop iteration count before passing? Competing prediction: smaller grammar surface → more parse errors → more retries. If iteration count rises while pass rate stays flat, the inversion has made authoring harder without making outcomes better.
+- **Spec-strength distribution** — does the CDP axis (LT-CDP) surface a non-trivial number of `verified` weak-spec functions in existing benchmarks? If the metric never flags anything, it is not paying for its complexity.
+- **Boundary-form usage distribution** — across migrated examples, what fraction of functions land in `def` (core) vs `def-shell`? If migration produces near-100% `def-shell` usage, the inversion has not changed where LLM-generated code lives; the canonical form is canonical in name only.
+
+**Pass criteria (`language-team` adjudicates against `experiment-lead` results):** at least one of (a) overall pass rate, (b) `verified` evidence fraction at pass, or (c) `?proof-required` emission rate on out-of-core contracts must improve over the pre-inversion baseline — **and** no axis must regress materially. *Materially* is `experiment-lead`'s call against the existing variance baseline established in [`experiments/minimal-agent/findings/`](../experiments/minimal-agent/findings/).
+
+**Rollback paths if the gate fails:**
+
+1. **Demote the inversion to opt-in.** Keep the grammar change available behind a per-module pragma or `--grammar=core-inversion` flag; default remains the v0.10 mixed regime. Grammar work preserved; polarity claim retracted until a future cycle.
+2. **Retract the grammar change; ship LT-CDP + LT-PPR only.** Contract discriminative power and predicate-carrying `?proof-required` are valuable independently of the inversion; both can ship without LT-INV. v0.11 becomes an evidence-axis and obligation-channel release rather than an architectural-polarity release.
+
+### Sequencing (§8.4)
+
+The v0.11 implementation **must** be sequenced so the empirical gate runs **before** the schema-version bump and example-program migration are finalized. This protects against shipping a v0.11 that the existing benchmarks reveal as a regression after schema and example migration are irreversible.
+
+1. `language-team` settles LT-proposal docs for LT-INV, LT-CDP, LT-PPR (LT-INT is ratified-not-relitigated and proceeds directly).
+2. `compiler-engineer` ships the LT-INV grammar change behind an explicit opt-in flag (`--grammar=core-inversion`), not as default. LT-CDP and LT-PPR ship in parallel (gate-independent).
+3. `experiment-lead` runs INT-PRE (in parallel with above) and the §8 pre/post comparison on `001-two-agent-auth` plus post-DL-B batches.
+4. **If the §8 gate passes**, `compiler-engineer` flips the grammar default; `documentation-lead` migrates `examples/*` and bumps `schemaVersion 0.5.0 → 0.6.0`.
+5. **If the §8 gate fails**, route to rollback path (1) or (2) per `language-team` + `experiment-lead` adjudication.
+
+§8 sequencing is **not** load-bearing for LT-CDP or LT-PPR — both ship under either rollback path.
+
+### Acceptance criteria
+
+- LT-INV grammar inversion lands behind `--grammar=core-inversion` opt-in flag first; default flips only on §8 gate pass.
+- LT-CDP `(evidence, DP)` paired trust-report representation lands with `trust_report_version` 1.1.0 → 1.2.0; `--weakness-check` extended to the divergence metric per LT-CDP §Semantics.
+- LT-PPR predicate-carrying form parses, typechecks the predicate as `bool`, records in trust report, emits runtime-assertion fallback; remains forbidden inside `def`.
+- LT-INT codegen switch ships with INT-PRE gate result reported; INT-3 promotion-or-deferral adjudicated.
+- §8 empirical-gate result published before final v0.11 ship; if rolled back, the rollback path (1) or (2) is named in the CHANGELOG entry.
+- Migration tooling rewrites existing `examples/*` from `def-logic` to `def`/`def-shell` mechanically; manual review for ambiguous cases per LT-INV §Risks.
+- DRIFT-1 / DRIFT-CI-1 / TC-EOP-1 / OBLIG-PBT-5a / INT-1 (v0.10.x patch lane) ship before v0.11 final to ensure the v0.11 baseline starts from a drift-free spec.
+
+---
+
 ## Externally-Blocked Parking Lot
 
 Items from the old v0.8.1 that depend on external availability. Tracked but not on the critical path.
@@ -212,16 +279,57 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 ### Active Items
 
+> **Routing:** items below are organized into three lanes by milestone target. Tags follow the `XXX-N` pattern; full triage record at [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) §4; v0.11 architectural items detailed in the `## v0.11` milestone section below.
+
+#### Standing items
+
 | Item | Current Status | Next Action |
 |------|---------------|-------------|
-| **Feature freeze** (v0.8.1a–v0.10) | **Active** (2026-04-30, extended 2026-05-01) | No new builtins, syntax, FFI, WASI, or orchestration features until v0.10 ships |
-| **Evidence model design** (EVID-0) | **Approved** (Rev 2) | Design spec approved, ready for v0.8.1b implementation |
-| **Obligation-guided agent coding** (v0.10) | **Shipped** (2026-05-03) | Structured obligation reports for agents. 8 items (OBLIG-0–OBLIG-B) complete. 570 tests (556 v0.10.0 + 14 v0.10.1 alias tests). |
-| **Module system hardening** (v0.9.1) | **Shipped** (2026-05-01) | Spec restructured (§8.3/5/6/7), cycle detection fixed, 11 new tests (M-01–M-07), `life_sexp` corrected. 4 items deferred: MOD-1 (v0.10), MOD-2/3/4/5 (future). |
-| **Cross-module ContractEnv** (MOD-1) | **v0.10 prerequisite** | `meContracts` field in `ModuleEnv`. Required before OBLIG-2/3 can use imported contracts. |
-| `effectful` typed effect rows in codegen | Designed but codegen emits plain Haskell `IO` | Deferred to WASM build target |
-| TRUST-2b (`VLProvenLean`) | **Parked** (2026-04-30) | Externally-blocked parking lot — redesign against new evidence model when LEAN-GA triggers |
-| Contract discriminative power formalization | Proposed by Professor | Research track |
+| **Feature freeze** | **Lifted for v0.11** (architectural correction) | See `## Feature Freeze Policy` above; original freeze v0.8.1a–v0.10 preserved as historical record |
+| **External critique triage** (2026-05-23) | **Adjudicated** — 17 tagged items routed across three lanes below | See [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) §4 |
+| **Obligation-guided agent coding** (v0.10) | **Shipped** (2026-05-03; final patch v0.10.6 on 2026-05-14) | (unchanged) 640 Haskell + 37 Python tests |
+| **Module system hardening** (v0.9.1) | **Shipped** (2026-05-01) | (unchanged) |
+| **Cross-module ContractEnv** (MOD-1) | **v0.10 prerequisite** — shipped with v0.10 | Drift note: should move to Resolved block on a future doc pass |
+| **Evidence model design** (EVID-0) | **Approved** (Rev 2) — shipped via v0.8.1b | (unchanged) |
+| **TRUST-2b** (`VLProvenLean`) | **Parked** (2026-04-30) | Externally-blocked parking lot — redesign against new evidence model when LEAN-GA triggers |
+
+#### v0.10.x patch lane (in-freeze, narrowing fixes)
+
+| Item | Current Status | Next Action |
+|------|---------------|-------------|
+| **DRIFT-1** + **DRIFT-CI-1** | **P0 — open** | doc-lead: LLMLL.md v0.10.1 → v0.10.6 catch-up + 5-criterion version-gate CI; bundle TERM-1 + DO-1 + CRYPTO-1 spec text |
+| **TC-EOP-1** | **P0 — open** | engineer: `compiler/src/LLMLL/TypeCheck.hs:981-988` arity/type-check fix + regression suite (both S-expr and JSON-AST frontends); narrowing fix, ships under v0.10.7 patch. (Memo §6.2 caution over-corrected; this conversation directly inspected the source.) |
+| **OBLIG-PBT-5a** | **P1 — open** | engineer: `joint_pbt_witness` diagnostic + scalar-count exclusion for joint metamorphic evidence. Additive; no `trust_report_version` bump; ships under v0.10.7. |
+| **INT-1** | **P1 — open** | engineer: `overflow_tainted` marking for arithmetic verification + strict-core refusal of overflow-tainted `verified` clean tier. Inside-freeze, narrowing. |
+
+#### v0.11 architectural lane (freeze-lifted)
+
+| Item | Current Status | Next Action |
+|------|---------------|-------------|
+| **v0.11 milestone** | **Planned** — see `## v0.11` section below | LT proposals settled; engineer build sequenced per §8.4 |
+| **LT-INV** (core/shell grammar inversion) | **LT proposal settled** | engineer build; gated on §8 empirical validation gate; subsumes STRICT-CORE-1 sub-item |
+| **LT-CDP** (contract discriminative power evidence axis) | **LT proposal settled** | engineer build; subsumes DP-FORM-1 + TRUST-DP-1 sub-items |
+| **LT-PPR** (predicate-carrying `?proof-required`) | **LT proposal settled** | engineer build; supersedes deferred-exploration at [`docs/design/proof-required-predicate-carrier.md`](design/proof-required-predicate-carrier.md) |
+| **LT-INT / INT-2** (`int → Integer` codegen switch) | **LT proposal ratified** | engineer build; gated on INT-PRE; one-line `CodegenHs.hs:441` + preamble-signature audit |
+| **INT-PRE** | **P1 — open** | experiment-lead: baseline + post-INT-2 comparison on TOTP / ERC-20 / B1 / B3 / B5; gate criterion TOTP regression < 5× |
+| **REF-META-1** (refinement metatheory of record) | **LT proposal settled** | LT design-doc draft (`docs/design/refinement-metatheory-of-record-proposal.md`) → doc-lead promotion to `LLMLL.md §3.4 / §5` |
+
+#### v0.12+ post-freeze lane
+
+| Item | Current Status | Next Action |
+|------|---------------|-------------|
+| **INT-3** (`MachineInt` QF-BV alias) | **P3 — open** | LT design when freeze lifts again; promote to P1 (freeze-exception candidate) if INT-PRE shows TOTP regression > 5× |
+| **OBLIG-PBT-5b** (clean `EvidenceRecord.scope`) | **P2 — open** | engineer post-freeze; `trust_report_version` 1.1.0 → 1.2.0; new `tested-joint` display level |
+| **REF-META-2..5** (solver-completeness, erasure, predicate WF, typing judgment) | **P2-P3 — open** | LT drafts → doc-lead promotion; sequenced after REF-META-1 |
+| **Bundle B** (effect rows on `Command`) | **Reclassified** out of indexed-types research bundle per memo §4 | Separate v0.12+ design track; staged B0 → B3 (function-level effect summaries → row-polymorphic `Command {ρ} a` → effect-aware contracts). NOT WASM-coupled. |
+
+#### Research track (no v0.x targets, no Active Items rows)
+
+| Item | Current Status | Next Action |
+|------|---------------|-------------|
+| **Contract discriminative power formalization** | ~~Proposed by Professor / Research track~~ → **Promoted to v0.11 CDP-0** (LT-CDP) | See v0.11 milestone below; [`docs/research-track.md:145-151`](research-track.md) needs retirement on a separate pass |
+| **Full categorical unification** (fibrations / graded monads / patch-merge derivation) | **Declined** | Disproportionate per professor adjudication; amended critic did not re-propose. See [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) §5 |
+| **Path B mechanized soundness theorem** | **Declined** | Inherited Path A stance from [`docs/design/verification-debate.md`](design/verification-debate.md) |
 
 <details><summary><strong>Resolved cross-cutting items (click to expand)</strong></summary>
 
