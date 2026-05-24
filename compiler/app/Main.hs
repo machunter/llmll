@@ -244,7 +244,7 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <*> switch (long "spec-coverage"
             <> help "v0.6: Print specification coverage report")
       <*> switch (long "strict-verified-core"
-            <> help "v0.9.0: Hard-error if any function falls back from body-faithful verification")
+            <> help "v0.9.0 + INT-1 v0.10.8: Hard-error if any function falls back from body-faithful verification or carries overflow-tainted verified evidence")
       <*> switch (long "obligation-report"
             <> help "v0.10: Emit structured obligation report (JSON, OBLIG-0 spec §2.1)")
 
