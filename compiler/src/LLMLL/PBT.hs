@@ -693,7 +693,7 @@ processRun contractByName qualMap propsByDesc run =
               h      = canonicalPropBodyHash body
               w      = PbtWitness h desc
               mkEntry f =
-                let er  = EvidenceRecord (DLTested n) False Nothing [w]
+                let er  = EvidenceRecord (DLTested n) False Nothing [w] False
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
                     key = Map.findWithDefault f f qualMap
                 in (key, cs)
@@ -760,10 +760,15 @@ mergePbtWriteback a b = ContractStatus
                            | otherwise            -> ly
           ws  = dedupWitnesses (erPbtWitnesses x ++ erPbtWitnesses y)
       in EvidenceRecord
-           { erDisplayLevel = lvl
-           , erBodyFaithful = erBodyFaithful x || erBodyFaithful y
-           , erSource       = case erSource x of { Just s -> Just s; Nothing -> erSource y }
-           , erPbtWitnesses = ws
+           { erDisplayLevel    = lvl
+           , erBodyFaithful    = erBodyFaithful x || erBodyFaithful y
+           , erSource          = case erSource x of { Just s -> Just s; Nothing -> erSource y }
+           , erPbtWitnesses    = ws
+           -- INT-1: join propagates taint (either side tainted ⇒ join tainted).
+           -- DLTested evidence never sets the flag in v0.10.8, so the OR is
+           -- effectively dormant on the PBT joiner; written explicitly so a
+           -- future verifier-side taint join inherits the right semantics.
+           , erOverflowTainted = erOverflowTainted x || erOverflowTainted y
            }
 
     dedupWitnesses ws =

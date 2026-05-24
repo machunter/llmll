@@ -18,6 +18,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (doesFileExist)
@@ -75,7 +76,10 @@ erToJSON er = object $
   maybe [] (\s -> ["source" .= s]) (erSource er) ++
   -- OBLIG-PBT-3: emit pbt_witnesses only when non-empty (back-compatible read
   -- against v0.10.4 sidecars that lack the field).
-  (if null (erPbtWitnesses er) then [] else ["pbt_witnesses" .= map pwToJSON (erPbtWitnesses er)])
+  (if null (erPbtWitnesses er) then [] else ["pbt_witnesses" .= map pwToJSON (erPbtWitnesses er)]) ++
+  -- INT-1 (v0.10.8): emit overflow_tainted only when True (additive, omitted
+  -- when False to keep older sidecar shape byte-identical for untouched records).
+  ["overflow_tainted" .= True | erOverflowTainted er]
 
 erFromJSON :: Value -> Maybe EvidenceRecord
 erFromJSON (Object o) = do
@@ -91,7 +95,14 @@ erFromJSON (Object o) = do
       ws  = case KM.lookup "pbt_witnesses" o of
               Just (Array arr) -> [w | v <- foldr (:) [] arr, Just w <- [pwFromJSON v]]
               _                -> []
-  Just $ EvidenceRecord dl bf src ws
+      -- INT-1 (v0.10.8): optional field; pre-v0.10.8 sidecars default to False.
+      -- Reader-side default-false is the additive-back-compat shape; the strict-core
+      -- consumer triggers a re-verify when the field is absent on a DLVerified
+      -- body-faithful entry (loadVerified is the invalidation site for v0.10.8).
+      ot  = case KM.lookup "overflow_tainted" o of
+              Just (Bool b) -> b
+              _             -> False
+  Just $ EvidenceRecord dl bf src ws ot
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — PbtWitness (OBLIG-PBT-3)
@@ -155,6 +166,16 @@ csFromJSON _ = Nothing
 
 -- | Load verified status from sidecar file. Returns empty map if file missing
 -- or if the file uses an old/incompatible format.
+--
+-- INT-1 (v0.10.8): sidecars written by pre-v0.10.8 verify runs lack the
+-- 'overflow_tainted' field on DLVerified body-faithful records. The reader
+-- defaults the missing field to False (additive back-compat), but a strict-core
+-- consumer that trusts a default-False on what was actually an unbounded-Int
+-- arithmetic body would see a silent false negative. To eliminate that
+-- exposure, 'loadVerified' invalidates the entire sidecar (returns empty,
+-- forcing re-verify) whenever any verified body-faithful entry lacks the
+-- field. Pre-v0.10.8 sidecars therefore regenerate on first verify against
+-- v0.10.8+.
 loadVerified :: FilePath -> IO (Map Name ContractStatus)
 loadVerified fp = do
   let path = verifiedPath fp
@@ -165,13 +186,36 @@ loadVerified fp = do
       bs <- BL.readFile path
       case A.decode bs of
         Nothing -> pure Map.empty
-        Just (Object top) ->
-          pure $ Map.fromList
-            [ (AK.toText key, cs)
-            | (key, val) <- KM.toList top
-            , Just cs <- [csFromJSON val]
-            ]
+        Just (Object top)
+          | sidecarNeedsRevalidation top -> pure Map.empty
+          | otherwise ->
+              pure $ Map.fromList
+                [ (AK.toText key, cs)
+                | (key, val) <- KM.toList top
+                , Just cs <- [csFromJSON val]
+                ]
         _ -> pure Map.empty
+
+-- | INT-1 (v0.10.8): True when the sidecar contains at least one
+-- 'DLVerified' body-faithful entry that lacks the 'overflow_tainted' field.
+-- Such entries pre-date v0.10.8's overflow-taint marking, so the file as a
+-- whole is treated as stale and re-verified rather than silently reading the
+-- taint as False.
+sidecarNeedsRevalidation :: KM.KeyMap Value -> Bool
+sidecarNeedsRevalidation top = any csNeedsRevalidation (KM.elems top)
+  where
+    csNeedsRevalidation (Object cs) =
+      any erNeedsRevalidation [v | k <- ["pre", "post"], Just v <- [KM.lookup k cs]]
+    csNeedsRevalidation _ = False
+
+    erNeedsRevalidation (Object er) =
+      let isVerifiedBodyFaithful = case (KM.lookup "display_level" er, KM.lookup "body_faithful" er) of
+            (Just (Object dl), Just (Bool True))
+              | KM.lookup "level" dl == Just (String "verified") -> True
+            _ -> False
+          taintFieldAbsent = isNothing (KM.lookup "overflow_tainted" er)
+      in isVerifiedBodyFaithful && taintFieldAbsent
+    erNeedsRevalidation _ = False
 
 -- | Save verified status to sidecar file.
 saveVerified :: FilePath -> Map Name ContractStatus -> IO ()
