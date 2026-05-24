@@ -108,7 +108,7 @@ Tags follow the project's `XXX-N` pattern from [`docs/compiler-team-roadmap.md`]
 | Tag | Item | Priority | Owner | Status | Notes |
 |---|---|---|---|---|---|
 | **DRIFT-1** | LLMLL.md v0.10.1 → v0.10.6 catch-up | P0 | doc-lead | open | Covers §3 (after INT-1 lands), §3.2 (TERM-1), §9 (DO-1), §13.11 (CRYPTO-1), §12 grammar (`:subjects`), §13.8 (?proof-required example) |
-| **DRIFT-CI-1** | Version-gate CI (5 criteria from amended critic) | P0 | infra / doc-lead | open | README = LLMLL.md = CHANGELOG version; schema field = parser expected version; schema `$id` aligns with `schemaVersion` policy; examples inside grammar |
+| **DRIFT-CI-1** | Version-gate CI (5 criteria from amended critic) | P0 | infra / doc-lead | open | (1) README version == LLMLL.md version; (2) LLMLL.md version == CHANGELOG top version; (3) schema `schemaVersion` field == `ParserJSON.hs::expectedSchemaVersion`; (4) schema `$id` URL aligns with `schemaVersion` policy; (5) examples inside grammar |
 | **TC-EOP-1** | EOp arity/type-check fix + regression suite (both frontends) | P0 | engineer | open | Fix sketch in §12 of language-team triage Rev 2; regression cases enumerated; narrowing fix, sails through freeze |
 | **REF-META-1** | Checking-mode typing rule + non-goals + soundness statement | P0 | language-team draft → doc-lead | open | Adopts amended critic's framing per §3.1 above; lands at `LLMLL.md §3.4 / §5` |
 | **OBLIG-PBT-5a** | Multi-subject minimum fix (`joint_pbt_witness` diagnostic + scalar-count exclusion) | P1 | engineer | open | Additive; no `trust_report_version` bump; ships under v0.10.7 patch |
