@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.10.6)
+# LLMLL: Large Language Model Logical Language (v0.10.7)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.10.6 (shipped).** Final v0.10.x patch — `:subjects` metadata on `(check ...)` blocks (OBLIG-PBT-4), PBT body-static-eval coverage (F-033), residual `evalBuiltinApp` builtin coverage (F-034). 640 Haskell + 37 Python tests passing. JSON-AST schemaVersion `0.5.0`. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule. Next milestone is v0.11 (core/shell grammar inversion + CDP evidence axis + predicate-carrying `?proof-required` + `int → Integer` codegen); see [`docs/design/core-shell-inversion-direction.md`](docs/design/core-shell-inversion-direction.md) and [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md).
+> **Current version: v0.10.7 (shipped).** Patch release — TC-EOP-1 `EOp` arity / argument-type checking + OBLIG-PBT-5a joint PBT witness scalar exclusion. No language-surface change in v0.10.7 itself; v0.10.6 spec text remains canonical for §1–§11 / §13. This LLMLL.md revision also lands the §12 grammar amendment for v0.10.6's `:subjects` metadata as DRIFT-1 residual catch-up. 656 Haskell + 37 Python tests passing. JSON-AST schemaVersion `0.5.0`. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule. Next milestone is v0.11 (core/shell grammar inversion + CDP evidence axis + predicate-carrying `?proof-required` + `int → Integer` codegen); see [`docs/design/core-shell-inversion-direction.md`](docs/design/core-shell-inversion-direction.md) and [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md).
 
 <details><summary><strong>Release history</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.10.7** | TC-EOP-1 EOp Arity/Type-Check + OBLIG-PBT-5a Joint PBT Witness Exclusion: `inferExpr (EOp op args)` at `TypeCheck.hs:981` rewritten to mirror `EApp`'s arity-check + `structuralUnify` loop; arity-bad and type-incorrect operator calls now produce structured `type-mismatch` and arity diagnostics; polymorphic `=` / `!=` unify both operands against one bound `TVar` (no `any × any → bool` degrade). `TrustReport.hs` computes joint-witness hashes (post-clause hashes appearing on ≥2 distinct subjects) and demotes pure-joint `DLTested` entries to `DLAsserted`; per-entry `joint_pbt_witness: true` + top-level `joint_pbt_witnesses` JSON additions. `trust_report_version` stays `1.1.0`; JSON-AST `schemaVersion` stays `0.5.0`. 656 tests (+16 from v0.10.6). |
 | **v0.10.6** | `:subjects` Metadata + PBT Body-Static-Eval Coverage + Residual Builtin Coverage: OBLIG-PBT-4 explicit-attribution `:subject`/`:subjects` metadata on `(check ...)` blocks bypasses head-position scan and lifts per declared subject (shared `pbt_witnesses` hash). F-033 `unwrap` static-eval coverage. F-034 five residual `evalBuiltinApp` clauses (`list-empty`, `list-prepend`, `list-filter`, `int-to-string`, `string-concat-many`) plus `list-head`/`list-tail` Success-wrapped return-shape correctness fix. JSON-AST schemaVersion `0.4.0 → 0.5.0` (additive `CheckDecl.subjects`). 640 tests (+26 from v0.10.5). |
 | **v0.10.5** | PBT Complex-Type Generators + PBT-to-Trust-Report Write-Back: OBLIG-PBT-2 `generateValue` retyped for `TPair`/`TList`/`TResult`/`TSumType`/`TCustom` with depth-cap; `evalExprStaticWith` extended for `EPair`/`ELambda`; `evalBuiltinApp` refactored with `FuncEnv`+fuel and new builtins. OBLIG-PBT-3 `llmll test` writes `DLTested n` to `.verified.json` on PBT-pass post clauses (singleton head-position linkage rule); `pbt_witnesses` SHA-256 body-hash provenance with read-side staleness invalidation; cross-module qualified sidecar keys. `trust_report_version 1.0.0 → 1.1.0` (additive `tier_profile_pre`/`tier_profile_post`). 614 tests (+20). |
 | **v0.10.4** | R6d (Trust-Report Tier Profile + Harness Predicate): `llmll verify --trust-report --json` emits six-Int `tier_profile` aggregate `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications (diamond meet preserved). New `docs/llmll-trust-report.schema.json` v1.0.0 with `trust_report_version` field, independent of source JSON-AST schema. Repair-loop harness `Cred(R)` predicate consumes the profile without scalarizing the `contract_checked ‖ tested` incomparability. 594 tests (+5). |
@@ -1674,7 +1675,10 @@ def-main    = "(" "def-main"
 (* ============================================================ *)
 (* Property-based tests & generators                            *)
 (* ============================================================ *)
-check       = "(" "check" STRING for-all ")" ;
+check       = "(" "check" STRING [ subject-meta ] for-all ")" ;
+subject-meta = ":subject" IDENT
+             | ":subjects" "[" IDENT { IDENT } "]" ;
+              (* Optional v0.10.6+ explicit-attribution clause; see Rule 10. *)
 for-all     = "(" "for-all" "[" { typed-param } "]" expr ")" ;
 
 gen-decl    = "(" "gen" IDENT expr ")" ;
@@ -1755,6 +1759,7 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
    - `ExprApp.fn` matches `^[^.]+$` — no dots permitted in plain function-call position. The character class is intentionally permissive to accept operator identifiers (`+`, `-`, `<=`, `mod`, etc.) that may appear in `app` position when emitted by JSON-AST agents that do not partition operators into `EOp`.
    - `ExprQualApp.qual_fn` matches `^[A-Za-z_][A-Za-z0-9_?\-]*(\.[A-Za-z_][A-Za-z0-9_?\-]*)+$` — at least one dot required, character class matches `IDENT` per §2.1. This formalizes the `qual-ident = IDENT { "." IDENT }` EBNF rule above.
    Schema-level rejection happens before parser entry; the typechecker also emits a warning on dotted `app.fn` for S-expression sources where the schema is not consulted (`compiler/src/LLMLL/TypeCheck.hs` `inferExpr`, v0.10.2+).
+10. **`check` may carry explicit subject metadata** (v0.10.6+, schemaVersion `0.5.0`). The optional `subject-meta` clause between the label STRING and the `for-all` expresses agent intent to lift trust evidence per declared callee. `:subject f` is singleton sugar for `:subjects [f]`. The annotated branch bypasses the head-position scan rule and lifts trust evidence per declared subject (§4.4.5). Empty `:subjects []` is rejected at parse time; duplicate names are deduplicated; cross-module subjects qualify through the existing `qualMap`. JSON-AST encodes this via the optional `CheckDecl.subjects: [Name]` field at schemaVersion `0.5.0`. See §4.4.5 *Annotated-subject branch* for the PBT-Lift semantics and the joint-witness scalar-exclusion rule (OBLIG-PBT-5a, v0.10.7+).
 
 
 ---

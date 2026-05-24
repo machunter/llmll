@@ -2,6 +2,43 @@
 
 ---
 
+## v0.10.7 — EOp Arity/Type-Check Fix + Joint PBT Witness Exclusion (2026-05-23)
+
+### Compiler — TC-EOP-1 EOp Arity and Argument-Type Checking
+
+- **`inferExpr (EOp op args)` now checks arity and unifies each argument against the corresponding parameter type.** Pre-fix the function ignored `args` entirely at [`compiler/src/LLMLL/TypeCheck.hs:981-988`](compiler/src/LLMLL/TypeCheck.hs#L981-L988) and returned the `builtinEnv` result type unconditionally, so `(+ 1)`, `(+ 1 2 3)`, `(+ "x" 1)`, `(not 1)`, `(= 1 "1")`, `(and true 0)`, etc. silently typechecked. The rewrite mirrors the `EApp` path at lines 920-973: arity check + `foldM` over args with `structuralUnify`'s per-call-site substitution map, `withSegment "args"` pointer-stack discipline, and `EHole` bypass via `checkExpr`. Polymorphic operators (`=`, `!=`) bind `TVar "a"` from arg 0 and require arg 1 to unify against the same type — no `any × any → bool` degrade. Per the 2026-05-23 critique-triage routing at [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md) row TC-EOP-1; narrowing fix admitted under the v0.10-era freeze.
+- **No example regressions.** The full `examples/` corpus (16 `.llmll` + 18 `.ast.json` shipping fixtures) typechecks unchanged under the new arity/type discipline. Pre-existing parse failures on `examples/pair_type_test/pair_type_test.llmll` (return-type comma surface) are orthogonal.
+
+### Compiler — OBLIG-PBT-5a Joint PBT Witness Exclusion
+
+- **Scalar `tested` counts no longer over-credit `:subjects [f g …]` joint lifts.** OBLIG-PBT-4 emits one `EvidenceRecord` per declared subject with a shared `canonicalPropBodyHash`; the v0.10.6 trust-report counted each as `+1 tested`, so N subjects sharing one property body contributed N to `summary.tested` / `tier_profile.tested` / `tier_profile_post.tested`. v0.10.7 computes a `jointHashes :: Set Text` (hashes appearing on ≥2 distinct subjects' post-clause witnesses) in [`compiler/src/LLMLL/TrustReport.hs`](compiler/src/LLMLL/TrustReport.hs) and demotes any `DLTested` entry whose post-clause evidence has non-empty `erPbtWitnesses` AND every hash in `jointHashes` to `DLAsserted` at classification time. The underlying `EvidenceRecord` is left intact on the entry (and in `.verified.json` sidecars) so the clean OBLIG-PBT-5b fix can promote a `tested-joint` display level post-freeze without losing data.
+- **"Every witness is joint" predicate is load-bearing.** A subject with both a joint-shared witness AND a solo (single-subject) witness on the same evidence record keeps its `+1 tested` credit — only pure-joint entries are demoted. Source-annotated `DLTested` from `:trust tested` markers (empty `pbt_witnesses`) is also unaffected because the predicate requires non-empty witnesses. This preserves OBLIG-PBT-3 v0.10.5 semantics for the non-`:subjects` path.
+- **Additive emit at every surface.** Per-entry JSON gains an optional `joint_pbt_witness: true` field (omitted when false to keep emit minimal). Top-level JSON gains `joint_pbt_witnesses: [{hash, subjects: [...]}]` listing the deterministic-ordered groupings. Text mode adds a "Joint PBT witnesses" section between the existing suppressions and stale-downgrade blocks. `trust_report_version` stays `1.1.0` per the 2026-05-23 triage explicit constraint at [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md) row OBLIG-PBT-5a; the clean version-bumped fix is OBLIG-PBT-5b in the v0.12+ post-freeze lane.
+- **Demotion target.** Joint-only `DLTested` demotes to `DLAsserted` (the existing diamond-meet sink), not into a new `tested-joint-only` slot — the latter requires a `trust_report_version` bump (OBLIG-PBT-5b). Documented at [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) v0.10.x patch-lane row.
+
+### Schema — Trust-Report Output Schema Additive Update
+
+- **`docs/llmll-trust-report.schema.json`** gains optional `joint_pbt_witnesses` top-level property (`JointPbtWitness` `$def` requires `subjects.length >= 2` and `hash` matches `^sha256:[0-9a-f]{64}$`) and an optional `joint_pbt_witness: const true` boolean on `TrustEntry`. `additionalProperties: false` on the top-level object now lists the new key explicitly; `TrustEntry`'s pre-existing `additionalProperties: true` admits the per-entry flag without further change. `trust_report_version` stays `1.1.0`.
+- **`docs/llmll-ast.schema.json`** unchanged. No AST node shape change in this release; `expectedSchemaVersion` stays `0.5.0`.
+
+### Test surface
+
+- **656 Haskell tests + 37 Python tests** (up from 640 + 37 at v0.10.6). New: 10 tests under `TC-EOP-1 EOp arity and arg-type checking` covering arity errors (under/over), arg-type mismatches across `+` / `not` / `=` / `and`, polymorphic equality both positive and negative, the `EHole`-in-EOp bypass, and JSON-AST frontend parity; 6 tests under `OBLIG-PBT-5a joint PBT witness exclusion` covering the joint-only demotion (J1), the solo+joint mix predicate (J2), the source-annotated empty-witness non-demotion (J3), the singleton-head-position non-demotion (J4), the per-entry `joint_pbt_witness: true` emit gating (J5), and the no-`trust_report_version`-bump additive emit invariant (J6).
+- **No solver-time delta.** TC-EOP-1 is a type-checker-only tightening; OBLIG-PBT-5a is a trust-report consumer-side classification refinement after VC emission has completed. Verification fragment unchanged (stays in QF-LIA).
+
+### Empirical close-state
+
+- **TC-EOP-1 closed.** Pre-fix `(+ "x" 1)`, `(not 1)`, `(= 1 "1")`, `(+ 1)` all silently typechecked; post-fix all four produce structured `type-mismatch` / arity diagnostics with `expected` / `got` fields. Both the S-expression and JSON-AST frontends route through the same `inferExpr (EOp ...)` path, regression-locked by case 9 of the test block.
+- **OBLIG-PBT-5a closed.** A `:subjects [encrypt decrypt]` roundtrip property that previously credited 2 against `tpTested` now credits 0; the same property combined with a solo `:subject encrypt` property credits 1 (encrypt) instead of 2.
+
+### What this does NOT close
+
+- **INT-1 (`overflow_tainted` marking).** P1 inside-freeze item from the same triage record; not bundled in v0.10.7 to keep the patch tightly scoped to TC-EOP-1 + OBLIG-PBT-5a per the engineer hand-off prompt at [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md) §6. Deferred to v0.10.8 paired with INT-PRE measurement.
+- **DRIFT-CI-1 (5-criterion version-gate CI).** Infra / doc-lead scope; not in the engineer turn. Tracked for the next doc-lead pass.
+- **OBLIG-PBT-5b (clean fix with new `tested-joint` display level).** Requires `trust_report_version` major bump and a new `DisplayLevel` constructor; explicitly post-freeze per [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) v0.12+ lane.
+
+---
+
 ## v0.10.6 — :subjects Metadata + PBT Body-Static-Eval Coverage + Residual Builtin Coverage (2026-05-14)
 
 ### Compiler — OBLIG-PBT-4 `:subject` / `:subjects` Metadata on `(check ...)`

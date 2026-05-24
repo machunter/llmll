@@ -21,6 +21,8 @@ module LLMLL.TrustReport
   , aggregateTiersPre  -- OBLIG-PBT-3: per-pre-clause tier-count profile
   , aggregateTiersPost -- OBLIG-PBT-3: per-post-clause tier-count profile
   , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
+  , computeJointHashes -- OBLIG-PBT-5a: joint witness hash detection
+  , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
   , trustReportEmitVersion
   ) where
 
@@ -56,6 +58,15 @@ data TrustEntry = TrustEntry
   -- absent in the source contract.
   , teEffectivePreLevel  :: Maybe DisplayLevel
   , teEffectivePostLevel :: Maybe DisplayLevel
+  -- OBLIG-PBT-5a (v0.10.7): True iff this entry's post-clause evidence is
+  -- DLTested AND every witness hash on it is shared with at least one other
+  -- subject's evidence record. When set, the scalar tested-count classifiers
+  -- ('computeSummary' / 'aggregateTiers' / 'aggregateTiersPost') demote the
+  -- entry from DLTested to DLAsserted so multi-subject lifts via
+  -- ':subjects [...]' do not produce N scalar credits from one property body.
+  -- The underlying ER is left intact for JSON emit; only the scalar
+  -- classification changes.
+  , teJointPostWitness   :: Bool
   } deriving (Show, Eq)
 
 -- | A dependency on another function with its trust level.
@@ -79,6 +90,14 @@ data TrustReport = TrustReport
   , trTierProfilePost  :: TierProfile
   -- OBLIG-PBT-3: per-clause downgrade diagnostics (stale pbt_witnesses).
   , trStaleDowngrades  :: [Text]
+  -- OBLIG-PBT-5a (v0.10.7): grouped joint-PBT witness map for emit. Each
+  -- entry is a (witness hash, [subject names]) pair where the same
+  -- canonical-property-body hash appears on the post-clause evidence of two
+  -- or more distinct subjects (a ':subjects [f g …]' lift). Empty when no
+  -- such sharing exists; surfaced in the trust-report JSON under the
+  -- additive 'joint_pbt_witnesses' key (no 'trust_report_version' bump per
+  -- the 2026-05-23 critique-triage routing).
+  , trJointWitnesses   :: [(Text, [Name])]
   } deriving (Show, Eq)
 
 data TrustSummary = TrustSummary
@@ -159,21 +178,30 @@ buildTrustReport cache entryStmts sidecar =
       enrichedEntries = map (enrichEntry allCS reachable) allEntries
       -- v0.6: collect weakness-ok suppressions
       suppressions = extractSuppressions entryStmts
+      -- OBLIG-PBT-5a (v0.10.7): joint-witness detection. A canonical-property-
+      -- body hash appearing on the post-clause witnesses of two or more
+      -- distinct subject names is a ':subjects [...]' joint lift; in scalar
+      -- tier counts we exclude the joint-only credit so N subjects sharing
+      -- one property body do not contribute N to the 'tested' count.
+      jointHashes  = computeJointHashes allCS
+      jointGroups  = buildJointWitnessGroups allCS jointHashes
+      markedEntries = map (markJointPostWitness jointHashes) enrichedEntries
       -- Compute summary
-      summary = computeSummary enrichedEntries
+      summary = computeSummary markedEntries
       -- v0.10.4 (R6d): tier-count profile over the same enriched entries
-      tierProfile = aggregateTiers enrichedEntries
+      tierProfile = aggregateTiers markedEntries
       -- OBLIG-PBT-3: parallel per-clause aggregates (proposal §9)
-      tierProfilePre  = aggregateTiersPre  enrichedEntries
-      tierProfilePost = aggregateTiersPost enrichedEntries
+      tierProfilePre  = aggregateTiersPre  markedEntries
+      tierProfilePost = aggregateTiersPost markedEntries
   in TrustReport
-       { trEntries         = enrichedEntries
+       { trEntries         = markedEntries
        , trSummary         = summary
        , trSuppressions    = suppressions
        , trTierProfile     = tierProfile
        , trTierProfilePre  = tierProfilePre
        , trTierProfilePost = tierProfilePost
        , trStaleDowngrades = stales
+       , trJointWitnesses  = jointGroups
        }
 
 -- | OBLIG-PBT-3: collect SHA-256 hashes of every live property body across
@@ -300,6 +328,7 @@ mkEntry qname contract body allCS =
        , teEffectiveLevel     = Nothing  -- computed later by enrichEntry
        , teEffectivePreLevel  = Nothing  -- OBLIG-PBT-3: computed by enrichEntry
        , teEffectivePostLevel = Nothing  -- OBLIG-PBT-3: computed by enrichEntry
+       , teJointPostWitness   = False    -- OBLIG-PBT-5a: marked by markJointEntries
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -420,13 +449,83 @@ effectiveLevelFromDep dep =
     (Just a, Just b)   -> Just (evidenceMeet a b)
 
 -- ---------------------------------------------------------------------------
+-- OBLIG-PBT-5a (v0.10.7): joint PBT witness detection
+-- ---------------------------------------------------------------------------
+--
+-- A ':subjects [f g …]' lift writes one EvidenceRecord per declared subject
+-- ('PBT.hs:processRun' OBLIG-PBT-4 branch), each sharing the same
+-- canonical-property-body hash via 'erPbtWitnesses'. The 2026-05-23 triage
+-- (`docs/design/critique-2026-05-23-triage.md` row 8b) calls this
+-- joint-evidence over-credit: N subjects each contribute +1 to the scalar
+-- 'tested' count from a single property body. v0.10.7 excludes joint-only
+-- evidence from the scalar count (demotes DLTested → DLAsserted at classify
+-- time) while preserving the raw EvidenceRecord on the entry for JSON emit.
+-- The clean fix (OBLIG-PBT-5b) introduces a 'tested-joint' display level
+-- and bumps 'trust_report_version'; that is explicitly post-freeze. Until
+-- then, the v0.10.7 patch ships under the additive (no version bump)
+-- constraint by demoting to an existing slot.
+
+-- | Hash 'h' is joint iff it appears in 'erPbtWitnesses' of post-clause
+-- EvidenceRecords belonging to two or more distinct subject names. Pre-
+-- clause witnesses do not exist (PBT-Lift is post-only per
+-- 'LLMLL.md §4.4.5'), so we only consult 'csPost'.
+computeJointHashes :: Map Name ContractStatus -> Set Text
+computeJointHashes allCS =
+  let pairs = Map.foldlWithKey' (\acc name cs ->
+                case csPost cs of
+                  Just er -> [(pwHash w, name) | w <- erPbtWitnesses er] ++ acc
+                  Nothing -> acc) [] allCS
+      byHash = Map.fromListWith Set.union [(h, Set.singleton n) | (h, n) <- pairs]
+  in Map.keysSet (Map.filter (\subjects -> Set.size subjects >= 2) byHash)
+
+-- | Build the (hash, [subjects]) emit groups for 'trJointWitnesses'. Subjects
+-- are sorted for deterministic output.
+buildJointWitnessGroups :: Map Name ContractStatus -> Set Text -> [(Text, [Name])]
+buildJointWitnessGroups allCS jointHashes =
+  let pairs = Map.foldlWithKey' (\acc name cs ->
+                case csPost cs of
+                  Just er -> [(pwHash w, name)
+                             | w <- erPbtWitnesses er
+                             , Set.member (pwHash w) jointHashes ] ++ acc
+                  Nothing -> acc) [] allCS
+      grouped = Map.fromListWith Set.union [(h, Set.singleton n) | (h, n) <- pairs]
+  in sortOn fst [(h, Set.toAscList ns) | (h, ns) <- Map.toList grouped]
+
+-- | Mark an entry as joint-post-witness iff its post-clause evidence has
+-- non-empty 'erPbtWitnesses' AND every hash on that record is in the
+-- joint-hash set. The "every" predicate (not "any") is load-bearing: if a
+-- subject is also tested by a solo property, the solo witness's hash is
+-- absent from 'jointHashes', so the entry is not demoted. This preserves
+-- the +1 credit for subjects that earn it independently of the joint lift.
+markJointPostWitness :: Set Text -> TrustEntry -> TrustEntry
+markJointPostWitness jointHashes e =
+  let isJoint = case tePost e of
+        Nothing -> False
+        Just er ->
+          let ws = erPbtWitnesses er
+          in case erDisplayLevel er of
+               DLTested _ -> not (null ws)
+                          && all (\w -> Set.member (pwHash w) jointHashes) ws
+               _          -> False
+  in e { teJointPostWitness = isJoint }
+
+-- | Apply the OBLIG-PBT-5a demotion to a classified level. DLTested entries
+-- whose 'teJointPostWitness' flag is set classify as DLAsserted instead,
+-- so the scalar 'tested' count excludes joint-only credit. All other
+-- levels and entries pass through unchanged.
+demoteJointTested :: TrustEntry -> Maybe DisplayLevel -> Maybe DisplayLevel
+demoteJointTested e (Just (DLTested _)) | teJointPostWitness e = Just DLAsserted
+demoteJointTested _ lvl                                        = lvl
+
+-- ---------------------------------------------------------------------------
 -- Summary
 -- ---------------------------------------------------------------------------
 
 computeSummary :: [TrustEntry] -> TrustSummary
 computeSummary entries =
   -- v0.8.1b: use teEffectiveLevel for classification when available
-  let classify e = case teEffectiveLevel e of
+  -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted at classify time.
+  let classify e = demoteJointTested e $ case teEffectiveLevel e of
                      Just lvl -> Just lvl
                      Nothing  -> effectiveLevel (ContractStatus (tePre e) (tePost e) [])
       verified = length [e | e <- entries, isVer (classify e)]
@@ -461,7 +560,8 @@ computeSummary entries =
 -- Lean-discharged tier.
 aggregateTiers :: [TrustEntry] -> TierProfile
 aggregateTiers entries =
-  let classify e = case teEffectiveLevel e of
+  -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted before classify.
+  let classify e = demoteJointTested e $ case teEffectiveLevel e of
                      Just lvl -> Just lvl
                      Nothing  -> effectiveLevel (ContractStatus (tePre e) (tePost e) [])
   in classifyToProfile classify entries
@@ -485,7 +585,10 @@ aggregateTiersPre entries =
 -- downstream H1-Assurance discriminator should consume.
 aggregateTiersPost :: [TrustEntry] -> TierProfile
 aggregateTiersPost entries =
-  let classify e = case teEffectivePostLevel e of
+  -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted before classify.
+  -- This is the aggregate the H1-Assurance discriminator consumes; joint
+  -- credit must not inflate 'tpTested' here.
+  let classify e = demoteJointTested e $ case teEffectivePostLevel e of
                      Just lvl -> Just lvl
                      Nothing  -> fmap erDisplayLevel (tePost e)
   in classifyToProfile classify entries
@@ -533,7 +636,22 @@ formatTrustReport report =
       staleLines = case trStaleDowngrades report of
                      []  -> []
                      dgs -> "" : "PBT staleness:" : map ("  ⚠ " <>) dgs
-  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ [separator] ++ summaryLines)
+      -- OBLIG-PBT-5a: surface joint witnesses in text mode so reviewers can
+      -- see which subjects share a property body before scrutinising the
+      -- summary's 'tested' delta.
+      jointLines = case trJointWitnesses report of
+                     []  -> []
+                     grs -> "" : "Joint PBT witnesses:" :
+                            map (\(h, subs) -> "  ⊗ " <> shortHash h
+                                            <> " ⇒ " <> T.intercalate ", " subs) grs
+  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ [separator] ++ summaryLines)
+
+-- | Display the leading 12 hex chars after the 'sha256:' prefix; the full
+-- hash remains in the JSON emit.
+shortHash :: Text -> Text
+shortHash h
+  | "sha256:" `T.isPrefixOf` h = "sha256:" <> T.take 12 (T.drop 7 h) <> "…"
+  | otherwise                  = T.take 16 h <> "…"
 
 formatEntry :: TrustEntry -> [Text]
 formatEntry e =
@@ -590,6 +708,10 @@ formatTrustReportJson report =
     , "tier_profile_post" .= tierProfileJson (trTierProfilePost report)
     , "suppressions"      .= map suppJson (trSuppressions report)
     , "stale_downgrades"  .= trStaleDowngrades report
+    -- OBLIG-PBT-5a (v0.10.7): additive joint-witness emit. No
+    -- 'trust_report_version' bump per the 2026-05-23 critique-triage
+    -- routing; existing v1.1.0 consumers ignore the new key.
+    , "joint_pbt_witnesses" .= map jointWitnessJson (trJointWitnesses report)
     ]
   where
     entryJson e = object $
@@ -601,7 +723,9 @@ formatTrustReportJson report =
       ] ++
       maybe [] (\s -> ["pre_source" .= s]) (tePre e >>= erSource) ++
       maybe [] (\s -> ["post_source" .= s]) (tePost e >>= erSource) ++
-      maybe [] (\l -> ["effective_level" .= dlLabel l]) (teEffectiveLevel e)
+      maybe [] (\l -> ["effective_level" .= dlLabel l]) (teEffectiveLevel e) ++
+      -- OBLIG-PBT-5a: per-entry joint-post flag, emitted only when true.
+      [ "joint_pbt_witness" .= True | teJointPostWitness e ]
     depJson d = object
       [ "name"       .= tdName d
       , "pre_level"  .= fmap dlLabel (tdPreLevel d)
@@ -627,6 +751,13 @@ formatTrustReportJson report =
     suppJson (name, reason) = object
       [ "name"   .= name
       , "reason" .= reason
+      ]
+    -- OBLIG-PBT-5a: emit one object per joint-witness grouping. 'subjects'
+    -- lists the names whose post-clause evidence carries this hash; the
+    -- order is deterministic (ascending) per 'buildJointWitnessGroups'.
+    jointWitnessJson (h, subs) = object
+      [ "hash"     .= h
+      , "subjects" .= subs
       ]
 
 -- ---------------------------------------------------------------------------

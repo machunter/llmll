@@ -1,0 +1,3 @@
+# Git worktrees materialized per variant by int_pre_bench.py — git's internal
+# linked-worktree state, not source. Per-machine; not committed.
+.worktrees/

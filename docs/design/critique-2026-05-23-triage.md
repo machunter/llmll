@@ -13,7 +13,7 @@ This document captures the adjudication of a fourteen-section external technical
 |---|---|---|---|---|---|---|
 | 1 | What gets right | accept | accept | n/a | n/a | settled |
 | 2 | Path B foundations demand | foundations-first push | misread of Path A; cite [`verification-debate.md`](verification-debate.md) | n/a | **retracted** | settled — narrow to integer faithfulness |
-| 3 | Spec drift (LLMLL.md/README/schema) | P0 release blocker | accept; doc-lead + CI gate | n/a | accept + concrete CI gate criteria | **DRIFT-1, DRIFT-CI-1** |
+| 3 | Spec drift (LLMLL.md/README/schema) | P0 release blocker | accept; doc-lead + CI gate | n/a | accept + concrete CI gate criteria | **DRIFT-1** (mostly shipped, §3 INT-1-gated), **DRIFT-CI-1** (content-satisfied, workflow pending) |
 | 4 | Strict-verified-core admissibility | enumerate rules | accept; codify rule set | n/a | n/a | **STRICT-CORE-1** |
 | 5 | Refinement metatheory of record | five missing pieces | route to professor | all five promotable; 2.4→2.1→2.2→2.5→2.3 | narrower framing: checking-mode rule + explicit non-goals | **REF-META-1..5** (framing flipped — see §3.1) |
 | 6 | `?proof-required` predicate carrier | richer design | already tracked, deferred | n/a | accept deferral | settled — no move |
@@ -107,8 +107,8 @@ Tags follow the project's `XXX-N` pattern from [`docs/compiler-team-roadmap.md`]
 
 | Tag | Item | Priority | Owner | Status | Notes |
 |---|---|---|---|---|---|
-| **DRIFT-1** | LLMLL.md v0.10.1 → v0.10.6 catch-up | P0 | doc-lead | open | Covers §3 (after INT-1 lands), §3.2 (TERM-1), §9 (DO-1), §13.11 (CRYPTO-1), §12 grammar (`:subjects`), §13.8 (?proof-required example) |
-| **DRIFT-CI-1** | Version-gate CI (5 criteria from amended critic) | P0 | infra / doc-lead | open | README = LLMLL.md = CHANGELOG version; schema field = parser expected version; schema `$id` aligns with `schemaVersion` policy; examples inside grammar |
+| **DRIFT-1** | LLMLL.md v0.10.1 → v0.10.6 catch-up | P0 | doc-lead | Mostly Shipped — §3 catch-up gated on INT-1 | Pass 5 (`7ccd925`, 2026-05-23) closed §4.2 letrec TERM-1, §9.6 DO-1, §13.11 CRYPTO-1, banner v0.10.1 → v0.10.6 + history rows v0.10.2–v0.10.6, schema `$id` v0.2 → v0.5. Pass 6 (`623c46f`) closed banner v0.10.6 → v0.10.7, v0.10.7 history row, §12 `check` grammar amendment + Grammar Rule 10 for `:subjects`. Residual: §3 type-system catch-up gated on INT-1 shipping (v0.10.8). |
+| **DRIFT-CI-1** | Version-gate CI (5 criteria from amended critic) | P0 | infra / doc-lead | Partial — content satisfies C1–C5; workflow YAML pending | (1) README version == LLMLL.md version; (2) LLMLL.md version == CHANGELOG top version; (3) schema `schemaVersion` field == `ParserJSON.hs::expectedSchemaVersion`; (4) schema `$id` URL aligns with `schemaVersion` policy; (5) examples inside grammar. Pass 6 (`623c46f`) reconciled C1/C2/C3/C4 to ✅ and verified C5 (reading (ii) round-trip) against the new §12 grammar via the §4.4.5 worked examples at [`LLMLL.md`](../../LLMLL.md). Open residuals: `.github/workflows/version-gate.yml` automation (infra/engineer scope) and a whole-spec round-trip harness for C5 (infra scope). |
 | **TC-EOP-1** | EOp arity/type-check fix + regression suite (both frontends) | P0 | engineer | open | Fix sketch in §12 of language-team triage Rev 2; regression cases enumerated; narrowing fix, sails through freeze |
 | **REF-META-1** | Checking-mode typing rule + non-goals + soundness statement | P0 | language-team draft → doc-lead | open | Adopts amended critic's framing per §3.1 above; lands at `LLMLL.md §3.4 / §5` |
 | **OBLIG-PBT-5a** | Multi-subject minimum fix (`joint_pbt_witness` diagnostic + scalar-count exclusion) | P1 | engineer | open | Additive; no `trust_report_version` bump; ships under v0.10.7 patch |
@@ -117,9 +117,9 @@ Tags follow the project's `XXX-N` pattern from [`docs/compiler-team-roadmap.md`]
 | **TRUST-DP-1** | Two-axis (evidence, DP) trust-report schema delta | P1 | language-team draft → engineer | open | Paired representation; not collapsed scalar; see §3.2 |
 | **INT-2** | `int → Integer` codegen switch (v0.11) | P2 | engineer | gated on INT-PRE | One-line `CodegenHs.hs:441` change + preamble-signature ripple at `:232-360` audit |
 | **OBLIG-PBT-5b** | Multi-subject clean fix (`EvidenceRecord.scope = Singleton subj \| Joint [subjs]`) | P2 | engineer | post-freeze | `trust_report_version` 1.1.0 → 1.2.0; new `tested-joint` display level |
-| **TERM-1** | `:decreases` partiality disclaimer at `LLMLL.md §3.2` | P2 | doc-lead | open | Bundle with DRIFT-1 |
-| **DO-1** | `do`-notation explicit discard clarification at `LLMLL.md §9` + compiler warn-or-error | P2 | doc-lead + engineer | open | Bundle spec text with DRIFT-1; compiler change is separate small item |
-| **CRYPTO-1** | Crypto-stub trust-tier annotation (no rename) at `LLMLL.md §13.11` | P2 | doc-lead | open | Bundle with DRIFT-1; engineer adds `asserted-with-stub-backend` channel if it does not collide with existing `DisplayLevel` lattice |
+| **TERM-1** | `:decreases` partiality disclaimer at `LLMLL.md §4.2` [original row read `§3.2`; chapter off-by-one corrected post-ship] | P2 | doc-lead | Shipped | Pass 5 (`7ccd925`) landed the IMPORTANT callout naming the partial-correctness consequence of unverified strict descent; postconditions on `letrec` functions explicitly hold conditionally on termination per [`verification-debate.md`](verification-debate.md) Q4. |
+| **DO-1** | `do`-notation explicit discard clarification at `LLMLL.md §9` + compiler warn-or-error | P2 | doc-lead + engineer | Spec-text shipped; compiler warn-or-error open (engineer sub-item) | Pass 5 (`7ccd925`) shipped the §9.6 split into Compilation bullet + IMPORTANT "Intermediate commands silently discarded" callout, naming the surprise relative to monadic `do`-notation and signalling the v0.11+ warn-or-error tightening. Engineer compiler-side warn-or-error on non-final `Command`-typed binds remains separable. |
+| **CRYPTO-1** | Crypto-stub trust-tier annotation (no rename) at `LLMLL.md §13.11` | P2 | doc-lead | Shipped | Pass 5 (`7ccd925`) landed the §13.11 IMPORTANT callout defining the `asserted-with-stub-backend` trust-report channel, distinguishing "asserted because the algorithm is opaque" from "asserted with a known-incorrect runtime implementation"; `sha1` / `hmac-sha1` retain RFC 2104 / FIPS 180-4 contract names because stub status is implementation defect, not naming concern. |
 | **STRICT-CORE-1** | Strict-verified-core admissibility rules codification | P2 | language-team draft → doc-lead | open | New `LLMLL.md §5.3` sub-section; engineer audit confirms existing `WeaknessCheck.hs` coverage matches before promotion |
 | **REF-META-2..5** | Solver-completeness statement, erasure theorem with construction-side discipline, predicate WF rule, typing judgment | P2–P3 | language-team drafts → doc-lead | open | Sequence after REF-META-1; piece 2.5 (typing judgment) and 2.3 (predicate WF) are multi-page authoring jobs |
 | **DP-FORM-1** | DP formalization promotion at `docs/research-track.md:145-151` (narrower lattice-valuation framing) | P3 | doc-lead | open | Content in §3.2 above; no implementation, only formalization |
@@ -155,6 +155,8 @@ Each P0/P1 item below ships as a tight hand-off summary; downstream skill prompt
 **To doc-lead (P0 bundle):**
 
 > DRIFT-1 + DRIFT-CI-1: catch `LLMLL.md` up from v0.10.1 to v0.10.6 (changelog entries v0.10.2 through v0.10.6 enumerate the deltas); reconcile schema `$id` URL with `schemaVersion` field at [`docs/llmll-ast.schema.json:3,16`](../llmll-ast.schema.json); implement the five-criterion CI gate the amended critic specified. Bundle TERM-1, DO-1, CRYPTO-1 spec text into the same pass.
+>
+> *Closure (2026-05-24): DRIFT-1 mostly shipped via Passes 5 + 6 (see row :110 status); DRIFT-CI-1 content-satisfied via Pass 6 (see row :111 status); TERM-1, DO-1 spec-text, CRYPTO-1 shipped via Pass 5 (see rows :120, :121, :122). Residuals: §3 catch-up gated on INT-1 (v0.10.8); workflow YAML automation and C5 round-trip harness pending infra.*
 
 ---
 
