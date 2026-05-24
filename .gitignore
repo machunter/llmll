@@ -17,6 +17,8 @@ runtime/
 
 # Outreach planning, drafts, and posting workspace — local only
 outreach-workspace/
+# Previously-tracked outreach drafts (moved to outreach-workspace/docs-outreach/)
+docs/outreach/
 
 # Local toolchain path overrides (machine-specific)
 .env
