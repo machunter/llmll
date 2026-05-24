@@ -323,11 +323,19 @@ data DisplayLevel
 -- to a 'DLTested n' lift. Used by 'TrustReport.buildTrustReport' on read to
 -- downgrade stale entries (property edited / deleted) to 'DLAsserted'. Empty
 -- for non-PBT evidence (verifier-written, :trust tested source markers).
+-- INT-1 (v0.10.8): 'erOverflowTainted' marks 'DLVerified' evidence whose body
+-- contains LLMLL-level integer arithmetic over non-literal operands. Such
+-- evidence is sound modulo the documented Int64 overflow gap (§5.3.5); the
+-- '--strict-verified-core' flag refuses tainted verified clauses. The flag is
+-- meaningful only for 'DLVerified' with 'erBodyFaithful = True'; for other
+-- evidence levels the value is irrelevant. Defaults to 'False' on read of
+-- pre-v0.10.8 sidecars (additive back-compat).
 data EvidenceRecord = EvidenceRecord
-  { erDisplayLevel :: DisplayLevel   -- ^ What kind of evidence backs this clause
-  , erBodyFaithful :: Bool           -- ^ True when body VC was generated and passed
-  , erSource       :: Maybe Text     -- ^ :source provenance annotation
-  , erPbtWitnesses :: [PbtWitness]   -- ^ OBLIG-PBT-3: PBT property-body provenance
+  { erDisplayLevel    :: DisplayLevel   -- ^ What kind of evidence backs this clause
+  , erBodyFaithful    :: Bool           -- ^ True when body VC was generated and passed
+  , erSource          :: Maybe Text     -- ^ :source provenance annotation
+  , erPbtWitnesses    :: [PbtWitness]   -- ^ OBLIG-PBT-3: PBT property-body provenance
+  , erOverflowTainted :: Bool           -- ^ INT-1: body has unbounded-Int arithmetic
   } deriving (Show, Eq, Generic)
 
 -- | OBLIG-PBT-3: SHA-256 hash + description of a property body whose

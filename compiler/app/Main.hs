@@ -1115,19 +1115,45 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
         -- v0.9.0: report call-pre obligations
         unless (null (erCallPreFns emitR)) $
           TIO.putStrLn $ "   call-pre obligations: " <> T.intercalate ", " (erCallPreFns emitR)
+        -- INT-1 (v0.10.8): report overflow-tainted body-faithful functions.
+        unless (null (erOverflowTaintedFns emitR)) $
+          TIO.putStrLn $ "   overflow-tainted: " <> T.intercalate ", " (erOverflowTaintedFns emitR)
 
-      -- v0.9.0 COMP-6: --strict-verified-core enforcement
-      -- If enabled, any function in erBodyFallback causes a hard error.
+      -- v0.9.0 COMP-6 + INT-1 (v0.10.8): --strict-verified-core enforcement.
+      -- Refuses both (a) functions that fell back from body-faithful verification
+      -- and (b) body-faithful functions whose verified evidence is overflow-tainted
+      -- (sound modulo the Int64 overflow gap at LLMLL.md §5.3.5). The two
+      -- categories are mutually exclusive — overflow-taint is gated on
+      -- body-faithful success — so a function appears in at most one list.
       when strictCore $ do
         let fallbacks = erBodyFallback emitR
-        unless (null fallbacks) $ do
-          let errMsg = "--strict-verified-core: " <> T.pack (show (length fallbacks))
-                    <> " function(s) fell back from body-faithful verification: "
-                    <> T.intercalate ", " fallbacks
+            tainted   = erOverflowTaintedFns emitR
+            errs :: [(T.Text, [T.Text], T.Text)]
+            errs = [ ("fallback", fallbacks
+                    , T.pack (show (length fallbacks))
+                      <> " function(s) fell back from body-faithful verification: "
+                      <> T.intercalate ", " fallbacks)
+                   | not (null fallbacks)
+                   ]
+                ++ [ ("overflow_tainted", tainted
+                    , T.pack (show (length tainted))
+                      <> " function(s) carry overflow-tainted verified evidence "
+                      <> "(unbounded-Int arithmetic; clear via ?proof-required + Leanstral or wait for INT-2 unbounded `int`): "
+                      <> T.intercalate ", " tainted)
+                   | not (null tainted)
+                   ]
+        unless (null errs) $ do
           if json
             then TIO.putStrLn . T.pack . BLC.unpack . encode $
-                   object ["file" .= fp, "strict_error" .= errMsg, "fallback_fns" .= fallbacks]
-            else TIO.putStrLn $ "ERROR: " <> errMsg
+                   object $ ["file" .= fp]
+                         ++ [ "strict_errors" .= [ object [ "cause" .= cause
+                                                         , "fns"   .= fns
+                                                         , "msg"   .= msg
+                                                         ]
+                                                | (cause, fns, msg) <- errs ]
+                            ]
+            else mapM_ (\(_cause, _fns, msg) ->
+                          TIO.putStrLn $ "ERROR: --strict-verified-core: " <> msg) errs
           exitFailure
 
       -- 4. Find liquid-fixpoint binary (installs as "fixpoint" or "liquid-fixpoint")
@@ -1205,7 +1231,11 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
           -- v0.3: write .verified.json sidecar on SAFE
           case fqResult of
             FQSafe -> do
-              let bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
+              let bodyFaithfulSet     = Set.fromList (erBodyFaithfulFns emitR)
+                  -- INT-1 (v0.10.8): functions whose body-faithful evidence carries
+                  -- unbounded-Int arithmetic. Strict-verified-core refuses these;
+                  -- non-strict consumers see the flag on the per-clause record.
+                  overflowTaintedSet  = Set.fromList (erOverflowTaintedFns emitR)
                   -- v0.8.1b: Post gets DLVerified only when body-faithful VC
                   -- was emitted and solver returned SAFE. This means the solver
                   -- checked: P ∧ (result = ⟦body⟧) ⇒ Q.
@@ -1213,13 +1243,14 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
                   -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) []))
+                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False))
                                        (contractPre c)
                             -- Pre remains asserted: no call-site VCs in v0.8.1b
                         , csPost = if Set.member n bodyFaithfulSet
-                                   then fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) []))
-                                             (contractPost c)
-                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) []))
+                                   then let tainted = Set.member n overflowTaintedSet
+                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted))
+                                                (contractPost c)
+                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False))
                                              (contractPost c)
                             -- Post verified only when body-faithful VC succeeded
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9

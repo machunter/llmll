@@ -112,9 +112,10 @@ data ContractChannel = ContractChannel
 
 -- | Trust channel (spec §4.3)
 data TrustChannel = TrustChannel
-  { trAssumptions    :: [Value]
-  , trEffectiveLevel :: Text
-  , trBodyFaithful   :: Bool
+  { trAssumptions     :: [Value]
+  , trEffectiveLevel  :: Text
+  , trBodyFaithful    :: Bool
+  , trOverflowTainted :: Bool  -- ^ INT-1: body-faithful evidence carries unbounded-Int arithmetic
   } deriving (Show)
 
 -- | Single obligation object (spec §2.2)
@@ -539,13 +540,14 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
   let table      = erConstraintTable emitR
       faithful   = erBodyFaithfulFns emitR
       fallback   = erBodyFallback emitR
+      tainted    = erOverflowTaintedFns emitR  -- INT-1: per-fn overflow-taint set
       recNames   = recursiveNames stmts
       suppressed = Set.fromList (map fst (trSuppressions trustRpt))
       holeReport = analyzeHoles stmts
 
       -- Assemble hole obligations
       holeObls = assembleHoleObligations stmts table mFqResult trustRpt
-                   faithful fallback recNames suppressed holeReport
+                   faithful fallback tainted recNames suppressed holeReport
 
       -- Assemble branch obligations from EMatch (F1: two-pass)
       aliases = buildAliasMap stmts
@@ -578,16 +580,16 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
 
 -- | Assemble hole obligations from HoleReport.
 assembleHoleObligations :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
-                        -> TrustReport -> [Text] -> [Text] -> Set Name -> Set Name
+                        -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
                         -> HoleReport -> [ObligationObj]
-assembleHoleObligations stmts table mFqResult trustRpt faithful fallback recNames suppressed hr =
-  mapMaybe (mkHoleObl stmts table mFqResult trustRpt faithful fallback recNames suppressed)
+assembleHoleObligations stmts table mFqResult trustRpt faithful fallback tainted recNames suppressed hr =
+  mapMaybe (mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames suppressed)
            (holeEntries hr)
 
 mkHoleObl :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
-          -> TrustReport -> [Text] -> [Text] -> Set Name -> Set Name
+          -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
           -> HoleEntry -> Maybe ObligationObj
-mkHoleObl stmts table mFqResult trustRpt faithful fallback recNames suppressed he = do
+mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames suppressed he = do
   fnName <- enclosingFunc (holePointer he) stmts
   let (mContract, mParams, mBody) = findFunctionInfo fnName stmts
       params   = fromMaybe [] mParams
@@ -626,9 +628,10 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback recNames suppressed h
       -- Trust channel
       mTrust = findTrustEntry fnName trustRpt
       trustCh = TrustChannel
-        { trAssumptions    = []
-        , trEffectiveLevel = maybe "asserted" (dlLabel . fromMaybe DLAsserted . teEffectiveLevel) mTrust
-        , trBodyFaithful   = fnName `elem` faithful
+        { trAssumptions     = []
+        , trEffectiveLevel  = maybe "asserted" (dlLabel . fromMaybe DLAsserted . teEffectiveLevel) mTrust
+        , trBodyFaithful    = fnName `elem` faithful
+        , trOverflowTainted = fnName `elem` tainted
         }
 
       -- Function lists (§8)
@@ -797,11 +800,14 @@ encodeContractCh cc = object
   ]
 
 encodeTrustCh :: TrustChannel -> Value
-encodeTrustCh tr = object
+encodeTrustCh tr = object $
   [ "assumptions"     .= trAssumptions tr
   , "effective_level" .= trEffectiveLevel tr
   , "body_faithful"   .= trBodyFaithful tr
   ]
+  -- INT-1 (v0.10.8): emit only when True so non-tainted obligations preserve
+  -- their pre-v0.10.8 trust-channel JSON byte-identically.
+  ++ [ "overflow_tainted" .= True | trOverflowTainted tr ]
 
 encodeSummary :: ReportSummary -> Value
 encodeSummary s = object

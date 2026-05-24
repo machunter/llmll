@@ -20,7 +20,7 @@ import LLMLL.ObligationAssembly
   , trustLabel )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -1819,8 +1819,8 @@ main = hspec $ do
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
         defaultCS = ContractStatus Nothing Nothing []
-        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) []
-        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) []
+        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) []
+        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) []
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -1936,8 +1936,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
-          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) Nothing [])
+          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
+          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) Nothing [])
           ]
         emptyMap = DM.empty
 
@@ -1966,8 +1966,8 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [])) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [])) [])
-            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) Nothing [])
+            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False)) [])
+            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) Nothing [])
             ]
       saveVerified testFile statuses
       loaded <- loadVerified testFile
@@ -1996,7 +1996,7 @@ main = hspec $ do
           , meAliasMap = DM.empty
           , mePath = modPath
           , meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])]
+              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])]
           , meContracts = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
@@ -2009,7 +2009,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])] }
+              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache provenCache emptyEnv callerStmts
@@ -2063,28 +2063,28 @@ main = hspec $ do
 
     -- Test 1: Asserted contracts emit trust-gap warnings
     it "asserted contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [])) (Just (EvidenceRecord (DLTested 100) False Nothing [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -2093,7 +2093,7 @@ main = hspec $ do
 
     -- Test 5: Trust declaration at DLTested suppresses DLTested gap
     it "trust declaration at tested level suppresses tested trust-gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [])) (Just (EvidenceRecord (DLTested 100) False Nothing [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" (DLTested 0)
@@ -2107,7 +2107,7 @@ main = hspec $ do
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
     -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
     it "trust at asserted does NOT suppress tested-level gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [])) (Just (EvidenceRecord (DLTested 100) False Nothing [])) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" DLAsserted  -- asserted < tested
@@ -2128,7 +2128,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])]
+                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])]
             , meContracts      = DM.empty
             }
           cryptoEnv = ModuleEnv
@@ -2138,7 +2138,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
-                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) Nothing [])]
+                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) Nothing [])]
             , meContracts      = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
@@ -2194,9 +2194,9 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           -- Entry function is proven but calls asserted crypto.hash
           stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
@@ -2214,7 +2214,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing)
@@ -2227,9 +2227,9 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [])) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) (Just (EvidenceRecord DLAsserted False Nothing [])) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing) (EVar "x")
@@ -2261,7 +2261,7 @@ main = hspec $ do
     -- Test 6: Human-readable format contains function names and levels
     it "formatTrustReport contains function names and verification levels" $ do
       let assertedMod = mkModEnv "verify-token" ["auth"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [])) Nothing [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) Nothing [])
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
           report = buildTrustReport cache stmts Map.empty
@@ -2282,8 +2282,8 @@ main = hspec $ do
     let mkEntry name pre post =
           TrustEntry
             { teName               = name
-            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing []) pre
-            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing []) post
+            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing [] False) pre
+            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing [] False) post
             , teDeps               = []
             , teDrifts             = []
             , teEffectiveLevel     = Nothing  -- aggregateTiers falls back to ContractStatus meet
@@ -5414,8 +5414,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- Prior sidecar entry at DLVerified — replicates the verifier write
             -- shape at Main.hs:1196-1206.
             priorCS    = Map.singleton "f" $ ContractStatus
-                           (Just (EvidenceRecord DLAsserted False Nothing []))
-                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing []))
+                           (Just (EvidenceRecord DLAsserted False Nothing [] False))
+                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False))
                            []
             -- Replicate Main.hs:doTest order: pbtCS on the sidecar side, prior
             -- sidecar on the base side, merged via Module.mergeCS.
@@ -5495,9 +5495,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "0"  -- never matches a live body
             staleW    = PbtWitness staleHash "f-id"
-            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW]
+            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing []))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False))
                          (Just staleEr)
                          []
             -- Live property covers f but with a body whose hash ≠ staleHash.
@@ -5519,9 +5519,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "a"
             staleEr   = EvidenceRecord (DLTested 100) False Nothing
-                          [PbtWitness staleHash "f-id"]
+                          [PbtWitness staleHash "f-id"] False
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing []))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False))
                          (Just staleEr)
                          []
             stmts     = [f]  -- no SCheck — property deleted
@@ -5807,7 +5807,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             sidecar = Map.fromList
               [ ("f", ContractStatus
                   { csPre  = Nothing
-                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [])
+                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [] False)
                   , csAssumptions = []
                   })
               ]
@@ -5968,6 +5968,164 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case checkSrc (T.pack "(def-logic f [] (+ ?x 1))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> errorsOf rep `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- INT-1 (v0.10.8): overflow taint propagation
+  -- -----------------------------------------------------------------------
+  describe "INT-1 (v0.10.8): overflow taint propagation" $ do
+    -- T1: pure literal arithmetic in Int64 range does not taint.
+    it "T1 literal-only arithmetic (+ 40 2) does not taint" $ do
+      bodyHasOverflowArith (EOp "+" [ELit (LitInt 40), ELit (LitInt 2)]) `shouldBe` False
+
+    -- T2: any non-literal operand taints.
+    it "T2 (+ x 1) on a variable taints" $ do
+      bodyHasOverflowArith (EOp "+" [EVar "x", ELit (LitInt 1)]) `shouldBe` True
+
+    -- T3: large literal outside Int64 range taints (the arithmetic could overflow).
+    it "T3 literal beyond Int64 range taints" $ do
+      let big = toInteger (maxBound :: Int) + 1
+      bodyHasOverflowArith (EOp "+" [ELit (LitInt big), ELit (LitInt 1)]) `shouldBe` True
+
+    -- T4: non-arithmetic predicate body does not taint.
+    it "T4 predicate-only body (> x 0) does not taint" $ do
+      bodyHasOverflowArith (EOp ">" [EVar "x", ELit (LitInt 0)]) `shouldBe` False
+
+    -- T5: arithmetic operator under EApp head taints (parser emits both shapes).
+    it "T5 EApp + arithmetic head also taints" $ do
+      bodyHasOverflowArith (EApp "+" [EVar "x", ELit (LitInt 1)]) `shouldBe` True
+
+    -- T6: nested arithmetic inside a non-arithmetic head propagates.
+    it "T6 (and (> x 0) (= (+ x 1) y)) propagates taint from nested +" $ do
+      let expr = EApp "and"
+                   [ EOp ">" [EVar "x", ELit (LitInt 0)]
+                   , EOp "=" [EOp "+" [EVar "x", ELit (LitInt 1)], EVar "y"]
+                   ]
+      bodyHasOverflowArith expr `shouldBe` True
+
+    -- T7: Class A indexing primitives don't taint (they're EApp on non-arith names).
+    it "T7 (list-nth xs i) builtin call does not taint" $ do
+      bodyHasOverflowArith (EApp "list-nth" [EVar "xs", EVar "i"]) `shouldBe` False
+
+    -- T8: arithmetic inside the rhs of an ELet binding propagates.
+    it "T8 ELet binding with arithmetic rhs taints" $ do
+      let expr = ELet [(PVar "t", Nothing, EOp "+" [EVar "x", ELit (LitInt 1)])]
+                      (EVar "t")
+      bodyHasOverflowArith expr `shouldBe` True
+
+    -- T9: arithmetic inside one EIf branch propagates.
+    it "T9 EIf with arithmetic in else-branch taints" $ do
+      let expr = EIf (EOp ">" [EVar "x", ELit (LitInt 0)])
+                     (EVar "x")
+                     (EOp "+" [EVar "x", ELit (LitInt 1)])
+      bodyHasOverflowArith expr `shouldBe` True
+
+    -- T10: end-to-end via emitFixpointWith. A def-logic with body (+ x 1) and a
+    -- post asserting (= result (+ x 1)) should land in erOverflowTaintedFns.
+    it "T10 end-to-end: (+ x 1) function lands in erOverflowTaintedFns" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic add-one [x: int]"
+            , "  (pre (>= x 0))"
+            , "  (post (= result (+ x 1)))"
+            , "  (+ x 1))"
+            ]
+      case parseStatements "<int1-test>" src of
+        Left err    -> expectationFailure ("parse: " ++ show err)
+        Right stmts -> do
+          emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T10.llmll" stmts
+          erOverflowTaintedFns emitR `shouldBe` ["add-one"]
+          erBodyFaithfulFns    emitR `shouldBe` ["add-one"]
+
+    -- T11: end-to-end: pure-predicate body does NOT taint. Body-faithful may
+    -- or may not fire (the body is bool-typed, outside the QF-LIA int fragment
+    -- that body-faithful VCs target); the assertion is only on the taint set.
+    it "T11 end-to-end: pure-predicate body is not overflow-tainted" $ do
+      let src = T.pack $ unlines
+            [ "(def-logic non-negative [x: int]"
+            , "  (pre (>= x 0))"
+            , "  (post (>= result 0))"
+            , "  x)"
+            ]
+      case parseStatements "<int1-test>" src of
+        Left err    -> expectationFailure ("parse: " ++ show err)
+        Right stmts -> do
+          emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T11.llmll" stmts
+          erOverflowTaintedFns emitR `shouldBe` []
+
+    -- T12: VerifiedCache round-trip: erOverflowTainted=True survives JSON encode/decode.
+    it "T12 .verified.json round-trip preserves overflow_tainted: true" $ do
+      let path = "/tmp/llmll-int1-roundtrip.llmll"
+          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True
+          cs   = ContractStatus Nothing (Just er) []
+          cs0  = Map.singleton "f" cs
+      saveVerified path cs0
+      back <- loadVerified path
+      removeFile (verifiedPath path)
+      case Map.lookup "f" back of
+        Nothing  -> expectationFailure "f not found after round-trip"
+        Just cs' -> case csPost cs' of
+          Nothing  -> expectationFailure "post evidence lost"
+          Just er' -> erOverflowTainted er' `shouldBe` True
+
+    -- T13: VerifiedCache invalidate-on-missing — a pre-v0.10.8 sidecar where
+    -- a DLVerified body-faithful entry lacks the field returns empty,
+    -- forcing re-verify under v0.10.8.
+    it "T13 pre-v0.10.8 sidecar with DLVerified body-faithful but no overflow_tainted field is invalidated" $ do
+      let path = "/tmp/llmll-int1-stale.llmll"
+          sidecarPath = verifiedPath path
+          -- Hand-crafted pre-v0.10.8 sidecar shape: 'display_level: verified',
+          -- 'body_faithful: true', no 'overflow_tainted' key.
+          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"verified\",\"prover\":\"liquid-fixpoint\"},\"body_faithful\":true}}}"
+      BL.writeFile sidecarPath stale
+      back <- loadVerified path
+      removeFile sidecarPath
+      Map.null back `shouldBe` True
+
+    -- T14: a v0.10.7-vintage sidecar without verified body-faithful entries
+    -- (e.g. DLAsserted only) loads normally — invalidation is targeted.
+    it "T14 v0.10.7 sidecar with only DLAsserted entries loads under v0.10.8 reader" $ do
+      let path = "/tmp/llmll-int1-asserted-only.llmll"
+          sidecarPath = verifiedPath path
+          stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"asserted\"}}}}"
+      BL.writeFile sidecarPath stale
+      back <- loadVerified path
+      removeFile sidecarPath
+      Map.size back `shouldBe` 1
+
+    -- T15: TrustReport JSON aggregation surfaces both top-level fns array and
+    -- per-entry flag when a verified+tainted entry is present.
+    it "T15 trust-report JSON surfaces overflow_tainted at top-level and per-entry" $ do
+      let taintedEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True
+          cleanEr   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False
+          cs   = Map.fromList
+            [ ("add-one", ContractStatus Nothing (Just taintedEr) [])
+            , ("is-pos",  ContractStatus Nothing (Just cleanEr)   [])
+            ]
+          src = T.pack $ unlines
+            [ "(def-logic add-one [x: int]"
+            , "  (post (= result (+ x 1)))"
+            , "  (+ x 1))"
+            , "(def-logic is-pos [x: int]"
+            , "  (post (>= result 0))"
+            , "  x)"
+            ]
+          stmts = case parseStatements "<int1-test>" src of
+                    Right ss -> ss
+                    Left err -> error (show err)
+          report = buildTrustReport Map.empty stmts cs
+          js     = formatTrustReportJson report
+      T.isInfixOf "\"overflow_tainted_fns\":[\"add-one\"]" js `shouldBe` True
+      T.isInfixOf "\"overflow_tainted\":true" js `shouldBe` True
+
+    -- T16: bodyHasOverflowArith over a literal-only PBT — for-all-style: any
+    -- list of integer literals whose sum fits Int64 is not tainted by EOp +.
+    it "T16 literal-only arithmetic stays untainted across small samples" $ do
+      let inBounds n = n >= toInteger (minBound :: Int) `div` 4
+                    && n <= toInteger (maxBound :: Int) `div` 4
+          mkAdd a b  = EOp "+" [ELit (LitInt a), ELit (LitInt b)]
+          samples    = [(a, b) | a <- [-3, 0, 7, 42, 1000], b <- [-1, 0, 1, 100, 9999]
+                              , inBounds a, inBounds b]
+      length samples `shouldSatisfy` (>= 20)
+      all (\(a, b) -> not (bodyHasOverflowArith (mkAdd a b))) samples `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

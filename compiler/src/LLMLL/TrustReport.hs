@@ -30,7 +30,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Maybe (mapMaybe, catMaybes)
+import Data.Maybe (mapMaybe, catMaybes, maybeToList)
 import Data.List (nub, sortOn, foldl')
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -252,7 +252,7 @@ downgradeStaleSidecar liveSet =
                     diag  = name <> "." <> clause <> " was previously tested by property "
                           <> descs <> "; no live property body matches the cached hash. "
                           <> "Evidence downgraded to asserted."
-                in (Just (er { erDisplayLevel = DLAsserted, erPbtWitnesses = [] }), [diag])
+                in (Just (er { erDisplayLevel = DLAsserted, erPbtWitnesses = [], erOverflowTainted = False }), [diag])
 
 -- | v0.6: Extract weakness-ok suppressions from statements.
 -- Deduplicates by name (WO-3 idempotence).
@@ -276,8 +276,8 @@ collectAllContractStatus cache entryStmts =
     mkCS name c
       | contractPre c /= Nothing || contractPost c /= Nothing =
           Just (name, ContractStatus
-            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [])) (contractPre c)
-            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [])) (contractPost c)
+            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [] False)) (contractPre c)
+            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [] False)) (contractPost c)
             , csAssumptions = []
             })
       | otherwise = Nothing
@@ -712,8 +712,24 @@ formatTrustReportJson report =
     -- 'trust_report_version' bump per the 2026-05-23 critique-triage
     -- routing; existing v1.1.0 consumers ignore the new key.
     , "joint_pbt_witnesses" .= map jointWitnessJson (trJointWitnesses report)
+    -- INT-1 (v0.10.8): top-level list of body-faithful functions whose verified
+    -- evidence carries unbounded-Int arithmetic. Strict-verified-core consumers
+    -- refuse these; non-strict consumers see the flag per-entry below.
+    -- 'trust_report_version' stays "1.1.0" per the additive-field precedent at
+    -- :712 — readers ignore unknown keys, the JSON shape grows monotonically.
+    , "overflow_tainted_fns" .= [ teName e
+                                | e <- trEntries report
+                                , taintedFns e
+                                ]
     ]
   where
+    -- INT-1: an entry is overflow-tainted at the report level iff any of its
+    -- evidence records carries the flag. Today the flag only lives on the
+    -- DLVerified body-faithful post (the only site that emits it in Main.hs);
+    -- the predicate is written generally so future placements (e.g. pre on a
+    -- call-site VC) compose naturally.
+    taintedFns e = any erOverflowTainted (maybeERs e)
+    maybeERs e   = maybeToList (tePre e) ++ maybeToList (tePost e)
     entryJson e = object $
       [ "name"       .= teName e
       , "pre_level"  .= fmap (dlLabel . erDisplayLevel) (tePre e)
@@ -725,7 +741,11 @@ formatTrustReportJson report =
       maybe [] (\s -> ["post_source" .= s]) (tePost e >>= erSource) ++
       maybe [] (\l -> ["effective_level" .= dlLabel l]) (teEffectiveLevel e) ++
       -- OBLIG-PBT-5a: per-entry joint-post flag, emitted only when true.
-      [ "joint_pbt_witness" .= True | teJointPostWitness e ]
+      [ "joint_pbt_witness" .= True | teJointPostWitness e ] ++
+      -- INT-1 (v0.10.8): per-entry overflow-taint flag, emitted only when
+      -- True on any clause. Mirrors the joint-witness emit shape (only-on-true)
+      -- so unchanged trust-report JSON for non-tainting fns stays byte-identical.
+      [ "overflow_tainted" .= True | taintedFns e ]
     depJson d = object
       [ "name"       .= tdName d
       , "pre_level"  .= fmap dlLabel (tdPreLevel d)

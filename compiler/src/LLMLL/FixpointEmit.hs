@@ -65,6 +65,8 @@ module LLMLL.FixpointEmit
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
+    -- * INT-1 (v0.10.8): overflow taint scan
+  , bodyHasOverflowArith
   ) where
 
 import Data.Text (Text)
@@ -102,16 +104,17 @@ defaultEmitOptions = EmitOptions { emitBodyVCs = False }
 -- ---------------------------------------------------------------------------
 
 data EmitResult = EmitResult
-  { erFQFile          :: FQFile           -- ^ the assembled .fq data structure
-  , erFQText          :: Text             -- ^ .fq text ready to write to disk
-  , erConstraintTable :: ConstraintTable  -- ^ ID → origin (for DiagnosticFQ)
-  , erSkipped         :: [Text]           -- ^ names of skipped non-linear functions
-  , erBodyFaithfulFns :: [Text]           -- ^ v0.8.0: functions with successful body VCs
-  , erBodyFallback    :: [Text]           -- ^ v0.8.0: functions that fell back
-  , erDiagnostics     :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
-  , erEmittedPre      :: [Text]           -- ^ v0.8.0: functions whose pre emitted a constraint
-  , erEmittedPost     :: [Text]           -- ^ v0.8.0: functions whose post emitted a constraint
-  , erCallPreFns      :: [Text]           -- ^ v0.9.0: functions that emitted call-pre obligations
+  { erFQFile            :: FQFile           -- ^ the assembled .fq data structure
+  , erFQText            :: Text             -- ^ .fq text ready to write to disk
+  , erConstraintTable   :: ConstraintTable  -- ^ ID → origin (for DiagnosticFQ)
+  , erSkipped           :: [Text]           -- ^ names of skipped non-linear functions
+  , erBodyFaithfulFns   :: [Text]           -- ^ v0.8.0: functions with successful body VCs
+  , erBodyFallback      :: [Text]           -- ^ v0.8.0: functions that fell back
+  , erDiagnostics       :: [Diagnostic]     -- ^ v0.8.0: path-limit warnings, etc.
+  , erEmittedPre        :: [Text]           -- ^ v0.8.0: functions whose pre emitted a constraint
+  , erEmittedPost       :: [Text]           -- ^ v0.8.0: functions whose post emitted a constraint
+  , erCallPreFns        :: [Text]           -- ^ v0.9.0: functions that emitted call-pre obligations
+  , erOverflowTaintedFns :: [Text]          -- ^ INT-1 (v0.10.8): body-faithful fns whose body uses unbounded-Int arithmetic
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -235,6 +238,7 @@ emitFixpointWith opts srcFile stmts = do
   emittedPreRef <- newIORef ([] :: [Text])
   emittedPostRef <- newIORef ([] :: [Text])
   callPreRef <- newIORef ([] :: [Text])  -- v0.9.0: functions with call-pre obligations
+  overflowTaintedRef <- newIORef ([] :: [Text])  -- INT-1: body-faithful fns with unbounded-Int arithmetic
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -258,6 +262,7 @@ emitFixpointWith opts srcFile stmts = do
   let addEmittedPre n = modifyIORef' emittedPreRef (++ [n])
   let addEmittedPost n = modifyIORef' emittedPostRef (++ [n])
   let addCallPre n = modifyIORef' callPreRef (++ [n])  -- v0.9.0
+  let addOverflowTainted n = modifyIORef' overflowTaintedRef (++ [n])  -- INT-1
 
   -- Process each statement
   forM_ (zip [0..] stmts) $ \(idx, stmt) ->
@@ -269,13 +274,13 @@ emitFixpointWith opts srcFile stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre bodyCounterRef aliases cenv recursiveNames
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
           name params mRet contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre bodyCounterRef aliases cenv recursiveNames
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
           name params mRet contract Nothing (Just dec) idx
 
       _ -> pure ()
@@ -293,18 +298,20 @@ emitFixpointWith opts srcFile stmts = do
   emPre     <- readIORef emittedPreRef
   emPost    <- readIORef emittedPostRef
   callPre   <- readIORef callPreRef
+  ovTainted <- readIORef overflowTaintedRef
   let fqFile = FQFile dataDecs quals binds consts
   return EmitResult
-    { erFQFile          = fqFile
-    , erFQText          = emitFQFile fqFile
-    , erConstraintTable = table
-    , erSkipped         = skipped
-    , erBodyFaithfulFns = bfaithful
-    , erBodyFallback    = bfallback
-    , erDiagnostics     = diags
-    , erEmittedPre      = emPre
-    , erEmittedPost     = emPost
-    , erCallPreFns      = callPre
+    { erFQFile            = fqFile
+    , erFQText            = emitFQFile fqFile
+    , erConstraintTable   = table
+    , erSkipped           = skipped
+    , erBodyFaithfulFns   = bfaithful
+    , erBodyFallback      = bfallback
+    , erDiagnostics       = diags
+    , erEmittedPre        = emPre
+    , erEmittedPost       = emPost
+    , erCallPreFns        = callPre
+    , erOverflowTaintedFns = ovTainted
     }
 
 -- ---------------------------------------------------------------------------
@@ -327,6 +334,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- v0.8.0: record emitted pre clause
   -> (Text -> IO ())       -- v0.8.0: record emitted post clause
   -> (Text -> IO ())       -- v0.9.0: record call-pre obligation
+  -> (Text -> IO ())       -- INT-1: record overflow-tainted function
   -> IORef Int             -- body-VC alpha-renaming counter
   -> AliasMap              -- v0.8.0: type alias map for isIntLike
   -> ContractEnv           -- v0.9.0: contract environment for compositional VC
@@ -341,7 +349,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre bodyCounterRef aliases cenv sccSet
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet
     name params mRet contract mBody mDec stmtIdx = do
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
@@ -498,6 +506,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     -- Mark as body-faithful
                     addBodyFaithful name
 
+                    -- INT-1 (v0.10.8): tag this function as overflow-tainted if
+                    -- its body uses LLMLL-level integer arithmetic over non-literal
+                    -- operands. The tag is metadata on body-faithful evidence;
+                    -- strict-verified-core refuses tainted DLVerified clauses.
+                    -- Trigger set is empty post-INT-2 (when 'int' becomes Integer);
+                    -- the machinery re-arms on a future 'machine-int' primitive
+                    -- (INT-3). See docs/design/int-2-boundary-shims.md §4.
+                    when (bodyHasOverflowArith body) (addOverflowTainted name)
+
                     -- v0.9.0: Emit call-pre obligations for any CallVC nodes
                     -- Each obligation is a separate constraint proving the callee's
                     -- precondition is satisfied at the call site.
@@ -564,6 +581,62 @@ typeSorts _ _ = []
 maybeToList :: Maybe a -> [a]
 maybeToList Nothing  = []
 maybeToList (Just x) = [x]
+
+-- | INT-1 (v0.10.8): True when an expression tree contains LLMLL-level
+-- integer arithmetic over operands that are not all integer literals whose
+-- folded value fits 'Int64'. The check is purely syntactic — it does not
+-- consult refinement predicates that might witness bounds. This is the
+-- conservative-honest discharge of the Int64 overflow gap documented at
+-- 'LLMLL.md §5.3.5'; the principled clearance paths are (i) ?proof-required
+-- + Leanstral, (ii) post-v0.11 INT-2 unbounded 'int', or (iii) post-freeze
+-- INT-3 'machine-int' under QF-BV.
+--
+-- The arithmetic operators recognised are the LLMLL surface forms emitted by
+-- both 'EOp' and 'EApp' nodes: '+', '-', '*', '/', 'mod', 'rem', '^', '**'.
+-- Predicate, boolean, list, and string operators are not arithmetic and do
+-- not taint. Literal folding clears only the simplest case (a constant value
+-- inside Int64 range); any non-literal operand taints the surrounding op.
+bodyHasOverflowArith :: Expr -> Bool
+bodyHasOverflowArith = go
+  where
+    arithOps :: [Name]
+    arithOps = ["+", "-", "*", "/", "mod", "rem", "^", "**"]
+
+    -- All operands are integer literals whose computed value fits Int64.
+    -- Used to clear the taint for compile-time constant expressions like
+    -- (+ 40 2). The arithmetic itself is performed on Haskell Integer and
+    -- the result is range-checked; out-of-range constants taint, matching
+    -- the semantic claim "arithmetic that may overflow at Haskell level."
+    allLitsInBounds :: [Expr] -> Bool
+    allLitsInBounds es =
+      let lits = traverse litValue es
+      in case lits of
+           Just vs -> all (\v -> v >= toInteger (minBound :: Int)
+                              && v <= toInteger (maxBound :: Int)) vs
+           Nothing -> False
+
+    litValue :: Expr -> Maybe Integer
+    litValue (ELit (LitInt n)) = Just n
+    litValue _                 = Nothing
+
+    isArith :: Name -> Bool
+    isArith op = op `elem` arithOps
+
+    go :: Expr -> Bool
+    go (EOp op args)  | isArith op = not (allLitsInBounds args) || any go args
+                      | otherwise  = any go args
+    go (EApp op args) | isArith op = not (allLitsInBounds args) || any go args
+                      | otherwise  = any go args
+    go (ELit _)         = False
+    go (EVar _)         = False
+    go (EHole _)        = False
+    go (EIf c t e)      = go c || go t || go e
+    go (ELet bindings body) = any (\(_, _, rhs) -> go rhs) bindings || go body
+    go (EMatch scr arms) = go scr || any (go . snd) arms
+    go (ELambda _ body) = go body
+    go (EDo steps)      = any (\(DoStep _ e) -> go e) steps
+    go (EPair l r)      = go l || go r
+    go (EAwait e)       = go e
 
 -- | Convert a linear arithmetic LLMLL Expr to a FQPred.
 -- Returns Nothing for non-linear or unsupported expressions (→ skip/proof-required).
