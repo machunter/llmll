@@ -1,13 +1,13 @@
 # LT-INV — Core/Shell Grammar Inversion
 
-> **Version:** Rev 1 — initial settled draft
-> **Date:** 2026-05-23
+> **Version:** Rev 2 — incorporates professor review findings (seven gaps and two author-question answers folded; cross-proposal observations C-1/C-2/C-3/C-4 acknowledged per the C-2 settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md))
+> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 1 (LT-INV); the v0.11 spine
 > **Prerequisites:** Feature freeze lifted for v0.11 (`docs/compiler-team-roadmap.md` Feature Freeze Policy, lifted 2026-05-23 with the inversion's freeze-exception soundness argument as the rationale)
 > **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4; STRICT-CORE-1 from the triage is subsumed by this proposal (the admissibility rules become grammatical, not adversarial-spec-only)
-> **Companion:** Professor direction memo [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) is the upstream architectural direction
-> **Reviewed:** Pending professor review at `core-shell-inversion-review.md`
-> **Status:** Settled (proposal) — awaiting professor review, then compiler-engineer hand-off behind `--grammar=core-inversion` opt-in flag per §8 empirical-gate sequencing
+> **Companion:** Professor direction memo [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) is the upstream architectural direction; cross-proposal settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) specifies LT-CDP / LT-PPR shipping conditions under §8 gate outcomes
+> **Reviewed:** Professor review at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Seven gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
+> **Status:** Settled (Rev 2) — professor review folded; pending compiler-engineer hand-off behind `--grammar=core-inversion` opt-in flag per §8 empirical-gate sequencing
 
 ---
 
@@ -61,6 +61,8 @@ LT-INV inverts the polarity at the grammar level. The strict-core form becomes t
 
 Per [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §Background, backward compatibility is not a v0.11 governor; the keyword break is the right cost.
 
+**Corpus-continuity cost (Rev 2, per the professor review's Gap #6).** The rename forfeits a *corpus-continuity* signal at the lexical level: agents trained on the v0.10 corpus see `def-logic` and the v0.11 corpus see `def`, and the rename is a discontinuity in the agent-prompt-context distribution. The Coq community's long-running debate over `Definition` / `Lemma` / `Theorem` canonicity is the closest precedent — the multi-keyword convention has held for two decades precisely because the meaning-distinguishing role outweighs the canonicity-by-rename argument when the corpus is mature. LLMLL's choice (Option 2, rename) is defensible because the v0.10 corpus is small (12 example directories) and the meaning-distinguishing role here is *exactly* the `def` vs `def-shell` distinction — the lexical canonicity and the semantic distinction align. The cost is real but bounded by corpus size; Rev 2 records it explicitly so future migrations (v0.12+) at larger corpus scale can audit whether the rename pattern still wins.
+
 **Naming for the shell form.** `def-shell` over `def-boundary` or `def-effectful`:
 
 - `def-boundary` reads as topological-relative ("boundary between *what* and *what*?")
@@ -97,13 +99,40 @@ shell-body ::= any expr per LLMLL.md §12 (current grammar unchanged)
 
 **Migration consequence.** The interactive game examples (`hangman_sexp`, `tictactoe_sexp`, `life_sexp`) lose core-form status for any recursive helper; the verifier-form examples (`*_verifier`) likely stay in core because their verified contracts are non-recursive QF-LIA per memo §1.5. This is the expected migration cost.
 
-### 3.4 `EApp` callee restriction — **adopt the strict reading**
+**Cascade quantification (Rev 2, per the professor review's Gap #5).** The `letrec`-routes-to-shell rule cascades through the §3.4 strict-callee restriction (now relaxed per Rev 2 §3.4 below): any `def` body that calls a `letrec`-defined function would, under the Rev 1 strict reading, migrate to `def-shell`. Under the Rev 2 trusted-prelude-closed reading, a `letrec`-defined function is admitted in `def` callees only if the function's signature is in the trusted prelude (per §3.4's revised callee predicate); user-authored `letrec` helpers stay outside the trusted prelude and therefore continue to cascade their callers to `def-shell`. The boundary-form usage distribution per §8.1 axis 4 measures this cascade post-migration; **pre-migration pre-flight quantification is recommended** — engineer or experiment-lead should run the §6 mechanical classifier on the corpus under v0.11 sequencing step (2) and report the projected `def` vs `def-shell` split before the empirical gate runs. If the projected split is materially skewed toward `def-shell` (Risk #7 below), the §8 pass criteria's boundary-form usage axis is the load-bearing acceptance signal.
 
-`EApp` inside a `def` body admits **only callees whose own bodies are body-faithfully verified** — transitive closure required. The relaxed reading (v0.9.0 assume-guarantee unchanged per [`LLMLL.md §5.3.4:710-740`](../../LLMLL.md)) would let an `asserted`-bodied callee silently leak into a `def`-form claim of `verified`-via-its-postcondition; the entire inversion is undermined the moment one non-body-faithful callee enters the core's call graph.
+### 3.4 `EApp` callee restriction — **adopt the trusted-prelude-closed reading** (Rev 2)
 
-**Operational rule.** At the call site `(f x y)` inside a `def` body, the typechecker queries the callee's `EvidenceRecord`. If `erBodyFaithful = True` for `f`, the call is admitted; otherwise the typechecker emits a *core-membership-violation* diagnostic. This requires per-function `EvidenceRecord` lookup at typecheck time, which means the typechecker needs read access to the trust-report state — an architectural move that did not exist in v0.10 (typecheck was independent of verify). MOD-1's `meContracts` extension to `ModuleEnv` is the natural seam.
+**Rev 2 revision (per the professor review's Gap #1 / Q-PROF-1).** Rev 1 specified the *strict* reading — `EApp` inside `def` admits only callees whose own bodies are body-faithfully verified, transitive closure required. The professor review surfaced that this reading is **unprecedented among production refinement-typed languages**. Liquid Haskell (`{-@ assume @-}` per Vazou et al. POPL 2014), F\* (`assume val` per Swamy et al. 2013–present), Why3 (curated prelude per Filliâtre & Paskevich ESOP 2013 §4.3), and Dafny (trusted built-ins per Leino LPAR 2010) all maintain a *curated trusted-prelude set* admitted into the verified call closure. No production system requires every callee in a verified function's call graph to be body-faithfully proven. Rev 2 adopts the *trusted-prelude-closed* reading: callees admitted in `def` are those whose `erBodyFaithful = True` *or* which are in a configured trusted-builtin whitelist hosted in [`LLMLL.md §13`](../../LLMLL.md).
 
-**Cost calibration.** The v0.9.0 assume-guarantee mechanism stays unchanged for `def-shell`; it is only narrowed inside `def`. Migration cost: any function in the existing corpus whose call graph reaches a `tested`-only or `asserted` callee migrates to `def-shell`. This is the right discipline — those functions were not body-faithfully verified before, and the v0.10 trust report was the only signal; the inversion makes the signal syntactic.
+**Operational rule (revised).** At the call site `(f x y)` inside a `def` body, the typechecker queries the callee's admissibility via two predicates:
+
+1. **Body-faithful predicate:** `erBodyFaithful(f) = True` per the callee's `EvidenceRecord`. If true, the call is admitted.
+2. **Trusted-prelude predicate:** `f ∈ trustedPrelude` per the curated `LLMLL.md §13` whitelist. If true, the call is admitted *under the trusted-prelude trust closure* — the call inherits `f`'s axiomatized signature, not a `verified`-tier promotion. Calls reaching only trusted-prelude callees remain `verified` at the call site under the v0.9.0 assume-guarantee mechanism applied against the axiomatized signature.
+
+If neither predicate holds, the typechecker emits a *core-membership-violation* diagnostic.
+
+**Trusted-prelude curation.** The trusted-prelude whitelist is a separately-curated artifact at [`LLMLL.md §13`](../../LLMLL.md), populated by doc-lead promotion post-LT-INV-settlement. Initial population candidates (subject to engineer-audit confirmation):
+
+| Builtin class | Body-faithful? | Trusted-prelude admission |
+|---|---|---|
+| `+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=` (QF-LIA primitives) | yes (direct, mathematical-integer per v0.10.8 INT-1 / post-INT-2 unbounded) | n/a — already body-faithful |
+| `and`, `or`, `not` (boolean connectives) | yes | n/a |
+| `*`, `/`, `mod`, `rem` (non-linear arithmetic) | no | **NOT admitted** — non-linear; routes to runtime per v0.10 verification matrix |
+| `string-length`, `string-concat` | no | **admitted** — axiomatized at §13 with linear/length-preservation signatures |
+| `list-head`, `list-tail`, `list-length`, `list-is-empty?` | no (partial) | **admitted** — axiomatized with non-emptiness preconditions; partial-function failure modes routed per LT-PPR predicate-carrying form |
+| `pair`, `first`, `second` | no | **admitted** — axiomatized; tuple semantics straightforward |
+| `random-int`, `int-to-string` | no | **admitted** — axiomatized; randomness sealed at builtin boundary per strict-immutability invariant |
+| `sha1`, `hmac-sha1` (crypto stubs per §13.11) | no | **NOT admitted** — `asserted-with-stub-backend` per the v0.10.6 CRYPTO-1 disclosure; verifier should not admit programs whose `def`-form claim of `verified` rests on a known-incorrect runtime implementation |
+| `?delegate` / `?delegate-async` / `?scaffold` resolved values | no | **NOT admitted** by default; post-resolution re-typecheck per §3.5 Rev 2 |
+
+The whitelist is settled by language-team via a separate REF-META-3-adjacent settlement (the predicate WF rule's *trusted-axiomatization* sub-rule); the table above is the v0.11 starting set. Engineer-audit confirms each row by inspecting the `LLMLL.md §13` axiomatization and the codegen lowering; entries that pass audit ship in the v0.11 trusted prelude.
+
+**`meContracts` extension (Rev 2, per the professor review's Gap #2).** The typechecker query at the call site requires `erBodyFaithful` lookup, which is not currently in `ModuleEnv` per [`compiler/src/LLMLL/Syntax.hs`](../../compiler/src/LLMLL/Syntax.hs) (`meContracts :: Map Name ([(Name, Type)], Contract)` carries contracts only). Rev 2 commits to **extending `meContracts`** to carry an `erBodyFaithful :: Bool` field per function entry — i.e., the shape becomes `Map Name ([(Name, Type)], Contract, Bool)` or an equivalent named-field record. This is engineer scope, surfaced explicitly in the LT-INV engineer hand-off. The trusted-prelude whitelist is a separate `Set Name` in `ModuleEnv` (or equivalent), populated at compiler startup from a curated builtin list — no per-function `EvidenceRecord` query for prelude callees.
+
+The two-pass alternative (typecheck → verify → second typecheck) is *not* adopted — the `meContracts` extension preserves the v0.10 layering with an additive field, at the cost of populating `erBodyFaithful` from prior `.verified.json` sidecars on cold-cache builds. Cold-cache builds may produce conservative-rejection diagnostics requiring a verify-then-build sequence; the engineer hand-off names this cost.
+
+**Cost calibration (revised).** The v0.9.0 assume-guarantee mechanism stays unchanged for `def-shell`; it is narrowed inside `def` to the trusted-prelude-closed reading. Migration cost: any function in the existing corpus whose call graph reaches an *untrusted* `tested`-only or `asserted` callee migrates to `def-shell`. Functions reaching only trusted-prelude callees stay in `def`. This is the right discipline — those functions are body-faithfully verified *modulo the trusted prelude*, which is the same trust model LH, F*, Why3, and Dafny ship.
 
 ### 3.5 Hole forms — admit authoring intermediates; forbid `?proof-required`
 
@@ -112,6 +141,8 @@ shell-body ::= any expr per LLMLL.md §12 (current grammar unchanged)
 This distinction does not exist in [`compiler/src/LLMLL/HoleAnalysis.hs`](../../compiler/src/LLMLL/HoleAnalysis.hs) today (per `Syntax.hs:233-243`, all `HoleKind` constructors are treated uniformly at parse). The inversion forces it: the grammar production in §3.2 lists the admitted hole forms explicitly; `?proof-required` is omitted from the core grammar.
 
 Per LT-PPR §6.2, the predicate-carrying form of `?proof-required` (proposed in v0.11 separately) is also forbidden inside `def` for the same reason. Both leaf and predicate-carrying forms of `?proof-required` live exclusively in `def-shell`.
+
+**Post-resolution re-typecheck for `?delegate` / `?delegate-async` / `?scaffold` (Rev 2, per the professor review's Gap #3).** `?delegate`, `?delegate-async`, and `?scaffold` resolve to values produced by out-of-process agents at agent-loop time. The Rev 1 §3.5 admission rule treats these as authoring intermediates whose resolution is verifier-transparent; the review surfaced that resolved values whose evidence is `asserted` would silently re-introduce an `asserted`-tier dependency into a `def`-form call graph, defeating the inversion's grammatical-guarantee claim. Rev 2 commits to the following discipline: **after `?delegate` / `?delegate-async` / `?scaffold` resolution, the agent loop re-runs the typechecker's core-membership predicate on the resolving function or value before merging the resolution into the `def`-form host.** If the resolved value's evidence does not satisfy the §3.4 Rev 2 admissibility predicate (body-faithful OR trusted-prelude), the resolution is rejected and the host function migrates to `def-shell` (or the resolution is replaced). The orchestrator at [`tools/llmll-orchestra/`](../../tools/llmll-orchestra/) and the per-resolution-step flow at [`compiler/src/LLMLL/Module.hs`](../../compiler/src/LLMLL/Module.hs) carry this re-typecheck obligation; the engineer hand-off names the integration point. Without this, the grammatical guarantee at §3.4 degrades whenever a delegate resolution lands.
 
 ---
 
@@ -181,6 +212,20 @@ This is exercise material, not legacy. There is no API-stability obligation; v0.
 
 **Conservative-mode flag.** Per Risk #3 below, the classifier ships with a `--migration-conservative` flag that defaults all to `def-shell` if any single function in the file falls back; promotion to `def` requires human confirmation per-file. This protects against misclassifying intentionally-permissive bodies whose author wanted shell semantics but whose body happens to be core-syntactic.
 
+**Rust-edition precedent and confidence-tier reporting (Rev 2, per the professor review's Gap #7 / Q-PROF-2).** The closest external precedent for the migration tooling shape is **Rust's 2018 edition migration** (rust-lang/rfcs #2052; `cargo fix --edition`): syntactic classifier handles the bulk; ambiguous cases require human review; the migration is widely considered successful precisely *because* the tooling did not over-promote. Python 2 → 3 (`2to3`, `lib2to3`) is a longer-tail precedent with similar shape but weaker types in the source language; F\# 4.x → 5.x is smoother because of stronger type inference. The honest answer from the language-migration literature: **the human-confirm requirement is essentially inherent for any nontrivial semantic-boundary migration**; the best the tooling can do is high-precision/low-recall classification of unambiguous cases plus *flagging* of ambiguous ones rather than auto-promotion. LT-INV's `--migration-conservative` flag matches the Rust-edition pattern.
+
+Rev 2 commits to one additional refinement: **the classifier reports a *confidence tier* alongside its inferred form**. Output format:
+
+```
+solution.llmll:
+  solution/transfer       : def        (confidence: high)
+  solution/cache-lookup   : def-shell  (confidence: high — uses lambda)
+  solution/parse-input    : def-shell  (confidence: low — body is core-syntactic but flagged by --migration-conservative)
+  solution/sum-to-n       : def-shell  (confidence: high — letrec)
+```
+
+Three tiers — `high` (auto-promoted), `low` (flagged for review), `unable-to-classify` (the function does not parse under either grammar; engineer triage required). The `--migration-conservative` flag's behavior is: if any function in the file is `confidence: low`, all functions in the file default to `def-shell` pending human confirmation. The confidence-tier output gives the human reviewer a triaged list rather than a flat enumeration; this is the load-bearing improvement over a binary "promote vs not" classifier per the Rust-edition precedent.
+
 ---
 
 ## 7. Holes vs proof escapes — the §3.5 distinction in detail
@@ -215,7 +260,17 @@ The inversion is an **architectural hypothesis** grounded in cognitive-load and 
 
 This protects against the worst failure mode: shipping a v0.11 that the existing benchmarks reveal as a regression after the schema and example migration are irreversible.
 
-**Pass criteria** (per direction memo §8.2): at least one of (a) overall pass rate, (b) `verified` evidence fraction at pass, or (c) `?proof-required` emission rate on out-of-core contracts must improve over the pre-inversion baseline — and no axis must regress materially.
+**Pass criteria (Rev 2, per the professor review's Gap #4).** **At least one of** (a) overall pass rate, (b) `verified` evidence fraction at pass, or (c) `?proof-required` emission rate on out-of-core contracts must improve over the pre-inversion baseline; **AND** boundary-form usage distribution shows ≥25% `def` in migrated examples (per §8.1 axis 4); **AND** no axis regresses materially. The Rev 1 OR-of-three admitted a 1%-improvement low-confidence pass; the Rev 2 conjunction defends against that case. The 25% `def` threshold is measured post-migration on the corpus and is the load-bearing acceptance signal for the boundary-form usage axis — without it, a "100% shell migration with no other axis change" outcome (per Risk #7) would flag the inversion as low-leverage without triggering rollback.
+
+**Materially** remains `experiment-lead`'s call against the variance baseline established in [`experiments/minimal-agent/findings/`](../../experiments/minimal-agent/findings/); the conjunction does not pre-commit to a hard threshold for "materially," but it pre-commits to the conjunction shape.
+
+**Outcome enumeration (Rev 2, per cross-proposal C-2 settlement).** The §8 gate result routes to one of three outcomes, each specified in [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) §2:
+
+- **Outcome 0 — gate passes.** Default grammar flips per §8.4 step (4); LT-CDP and LT-PPR ship as proposed; schema bumps `0.5.0 → 0.6.0` and `1.1.0 → 1.2.0`; mechanical migration runs.
+- **Outcome 1 — rollback to LT-INV opt-in-only.** Grammar change shipped behind `--grammar=core-inversion` flag but not default; LT-CDP `discriminative_axis` reported only under flag; LT-PPR predicate-carrying form admitted in `def-shell` under flag and *rejected entirely outside the flag* (does not admit-in-`def-logic`-by-default; the asserted-tier escape hatch protection is preserved); schema bump preserved; example migration skipped.
+- **Outcome 2 — retract LT-INV grammar change.** LT-CDP ships against `def-logic` with the body-faithful set as implicit scope; LT-PPR ships *without* the `def`-forbiddance (the §3.5 forbiddance is contingently undone); independent `schemaVersion 0.5.0 → 0.5.1` coordinated single bump.
+
+The C-2 settlement specifies the cross-proposal shipping conditions in full; this §8 section names the gate's role in selecting among them.
 
 ---
 
@@ -312,12 +367,18 @@ The inversion adds no new SMT VC. The verifier-side work is *narrowed*, not expa
 
 ## 13. Open questions for the professor review
 
-1. **Is the transitive body-faithful closure (§3.4) the right closure shape, or should the inversion instead require the closure under a *weaker* invariant** (e.g., "all callees are at minimum `contract-checked`")? The strict-reading rationale is principled: a `def`-form function asserting `verified` cannot rest on `asserted` callees without leaking that asserted-ness. But the principle has a cost — most useful programs have *some* opaque builtin in the transitive closure (`string-length`, `random-int`, `wasi.*`). The relaxed closure ("contract-checked or better") would let builtins-with-contracts pass while still excluding `asserted` and `tested`-only callees. Is there an established treatment in the Liquid Haskell / F\* literature of this "closure-under-evidence-tier" question, and does the established treatment match §3.4 strict or a relaxed variant?
+**Status (Rev 2):** both questions answered in the Rev 1 professor review at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) §"Answers to author-surfaced questions"; the answers are folded into Rev 2 at §3.4 (Q-PROF-1: trusted-prelude-closed reading, citing LH/F*/Why3/Dafny convergence) and §6 (Q-PROF-2: Rust-edition precedent confirms human-confirm is inherent; confidence-tier reporting is the load-bearing improvement). The questions are retained below as the historical record of the Rev 1 → Rev 2 transition.
 
-2. **The migration scope (§6) treats syntactic classification as the migration's primary signal.** The risk is misclassification per Risk #3; the mitigation is conservative-mode plus human-confirmation. **Is there a known pattern in the language-migration literature** (e.g., F# 4.x → 5.x, Python 2 → 3, ES5 → ES6) **for syntactic-only migration tooling that handles intent-disambiguation better than the conservative-flag-plus-human-confirm route LT-INV proposes?** Specifically: is there a tractable static analysis that infers "the author wanted shell semantics" from surrounding context, or is the human-confirm requirement inherent?
+1. **Is the transitive body-faithful closure (§3.4) the right closure shape, or should the inversion instead require the closure under a *weaker* invariant** (e.g., "all callees are at minimum `contract-checked`")? The strict-reading rationale is principled: a `def`-form function asserting `verified` cannot rest on `asserted` callees without leaking that asserted-ness. But the principle has a cost — most useful programs have *some* opaque builtin in the transitive closure (`string-length`, `random-int`, `wasi.*`). The relaxed closure ("contract-checked or better") would let builtins-with-contracts pass while still excluding `asserted` and `tested`-only callees. Is there an established treatment in the Liquid Haskell / F\* literature of this "closure-under-evidence-tier" question, and does the established treatment match §3.4 strict or a relaxed variant? — *Rev 2 answer: the LH / F\* / Why3 / Dafny convergence is the trusted-prelude-closed reading; the strict reading is unprecedented. §3.4 adopts the trusted-prelude-closed reading with the `LLMLL.md §13` whitelist as the curation surface.*
+
+2. **The migration scope (§6) treats syntactic classification as the migration's primary signal.** The risk is misclassification per Risk #3; the mitigation is conservative-mode plus human-confirmation. **Is there a known pattern in the language-migration literature** (e.g., F# 4.x → 5.x, Python 2 → 3, ES5 → ES6) **for syntactic-only migration tooling that handles intent-disambiguation better than the conservative-flag-plus-human-confirm route LT-INV proposes?** Specifically: is there a tractable static analysis that infers "the author wanted shell semantics" from surrounding context, or is the human-confirm requirement inherent? — *Rev 2 answer: the human-confirm requirement is essentially inherent per the Rust-edition / Python 2→3 / F# precedents. §6 ships the confidence-tier reporting as the load-bearing improvement; the classifier flags ambiguous cases rather than auto-promoting.*
 
 ---
 
 ## 14. Companion review
 
-The professor review half of this proposal/review pair will land at [`core-shell-inversion-review.md`](core-shell-inversion-review.md). This proposal is the v0.11 architectural spine and is sequenced ahead of LT-CDP and LT-PPR per §8 — both gate-independent of LT-INV per the rollback paths.
+Professor review landed at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on seven gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§3.1 corpus-continuity; §3.3 cascade quantification; §3.4 trusted-prelude-closed reading + `meContracts` extension commitment; §3.5 post-resolution re-typecheck; §6 Rust-edition precedent + confidence-tier reporting; §8 tightened pass criteria + Outcome enumeration). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §8 above.
+
+The standalone `core-shell-inversion-review.md` awaits doc-lead M2 fold-and-archive per [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) row 4. Post-fold, the review's content lands as `## Appendix — Professor review log` on this proposal; the standalone moves to [`docs/archive/professor-reviews/`](../archive/professor-reviews/).
+
+This proposal is the v0.11 architectural spine and is sequenced ahead of LT-CDP and LT-PPR per §8 — both gate-independent of LT-INV per the rollback paths specified at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md).

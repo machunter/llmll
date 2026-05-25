@@ -1,13 +1,13 @@
 # LT-CDP — Contract Discriminative Power as First-Class Evidence Axis
 
-> **Version:** Rev 1 — initial settled draft
-> **Date:** 2026-05-23
+> **Version:** Rev 2 — incorporates professor review findings (seven gaps and two author-question answers folded; cross-proposal C-2 settlement referenced per LT-INV-gate sequencing)
+> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 2 (LT-CDP / CDP-0)
-> **Prerequisites:** LT-INV grammar inversion (sequenced after — CDP-0 reports against the *core* form first, where the trivial-body enumeration is decidable; extending to the shell is a later step)
+> **Prerequisites:** LT-INV grammar inversion (sequenced after — CDP-0 reports against the *core* form first, where the trivial-body enumeration is decidable; extending to the shell is a later step). Cross-proposal shipping under LT-INV gate outcomes specified at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) §2.
 > **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §2); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.2; supersedes the triage rows DP-FORM-1 (P3 formalization-only) and TRUST-DP-1 (P1 schema delta) into a single v0.11 implementation item
 > **Promotes:** [`docs/research-track.md:145-151`](../research-track.md) "Contract discriminative power" research-track item to v0.11 implementation (research-track row was retired with cross-reference in Pass 3 of the 2026-05-23 catch-up branch)
-> **Reviewed:** Pending professor review at `contract-discriminative-power-review.md`
-> **Status:** Settled (proposal) — awaiting professor review, then compiler-engineer hand-off
+> **Reviewed:** Professor review at [`contract-discriminative-power-review.md`](contract-discriminative-power-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Seven gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
+> **Status:** Settled (Rev 2) — professor review folded; pending compiler-engineer hand-off, sequenced after LT-INV per §2
 
 ---
 
@@ -41,6 +41,8 @@ A function can simultaneously be `verified` (high evidence, body-faithfully disc
 
 The four-cell matrix is the spec-quality dashboard the project has been reaching for. LT-CDP makes it operational.
 
+**Observational-vs-semantic framing (Rev 2, per the professor review's Gap #1 — load-bearing caveat).** CDP is a *heuristic indicator under enumeration discipline*, not a *measure of semantic spec strength*. The score `DP_Ω(S) = 0.82` does not mean "82% of wrong implementations are ruled out" in any semantic sense — it means "82% of *observed* candidate behaviors over the chosen observation set `Ω` are ruled out." Two implementations can be semantically distinct but observationally identical on every input in `Ω`. The four cells above are *interpretable signals* under a given `Ω`, not *spec properties* in the semantic sense; consumers comparing scores across functions or across versions must compare against the same `Ω`. This caveat is load-bearing for downstream consumers: a CDP score read as a semantic measure would set CI gates on the wrong reading, and under enumeration changes (per §4.3 candidate-set enumeration; v0.12+ widening) the same spec scores differently. The trust report's `basis` field (per §5) records `Ω`'s identity for auditability; see Risk #1 below and [`docs/design/invariant-discovery-review.md §4.2`](invariant-discovery-review.md) for the in-project anchor for this distinction.
+
 ---
 
 ## 2. Scope
@@ -62,6 +64,8 @@ The four-cell matrix is the spec-quality dashboard the project has been reaching
 
 **Out of scope under v0.11 surface — sequencing:**
 - LT-CDP ships **after** LT-INV (`def`/`def-shell` grammar split). The CDP metric's first-pass scope is the core form; the report extends to shell form only after LT-INV's grammatical boundary is in place.
+- **Baseline-first sequencing (Rev 2, per the professor review's Gap #6).** CDP-0 ships **and publishes a v0.10-baseline DP report on the pre-inversion corpus before** the LT-INV §8 empirical-gate measurement runs. The LT-INV gate measures (among other axes) the *spec-strength distribution* — which uses the CDP metric LT-CDP defines, creating a self-reference. The baseline-first sequencing breaks the self-reference: the v0.10 baseline is measured *before* the LT-INV grammar change ships behind opt-in, so the gate's pre/post comparison compares against an independently-established baseline rather than against the metric's first deployment. The baseline report lives at [`experiments/minimal-agent/findings/cdp-v0.10-baseline.md`](../../experiments/minimal-agent/findings/) (created by experiment-lead post-CDP-0 ship); the engineer hand-off names this baseline as a prerequisite for the LT-INV §8 gate run.
+- **Cross-proposal shipping under LT-INV gate outcomes.** Per [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) §2: Outcome 0 (gate passes) ships LT-CDP as proposed; Outcome 1 (LT-INV opt-in-only) reports `discriminative_axis` only under the `--grammar=core-inversion` flag; Outcome 2 (LT-INV retracted) ships LT-CDP against `def-logic` with the body-faithful set as implicit scope. Schema bump under Outcomes 0 and 1 is `trust_report_version 1.1.0 → 1.2.0` (additive); Outcome 2 ships independently and coordinates with LT-PPR per the C-2 settlement.
 
 ---
 
@@ -132,12 +136,14 @@ Per [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.2, the 
 
 This is undergraduate-level apparatus (finite-lattice + valuation, not fibration + graded monad). The narrower unification was adopted per the amended critic's revised position at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.2; the broader categorical unification (the original critique's §13) was declined per professor adjudication. The patch-merge invariant remains stipulated (not derived from the lattice), per Sub-proposal 3 of the language-team triage.
 
+**Valuation choice — Shannon over Möbius (Rev 2, per the professor review's Gap #2 / Q-PROF-2).** The formal anchor above admits multiple defensible valuations on the subobject lattice. Three families are admissible: **logarithmic** (the §4.1 choice, Shannon-style — `1 - log(|⟦S⟧|) / log(|B|)`), **linear** (coverage-style — `1 - |⟦S⟧| / |B|`, the standard for fuzz-coverage metrics per Klees et al. CCS 2018), and **Möbius-function** (the canonical lattice-theoretic valuation per Birkhoff *Lattice Theory* Ch. X §3, weighted by the lattice's structure rather than by cardinality). The lattice-theoretic anchor *strictly* points to Möbius as the canonical valuation; Shannon is chosen on two pragmatic grounds: (i) the bit-rejection / entropy interpretation is more communicable to downstream agent-consumers than the Möbius-function combinatorics, and (ii) Shannon is computationally trivial at the v0.11 candidate-set sizes (10s of candidates per contract), whereas Möbius requires computing the lattice structure of the candidate set, which is expensive at v0.12+ scale. Future work on smaller candidate sets where the lattice structure is tractable may explore Möbius-based scoring as a supplementary metric; v0.11 ships Shannon-only. The professor review's Q-PROF-2 answer (no canonical valuation; Shannon defensible) is the literature reading.
+
 ### 4.3 Counted-divergence operationalization
 
 The metric extends `WeaknessCheck.hs`'s existing trivial-body enumeration:
 
 ```
-candidate_count                  = |TrivialBody| extended to type-compatible candidates over the existing prelude
+candidate_count                  = |TrivialBody| extended per §4.3.1 enumeration (Rev 2)
 satisfying_candidate_count       = number of candidates passing the contract
 distinct_observed_behaviors      = number of equivalence classes over observation set Ω
 ```
@@ -145,6 +151,26 @@ distinct_observed_behaviors      = number of equivalence classes over observatio
 The current `WeaknessCheck.hs` reports `satisfying_candidate_count > 0` as a binary flag (and emits the `spec-weakness` diagnostic). LT-CDP extends the same pipeline to count: the `emitFixpoint` call is made for each trivial candidate; the pass/fail outcome contributes to the count rather than to a binary disjunction.
 
 The behavior-equivalence partition over `Ω` is heuristic — two candidate implementations are *equivalent* iff they agree on every input in `Ω`. The equivalence is observation-set-relative, not semantic. See Risk #1 below.
+
+The corpus-bias question — that small `Ω` collapses equivalence classes and large `Ω` separates them — is **inherent** per the literature reading. Hughes' QuickCheck papers (Claessen-Hughes ICFP 2000; Hughes TFP 2020 §4) treat coverage tracking as discipline for understanding *what the corpus measures*, not as a correction for *what the corpus does not measure*; mutation testing (Andrews-Briand-Labiche ICSE 2005; Offutt 1992 coupling effect) accepts the corpus-dependence empirically without canonical correction; **coverage-guided fuzzing addresses corpus bias through stratified corpora and coverage-of-coverage reporting** (Klees et al. *Evaluating Fuzz Testing* CCS 2018 §3), *not* through metric correction. LT-CDP inherits this stance: scores are *comparable within a single `Ω`*, not directly comparable across different `Ω`s; the trust report's `basis` field per §5 makes `Ω`'s identity auditable, and cross-function score comparison requires same-`Ω` discipline.
+
+### 4.3.1 v0.11 candidate-set enumeration (Rev 2, per the professor review's Gap #3)
+
+The v0.11 trivial-body extension consists of the following candidates, evaluated per contract per emitFixpoint pass. The enumeration is *closed* for v0.11; v0.12+ widens to LLM-generated candidates per [`docs/design/invariant-discovery-review.md §5`](invariant-discovery-review.md).
+
+| Candidate class | Members | Type admissibility |
+|---|---|---|
+| **Existing `WeaknessCheck.hs` enumerators** | `TrivIdentity` (return input), `TrivConstZero` (return `0`), `TrivConstEmptyStr` (return `""`), `TrivConstTrue` (return `true`), `TrivConstEmptyList` (return `(list)`) | per existing `WeaknessCheck.hs:40-65` |
+| **Int constants** | `0`, `1`, `-1`, `42` | functions returning `int` |
+| **Bool constants** | `true`, `false` | functions returning `bool` |
+| **String constants** | `""`, `"a"` | functions returning `string` |
+| **List constants** | empty list of each admitted base type; single-element list with the type's canonical default value | functions returning `list[T]` for admitted `T` |
+| **Sum-type constants** | `Success` wrapping each admitted base-type default; `Error "default"` for `Result[T, string]` | functions returning sum types |
+| **Pair constants** | pairs of admitted base-type defaults | functions returning `pair[A, B]` |
+
+Total enumeration size: ~12-15 candidates per `int → T` function, scaling roughly by the cardinality of the admitted return-type domain. The list is small but discrete; consumers comparing scores across versions audit the enumeration against this table.
+
+**Score stability across versions.** Because the enumeration is closed, the score for a given function under a fixed contract is reproducible across v0.11 patch releases. v0.12+ expansions will produce score shifts; consumers comparing across-version scores must account for enumeration changes via the `basis` field's `enumeration_version` sub-field (added in v0.12+, not v0.11).
 
 ---
 
@@ -184,7 +210,14 @@ Key shape decisions:
 - **`distinct_observed_behavior_count`** — the equivalence-class count after partition over `Ω`. Distinct from `satisfying_candidate_count` because multiple candidates may collapse to one observed behavior.
 - **`distinguishing_inputs`** — concrete inputs that separate satisfying behaviors from non-satisfying behaviors. Useful for the `--weakness-check`-derived diagnostic that surfaces a low-DP signal to the agent.
 - **`spec_entropy_annotation`** — echoes the source `(spec-entropy ...)` annotation so consumers can distinguish low DP (`:strict`, flagged) from low DP (`:intentional`, suppressed by design).
-- **`warnings`** — typed diagnostic strings (e.g., `"identity implementation satisfies current postcondition"`, `"spec is inconsistent — no behavior satisfies"`, `"candidate set was empty under enumeration-limit"`).
+- **`warnings`** — typed diagnostic strings using the enumeration below (Rev 2, per the professor review's Gap #7). The Rev 2 enumeration distinguishes *why* DP is not reported as a numeric score; downstream consumers must distinguish "DP undefined (enumeration too small)" from "DP not measured (def-shell out of v0.11 scope)" to avoid conflating non-applicability with measurement weakness:
+  - `"identity-satisfies-post"` — the trivial identity body passes the contract; the spec admits the input-pass-through behavior.
+  - `"const-satisfies-post"` — a trivial constant body passes; the spec admits a constant value (often the type's default).
+  - `"spec-inconsistent"` — no candidate satisfies the contract; the spec is inconsistent. `score` is suppressed; this is a distinct diagnostic from low DP.
+  - `"enumeration-too-narrow"` — `|B_{T,U,Ω}| ≤ 1`; the observation set yields too few distinct behaviors for the score formula. `score: undefined`; consumers rely on the evidence axis.
+  - `"def-shell-out-of-scope"` — the function is `def-shell` (per LT-INV grammar); CDP is not reported on shell-form functions in v0.11. `score: not_measured`; semantically distinct from `undefined`. This case is *not* a measurement weakness — it is an explicit non-applicability per §2 out-of-scope.
+  - `"candidates-empty-under-limit"` — no type-compatible candidate from the §4.3.1 enumeration applies (e.g., a function over a type the v0.11 enumeration does not cover). `score: undefined-due-to-enumeration-limit`; v0.12+ widening may close this case.
+  - `"over-annotation-warning"` — module-level: ratio of `:intentional` to `:strict` exceeds the configurable threshold (default 30%) per Risk #3.
 
 `tier` and `tier_profile` (v1.1.0) are unchanged; DP is an *orthogonal per-function field*, not a tier_profile member.
 
@@ -252,7 +285,7 @@ No new SMT obligations are emitted beyond what `--weakness-check` already does. 
 
 2. **Trivial-body enumeration is small.** Severity: medium. Classification: verification-ergonomics. Cite: [`compiler/src/LLMLL/WeaknessCheck.hs:40-65`](../../compiler/src/LLMLL/WeaknessCheck.hs) lists five enumerators today (`TrivIdentity`, `TrivConstZero`, `TrivConstEmptyStr`, `TrivConstTrue`, `TrivConstEmptyList`). Bite: `candidate_count` is bounded by the enumeration; for many contracts, the candidate set is empty and CDP cannot compute. **Mitigation:** v0.11 extends the enumeration to type-compatible candidates over the existing prelude (constants of admitted types: small ints `0`, `1`, `-1`; bools; common strings); v0.12+ widens to LLM-generated candidates per the Phase B item in [`invariant-discovery-review.md §5`](invariant-discovery-review.md).
 
-3. **`(spec-entropy :intentional)` annotation can be over-applied to silence diagnostics.** Severity: medium. Classification: scope. Cite: [`invariant-discovery-review.md §4.1`](invariant-discovery-review.md). Bite: agents under pressure to ship may annotate every low-DP contract as intentional, hiding genuine spec weakness behind the suppression. **Mitigation:** `:intentional` annotations are themselves surfaced in the trust report's `spec_entropy_annotation` field (auditable). A high-`:intentional`-density module raises a separate `over-annotation-warning` diagnostic when the ratio of `:intentional` to `:strict` exceeds a configurable threshold (default 30%); the warning is informational, not blocking, but visible to code review.
+3. **`(spec-entropy :intentional)` annotation can be over-applied to silence diagnostics.** Severity: medium. Classification: scope. Cite: [`invariant-discovery-review.md §4.1`](invariant-discovery-review.md). Bite: agents under pressure to ship may annotate every low-DP contract as intentional, hiding genuine spec weakness behind the suppression. **Mitigation:** `:intentional` annotations are themselves surfaced in the trust report's `spec_entropy_annotation` field (auditable). A high-`:intentional`-density module raises a separate `over-annotation-warning` diagnostic when the ratio of `:intentional` to `:strict` exceeds a configurable threshold (default 30%); the warning is informational, not blocking, but visible to code review. **Self-attestation framing (Rev 2, per the professor review's Gap #5).** `:intentional` is a *self-attestation* channel — the agent declaring the annotation is the same agent whose spec is being measured, and *automated* enforcement cannot do better than the threshold heuristic without a human-audit step. This matches the LH `{-@ assume @-}` precedent (Vazou et al. POPL 2014 §3) and the Rust `#[allow(...)]` precedent (per `crater.rust-lang.org` audit pattern): the social-pressure-against-unjustified-attestations enforcement holds in human-audited code review but does not transfer cleanly to agent-emitted corpora. The 30% threshold is therefore an *abuse-rate* check, not a *per-instance justification* check; per-instance justification requires human review.
 
 4. **CDP-0 is an empirical metric; the §8 empirical gate of LT-INV measures DP-distribution shifts, but DP itself is one of the axes the gate measures.** Severity: low (methodological). Classification: scope. Cite: [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §8.1 "Spec-strength distribution" axis. Bite: the gate is partly self-referential — does CDP improve under inversion? CDP itself defines the question. **Mitigation:** baseline DP on the pre-inversion corpus; the gate criterion is *DP distribution shifts in the expected direction* (more `def`-form bodies → expect higher DP because the syntactic guarantee tightens the spec-strength relationship), not absolute thresholds.
 
@@ -264,12 +297,18 @@ No new SMT obligations are emitted beyond what `--weakness-check` already does. 
 
 ## 11. Open questions for the professor review
 
-1. **For the equivalence-class counting in §4.3, is there an established treatment in the property-based-testing literature** (Hughes' QuickCheck papers; Pacheco-Lahiri-Ernst on metamorphic testing; recent work on coverage-guided fuzzing) **of how to define "distinct observed behaviors" when the observation set is partial and the equivalence classes are bound by the test corpus rather than by semantic equality?** The naive read — "two implementations are equivalent iff they agree on Ω" — is observationally correct but exposes the metric to test-corpus bias. Is there a corpus-bias correction the literature recommends, or is the bias inherent and the right move is to publish Ω alongside the score (as proposed)?
+**Status (Rev 2):** both questions answered in the Rev 1 professor review at [`contract-discriminative-power-review.md`](contract-discriminative-power-review.md) §"Answers to author-surfaced questions"; the answers are folded into Rev 2 at §4.3 (Q-PROF-1: corpus-bias is inherent; publish-with-provenance is the canonical mitigation; Klees et al. CCS 2018 cited) and §4.2 (Q-PROF-2: no canonical valuation; Shannon defensible on computational and interpretability grounds; Möbius is the lattice-theoretic canonical, deferred to future work). The questions are retained below as the historical record of the Rev 1 → Rev 2 transition.
 
-2. **The lattice-valuation framing in §4.2 places CDP on a subobject lattice over a finite behavior space.** This is the narrower unification the amended critic settled on, declining the full categorical reading (fibrations, graded monads, patch-merge derivation) that the professor had rejected. **Is there a known objection to the narrower framing — particularly to treating "the number of admissible behaviors" as a meaningful valuation on the lattice — that the proposal should address?** The Shannon-style normalization (log-based) is one choice; alternative valuations (linear, polynomial) are also defensible. Does the literature establish a canonical valuation for this kind of finite-observational-equivalence setting?
+1. **For the equivalence-class counting in §4.3, is there an established treatment in the property-based-testing literature** (Hughes' QuickCheck papers; Pacheco-Lahiri-Ernst on metamorphic testing; recent work on coverage-guided fuzzing) **of how to define "distinct observed behaviors" when the observation set is partial and the equivalence classes are bound by the test corpus rather than by semantic equality?** The naive read — "two implementations are equivalent iff they agree on Ω" — is observationally correct but exposes the metric to test-corpus bias. Is there a corpus-bias correction the literature recommends, or is the bias inherent and the right move is to publish Ω alongside the score (as proposed)? — *Rev 2 answer: the bias is inherent; the literature does not establish a canonical correction. Hughes (2020) treats coverage as informativeness, not correction. Coverage-guided fuzzing (Klees et al. 2018) addresses corpus bias through stratified corpora and coverage-of-coverage reporting. LT-CDP's publish-with-provenance mitigation is the correct move.*
+
+2. **The lattice-valuation framing in §4.2 places CDP on a subobject lattice over a finite behavior space.** This is the narrower unification the amended critic settled on, declining the full categorical reading (fibrations, graded monads, patch-merge derivation) that the professor had rejected. **Is there a known objection to the narrower framing — particularly to treating "the number of admissible behaviors" as a meaningful valuation on the lattice — that the proposal should address?** The Shannon-style normalization (log-based) is one choice; alternative valuations (linear, polynomial) are also defensible. Does the literature establish a canonical valuation for this kind of finite-observational-equivalence setting? — *Rev 2 answer: no canonical valuation. Three families admissible (logarithmic, linear, Möbius-function). Shannon is defensible on computational and interpretability grounds; the lattice-theoretic canonical is Möbius (Birkhoff Lattice Theory Ch. X §3), deferred to future work on smaller candidate sets where the lattice structure is tractable.*
 
 ---
 
 ## 12. Companion review
 
-The professor review half of this proposal/review pair will land at [`contract-discriminative-power-review.md`](contract-discriminative-power-review.md). This proposal promotes the [`docs/research-track.md:145-151`](../research-track.md) row to v0.11 implementation (research-track row retired with cross-reference in Pass 3 of the 2026-05-23 catch-up branch) and supersedes the triage rows DP-FORM-1 and TRUST-DP-1 from [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4.
+Professor review landed at [`contract-discriminative-power-review.md`](contract-discriminative-power-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on seven gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§1 observational-vs-semantic caveat; §2 baseline-first sequencing + C-2 cross-proposal references; §4.2 Shannon-vs-Möbius justification; §4.3 + §4.3.1 explicit candidate-set enumeration + Klees et al. corpus-discipline citation; §5 typed-warnings enumeration; §10 Risk #3 self-attestation framing). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §2 above.
+
+The standalone `contract-discriminative-power-review.md` awaits doc-lead M2 fold-and-archive per [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) row 4. Post-fold, the review's content lands as `## Appendix — Professor review log` on this proposal; the standalone moves to [`docs/archive/professor-reviews/`](../archive/professor-reviews/).
+
+This proposal promotes the [`docs/research-track.md:145-151`](../research-track.md) row to v0.11 implementation (research-track row retired with cross-reference in Pass 3 of the 2026-05-23 catch-up branch) and supersedes the triage rows DP-FORM-1 and TRUST-DP-1 from [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4.

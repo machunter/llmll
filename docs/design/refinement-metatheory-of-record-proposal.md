@@ -1,12 +1,12 @@
 # REF-META-1 — Refinement Metatheory of Record (Checking-Mode Rule + Non-Goals + Soundness Statement)
 
-> **Version:** Rev 1 — initial settled draft
-> **Date:** 2026-05-24
+> **Version:** Rev 2 — incorporates professor review findings (six gaps and two author-question answers folded; cross-proposal observations C-1/C-2/C-3/C-4 acknowledged per the C-2 settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md))
+> **Date:** 2026-05-24 (Rev 1); 2026-05-25 (Rev 2)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 architectural lane, REF-META-1 row at [`docs/compiler-team-roadmap.md:316`](../compiler-team-roadmap.md#L316)
 > **Prerequisites:** None — promotes a settled framing decision into a proposal file. Drafts the inference rule, non-goals, and soundness statement adjudicated in [`critique-2026-05-23-triage.md §3.1`](critique-2026-05-23-triage.md) into the structured form `documentation-lead` consumes.
 > **Origin:** 2026-05-23 external critique processed via professor channel; language-team triage at [`critique-2026-05-23-triage.md §3.1`](critique-2026-05-23-triage.md) adjudicated the framing (adopted the amended critic's checking-mode-only rule over the professor's Vazou-style subtyping framing); operationally equivalent — narrower-framing rationale per §3.1 below.
-> **Reviewed:** Pending professor review at `refinement-metatheory-of-record-review.md`
-> **Status:** Settled (proposal) — awaiting professor review, then `documentation-lead` promotion to `LLMLL.md §3.4 / §5`. Spec-track only (no compiler work implied; the rule is consistent with the existing two-phase implementation per §7 below).
+> **Reviewed:** Professor review at [`refinement-metatheory-of-record-review.md`](refinement-metatheory-of-record-review.md) (Rev 1, 2026-05-25); recommend `approve with revisions`. Six gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
+> **Status:** Settled (Rev 2) — professor review folded; pending documentation-lead promotion to `LLMLL.md §3.4 / §5`. Spec-track only (no compiler work implied; the rule is consistent with the existing two-phase implementation per §7 below).
 
 ---
 
@@ -114,6 +114,8 @@ Six non-goals are part of the rule of record. Each closes a Vazou-closure scope 
 
 1. **No general refinement subtyping (`<:`).** LLMLL has no user-visible subtyping relation between refinement-aliased types. Liquid Haskell's `{x:Int | P} <: {x:Int | Q}` iff `P ⇒ Q` valid in QF-LIA is *not* exposed in LLMLL's surface; refinement aliases interact only via the checking-mode rule above, which generates obligations at concrete introduction sites rather than verifying entailment between types. The two are operationally equivalent at checked introduction (Liquid Haskell's "subtyping" is exactly the checking-mode rule under a different name), but LLMLL's narrower surface pre-empts the implicit closure of abstract refinements, parametric refinements, and bounded refinements that the broader subtyping framing would invite.
 
+   **Operational-equivalence joint reading.** Per the Rev 1 professor review's Q-PROF-1 (folded), the operational equivalence is *load-bearing at the v0.11 surface*, not merely consonant — conditional on the §4.1 elimination rule's hypothesis-in-context discharge. At an introduction site `Γ ⊢ e ⇐ A`, both frameworks generate the same obligation `p[e/x]`. At an elimination site where `Γ` binds `x : A` and `x` flows into a call-site with refinement-aliased parameter type `B ≜ (where [x: τ] q)`, Vazou's subtyping discharges the call-site obligation `q[e/x]` against `<:` from `p`; LLMLL's checking-mode rule discharges the same obligation against the in-context hypothesis `p` introduced by the §4.1 elim rule at `x`'s binding site. The two systems converge on the same proof obligations and the same QF-LIA discharge. The Vazou *Abstract Refinement Types* (ESOP 2013) machinery — refinement variables, refinement polymorphism — is the only divergence; it is closed off per the Rev 2 §4.2 closure-scope clarification below.
+
 2. **No dependent pattern matching.** Pattern matching on refinement-aliased values destructures the *underlying* base type. A `match` arm against a `Letter` value (where `Letter ≜ (where [s: string] (= (string-length s) 1))`) binds a `string`, not a "string-known-to-be-length-1." The refinement hypothesis is added to the typing context via the elimination rule (§4.1), but it does not refine the bound variable's type.
 
 3. **No type-level computation.** Refinement predicates are first-order propositions in the QF-LIA fragment (or escape to `?proof-required`); they are not types. `(where [n: int] (> (factorial n) 0))` is not legal even if `factorial` is total — the predicate must be a first-order proposition over base-typed bindings, not a type-level computation.
@@ -125,6 +127,8 @@ Six non-goals are part of the rule of record. Each closes a Vazou-closure scope 
 6. **No boolean-expression-as-type-equality.** LLMLL has no propositional equality type `e₁ ≡ e₂`. A refinement predicate may *use* an equality expression (`(= x 0)`), but no type-level proposition `e₁ ≡ e₂` exists, and no inhabitant of such a type can be constructed or pattern-matched on.
 
 These six non-goals are exhaustive for v0.11. The list is closed; any feature beyond the surface in §3 and the rule in §4.1 requires explicit team consensus with a written soundness argument per the freeze-exception discipline at [`docs/compiler-team-roadmap.md:33-36`](../compiler-team-roadmap.md#L33-L36).
+
+**Closure-scope clarification (Rev 2, per the professor review's Gap #2).** Liquid Haskell ships several additional refinement-type features that lie within the Vazou-closure scope but are not enumerated above as separate non-goals: notably **refinement-polymorphic functions** (functions parametric over a refinement predicate, e.g. `forall (p : a -> Bool). ({x:a | p x} -> {y:a | p y})` per Vazou et al. *Abstract Refinement Types* ESOP 2013) and **termination-via-refinement** (refinement-encoded measures driving decreasing-call obligations). These are *not* separate v0.11 omissions; they are *consequences* of non-goal #1 (no general refinement subtyping) and non-goal #3 (no type-level computation) respectively, deferred to **REF-META-3 — predicate well-formedness rule** for explicit treatment of refinement-variable binding shapes. Future LT proposals that would re-introduce either feature must engage REF-META-3 first; that proposal's WF rule is the natural place to enumerate the refinement-predicate-binding shapes admitted (currently only `(where [x: T] p)` with a single free binding).
 
 ### 4.3 Soundness statement of record (tier-aware)
 
@@ -140,6 +144,8 @@ Adopted verbatim from [`critique-2026-05-23-triage.md §3.1`](critique-2026-05-2
 4. **`erBodyFallback` is not set, and `erOverflowTainted` is not set.** The v0.10.8 INT-1 mechanism at [`Syntax.hs:326-331`](../../compiler/src/LLMLL/Syntax.hs#L326-L331) explicitly marks overflow-tainted verified evidence; `--strict-verified-core` refuses such evidence per [`Main.hs:1119-1158`](../../compiler/app/Main.hs#L1119-L1158). The soundness statement applies under the strict tier.
 
 **Operational enforcement.** `--strict-verified-core` is the operational embodiment of this statement: a function whose evidence record satisfies all four preconditions is admitted; a function that fails any precondition (body-fallback, overflow-tainted, asserted dependency, or non-verified tier) is refused. The strict tier is the program-level evaluation of the soundness statement.
+
+**Closure under composition (Rev 2, per the professor review's Gap #3).** The statement above is *single-function*: it asserts refinement-predicate preservation for one function under four preconditions. The multi-function reading — that refinement-predicate preservation extends through a function's transitive call graph — is the *closure under composition* of the single-function property. The closure is what `--strict-verified-core` enforces operationally: a function fails admission if any callee in its transitive call graph has `erBodyFallback = True`, `erOverflowTainted = True`, or an `asserted`-tier dependency. The strict-tier admissibility set is therefore the closure of the single-function property under composition, not an individual-function property. Formal derivation of the closure (e.g., a per-call-site preservation lemma plus a transitive inductive argument) is **REF-META-4 territory** (erasure theorem with construction-side discipline); the prose acknowledgment here closes the multi-function reading at the spec-of-record level. Liquid Haskell's analogous closure (Vazou et al. POPL 2014 §6) is similarly stated per-top-level-definition and inherited compositionally via the type system's structure; LLMLL inherits the same discipline.
 
 **What is explicitly declined.** Path B (a mechanized soundness theorem proven against an independently-defined operational semantics) remains declined per [`verification-debate.md`](verification-debate.md) Q1-Q5. Liquid Haskell shipped without mechanized soundness for a decade; LLMLL inherits the same pragmatic stance. The soundness statement of record is a precise *statement* of the project's commitment, not a *theorem* in the mechanized sense.
 
@@ -206,7 +212,9 @@ Five representative edge cases, each classified by verification channel and citi
 
 **Expected behavior.** The match arm binds `s : string` (the underlying base type, per non-goal §4.2 #2). The refinement `(= (string-length s) 1)` is added to the typing context as a *hypothesis* via the elimination rule (§4.1). Subsequent obligations involving `s` may use the hypothesis to discharge length-related predicates without recourse to the verifier.
 
-**Verification channel.** Type (the bound variable is `string`, not "string-known-to-be-length-1") + contract (the hypothesis is available to liquid-fixpoint for downstream obligations).
+**Lexical scoping (Rev 2, per the professor review's Gap #4).** The refinement hypothesis introduced at the binding site is *lexically scoped* — it is available within the match arm's body but does not propagate outside the arm into the surrounding expression. LLMLL has no flow-sensitive refinement reasoning: a variable's refinement hypothesis is determined by its declared type at the binding site (non-goal §4.2 #1 — no general refinement subtyping — is the load-bearing reason), not by program flow. If the agent needs the refinement to be available across multiple uses of `s`, the declared type of `s` must carry the refinement (e.g., a `where [s: string] (= (string-length s) 1)` parameter type or a refinement-aliased local binding); destructuring a wider type into an unrefined base type and then deriving a refinement hypothesis is admissible *within the destructuring arm only*. This matches LH's lexical-scoping treatment of refinement hypotheses (Vazou et al. POPL 2014 §3); LLMLL has not adopted the Vazou ESOP 2013 abstract-interpretation extension that would make the hypothesis flow-sensitive.
+
+**Verification channel.** Type (the bound variable is `string`, not "string-known-to-be-length-1") + contract (the hypothesis is available to liquid-fixpoint for downstream obligations within the arm's lexical scope).
 
 ### 5.5 Refinement on a sum-type element
 
@@ -224,6 +232,8 @@ Five representative edge cases, each classified by verification channel and citi
 **Expected behavior.** The `Success n` construction is a checked introduction of `PositiveInt` — the refinement obligation `(> n 0)` joins the obligation set at the introduction site. Under the `(if (> n 0) ...)` guard, the path condition `(> n 0)` discharges the obligation via the existing path-condition mechanism at [`FixpointEmit.hs`](../../compiler/src/LLMLL/FixpointEmit.hs) (`FlatPath` guards). Without the guard, the verifier would emit a `UNSAFE` diagnostic naming the unmet refinement obligation.
 
 **Verification channel.** Contract; QF-LIA.
+
+**Refinement on the sum type itself (Rev 2, per the professor review's Gap #5).** §5.5 demonstrates the *payload-refinement* case — a refinement (`PositiveInt`) on a `Success` constructor's payload. A distinct case is not shown: a refinement alias on the sum type itself, e.g. `(type SuccessOnly (where [r: Result] (is-ok r)))`. The `where` form syntactically admits this shape; whether the predicate `(is-ok r)` is QF-LIA-tractable depends on `is-ok`'s implementation (a builtin returning `bool` with a known refinement signature is QF-LIA; an opaque or recursive `is-ok` routes to runtime or `?proof-required` per §5.3). REF-META-1 does not enumerate the well-formedness conditions on such predicates; the formal treatment is **REF-META-3 territory** (predicate well-formedness rule). For v0.11, refinement-on-sum-type-itself is admitted syntactically and discharged per the per-predicate fragment classification at §5.3 (QF-LIA / nonlinear / `?proof-required`), with no separate channel introduced.
 
 ---
 
@@ -262,11 +272,29 @@ If `compiler-engineer` audit reveals that the verifier does *not* emit refinemen
 
 **No CHANGELOG entry.** REF-META-1 promotion via `documentation-lead` is a spec pedagogy clarification; no user-visible compiler behavior changes. CHANGELOG silence is appropriate.
 
+### 7.1 Verifier emission-site checklist (Rev 2, per the professor review's Gap #6)
+
+The spec-level rule at §4.1 names introduction and elimination sites where the verifier should emit refinement-predicate obligations. The current compiler may emit at a subset of these sites. The Rev 2 checklist below is the *engineer-audit measurement target* — the named sites the verifier must be confirmed to emit at, with the audit's findings routed back to engineer for any gaps:
+
+1. **Function parameter binding (callee-side intro).** When a function `f` has a refinement-aliased parameter `(x: A)` where `A ≜ (where [v: τ] p)`, the verifier emits the refinement obligation `p[arg/v]` at each call site `f(arg)`. Compiler module: [`compiler/src/LLMLL/Contracts.hs`](../../compiler/src/LLMLL/Contracts.hs) + [`compiler/src/LLMLL/FixpointEmit.hs`](../../compiler/src/LLMLL/FixpointEmit.hs).
+
+2. **Return-type checking (caller-side intro).** When a function `f` has a refinement-aliased return type `-> A`, the verifier emits the refinement obligation `p[result/v]` against the body's actual return expression. Compiler module: same as (1).
+
+3. **Pattern destructuring of refinement-typed values (elim).** When a `match` arm binds `x : A`, the verifier *adds* the refinement `p` as a hypothesis to the typing context for the arm body's downstream obligations. The hypothesis is lexically scoped per §5.4 Rev 2 commitment. Compiler module: [`compiler/src/LLMLL/Contracts.hs`](../../compiler/src/LLMLL/Contracts.hs) (per-clause hypothesis assembly).
+
+4. **Sum-type constructor application with refinement-typed payload (intro).** When a sum-type constructor `Success(e)` carries a refinement-typed payload `A`, the verifier emits the refinement obligation `p[e/v]` at the construction site per §5.5. Compiler module: same as (1).
+
+5. **`let`-binding with refinement-typed RHS (intro).** When `(let [(x: A) e1] e2)` declares `x` at refinement-aliased type `A`, the verifier emits the obligation `p[e1/v]` at the `let` site and adds the hypothesis `p` to the context for `e2`. Compiler module: same as (1).
+
+6. **`?hole` filling under refinement-typed expected type (deferred intro).** When `?hole` appears in a position whose expected type is refinement-aliased `A`, the obligation report surfaces `postcondition_goal: p[result/v]` (per §5.1) but no obligation is yet emitted to the verifier (the hole is unfilled). When the hole is filled with `e`, the obligation `p[e/v]` is emitted per (1)-(5) depending on the syntactic position. Compiler module: [`compiler/src/LLMLL/ObligationAssembly.hs`](../../compiler/src/LLMLL/ObligationAssembly.hs) (goal-state reporting); [`compiler/src/LLMLL/Contracts.hs`](../../compiler/src/LLMLL/Contracts.hs) (post-fill emission).
+
+**Audit-finding routing.** Any site at which the verifier does *not* currently emit the named obligation is a *spec/code drift finding* routed to a separate compiler-engineer ticket (not a REF-META-1 revision). The audit measures the compiler against this checklist; the spec is the measurement target, not the implementation. If audit reveals gaps, the engineer ticket carries the citation (`§7.1 site N`) and the proposal stays at Rev 2 — the audit's findings do not re-litigate the spec.
+
 ---
 
 ## 8. Risks and open questions
 
-1. **Spec/code drift between the rule (§4.1) and the verifier's actual emission sites.** *Classify: spec-drift.* Source: the proposal asserts the verifier emits refinement-predicate obligations at all the intro/elim sites the rule names (function-parameter binding, return-type checking, pattern destructuring, sum-type element introduction at §5.5). The current compiler may emit obligations at a subset of these sites. Bite: medium — if the audit finds gaps, the gap is a verifier-side bug to file as a separate engineer ticket; the proposal's rule does not change. Mitigation: REF-META-1 is the *spec of record*; the audit measures the compiler against the spec, not vice versa.
+1. **Spec/code drift between the rule (§4.1) and the verifier's actual emission sites.** *Classify: spec-drift.* Source: the proposal asserts the verifier emits refinement-predicate obligations at all the intro/elim sites the rule names. The Rev 2 §7.1 emission-site checklist enumerates the six named sites for the engineer audit; the current compiler may emit obligations at a subset of these sites. Bite: medium — if the audit finds gaps, the gap is a verifier-side bug to file as a separate engineer ticket; the proposal's rule does not change. Mitigation: REF-META-1 is the *spec of record* and §7.1 is the *audit checklist*; the audit measures the compiler against the spec, not vice versa. Audit-finding routing per §7.1's "Audit-finding routing" paragraph.
 
 2. **Non-goals list completeness.** *Classify: scope.* Source: §4.2 enumerates six non-goals as "exhaustive for v0.11." Bite: low — the list closes the Vazou-closure scope that the §3.1 adjudication identified, but Liquid Haskell ships *other* refinement-type features (e.g., termination-via-refinement, refinement-polymorphic data types) the list does not name. Adjudication: the six items cover the v0.11 scope boundary; additional non-goals for refinement-polymorphic types, etc., are deferred to REF-META-3 (predicate WF rule) or post-v0.11.
 
@@ -286,4 +314,6 @@ If `compiler-engineer` audit reveals that the verifier does *not* emit refinemen
 
 ## 10. Companion review
 
-*Pending — `refinement-metatheory-of-record-review.md`.* Recommend batching this proposal's professor review with the three other settled v0.11 LT proposals (LT-INV, LT-CDP, LT-PPR) in a single professor turn, since all four are gate-independent and the professor's outside-PL reading benefits from cross-proposal consistency checks.
+Professor review landed at [`refinement-metatheory-of-record-review.md`](refinement-metatheory-of-record-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on six gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§4.2 #1 joint reading; §4.2 closure-scope clarification; §4.3 closure-under-composition; §5.4 lexical scoping; §5.5 refinement-on-sum-type-itself; §7.1 emission-site checklist). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact for the LT-INV / LT-CDP / LT-PPR engineer-build sequencing.
+
+The standalone `refinement-metatheory-of-record-review.md` awaits doc-lead M2 fold-and-archive per [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) row 4. Post-fold, the review's content lands as `## Appendix — Professor review log` on this proposal; the standalone moves to [`docs/archive/professor-reviews/`](../archive/professor-reviews/).
