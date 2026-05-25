@@ -2,9 +2,7 @@
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
-> See [CHANGELOG.md](CHANGELOG.md) for full release notes.
-
-> **v0.10.8 is shipped.** Patch release — INT-1 `overflow_tainted` marking on body-faithful verified evidence + `--strict-verified-core` refusal extension: `EvidenceRecord` at `compiler/src/LLMLL/Syntax.hs:326-339` gains a fifth field `erOverflowTainted :: Bool`; the body-VC emitter at `compiler/src/LLMLL/FixpointEmit.hs:506-516` fires `bodyHasOverflowArith` on every body-faithful function and marks the resulting `DLVerified` evidence when the body contains LLMLL-level integer arithmetic (`EOp` / `EApp` on `+`, `-`, `*`, `/`, `mod`, `rem`, `^`, `**`) over non-`Int64`-folding operands. The marker is the operational discharge of the documented `Int64` overflow gap at `LLMLL.md §5.3.5`: solver evidence is sound at the verifier level, but the underlying Haskell `Int` arithmetic may overflow. `--strict-verified-core` now refuses tainted verified evidence with a distinct diagnostic naming the `?proof-required` + Leanstral and v0.11 INT-2 escape paths. `.verified.json` sidecars gain an additive `overflow_tainted: true` per-clause (only-when-true) plus invalidate-on-missing for pre-v0.10.8 verified body-faithful entries, eliminating silent under-strictness on stale sidecars. Trust-report JSON gains top-level `overflow_tainted_fns` array + per-entry `overflow_tainted: true`; obligation-report `TrustChannel` gains `overflow_tainted` per clause. `trust_report_version` stays `1.1.0`; JSON-AST `schemaVersion` stays `0.5.0`; verification fragment unchanged; no new SMT theory introduced. Trigger set becomes dormant on `int` post-v0.11 INT-2 (when `int` lowers to unbounded `Integer`) and re-arms on the post-freeze `machine-int` primitive per INT-3. 672 Haskell + 37 Python tests passing. See [`CHANGELOG.md`](CHANGELOG.md).
+> **Current version:** see [`CHANGELOG.md`](CHANGELOG.md) `## Latest`. Full release notes per version live in CHANGELOG; this README does not duplicate them.
 
 ---
 
@@ -125,7 +123,7 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 ## Repository layout
 
 ```
-LLMLL.md                    ← canonical language specification (v0.10.1)
+LLMLL.md                    ← canonical language specification
 CHANGELOG.md                ← release notes
 compiler/                   ← Haskell compiler (stack project)
   src/LLMLL/
@@ -179,18 +177,15 @@ examples/
   pair_type_test/           ← TPair + do-notation test fixtures
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
+  UPDATE-PROTOCOL.md        ← Doc canonical-sources + per-change update matrix (DOC-CONSOLIDATE D1)
   getting-started.md        ← Build guide, known-good patterns, schema versioning
-  compiler-team-roadmap.md  ← Engineering backlog (v0.10 shipped)
+  compiler-team-roadmap.md  ← Engineering backlog and shipped-releases history
   llmll-ast.schema.json     ← JSON-AST schema v0.5.0 (use with AI agents; CheckoutToken introduced v0.3.0; CheckDecl.subjects introduced v0.5.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
-  wasm-poc-report.md        ← v0.3.2: GHC WASM feasibility assessment
-  design/                   ← Design discussions, proposals, and reviews
-    INDEX.md                ← Reading guide for all design documents
-    agent-orchestration.md  ← Orchestrator architecture design
-    agent-prompt-semantics-gap.md ← Agent prompt gap analysis (approved)
-    lead-agent.md           ← Lead Agent skeleton generation design
-  archive/analysis/         ← Historical analysis docs
+  design/                   ← Active design proposals (status in design/INDEX.md)
+    INDEX.md                ← Reading guide for active design documents
+  archive/                  ← Superseded design specs, shipped proposals, professor reviews, wasm investigations
 tools/
   llmll-orchestra/          ← Python orchestrator (pip package)
     llmll_orchestra/
@@ -209,12 +204,12 @@ tools/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog — v0.10.0 shipped |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog and shipped-releases history (current version cited in CHANGELOG `## Latest`) |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
+| [`docs/UPDATE-PROTOCOL.md`](docs/UPDATE-PROTOCOL.md) | Doc canonical-sources table and per-change update matrix (DOC-CONSOLIDATE D1) |
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
 | [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |
 | [`docs/design/INDEX.md`](docs/design/INDEX.md) | Reading guide for all active design documents |
-| [`docs/wasm-poc-report.md`](docs/wasm-poc-report.md) | v0.3.2 GHC WASM feasibility assessment (conditional GO — feasibility confirmed) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release notes by version |
 
 ---

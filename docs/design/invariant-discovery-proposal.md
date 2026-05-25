@@ -402,3 +402,44 @@ The strongest next step would be to formalize 3 concrete mechanisms:
 3. differential implementation comparison
 
 and show them on one nontrivial example, like sorting, parser round-tripping, or financial transaction normalization.
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal has been folded into this appendix and the source file archived to `docs/archive/professor-reviews/invariant-discovery-review.md`. One line per finding, with cite to the original review hash.
+
+**Source:** `docs/design/invariant-discovery-review.md` at commit `0c9057b99684167a65f2f4b8c3438b9e20288e5f` (review dated 2026-04-12; reviewer: Lead Consultant for Formal Language Design).
+
+### Mechanism-by-mechanism dispositions (§2 of review)
+
+1. **§3 Differential Implementation Pressure** — Strong; ship first. Wired into v0.4 / v0.5 implementation pressure work.
+2. **§4 Downstream Obligation Mining** — Very strong; natural fit for type system. Shipped as v0.10 OBLIG-4.
+3. **§5 Adversarial Implementation Search** — Conceptually strong, scoping caveats. Deferred to research track.
+4. **§6 Property Discovery from Implementation Disagreement** — Useful but derivative of §3. Folded into differential-pressure work.
+5. **§7 Spec Entropy from Hole Size** — Interesting metric, measurement is tricky. Subsumed under §6's contract discriminative power concept.
+6. **§8 CEGIS** — Most mature; ship early. Phase B item.
+7. **§9 Invariant Pattern Registry** — High leverage, low novelty. Shipped as v0.4.0 `InvariantRegistry.hs` + `ObligationMining.hs`.
+8. **§10 Algebraic Law Expectation** — Correct in principle, requires typeclass infrastructure. Shipped under v0.6.2 algebraic-interface-laws.
+9. **§11 Proof-Obligation Explanation** — Critical for usability; partially addressed. Closed by v0.10 OBLIG-2/OBLIG-3 obligation reports.
+
+### Caveats and gaps (§4 of review)
+
+- **4.1 Healthy-diversity problem is harder than acknowledged.** Recorded under [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) `(spec-entropy :strict | :intentional | :unknown)` annotation as the healthy-diversity-vs-underspecification honoring mechanism.
+- **4.2 Contract entropy metric conflates semantic and observational equivalence.** Resolved in [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) via subobject-lattice valuation framing (post-amended-critic; see [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.2).
+- **4.3 No discussion of incremental strengthening convergence.** Deferred to research-track CEGIS work.
+- **4.4 Computational cost is unaddressed.** Tracked at research-track level; per-mechanism cost analyses produced as each mechanism is promoted.
+
+### Recommended prioritization (§5 of review)
+
+- **Phase A (immediate):** Differential implementation pressure, obligation mining, invariant pattern registry — *all shipped by v0.10.*
+- **Phase B (near-term):** CEGIS strengthening, algebraic law expectation, proof-obligation explanation — *partially shipped; CEGIS still research-track.*
+- **Phase C (research):** Adversarial implementation search, property discovery from disagreement — *research-track.*
+
+### Key concept formalized (§6 of review)
+
+The review's §6 introduces **"contract discriminative power"** as the load-bearing metric. Promoted to v0.11 first-class evidence axis in [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) (LT-CDP, settled 2026-05-23); supersedes the earlier research-track formalization at `docs/research-track.md §6`.
+
+### Overall assessment (recorded)
+
+The review's overall assessment endorses the proposal's central reframing ("can we arrange the system so that underspecification produces visible friction?") and recommends a phased implementation. Phase A is shipped; Phase B is in-flight via the v0.11 CDP-0 evidence-axis work; Phase C remains research-track. The proposal and the review together have served their research-direction role; further mechanism work is tracked under [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) Research Track and [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md).

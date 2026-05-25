@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — v0.10.7 shipped (TC-EOP-1 EOp Arity/Type-Check Fix + OBLIG-PBT-5a Joint PBT Witness Scalar Exclusion). 656 Haskell + 37 Python tests passing  
+> **Status:** Active — see [`../CHANGELOG.md`](../CHANGELOG.md) `## Latest` for shipped version (canonical per DOC-CONSOLIDATE P1; this header no longer version-stamps).  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every compiler deliverable is evaluated against *progress toward one-shot correctness* — does this release reduce the iteration burden, increase obligation completeness, or shorten the repair distance for an AI agent producing LLMLL code? The intended terminal state is that an agent writes a program once, the compiler accepts it, contracts verify.
@@ -19,7 +19,20 @@
 
 ---
 
-# Upcoming Releases
+## Table of contents (DOC-CONSOLIDATE M5 small-cut)
+
+- [Upcoming Releases](#upcoming-releases) (high-churn)
+- [Active Items](#active-items) (high-churn — nested under Cross-cutting concerns)
+- [Feature Freeze Policy](#feature-freeze-policy) (low-churn)
+- [Cross-cutting concerns](#cross-cutting-concerns) (low-churn)
+- [Summary: Version Plan and Critical Path](#summary-version-plan-and-critical-path)
+- [Shipped Releases](#shipped-releases) (append-only)
+
+> Skills deep-link into these anchors per `docs/UPDATE-PROTOCOL.md` §3.1. Larger M5 cut (extracting Shipped Releases to `docs/archive/roadmap-history.md`) deferred until in-file Shipped history crosses ~500 lines.
+
+---
+
+## Upcoming Releases
 
 > **Roadmap reorganization (2026-04-30):** Professor's five-round review identified that the old v0.8.1 was entirely blocked on external availability (`lean-lsp-mcp`). Replaced with three actionable milestones: v0.8.1a (documentation boundary clarity), v0.8.1b (evidence model refactor), v0.9 (compositional verification). Feature freeze active through v0.9. LEAN-GA, TRUST-2b, MCP moved to externally-blocked parking lot. Research items in [research-track.md](research-track.md).
 
@@ -275,7 +288,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 ---
 
-# Cross-Cutting Concerns
+## Cross-cutting concerns
 
 ### Active Items
 
@@ -332,6 +345,21 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | **Full categorical unification** (fibrations / graded monads / patch-merge derivation) | **Declined** | Disproportionate per professor adjudication; amended critic did not re-propose. See [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) §5 |
 | **Path B mechanized soundness theorem** | **Declined** | Inherited Path A stance from [`docs/design/verification-debate.md`](design/verification-debate.md) |
 
+#### Research track (migrated from `docs/research-track.md`, 2026-05-25)
+
+> Per DOC-CONSOLIDATE M4 (settled 2026-05-24), `docs/research-track.md` has been archived to `docs/archive/research-track.md`. The six remaining active items (item #6 Contract Discriminative Power was already promoted to v0.11 CDP-0 on 2026-05-23) are summarized below as a single-line index with archive cite. **Per-item overlap audit vs existing roadmap content is pending language-team adjudication** — the migrated items below may already be subsumed in part by existing v0.11 / Cross-cutting rows (e.g., item #5 Differential Implementation Pressure overlaps the OBLIG-* family; item #1 Indexed Types overlaps `docs/design/type-driven-development.md`). Items remain authoritative at the archived source until adjudication resolves.
+
+| # | Item | Original promotion criterion | Archive source |
+|---|------|------------------------------|----------------|
+| **R1** | **Indexed / Dependent Types** (`Vect n a`, GADTs, type-level arithmetic, bidirectional typechecking) | Design spec with typing rules, bidirectional migration plan, erasure strategy | [`docs/archive/research-track.md §1`](archive/research-track.md) |
+| **R2** | **Self-Hosted Orchestrator** (rewrite `llmll-orchestra` as LLMLL `def-main :mode cli`) | Agent accuracy ≥80% on auth module exercise when filling LLMLL-source holes | [`docs/archive/research-track.md §2`](archive/research-track.md) |
+| **R3** | **Spec-from-RFC Pipeline** (RFC text → LLMLL contracts with clause provenance traceability) | Concrete pipeline design doc with at least one worked example (e.g., ERC-20) | [`docs/archive/research-track.md §3`](archive/research-track.md) |
+| **R4** | **Synthetic Training Corpus** (Hackage back-translation; transpiler + spec lifting + benchmark) | Research proposal with measurable hypothesis and evaluation methodology | [`docs/archive/research-track.md §4`](archive/research-track.md) |
+| **R5** | **Differential Implementation Pressure** (`llmll checkout --multi`; N agents fill same `?delegate`; divergence analysis as new module `DivergenceCheck.hs`) | Agent accuracy baseline established | [`docs/archive/research-track.md §5`](archive/research-track.md) |
+| **R7** | **Call-Site Strict Descent** (`measure(args') < measure(args)` constraint at each recursive call site; independent of BODY-VC per consultant correction 2026-04-28) | Independent design spec for descent constraint generation | [`docs/archive/research-track.md §7`](archive/research-track.md) |
+
+> **External Consultant Review (2026-04-28)** and **Impact Analysis (2026-05-01)** preserved in archive at [`docs/archive/research-track.md §§Impact-Analysis,External-Consultant-Review`](archive/research-track.md). Near-term recommendations 1–4 closed; items 5 (R5) and 6 (R3) remain open.
+
 <details><summary><strong>Resolved cross-cutting items (click to expand)</strong></summary>
 
 | Item | Resolution |
@@ -372,7 +400,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 ---
 
-# Summary: Version Plan and Critical Path
+## Summary: Version Plan and Critical Path
 
 > **Roadmap restructure (2026-04-30, extended 2026-05-01):** Professor's review + language team consensus. Old v0.8.1 (blocked on `lean-lsp-mcp`) replaced with four actionable milestones. Feature freeze active from v0.8.1a through v0.10.
 
@@ -471,7 +499,7 @@ Research-track items are tracked separately in [research-track.md](research-trac
 | Python FFI tier | Breaks WASM compatibility; dynamically typed; dropped from spec |
 | Opaque `Command` type | Replaced by typed effect row (`Eff '[...]`) |
 
-# Shipped Releases
+## Shipped Releases
 
 <details><summary><strong>Click to expand shipped release details (v0.1.1 → v0.10.0)</strong></summary>
 

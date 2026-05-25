@@ -315,3 +315,30 @@ Soundness, decidability, strict-immutability, and freeze-policy risks all close 
 - **Prior PBT roadmap rows:** OBLIG-PBT-2 (row 164, shipped), MOD-PBT-1 (row 163, shipped)
 - **Phase-3 framework:** `docs/design/language-comparison-experiments.md` §Soundness Assessment (R6d operationalization at line 37)
 - **Sibling design constraints:** v0.8.1b evidence model (`docs/archive/shipped-design-specs/`), R6d trust-report tier profile (v0.10.4 CHANGELOG)
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal has been folded into this appendix and the source file archived to `docs/archive/professor-reviews/oblig-pbt-3-review.md`. One line per finding; all resolved in Rev 2 of this proposal.
+
+**Source:** `docs/design/oblig-pbt-3-review.md` at commit `fb236c9b2aadbeea6e170ec447c13f12700e97d6` (review dated 2026-05-13; reviewer: Lead Consultant for Formal Language Design).
+
+### Gaps (all resolved in Rev 2)
+
+1. **`DLTested n` carries a misleading sample count under QuickCheck-discard semantics.** Rev 1's `n = numTests` ignores `qcSamples` discards under `==>`. Resolved: Rev 2 §6 makes `evaluatedSamples` explicit and distinguishes from `numTests`.
+2. **Body-name-broadcast over-credits multi-subject properties.** Rev 1 lifted `DLTested` onto every named function in head-position. Resolved: Rev 2 §3 narrows the linkage rule to *singleton head-position* and sequences `:subject` metadata to OBLIG-PBT-4.
+3. **Sidecar invariant change is not as invisible as Rev 1 claims.** `tier_profile` shape change breaks v1.0.0 consumers. Resolved: Rev 2 §4 bumps `trust_report_version` 1.0.0 → 1.1.0 and documents the migration.
+4. **The aggregate-pin is created by OBLIG-PBT-3, not merely exposed.** Rev 1 framed the `effectiveLevel = meet(pre, post)` aggregate-pin as pre-existing. Resolved: Rev 2 §5 introduces per-clause `tier_profile_pre`/`tier_profile_post` so PBT signal is not pinned by `pre`'s assertion-status.
+5. **`min`-over-coverage is the wrong reduction within a single evidence channel.** Cross-channel meet ≠ within-channel join. Resolved: Rev 2 §7 specifies the within-channel reduction as max-coverage / first-seen-hash, not the diamond `evidenceMeet`.
+6. **Property staleness is not deferrable.** Rev 1 deferred body-hash to a future extension. Resolved: Rev 2 §8 adds SHA-256 property-body provenance with read-side staleness downgrade in this release.
+7. **The proposal does not consult Liquid Haskell on the philosophical point.** Resolved: Rev 2 §11 adds an explicit design-divergence statement vs Liquid Haskell (LH has no QC-to-refinement-display channel; LLMLL's choice is deliberate).
+
+### Open questions (both resolved in Rev 2)
+
+- **Q-PROF-1.** Justify rejection of `:subject` keyword on `(check ...)` blocks under feature-freeze. Resolved: Rev 2 §10 sequences `:subject` to OBLIG-PBT-4, with the rationale that under-freeze additive emit (singleton head-position) is sound and freeze-compliant; `:subject` enables joint-multi-subject lifts that require an evaluation-coverage primitive.
+- **Q-PROF-2.** Specify how `DLTested n` is to be interpreted under implication-shape properties. Resolved: Rev 2 §6 ties `evaluatedSamples` to QuickCheck's discard accounting and notes that implication-shape properties may evaluate `< qcSamples` of their domain.
+
+### Overall assessment (recorded)
+
+The review's overall assessment recommends approval for compiler-engineer hand-off subject to Rev 2 resolution of all seven gaps. Rev 2 (settled 2026-05-13) carries each resolution inline at the cited §-references above.
