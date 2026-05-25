@@ -1,11 +1,11 @@
 # LT-INT / INT-2 — Boundary-Shim Catalog for `int → Integer` Codegen Switch
 
-> **Version:** Rev 1 — initial settled draft
-> **Date:** 2026-05-23
+> **Version:** Rev 3 — F-E1 (codegen-site citation) + F-E2 (`wasi_http_response` Class A entry) + F-E3 (`emitLit` literal-monomorphisation site) absorbed
+> **Date:** 2026-05-24
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 4 (LT-INT / INT-2), Active Items row at `:313`
 > **Prerequisites:** v0.10.7 (TC-EOP-1, OBLIG-PBT-5a, INT-1) — INT-PRE baseline must include INT-1's `overflow_tainted` machinery
-> **Origin:** Language-team review of experiment-lead's INT-PRE run plan (2026-05-23); finding F1 (boundary-shim catalog underspecification) — the roadmap permission "indexing primitives **may stay** `Int` and use `fromIntegral` at boundary" is not a catalog; INT-PRE Variant B fidelity requires this enumeration to be authored before the engineer mechanically realizes the codegen patch
-> **Status:** Settled (proposal) — awaiting INT-PRE baseline and compiler-engineer hand-off
+> **Origin:** Rev 1 — language-team review of experiment-lead's INT-PRE run plan (2026-05-23); finding F1 (boundary-shim catalog underspecification) — the roadmap permission "indexing primitives **may stay** `Int` and use `fromIntegral` at boundary" is not a catalog; INT-PRE Variant B fidelity requires this enumeration to be authored before the engineer mechanically realizes the codegen patch. Rev 2 — absorption of two compiler-engineer findings (F-E1, F-E2) surfaced by the INT-PRE Variant B prototype (commit 03d5722 on the `int-pre/variant-b` branch, deleted after INT-PRE cleared); corrections land here before the fresh INT-2 engineer build reads the catalog. Rev 3 — F-E3 absorbed in the same session: a third `int → Integer` codegen site (`emitLit` at [`CodegenHs.hs:706`](../../compiler/src/LLMLL/CodegenHs.hs)) was surfaced by the language-team during F-E1 verification (2026-05-24) and is parallel in structure to F-E1.
+> **Status:** Settled (proposal) — INT-PRE cleared; awaiting INT-2 compiler-engineer hand-off
 
 ---
 
@@ -13,7 +13,13 @@
 
 LT-INT / INT-2 ships the spec move `int` = "mathematical integer (unbounded)" at [`LLMLL.md §3.1:153`](../../LLMLL.md), aligning the surface type definition with the existing semantic-foundation clause at [`LLMLL.md §0.1:49`](../../LLMLL.md): *"verification … under mathematical-integer (unbounded) semantics — modulo the `Int64` overflow gap documented in §5.3.5."* The gap has been documented since v0.8.1a; INT-2 closes it.
 
-The roadmap entry at [`docs/compiler-team-roadmap.md:157, 313`](../compiler-team-roadmap.md) describes INT-2 as "one-line [`CodegenHs.hs:441`](../../compiler/src/LLMLL/CodegenHs.hs) change (`Int → Integer`) plus preamble-signature ripple at `:232-360` audit (indexing primitives may stay `Int` and use `fromIntegral` at boundary)." The one-line change is mechanical. The preamble audit is not — it requires a per-primitive classification that has not been authored anywhere in the design folder, the roadmap, or the codegen-team comments.
+The roadmap entry at [`docs/compiler-team-roadmap.md:157, 313`](../compiler-team-roadmap.md) describes INT-2 as "one-line [`CodegenHs.hs:441`](../../compiler/src/LLMLL/CodegenHs.hs) change (`Int → Integer`) plus preamble-signature ripple at `:232-360` audit (indexing primitives may stay `Int` and use `fromIntegral` at boundary)." The "one-line at `:441`" framing understates the codegen change. There are **three sites**, not one:
+
+1. **Primary AST-emission site** — [`CodegenHs.hs:723`](../../compiler/src/LLMLL/CodegenHs.hs), `toHsType TInt = "Int"` (per F-E1 from the INT-PRE Variant B prototype, commit 03d5722). This is the dominant seam; nearly every `int`-typed AST position surfaces here.
+2. **Secondary `TCustom`-payload site** — [`CodegenHs.hs:441`](../../compiler/src/LLMLL/CodegenHs.hs), `mapLlmllPrimType "int" = "Int"` (per F-E1). This is the constructor-payload helper reached when a sum-type constructor carries an `int` payload.
+3. **Literal-emission site** — [`CodegenHs.hs:706`](../../compiler/src/LLMLL/CodegenHs.hs), `emitLit (LitInt n) = "(" <> show n <> " :: Int)"` (per F-E3, surfaced during F-E1 verification on 2026-05-24). The line carries an explicit `-- B2: monomorphise to Int (LLMLL int = Haskell Int)` comment, recording the historical decision that INT-2 unwinds. Post-INT-2 the ascription must become `:: Integer` (or be dropped in favor of GHC's `Num`-polymorphic default-numeric inference), otherwise `Integer`-typed surroundings will type-error when consuming an `Int`-ascribed literal.
+
+**INT-2 must flip all three.** A patch that touches only `:441` (per the roadmap's "one-line" phrasing) ships a partial codegen change that breaks at both `toHsType TInt` and at the literal emitter; a patch that touches only `:723` + `:441` (per Rev 2's two-site framing) still type-errors on integer-literal call sites. The preamble audit is also not mechanical — it requires a per-primitive classification that has not been authored anywhere in the design folder, the roadmap, or the codegen-team comments.
 
 The empirical loop runs INT-PRE before INT-2 commits, with the gate criterion "TOTP regression < 5× → INT-2 proceeds; ≥ 5× → INT-3 freeze-exception candidate." INT-PRE requires a Variant B prototype that mirrors what INT-2 *actually* ships. Without a settled catalog, Variant B is underdetermined: the experiment-lead might measure one boundary choice while INT-2 eventually ships a different one, and the gate adjudication is not reproducible.
 
@@ -47,7 +53,7 @@ This proposal authors the catalog. It classifies each preamble primitive at [`Co
 
 ## 3. Catalog
 
-The preamble at [`CodegenHs.hs:232-360`](../../compiler/src/LLMLL/CodegenHs.hs) carries fifteen entries that touch `Int` in their Haskell signatures. They classify as follows.
+The preamble at [`CodegenHs.hs:232-360`](../../compiler/src/LLMLL/CodegenHs.hs) carries fourteen entries that touch `Int` in their Haskell signatures (Rev-2 count; Rev 1 said "fifteen" but enumerated thirteen — Rev 2 adds `wasi_http_response` per F-E2, bringing the table-tracked total to fourteen). They classify as follows.
 
 ### 3.1 Class A — stays `Int` (indexing primitives)
 
@@ -61,8 +67,11 @@ These primitives expose Haskell's idiomatic index/length operations. Their `Int`
 | `string_slice` | `String -> Int -> Int -> String` | `string-slice :: string -> int -> int -> string` | `fromIntegral` on both index arguments |
 | `string_char_at` | `String -> Int -> String` | `string-char-at :: string -> int -> string` | `fromIntegral` on index argument |
 | `range-idx` (renamed; see §3.4) | `Int -> Int -> [Int]` | `range-idx :: int -> int -> list[int]` | `fromIntegral` on both endpoint arguments; result list `[Int]` is wrapped as `list[int]` via `map fromIntegral` at the LLMLL boundary |
+| `wasi_http_response` † | `Int -> String -> IO ()` → `Integral i => i -> String -> IO ()` | `wasi-http-response :: int -> string -> IO[unit]` | **Polymorphic refactor** + `{-# SPECIALIZE wasi_http_response :: Integer -> String -> IO () #-}`; `fromIntegral` at the WASI seam keeps the hot path monomorphic on `Integer` |
 
-Six entries. Each preserves its current Haskell signature. The cost of preservation is one `fromIntegral` at each LLMLL-to-Haskell call seam; this is `O(1)` for scalar arguments and `O(n)` for list-of-`Int` returns (see §3.4 for the `range-idx` element-wise wrap).
+Seven entries. Six (rows 1–6) preserve their current Haskell signatures; the cost of preservation is one `fromIntegral` at each LLMLL-to-Haskell call seam, which is `O(1)` for scalar arguments and `O(n)` for list-of-`Int` returns (see §3.4 for the `range-idx` element-wise wrap). The seventh (`wasi_http_response`, row 7) uses the polymorphic-refactor sub-pattern documented immediately below.
+
+> **† Class A polymorphic sub-pattern** (added Rev 2 per F-E2 from the INT-PRE Variant B prototype, commit 03d5722 on the retired `int-pre/variant-b` branch). `wasi_http_response` at [`CodegenHs.hs:360`](../../compiler/src/LLMLL/CodegenHs.hs) differs from the five stdlib-bound Class A entries (`list_length`, `list_nth`, `string_length`, `string_slice`, `string_char_at`) and from the internal helper `range-idx`: its `Int` signature is dictated neither by the Haskell standard library nor by codegen-internal index iteration, but by historical LLMLL builtin convention. The Variant B engineer classified it **Class A polymorphic** — refactor to `Integral i => i -> String -> IO ()` with `{-# SPECIALIZE wasi_http_response :: Integer -> String -> IO () #-}` so that `Integer`-valued status codes (the dominant LLMLL-surface case post-INT-2) call the specialized monomorphic instance directly without per-call `fromIntegral`, while any `Int`-valued internal caller routes through the polymorphic dispatch. `fromIntegral` is applied at the WASI seam itself (inside the function body, before the status code crosses into the underlying transport). The pattern is the recommended template for any future LLMLL-owned IO primitive with an `Int` parameter that survives INT-2.
 
 ### 3.2 Class B — becomes `Integer` (semantic-arithmetic primitives)
 
@@ -165,8 +174,10 @@ No constraint emitter changes in `FixpointEmit.hs`. No new builtins. No JSON-AST
 ## 8. Affected surface
 
 **Compiler modules** (engineer's slot, post-INT-PRE-clearance):
-- `compiler/src/LLMLL/CodegenHs.hs:441` — one-line `mapLlmllPrimType "int" -> "Integer"`
-- `compiler/src/LLMLL/CodegenHs.hs:232-360` — preamble signature rewrites per §3.1, §3.2, §3.3, §3.4
+- `compiler/src/LLMLL/CodegenHs.hs:723` — **primary AST-emission site**: flip `toHsType TInt = "Int"` to `toHsType TInt = "Integer"`. Per F-E1 (INT-PRE Variant B prototype, engineer finding), this is the dominant codegen seam; the spec move surfaces here for nearly all `int`-typed AST positions.
+- `compiler/src/LLMLL/CodegenHs.hs:706` — **literal-emission site**: flip the `:: Int` ascription in `emitLit (LitInt n)` to `:: Integer` (or drop the ascription entirely if polymorphic-numeric inference is acceptable at all call sites). Per F-E3 (language-team observation during F-E1 verification, 2026-05-24). The line carries a historical `-- B2: monomorphise to Int` comment recording the decision INT-2 unwinds; update or remove that comment alongside the flip.
+- `compiler/src/LLMLL/CodegenHs.hs:441` — **secondary `TCustom`-payload site**: flip `mapLlmllPrimType "int" = "Int"` to `mapLlmllPrimType "int" = "Integer"`. Per F-E1, this is the constructor-payload path reached when a sum type carries an `int`-payload constructor; isolated from `:723` and `:706` but redundant with both. **All three sites must flip in the same patch** — an INT-2 codegen change that touches only `:441` (per the roadmap's "one-line" phrasing) ships a partial conversion that breaks at `toHsType TInt` and at the literal emitter; a change that touches `:723` + `:441` alone still type-errors at `:706` integer-literal call sites.
+- `compiler/src/LLMLL/CodegenHs.hs:232-360` — preamble signature rewrites per §3.1 (now including the `wasi_http_response` polymorphic refactor at `:360` per F-E2), §3.2, §3.3, §3.4
 - `compiler/src/LLMLL/CodegenHs.hs` (location TBD) — pattern detector for `range` value-shape vs index-iteration
 
 **Specification documents** (`documentation-lead`'s slot, post-engineer-ship):
