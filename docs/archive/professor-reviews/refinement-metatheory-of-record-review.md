@@ -1,0 +1,285 @@
+# Professor Review: REF-META-1 — Refinement Metatheory of Record
+
+**Reviewer:** Lead Consultant for Formal Language Design
+**Document under review:** [`refinement-metatheory-of-record-proposal.md`](refinement-metatheory-of-record-proposal.md) (Rev 1)
+**Date:** 2026-05-25
+**Status:** Review (Rev 1) — pending language-team adjudication
+
+This review carries the cross-proposal consistency observations for the v0.11 LT-cluster (LT-INV / LT-CDP / LT-PPR / REF-META-1) in §"Cross-proposal observations" below. REF-META-1 is the foundation proposal; the cross-proposal section is positioned here on substantive grounds.
+
+---
+
+## Restatement
+
+REF-META-1 ships three settled artifacts from the [`critique-2026-05-23-triage.md §3.1`](critique-2026-05-23-triage.md) adjudication: (1) the checking-mode inference rule for refinement-aliased types (intro `Γ ⊢ e ⇐ A ⇝ O ∪ { p[e/x] }` and elim "hypothesis-in-context"), (2) the closed six-item non-goals list (no `<:`, no dep pattern match, no type-level computation, no proof terms, no sigma types, no boolean-as-equality), (3) the tier-aware soundness statement of record under four preconditions (obligations discharged at solver-backed evidence, faithful codegen, no trusted FFI, no `erBodyFallback` / `erOverflowTainted`). The two-phase implementation correspondence (type checker handles structural typing; verifier handles refinement-predicate emission) is documented as consistent with the existing flow. No surface change, no schema bump, no compiler-source change implied.
+
+REF-META-2..5 (solver-completeness, predicate WF, erasure theorem, full typing judgment) are sequenced as separate language-team turns post-v0.11.
+
+---
+
+## Context located
+
+- `LLMLL.md §3.4:239-256` — current "Refinement Type Aliases" subsection; the doc-lead promotion target for §4.1 / §4.2 / §4.3.
+- `LLMLL.md §5.3.3, §5.3.5` — verification matrix and QF-LIA boundary; the cross-reference target.
+- `LLMLL.md §11` — Multi-Agent Concurrency section; closest to an "Inference Rules" subsection in the current spec.
+- `compiler/src/LLMLL/Syntax.hs:130` — `TCustom Name`; the AST representation of refinement aliases. No `TRefined` constructor.
+- `compiler/src/LLMLL/TypeCheck.hs:1443` — `expandAlias` resolves the alias; the underlying base type participates in unification.
+- `compiler/src/LLMLL/TypeCheck.hs:781-787, 969-1003` — `checkExpr` / `unify` sites; the Phase 1 structural-compatibility step.
+- `compiler/src/LLMLL/Contracts.hs`, `compiler/src/LLMLL/FixpointEmit.hs` — the Phase 2 refinement-predicate-emission sites.
+- `compiler/src/LLMLL/Syntax.hs:326-331` — `erOverflowTainted` from v0.10.8 INT-1; the soundness statement's fourth precondition.
+- `compiler/app/Main.hs:1119-1158` — `--strict-verified-core`; the operational embodiment of the soundness statement.
+- `docs/design/verification-debate.md` Q1-Q5 — Path A vs Path B adjudication; the soundness-statement's framing inheritance.
+- `docs/design/critique-2026-05-23-triage.md §3.1` — the framing adjudication this proposal promotes.
+- Vazou, Seidel, Jhala, Vytiniotis, Peyton Jones, *Refinement Types for Haskell* (POPL 2014) §3 — the canonical bidirectional-checking presentation of refinement-typed Haskell. The amended critic's checking-mode-only framing is structurally Vazou's checking judgment without the synthesizing direction.
+- Vazou, Rondon, Jhala, *Abstract Refinement Types* (ESOP 2013) — abstract refinement variables (refinement-polymorphic types). The closure-scope concern in §4.2 #1.
+- Bengtson, Bhargavan, Fournet, Gordon, Maffeis, *Refinement Types for Secure Implementations* (CSF 2008; TOPLAS 2011) — F7's refinement system; an earlier production refinement-typed language whose framing influenced LH.
+- Constable et al., *Implementing Mathematics with the NuPRL Proof Development System* (1986) §10 — subset types `{x : T | P[x]}`; the lineage of refinement type aliases.
+- Knowles & Flanagan, *Compositional Reasoning and Decidable Checking for Dependent Contract Types* (PLPV 2009) — hybrid type checking; the closest precedent for the "obligations join the context" elimination rule.
+- Pfenning's *Lecture notes on bidirectional typing* (CMU 15-312, 2004) — the canonical exposition of checking-mode vs synthesizing-mode rules and the side-condition discipline.
+- Brady, *Idris 2: Quantitative Type Theory in Practice* (2021) — Idris's elaborator-driven refinement; the proof-term-authoring alternative LLMLL declines.
+- Vazou et al., *LiquidHaskell: Experience with Refinement Types in the Real World* (Haskell '14) — the production experience report; the closest reference for author Q2.
+
+---
+
+## Strengths
+
+The amended critic's checking-mode-only framing is correct for LLMLL's surface. The Vazou subtyping framing (`{x:Int | P} <: {x:Int | Q}` iff `P ⇒ Q`) and the checking-mode rule (introduction generates the obligation `p[e/x]`) are operationally equivalent *at introduction sites* — the same proof obligation is generated by both. The narrower framing closes the implicit closure of abstract refinements (Vazou ESOP 2013), parametric refinements, and bounded refinements that the broader subtyping framing would invite. The proposal correctly identifies this and adopts the narrower reading on closure-scope grounds.
+
+The non-goals list at §4.2 is well-chosen. Each of the six items closes a Vazou-closure scope expansion. The list is *closed* — additional features beyond the surface in §3 require explicit team consensus per the freeze-exception discipline. This is the right rigor for a foundation proposal whose non-goals serve as the scope-discipline anchor for downstream proposals.
+
+The tier-aware soundness statement at §4.3 is the project's correct commitment under Path A. The four preconditions (solver-backed evidence; faithful codegen; no trusted FFI; no `erBodyFallback`/`erOverflowTainted`) match `--strict-verified-core`'s operational enforcement exactly. The Path A inheritance from `verification-debate.md` is explicit; the Path B decline is named without re-litigation.
+
+The two-phase implementation correspondence at §4.1 ¶ "Two-phase implementation correspondence" is honest about the type-checker / verifier split. The unified spec-level judgment `Γ ⊢ e ⇐ A ⇝ O ∪ { p[e/x] }` is presented as the *conjunction* of both phases, not as a single-pass requirement. This is the correct framing — the compiler's existing flow is *consistent with* the spec-level rule, and the proposal does not require a refactor.
+
+Five edge cases with verification-channel classification (§5) are correctly enumerated. The non-QF-LIA predicate edge case (§5.3 — `regex-match` in a `BlockID`) is the load-bearing edge case; the proposal correctly identifies the spec-is-intentionally-silent gap and routes the formalization to REF-META-2.
+
+---
+
+## Gaps and hazards
+
+### 1. The operational-equivalence claim at §4.2 #1 is load-bearing only at introduction sites; the elimination context is not addressed
+
+**Classify:** scope.
+
+§4.2 #1 asserts the checking-mode rule is "operationally equivalent" to Liquid Haskell's subtyping framing. This is true *at introduction sites* — both systems generate the same obligation `p[e/x]` when checking `e` against `A ≜ {x:τ | p}`. The two diverge in *elimination contexts*: LH's subtyping admits `f : {x:Int | P} → T` applied to an argument `e : {x:Int | Q}` whenever `Q ⇒ P` is valid in QF-LIA, *without* re-introducing the obligation. The checking-mode-only rule re-introduces the obligation `P[e/x]` at the call site.
+
+The two are equivalent in the *set of programs accepted* only if the call-site obligation `P[e/x]` is discharged via the hypothesis `Q[e/x]` from the elimination rule (§4.1 dual). The proposal's §4.1 elimination rule states this correctly:
+
+> When `Γ` binds `x : A` (i.e., `x` has refinement-aliased type `A`), uses of `x` add `p` as a hypothesis to the typing context.
+
+The hypothesis-in-context machinery makes the two systems prove the same programs. But the proposal does not explicitly close this loop. A reader who reads §4.2 #1 ("operationally equivalent") and §4.1 elim rule separately may not connect them; the load-bearing equivalence comes from the *combination*, not from the introduction rule alone.
+
+The Vazou ESOP 2013 abstract-refinement machinery (refinement variables, refinement polymorphism) is the elimination-context refinement LH has and LLMLL declines. The non-goals list at §4.2 #1 closes this implicitly by excluding `<:`; the connection between "no `<:`" and "elimination-context divergence is acceptable because the hypothesis-in-context discipline preserves introduction-equivalence" is the load-bearing argument, and it is not made explicit.
+
+**Author Q1 ("operational-equivalence load-bearing or consonant?") answers:** load-bearing at the v0.11 surface, *conditional on* the hypothesis-in-context elimination rule discharging call-site obligations against in-scope refinement hypotheses. Without the elimination rule, the two are merely consonant (introduction-equivalent but elimination-divergent).
+
+**Bite:** medium. The proposal's claim is correct under the joint reading of §4.1 elim + §4.2 #1, but a reader can come away with a weaker reading. Rev 2 should make the load-bearing argument explicit — one sentence at §4.2 #1 referencing the §4.1 elim rule as the discharge mechanism that closes the operational-equivalence loop.
+
+---
+
+### 2. The non-goals list is closed but does not address refinement-polymorphic functions, which are next in the Vazou-closure scope
+
+**Classify:** scope.
+
+The six non-goals at §4.2 are: no `<:`, no dep pattern match, no type-level computation, no proof terms, no sigma types, no boolean-as-equality. The list is closed and exhaustive for v0.11.
+
+But the Vazou ESOP 2013 abstract-refinement machinery includes *refinement-polymorphic functions* — functions parametric over a refinement predicate. The signature
+
+```
+forall (p : a -> Bool). ({x:a | p x} -> {y:a | p y})
+```
+
+is admissible in LH (and is the central novelty of *Abstract Refinement Types*). LLMLL's `(where [x: T] pred)` syntax does not naturally express refinement polymorphism; there is no surface form for "a refinement variable `p` over which the type is parametric." The non-goals list does not name this absence.
+
+Risk #2 of the proposal acknowledges this implicitly ("Liquid Haskell ships *other* refinement-type features (e.g., termination-via-refinement, refinement-polymorphic data types) the list does not name. Adjudication: the six items cover the v0.11 scope boundary; additional non-goals for refinement-polymorphic types, etc., are deferred to REF-META-3"). The deferral is defensible — refinement polymorphism requires significant surface and metatheoretic work — but the *absence* of refinement polymorphism is a load-bearing scope decision that downstream readers should be able to identify in the non-goals list.
+
+**Bite:** low. The closure-scope discipline is correct; the list's closure is *for v0.11*, and REF-META-3 (predicate WF rule) is the natural home for the refinement-polymorphism non-goal. Worth a sentence in §4.2 acknowledging that *refinement polymorphism* and *termination-via-refinement* are admissible additions to the non-goals list under REF-META-3, not separate omissions to be re-litigated.
+
+---
+
+### 3. The soundness statement's four-precondition conjunction is correct under composition but the proposal does not state the closure-under-composition explicitly
+
+**Classify:** soundness.
+
+§4.3's soundness statement requires four preconditions to hold for a single function's refinement-predicate preservation. Composition (function `f` calling function `g`) introduces a fifth precondition implicitly: `g`'s soundness statement must hold for `f`'s soundness claim to extend through the call. The current statement does not name this; Risk #3 names it but routes to REF-META-4 (erasure theorem with construction-side discipline).
+
+The honest reading: the soundness statement at §4.3 is *single-function*. Multi-function refinement-preservation is the *closure under composition* of the single-function property. Liquid Haskell's preservation theorem (Vazou POPL 2014 §6) is similarly stated for individual top-level definitions; the multi-function reading is implicit via the compositional structure of the type system.
+
+The Knowles-Flanagan PLPV 2009 framing is the closest external reference: hybrid type checking proves soundness *per call site*, and the closure under composition is *derived* from the per-site property under the assumption that the type system is consistent. LLMLL's analogous derivation would be: the soundness statement at §4.3 holds for each top-level definition individually; the compositional structure of the type checker ensures the closure.
+
+`--strict-verified-core` already enforces the closure operationally (a function fails admission if any callee in its transitive call graph has `erBodyFallback = True` or `erOverflowTainted = True`). The spec-level closure is *consistent with* the operational enforcement; the proposal should state this consistency.
+
+**Bite:** low. The single-function statement is precise; the multi-function reading is the operational story. Rev 2 should add one sentence to §4.3 naming the closure-under-composition as the multi-function reading enforced by `--strict-verified-core`. This is the proposal's slot; REF-META-4 is the formal-derivation slot.
+
+---
+
+### 4. Pattern-match scoping is correct but the spec is silent on flow-sensitivity
+
+**Classify:** verification-ergonomics.
+
+§4.1 elimination rule states the refinement `p` is added as a hypothesis when `x : A` is in scope. §5.4 edge case demonstrates this for a `match` arm binding `s : string`. The hypothesis is available *within the arm's scope*; the proposal does not commit to whether it propagates *out of the arm* into the surrounding expression.
+
+The default refinement-types reading (Vazou POPL 2014; Knowles-Flanagan PLPV 2009) is *non-flow-sensitive*: the hypothesis is scoped lexically. A `match` arm's bound variable carries the refinement hypothesis only within that arm. This is consistent with LLMLL's strict-immutability discipline (no mutable references) and with the type checker's lexical-scoping behavior at `TypeCheck.hs`.
+
+The proposal does not state this. A reader could come away assuming a *flow-sensitive* reading: after a `match` arm that binds `s : string` with refinement `(= (string-length s) 1)`, the hypothesis is available throughout the function. Flow-sensitivity is the Liquid Haskell *abstract interpretation* extension (Vazou ESOP 2013); LLMLL has not adopted it.
+
+**Bite:** low. The non-goals list at §4.2 #1 ("no general refinement subtyping") implicitly excludes flow-sensitivity, but the connection is not explicit. Rev 2 should add a §4.1 paragraph (or §5.4 elaboration) committing to lexical scoping of the refinement hypothesis. This is the proposal's natural slot.
+
+---
+
+### 5. The §5.5 sum-type edge case shows refinement on payload; refinement on the sum type itself is not addressed
+
+**Classify:** scope.
+
+§5.5 shows `Result[PositiveInt, string]` — a refinement (`PositiveInt`) on the *payload* of a `Success` constructor. This is well-formed and the proposal handles it correctly.
+
+A different case is *not* shown: a refinement alias on the sum type itself, e.g., `(type SuccessOnly (where [r: Result] (is-ok r)))`. The predicate `(is-ok r)` is a refinement on the *constructor choice*, not on the payload's value. Liquid Haskell handles this through ADT measure-refinement (the `{-@ measure isOk @-}` declaration plus refinement type `{r : Result | isOk r}`).
+
+LLMLL's surface admits the syntax (the `where` form is general enough); the proposal does not commit to whether the predicate `(is-ok r)` is QF-LIA-tractable. If `is-ok` is a builtin returning `bool` with a known refinement signature (the ADT measure pattern), the obligation can be QF-LIA. If `is-ok` is opaque or recursive, the obligation routes to runtime or `?proof-required`.
+
+The proposal's §5.5 demonstrates the *payload-refinement* case but not the *sum-type-refinement* case. The omission is not a defect — REF-META-3 (predicate WF rule) is the natural home for the question — but it leaves an edge case unmapped in v0.11.
+
+**Bite:** low. The omission is consistent with the proposal's scope ("predicate WF rule deferred to REF-META-3"). Worth a sentence in §5 or §5.5 explicitly noting that refinement aliases on sum types themselves are admitted syntactically but routed to REF-META-3 for the WF rule.
+
+---
+
+### 6. The two-phase correspondence creates an audit obligation against the verifier's emission completeness
+
+**Classify:** spec-drift.
+
+Risk #1 of the proposal acknowledges this: the spec-level rule names introduction sites where the verifier *should* emit the refinement-predicate obligation; the compiler may emit at a subset of these sites. The mitigation is correct: REF-META-1 is the *spec of record*; the audit measures the compiler against the spec.
+
+The deeper question: what *triggers* the audit? The proposal's §7 affected surface includes "[`compiler/src/LLMLL/Contracts.hs`](../../compiler/src/LLMLL/Contracts.hs) and [`compiler/src/LLMLL/FixpointEmit.hs`](../../compiler/src/LLMLL/FixpointEmit.hs) emit the refinement-predicate obligation `p[e/x]` at intro sites" — but this is the Phase 2 *implementation correspondence*, not an audit instruction. If the verifier currently emits obligations at function parameter binding and return-type checking but *not* at pattern destructuring of refinement-typed values (§4.1 ¶ "pattern destructuring of refinement-typed values"), the spec/code drift is real and the audit should fire.
+
+The proposal correctly routes the audit to a separate engineer ticket. But the *trigger condition* for that ticket — a list of emission sites the spec names and the verifier should be confirmed to emit at — is the natural slot for the proposal to enumerate. Rev 2 could include a §7.1 sub-section listing the named emission sites:
+
+(a) function parameter binding (callee-side intro);
+(b) return-type checking (caller-side intro);
+(c) pattern destructuring of refinement-typed values (elim);
+(d) sum-type constructor application with refinement-typed payload (§5.5);
+(e) `let`-binding with refinement-typed RHS;
+(f) `?hole` filling under a refinement-typed expected type.
+
+This is the verifier audit checklist. The proposal does not need to *enforce* the checklist (that is engineer scope); it should *name* the checklist (that is spec scope).
+
+**Bite:** medium. The audit obligation is real and the engineer hand-off needs the checklist to be measurable. Without it, the audit is "does the verifier emit at the right sites?" without a definition of "the right sites."
+
+---
+
+## Answers to author-surfaced questions
+
+### Q-PROF-1. Operational-equivalence load-bearing or consonant?
+
+**Load-bearing at the v0.11 surface, conditional on the §4.1 elimination rule providing hypothesis-in-context discharge.** The checking-mode rule and Vazou's subtyping framing are operationally equivalent on the set of programs accepted, *provided* the elimination rule introduces the refinement hypothesis at the binding site so that downstream call-site obligations can discharge against the hypothesis. The combined reading is equivalence; the introduction rule alone is consonance.
+
+The detailed argument:
+
+- **Introduction.** Both systems generate the obligation `p[e/x]` when checking `e` against `{x:τ | p}`. Identical.
+- **Elimination.** Vazou's subtyping admits `f : {x:τ | P} → T` applied to `e : {x:τ | Q}` when `Q ⇒ P` is QF-LIA-valid, *without* a call-site obligation. The checking-mode rule generates the call-site obligation `P[e/x]`. The two appear divergent.
+- **Resolution via hypothesis-in-context.** The §4.1 elim rule introduces `Q[e/x]` as a hypothesis at `e`'s binding site. The call-site obligation `P[e/x]` is then discharged against the hypothesis `Q[e/x]` via the same QF-LIA validity check (`Q ⇒ P`). The two systems converge on the same proof.
+
+The Vazou ESOP 2013 *Abstract Refinement Types* machinery introduces *refinement variables* — refinement-polymorphic types — that the checking-mode rule cannot express. For programs requiring refinement polymorphism, the two systems diverge. LLMLL's non-goals list at §4.2 (specifically the "no `<:`" item and Gap #2 above's refinement-polymorphism exclusion) closes this case off; the divergence is *outside the v0.11 surface*.
+
+**Recommendation:** the proposal should make the joint reading explicit at §4.2 #1. One sentence: "Operational equivalence at introduction sites follows from identical obligation generation; equivalence on the program-acceptance set follows from the §4.1 elimination rule's hypothesis-in-context discharge. Abstract refinements (Vazou ESOP 2013) are out of scope per Gap #2 / REF-META-3." This closes the load-bearing question.
+
+### Q-PROF-2. Idris-style elaboration alternative — Liquid Haskell experience extension?
+
+**Yes, there are LH-user programs where user-authored proofs would have been load-bearing; LLMLL's choice to route these to `?proof-required` is a scope decision, not a soundness defect.**
+
+The Liquid Haskell experience report (Vazou et al. Haskell '14) §5 enumerates programs where user-authored proofs would have helped: nonlinear arithmetic (squareroot, modular arithmetic), inductive list properties (sortedness, deduplication), and certain crypto-related invariants. LH has historically routed these to:
+
+(a) The `{-@ assume @-}` machinery (admit the property; human-audit the assumption).
+(b) The `{-@ ple @-}` (proof-by-logical-evaluation) machinery — an LH-specific tactic for unfolding measure definitions.
+(c) Extraction to Coq via `liquid-haskell-coq` for hand-proof (rarely used in practice).
+
+LLMLL's analog is `?proof-required` (now predicate-carrying per LT-PPR). This is functionally equivalent to LH's `{-@ assume @-}` plus runtime-assertion fallback (per LT-PPR review §"Strengths"); it is a *scope choice* — admit the gap explicitly, route to Leanstral for offline discharge, do not admit user-authored proof terms in the surface language.
+
+The Idris alternative (Brady 2021 *Idris 2: Quantitative Type Theory in Practice*) supports interactive proof refinement: a `?hole` triggers an elaborator that produces a goal-state, and the user authors the proof term in the surface language. The cost is significant: the surface language must include proof-term-authoring constructs (recursive elimination, propositional equality, transport, etc.), and the type checker must perform definitional equality up to elaboration.
+
+**LLMLL's choice is principled:**
+- The agent-authoring context favors *delegation* over *user-authored proofs* — the agent loop is more efficient when the gap is explicit and routed than when the proof must be authored inline.
+- The QF-LIA fragment plus `?proof-required` covers the common case; the LH experience report's "hard cases" map to `?proof-required`.
+- Adding proof-term authoring would require a substantial surface expansion (sigma types, propositional equality, induction principles) that the non-goals list at §4.2 closes off.
+
+**No literature precedent argues that this is a *defect*.** The LH community lived with the absence of user-authored proofs for a decade; the cost was real but bounded. LLMLL inherits this stance via the soundness statement's Path A framing.
+
+**Recommendation:** retain the design. The proposal's §1 motivation already acknowledges the Liquid Haskell precedent; one sentence in §4.2 (or §11 if added) committing to "Idris-style elaboration is out of scope; the design philosophy follows LH's Path A stance per `verification-debate.md`" would close the credit-loss against the alternative tradition without requiring restructuring.
+
+---
+
+## Cross-proposal observations
+
+The v0.11 LT-cluster — LT-INV, LT-CDP, LT-PPR, REF-META-1 — forms a coherent architectural commitment. The cross-proposal consistency observations:
+
+### C-1. Coherence of the bundle
+
+The four proposals form a defensible v0.11 under one reading: REF-META-1 codifies the foundational metatheory; LT-INV makes the metatheory *grammatically reachable* by inverting the source polarity; LT-CDP adds the orthogonal spec-strength axis on top of the evidence axis; LT-PPR enriches the asserted-tier escape hatch with predicate-carrying content.
+
+REF-META-1 ⊇ LT-INV ⊇ {LT-CDP, LT-PPR}. The dependency is: LT-INV's whitelist grammar requires REF-META-1's intro/elim rule to define what constructs in the body produce refinement obligations; LT-CDP measures the discriminative power of contracts whose semantics REF-META-1 defines; LT-PPR's predicate-carrying form is `def-shell`-only per LT-INV §1.4, which inherits the grammar inversion.
+
+The bundle is *not* redundant — each proposal addresses a distinct architectural question. But it is *coupled*: structural revisions to REF-META-1 cascade through all three downstream proposals.
+
+### C-2. Partial-rollback risk concentration
+
+LT-INV's §8 empirical gate is the only proposal with an *external* rollback mechanism (pre-committed alternative paths). LT-CDP and LT-PPR ship under the assumption that LT-INV passes the gate. The rollback paths at `core-shell-inversion-direction.md` §8.3 are:
+
+(1) Demote LT-INV to opt-in-only flag; keep LT-CDP and LT-PPR as proposed.
+(2) Retract LT-INV; ship LT-CDP and LT-PPR without the grammar inversion.
+
+Path (2) ships CDP and PPR against the v0.10 `def-logic` grammar. The implications:
+
+- **LT-CDP under path (2):** CDP-0's "core form only" scope (LT-CDP §2 out-of-scope) becomes "all `def-logic` forms," which the proposal does not currently address. The trivial-body enumeration's QF-LIA-decidability assumption holds only when the function body is in the body-faithful set; without LT-INV's grammatical boundary, CDP measurement on shell-form-equivalent bodies is undefined per LT-CDP edge case #4.
+- **LT-PPR under path (2):** the `def`-forbiddance at §6.2 is enforced only when LT-INV's grammar is canonical. Under path (1) it is enforced inside the opt-in flag; under path (2) it is unenforced and the predicate-carrying form is admissible in `def-logic`, which contradicts §6.2's adjudication and re-introduces the asserted-tier escape hatch.
+
+The proposals do not specify the cascade under path (2). LT-PPR review §5 (Gap #5) names this concern from LT-PPR's side; the broader cross-proposal observation is that **paths (1) and (2) require explicit specification of LT-CDP and LT-PPR's shipping conditions, not just LT-INV's**. Without this, the rollback decision is on a moving target.
+
+**Recommendation:** the language-team should commit, in a §-Cross-Proposal-Sequencing companion artifact (or as appendices to each proposal's Rev 2), to the following symmetric rollback discipline:
+
+- Path (1) — LT-INV opt-in flag: LT-CDP `discriminative_axis` is reported under the opt-in flag only; default-grammar functions get no CDP. LT-PPR predicate-carrying form is admitted in `def-shell` (under flag) and rejected in `def-logic` (default). The `def`-forbiddance is enforced under flag; outside the flag, the predicate-carrying form is *also rejected* (no fallback to admit-in-def-logic; consumers must opt in to either get the feature or not).
+- Path (2) — LT-INV retracted: LT-CDP ships against `def-logic` with the body-faithful set as the implicit scope (cite LT-CDP edge case #4 enumeration-limit handling). LT-PPR ships *without* the `def`-forbiddance, accepting the asserted-tier escape hatch in the default form; the proposal should make this explicit in Rev 2 as a contingent acceptance.
+
+### C-3. Missing proposal — diagnostic-text ergonomics across the core/shell boundary
+
+When `def` parse-rejects a body with a non-core construct (per LT-INV §3.2), the diagnostic needs to be agent-actionable. The diagnostic should:
+
+(a) Name the rejected construct (e.g., "`*` is not admissible in `def` core body — non-linear arithmetic falls outside QF-LIA");
+(b) Cite the verification-matrix row (per `LLMLL.md §5.3.5`) that documents the construct's exclusion;
+(c) Propose the migration (move to `def-shell`; or use a QF-LIA-tractable alternative; or mark `?proof-required` in `def-shell`).
+
+LT-INV and REF-META-1 each touch this surface (LT-INV produces the rejection; REF-META-1 defines the rule the rejection enforces) but no single proposal owns the diagnostic-text design. The natural home is REF-META-2 (solver-completeness statement, which formalizes which predicates the solver discharges and routes the others to `?proof-required`) or a separate diagnostic-ergonomics proposal.
+
+**Recommendation:** flag as a v0.11 follow-up. REF-META-2's design should include the diagnostic-text contract for parse-rejected constructs. Not a blocker for the current four-proposal bundle.
+
+### C-4. Sequencing claim assessment
+
+`docs/compiler-team-roadmap.md` §8.4 sequencing: (1) language-team settles LT-INV / LT-CDP / LT-PPR; (2) compiler-engineer ships LT-INV behind `--grammar=core-inversion` opt-in, LT-CDP and LT-PPR ship in parallel (gate-independent); (3) experiment-lead runs INT-PRE plus §8 pre/post comparison; (4) gate pass → flip default + migrate examples + schema bump; (5) gate fail → rollback path.
+
+This sequencing is correct as long as the cross-proposal rollback discipline at C-2 above is settled before step (2). LT-CDP and LT-PPR ship in parallel with LT-INV opt-in — but if the gate fails, the rollback paths' implications for CDP and PPR are currently unspecified. Without that specification, the engineer's parallel work on CDP and PPR is at risk of partial revert.
+
+**Recommendation:** the language-team should settle the cross-proposal rollback discipline (per C-2 above) as part of the Rev 2 cycle for any of the four proposals. This is properly a §-Cross-Proposal-Sequencing artifact, not embedded in any one proposal; an appendix to the v0.11-roadmap section of `compiler-team-roadmap.md` is the natural home (doc-lead slot).
+
+---
+
+## Recommendation
+
+**Approve with revisions.**
+
+The proposal's foundational role is correctly executed. Three revisions are load-bearing:
+
+1. **Make the operational-equivalence argument's joint reading explicit (per Gap #1).** §4.2 #1 should reference the §4.1 elimination rule as the hypothesis-in-context discharge mechanism that closes the equivalence loop. Without this, the load-bearing argument is reconstructible but not stated.
+
+2. **Enumerate the verifier emission-site checklist (per Gap #6).** §7 (or a new §7.1) should list the named refinement-predicate-emission sites for the engineer audit: function parameter binding, return-type checking, pattern destructuring, sum-type constructor application, let-binding RHS, hole filling. This is the audit checklist; without it, the spec/code drift audit lacks a measurable target.
+
+3. **State the closure-under-composition reading of the soundness statement (per Gap #3).** §4.3 should add one sentence naming that the multi-function reading is the closure under composition of the single-function statement, and that `--strict-verified-core` enforces this closure operationally. The formal derivation is REF-META-4's slot; the prose acknowledgment is REF-META-1's slot.
+
+The remaining gaps (#2 refinement-polymorphism non-goal, #4 flow-sensitivity scoping, #5 sum-type-self refinement) are addressable in-prose without structural revision; Rev 2 incorporates them as risk-section enrichments or text-level corrections.
+
+The cross-proposal observations C-1 through C-4 are routed to the language-team for cross-cutting consideration during the Rev 2 cycles. C-2 (rollback discipline) is the most consequential and warrants explicit settlement before the engineer hand-off begins on LT-CDP and LT-PPR parallel work.
+
+---
+
+## Open questions for the language-team
+
+1. **Commit to the cross-proposal rollback discipline (per C-2).** Specify what LT-CDP and LT-PPR ship under LT-INV's rollback paths (1) and (2). Without this commitment, the v0.11 engineer build's parallel work on CDP and PPR is at risk of partial revert. The natural artifact is a §-Cross-Proposal-Sequencing companion or an appendix to `docs/compiler-team-roadmap.md` (doc-lead slot).
+
+2. **Settle the verifier emission-site checklist's authority (per Gap #6).** The checklist is the engineer audit target. Either REF-META-1 Rev 2 includes the checklist in §7.1 (proposal-as-audit-spec), or the engineer hand-off includes a separately-authored audit-spec artifact. The choice affects how the audit's findings route back (spec drift vs verifier bug). The proposal-as-audit-spec route preserves the spec-of-record framing.

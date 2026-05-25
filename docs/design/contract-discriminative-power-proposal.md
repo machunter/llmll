@@ -309,6 +309,37 @@ No new SMT obligations are emitted beyond what `--weakness-check` already does. 
 
 Professor review landed at [`contract-discriminative-power-review.md`](contract-discriminative-power-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on seven gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§1 observational-vs-semantic caveat; §2 baseline-first sequencing + C-2 cross-proposal references; §4.2 Shannon-vs-Möbius justification; §4.3 + §4.3.1 explicit candidate-set enumeration + Klees et al. corpus-discipline citation; §5 typed-warnings enumeration; §10 Risk #3 self-attestation framing). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §2 above.
 
-The standalone `contract-discriminative-power-review.md` awaits doc-lead M2 fold-and-archive per [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) row 4. Post-fold, the review's content lands as `## Appendix — Professor review log` on this proposal; the standalone moves to [`docs/archive/professor-reviews/`](../archive/professor-reviews/).
+The standalone `contract-discriminative-power-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/contract-discriminative-power-review.md`](../archive/professor-reviews/contract-discriminative-power-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
 
 This proposal promotes the [`docs/research-track.md:145-151`](../research-track.md) row to v0.11 implementation (research-track row retired with cross-reference in Pass 3 of the 2026-05-23 catch-up branch) and supersedes the triage rows DP-FORM-1 and TRUST-DP-1 from [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4.
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal has been folded into this appendix and the source file archived to `docs/archive/professor-reviews/contract-discriminative-power-review.md`. One line per finding; all resolved in Rev 2 of this proposal.
+
+**Source:** `docs/design/contract-discriminative-power-review.md` at commit `5f31580` (review dated 2026-05-25; reviewer: Lead Consultant for Formal Language Design).
+
+### Gaps (all resolved in Rev 2)
+
+1. **Observational-vs-semantic caveat buried in Risk #1.** Rev 1 framing risked CI gate misinterpretation. Resolved: Rev 2 §1 promotes the caveat to motivation-level, naming the four cells as *interpretable signals* not *spec properties*.
+2. **Shannon-vs-alternative-valuation justification absent.** Rev 1 §4.2 ships Shannon without ranking against linear or Möbius. Resolved: Rev 2 §4.2 adds the three-family justification — Shannon defensible on computational + interpretability grounds; Möbius is lattice-canonical, deferred to future work.
+3. **Trivial-body enumeration not explicit.** Rev 1 §4.3 said "type-compatible candidates" without naming the set. Resolved: Rev 2 §4.3.1 ships the closed v0.11 candidate-set enumeration.
+4. **Corpus-bias literature reading absent.** Rev 1 Risk #1 mitigation correct but uncited. Resolved: Rev 2 §4.3 cites Klees et al. CCS 2018 + Hughes' QuickCheck papers; the bias is inherent per the literature, publish-with-provenance is the canonical mitigation.
+5. **`:intentional` self-attestation framing not named.** Rev 1 Risk #3 had the mitigation without naming the trust-model. Resolved: Rev 2 Risk #3 adds the self-attestation paragraph with LH `{-@ assume @-}` + Rust `#[allow(...)]` precedents.
+6. **LT-INV empirical-gate self-reference.** Rev 1 §2 sequencing had CDP-0 ship concurrent with the LT-INV gate run. Resolved: Rev 2 §2 baseline-first sequencing commits CDP-0 to publish a v0.10-baseline DP report *before* the LT-INV §8 gate measurement runs.
+7. **`def-shell` blindness vs `undefined` indistinguishable.** Rev 1 §5 `warnings` field conflated non-applicability with measurement weakness. Resolved: Rev 2 §5 ships the typed-warnings enumeration distinguishing `def-shell-out-of-scope` (not measured) from `enumeration-too-narrow` (undefined) plus four other typed states.
+
+### Open questions (both resolved in Rev 2)
+
+- **Q-PROF-1.** Corpus-bias correction in PBT literature. Resolved: Rev 2 §4.3 — the bias is inherent; Klees et al. CCS 2018 corpus-discipline approach is the canonical mitigation; LT-CDP publish-with-provenance is correct.
+- **Q-PROF-2.** Lattice valuation choice — Shannon vs alternatives. Resolved: Rev 2 §4.2 — three families admissible (logarithmic, linear, Möbius). Shannon defensible on computational + interpretability grounds; Möbius lattice-canonical, deferred.
+
+### Cross-proposal observations (C-1 through C-4)
+
+The review carried the v0.11 cluster's cross-proposal observations; full text in `refinement-metatheory-of-record-proposal.md` §"Appendix — Professor review log" / Cross-proposal observations subsection. C-2 (cross-proposal rollback discipline) settled at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md); §2 Rev 2 sequencing references the C-2 settlement for Outcome-1/2 shipping conditions.
+
+### Overall assessment (recorded)
+
+The review recommended `approve with revisions` on seven gaps and two author-question answers. Rev 2 (settled 2026-05-25) carries each resolution inline at the cited §-references above. The standalone `contract-discriminative-power-review.md` is archived; this appendix is the in-proposal pointer.

@@ -316,4 +316,34 @@ The spec-level rule at §4.1 names introduction and elimination sites where the 
 
 Professor review landed at [`refinement-metatheory-of-record-review.md`](refinement-metatheory-of-record-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on six gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§4.2 #1 joint reading; §4.2 closure-scope clarification; §4.3 closure-under-composition; §5.4 lexical scoping; §5.5 refinement-on-sum-type-itself; §7.1 emission-site checklist). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact for the LT-INV / LT-CDP / LT-PPR engineer-build sequencing.
 
-The standalone `refinement-metatheory-of-record-review.md` awaits doc-lead M2 fold-and-archive per [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) row 4. Post-fold, the review's content lands as `## Appendix — Professor review log` on this proposal; the standalone moves to [`docs/archive/professor-reviews/`](../archive/professor-reviews/).
+The standalone `refinement-metatheory-of-record-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/refinement-metatheory-of-record-review.md`](../archive/professor-reviews/refinement-metatheory-of-record-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal has been folded into this appendix and the source file archived to `docs/archive/professor-reviews/refinement-metatheory-of-record-review.md`. One line per finding; all resolved in Rev 2 of this proposal.
+
+**Source:** `docs/design/refinement-metatheory-of-record-review.md` at commit `5f31580` (review dated 2026-05-25; reviewer: Lead Consultant for Formal Language Design).
+
+### Gaps (all resolved in Rev 2)
+
+1. **Operational-equivalence claim load-bearing vs consonant.** Rev 1 §4.2 #1 asserted equivalence without referencing the §4.1 elim rule's discharge. Resolved: Rev 2 §4.2 #1 adds the joint-reading paragraph naming the elim rule as the hypothesis-in-context discharge mechanism.
+2. **Non-goals list completeness.** Rev 1 closed six non-goals; refinement-polymorphic functions and termination-via-refinement not explicitly named. Resolved: Rev 2 §4.2 adds the closure-scope-clarification paragraph routing both to REF-META-3 (predicate WF rule).
+3. **Path A soundness under composition.** Rev 1 §4.3 stated single-function soundness only. Resolved: Rev 2 §4.3 adds the closure-under-composition paragraph naming `--strict-verified-core` as operational embodiment; formal derivation routed to REF-META-4.
+4. **Elimination-rule hypothesis scoping.** Rev 1 §4.1 / §5.4 silent on flow-sensitivity. Resolved: Rev 2 §5.4 commits to lexical scoping with reference to non-goal §4.2 #1 as load-bearing reason.
+5. **Refinement on sum type itself.** Rev 1 §5.5 demonstrated payload-refinement; sum-type-self refinement not addressed. Resolved: Rev 2 §5.5 adds the refinement-on-the-sum-type-itself paragraph routing the WF question to REF-META-3.
+6. **Verifier emission-site checklist absent.** Rev 1 Risk #1 named the audit obligation without specifying the audit target. Resolved: Rev 2 §7.1 enumerates six named emission sites with compiler-module citations.
+
+### Open questions (both resolved in Rev 2)
+
+- **Q-PROF-1.** Is the operational-equivalence claim load-bearing or merely consonant? Resolved: Rev 2 §4.2 #1 — load-bearing at the v0.11 surface, conditional on the §4.1 elim rule's hypothesis-in-context discharge. Vazou ESOP 2013 abstract-refinement machinery is the only divergence; closed off by non-goal §4.2 #1 + Gap #2 routing to REF-META-3.
+- **Q-PROF-2.** Idris-style elaboration alternative — LH experience extension? Resolved: yes, LH-user programs have benefitted from user-authored proofs (LH Haskell '14 §5); LLMLL routes these to `?proof-required` per design philosophy / Path A scope; not a soundness defect.
+
+### Cross-proposal observations (C-1 through C-4)
+
+The review carried the v0.11 cluster's cross-proposal observations. C-2 (cross-proposal rollback discipline) is the load-bearing finding; settled at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25). C-1 (coherence), C-3 (diagnostic-text ergonomics — deferred to v0.12+), C-4 (sequencing assessment — confirmed correct under all three outcomes) are recorded at the C-2 artifact and the four proposals' Rev 2 references.
+
+### Overall assessment (recorded)
+
+The review recommended `approve with revisions` on six gaps and two author-question answers. Rev 2 (settled 2026-05-25) carries each resolution inline at the cited §-references above. The standalone `refinement-metatheory-of-record-review.md` is archived; this appendix is the in-proposal pointer.

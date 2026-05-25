@@ -325,6 +325,36 @@ The QuickCheck-shrinking precedent suggests the captured counter-example can als
 
 Professor review landed at [`proof-required-predicate-carrier-review.md`](proof-required-predicate-carrier-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on six gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§1 positioning paragraph; §4.2 divergence-class enumeration + verifier-side informational diagnostic; §5 fragmentation note; §6.3 contingent shipping rule under LT-INV gate outcomes; §11.1 witness-extraction v0.12+ direction). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §6.3 above.
 
-The standalone `proof-required-predicate-carrier-review.md` awaits doc-lead M2 fold-and-archive per [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) row 4. Post-fold, the review's content lands as `## Appendix — Professor review log` on this proposal; the standalone moves to [`docs/archive/professor-reviews/`](../archive/professor-reviews/).
+The standalone `proof-required-predicate-carrier-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/proof-required-predicate-carrier-review.md`](../archive/professor-reviews/proof-required-predicate-carrier-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
 
 This proposal supersedes the deferred-exploration seed material at [`proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) (status flipped 2026-05-23 in Pass 4 of the catch-up branch).
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal has been folded into this appendix and the source file archived to `docs/archive/professor-reviews/proof-required-predicate-carrier-review.md`. One line per finding; all resolved in Rev 2 of this proposal.
+
+**Source:** `docs/design/proof-required-predicate-carrier-review.md` at commit `5f31580` (review dated 2026-05-25; reviewer: Lead Consultant for Formal Language Design).
+
+### Gaps (all resolved in Rev 2)
+
+1. **Runtime-vs-symbolic divergence class enumeration absent.** Rev 1 Risk #2 named one example; three classes exist. Resolved: Rev 2 §4.2 enumerates partial-function, numeric-semantics, and lazy-evaluation classes with assertion-failure handler classification.
+2. **QF-LIA-tractable non-discharge has opportunity-cost asymmetry.** Rev 1 §4.2 silent on non-disruptive surfacing of the asymmetry. Resolved: Rev 2 §4.2 ships the verifier-side informational diagnostic per Q-PROF-2 answer.
+3. **Witness extraction from runtime-failed assertions not addressed.** Rev 1 §-deferred. Resolved: Rev 2 §11.1 adds the v0.12+ direction with QuickCheck-shrinking precedent and trust-report sidecar design sketch.
+4. **Predicate-text truncation fragmentation risk.** Rev 1 §5 silent on consumer documentation. Resolved: Rev 2 §5 adds the trust-report-vs-sidecar fragmentation note with documentation pointers to `LLMLL.md §4.4` and the schema.
+5. **Schema bundling with LT-INV unbounded.** Rev 1 §-Risk-#5 did not name contingent shipping under gate failure. Resolved: Rev 2 §6.3 specifies the three-outcome contingent shipping rule per the C-2 settlement.
+6. **LH / Coq / Lean positioning not named.** Rev 1 §1 silent on which precedent tradition LT-PPR inherits. Resolved: Rev 2 §1 adds the positioning paragraph — LT-PPR is the novel combination of LH (predicate-carried), Coq/Lean (no hypothesis admission), runtime-assertion emission (no precedent).
+
+### Open questions (both resolved in Rev 2)
+
+- **Q-PROF-1.** Third tradition on witness extraction (Idris, Dafny). Resolved: Rev 2 §11.1 — no production system extracts witnesses from runtime-failed assertions; Idris `?hole` is interactive-time, Dafny `assume` is static. QuickCheck shrinking is closest precedent; deferred to v0.12+.
+- **Q-PROF-2.** Honor-the-gap vs opportunistic-discharge — gradual-typing literature. Resolved: Rev 2 §4.2 — gradual-typing literature favors opportunistic (Siek-Taha 2006; Siek-Vitousek-Cimini-Tobin-Hochstadt POPL 2015). LLMLL's honor-the-gap is principled under coercion-semantics framing (Henglein 1994; Siek-Garcia 2010). Verifier-side informational diagnostic ships as the minimal-disruption surfacing.
+
+### Cross-proposal observations (C-1 through C-4)
+
+The review carried the v0.11 cluster's cross-proposal observations; full text in `refinement-metatheory-of-record-proposal.md` §"Appendix — Professor review log" / Cross-proposal observations subsection. C-2 (cross-proposal rollback discipline) settled at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md); §6.3 Rev 2 contingent shipping rule references the C-2 settlement.
+
+### Overall assessment (recorded)
+
+The review recommended `approve with revisions` on six gaps and two author-question answers. Rev 2 (settled 2026-05-25) carries each resolution inline at the cited §-references above. The standalone `proof-required-predicate-carrier-review.md` is archived; this appendix is the in-proposal pointer.

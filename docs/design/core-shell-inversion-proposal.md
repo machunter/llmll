@@ -379,6 +379,37 @@ The inversion adds no new SMT VC. The verifier-side work is *narrowed*, not expa
 
 Professor review landed at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25) as part of the batched four-proposal review turn (LT-INV, LT-CDP, LT-PPR, REF-META-1). Recommendation: `approve with revisions` on seven gaps and two author-question answers, all folded into this Rev 2 inline at the marked "Rev 2" touchpoints (§3.1 corpus-continuity; §3.3 cascade quantification; §3.4 trusted-prelude-closed reading + `meContracts` extension commitment; §3.5 post-resolution re-typecheck; §6 Rust-edition precedent + confidence-tier reporting; §8 tightened pass criteria + Outcome enumeration). The review carried the v0.11 cluster's cross-proposal observations C-1 through C-4; the C-2 settlement landed at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) (Rev 1, 2026-05-25) as a coordination artifact, referenced from §8 above.
 
-The standalone `core-shell-inversion-review.md` awaits doc-lead M2 fold-and-archive per [`docs/UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) row 4. Post-fold, the review's content lands as `## Appendix — Professor review log` on this proposal; the standalone moves to [`docs/archive/professor-reviews/`](../archive/professor-reviews/).
+The standalone `core-shell-inversion-review.md` was folded into the §"Appendix — Professor review log" below and archived to [`docs/archive/professor-reviews/core-shell-inversion-review.md`](../archive/professor-reviews/core-shell-inversion-review.md) under DOC-CONSOLIDATE §M2 (doc-lead Pass 10, 2026-05-25).
 
 This proposal is the v0.11 architectural spine and is sequenced ahead of LT-CDP and LT-PPR per §8 — both gate-independent of LT-INV per the rollback paths specified at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md).
+
+---
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review for this proposal has been folded into this appendix and the source file archived to `docs/archive/professor-reviews/core-shell-inversion-review.md`. One line per finding; all resolved in Rev 2 of this proposal.
+
+**Source:** `docs/design/core-shell-inversion-review.md` at commit `5f31580` (review dated 2026-05-25; reviewer: Lead Consultant for Formal Language Design).
+
+### Gaps (all resolved in Rev 2)
+
+1. **Strict-callee closure brittleness vs §13 builtins.** Rev 1 §3.4 strict reading would force `def-shell` migration for most builtin-touching code. Resolved: Rev 2 §3.4 adopts the *trusted-prelude-closed* reading citing LH / F* / Why3 / Dafny convergence; `LLMLL.md §13` whitelist is the curation surface.
+2. **Typechecker→`EvidenceRecord` coupling architectural cost.** Rev 1 Risk #2 mitigation was thin. Resolved: Rev 2 §3.4 commits explicitly to extending `meContracts` to carry `erBodyFaithful :: Bool`; engineer hand-off names the architectural delta.
+3. **`?delegate` / `?delegate-async` admission re-introduces asserted-tier path.** Rev 1 §3.5 silent on post-resolution re-typecheck. Resolved: Rev 2 §3.5 commits to post-resolution re-typecheck integration in agent loop.
+4. **Empirical-gate pass criteria loose.** Rev 1 §8 OR-of-three admitted low-confidence wins. Resolved: Rev 2 §8 tightens to conjunctive (at-least-one-improves AND ≥25% def boundary-form usage AND no material regression).
+5. **`letrec` exclusion cascade.** Rev 1 §3.3 silent on quantification. Resolved: Rev 2 §3.3 commits to pre-flight cascade quantification before §8 gate runs.
+6. **Keyword choice rationale weak on migration ergonomic.** Rev 1 §3.1 understated corpus-continuity cost. Resolved: Rev 2 §3.1 adds the Coq-precedent acknowledgment with bounded-cost-by-corpus-size rationale.
+7. **Migration tooling intent-disambiguation hard.** Rev 1 §6 conservative-mode flag is correct but unrefined. Resolved: Rev 2 §6 adds Rust-edition (`cargo fix --edition`) precedent and commits to three-tier confidence reporting (high / low / unable-to-classify).
+
+### Open questions (both resolved in Rev 2)
+
+- **Q-PROF-1.** Closure-under-evidence-tier in LH / F* literature — strict vs relaxed. Resolved: Rev 2 §3.4 — LH `{-@ assume @-}`, F* `assume val`, Why3 prelude, Dafny built-ins all converge on the trusted-prelude-closed reading. Strict reading is unprecedented.
+- **Q-PROF-2.** Tractable static analysis for shell-vs-core intent inference. Resolved: Rev 2 §6 — human-confirm is essentially inherent per Rust 2018 / Python 2→3 / F# 4→5 precedents. Confidence-tier reporting is the load-bearing improvement.
+
+### Cross-proposal observations (C-1 through C-4)
+
+The review carried the v0.11 cluster's cross-proposal observations; full text in `refinement-metatheory-of-record-proposal.md` §"Appendix — Professor review log" / Cross-proposal observations subsection. C-2 (cross-proposal rollback discipline) settled at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md); §8 Rev 2 names the three outcomes per the C-2 settlement.
+
+### Overall assessment (recorded)
+
+The review recommended `approve with revisions` on seven gaps and two author-question answers. Rev 2 (settled 2026-05-25) carries each resolution inline at the cited §-references above. The standalone `core-shell-inversion-review.md` is archived; this appendix is the in-proposal pointer.
