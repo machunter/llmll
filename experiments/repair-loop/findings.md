@@ -698,7 +698,9 @@ All four §LT items now closed. Phase-3 outcome on the language-team axis is emp
 
 ## Experiment-lead
 
-(no findings recorded for this harness)
+### Housekeeping
+
+- DOC-CONSOLIDATE Phase 2 stub-window-bounded follow-up (2026-05-25): updated path-string citations in 3 phase3-* manifests (`manifest.phase3.json`, `manifest.phase3-no-codex.json`, `manifest.phase3-claude-deepen.json`) from `docs/design/phase3-problem-shape-audit.md` to `experiments/repair-loop/findings/phase3-problem-shape-audit.md` (file relocated 2026-05-25 per Phase 2 ship). 7 total path-string occurrences substituted (3 + 3 + 1 across the manifests; covers `_audit_pin.audit_path` field plus descriptive `_purpose` / `_audit_pin._note` prose citations). Reconciliation: post-edit `grep -l docs/design/phase3-problem-shape-audit experiments/repair-loop/manifest*.json` returns zero; all three manifests parse as valid JSON; `_audit_pin.audit_path` reads correctly under `python3 -c "json.load(...)"`. Side-finding (not a hand-off): no harness script consumes `audit_path` (`grep -rn audit_path experiments/` matches only the three manifests themselves), so the brief's stated FileNotFoundError risk is documentation-only — actual risk post-stub-deletion is stale-citation semantics, not runtime error. No schema, harness, or non-manifest change. Closes doc-lead Phase 2 stub-window-bounded routing item 1.
 
 ---
 

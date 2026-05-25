@@ -47,7 +47,7 @@
   "_pause_note": "Stop-fast discipline D (interim-pause checkpoint): after every K cells, write an interim matrix_report.json and exit with status `paused`. Operator resumes with --resume-from-cell. K=9 corresponds to one full agent×problem×target slice for one try. Set to null/0 to disable.",
   "_audit_pin": {
     "_note": "Phase-3 audit pin carried verbatim from manifest.phase3-no-codex.json. Deepening probe shares the same launch-commit hash for verification-path-engagement audit (4078b76 — F-040 path 1 fix HEAD, locked at Phase-3 launch).",
-    "audit_path": "docs/design/phase3-problem-shape-audit.md",
+    "audit_path": "experiments/repair-loop/findings/phase3-problem-shape-audit.md",
     "launch_commit_hash": "4078b76"
   },
   "agents": [
