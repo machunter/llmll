@@ -23,7 +23,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [core-shell-inversion-proposal.md](core-shell-inversion-proposal.md) | LT-INV: invert source grammar; `def` strict-core; `def-shell` permissive marked | **Settled (Rev 1)** — pending professor review |
 | [contract-discriminative-power-proposal.md](contract-discriminative-power-proposal.md) | LT-CDP: contract DP as v0.11 first-class evidence axis; two-axis assurance | **Settled (Rev 1)** — pending professor review |
 | [proof-required-predicate-carrier-proposal.md](proof-required-predicate-carrier-proposal.md) | LT-PPR: predicate-carrying `?proof-required`; def-shell only; runtime-assertion fallback | **Settled (Rev 1)** — pending professor review |
-| [refinement-metatheory-of-record-proposal.md](refinement-metatheory-of-record-proposal.md) | REF-META-1: checking-mode-only metatheory; explicit non-goals; tier-aware soundness | **Settled (Rev 1)** — Active Items reconciled |
+| [refinement-metatheory-of-record-proposal.md](refinement-metatheory-of-record-proposal.md) | REF-META-1: checking-mode-only metatheory; explicit non-goals; tier-aware soundness | **Settled (Rev 1)** — pending professor review |
 | [int-2-boundary-shims.md](int-2-boundary-shims.md) | LT-INT/INT-2: fifteen `Int`-touching preamble entries classified A/B/C | **Settled (Rev 1)** — awaiting INT-PRE adjudication |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
 
