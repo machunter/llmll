@@ -7,7 +7,7 @@
 > **Origin:** User reported friction from accumulated documents outside source code (language doc, design docs, experiment docs, findings docs); language-team scan of the active doc surface (2026-05-24) confirmed 4× per-experiment role-file fan-out, three-source status drift for settled proposals, and pillar-doc version drift (README v0.10.8 vs roadmap v0.10.7)
 > **Companion:** None — this is a self-contained doc-architecture move with no upstream design memo
 > **Reviewed:** Adjudicated and approved by user in conversation (2026-05-24); no professor review required (inward-only doc-architecture proposal, no PL-literature reach load-bearing)
-> **Status:** Settled (Rev 1) — awaiting documentation-lead hand-off for single-sweep execution
+> **Status:** Settled (Rev 1) — **shipped at commit `1a8733f`** (2026-05-25, single-sweep PR per §11). Two follow-ups closed: **M6 INDEX demote** landed by language-team subsequently (INDEX entries demoted to one-liners; archived files removed); **R1–R7 overlap audit** settled at `<hash>` (no subsumption; **four** cross-references applied to roadmap research-track section — R1↔[`type-driven-development.md`](type-driven-development.md), R2↔[`agent-orchestration.md`](agent-orchestration.md), R5↔[`experiments/repair-loop/`](../../experiments/repair-loop/) as sibling-not-overlap, R7↔TERM-1 as complementary-not-overlapping; R3 partial-criterion flagged with TOTP-as-worked-example cite). **DOC-CONSOLIDATE fully closed.**
 
 ---
 
