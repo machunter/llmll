@@ -53,7 +53,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 | Document | Summary | Status |
 |---|---|---|
-| [doc-consolidation-2026-05-24-proposal.md](doc-consolidation-2026-05-24-proposal.md) | DOC-CONSOLIDATE: P1, M1–M6, D1, per-role SOPs; eliminates three-source status drift | **Shipped at `1a8733f`** — M6 landed; R1–R7 audit settled at `<hash>` |
+| [doc-consolidation-2026-05-24-proposal.md](doc-consolidation-2026-05-24-proposal.md) | DOC-CONSOLIDATE: P1, M1–M6, D1, per-role SOPs; eliminates three-source status drift | **Shipped at `1a8733f`** — M6 landed; R1–R7 audit settled at `e6eb4b6` |
 
 ---
 
