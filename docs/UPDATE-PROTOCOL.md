@@ -35,3 +35,24 @@ When a change does not appear in the matrix, the actor pauses and asks `language
 - `docs/archive/professor-reviews/` *(new — M2)* — standalone review files after fold
 - `docs/archive/wasm-investigations/` *(new — M4)* — `wasm-poc-report.md`, `effectful-wasm-spike.md`
 - `docs/archive/roadmap-history/` *(new — only if M5 large-cut)* — shipped-version narrative
+
+When `docs/archive/shipped-design-specs/` crosses ~20 entries (currently 11; threshold forward-looking after the v0.11-cluster archive sweep), sub-categorize by version-shipped (`v0.6/`, `v0.8/`, `v0.9/`, `v0.10/`, `v0.11/`) and add `docs/archive/dormant-explorations/` for docs judged stale-but-not-shipped (distinguishes "shipped-and-archived" from "explored-and-dropped" semantics). Defer until threshold; flagged here so the move is ready when the count justifies it.
+
+### 3.4 Pre-planned archive moves (gated by ticket-ship or condition)
+
+The following docs are on a natural-archive trajectory. The trigger column states the gate that fires archival (not a ship-date commitment — the underlying ticket schedule is in [`compiler-team-roadmap.md`](compiler-team-roadmap.md)). On each release pass, doc-lead checks which gates fired and applies the listed move mechanically.
+
+| Document | Archive trigger | Destination |
+|---|---|---|
+| `docs/design/oblig-pbt-3-proposal.md` | OBLIG-PBT-3 ships | `docs/archive/shipped-design-specs/` |
+| `docs/design/int-2-boundary-shims.md` | INT-2 ships | `docs/archive/shipped-design-specs/` |
+| `docs/design/core-shell-inversion-proposal.md` | LT-INV ships | `docs/archive/shipped-design-specs/` |
+| `docs/design/contract-discriminative-power-proposal.md` | CDP-0 ships | `docs/archive/shipped-design-specs/` |
+| `docs/design/proof-required-predicate-carrier-proposal.md` | LT-PPR ships | `docs/archive/shipped-design-specs/` |
+| `docs/design/refinement-metatheory-of-record-proposal.md` | REF-META-1 ships | `docs/archive/shipped-design-specs/` |
+| `docs/design/core-shell-inversion-direction.md` | All of LT-INV + LT-CDP + LT-PPR ship | Fold into lead proposal's `## Background` (per M2 case 3), then archive |
+| `docs/design/int-3-machine-int-sketch.md` | INT-PRE escalates → promote; or INT-PRE no-regression → resolve | `shipped-design-specs/` (promotion path) or `dormant-explorations/` (resolution path; see §3.3 sub-categorization note) |
+| `docs/design/critique-2026-05-23-triage.md` | All 17 routing items closed | `docs/archive/triages/` (new subdir on first triage archive) |
+| `docs/design/doc-consolidation-2026-05-24-proposal.md` | Next release sweep (shipped at `1a8733f`; audit close-out at `e6eb4b6`; fully closed) | `docs/archive/shipped-design-specs/` |
+
+Updates to this list happen alongside any milestone-rename or scope-change commit. If a row's trigger becomes ambiguous, route to language-team to re-adjudicate before archiving.

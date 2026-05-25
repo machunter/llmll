@@ -57,17 +57,6 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 ---
 
-## Orphan / Empirical-Track Notes
-
-Two files live in `docs/design/` but predate the M6 indexing discipline and arguably belong in `experiments/` (or a new `docs/empirical/`). Flagged here for next-pass triage (not adjudicated under DOC-CONSOLIDATE):
-
-| Document | Summary | Triage |
-|---|---|---|
-| [empirical-methodology.md](empirical-methodology.md) | Empirical-loop methodology: why first-round + repair-loop are paired regimes | Candidate move to `experiments/` |
-| [phase3-problem-shape-audit.md](phase3-problem-shape-audit.md) | Phase 3 problem-shape audit; calibration analysis | Candidate move to `experiments/repair-loop/findings/` |
-
----
-
 ## Archived Material
 
 Historical design documents from shipped or superseded sources are in [`../archive/`](../archive/):
