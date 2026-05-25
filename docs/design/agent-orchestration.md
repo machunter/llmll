@@ -1,6 +1,6 @@
 # Agent Orchestration: Design Discussion
 >
-> **Status:** Discussion draft  
+> **Status:** Dormant — R2 source (no near-term promotion; R2 ranked lowest-impact in archived research-track)  
 > **Date:** 2026-04-11  
 > **Context:** The v0.3 compiler delivers the *primitives* for multi-agent coordination (`?delegate`, checkout/patch, `?proof-required`). This document discusses the *workflow layer* that uses those primitives to actually coordinate agents.
 ---

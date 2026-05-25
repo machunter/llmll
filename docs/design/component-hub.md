@@ -1,5 +1,7 @@
 # Component Hub — Future Discussion
 
+> **Status:** Dormant — future discussion retained (one inbound cross-reference from specification-sources.md §1)
+
 ## The Reusable Parts Analogy
 
 > *"What's the likelihood each hole, once implemented, becomes a reusable 'part' — just like in hardware?"*

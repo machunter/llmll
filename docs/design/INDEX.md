@@ -41,11 +41,10 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 | Document | Summary | Status |
 |---|---|---|
-| [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: agent registry, context, scheduling, self-hosted endgame | Design draft |
-| [lead-agent.md](lead-agent.md) | Automated skeleton generation: two-step prompt, compiler-validated, quality heuristics | Design draft |
-| [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | Design draft |
+| [agent-orchestration.md](agent-orchestration.md) | Orchestrator design: agent registry, context, scheduling, self-hosted endgame | **Dormant** — R2 source |
+| [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
-| [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | Design exploration (partially promoted — R1 source) |
+| [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | **Dormant** — partially promoted, R1 residual |
 
 ---
 
@@ -63,7 +62,7 @@ Historical design documents from shipped or superseded sources are in [`../archi
 
 | Directory / file | Contents | Origin |
 |---|---|---|
-| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor, invariant-discovery (base), verification-debate-action-items, `proof-required-predicate-carrier.md` (superseded seed) | v0.6.2–v0.9.0 (shipped or superseded) |
+| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor, invariant-discovery (base), verification-debate-action-items, `proof-required-predicate-carrier.md` (superseded seed), `lead-agent.md` (v0.4 Lead Agent design, shipped) | v0.6.2–v0.9.0 (shipped or superseded) |
 | `professor-reviews/` | Standalone professor reviews folded into proposal appendices: `oblig-pbt-3-review.md`, `invariant-discovery-review.md` | Post-DOC-CONSOLIDATE M2 |
 | `wasm-investigations/` | `effectful-wasm-spike.md`, `wasm-poc-report.md` | Pre-roadmap-reorganization |
 | `do_notation/` | Do-notation design and two implementation plans | v0.3 (shipped) |

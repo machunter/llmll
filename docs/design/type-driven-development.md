@@ -1,6 +1,6 @@
 # Type-Driven Development for Agents: From Indexed Types to Obligation-Guided Coding
 
-> **Status:** Design exploration (partially promoted to v0.10 roadmap)  
+> **Status:** Dormant — partially promoted, R1 residual (obligation-guided part shipped v0.10; indexed-types residual is research-track-only per roadmap "What's NOT on this Roadmap")  
 > **Original date:** 2026-04-11  
 > **Major revision:** 2026-05-01  
 > **Source:** Professor's five-round review + language team consensus (2026-05-01)  
