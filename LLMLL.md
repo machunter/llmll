@@ -392,6 +392,7 @@ When module B imports module A and calls a function whose contract is `tested` o
 
 The downstream module can acknowledge the gap explicitly:
 
+<!-- ci:roundtrip -->
 ```lisp
 (trust foo.bar.withdraw :level asserted)
 (trust auth.verify-token :level tested)

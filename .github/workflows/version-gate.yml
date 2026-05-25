@@ -1,0 +1,92 @@
+# DRIFT-CI-1 — version-gate automation.
+#
+# Closes the workflow-YAML residual on docs/compiler-team-roadmap.md row :304
+# and the triage routing-table row at
+# docs/design/critique-2026-05-23-triage.md:111.
+#
+# Two jobs:
+#   version-gate    — fast (<1 min). C1-C4 + pytest harness tests. No Stack.
+#   spec-roundtrip  — slower (~5 min steady-state). C5. Builds llmll, runs
+#                     scripts/spec_roundtrip.py against opt-in spec blocks.
+#
+# Scope discipline: this workflow exists ONLY to enforce DRIFT-CI-1. It does
+# not run `stack test` or the Python harness suites at tools/llmll-orchestra/
+# and experiments/. Build/test CI is a separate ticket; the workflow file is
+# deliberately named `version-gate.yml`, not `ci.yml`, to avoid implying a
+# broader signal.
+#
+# Security posture: no run: block interpolates ${{ github.event.* }} or any
+# attacker-controllable context. The only ${{ }} expressions used are
+# runner.os (host literal) and hashFiles(...) (deterministic over checked-in
+# files). No script consumes PR titles, bodies, or commit messages.
+
+name: version-gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  version-gate:
+    name: C1-C4 banner / schema equality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (for schema field extraction)
+        run: |
+          which jq || sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Run version_gate.sh
+        run: bash scripts/version_gate.sh
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run harness pytest suite
+        run: python -m pytest scripts/tests/ -v
+
+  spec-roundtrip:
+    name: C5 opt-in spec round-trip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Haskell (Stack)
+        uses: haskell-actions/setup@v2
+        with:
+          enable-stack: true
+          stack-version: latest
+
+      - name: Cache Stack global + project work
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.stack
+            compiler/.stack-work
+          key: stack-${{ runner.os }}-${{ hashFiles('compiler/stack.yaml', 'compiler/stack.yaml.lock', 'compiler/package.yaml') }}
+          restore-keys: |
+            stack-${{ runner.os }}-
+
+      - name: Build llmll
+        working-directory: compiler
+        run: stack build llmll
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run spec_roundtrip.py against opt-in LLMLL.md blocks
+        working-directory: compiler
+        env:
+          LLMLL_BIN: stack exec llmll --
+          SPEC_FILE: ../LLMLL.md
+        run: python3 ../scripts/spec_roundtrip.py
