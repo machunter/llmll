@@ -2,7 +2,7 @@
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.10.8 (shipped).** Patch release — INT-1 `overflow_tainted` marking on body-faithful verified evidence + `--strict-verified-core` refusal extension. The verifier still proves what it proved pre-INT-1; the change is metadata layered atop the existing `DLVerified` + `erBodyFaithful = True` ground truth. `.verified.json` sidecars and trust-report JSON gain an additive `overflow_tainted` field (only-when-true); pre-v0.10.8 verified body-faithful sidecars are invalidated on read to eliminate silent under-strictness. No new language surface, no new builtins, no new SMT theory, no solver-time delta. This release also unblocks the DRIFT-1 §3 type-system catch-up (one cross-reference from §3.1 to the new §5.3.5 `overflow_tainted` callout). 672 Haskell + 37 Python tests passing. JSON-AST schemaVersion `0.5.0`. `trust_report_version` `1.1.0`. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule. Next milestone is v0.11 (core/shell grammar inversion + CDP evidence axis + predicate-carrying `?proof-required` + `int → Integer` codegen, which makes the v0.10.8 taint trigger set dormant on `int`); see [`docs/design/core-shell-inversion-direction.md`](docs/design/core-shell-inversion-direction.md), [`docs/design/int-2-boundary-shims.md`](docs/design/int-2-boundary-shims.md), and [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md).
+> **Current version: v0.10.8 (shipped).** Patch release — INT-1 `overflow_tainted` marking on body-faithful verified evidence + `--strict-verified-core` refusal extension. The verifier still proves what it proved pre-INT-1; the change is metadata layered atop the existing `DLVerified` + `erBodyFaithful = True` ground truth. `.verified.json` sidecars and trust-report JSON gain an additive `overflow_tainted` field (only-when-true); pre-v0.10.8 verified body-faithful sidecars are invalidated on read to eliminate silent under-strictness. No new language surface, no new builtins, no new SMT theory, no solver-time delta. This release also unblocks the DRIFT-1 §3 type-system catch-up (one cross-reference from §3.1 to the new §5.3.5 `overflow_tainted` callout). 672 Haskell + 37 Python tests passing. JSON-AST schemaVersion `0.5.0`. `trust_report_version` `1.1.0`. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule. Next milestone is v0.11 (core/shell grammar inversion + CDP evidence axis + predicate-carrying `?proof-required` + `int → Integer` codegen, which makes the v0.10.8 taint trigger set dormant on `int`); see [`docs/design/core-shell-inversion-direction.md`](docs/design/core-shell-inversion-direction.md), [`docs/design/int-2-boundary-shims.md`](docs/design/int-2-boundary-shims.md), and [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md). v0.11 features LT-INT (`int → Integer` codegen, see §3.1) and LT-CDP (contract discriminative power evidence axis, see §4.4.6) have shipped on branch (commits `9c37a5c4`, `121815a` respectively); LT-INV (core/shell grammar inversion) and LT-PPR (predicate-carrying `?proof-required`) remain pending per the §8 empirical-validation gate.
 
 <details><summary><strong>Release history</strong></summary>
 
@@ -492,6 +492,42 @@ The annotated branch is the language's explicit-attribution route for **metamorp
 
 **Pacheco-Lahiri-Ernst overallocation discipline.** The unannotated multi-callee diagnostic at side-condition 2 above continues to refuse implicit lift; the `:subjects` metadata is the agent's explicit consent to joint-evidence allocation across the declared callees. The schema-cost trade was deliberate: the additive optional `subjects: [Name]` AST field is a minor bump (`schemaVersion 0.4.0 → 0.5.0`); a conjoint-record alternative (`DLJointTested [Name] n` or a `subjects: [Name]` field on `DLTested`) would have required `trust_report_version 1.2.0`, coupling downstream tooling (notably the repair-loop harness's `Cred(R)` consumer) with a trust-report schema change at Phase 3 launch.
 
+#### 4.4.6 Contract Discriminative Power (CDP, v0.11)
+
+The diamond-lattice evidence axis at §4.4.1 answers one question: *do we know this implementation satisfies the specification?* A second, orthogonal question — *does the specification rule out enough wrong implementations?* — is the **contract-discriminative-power (CDP)** axis, shipped in v0.11 LT-CDP. A function can simultaneously be `verified` (high evidence) and `0.18` DP (weak spec, admits most observable behaviors); the pair makes this visible without collapsing to a scalar.
+
+**Score.** Shannon-normalized over a closed observation set `Ω`,
+
+```
+DP_Ω(S) = 1 − log(|⟦S⟧_Ω|) / log(|B_{T,U,Ω}|)
+```
+
+where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T → U` over candidate set `Ω`, and `⟦S⟧_Ω = { b ∈ B | b satisfies contract S }`. `DP = 0` when the contract admits every observable behavior; `DP = 1` when it admits exactly one. Inconsistent contracts (`|⟦S⟧_Ω| = 0`) surface as a distinct `spec-inconsistent` warning rather than score 0.
+
+**Observational, not semantic.** The score is meaningful relative to `Ω` only — two implementations that disagree semantically but agree on every input in `Ω` collapse to one observed behavior. Cross-function and cross-version score comparison requires same-`Ω` discipline; the `basis` field in the trust-report `discriminative_axis` block records `Ω`'s identity for auditability. Consumers setting CI gates on CDP scores must respect this distinction or risk gating on the wrong reading. See [`docs/design/contract-discriminative-power-proposal.md`](docs/design/contract-discriminative-power-proposal.md) §1 Rev 2.
+
+**`(spec-entropy …)` annotation.** Three values per `def-logic` / `letrec` contract:
+
+```lisp
+(def-logic transfer [from: AccountId to: AccountId amount: PositiveInt]
+  (pre  (>= (balance-of from) amount))
+  (post (and (= (balance-of from) (- (old (balance-of from)) amount))
+             (= (balance-of to)   (+ (old (balance-of to))   amount))))
+  ;; (spec-entropy :strict)  — default; can be elided
+  ...)
+
+(def-logic cache-lookup [k: Key]
+  (post (or (is-ok result) (is-error result)))
+  (spec-entropy :intentional)
+  ...)
+```
+
+- **`:strict`** (default; can be elided) — low DP raises a diagnostic via `--cdp` / `--weakness-check`.
+- **`:intentional`** — low DP is the design (caches admit any eviction; schedulers admit any ready thread; hash-map iteration order is unspecified). The annotation is the agent's explicit declaration; CDP is still computed and reported, but the diagnostic is suppressed. Self-attestation discipline: agents may over-annotate to silence warnings, so the trust report surfaces the annotation in `spec_entropy_annotation` and a module-level `over-annotation-warning` fires when the ratio of `:intentional` contracts exceeds 30% (configurable later).
+- **`:unknown`** — CDP is computed and reported but does not raise. For spec-development workflows where the contract is in flux.
+
+**CLI.** `llmll verify <file> --cdp` runs the closed v0.11 candidate-set sweep per §4.3.1 of the proposal after the SAFE result and emits one `discriminative_axis` block per contracted function. Combined with `--trust-report --json`, the score is paired with the diamond-lattice evidence level in the trust-report JSON (`trust_report_version 1.2.0`, additive over v1.1.0 — existing consumers ignore `discriminative_axis`).
+
 ### 4.5 Suppression Governance (`weakness-ok`)
 
 When a function is intentionally left without contracts (e.g., pure rendering logic, FFI wrappers, or configuration constants), the `weakness-ok` declaration acknowledges the gap and prevents the spec coverage gate from flagging it as unspecified:
@@ -625,6 +661,8 @@ stack exec llmll -- verify ../examples/withdraw.llmll
 This diagnostic is **non-blocking**: the function remains SAFE. It is an *advisory* signal that the specification may not distinguish correct implementations from trivial ones. The structured JSON diagnostic includes `trivial_implementation` and `suggested_postcondition` fields.
 
 Weakness checking does not modify `FixpointEmit.hs` — it constructs synthetic single-statement programs and calls the existing `emitFixpoint` pipeline.
+
+**v0.11 LT-CDP extends the trivial-body enumeration to a counted divergence metric.** Where legacy `--weakness-check` reports a binary "any trivial body passes?" diagnostic over the v0.10 five-enumerator catalog, `llmll verify --cdp` extends the same per-candidate `emitFixpoint` + solver loop to count: `|{candidates that satisfy S}| / |{type-compatible candidates}|`, normalized as `DP_Ω(S) = 1 − log|⟦S⟧_Ω| / log|B_{T,U,Ω}|`. The v0.11 candidate set is closed at [`docs/design/contract-discriminative-power-proposal.md`](docs/design/contract-discriminative-power-proposal.md) §4.3.1 (identity over each param + small ints `{0, 1, -1, 42}` + both bools + `{"", "a"}` + list-empty / list-singleton + `Success`-default / `Error "default"` + pair-of-defaults); the score is reported with provenance in the trust-report `discriminative_axis` block. Legacy `--weakness-check` keeps the v0.10 5-enumerator catalog and the binary diagnostic surface unchanged; the two flags are orthogonal. See §4.4.6 for the evidence-axis framing and the load-bearing observational-vs-semantic caveat.
 
 #### 5.3.2 Spec Coverage Gate
 
@@ -1650,12 +1688,19 @@ def-logic   = "(" "def-logic" IDENT
                 "[" { typed-param } "]"
                 [ pre-clause ]
                 [ post-clause ]
+                [ entropy-clause ]                  (* NEW in v0.11 LT-CDP *)
                 expr
               ")" ;
 
-typed-param = IDENT ":" type ;
-pre-clause  = "(" "pre"  expr [ ":source" STRING ] ")" ;
-post-clause = "(" "post" expr [ ":source" STRING ] ")" ;
+typed-param    = IDENT ":" type ;
+pre-clause     = "(" "pre"  expr [ ":source" STRING ] ")" ;
+post-clause    = "(" "post" expr [ ":source" STRING ] ")" ;
+entropy-clause = "(" "spec-entropy" SPEC_ENTROPY ")" ;
+SPEC_ENTROPY   = ":strict" | ":intentional" | ":unknown" ;
+                  (* LT-CDP v0.11: optional per-contract annotation; defaults to *)
+                  (* :strict when absent. :intentional suppresses the low-DP     *)
+                  (* diagnostic per §4.4.6. The parser also accepts the clause  *)
+                  (* on `letrec`. Unknown labels are a parse error.             *)
 
 (* ============================================================ *)
 (* Interfaces                                                    *)

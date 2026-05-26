@@ -259,6 +259,18 @@ stack exec llmll -- verify file.llmll --weakness-check
 #   Trivial valid implementation: (def-logic sort-list [input: list[int]] input)
 #   Consider strengthening the postcondition.
 
+# Contract Discriminative Power (v0.11 LT-CDP) — counted spec-strength metric:
+stack exec llmll -- verify file.llmll --cdp
+# ✅ file.llmll — SAFE (liquid-fixpoint)
+#    Running CDP measurement (LT-CDP v0.11) ...
+#    CDP measured 3 function(s):
+#    transfer: score=0.823 (3/14 candidates satisfy)
+#    cache-lookup: score=0.000 (14/14 candidates satisfy) [identity-satisfies-post, const-satisfies-post]
+#    increment: score=1.000 (1/12 candidates satisfy)
+
+# CDP combined with trust-report JSON — pairs DP with the diamond-lattice evidence axis:
+stack exec llmll -- --json verify file.llmll --cdp --trust-report
+
 # Spec coverage — how much of your module is under contract:
 stack exec llmll -- verify file.llmll --spec-coverage
 # Spec Coverage Report
@@ -279,6 +291,8 @@ stack exec llmll -- verify file.llmll --spec-coverage --json
 ```
 
 `--weakness-check` runs **after** a SAFE verification result. For each contracted function, it constructs trivial bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, the spec is flagged as potentially weak. This is advisory — it does not affect the verification outcome.
+
+`--cdp` (v0.11 LT-CDP) extends `--weakness-check`'s trivial-body enumeration from a binary "any trivial body passes?" check to a Shannon-normalized counted divergence metric (`DP_Ω(S) = 1 − log|⟦S⟧_Ω| / log|B|`) over the closed v0.11 candidate set. A high-DP score means the contract is *discriminative* (rules out most observable behaviors); a low-DP score means the contract is *permissive* (admits trivial implementations). The `(spec-entropy :intentional)` annotation on a contract suppresses the low-DP diagnostic when permissiveness is the design (caches, schedulers, unspecified iteration order). The score is *observational* over the candidate set, not semantic — see [`LLMLL.md §4.4.6`](../LLMLL.md) for the load-bearing caveat. Legacy `--weakness-check` keeps its v0.10 catalog and binary diagnostic surface unchanged; the two flags are orthogonal.
 
 #### Spec coverage and the Verification-Scope Matrix
 
