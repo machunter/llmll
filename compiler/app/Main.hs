@@ -25,6 +25,7 @@ import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import System.Process (readProcessWithExitCode)
 import Control.Monad (unless, forM_, when, foldM)
+import Numeric (showFFloat)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
@@ -69,7 +70,12 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..))
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..))
+import LLMLL.CDP
+  ( CDPResult(..), CDPScope(..)
+  , computeCDPFor
+  , overAnnotationRatio, overAnnotationThreshold
+  , cdpWarningLabel )
 import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
@@ -95,7 +101,7 @@ data Command
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
   | CmdHubQuery T.Text                                      -- v0.6.1: hub query --signature <sig>
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report, --cdp (LT-CDP v0.11)
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -247,6 +253,8 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
             <> help "v0.9.0 + INT-1 v0.10.8: Hard-error if any function falls back from body-faithful verification or carries overflow-tainted verified evidence")
       <*> switch (long "obligation-report"
             <> help "v0.10: Emit structured obligation report (JSON, OBLIG-0 spec §2.1)")
+      <*> switch (long "cdp"
+            <> help "LT-CDP (v0.11): Compute contract discriminative power per function; emits discriminative_axis block in --trust-report --json")
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -324,7 +332,7 @@ main = do
     CmdHub   tarball          -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
     CmdHubQuery sig           -> doHubQuery json sig
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag
     CmdTypecheck fp sketch    -> doTypecheck json fp sketch
     CmdServe serveOpts        -> runServe serveOpts
     CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
@@ -1060,8 +1068,8 @@ parseOneType t
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
-doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport = do
+doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
+doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport cdpFlag = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json fp
   case mResult of
@@ -1073,7 +1081,10 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
       -- v0.3.2: --trust-report mode — print trust summary and exit
-      when trustReport $ do
+      -- LT-CDP (v0.11): when '--cdp' is also requested, defer the trust-report
+      -- emit to the post-solver path so 'discriminative_axis' can be
+      -- populated from the CDP measurement.
+      when (trustReport && not cdpFlag) $ do
         -- v0.9.0: load .verified.json sidecar so trust report reflects solver results
         sidecar <- loadVerified fp
         let report = buildTrustReport _cache stmts sidecar
@@ -1288,12 +1299,77 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
                     TIO.putStrLn . T.pack . BLC.unpack $ encode weakJson
             _ -> pure ()
 
+          -- LT-CDP (v0.11): contract discriminative power — runs on SAFE results.
+          -- Per 'v0.11-cross-proposal-rollback-discipline.md' §2, scope defaults
+          -- to CDPScopeAllDefLogic until LT-INV ships and the §8 gate selects the
+          -- post-gate default. The CDP result map is threaded into the trust
+          -- report via 'buildTrustReportWithCDP' when '--trust-report --json'
+          -- is also requested; otherwise it surfaces as a stdout summary block.
+          cdpResults <- case (fqResult, cdpFlag) of
+            (FQSafe, True) -> do
+              unless json $ TIO.putStrLn "   Running CDP measurement (LT-CDP v0.11) ..."
+              let runOneCandidate wc = checkCDPCandidate lfBin wc
+              results <- computeCDPFor CDPScopeAllDefLogic runOneCandidate stmts
+              -- Module-level over-annotation diagnostic (proposal Risk #3).
+              let intentRatio = overAnnotationRatio stmts
+              when (intentRatio > overAnnotationThreshold) $
+                unless json $ TIO.putStrLn $
+                  "   ⚠ over-annotation-warning: "
+                  <> T.pack (showFFloat (Just 1) (intentRatio * 100) "")
+                  <> "% of contracted functions carry (spec-entropy :intentional); threshold is "
+                  <> T.pack (showFFloat (Just 0) (overAnnotationThreshold * 100) "") <> "%"
+              -- Non-JSON human summary: one line per measured function.
+              unless json $ do
+                let scored = Map.toAscList results
+                if null scored
+                  then TIO.putStrLn "   No contracted functions in scope for CDP."
+                  else do
+                    TIO.putStrLn $ "   CDP measured " <> tshow (length scored) <> " function(s):"
+                    mapM_ (\(n, r) -> TIO.putStrLn $
+                            "   " <> n <> ": "
+                            <> maybe "score=undefined" (\s -> "score=" <> T.pack (showFFloat (Just 3) s "")) (cdpScore r)
+                            <> " (" <> tshow (cdpSatisfyingCount r) <> "/" <> tshow (cdpCandidateCount r) <> " candidates satisfy)"
+                            <> if null (cdpWarnings r)
+                                 then ""
+                                 else " [" <> T.intercalate ", " (map cdpWarningLabel (cdpWarnings r)) <> "]"
+                         ) scored
+              pure results
+            _ -> pure Map.empty
+
+          -- LT-CDP (v0.11): when '--trust-report' was deferred (because '--cdp'
+          -- was set), emit the trust report here so 'discriminative_axis' can
+          -- be populated from the CDP map. The non-CDP early-exit at line ~1078
+          -- already handled the trust-report-only path.
+          when (trustReport && cdpFlag) $ do
+            sidecar <- loadVerified fp
+            let report = buildTrustReportWithCDP _cache stmts sidecar cdpResults
+            if json
+              then TIO.putStrLn (formatTrustReportJson report)
+              else TIO.putStr (formatTrustReport report)
+            exitSuccess
+
           if reportSuccess report then do
             -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
             when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
               runLeanstralPipeline json fp stmts lsOpts
             exitSuccess
           else exitFailure
+
+-- | LT-CDP (v0.11): Run the solver on one CDP candidate; return True iff the
+-- solver reports SAFE (the candidate's trivial body satisfies the contract).
+-- Mirrors 'checkWeaknessCandidate' but threads the SAFE/UNSAFE outcome rather
+-- than constructing a spec-weakness diagnostic.
+checkCDPCandidate :: FilePath -> WeaknessCandidate -> IO Bool
+checkCDPCandidate lfBin wc = do
+  let weakOpts = defaultEmitOptions { emitBodyVCs = True }
+  emitR <- emitFixpointWith weakOpts "<cdp-candidate>" [wcSyntheticStmt wc]
+  let fqText = erFQText emitR
+      fqPath = "/tmp/llmll-cdp-" <> T.unpack (wcFunctionName wc) <> ".fq"
+  TIO.writeFile fqPath fqText
+  (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+  case parseFQResult (T.pack out <> T.pack err) of
+    FQSafe -> pure True
+    _      -> pure False
 
 -- | Check a single weakness candidate: emit .fq, run solver, return diagnostic if SAFE.
 checkWeaknessCandidate :: FilePath -> Bool -> WeaknessCandidate -> IO [Diagnostic]

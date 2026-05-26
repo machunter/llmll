@@ -1,0 +1,7 @@
+; LT-CDP (v0.11) fixture — high-DP function.
+; The postcondition (= result (+ n 1)) admits exactly one observable behavior
+; per input n, so the discriminative-power score should approach 1.0.
+(def-logic increment [n: int] -> int
+  (pre  (>= n 0))
+  (post (= result (+ n 1)))
+  (+ n 1))

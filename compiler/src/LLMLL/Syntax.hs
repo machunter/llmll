@@ -43,6 +43,9 @@ module LLMLL.Syntax
 
     -- * Contracts
   , Contract(..)
+  , SpecEntropy(..)
+  , specEntropyLabel
+  , parseSpecEntropy
 
     -- * Evidence Model (v0.8.1b)
   , DisplayLevel(..)
@@ -292,11 +295,48 @@ normalizeAsyncDelegateSpec spec =
 -- | Pre/post conditions for a def-logic function.
 -- v0.6: :source annotations provide clause-level provenance (per-clause, not per-contract).
 data Contract = Contract
-  { contractPre        :: Maybe Expr   -- ^ Precondition (must evaluate to bool)
-  , contractPreSource  :: Maybe Text   -- ^ v0.6: :source annotation for pre clause
-  , contractPost       :: Maybe Expr   -- ^ Postcondition (must evaluate to bool)
-  , contractPostSource :: Maybe Text   -- ^ v0.6: :source annotation for post clause
+  { contractPre         :: Maybe Expr        -- ^ Precondition (must evaluate to bool)
+  , contractPreSource   :: Maybe Text        -- ^ v0.6: :source annotation for pre clause
+  , contractPost        :: Maybe Expr        -- ^ Postcondition (must evaluate to bool)
+  , contractPostSource  :: Maybe Text        -- ^ v0.6: :source annotation for post clause
+  , contractSpecEntropy :: Maybe SpecEntropy -- ^ LT-CDP (v0.11): per-contract spec-entropy
+                                             -- annotation; 'Nothing' = unannotated (treated as
+                                             -- ':strict' at consumption sites), 'Just _' = explicit
+                                             -- author intent. Wire-line absence sentinel is
+                                             -- distinguished from explicit ':strict' so CDP can
+                                             -- report annotation provenance honestly.
   } deriving (Show, Eq, Generic)
+
+-- | LT-CDP (v0.11): per-contract spec-entropy annotation.
+--
+-- Three values per `contract-discriminative-power-proposal.md` §3:
+--
+--   * 'SpecEntropyStrict'      — default. Low DP raises a `--cdp` / `--weakness-check` diagnostic.
+--   * 'SpecEntropyIntentional' — low DP is design (caches, schedulers, unspecified iteration order).
+--                                CDP is computed and reported; diagnostic is suppressed.
+--   * 'SpecEntropyUnknown'     — CDP is computed and reported but does not raise. For
+--                                spec-development workflows where the contract is in flux.
+data SpecEntropy
+  = SpecEntropyStrict
+  | SpecEntropyIntentional
+  | SpecEntropyUnknown
+  deriving (Show, Eq, Generic)
+
+-- | Wire-line label for a 'SpecEntropy' value. Used by the JSON-AST round-trip
+-- and the trust-report `spec_entropy_annotation` field per
+-- `contract-discriminative-power-proposal.md` §5.
+specEntropyLabel :: SpecEntropy -> Text
+specEntropyLabel SpecEntropyStrict      = "strict"
+specEntropyLabel SpecEntropyIntentional = "intentional"
+specEntropyLabel SpecEntropyUnknown     = "unknown"
+
+-- | Parse a 'SpecEntropy' wire-line label. Strict — unknown values return
+-- 'Nothing' so callers can emit a parse error rather than silently default.
+parseSpecEntropy :: Text -> Maybe SpecEntropy
+parseSpecEntropy "strict"      = Just SpecEntropyStrict
+parseSpecEntropy "intentional" = Just SpecEntropyIntentional
+parseSpecEntropy "unknown"     = Just SpecEntropyUnknown
+parseSpecEntropy _             = Nothing
 
 -- ---------------------------------------------------------------------------
 -- Evidence Model (v0.8.1b — Diamond Lattice)

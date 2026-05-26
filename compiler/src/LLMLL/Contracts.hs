@@ -187,6 +187,7 @@ filterContracts cs contract = Contract
       Just er | isVerifiedLevel (erDisplayLevel er) && erBodyFaithful er -> Nothing
       _                 -> contractPost contract
   , contractPostSource = contractPostSource contract
+  , contractSpecEntropy = contractSpecEntropy contract
   }
 
 -- | v0.8.1b: Body-faithfulness is tracked via EvidenceRecord.erBodyFaithful
@@ -194,7 +195,7 @@ filterContracts cs contract = Contract
 
 -- | Empty contract — contracts moved into body as assertions.
 noContract :: Contract
-noContract = Contract Nothing Nothing Nothing Nothing
+noContract = Contract Nothing Nothing Nothing Nothing Nothing
 
 -- | Pre-process statements for codegen: strip contract clauses based on mode.
 -- Full: keep all contracts (codegen emits them as runtime assertions).

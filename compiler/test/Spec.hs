@@ -7,6 +7,7 @@ import Control.Exception (finally)
 import Data.Maybe (fromJust, isJust, listToMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Text.Encoding as TE
 
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
@@ -39,7 +40,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
@@ -60,7 +61,11 @@ import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDes
 import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), checkoutHole)
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), applyPatch, hasContracts)
 import System.FilePath ((</>))
-import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), TrivialBody(..))
+import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..))
+import LLMLL.CDP
+  ( CDPResult(..), CDPWarning(..), CDPScope(..)
+  , computeCDPFor, overAnnotationRatio, overAnnotationThreshold
+  , cdpWarningLabel )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, formatCoverageJson, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
@@ -820,7 +825,7 @@ main = hspec $ do
 
     it "letrec codegen emits :decreases comment marker" $ do
       let stmts = [SLetrec "countdown" [("n", TInt)] Nothing
-                     (Contract Nothing Nothing Nothing Nothing) (EVar "n")
+                     (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "n")
                      (EVar "n")]
       let result = generateHaskell "test" stmts
       cgHsSource result `shouldSatisfy` T.isInfixOf "letrec :decreases"
@@ -842,7 +847,7 @@ main = hspec $ do
 
     it "letrec with simple variable decreases has no complex-decreases hole" $ do
       let stmts = [SLetrec "f" [("n", TInt)] Nothing
-                     (Contract Nothing Nothing Nothing Nothing) (EVar "n") (EVar "n")]
+                     (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "n") (EVar "n")]
       let report = analyzeHoles stmts
       let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases")
                            (holeEntries report)
@@ -851,7 +856,7 @@ main = hspec $ do
     it "letrec with complex decreases auto-emits complex-decreases hole" $ do
       -- :decreases (- n 1) is not a simple variable — needs LH witness
       let stmts = [SLetrec "f" [("n", TInt)] Nothing
-                     (Contract Nothing Nothing Nothing Nothing)
+                     (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "-" [EVar "n", ELit (LitInt 1)])
                      (EVar "n")]
       let report = analyzeHoles stmts
@@ -863,7 +868,7 @@ main = hspec $ do
       -- pre: (* n n) > 0 — multiplication of two variables is non-linear
       let nlExpr = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
       let stmts = [SDefLogic "f" [("n", TInt)] Nothing
-                     (Contract (Just nlExpr) Nothing Nothing Nothing) (EVar "n")]
+                     (Contract (Just nlExpr) Nothing Nothing Nothing Nothing) (EVar "n")]
       let report = analyzeHoles stmts
       let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract")
                            (holeEntries report)
@@ -1433,20 +1438,20 @@ main = hspec $ do
     it "returns True for SDefLogic with pre+post" $ do
       let stmt = SDefLogic "f" [("x", TInt)] Nothing
                    (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
-                             (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                             (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                    (EVar "x")
       hasContracts [stmt] `shouldBe` True
 
     it "returns True for SDefLogic with post only" $ do
       let stmt = SDefLogic "f" [("x", TInt)] Nothing
                    (Contract Nothing Nothing
-                             (Just (EApp "=" [EVar "result", EVar "x"])) Nothing)
+                             (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing)
                    (EVar "x")
       hasContracts [stmt] `shouldBe` True
 
     it "returns False for SDefLogic with no contracts" $ do
       let stmt = SDefLogic "f" [("x", TInt)] Nothing
-                   (Contract Nothing Nothing Nothing Nothing)
+                   (Contract Nothing Nothing Nothing Nothing Nothing)
                    (EVar "x")
       hasContracts [stmt] `shouldBe` False
 
@@ -1811,10 +1816,10 @@ main = hspec $ do
   describe "ContractsMode: instrumentStatement" $ do
     let mkDefLogic name preE postE bodyE =
           SDefLogic name [("x", TInt)] Nothing
-            (Contract preE Nothing postE Nothing) bodyE
+            (Contract preE Nothing postE Nothing Nothing) bodyE
         mkLetrec name preE postE bodyE =
           SLetrec name [("n", TInt)] Nothing
-            (Contract preE Nothing postE Nothing) (EVar "n") bodyE
+            (Contract preE Nothing postE Nothing Nothing) (EVar "n") bodyE
         hasPre  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
@@ -1825,14 +1830,14 @@ main = hspec $ do
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
           result = instrumentStatement ContractsFull defaultCS stmt
-      defLogicContract result `shouldBe` Contract Nothing Nothing Nothing Nothing
+      defLogicContract result `shouldBe` Contract Nothing Nothing Nothing Nothing Nothing
       -- body should be wrapped (not the original)
       defLogicBody result `shouldNotBe` body
 
     it "ContractsFull keeps all contracts (SLetrec)" $ do
       let stmt = mkLetrec "g" hasPre hasPost body
           result = instrumentStatement ContractsFull defaultCS stmt
-      letrecContract result `shouldBe` Contract Nothing Nothing Nothing Nothing
+      letrecContract result `shouldBe` Contract Nothing Nothing Nothing Nothing Nothing
 
     it "ContractsNone strips all contracts" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -1843,7 +1848,7 @@ main = hspec $ do
     it "ContractsUnproven keeps proven pre (BUG-6: no body-faithful provers), keeps asserted post" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
           result = instrumentStatement ContractsUnproven mixedCS stmt
-      defLogicContract result `shouldBe` Contract Nothing Nothing Nothing Nothing
+      defLogicContract result `shouldBe` Contract Nothing Nothing Nothing Nothing Nothing
       -- v0.6.3: both pre (proven) and post (asserted) are instrumented
       -- because no body-faithful provers exist yet
       defLogicBody result `shouldNotBe` body
@@ -1930,7 +1935,7 @@ main = hspec $ do
 
   describe "applyContractsMode" $ do
     let mkDL name preE postE bodyE =
-          SDefLogic name [("x", TInt)] Nothing (Contract preE Nothing postE Nothing) bodyE
+          SDefLogic name [("x", TInt)] Nothing (Contract preE Nothing postE Nothing Nothing) bodyE
         pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
         post1 = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body1 = EVar "x"
@@ -1944,19 +1949,19 @@ main = hspec $ do
     it "ContractsFull preserves all contracts" $ do
       let result = applyContractsMode ContractsFull emptyMap stmts
       length result `shouldBe` 2
-      defLogicContract (head result) `shouldBe` Contract pre1 Nothing post1 Nothing
+      defLogicContract (head result) `shouldBe` Contract pre1 Nothing post1 Nothing Nothing
 
     it "ContractsNone clears all contracts" $ do
       let result = applyContractsMode ContractsNone emptyMap stmts
-      defLogicContract (head result) `shouldBe` Contract Nothing Nothing Nothing Nothing
-      defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing Nothing Nothing
+      defLogicContract (head result) `shouldBe` Contract Nothing Nothing Nothing Nothing Nothing
+      defLogicContract (result !! 1) `shouldBe` Contract Nothing Nothing Nothing Nothing Nothing
 
     it "ContractsUnproven preserves proven (BUG-6: no body-faithful provers)" $ do
       -- v0.6.3 (BUG-6): ContractsUnproven no longer strips DLContractChecked contracts
       -- because no body-faithful provers exist. Contracts are preserved.
       let result = applyContractsMode ContractsUnproven provenMap stmts
-      defLogicContract (head result) `shouldBe` Contract pre1 Nothing post1 Nothing
-      defLogicContract (result !! 1) `shouldBe` Contract pre1 Nothing Nothing Nothing
+      defLogicContract (head result) `shouldBe` Contract pre1 Nothing post1 Nothing Nothing
+      defLogicContract (result !! 1) `shouldBe` Contract pre1 Nothing Nothing Nothing Nothing
 
   -- =========================================================================
   -- v0.3: #9 — saveVerified / loadVerified round-trip
@@ -1982,7 +1987,7 @@ main = hspec $ do
 
   describe "trust-gap warnings in typeCheckWithCache" $ do
     let mkModule name preE postE bodyE =
-          [ SDefLogic name [("x", TInt)] (Just TInt) (Contract preE Nothing postE Nothing) bodyE
+          [ SDefLogic name [("x", TInt)] (Just TInt) (Contract preE Nothing postE Nothing Nothing) bodyE
           , SExport [name]
           ]
         pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
@@ -2002,7 +2007,7 @@ main = hspec $ do
         cache = DM.fromList [(modPath, modEnv)]
 
     it "emits trust-gap warning for unproven cross-module call" $ do
-      let callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
+      let callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache cache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       length trustGaps `shouldSatisfy` (> 0)
@@ -2011,7 +2016,7 @@ main = hspec $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
               [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
-          callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
+          callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache provenCache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       trustGaps `shouldBe` []
@@ -2019,7 +2024,7 @@ main = hspec $ do
     it "trust declaration suppresses trust-gap warning" $ do
       let callerStmts =
             [ STrust "math.safe-add" DLAsserted  -- acknowledge the assertion level
-            , SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])
+            , SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])
             ]
           report = typeCheckWithCache cache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -2035,7 +2040,7 @@ main = hspec $ do
           let pre1  = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
               post1 = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
               stmts = [ SDefLogic name [("x", TInt)] (Just TInt)
-                          (Contract pre1 Nothing post1 Nothing) (EVar "x")
+                          (Contract pre1 Nothing post1 Nothing Nothing) (EVar "x")
                        , SExport [name]
                        ]
           in ModuleEnv
@@ -2054,7 +2059,7 @@ main = hspec $ do
 
         -- Module B caller: calls "auth.verify.auth.verify" (qualified via cache seeding)
         mkCallerStmts = [SDefLogic "check-user" [("uid", TInt)] (Just TInt)
-                           (Contract Nothing Nothing Nothing Nothing)
+                           (Contract Nothing Nothing Nothing Nothing Nothing)
                            (EApp "auth.verify.auth.verify" [EVar "uid"])]
 
         -- Helper: count trust-gap diagnostics
@@ -2098,7 +2103,7 @@ main = hspec $ do
           callerStmts =
             [ STrust "auth.verify.auth.verify" (DLTested 0)
             , SDefLogic "check-user" [("uid", TInt)] (Just TInt)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "auth.verify.auth.verify" [EVar "uid"])
             ]
           report = typeCheckWithCache cache emptyEnv callerStmts
@@ -2112,7 +2117,7 @@ main = hspec $ do
           callerStmts =
             [ STrust "auth.verify.auth.verify" DLAsserted  -- asserted < tested
             , SDefLogic "check-user" [("uid", TInt)] (Just TInt)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "auth.verify.auth.verify" [EVar "uid"])
             ]
           report = typeCheckWithCache cache emptyEnv callerStmts
@@ -2144,10 +2149,10 @@ main = hspec $ do
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
             [ SDefLogic "process" [("x", TInt)] (Just TInt)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "math.safe-add" [EVar "x"])
             , SDefLogic "hash-input" [("s", TString)] (Just TString)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "crypto.hash" [EVar "s"])
             ]
           report = typeCheckWithCache cache emptyEnv callerStmts
@@ -2170,7 +2175,7 @@ main = hspec $ do
                                    (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
                                              Nothing
                                              (Just (EApp ">=" [EVar "result", ELit (LitInt 0)]))
-                                             Nothing)
+                                             Nothing Nothing)
                                    (EVar "x")]
             , meInterfaces     = DM.empty
             , meAliasMap       = DM.empty
@@ -2182,7 +2187,7 @@ main = hspec $ do
     -- Test 1: Report includes entry function with its contract levels
     it "report includes entry module functions" $ do
       let stmts = [ SDefLogic "main-fn" [("n", TInt)] (Just TInt)
-                       (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing)
+                       (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
                        (EVar "n")
                    ]
           cache = DM.empty
@@ -2203,7 +2208,7 @@ main = hspec $ do
                       (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
                                 Nothing
                                 (Just (EApp ">=" [EVar "result", ELit (LitInt 0)]))
-                                Nothing)
+                                Nothing Nothing)
                       (EApp "crypto.hash" [EVar "x"])
                   ]
           report = buildTrustReport cache stmts Map.empty
@@ -2217,7 +2222,7 @@ main = hspec $ do
                         (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
-                      (Contract Nothing Nothing Nothing Nothing)
+                      (Contract Nothing Nothing Nothing Nothing Nothing)
                       (EApp "math.safe-add" [EVar "x"])
                   ]
           report = buildTrustReport cache stmts Map.empty
@@ -2232,7 +2237,7 @@ main = hspec $ do
                           (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
-                      (Contract Nothing Nothing Nothing Nothing) (EVar "x")
+                      (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")
                   ]
           report = buildTrustReport cache stmts Map.empty
       -- math.safe-add is proven, crypto.hash is asserted, no-contract has no contract
@@ -2244,7 +2249,7 @@ main = hspec $ do
     it "formatTrustReportJson produces valid JSON with entries and summary" $ do
       let cache = DM.empty
           stmts = [ SDefLogic "fn1" [("x", TInt)] (Just TInt)
-                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
                       (EVar "x")
                   ]
           report = buildTrustReport cache stmts Map.empty
@@ -2340,7 +2345,7 @@ main = hspec $ do
     it "formatTrustReportJson includes trust_report_version and tier_profile" $ do
       let stmts =
             [ SDefLogic "fn1" [("x", TInt)] (Just TInt)
-                (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+                (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
                 (EVar "x")
             ]
           report   = buildTrustReport DM.empty stmts Map.empty
@@ -2348,7 +2353,7 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.1.0")
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.2.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All six required fields present
@@ -2401,7 +2406,7 @@ main = hspec $ do
     -- TypeCheck (2)
     it "EAwait on TPromise infers TResult t TDelegationError" $ do
       let delegSpec = DelegateSpec "agent" "task" TInt Nothing
-          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing)
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                     (EAwait (EHole (HDelegateAsync delegSpec)))]
           report = typeCheck emptyEnv prog
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
@@ -2409,7 +2414,7 @@ main = hspec $ do
 
     it "?delegate-async hole infers TPromise(returnType)" $ do
       let delegSpec = DelegateSpec "agent" "task" TInt Nothing
-          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing)
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                     (EHole (HDelegateAsync delegSpec))]
           report = typeCheck emptyEnv prog
           hardErrs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
@@ -2469,7 +2474,7 @@ main = hspec $ do
     -- HoleAnalysis (1)
     it "analyzeHoles reports ?scaffold as NonBlocking" $ do
       let spec = ScaffoldSpec "todo-app" Nothing [] Nothing Nothing
-          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing)
+          prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                     (EHole (HScaffold spec))]
           report = analyzeHoles prog
           entries = holeEntries report
@@ -2557,6 +2562,7 @@ main = hspec $ do
             , contractPreSource = Nothing
             , contractPost = Just (EOp ">" [EVar "result", ELit (LitInt 0)])
             , contractPostSource = Nothing
+            , contractSpecEntropy = Nothing
             }
       case translateObligation "test-func" contract of
         LeanTheorem thm -> do
@@ -2570,6 +2576,7 @@ main = hspec $ do
             , contractPreSource = Nothing
             , contractPost = Just (EApp "fold" [EVar "xs"])
             , contractPostSource = Nothing
+            , contractSpecEntropy = Nothing
             }
       case translateObligation "fold-test" contract of
         Unsupported reason -> T.isInfixOf "fold" reason `shouldBe` True
@@ -2581,6 +2588,7 @@ main = hspec $ do
             , contractPreSource = Nothing
             , contractPost = Just (EOp ">" [EApp "list-length" [EVar "xs"], ELit (LitInt 0)])
             , contractPostSource = Nothing
+            , contractSpecEntropy = Nothing
             }
       case translateObligation "list-test" contract of
         LeanTheorem thm -> T.isInfixOf ".length" thm `shouldBe` True
@@ -2633,7 +2641,7 @@ main = hspec $ do
 
     it "formatHoleReportJson includes complexity for proof-required holes" $ do
       let stmts = [SDefLogic "safe-div" [("n", TInt), ("d", TInt)] Nothing
-                     (Contract Nothing Nothing Nothing Nothing) (EHole (HProofRequired "complex-decreases"))]
+                     (Contract Nothing Nothing Nothing Nothing Nothing) (EHole (HProofRequired "complex-decreases"))]
           report = HA.analyzeHoles stmts
           json   = HA.formatHoleReportJson "<test>" False report
       T.isInfixOf "complexity" json `shouldBe` True
@@ -2646,6 +2654,7 @@ main = hspec $ do
             , contractPreSource = Nothing
             , contractPost = Just (EOp ">" [EVar "result", ELit (LitInt 0)])
             , contractPostSource = Nothing
+            , contractSpecEntropy = Nothing
             }
       case translateObligation "pipeline-test" contract of
         LeanTheorem thm -> do
@@ -2739,7 +2748,7 @@ verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
                          (Just (EOp ">" [EVar "x", ELit (LitInt 0)]))
                          Nothing
                          (Just (EOp ">" [EVar "result", ELit (LitInt 0)]))
-                         Nothing)
+                         Nothing Nothing)
                       (EHole (HProofRequired "complex-decreases"))
                   ]
           proofHoles = [ (n, c)
@@ -2834,7 +2843,7 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
 
   describe "LeanTranslate coverage" $ do
     it "translateObligation on empty contract → Unsupported" $ do
-      let contract = Contract Nothing Nothing Nothing Nothing
+      let contract = Contract Nothing Nothing Nothing Nothing Nothing
       case translateObligation "empty-test" contract of
         Unsupported reason -> T.isInfixOf "empty" reason `shouldBe` True
         LeanTheorem _      -> expectationFailure "Expected Unsupported for empty contract"
@@ -2845,6 +2854,7 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
             , contractPreSource = Nothing
             , contractPost = Nothing
             , contractPostSource = Nothing
+            , contractSpecEntropy = Nothing
             }
       case translateObligation "pre-only" contract of
         LeanTheorem thm -> do
@@ -2858,6 +2868,7 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
             , contractPreSource = Nothing
             , contractPost = Just (EApp "for-all" [EVar "i", EOp ">" [EVar "i", ELit (LitInt 0)]])
             , contractPostSource = Nothing
+            , contractSpecEntropy = Nothing
             }
       case translateObligation "forall-test" contract of
         LeanTheorem thm -> do
@@ -2873,6 +2884,7 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
                                              , EOp "not" [EOp "<" [EVar "y", ELit (LitInt 0)]]
                                              ])
             , contractPostSource = Nothing
+            , contractSpecEntropy = Nothing
             }
       case translateObligation "bool-test" contract of
         LeanTheorem thm -> do
@@ -2970,7 +2982,7 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
                           (Just (EOp ">=" [EVar "n", ELit (LitInt 0)]))
                           Nothing
                           (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
-                          Nothing
+                          Nothing Nothing
                       , letrecDecreases = EVar "n"
                       , letrecBody     = EHole (HProofRequired "complex-decreases")
                       }
@@ -2998,7 +3010,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "Pointer structural correctness" $ do
     it "def-logic body hole gets /statements/N/body pointer" $ do
-      let prog = [ SDefLogic "f" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "f" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HNamed "impl"))
                  ]
           report = analyzeHoles prog
@@ -3007,8 +3019,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       HA.holePointer (head entries) `shouldBe` "/statements/0/body"
 
     it "second statement gets /statements/1/body pointer" $ do
-      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing) (ELit (LitInt 1))
-                 , SDefLogic "g" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing) (ELit (LitInt 1))
+                 , SDefLogic "g" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
                  ]
           report = analyzeHoles prog
@@ -3017,7 +3029,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       HA.holePointer (head entries) `shouldBe` "/statements/1/body"
 
     it "hole in if-then branch gets /then_branch subpath" $ do
-      let prog = [ SDefLogic "f" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "f" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EIf (EVar "x")
                           (EHole (HNamed "then-impl"))
                           (ELit (LitInt 0)))
@@ -3034,9 +3046,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Dependency analysis" $ do
     it "hole in caller depends on hole in callee" $ do
       -- hash-password has a ?delegate hole; login-handler calls hash-password and has its own hole
-      let prog = [ SDefLogic "hash-password" [("pw", TString)] Nothing (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "hash-password" [("pw", TString)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HDelegate (DelegateSpec "crypto-agent" "hash" TString Nothing)))
-                 , SDefLogic "login-handler" [("user", TString)] Nothing (Contract Nothing Nothing Nothing Nothing)
+                 , SDefLogic "login-handler" [("user", TString)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "hash-password" [EHole (HDelegate (DelegateSpec "auth-agent" "login" TString Nothing))])
                  ]
           report = analyzeHolesWithDeps prog
@@ -3048,9 +3060,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       hdReason (head (HA.holeDependsOn loginHole)) `shouldBe` "calls-hole-body"
 
     it "independent holes have empty depends_on" $ do
-      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HDelegate (DelegateSpec "a" "t1" TInt Nothing)))
-                 , SDefLogic "g" [] Nothing (Contract Nothing Nothing Nothing Nothing)
+                 , SDefLogic "g" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HDelegate (DelegateSpec "b" "t2" TInt Nothing)))
                  ]
           report = analyzeHolesWithDeps prog
@@ -3058,7 +3070,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       all (\e -> null (HA.holeDependsOn e)) entries `shouldBe` True
 
     it "JSON output with deps includes depends_on and cycle_warning" $ do
-      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HDelegate (DelegateSpec "a" "t" TInt Nothing)))
                  ]
           report = analyzeHolesWithDeps prog
@@ -3073,9 +3085,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Cycle detection" $ do
     it "mutual recursion sets cycle_warning on both holes" $ do
       -- f calls g, g calls f — both have holes
-      let prog = [ SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "g" [EHole (HDelegate (DelegateSpec "a" "t1" TInt Nothing))])
-                 , SDefLogic "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing)
+                 , SDefLogic "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "f" [EHole (HDelegate (DelegateSpec "b" "t2" TInt Nothing))])
                  ]
           report = analyzeHolesWithDeps prog
@@ -3084,9 +3096,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       all (\e -> HA.holeCycleWarn e) entries `shouldBe` True
 
     it "cycle breaking removes back-edge from highest-index hole" $ do
-      let prog = [ SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "g" [EHole (HDelegate (DelegateSpec "a" "t1" TInt Nothing))])
-                 , SDefLogic "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing)
+                 , SDefLogic "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "f" [EHole (HDelegate (DelegateSpec "b" "t2" TInt Nothing))])
                  ]
           report = analyzeHolesWithDeps prog
@@ -3103,9 +3115,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "Dependency scope exclusions" $ do
     it "?proof-required holes do not appear in depends_on" $ do
-      let prog = [ SDefLogic "hash" [("x", TString)] Nothing (Contract Nothing Nothing Nothing Nothing)
+      let prog = [ SDefLogic "hash" [("x", TString)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HProofRequired "complex-decreases"))
-                 , SDefLogic "login" [("u", TString)] Nothing (Contract Nothing Nothing Nothing Nothing)
+                 , SDefLogic "login" [("u", TString)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "hash" [EHole (HDelegate (DelegateSpec "agent" "login" TString Nothing))])
                  ]
           report = analyzeHolesWithDeps prog
@@ -3116,7 +3128,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "contract-position holes do not appear in depends_on" $ do
       let prog = [ SDefLogic "validate" [("x", TInt)] Nothing
-                     (Contract (Just (EHole (HNamed "pre-impl"))) Nothing Nothing Nothing)
+                     (Contract (Just (EHole (HNamed "pre-impl"))) Nothing Nothing Nothing Nothing)
                      (EHole (HDelegate (DelegateSpec "agent" "validate" TInt Nothing)))
                  ]
           report = analyzeHolesWithDeps prog
@@ -3296,7 +3308,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)]))
                           Nothing
                           (Just (EApp ">" [EVar "result", ELit (LitInt 0)]))
-                          Nothing)
+                          Nothing Nothing)
                 (EApp "+" [EVar "x", ELit (LitInt 1)])
             ]
           candidates = generateWeaknessCandidates stmts
@@ -3310,18 +3322,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "constant zero generates candidate for int-returning function" $ do
       let stmts =
             [ SDefLogic "abs-val" [("x", TInt)] (Just TInt)
-                (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                 (EVar "x")
             ]
           candidates = generateWeaknessCandidates stmts
-          zeroCandidates = [c | c <- candidates, wcTrivialBody c == TrivConstZero]
+          -- LT-CDP (v0.11): TrivConstZero subsumed into TrivConstInt 0.
+          zeroCandidates = [c | c <- candidates, wcTrivialBody c == TrivConstInt 0]
       zeroCandidates `shouldSatisfy` (not . null)
 
     -- W1 INV-4: type-incompatible bodies skipped
     it "INV-4: identity body skipped when param type != return type" $ do
       let stmts =
             [ SDefLogic "to-str" [("x", TInt)] (Just TString)
-                (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing)
+                (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
                 (EApp "to-string" [EVar "x"])
             ]
           candidates = generateWeaknessCandidates stmts
@@ -3335,7 +3348,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "function without contracts produces no candidates" $ do
       let stmts =
             [ SDefLogic "id" [("x", TInt)] (Just TInt)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EVar "x")
             ]
           candidates = generateWeaknessCandidates stmts
@@ -3345,10 +3358,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "weakness detection is independent per function" $ do
       let stmts =
             [ SDefLogic "f" [("x", TInt)] (Just TInt)
-                (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                 (EVar "x")
             , SDefLogic "g" [("s", TString)] (Just TString)
-                (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing)
+                (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
                 (EVar "s")
             ]
           candidates = generateWeaknessCandidates stmts
@@ -3362,7 +3375,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let pre = Just (EApp ">" [EVar "x", ELit (LitInt 0)])
           stmts =
             [ SDefLogic "inc" [("x", TInt)] (Just TInt)
-                (Contract pre Nothing (Just (EApp ">" [EVar "result", ELit (LitInt 0)])) Nothing)
+                (Contract pre Nothing (Just (EApp ">" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                 (EApp "+" [EVar "x", ELit (LitInt 1)])
             ]
           candidates = generateWeaknessCandidates stmts
@@ -3412,7 +3425,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let stmts =
             [ SImport (Import "wasi.io" Nothing (Just (Capability CapWrite "*" True)))
             , SDefLogic "greet" [("name", TString)] (Just (TCustom "Command"))
-                (Contract Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "name"])
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "name"])
             ]
           report = typeCheck emptyEnv stmts
           capErrors = filter (\d -> diagKind d == Just "missing-capability")
@@ -3424,7 +3437,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let stmts =
             [ SImport (Import "wasi.io" Nothing (Just (Capability CapWrite "*" True)))
             , SDefLogic "write-file" [("path", TString), ("content", TString)] (Just (TCustom "Command"))
-                (Contract Nothing Nothing Nothing Nothing) (EApp "wasi.fs.write" [EVar "path", EVar "content"])
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "wasi.fs.write" [EVar "path", EVar "content"])
             ]
           report = typeCheck emptyEnv stmts
           capErrors = filter (\d -> diagKind d == Just "missing-capability")
@@ -3438,7 +3451,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let modAStmts =
             [ SImport (Import "wasi.io" Nothing (Just (Capability CapRead "*" True)))
             , SDefLogic "print-msg" [("msg", TString)] (Just (TCustom "Command"))
-                (Contract Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "msg"])
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "msg"])
             , SExport ["print-msg"]
             ]
           modAEnv = ModuleEnv
@@ -3454,7 +3467,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           -- Module B imports helpers, calls wasi.io.stdout directly without own import
           callerStmts =
             [ SDefLogic "caller" [("s", TString)] (Just (TCustom "Command"))
-                (Contract Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "s"])
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "s"])
             ]
           report = typeCheckWithCache cache emptyEnv callerStmts
           capErrors = filter (\d -> diagKind d == Just "missing-capability")
@@ -3471,7 +3484,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- U4a: cross-argument consistency — (= 42 "hello") should fail
     it "U4a: (= 42 \"hello\") catches int vs string cross-arg mismatch" $ do
       let stmts =
-            [ SDefLogic "f" [] (Just TBool) (Contract Nothing Nothing Nothing Nothing)
+            [ SDefLogic "f" [] (Just TBool) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "=" [ELit (LitInt 42), ELit (LitString "hello")])
             ]
           report = typeCheck emptyEnv stmts
@@ -3481,7 +3494,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- U4b: list-contains cross-arg mismatch
     it "U4b: list-contains([1,2,3], \"hello\") catches element type mismatch" $ do
       let stmts =
-            [ SDefLogic "f" [("xs", TList TInt)] (Just TBool) (Contract Nothing Nothing Nothing Nothing)
+            [ SDefLogic "f" [("xs", TList TInt)] (Just TBool) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "list-contains" [EVar "xs", ELit (LitString "hello")])
             ]
           report = typeCheck emptyEnv stmts
@@ -3491,7 +3504,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- U5: list-map with mismatched element type in lambda
     it "U5: list-map [ints] (fn [x: string] x) catches element type mismatch" $ do
       let stmts =
-            [ SDefLogic "f" [("xs", TList TInt)] (Just (TList TString)) (Contract Nothing Nothing Nothing Nothing)
+            [ SDefLogic "f" [("xs", TList TInt)] (Just (TList TString)) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "list-map" [EVar "xs", ELambda [("x", TString)] (EVar "x")])
             ]
           report = typeCheck emptyEnv stmts
@@ -3501,7 +3514,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- U4c: first(42) should fail (non-pair argument)
     it "U4c: first(42) catches non-pair argument" $ do
       let stmts =
-            [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing Nothing Nothing)
+            [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "first" [ELit (LitInt 42)])
             ]
           report = typeCheck emptyEnv stmts
@@ -3511,7 +3524,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- U4d: second("hello") should fail (non-pair argument)
     it "U4d: second(\"hello\") catches non-pair argument" $ do
       let stmts =
-            [ SDefLogic "f" [] (Just (TVar "b")) (Contract Nothing Nothing Nothing Nothing)
+            [ SDefLogic "f" [] (Just (TVar "b")) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "second" [ELit (LitString "hello")])
             ]
           report = typeCheck emptyEnv stmts
@@ -3536,7 +3549,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ STypeDef "Color" (TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)])
             , STypeDef "Shape" (TSumType [("Circle", Just TInt), ("Rect", Nothing)])
             , SDefLogic "f" [("c", TCustom "Color")] (Just (TCustom "Shape"))
-                (Contract Nothing Nothing Nothing Nothing) (EVar "c")
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "c")
             ]
           report = typeCheck emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
@@ -3547,7 +3560,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let stmts =
             [ STypeDef "Color" (TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)])
             , SDefLogic "f" [("c", TCustom "Color")] (Just (TCustom "Color"))
-                (Contract Nothing Nothing Nothing Nothing) (EVar "c")
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "c")
             ]
           report = typeCheck emptyEnv stmts
       reportSuccess report `shouldBe` True
@@ -3556,14 +3569,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "U-Lite: list-head on list[int] returns Result[int, string]" $ do
       let stmts =
             [ SDefLogic "f" [("xs", TList TInt)] (Just (TResult TInt TString))
-                (Contract Nothing Nothing Nothing Nothing) (EApp "list-head" [EVar "xs"])
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "list-head" [EVar "xs"])
             ]
           report = typeCheck emptyEnv stmts
       reportSuccess report `shouldBe` True
 
     it "U-Lite: pair(1, \"hello\") then first gives int" $ do
       let stmts =
-            [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing Nothing Nothing)
+            [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "first" [EApp "pair" [ELit (LitInt 1), ELit (LitString "hello")]])
             ]
           report = typeCheck emptyEnv stmts
@@ -3595,7 +3608,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "U1-full: list-head on list[int] does not trigger occurs check (no false positive)" $ do
       let stmts =
             [ SDefLogic "f" [("xs", TList TInt)] (Just (TResult TInt TString))
-                (Contract Nothing Nothing Nothing Nothing) (EApp "list-head" [EVar "xs"])
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "list-head" [EVar "xs"])
             ]
           report = typeCheck emptyEnv stmts
       reportSuccess report `shouldBe` True
@@ -3612,9 +3625,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "U2-full: polymorphic top-level function works at two call sites with different types" $ do
       let stmts =
             [ SDefLogic "identity" [("x", TVar "a")] (Just (TVar "a"))
-                (Contract Nothing Nothing Nothing Nothing) (EVar "x")
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")
             , SDefLogic "test" [] (Just TBool)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 -- Call identity(42) and identity("hello") at different sites
                 -- Both should succeed because each EApp gets a fresh substitution
                 (EApp "=" [ EApp "identity" [ELit (LitInt 42)]
@@ -3627,9 +3640,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "U2-full: conflicting types at same call site rejected" $ do
       let stmts =
             [ SDefLogic "same-type" [("x", TVar "a"), ("y", TVar "a")] (Just (TVar "a"))
-                (Contract Nothing Nothing Nothing Nothing) (EVar "x")
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")
             , SDefLogic "test" [] (Just TBool)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "same-type" [ELit (LitInt 5), ELit (LitString "hello")])
             ]
           report = typeCheck emptyEnv stmts
@@ -3640,9 +3653,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "U2-full (Issue 2): bound-TVar consistency rejects f(5, \"hello\") for f : a -> a -> bool" $ do
       let stmts =
             [ SDefLogic "same-check" [("x", TVar "a"), ("y", TVar "a")] (Just TBool)
-                (Contract Nothing Nothing Nothing Nothing) (EApp "=" [EVar "x", EVar "y"])
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "=" [EVar "x", EVar "y"])
             , SDefLogic "test" [] (Just TBool)
-                (Contract Nothing Nothing Nothing Nothing)
+                (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "same-check" [ELit (LitInt 5), ELit (LitString "hello")])
             ]
           report = typeCheck emptyEnv stmts
@@ -3705,7 +3718,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "runSketch with defaultPatterns returns invariant suggestions" $ do
       let stmts =
             [ SDefLogic "my-sort" [("xs", TList TInt)] (Just (TList TInt))
-                (Contract Nothing Nothing Nothing Nothing) (EVar "xs")
+                (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "xs")
             ]
           result = runSketch emptyEnv stmts defaultPatterns
           ids = map isPatternId (sketchInvariants result)
@@ -3745,17 +3758,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)]))
                               Nothing
                               (Just (EApp ">" [EVar "result", ELit (LitInt 0)]))
-                              Nothing)
+                              Nothing Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
-                    (Contract Nothing Nothing Nothing Nothing) (EVar "x")]
+                    (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -3763,11 +3776,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)]))
                               Nothing
                               (Just (EApp ">" [EVar "result", ELit (LitInt 0)]))
-                              Nothing)
+                              Nothing Nothing)
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -3776,11 +3789,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "QF-LIA postcondition gets Verified strength" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing
-                              (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                              (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -3789,11 +3802,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- (> (* x x) 0) is non-linear (uses *), outside QF-LIA
       let stmts = [SDefLogic "g" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing
-                              (Just (EApp ">" [EApp "*" [EVar "x", EVar "x"], ELit (LitInt 0)])) Nothing)
+                              (Just (EApp ">" [EApp "*" [EVar "x", EVar "x"], ELit (LitInt 0)])) Nothing Nothing)
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -3801,11 +3814,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "JSON output includes strength field" $ do
       let stmts = [SDefLogic "h" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing
-                              (Just (EApp ">" [EVar "result", ELit (LitInt 0)])) Nothing)
+                              (Just (EApp ">" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] []
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -3815,9 +3828,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- v0.6 SpecCoverage Tests (SC-1..4)
   -- =========================================================================
   describe "SpecCoverage (v0.6)" $ do
-    let noContract = Contract Nothing Nothing Nothing Nothing
-        withPost   = Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing
-        withPre    = Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing
+    let noContract = Contract Nothing Nothing Nothing Nothing Nothing
+        withPost   = Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+        withPre    = Contract (Just (EApp ">" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing
         emptyCS    = Map.empty :: Map.Map T.Text ContractStatus
 
     -- SC-PO-1: empty module → 100% (no div-by-zero)
@@ -4074,7 +4087,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T10: SpecCoverage reports interface laws in separate section
     it "T10: laws_coverage — interface laws appear in coverage report" $ do
       let stmts = [ SDefLogic "f" [("x", TInt)] (Just TInt)
-                      (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                      (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                       (EVar "x")
                   , SDefInterface "Normalizer"
                       [("normalize", TFn [TString] TString)]
@@ -4100,10 +4113,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T11: SUPP-DEBT — spec_coverage and suppression_debt fields
     it "T11: SUPP-DEBT — spec_coverage and suppression_debt computed correctly" $ do
       let stmts = [ SDefLogic "contracted" [("x", TInt)] (Just TInt)
-                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
                       (EVar "x")
                   , SDefLogic "unspecified" [("x", TInt)] (Just TInt)
-                      (Contract Nothing Nothing Nothing Nothing)
+                      (Contract Nothing Nothing Nothing Nothing Nothing)
                       (EVar "x")
                   , SWeaknessOk "unspecified" "helper function"
                   ]
@@ -4394,7 +4407,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- Use a non-linear post that exprToPred can't handle
         let stmts = [ SDefLogic "mul" [("x", TInt), ("y", TInt)] (Just TInt)
                         (Contract Nothing Nothing
-                          (Just (EApp "*" [EVar "result", ELit (LitInt 2)])) Nothing)
+                          (Just (EApp "*" [EVar "result", ELit (LitInt 2)])) Nothing Nothing)
                         (EVar "x")
                     ]
         emitR <- emitFixpoint "test.llmll" stmts
@@ -4408,7 +4421,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- -----------------------------------------------------------------------
   describe "COMP-T (v0.9.0 compositional verification)" $ do
 
-    let mkContract mPre mPost = Contract mPre Nothing mPost Nothing
+    let mkContract mPre mPost = Contract mPre Nothing mPost Nothing Nothing
 
     describe "applySubst" $ do
       it "substitutes variables in FQBinPred" $ do
@@ -4588,7 +4601,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               (Just (EApp ">=" [EVar "x", ELit (LitInt 0)]))
               Nothing
               (Just (EApp "=" [EVar "result", EVar "x"]))
-              Nothing
+              Nothing Nothing
             cenv = Map.fromList [("g", ([("x", TInt)], gContract, Just (TResult TInt TInt)))]
             body = EMatch (EApp "g" [ELit (LitInt 42)])
                      [ (PConstructor "Success" [PVar "v"], EVar "v")
@@ -4734,16 +4747,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "ObligationAssembly: classifyContractFragment" $ do
     it "OA-CF1: absent when no pre and no post" $
-      classifyContractFragment (Contract Nothing Nothing Nothing Nothing) `shouldBe` "absent"
+      classifyContractFragment (Contract Nothing Nothing Nothing Nothing Nothing) `shouldBe` "absent"
 
     it "OA-CF2: qf_lia for simple arithmetic" $
       classifyContractFragment (Contract
-        (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing)
+        (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
         `shouldBe` "qf_lia"
 
     it "OA-CF3: non_qf_lia for string operations" $
       classifyContractFragment (Contract
-        (Just (EApp "string-empty?" [EVar "s"])) Nothing Nothing Nothing)
+        (Just (EApp "string-empty?" [EVar "s"])) Nothing Nothing Nothing Nothing)
         `shouldBe` "non_qf_lia"
 
   describe "ObligationAssembly: classifyBodyFragment" $ do
@@ -4807,7 +4820,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   describe "ObligationAssembly: recursiveNames" $ do
     it "OA-RN1: empty for non-recursive" $ do
-      let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing) (EVar "x")]
+      let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
       recursiveNames stmts `shouldBe` Set.empty
 
   -- -----------------------------------------------------------------------
@@ -4960,7 +4973,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "S1 delegate fallback typecheck" $ do
       it "accepts well-typed fallback (?delegate -> int (on-failure 0))" $ do
         let stmts = [ SDefLogic "f" [] (Just TInt)
-                        (Contract Nothing Nothing Nothing Nothing)
+                        (Contract Nothing Nothing Nothing Nothing Nothing)
                         (EHole (HDelegate (DelegateSpec "agent" "task" TInt
                                             (Just (ELit (LitInt 0))))))
                     ]
@@ -4970,7 +4983,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "rejects ill-typed fallback (?delegate -> string (on-failure 0))" $ do
         let stmts = [ SDefLogic "f" [] (Just TString)
-                        (Contract Nothing Nothing Nothing Nothing)
+                        (Contract Nothing Nothing Nothing Nothing Nothing)
                         (EHole (HDelegate (DelegateSpec "agent" "task" TString
                                             (Just (ELit (LitInt 0))))))
                     ]
@@ -4980,7 +4993,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "rejects if-branch type mismatch when delegate is one branch" $ do
         let stmts = [ SDefLogic "f" [("b", TBool)] Nothing
-                        (Contract Nothing Nothing Nothing Nothing)
+                        (Contract Nothing Nothing Nothing Nothing Nothing)
                         (EIf (EVar "b")
                              (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
                              (ELit (LitString "fallback")))
@@ -5033,7 +5046,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "delegate without fallback -> PBTSkipped (was vacuous PBTPassed)" $ do
         let stmts =
               [ SDefLogic "h" [] (Just TInt)
-                  (Contract Nothing Nothing Nothing Nothing)
+                  (Contract Nothing Nothing Nothing Nothing Nothing)
                   (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
               , SCheck (Property "h-equals-zero" []
                           (EOp "=" [EApp "h" [], ELit (LitInt 0)]) [])
@@ -5046,7 +5059,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "delegate with fallback resolves via FuncEnv -> PBTPassed" $ do
         let stmts =
               [ SDefLogic "g" [] (Just TInt)
-                  (Contract Nothing Nothing Nothing Nothing)
+                  (Contract Nothing Nothing Nothing Nothing Nothing)
                   (EHole (HDelegate (DelegateSpec "agent" "task" TInt
                                       (Just (ELit (LitInt 42))))))
               , SCheck (Property "g-equals-42" []
@@ -5350,7 +5363,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let mkContractedFn name =
             SDefLogic name [("x", TInt)] (Just TInt)
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
-                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
               (EVar "x")
           passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
 
@@ -5545,7 +5558,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.1.0")
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.2.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -5572,12 +5585,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let mkContractedFn name =
             SDefLogic name [("x", TInt)] (Just TInt)
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
-                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
               (EVar "x")
           mkContractedFnNoPost name =
             SDefLogic name [("x", TInt)] (Just TInt)
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
-                        Nothing Nothing)
+                        Nothing Nothing Nothing)
               (EVar "x")
           passedRun desc nSamples = PBTRun desc PBTPassed nSamples Nothing
 
@@ -5747,7 +5760,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let mkContractedFn name =
             SDefLogic name [("x", TInt)] (Just TInt)
               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
-                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
               (EVar "x")
           passedRun5a desc nSamples = PBTRun desc PBTPassed nSamples Nothing
 
@@ -5851,7 +5864,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.1.0\"" jsonTxt `shouldBe` True
+        -- LT-CDP (v0.11): trust_report_version bumped 1.1.0 → 1.2.0
+        T.isInfixOf "\"trust_report_version\":\"1.2.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
     -- evalContract isolation regression: empty-FuncEnv invariant
@@ -5863,7 +5877,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- and returns Nothing -> ContractUnchecked. Pins the invariant that
         -- contract evaluation does not silently inline def-logic calls.
         let pre      = Just (EApp "my-fn" [ELit (LitInt 1)])
-            contract = Contract pre Nothing Nothing Nothing
+            contract = Contract pre Nothing Nothing Nothing Nothing
         evalContract "f" contract Map.empty `shouldBe` ContractUnchecked
 
     -- S4: typecheck warns on dotted fn name in app position (TypeCheck.hs:919-924)
@@ -6195,6 +6209,226 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "range :: Integer -> Integer -> [Integer]" pre `shouldBe` True
       T.isInfixOf "string_to_int :: String -> Either String Integer" pre `shouldBe` True
       T.isInfixOf "llmll_abs :: Integer -> Integer" pre `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- LT-CDP (v0.11): contract discriminative power
+  -- See docs/design/contract-discriminative-power-proposal.md Rev 2.
+  -- Per proposal §4.3.1, the v0.11 candidate set is the closed enumeration
+  -- of identity over each param plus small ints {0,1,-1,42}, both bools,
+  -- two strings {"","a"}, list-empty / list-singleton, Success-default /
+  -- Error "default", and pair-of-defaults for the matching return type.
+  -- -----------------------------------------------------------------------
+  describe "LT-CDP (v0.11): contract discriminative power" $ do
+
+    -- C1-C7: candidate enumeration per §4.3.1
+    describe "C1-C7 candidate enumeration (proposal §4.3.1)" $ do
+      it "C1 int-returning function yields {0, 1, -1, 42} candidates" $ do
+        let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                      (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "n")]
+            candidates = generateCDPCandidates stmts
+            ints = [n | wc <- candidates, TrivConstInt n <- [wcTrivialBody wc]]
+        ints `shouldBe` [0, 1, -1, 42]
+
+      it "C2 bool-returning function yields {True, False}" $ do
+        let stmts = [SDefLogic "f" [("b", TBool)] (Just TBool)
+                      (Contract Nothing Nothing (Just (EVar "result")) Nothing Nothing)
+                      (EVar "b")]
+            candidates = generateCDPCandidates stmts
+            bools = [b | wc <- candidates, TrivConstBool b <- [wcTrivialBody wc]]
+        bools `shouldBe` [True, False]
+
+      it "C3 string-returning function yields {\"\", \"a\"}" $ do
+        let stmts = [SDefLogic "f" [("s", TString)] (Just TString)
+                      (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "s")]
+            candidates = generateCDPCandidates stmts
+            strs = [s | wc <- candidates, TrivConstString s <- [wcTrivialBody wc]]
+        strs `shouldBe` ["", "a"]
+
+      it "C4 list[int]-returning function yields empty + singleton" $ do
+        let stmts = [SDefLogic "f" [("xs", TList TInt)] (Just (TList TInt))
+                      (Contract Nothing Nothing (Just (EApp ">=" [EApp "list-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "xs")]
+            candidates = generateCDPCandidates stmts
+            listBodies = filter (\b -> case b of
+                                          TrivConstEmptyList     -> True
+                                          TrivConstListSingle _  -> True
+                                          _                      -> False
+                                ) (map wcTrivialBody candidates)
+        length listBodies `shouldBe` 2
+
+      it "C5 Result[int,string]-returning function yields Success + Error" $ do
+        let stmts = [SDefLogic "f" [("x", TInt)] (Just (TResult TInt TString))
+                      (Contract Nothing Nothing (Just (EApp "is-ok" [EVar "result"])) Nothing Nothing)
+                      (EApp "Success" [EVar "x"])]
+            candidates = generateCDPCandidates stmts
+            sums = filter (\b -> case b of
+                                    TrivConstSuccess _ -> True
+                                    TrivConstError     -> True
+                                    _                  -> False
+                          ) (map wcTrivialBody candidates)
+        length sums `shouldBe` 2
+
+      it "C6 pair[int,int]-returning function yields pair of defaults" $ do
+        let stmts = [SDefLogic "f" [("a", TInt), ("b", TInt)] (Just (TPair TInt TInt))
+                      (Contract Nothing Nothing (Just (EApp ">=" [EApp "first" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
+                      (EApp "pair" [EVar "a", EVar "b"])]
+            candidates = generateCDPCandidates stmts
+            pairs = [() | wc <- candidates, case wcTrivialBody wc of
+                                              TrivConstPair{} -> True
+                                              _               -> False]
+        length pairs `shouldBe` 1
+
+      it "C7 identity candidate generated when param type matches return" $ do
+        let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                      (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "n")]
+            candidates = generateCDPCandidates stmts
+            ids = [p | wc <- candidates, TrivIdentity p <- [wcTrivialBody wc]]
+        ids `shouldBe` ["n"]
+
+    -- C8-C11: score formula edge cases per §4.1
+    describe "C8-C11 score formula edge cases (proposal §4.1)" $ do
+      let mkResult sat tot warns = CDPResult
+            { cdpCandidateCount = tot
+            , cdpSatisfyingCount = sat
+            , cdpDistinctBehaviorCount = sat
+            , cdpScore = if tot <= 1 || sat <= 0
+                          then Nothing
+                          else Just (1.0 - log (fromIntegral sat) / log (fromIntegral tot))
+            , cdpWarnings = warns
+            , cdpDistinguishingInputs = []
+            , cdpSpecEntropyAnnotation = SpecEntropyStrict
+            }
+
+      it "C8 score = 0 when |satisfying| = |total|" $ do
+        cdpScore (mkResult 10 10 []) `shouldBe` Just 0.0
+
+      it "C9 score undefined when |total| <= 1" $ do
+        cdpScore (mkResult 1 1 [WarnEnumerationTooNarrow]) `shouldBe` Nothing
+
+      it "C10 score undefined when |satisfying| = 0 (spec-inconsistent)" $ do
+        cdpScore (mkResult 0 5 [WarnSpecInconsistent]) `shouldBe` Nothing
+
+      it "C11 score positive when sat < total" $ do
+        case cdpScore (mkResult 2 10 []) of
+          Just s  -> s `shouldSatisfy` (\x -> x > 0.5 && x < 1.0)
+          Nothing -> expectationFailure "expected a score"
+
+    -- C12-C15: (spec-entropy ...) annotation
+    describe "C12-C15 (spec-entropy ...) annotation parse + roundtrip" $ do
+      it "C12 S-exp parser accepts :strict :intentional :unknown" $ do
+        let src = T.unlines
+              [ "(def-logic f [n: int] (post (>= result 0)) (spec-entropy :strict) n)"
+              , "(def-logic g [n: int] (post (>= result 0)) (spec-entropy :intentional) n)"
+              , "(def-logic h [n: int] (post (>= result 0)) (spec-entropy :unknown) n)"
+              ]
+        case parseStatements "<test>" src of
+          Right stmts ->
+            map (\(SDefLogic _ _ _ c _) -> contractSpecEntropy c) stmts
+              `shouldBe` [Just SpecEntropyStrict, Just SpecEntropyIntentional, Just SpecEntropyUnknown]
+          Left e -> expectationFailure (show e)
+
+      it "C13 absent annotation defaults to Nothing on Contract" $ do
+        case parseStatements "<test>" "(def-logic f [n: int] (post (>= result 0)) n)" of
+          Right [SDefLogic _ _ _ c _] -> contractSpecEntropy c `shouldBe` Nothing
+          other -> expectationFailure (show other)
+
+      it "C14 JSON-AST accepts spec_entropy string" $ do
+        let ast = "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
+        case parseJSONAST "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
+          Right [SDefLogic _ _ _ c _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
+          other -> expectationFailure (show other)
+
+      it "C15 JSON-AST rejects unknown spec_entropy value" $ do
+        let ast = "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"bogus\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
+        case parseJSONAST "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
+          Left _ -> pure ()  -- expected: parse rejects unknown label
+          Right _ -> expectationFailure "expected parse error on unknown spec_entropy value"
+
+    -- C16-C19: trust-report JSON shape + warnings
+    describe "C16-C19 trust-report JSON shape (proposal §5)" $ do
+      it "C16 discriminative_axis block populated on contracted entry" $ do
+        let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing
+                                (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "n")]
+            sidecar = Map.empty
+            cdpResults = Map.fromList
+              [ ("f", CDPResult 12 6 5 (Just 0.5) [] ["(lambda [...] 0)"] SpecEntropyStrict) ]
+            report = buildTrustReportWithCDP Map.empty stmts sidecar cdpResults
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"discriminative_axis\":" jsonTxt `shouldBe` True
+        T.isInfixOf "\"score\":0.5" jsonTxt `shouldBe` True
+        T.isInfixOf "\"basis\":\"observational-candidate-set\"" jsonTxt `shouldBe` True
+
+      it "C17 not-requested warning emitted when cdpMap is empty" $ do
+        let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing
+                                (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "n")]
+            report = buildTrustReport Map.empty stmts Map.empty
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"warnings\":[\"not-requested\"]" jsonTxt `shouldBe` True
+        T.isInfixOf "\"basis\":\"not-measured\"" jsonTxt `shouldBe` True
+
+      it "C18 trust_report_version is 1.2.0" $ do
+        let report  = buildTrustReport Map.empty [] Map.empty
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"trust_report_version\":\"1.2.0\"" jsonTxt `shouldBe` True
+
+      it "C19 all seven warning labels round-trip" $ do
+        let labels = map cdpWarningLabel
+              [ WarnIdentitySatisfiesPost, WarnConstSatisfiesPost
+              , WarnSpecInconsistent, WarnEnumerationTooNarrow
+              , WarnDefShellOutOfScope, WarnCandidatesEmptyUnderLimit
+              , WarnOverAnnotationModule, WarnNotRequested
+              ]
+        labels `shouldBe`
+          [ "identity-satisfies-post", "const-satisfies-post"
+          , "spec-inconsistent", "enumeration-too-narrow"
+          , "def-shell-out-of-scope", "candidates-empty-under-limit"
+          , "over-annotation-warning", "not-requested"
+          ]
+
+    -- C20: joint-witness ∩ CDP interaction (OBLIG-PBT-5a regression guard)
+    describe "C20 joint-witness compatibility" $ do
+      it "C20 CDP emit does not corrupt joint_pbt_witnesses key shape" $ do
+        let report  = buildTrustReport Map.empty [] Map.empty
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"joint_pbt_witnesses\":" jsonTxt `shouldBe` True
+        T.isInfixOf "\"tier_profile\":" jsonTxt `shouldBe` True  -- regression guard
+
+    -- C21-C22: over-annotation diagnostic + scope-parameter wiring
+    describe "C21-C22 over-annotation + scope wiring" $ do
+      it "C21 overAnnotationRatio counts :intentional / contracted total" $ do
+        let mkContract se = Contract Nothing Nothing
+                              (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing se
+        let stmts =
+              [ SDefLogic "f1" [] (Just TInt) (mkContract (Just SpecEntropyIntentional)) (ELit (LitInt 0))
+              , SDefLogic "f2" [] (Just TInt) (mkContract Nothing)                       (ELit (LitInt 0))
+              , SDefLogic "f3" [] (Just TInt) (mkContract (Just SpecEntropyStrict))      (ELit (LitInt 0))
+              ]
+        overAnnotationRatio stmts `shouldBe` (1.0 / 3.0)
+        overAnnotationThreshold `shouldSatisfy` (\x -> x > 0.25 && x < 0.35)
+
+      it "C22 computeCDPFor with stub solver returns one entry per contracted function" $ do
+        let stmts =
+              [ SDefLogic "f" [("n", TInt)] (Just TInt)
+                  (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing
+                            (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (EVar "n")
+              , STypeDef "Foo" TInt  -- non-contracted: should not appear in result
+              ]
+            stubSolver _wc = pure True  -- all candidates "satisfy" — yields score 0.0 + identity-satisfies-post
+        results <- computeCDPFor CDPScopeAllDefLogic stubSolver stmts
+        Map.size results `shouldBe` 1
+        case Map.lookup "f" results of
+          Just r -> do
+            cdpScore r `shouldBe` Just 0.0
+            cdpWarnings r `shouldSatisfy` (WarnIdentitySatisfiesPost `elem`)
+          Nothing -> expectationFailure "expected entry for f"
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

@@ -14,6 +14,14 @@
 --
 -- Faithfulness: this module NEVER modifies FixpointEmit.hs or builtinEnv.
 -- It constructs standard AST nodes and delegates to existing infrastructure.
+--
+-- LT-CDP (v0.11): the legacy 5-enumerator catalog used by '--weakness-check'
+-- is preserved verbatim through 'generateWeaknessCandidates'; the new
+-- 'generateCDPCandidates' returns the closed v0.11 enumeration per
+-- 'docs/design/contract-discriminative-power-proposal.md' §4.3.1 (small ints,
+-- both bools, "" and "a", list-singletons, Success / Error sums, pair
+-- defaults). Both functions share 'WeaknessCandidate' so the downstream
+-- 'emitFixpoint' / solver loop is identical.
 
 module LLMLL.WeaknessCheck
   ( -- * Types
@@ -21,46 +29,86 @@ module LLMLL.WeaknessCheck
   , TrivialBody(..)
     -- * Core API
   , generateWeaknessCandidates
+    -- * LT-CDP (v0.11) — closed enumeration per proposal §4.3.1
+  , generateCDPCandidates
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe, catMaybes)
 
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, emptyEnv, builtinEnv, TypeCheckResult(..))
+import LLMLL.TypeCheck (typeCheck, builtinEnv)
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..), DiagnosticReport(..))
 
 -- ---------------------------------------------------------------------------
 -- Trivial Body Catalog
 -- ---------------------------------------------------------------------------
 
--- | Classification of trivial body strategies.
+-- | Classification of trivial body strategies. LT-CDP (v0.11): the parameter-
+-- carrying constructors subsume the legacy zero-argument ones — 'TrivConstInt
+-- 0' is the v0.10 'TrivConstZero', 'TrivConstString ""' is 'TrivConstEmptyStr',
+-- 'TrivConstBool True' is 'TrivConstTrue'. The legacy 'generateWeaknessCandidates'
+-- catalog yields exactly the five v0.10 shapes; the new 'generateCDPCandidates'
+-- catalog widens to the proposal §4.3.1 closed enumeration.
 data TrivialBody
-  = TrivIdentity Name   -- ^ return a parameter unchanged: (lambda [p] p)
-  | TrivConstZero       -- ^ return literal 0
-  | TrivConstEmptyStr   -- ^ return literal ""
-  | TrivConstTrue       -- ^ return literal true
-  | TrivConstEmptyList  -- ^ return (list-empty)
+  = TrivIdentity Name           -- ^ return a parameter unchanged: (lambda [p] p)
+  | TrivConstInt Integer        -- ^ return literal int (0, 1, -1, 42)
+  | TrivConstString Text        -- ^ return literal string ("", "a")
+  | TrivConstBool Bool          -- ^ return literal bool (true, false)
+  | TrivConstEmptyList          -- ^ (list-empty) — polymorphic empty list
+  | TrivConstListSingle Type    -- ^ single-element list with type default
+  | TrivConstSuccess Type       -- ^ Success wrapping the payload-type default
+  | TrivConstError              -- ^ Error "default"
+  | TrivConstPair Type Type     -- ^ pair of element-type defaults
   deriving (Show, Eq)
 
 -- | Human-readable label for a trivial body.
 trivialLabel :: TrivialBody -> Text
-trivialLabel (TrivIdentity p) = "(lambda [" <> p <> "] " <> p <> ")"
-trivialLabel TrivConstZero    = "(lambda [...] 0)"
-trivialLabel TrivConstEmptyStr = "(lambda [...] \"\")"
-trivialLabel TrivConstTrue     = "(lambda [...] true)"
-trivialLabel TrivConstEmptyList = "(lambda [...] (list-empty))"
+trivialLabel (TrivIdentity p)        = "(lambda [" <> p <> "] " <> p <> ")"
+trivialLabel (TrivConstInt n)        = "(lambda [...] " <> T.pack (show n) <> ")"
+trivialLabel (TrivConstString s)     = "(lambda [...] \"" <> s <> "\")"
+trivialLabel (TrivConstBool True)    = "(lambda [...] true)"
+trivialLabel (TrivConstBool False)   = "(lambda [...] false)"
+trivialLabel TrivConstEmptyList      = "(lambda [...] (list-empty))"
+trivialLabel (TrivConstListSingle t) =
+  "(lambda [...] (list-cons " <> defaultLabel t <> " (list-empty)))"
+trivialLabel (TrivConstSuccess t)    =
+  "(lambda [...] (Success " <> defaultLabel t <> "))"
+trivialLabel TrivConstError          = "(lambda [...] (Error \"default\"))"
+trivialLabel (TrivConstPair a b)     =
+  "(lambda [...] (pair " <> defaultLabel a <> " " <> defaultLabel b <> "))"
 
--- | Construct the AST expression for a trivial body.
+-- | Construct the AST expression for a trivial body. The list-singleton, sum,
+-- and pair forms reduce to combinations of the base-type defaults.
 trivialExpr :: TrivialBody -> Expr
-trivialExpr (TrivIdentity p) = EVar p
-trivialExpr TrivConstZero    = ELit (LitInt 0)
-trivialExpr TrivConstEmptyStr = ELit (LitString "")
-trivialExpr TrivConstTrue     = ELit (LitBool True)
-trivialExpr TrivConstEmptyList = EApp "list-empty" []
+trivialExpr (TrivIdentity p)        = EVar p
+trivialExpr (TrivConstInt n)        = ELit (LitInt n)
+trivialExpr (TrivConstString s)     = ELit (LitString s)
+trivialExpr (TrivConstBool b)       = ELit (LitBool b)
+trivialExpr TrivConstEmptyList      = EApp "list-empty" []
+trivialExpr (TrivConstListSingle t) =
+  EApp "list-cons" [defaultExpr t, EApp "list-empty" []]
+trivialExpr (TrivConstSuccess t)    = EApp "Success" [defaultExpr t]
+trivialExpr TrivConstError          = EApp "Error" [ELit (LitString "default")]
+trivialExpr (TrivConstPair a b)     = EApp "pair" [defaultExpr a, defaultExpr b]
+
+-- | Canonical default expression for a base type. Used to seed list-singleton,
+-- Success-payload, and pair constructors per proposal §4.3.1.
+defaultExpr :: Type -> Expr
+defaultExpr TInt    = ELit (LitInt 0)
+defaultExpr TString = ELit (LitString "")
+defaultExpr TBool   = ELit (LitBool True)
+defaultExpr TUnit   = ELit LitUnit
+defaultExpr _       = ELit (LitInt 0)  -- fallback; type-checker filters at tryCandidate
+
+-- | Human-readable form of the canonical default for a type.
+defaultLabel :: Type -> Text
+defaultLabel TInt    = "0"
+defaultLabel TString = "\"\""
+defaultLabel TBool   = "true"
+defaultLabel TUnit   = "unit"
+defaultLabel t       = "/* default-for-" <> typeLabel t <> " */"
 
 -- ---------------------------------------------------------------------------
 -- Weakness Candidate
@@ -78,51 +126,91 @@ data WeaknessCandidate = WeaknessCandidate
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
--- Core API
+-- Core API — Legacy --weakness-check (v0.10 catalog, unchanged)
 -- ---------------------------------------------------------------------------
 
 -- | For each contracted function in the statement list, generate type-safe
--- trivial body candidates. These are ready to be fed to 'emitFixpoint'.
+-- trivial body candidates from the legacy v0.10 catalog (identity, 0, \"\", true,
+-- empty-list). LT-CDP (v0.11) extends this via 'generateCDPCandidates';
+-- '--weakness-check' continues to use this function so its diagnostic surface
+-- does not change.
 --
 -- Algorithm:
 --   1. Extract functions with contracts (pre/post)
 --   2. For each function, generate the trivial body catalog
 --   3. Type-check each synthetic statement (INV-4)
 --   4. Keep only type-safe candidates
---
--- Functions without contracts are skipped (nothing to check weakness against).
 generateWeaknessCandidates :: [Statement] -> [WeaknessCandidate]
-generateWeaknessCandidates stmts =
-  concatMap generateForStmt stmts
+generateWeaknessCandidates = concatMap (generateForStmt legacyCatalog)
 
--- | Generate weakness candidates for a single statement.
-generateForStmt :: Statement -> [WeaknessCandidate]
-generateForStmt (SDefLogic name params mRet contract body)
+-- | LT-CDP (v0.11) — closed candidate enumeration per
+-- 'contract-discriminative-power-proposal.md' §4.3.1. Same per-function
+-- contract-and-typecheck workflow as 'generateWeaknessCandidates'; the
+-- catalog is the widened set that drives the counted DP measurement.
+generateCDPCandidates :: [Statement] -> [WeaknessCandidate]
+generateCDPCandidates = concatMap (generateForStmt cdpCatalog)
+
+-- | Walk one statement and produce candidates per the supplied catalog
+-- builder. Statements without contracts produce no candidates.
+generateForStmt
+  :: ([(Name, Type)] -> Maybe Type -> [TrivialBody])
+  -> Statement
+  -> [WeaknessCandidate]
+generateForStmt catalog (SDefLogic name params mRet contract _body)
   | hasContracts contract =
-      let catalog = trivialCatalog params mRet
-      in mapMaybe (tryCandidate name params mRet contract) catalog
-generateForStmt (SLetrec name params mRet contract dec body)
+      mapMaybe (tryCandidate name params mRet contract) (catalog params mRet)
+generateForStmt catalog (SLetrec name params mRet contract _dec _body)
   | hasContracts contract =
-      -- For letrec, generate SDefLogic (no recursion needed for trivial bodies)
-      let catalog = trivialCatalog params mRet
-      in mapMaybe (tryCandidate name params mRet contract) catalog
-generateForStmt _ = []
+      mapMaybe (tryCandidate name params mRet contract) (catalog params mRet)
+generateForStmt _ _ = []
 
 -- | Does this contract have at least one clause?
 hasContracts :: Contract -> Bool
-hasContracts (Contract pre _ post _) = pre /= Nothing || post /= Nothing
+hasContracts (Contract pre _ post _ _) = pre /= Nothing || post /= Nothing
 
--- | Generate the catalog of trivial bodies applicable to this function signature.
-trivialCatalog :: [(Name, Type)] -> Maybe Type -> [TrivialBody]
-trivialCatalog params mRet =
+-- ---------------------------------------------------------------------------
+-- Catalog builders
+-- ---------------------------------------------------------------------------
+
+-- | v0.10 legacy catalog: identity over each param + (0 :: Int) + ("" :: String) +
+-- (true :: Bool) + (list-empty :: list[_]).
+legacyCatalog :: [(Name, Type)] -> Maybe Type -> [TrivialBody]
+legacyCatalog params mRet =
   let identities = [TrivIdentity p | (p, pTy) <- params, matchesReturn pTy mRet]
       constants  = catMaybes
-        [ if matchesReturnType TInt mRet      then Just TrivConstZero else Nothing
-        , if matchesReturnType TString mRet   then Just TrivConstEmptyStr else Nothing
-        , if matchesReturnType TBool mRet     then Just TrivConstTrue else Nothing
-        , if matchesReturnList mRet           then Just TrivConstEmptyList else Nothing
+        [ if matchesReturnType TInt mRet    then Just (TrivConstInt 0)        else Nothing
+        , if matchesReturnType TString mRet then Just (TrivConstString "")    else Nothing
+        , if matchesReturnType TBool mRet   then Just (TrivConstBool True)    else Nothing
+        , if matchesReturnList mRet         then Just TrivConstEmptyList      else Nothing
         ]
   in identities ++ constants
+
+-- | LT-CDP (v0.11) extended catalog per proposal §4.3.1. The set is closed —
+-- v0.12+ may widen to LLM-generated candidates per
+-- 'docs/design/invariant-discovery-review.md' §5; v0.11 ships this exact list
+-- and the trust-report 'basis' field is "observational-candidate-set".
+cdpCatalog :: [(Name, Type)] -> Maybe Type -> [TrivialBody]
+cdpCatalog params mRet =
+  let identities = [TrivIdentity p | (p, pTy) <- params, matchesReturn pTy mRet]
+      ints = if matchesReturnType TInt mRet
+                then map TrivConstInt [0, 1, -1, 42]
+                else []
+      bools = if matchesReturnType TBool mRet
+                then [TrivConstBool True, TrivConstBool False]
+                else []
+      strings = if matchesReturnType TString mRet
+                  then map TrivConstString ["", "a"]
+                  else []
+      lists = case mRet of
+        Just (TList elt) -> [TrivConstEmptyList, TrivConstListSingle elt]
+        _                -> []
+      sums = case mRet of
+        Just (TResult okT _) -> [TrivConstSuccess okT, TrivConstError]
+        _                    -> []
+      pairs = case mRet of
+        Just (TPair a b) -> [TrivConstPair a b]
+        _                -> []
+  in identities ++ ints ++ bools ++ strings ++ lists ++ sums ++ pairs
 
 -- | Check if a param type matches the return type (for identity body).
 matchesReturn :: Type -> Maybe Type -> Bool

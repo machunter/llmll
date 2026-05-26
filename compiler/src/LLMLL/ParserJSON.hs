@@ -20,7 +20,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Aeson
   ( Value(..), Object
   , eitherDecode
-  , withObject )
+  , withObject, withText )
 import Data.Aeson.Types
   ( Parser, parseEither
   , (.:), (.:?), (.!=) )
@@ -137,8 +137,18 @@ parseDefLogic o = do
   mPreSrc <- o .:? "pre_source"
   mPost  <- o .:? "post"  >>= mapM parseExpr
   mPostSrc <- o .:? "post_source"
+  mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
   body   <- o .: "body"   >>= parseExpr
-  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc) body
+  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+
+-- | LT-CDP (v0.11): decode the optional `spec_entropy` field on a JSON-AST
+-- contract object. Strict — unknown labels are a parse error rather than a
+-- silent default per the proposal §3 surface contract.
+parseSpecEntropyField :: Value -> Parser SpecEntropy
+parseSpecEntropyField = withText "SpecEntropy" $ \txt -> case parseSpecEntropy txt of
+  Just se -> pure se
+  Nothing -> fail $ "invalid spec_entropy: " ++ T.unpack txt
+                 ++ " (expected \"strict\", \"intentional\", or \"unknown\")"
 
 parseDefInterface :: Object -> Parser Statement
 parseDefInterface o = do
@@ -169,7 +179,7 @@ parseDefInvariant o = do
   param <- o .: "param" >>= parseTypedParam
   body  <- o .: "body"  >>= parseExpr
   -- def-invariant stored as SDefLogic (full node deferred to v0.2)
-  pure $ SDefLogic name [param] Nothing (Contract Nothing Nothing Nothing Nothing) body
+  pure $ SDefLogic name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing) body
 
 parseTypeDecl :: Object -> Parser Statement
 parseTypeDecl o = do
@@ -185,9 +195,10 @@ parseLetrec o = do
   mPreSrc  <- o .:? "pre_source"
   mPost    <- o .:? "post"     >>= mapM parseExpr
   mPostSrc <- o .:? "post_source"
+  mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
   dec      <- o .: "decreases" >>= parseExpr
   body     <- o .: "body"      >>= parseExpr
-  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc) dec body
+  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) dec body
 
 parseTypeBody :: Value -> Parser Type
 parseTypeBody = withObject "TypeBody" $ \o -> do

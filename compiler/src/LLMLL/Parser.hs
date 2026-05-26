@@ -155,6 +155,7 @@ pDefLogic = do
   params <- brackets (many pDefParam)
   preClauses <- many (try pPreClause)
   postClause <- optional (try pPostClause)
+  mEntropy <- optional (try pSpecEntropyClause)
   body <- pExpr
   _ <- symbol ")"
   let (mPre, mPreSrc) = case preClauses of
@@ -165,7 +166,7 @@ pDefLogic = do
       (mPost, mPostSrc) = case postClause of
                Nothing     -> (Nothing, Nothing)
                Just (p, s) -> (Just p, s)
-  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc) body
+  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | Parse (letrec name [params] :decreases measure body)
 -- Introduces an explicitly recursive function with a termination measure.
@@ -178,6 +179,7 @@ pLetrec = do
   params  <- brackets (many pDefParam)
   preClauses <- many (try pPreClause)
   postClause <- optional (try pPostClause)
+  mEntropy <- optional (try pSpecEntropyClause)
   dec     <- symbol ":decreases" *> pExpr
   body    <- pExpr
   _       <- symbol ")"
@@ -189,7 +191,7 @@ pLetrec = do
       (mPost, mPostSrc) = case postClause of
                Nothing     -> (Nothing, Nothing)
                Just (p, s) -> (Just p, s)
-  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc) dec body
+  pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) dec body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -487,6 +489,19 @@ pPostClause = parens $ do
   expr <- pExpr
   src <- optional (try $ symbol ":source" *> pStringLiteral)
   pure (expr, src)
+
+-- | Parse (spec-entropy :strict | :intentional | :unknown) — LT-CDP (v0.11).
+-- Per `contract-discriminative-power-proposal.md` §3, the clause sits at the
+-- same syntactic level as `pre` and `post` inside `def-logic` / `letrec`. The
+-- value is the author's intent annotation; unknown labels are a parse error.
+pSpecEntropyClause :: Parser SpecEntropy
+pSpecEntropyClause = parens $ do
+  _ <- symbol "spec-entropy"
+  choice
+    [ SpecEntropyStrict      <$ symbol ":strict"
+    , SpecEntropyIntentional <$ symbol ":intentional"
+    , SpecEntropyUnknown     <$ symbol ":unknown"
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Types

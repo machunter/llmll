@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v1.1/trust-report.schema.json",
+  "$id": "https://llmll.dev/schemas/v1.2/trust-report.schema.json",
   "title": "LLMLL Trust Report JSON Emit Schema",
-  "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major. v1.1.0 (OBLIG-PBT-3, v0.10.5) added parallel `tier_profile_pre` and `tier_profile_post` aggregates plus an optional `stale_downgrades` array, all additive over v1.0.0. v0.10.7 (OBLIG-PBT-5a) added the optional `joint_pbt_witnesses` array and the optional `joint_pbt_witness` per-entry flag for multi-subject PBT-Lift over-credit detection; no `trust_report_version` bump per the 2026-05-23 critique-triage routing.",
+  "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major. v1.1.0 (OBLIG-PBT-3, v0.10.5) added parallel `tier_profile_pre` and `tier_profile_post` aggregates plus an optional `stale_downgrades` array, all additive over v1.0.0. v0.10.7 (OBLIG-PBT-5a) added the optional `joint_pbt_witnesses` array and the optional `joint_pbt_witness` per-entry flag for multi-subject PBT-Lift over-credit detection; no `trust_report_version` bump per the 2026-05-23 critique-triage routing. v1.2.0 (LT-CDP, v0.11) adds the optional `discriminative_axis` per-entry block carrying the contract-discriminative-power score, candidate counts, distinguishing inputs, spec-entropy annotation, and typed warning enumeration per `contract-discriminative-power-proposal.md` §5. The field is populated under `--cdp`; without `--cdp` a single `not-requested` warning is emitted so consumers see a uniform shape. Additive over v1.1.0 — existing consumers ignore the new block.",
 
   "type": "object",
   "required": ["trust_report_version", "entries", "summary", "tier_profile", "suppressions"],
@@ -12,7 +12,7 @@
     "trust_report_version": {
       "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs.",
       "type": "string",
-      "const": "1.1.0"
+      "const": "1.2.0"
     },
 
     "entries": {
@@ -79,6 +79,15 @@
           "type": "boolean",
           "const": true,
           "description": "v0.10.7 (OBLIG-PBT-5a) — present and `true` iff this entry's post-clause evidence has non-empty `pbt_witnesses` AND every witness hash is shared with at least one other subject (i.e. originated from a `:subjects [...]` joint lift). The flag is omitted entirely when false to keep the emit minimal. Scalar `tested` counts (`summary.tested`, `tier_profile.tested`, `tier_profile_post.tested`) demote joint-only entries to `asserted` so the per-property body credit is not multiplied across N subjects. The raw post-side `EvidenceRecord` (incl. `pbt_witnesses` on `.verified.json`) is left intact for the clean OBLIG-PBT-5b post-freeze fix."
+        },
+        "overflow_tainted": {
+          "type": "boolean",
+          "const": true,
+          "description": "INT-1 (v0.10.8) — present and `true` iff any evidence record on this entry carries the `overflow_tainted` flag (body-faithful verified evidence whose body contains unbounded-Int arithmetic). Omitted when false. `--strict-verified-core` refuses tainted entries."
+        },
+        "discriminative_axis": {
+          "$ref": "#/$defs/DiscriminativeAxis",
+          "description": "v1.2.0 (LT-CDP, v0.11) — optional per-function contract-discriminative-power measurement. Populated under `--cdp` per `contract-discriminative-power-proposal.md` §5. Without `--cdp`, the block populates with `score: null`, `basis: \"not-measured\"`, and a single `not-requested` warning so the shape is uniform. Additive over v1.1.0."
         }
       }
     },
@@ -174,6 +183,63 @@
         { "type": "string" },
         { "type": "null" }
       ]
+    },
+
+    "DiscriminativeAxis": {
+      "description": "v1.2.0 (LT-CDP, v0.11) — Contract Discriminative Power measurement per function. See `docs/design/contract-discriminative-power-proposal.md` Rev 2 §4–§5 for the score formula, candidate-set enumeration, and warning taxonomy. The score is OBSERVATIONAL over the candidate set Ω identified by `basis`; cross-version comparisons require same-basis discipline.",
+      "type": "object",
+      "required": ["score", "basis", "candidate_count", "satisfying_candidate_count", "distinct_observed_behavior_count", "distinguishing_inputs", "spec_entropy_annotation", "warnings"],
+      "additionalProperties": false,
+      "properties": {
+        "score": {
+          "description": "Shannon-normalized DP_Ω(S) ∈ [0,1]. Higher is stronger. `null` when the score is undefined (proposal §4.1 edge cases: |⟦S⟧| = 0, |B| ≤ 1, or `--cdp` not requested).",
+          "oneOf": [{ "type": "number", "minimum": 0.0, "maximum": 1.0 }, { "type": "null" }]
+        },
+        "basis": {
+          "description": "Source of the candidate set Ω. `\"observational-candidate-set\"` is the v0.11 closed enumeration per proposal §4.3.1. `\"not-measured\"` indicates `--cdp` was not requested. Future bases (v0.12+): `\"llm-generated-candidates\"`, `\"mutation-based\"`, `\"external-corpus\"`.",
+          "type": "string",
+          "enum": ["observational-candidate-set", "not-measured", "llm-generated-candidates", "mutation-based", "external-corpus"]
+        },
+        "candidate_count": {
+          "description": "Total candidates from the §4.3.1 enumeration that type-checked.",
+          "type": "integer", "minimum": 0
+        },
+        "satisfying_candidate_count": {
+          "description": "Candidates whose synthetic trivial body satisfied the contract (solver SAFE).",
+          "type": "integer", "minimum": 0
+        },
+        "distinct_observed_behavior_count": {
+          "description": "Equivalence classes of satisfying candidates over the observation set Ω. Distinct from `satisfying_candidate_count` because multiple candidates may collapse to one observed behavior.",
+          "type": "integer", "minimum": 0
+        },
+        "distinguishing_inputs": {
+          "description": "Candidate-body labels that distinguish satisfying behaviors from non-satisfying behaviors. At most 4 entries in v0.11; surfaced for downstream `--weakness-check`-derived diagnostics.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "spec_entropy_annotation": {
+          "description": "Echo of the source `(spec-entropy ...)` annotation. `\"strict\"` is the default for unannotated contracts.",
+          "type": "string",
+          "enum": ["strict", "intentional", "unknown"]
+        },
+        "warnings": {
+          "description": "Typed warning enumeration per proposal §5. Multiple warnings may co-occur. Distinguishes non-applicability (`def-shell-out-of-scope`, `not-requested`) from measurement weakness (`enumeration-too-narrow`, `candidates-empty-under-limit`).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "identity-satisfies-post",
+              "const-satisfies-post",
+              "spec-inconsistent",
+              "enumeration-too-narrow",
+              "def-shell-out-of-scope",
+              "candidates-empty-under-limit",
+              "over-annotation-warning",
+              "not-requested"
+            ]
+          }
+        }
+      }
     }
   }
 }

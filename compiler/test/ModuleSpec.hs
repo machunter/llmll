@@ -39,7 +39,7 @@ mkEnv path stmts = buildModuleEnv path stmts emptyEnv
 -- | A simple def-logic that returns its parameter.
 defLogic :: T.Text -> [(T.Text, Type)] -> Maybe Type -> Expr -> Statement
 defLogic name params mRet body =
-  SDefLogic name params mRet (Contract Nothing Nothing Nothing Nothing) body
+  SDefLogic name params mRet (Contract Nothing Nothing Nothing Nothing Nothing) body
 
 -- | Module A: defines f and g, no export restriction.
 modA_stmts :: [Statement]
@@ -336,7 +336,7 @@ moduleSpec = describe "Module System" $ do
               SDefLogic n p r _c b ->
                 SDefLogic n p r
                   (Contract Nothing Nothing
-                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   b
               other -> other
           localF =
@@ -344,7 +344,7 @@ moduleSpec = describe "Module System" $ do
               SDefLogic n p r _c b ->
                 SDefLogic n p r
                   (Contract Nothing Nothing
-                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing)
+                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   b
               other -> other
           importedEnv = mkEnv ["imported"] [importedGContracted]

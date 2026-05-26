@@ -14,6 +14,7 @@ module LLMLL.TrustReport
   , TrustSummary(..)
   , TierProfile(..)
   , buildTrustReport
+  , buildTrustReportWithCDP   -- LT-CDP (v0.11): variant carrying the CDP map
   , formatTrustReport
   , formatTrustReportJson
   , effectiveLevel     -- v0.10: for obligation trust labels (F9)
@@ -40,6 +41,7 @@ import qualified Data.ByteString.Lazy.Char8 as BLC
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
 import LLMLL.PBT (canonicalPropBodyHash)
+import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -98,6 +100,12 @@ data TrustReport = TrustReport
   -- additive 'joint_pbt_witnesses' key (no 'trust_report_version' bump per
   -- the 2026-05-23 critique-triage routing).
   , trJointWitnesses   :: [(Text, [Name])]
+  -- LT-CDP (v0.11): per-function discriminative-power measurement. Map from
+  -- the function's (possibly qualified) name to its CDP result. The map is
+  -- empty when '--cdp' was not requested; downstream consumers detect this
+  -- and emit a single 'WarnNotRequested' entry per function so the JSON
+  -- shape stays uniform (proposal §5).
+  , trCDP              :: Map Name CDPResult
   } deriving (Show, Eq)
 
 data TrustSummary = TrustSummary
@@ -135,8 +143,14 @@ data TierProfile = TierProfile
 -- OBLIG-PBT-3 (1.1.0): parallel 'tier_profile_pre' and 'tier_profile_post'
 -- emitted alongside the unchanged scalar 'tier_profile'; existing 'tier_profile'
 -- consumers ignore the new fields. No source-AST schema delta.
+--
+-- LT-CDP (v0.11) (1.2.0): per-function 'discriminative_axis' block carrying
+-- the contract-discriminative-power score, candidate counts, and the typed
+-- warning enumeration per 'contract-discriminative-power-proposal.md' §5.
+-- The block is optional in the schema and populated under '--cdp' or with a
+-- single 'WarnNotRequested' marker otherwise.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.1.0"
+trustReportEmitVersion = "1.2.0"
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -150,6 +164,18 @@ trustReportEmitVersion = "1.1.0"
 --   3. Whether those callees have lower trust levels (epistemic drift)
 buildTrustReport :: ModuleCache -> [Statement] -> Map Name ContractStatus -> TrustReport
 buildTrustReport cache entryStmts sidecar =
+  buildTrustReportWithCDP cache entryStmts sidecar Map.empty
+
+-- | LT-CDP (v0.11): variant that threads the per-function CDP result map
+-- into the trust report. When the map is empty, the JSON emit substitutes a
+-- 'WarnNotRequested' marker per function so consumers see a uniform shape.
+buildTrustReportWithCDP
+  :: ModuleCache
+  -> [Statement]
+  -> Map Name ContractStatus
+  -> Map Name CDPResult
+  -> TrustReport
+buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
   let -- OBLIG-PBT-3: read-side validation. Compute the set of live property-body
       -- hashes (local + cached modules); downgrade any sidecar evidence record
       -- whose pbt_witnesses do not intersect the live set. The downgrade is
@@ -202,6 +228,7 @@ buildTrustReport cache entryStmts sidecar =
        , trTierProfilePost = tierProfilePost
        , trStaleDowngrades = stales
        , trJointWitnesses  = jointGroups
+       , trCDP             = cdpMap
        }
 
 -- | OBLIG-PBT-3: collect SHA-256 hashes of every live property body across
@@ -745,7 +772,15 @@ formatTrustReportJson report =
       -- INT-1 (v0.10.8): per-entry overflow-taint flag, emitted only when
       -- True on any clause. Mirrors the joint-witness emit shape (only-on-true)
       -- so unchanged trust-report JSON for non-tainting fns stays byte-identical.
-      [ "overflow_tainted" .= True | taintedFns e ]
+      [ "overflow_tainted" .= True | taintedFns e ] ++
+      -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
+      -- contracted entries; populated from 'trCDP report' when present,
+      -- otherwise a single 'not-requested' warning so consumers see a uniform
+      -- shape (proposal §5). The block is additive over v1.1.0 — consumers
+      -- ignoring 'discriminative_axis' continue to work.
+      [ "discriminative_axis" .= cdpAxisJson (Map.lookup (teName e) (trCDP report))
+      | tePre e /= Nothing || tePost e /= Nothing
+      ]
     depJson d = object
       [ "name"       .= tdName d
       , "pre_level"  .= fmap dlLabel (tdPreLevel d)
@@ -778,6 +813,32 @@ formatTrustReportJson report =
     jointWitnessJson (h, subs) = object
       [ "hash"     .= h
       , "subjects" .= subs
+      ]
+    -- LT-CDP (v0.11): per-function discriminative_axis JSON block per
+    -- proposal §5. 'Nothing' input means '--cdp' was not requested for this
+    -- function; the emit substitutes a single 'not-requested' warning so the
+    -- shape is uniform and consumers do not need to special-case the absence
+    -- of the field. 'Just r' input populates the full block with score,
+    -- candidate counts, distinguishing inputs, and typed warnings.
+    cdpAxisJson Nothing = object
+      [ "score"                      .= Null
+      , "basis"                      .= ("not-measured" :: Text)
+      , "candidate_count"            .= (0 :: Int)
+      , "satisfying_candidate_count" .= (0 :: Int)
+      , "distinct_observed_behavior_count" .= (0 :: Int)
+      , "distinguishing_inputs"      .= ([] :: [Text])
+      , "spec_entropy_annotation"    .= ("strict" :: Text)
+      , "warnings"                   .= [cdpWarningLabel WarnNotRequested]
+      ]
+    cdpAxisJson (Just r) = object
+      [ "score"                      .= cdpScore r
+      , "basis"                      .= ("observational-candidate-set" :: Text)
+      , "candidate_count"            .= cdpCandidateCount r
+      , "satisfying_candidate_count" .= cdpSatisfyingCount r
+      , "distinct_observed_behavior_count" .= cdpDistinctBehaviorCount r
+      , "distinguishing_inputs"      .= cdpDistinguishingInputs r
+      , "spec_entropy_annotation"    .= specEntropyLabel (cdpSpecEntropyAnnotation r)
+      , "warnings"                   .= map cdpWarningLabel (cdpWarnings r)
       ]
 
 -- ---------------------------------------------------------------------------

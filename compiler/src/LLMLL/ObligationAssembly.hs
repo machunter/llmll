@@ -739,7 +739,7 @@ paramToScope :: (Name, Type) -> Value
 paramToScope (n, ty) = object ["name" .= n, "type" .= typeLabel ty, "source" .= ("param" :: Text)]
 
 emptyContract :: Contract
-emptyContract = Contract Nothing Nothing Nothing Nothing
+emptyContract = Contract Nothing Nothing Nothing Nothing Nothing
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding (spec §2.1)

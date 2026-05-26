@@ -51,7 +51,7 @@ emitJsonAST stmts =
 -- ---------------------------------------------------------------------------
 
 stmtToJson :: Statement -> Value
-stmtToJson (SDefLogic name params _ret (Contract mPre _preSource mPost _postSource) body) =
+stmtToJson (SDefLogic name params _ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
   object $
     [ "kind"   .= ("def-logic" :: Text)
     , "name"   .= name
@@ -61,9 +61,10 @@ stmtToJson (SDefLogic name params _ret (Contract mPre _preSource mPost _postSour
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
     maybe [] (\s -> ["pre_source" .= s]) _preSource ++
     maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
-    maybe [] (\s -> ["post_source" .= s]) _postSource
+    maybe [] (\s -> ["post_source" .= s]) _postSource ++
+    maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
-stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource) dec body) =
+stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource mEntropy) dec body) =
   object $
     [ "kind"      .= ("letrec" :: Text)
     , "name"      .= name
@@ -74,7 +75,8 @@ stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
     maybe [] (\s -> ["pre_source" .= s]) _preSource ++
     maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
-    maybe [] (\s -> ["post_source" .= s]) _postSource
+    maybe [] (\s -> ["post_source" .= s]) _postSource ++
+    maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
 stmtToJson (SDefInterface name fns laws) =
   object $

@@ -46,6 +46,7 @@ library
       LLMLL.TrustReport
       LLMLL.AgentSpec
       LLMLL.WeaknessCheck
+      LLMLL.CDP
       LLMLL.InvariantRegistry
       LLMLL.ObligationMining
       LLMLL.SpecCoverage
