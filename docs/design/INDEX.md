@@ -25,7 +25,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [proof-required-predicate-carrier-proposal.md](proof-required-predicate-carrier-proposal.md) | LT-PPR: predicate-carrying `?proof-required`; def-shell only; runtime-assertion fallback | **Settled (Rev 2)** — review folded; pending compiler-engineer hand-off |
 | [refinement-metatheory-of-record-proposal.md](refinement-metatheory-of-record-proposal.md) | REF-META-1: checking-mode-only metatheory; explicit non-goals; tier-aware soundness | **Settled (Rev 2)** — review folded; pending doc-lead promotion to LLMLL.md §3.4 / §5 |
 | [v0.11-cross-proposal-rollback-discipline.md](v0.11-cross-proposal-rollback-discipline.md) | v0.11 cross-proposal rollback discipline: three outcomes; LT-CDP/LT-PPR shipping conditions | **Settled (Rev 1)** — coordination artifact |
-| [int-2-boundary-shims.md](int-2-boundary-shims.md) | LT-INT/INT-2: fifteen `Int`-touching preamble entries classified A/B/C | **Settled (Rev 1)** — awaiting INT-PRE adjudication |
+| [int-2-boundary-shims.md](int-2-boundary-shims.md) | LT-INT/INT-2: fifteen `Int`-touching preamble entries classified A/B/C | **Settled (Rev 3)** — implemented at commit `9c37a5c4` on `lt-int/integer-codegen-switch`; catalog Rev 4 candidates flagged in CHANGELOG |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
 
 ---
