@@ -23,7 +23,7 @@ import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResu
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, toHsType, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST)
@@ -2370,15 +2370,15 @@ main = hspec $ do
   -- =========================================================================
 
   describe "Async codegen (#14)" $ do
-    -- Type emission (3)
-    it "toHsType (TPromise TInt) = (Async.Async Int)" $
-      toHsType (TPromise TInt) `shouldBe` "(Async.Async Int)"
+    -- Type emission (3) — post-LT-INT (v0.11): TInt lowers to Integer, not Int
+    it "toHsType (TPromise TInt) = (Async.Async Integer)" $
+      toHsType (TPromise TInt) `shouldBe` "(Async.Async Integer)"
 
     it "toHsType (TPromise (TResult TString TInt)) handles nesting" $
-      toHsType (TPromise (TResult TString TInt)) `shouldBe` "(Async.Async (Either Int String))"
+      toHsType (TPromise (TResult TString TInt)) `shouldBe` "(Async.Async (Either Integer String))"
 
     it "toHsType (TPromise (TPromise TInt)) handles double-wrap" $
-      toHsType (TPromise (TPromise TInt)) `shouldBe` "(Async.Async (Async.Async Int))"
+      toHsType (TPromise (TPromise TInt)) `shouldBe` "(Async.Async (Async.Async Integer))"
 
     -- Codegen output (4)
     it "emitExpr (EAwait ...) contains Async.wait" $ do
@@ -6019,9 +6019,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                      (EOp "+" [EVar "x", ELit (LitInt 1)])
       bodyHasOverflowArith expr `shouldBe` True
 
-    -- T10: end-to-end via emitFixpointWith. A def-logic with body (+ x 1) and a
-    -- post asserting (= result (+ x 1)) should land in erOverflowTaintedFns.
-    it "T10 end-to-end: (+ x 1) function lands in erOverflowTaintedFns" $ do
+    -- T10 (LT-INT v0.11 dormant-trigger regression): post-INT-2, `int` is the
+    -- unbounded `Integer` at codegen — no `int` arithmetic can overflow at
+    -- runtime — so the INT-1 trigger set is empty for `int` values per
+    -- docs/design/int-2-boundary-shims.md §4. A def-logic with body (+ x 1)
+    -- and a post asserting (= result (+ x 1)) is body-faithful AND untainted.
+    -- The walker `bodyHasOverflowArith` continues to syntactically fire (see
+    -- T2/T5/T8/T9 above); the v0.11 disarm lives at the emitter call site
+    -- (FixpointEmit.hs ~line 516, INT-1 trigger commented out under LT-INT).
+    -- INT-3 (machine-int) will re-arm with type-awareness at the same site.
+    it "T10 (LT-INT v0.11): trigger set empty on int — (+ x 1) does NOT taint" $ do
       let src = T.pack $ unlines
             [ "(def-logic add-one [x: int]"
             , "  (pre (>= x 0))"
@@ -6032,7 +6039,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Left err    -> expectationFailure ("parse: " ++ show err)
         Right stmts -> do
           emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T10.llmll" stmts
-          erOverflowTaintedFns emitR `shouldBe` ["add-one"]
+          erOverflowTaintedFns emitR `shouldBe` []
           erBodyFaithfulFns    emitR `shouldBe` ["add-one"]
 
     -- T11: end-to-end: pure-predicate body does NOT taint. Body-faithful may
@@ -6126,6 +6133,68 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               , inBounds a, inBounds b]
       length samples `shouldSatisfy` (>= 20)
       all (\(a, b) -> not (bodyHasOverflowArith (mkAdd a b))) samples `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- LT-INT (v0.11): int → Integer codegen switch
+  -- Per docs/design/int-2-boundary-shims.md.
+  -- INT-PRE cleared at 1.015× TOTP regression vs 5× gate (commit 8cac520).
+  -- -----------------------------------------------------------------------
+  describe "LT-INT (v0.11): int → Integer codegen switch" $ do
+    -- L1: primary type-emission site (catalog §8 / CodegenHs.hs:723).
+    it "L1 toHsType TInt = \"Integer\"" $
+      toHsType TInt `shouldBe` "Integer"
+
+    -- L2: composite types containing TInt lower with Integer leaves.
+    it "L2 toHsType (TList TInt) = \"[Integer]\"" $
+      toHsType (TList TInt) `shouldBe` "[Integer]"
+
+    -- L3: TCustom-payload site (catalog §8 / CodegenHs.hs:441) — used in
+    -- sum-type constructor payload position.
+    it "L3 mapLlmllPrimType \"int\" = \"Integer\"" $
+      mapLlmllPrimType "int" `shouldBe` "Integer"
+
+    -- L4: literal-emission site (catalog §8 / CodegenHs.hs:706, F-E3).
+    -- Integer literals carry `:: Integer` ascription; consumers ingesting
+    -- the literal under `Integer`-typed surroundings type-check cleanly.
+    it "L4 emitLit (LitInt 42) ascribes :: Integer" $
+      emitLit (LitInt 42) `shouldBe` "(42 :: Integer)"
+
+    -- L5: Class A `list-length` shim — wraps the call in `fromIntegral`
+    -- so `Int`-returning Haskell primitive lifts to LLMLL `int` (Integer).
+    -- Catalog §3.1 row 1.
+    it "L5 emitApp \"list-length\" wraps result in fromIntegral :: Integer" $ do
+      let out = emitExpr (EApp "list-length" [EVar "xs"])
+      T.isInfixOf "fromIntegral" out `shouldBe` True
+      T.isInfixOf ":: Integer" out `shouldBe` True
+      T.isInfixOf "list_length" out `shouldBe` True
+
+    -- L6: Class A `list-nth` shim — index argument wrapped in
+    -- `fromIntegral _ :: Int` so `int`-typed (Integer) values down-cast to
+    -- the underlying Haskell `Int` parameter. Catalog §3.1 row 2.
+    it "L6 emitApp \"list-nth\" down-casts index arg to Int via fromIntegral" $ do
+      let out = emitExpr (EApp "list-nth" [EVar "xs", EVar "i"])
+      T.isInfixOf "list_nth" out `shouldBe` True
+      T.isInfixOf "fromIntegral" out `shouldBe` True
+      T.isInfixOf ":: Int" out `shouldBe` True
+
+    -- L7: Class A `string-slice` — both endpoint arguments down-cast.
+    -- Catalog §3.1 row 4.
+    it "L7 emitApp \"string-slice\" down-casts both endpoint args" $ do
+      let out = emitExpr (EApp "string-slice" [EVar "s", EVar "f", EVar "t"])
+      -- Both `f` and `t` must appear under fromIntegral.
+      T.count "fromIntegral" out `shouldBe` 2
+      T.isInfixOf "string_slice" out `shouldBe` True
+
+    -- L8: Class B preamble — `range :: Integer -> Integer -> [Integer]`
+    -- value-shape lowering (catalog §3.2 / §3.4). The split into a separate
+    -- `range_idx` (Class A index-shape) is intentionally NOT realized in
+    -- v0.11; Class A `fromIntegral` shims at indexing primitive call sites
+    -- handle the index-iteration case (deviation flagged in hand-off).
+    it "L8 preamble defines range as Integer -> Integer -> [Integer]" $ do
+      let pre = T.unlines runtimePreamble
+      T.isInfixOf "range :: Integer -> Integer -> [Integer]" pre `shouldBe` True
+      T.isInfixOf "string_to_int :: String -> Either String Integer" pre `shouldBe` True
+      T.isInfixOf "llmll_abs :: Integer -> Integer" pre `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

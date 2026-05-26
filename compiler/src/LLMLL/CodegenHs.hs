@@ -29,7 +29,11 @@ module LLMLL.CodegenHs
   , classifyImport
     -- * Internals (exported for test coverage)
   , emitExpr
+  , emitLit
+  , emitApp
   , toHsType
+  , mapLlmllPrimType
+  , runtimePreamble
   , emitHole
     -- * Event Log (v0.3.1)
   , emitEventLogPreamble
@@ -254,7 +258,7 @@ runtimePreamble =
   , "  | i < 0 || i >= length xs = Left (\"list_nth: index \" ++ show i ++ \" out of range\")"
   , "  | otherwise               = Right (xs !! i)"
   , ""
-  , "range :: Int -> Int -> [Int]"
+  , "range :: Integer -> Integer -> [Integer]"  -- LT-INT (v0.11): Class B value-shape
   , "range from to = [from .. to - 1]"
   , ""
   , "-- §13.6 String"
@@ -302,22 +306,22 @@ runtimePreamble =
   , "    Right b -> b"
   , "    Left _  -> False"
   , ""
-  , "-- §13.7 Numeric"
-  , "int_to_string :: Int -> String"
+  , "-- §13.7 Numeric (LT-INT v0.11: Class B — mathematical-integer semantics)"
+  , "int_to_string :: Integer -> String"
   , "int_to_string = show"
   , ""
-  , "string_to_int :: String -> Either String Int"
+  , "string_to_int :: String -> Either String Integer"
   , "string_to_int s = case reads s of"
   , "  [(n, \"\")] -> Right n"
   , "  _         -> Left (\"string_to_int: cannot parse '\" ++ s ++ \"'\")"
   , ""
-  , "llmll_abs :: Int -> Int"
+  , "llmll_abs :: Integer -> Integer"
   , "llmll_abs = abs"
   , ""
-  , "llmll_min :: Int -> Int -> Int"
+  , "llmll_min :: Integer -> Integer -> Integer"
   , "llmll_min = min"
   , ""
-  , "llmll_max :: Int -> Int -> Int"
+  , "llmll_max :: Integer -> Integer -> Integer"
   , "llmll_max = max"
   , ""
   , "-- §13.8 Result helpers"
@@ -357,8 +361,9 @@ runtimePreamble =
   , "wasi_io_stderr :: String -> IO ()"
   , "wasi_io_stderr = hPutStr stderr"
   , ""
-  , "wasi_http_response :: Int -> String -> IO ()"
-  , "wasi_http_response code body = putStrLn (show code ++ \" \" ++ body)"
+  , "{-# SPECIALIZE wasi_http_response :: Integer -> String -> IO () #-}"
+  , "wasi_http_response :: Integral i => i -> String -> IO ()"
+  , "wasi_http_response code body = putStrLn (show (fromIntegral code :: Integer) ++ \" \" ++ body)"
   , ""
   , "seq_commands :: IO () -> IO () -> IO ()"
   , "seq_commands a b = a >> b"
@@ -438,7 +443,7 @@ emitTypeDef name body =
 mapLlmllPrimType :: Text -> Text
 mapLlmllPrimType "unit"   = "()"
 mapLlmllPrimType "string" = "String"
-mapLlmllPrimType "int"    = "Int"
+mapLlmllPrimType "int"    = "Integer"  -- LT-INT (v0.11): mathematical-integer semantics
 mapLlmllPrimType "bool"   = "Bool"
 mapLlmllPrimType "float"  = "Double"
 mapLlmllPrimType other    = toHsIdent other  -- user-defined types: pascal-case
@@ -587,8 +592,23 @@ emitApp op args
   | op `elem` ["/", "mod", "%", "+", "-", "*", "=", "!=",
                "<", ">", "<=", ">=", "and", "or", "not"]
   = emitOp op args
+-- LT-INT (v0.11): Class A indexing primitives keep concrete `Int` Haskell
+-- signatures per int-2-boundary-shims.md §3.1; codegen wraps `int`-typed
+-- arguments (now `Integer` post-INT-2) in `fromIntegral` at the LLMLL-to-Haskell
+-- call seam, and lifts `Int`-returning primitives back to `Integer`.
+emitApp "list-length"   [xs]     = "(fromIntegral (list_length " <> wrap xs <> ") :: Integer)"
+emitApp "string-length" [s]      = "(fromIntegral (string_length " <> wrap s <> ") :: Integer)"
+emitApp "list-nth"      [xs,i]   = "(list_nth " <> wrap xs <> " (fromIntegral " <> wrap i <> " :: Int))"
+emitApp "string-slice"  [s,f,t]  = "(string_slice " <> wrap s <> " (fromIntegral " <> wrap f <> " :: Int) (fromIntegral " <> wrap t <> " :: Int))"
+emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " (fromIntegral " <> wrap i <> " :: Int))"
 emitApp func args =
-  "(" <> toHsIdent func <> " " <> T.unwords (map (\a -> "(" <> emitExpr a <> ")") args) <> ")"
+  "(" <> toHsIdent func <> " " <> T.unwords (map wrap args) <> ")"
+
+-- | Wrap an argument expression in parentheses for safe Haskell emission.
+-- LT-INT (v0.11): used by `emitApp` Class A clauses to insert `fromIntegral`
+-- conversions cleanly without re-parenthesising the original expression.
+wrap :: Expr -> Text
+wrap e = "(" <> emitExpr e <> ")"
 
 
 emitOp :: Name -> [Expr] -> Text
@@ -703,7 +723,7 @@ rewriteCtor other     = toHsIdent other
 -- ---------------------------------------------------------------------------
 
 emitLit :: Literal -> Text
-emitLit (LitInt n)    = "(" <> T.pack (show n) <> " :: Int)"  -- B2: monomorphise to Int (LLMLL int = Haskell Int)
+emitLit (LitInt n)    = "(" <> T.pack (show n) <> " :: Integer)"  -- LT-INT (v0.11): unbounded
 emitLit (LitFloat d)  = T.pack (show d)
 emitLit (LitString s) = T.pack (show (T.unpack s))  -- uses Haskell show for quoting
 emitLit (LitBool b)   = if b then "True" else "False"
@@ -720,7 +740,7 @@ isPolyType (TCustom "_") = True
 isPolyType _            = False
 
 toHsType :: Type -> Text
-toHsType TInt              = "Int"
+toHsType TInt              = "Integer"  -- LT-INT (v0.11): mathematical-integer semantics
 toHsType TFloat            = "Double"
 toHsType TString           = "String"
 toHsType TBool             = "Bool"

@@ -506,14 +506,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     -- Mark as body-faithful
                     addBodyFaithful name
 
-                    -- INT-1 (v0.10.8): tag this function as overflow-tainted if
-                    -- its body uses LLMLL-level integer arithmetic over non-literal
-                    -- operands. The tag is metadata on body-faithful evidence;
-                    -- strict-verified-core refuses tainted DLVerified clauses.
-                    -- Trigger set is empty post-INT-2 (when 'int' becomes Integer);
-                    -- the machinery re-arms on a future 'machine-int' primitive
-                    -- (INT-3). See docs/design/int-2-boundary-shims.md §4.
-                    when (bodyHasOverflowArith body) (addOverflowTainted name)
+                    -- INT-1 (v0.10.8): tagged body-faithful fns whose body used
+                    -- LLMLL-level integer arithmetic over non-literal operands.
+                    -- LT-INT (v0.11): trigger set is empty — `int` is now Integer
+                    -- at codegen, so no `int` arithmetic can overflow at runtime.
+                    -- The walker `bodyHasOverflowArith` and the `erOverflowTainted`
+                    -- field are preserved across the module surface; INT-3 re-arms
+                    -- the trigger when the `machine-int` primitive lands (gated by
+                    -- callee/operand type-awareness, not by the syntactic walker).
+                    -- See docs/design/int-2-boundary-shims.md §4.
+                    -- when (bodyHasOverflowArith body) (addOverflowTainted name)
 
                     -- v0.9.0: Emit call-pre obligations for any CallVC nodes
                     -- Each obligation is a separate constraint proving the callee's
