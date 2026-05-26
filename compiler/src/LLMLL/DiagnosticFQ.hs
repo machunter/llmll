@@ -92,21 +92,24 @@ parseFQResult out
 --   diagMessage  = human description of which clause failed
 --   diagPointer  = Just "/statements/N/pre"  (JSON Pointer for AI iteration)
 fqResultToReport :: FilePath -> ConstraintTable -> FQVerifyResult -> DiagnosticReport
-fqResultToReport fp _table FQSafe =
+fqResultToReport _fp _table FQSafe =
   DiagnosticReport
-    { reportDiagnostics = []
+    { reportPhase       = "lh-fixpoint"
+    , reportDiagnostics = []
     , reportSuccess     = True
     }
 fqResultToReport fp table (FQUnsafe ids) =
   let diags = mapMaybe (toDiag fp table) ids
   in DiagnosticReport
-    { reportDiagnostics = diags
+    { reportPhase       = "lh-fixpoint"
+    , reportDiagnostics = diags
     , reportSuccess     = null diags  -- might be unknown constraint IDs
     }
-fqResultToReport fp _table (FQError txt) =
+fqResultToReport _fp _table (FQError txt) =
   let d = mkError Nothing ("liquid-fixpoint error: " <> txt)
   in DiagnosticReport
-    { reportDiagnostics = [d]
+    { reportPhase       = "lh-fixpoint"
+    , reportDiagnostics = [d]
     , reportSuccess     = False
     }
 

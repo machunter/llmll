@@ -20,10 +20,10 @@ import LLMLL.ObligationAssembly
   , recursiveNames, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
-import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
@@ -1501,6 +1501,52 @@ main = hspec $ do
       case result of
         FQError _ -> pure ()
         _ -> expectationFailure $ "expected FQError, got: " ++ show result
+
+  -- -------------------------------------------------------------------------
+  -- fqResultToReport — DiagnosticFQ partial-record regression (fix F-001).
+  --
+  -- All three branches of fqResultToReport were constructing DiagnosticReport
+  -- records via record syntax that omitted the reportPhase :: Text field
+  -- (DiagnosticFQ.hs:95-111 pre-fix), leaving the field as ⊥. Any consumer
+  -- that accessed reportPhase — notably formatReportJson at Diagnostic.hs:352
+  -- — crashed with "Missing field in record construction reportPhase".
+  --
+  -- The bug was latent for the entire --trust-report lifetime because the
+  -- typical --json verify SAFE path early-exited at Main.hs:1078 before
+  -- reaching the verifier loop. LT-CDP at commit 121815a split the early-exit
+  -- condition so --cdp --trust-report --json falls through to the solver
+  -- and hits formatReportJson, surfacing the crash.
+  --
+  -- DF-1 / DF-2 / DF-3 force evaluation of reportPhase directly.
+  -- DF-4 is the end-to-end regression: drop the fix and DF-4 fails with the
+  -- same runtime exception observed on the CLI.
+  -- -------------------------------------------------------------------------
+  describe "fqResultToReport (DiagnosticFQ partial-record regression, fix F-001)" $ do
+
+    it "DF-1: FQSafe sets reportPhase = \"lh-fixpoint\"" $ do
+      let r = fqResultToReport "test.llmll" Map.empty FQSafe
+      reportPhase r       `shouldBe` "lh-fixpoint"
+      reportSuccess r     `shouldBe` True
+      reportDiagnostics r `shouldBe` []
+
+    it "DF-2: FQUnsafe sets reportPhase" $ do
+      let r = fqResultToReport "test.llmll" Map.empty (FQUnsafe [0, 1, 2])
+      reportPhase r `shouldBe` "lh-fixpoint"
+      -- toDiag against an empty constraint-table emits one
+      -- unknown-origin diagnostic per FQConstraintId.
+      length (reportDiagnostics r) `shouldBe` 3
+
+    it "DF-3: FQError sets reportPhase and carries the error text" $ do
+      let r = fqResultToReport "test.llmll" Map.empty (FQError "constraint emission failure")
+      reportPhase r   `shouldBe` "lh-fixpoint"
+      reportSuccess r `shouldBe` False
+      length (reportDiagnostics r) `shouldBe` 1
+
+    it "DF-4: formatReportJson does not crash on FQSafe-derived report" $ do
+      let r       = fqResultToReport "test.llmll" Map.empty FQSafe
+          jsonTxt = formatReportJson r
+      (T.length jsonTxt > 0)                          `shouldBe` True
+      T.isInfixOf "\"phase\":\"lh-fixpoint\"" jsonTxt `shouldBe` True
 
   -- =========================================================================
   -- v0.10 BUG-PATCH-VERIFY: full lifecycle IO tests
