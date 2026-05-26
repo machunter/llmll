@@ -616,3 +616,25 @@ Implement the smallest useful version:
 - Pure core APIs only; CLI is optional or omitted.
 
 This keeps the first comparison focused on agent implementation quality and evidence quality, not package management or interactive IO.
+
+---
+
+## Deferred External Benchmarks
+
+> **Source:** Language-team revision, 2026-05-25, per [`positioning-constraint-decay-proposal.md`](positioning-constraint-decay-proposal.md) Rev 1 §§5–6 (settled with professor review folded).
+
+### Dente et al. (2026) constraint-decay benchmark
+
+Dente, Satriani, and Papotti, *Constraint decay: The Fragility of LLM Agents in Backend Code Generation* (arXiv 2605.06445, May 2026), ship an open-source agent benchmark on the RealWorld Conduit OpenAPI contract. They layer non-functional constraints (Clean Architecture pattern, PostgreSQL/SQLite backend, mandatory ORM — SQLAlchemy or Sequelize) across eight backend frameworks (Python: Flask, FastAPI, Django, aiohttp; Node.js: Express, Fastify, Hono, Koa), two agent scaffolds (Mini-SWE-Agent, OpenHands), and ten LLMs across five providers (open and closed; Mistral, Qwen, MiniMax, Moonshot, OpenAI) across ~5B tokens (~4.69B input + 43.3M output), and measure assertion pass rate and pass@1 collapse across L0 → L3. Their measurement set is exactly the external anchor the LLMLL design premise points at — see [`specification-sources.md §1`](specification-sources.md) and [`strategic-positioning.md`](strategic-positioning.md) §"External Empirical Anchor — Constraint Decay" for the full positioning treatment.
+
+Running this benchmark on LLMLL is **deferred indefinitely**. The deferral is a recorded scope position, not a scheduling decision.
+
+Two costs are in tension. Running the Conduit benchmark on LLMLL would constitute *benchmark-driven spec design*: under benchmark pressure, the project would commit to one HTTP-framework binding among several candidates (Servant vs. raw warp vs. some `wasi.http`-plus-router hybrid), a database-and-ORM story currently absent from the spec, and a verification axis for query composition (refinement-predicates over a relational algebra? capability-typed query effects? `?proof-required` carriers for SQL?) — each a multi-quarter design effort whose outcome the project has deliberately not yet shaped, and each interacting with the v0.11 architectural-correction cluster ([`core-shell-inversion-proposal.md`](core-shell-inversion-proposal.md) LT-INV, [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) LT-CDP, [`proof-required-predicate-carrier-proposal.md`](proof-required-predicate-carrier-proposal.md) LT-PPR, [`int-2-boundary-shims.md`](int-2-boundary-shims.md) LT-INT) currently in flight. *Not* running the benchmark, equivalently, leaves the field's strongest currently-published empirical anchor for the failure mode unaddressed by LLMLL, creating an asymmetry external readers will notice. The project records its choice as **design-discipline over empirical-anchor-completeness**, anchored to the avoid-design-by-benchmark commitment implicit in §Soundness Assessment above.
+
+The deferral is overridable by explicit team consensus with a written soundness argument per the v0.11 freeze-exception template; it is not a permanent foreclosure.
+
+### Perpendicular-axis admission
+
+The `experiments/repair-loop/` harness specified in this document measures the *language-axis* variant of constraint-bearing agent authorship — *agent × problem × target language × attempt* on a *fixed constraint set*. Dente et al. measure the *constraint-stacking* variant — *constraint stack* on a *fixed language × fixed agent × fixed contract*. The axes are perpendicular. The Correctness/Assurance split this document specifies in §Soundness Assessment is orthogonal to Dente et al.'s L0 → L3 axis: Correctness/Assurance measures the *kind of evidence the same constraint set produces*; L0 → L3 measures *how constraints accumulate*.
+
+Both can be measured by the project, but they are different empirical regimes; conflating them in external positioning would not survive contact with a careful reader. The constraint-layering axis is currently unmeasured under LLMLL and would require a sibling harness variant — separate problem set parametrized by constraint layer, fixed target language, fixed agent scaffold, no language-cross dimension. Recorded here as a deferred experiment, not a current capability. If the project later authorizes the constraint-layering harness, the natural place for it is `experiments/constraint-stacking/` as a sibling to `experiments/repair-loop/` and `experiments/minimal-agent/`, with its own manifest, problem set, and findings discipline; the per-harness role discipline in [`doc-consolidation-2026-05-24-proposal.md`](doc-consolidation-2026-05-24-proposal.md) §4.3 applies unchanged.
