@@ -6476,6 +6476,94 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             cdpWarnings r `shouldSatisfy` (WarnIdentitySatisfiesPost `elem`)
           Nothing -> expectationFailure "expected entry for f"
 
+    -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
+    describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do
+
+      it "F6-1 (F-006) custom-type-alias param: non-zero candidates when STypeDef present" $ do
+        -- b1::withdraw shape: amount :: PositiveInt (alias for int), mRet = Nothing.
+        -- Before fix: tryCandidate's synthetic typecheck had empty tcAliasMap, so
+        -- structuralUnify(TInt, TCustom "PositiveInt") emitted a hard error and every
+        -- candidate was filtered. After fix: STypeDef is prepended, alias resolves.
+        let stmts =
+              [ STypeDef "PositiveInt"
+                  (TDependent "x" TInt (EApp ">" [EVar "x", ELit (LitInt 0)]))
+              , SDefLogic "withdraw"
+                  [("balance", TInt), ("amount", TCustom "PositiveInt")]
+                  Nothing
+                  (Contract
+                    (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
+                    (Just (EApp "=" [ EVar "result"
+                                    , EApp "-" [EVar "balance", EVar "amount"]])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            candidates = generateCDPCandidates stmts
+        length candidates `shouldSatisfy` (> 0)
+
+      it "F6-2 (F-005) mRet=Nothing: int constants {0,1,-1,42} generated" $ do
+        -- b5::double shape: sexp parser sets mRet = Nothing for all .llmll functions.
+        -- Before fix: matchesReturnType TInt Nothing = False → no int constants.
+        -- After fix: matchesReturnTypeOrUnknown TInt Nothing = True → 4 ints generated.
+        let stmts =
+              [ SDefLogic "double" [("n", TInt)] Nothing
+                  (Contract Nothing Nothing
+                    (Just (EApp "=" [ EVar "result"
+                                    , EApp "+" [EVar "n", EVar "n"]])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            candidates = generateCDPCandidates stmts
+            ints = [i | wc <- candidates, TrivConstInt i <- [wcTrivialBody wc]]
+        ints `shouldBe` [0, 1, -1, 42]
+
+      it "F6-3 (F-005) mRet=Nothing: bool constants filtered by TC against int post-condition" $ do
+        let stmts =
+              [ SDefLogic "double" [("n", TInt)] Nothing
+                  (Contract Nothing Nothing
+                    (Just (EApp "=" [ EVar "result"
+                                    , EApp "+" [EVar "n", EVar "n"]])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            candidates = generateCDPCandidates stmts
+            bools = [wc | wc <- candidates, case wcTrivialBody wc of
+                                              TrivConstBool _ -> True
+                                              _               -> False]
+        length bools `shouldBe` 0
+
+      it "F6-4 (F-005) b5::double shape: candidate_count >= 5 (1 identity + 4 int constants)" $ do
+        let stmts =
+              [ SDefLogic "double" [("n", TInt)] Nothing
+                  (Contract Nothing Nothing
+                    (Just (EApp "=" [ EVar "result"
+                                    , EApp "+" [EVar "n", EVar "n"]])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            candidates = generateCDPCandidates stmts
+        length candidates `shouldSatisfy` (>= 5)
+
+      it "F6-5 (F-006) b3::safe-first shape: candidate_count >= 2 with TrivConstInt 0 present" $ do
+        -- safe-first [xs: list[int]], post (>= result 0), mRet = Nothing.
+        -- Before fix: only TrivIdentity "xs" generated; it failed TC (list ≠ int post).
+        -- After fix: int constants generated; TrivConstInt 0 passes TC and is a candidate.
+        let stmts =
+              [ SDefLogic "safe-first" [("xs", TList TInt)] Nothing
+                  (Contract Nothing Nothing
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            candidates = generateCDPCandidates stmts
+        length candidates `shouldSatisfy` (>= 2)
+        map wcTrivialBody candidates `shouldSatisfy` (TrivConstInt 0 `elem`)
+
+      it "F6-6 regression: explicit mRet=Just TInt still yields int constants (no regression)" $ do
+        let stmts =
+              [ SDefLogic "f" [("n", TInt)] (Just TInt)
+                  (Contract Nothing Nothing
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (EVar "n")
+              ]
+            candidates = generateCDPCandidates stmts
+            ints = [i | wc <- candidates, TrivConstInt i <- [wcTrivialBody wc]]
+        ints `shouldBe` [0, 1, -1, 42]
+
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------

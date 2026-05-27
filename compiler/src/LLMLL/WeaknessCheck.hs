@@ -141,28 +141,33 @@ data WeaknessCandidate = WeaknessCandidate
 --   3. Type-check each synthetic statement (INV-4)
 --   4. Keep only type-safe candidates
 generateWeaknessCandidates :: [Statement] -> [WeaknessCandidate]
-generateWeaknessCandidates = concatMap (generateForStmt legacyCatalog)
+generateWeaknessCandidates stmts = concatMap (generateForStmt stmts legacyCatalog) stmts
 
 -- | LT-CDP (v0.11) — closed candidate enumeration per
 -- 'contract-discriminative-power-proposal.md' §4.3.1. Same per-function
 -- contract-and-typecheck workflow as 'generateWeaknessCandidates'; the
 -- catalog is the widened set that drives the counted DP measurement.
 generateCDPCandidates :: [Statement] -> [WeaknessCandidate]
-generateCDPCandidates = concatMap (generateForStmt cdpCatalog)
+generateCDPCandidates stmts = concatMap (generateForStmt stmts cdpCatalog) stmts
 
 -- | Walk one statement and produce candidates per the supplied catalog
 -- builder. Statements without contracts produce no candidates.
+-- The full statement list is threaded through so that 'tryCandidate' can
+-- include module-level type-alias definitions in the synthetic type-check
+-- (F-006: functions with custom-type-alias params produced zero candidates
+-- because the alias was absent from the synthetic check's tcAliasMap).
 generateForStmt
-  :: ([(Name, Type)] -> Maybe Type -> [TrivialBody])
+  :: [Statement]
+  -> ([(Name, Type)] -> Maybe Type -> [TrivialBody])
   -> Statement
   -> [WeaknessCandidate]
-generateForStmt catalog (SDefLogic name params mRet contract _body)
+generateForStmt allStmts catalog (SDefLogic name params mRet contract _body)
   | hasContracts contract =
-      mapMaybe (tryCandidate name params mRet contract) (catalog params mRet)
-generateForStmt catalog (SLetrec name params mRet contract _dec _body)
+      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
+generateForStmt allStmts catalog (SLetrec name params mRet contract _dec _body)
   | hasContracts contract =
-      mapMaybe (tryCandidate name params mRet contract) (catalog params mRet)
-generateForStmt _ _ = []
+      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
+generateForStmt _ _ _ = []
 
 -- | Does this contract have at least one clause?
 hasContracts :: Contract -> Bool
@@ -189,23 +194,31 @@ legacyCatalog params mRet =
 -- v0.12+ may widen to LLM-generated candidates per
 -- 'docs/design/invariant-discovery-review.md' §5; v0.11 ships this exact list
 -- and the trust-report 'basis' field is "observational-candidate-set".
+--
+-- F-005 ancillary: when 'mRet' is 'Nothing' (sexp-parsed functions never carry
+-- a return-type annotation — see Parser.hs:169), constants are generated
+-- optimistically and 'tryCandidate''s type-check filters the incompatible ones.
+-- 'legacyCatalog' is unaffected; only this function uses
+-- 'matchesReturnTypeOrUnknown'.
 cdpCatalog :: [(Name, Type)] -> Maybe Type -> [TrivialBody]
 cdpCatalog params mRet =
   let identities = [TrivIdentity p | (p, pTy) <- params, matchesReturn pTy mRet]
-      ints = if matchesReturnType TInt mRet
+      ints = if matchesReturnTypeOrUnknown TInt mRet
                 then map TrivConstInt [0, 1, -1, 42]
                 else []
-      bools = if matchesReturnType TBool mRet
+      bools = if matchesReturnTypeOrUnknown TBool mRet
                 then [TrivConstBool True, TrivConstBool False]
                 else []
-      strings = if matchesReturnType TString mRet
+      strings = if matchesReturnTypeOrUnknown TString mRet
                   then map TrivConstString ["", "a"]
                   else []
       lists = case mRet of
         Just (TList elt) -> [TrivConstEmptyList, TrivConstListSingle elt]
+        Nothing          -> [TrivConstEmptyList]  -- polymorphic; TC filters
         _                -> []
       sums = case mRet of
         Just (TResult okT _) -> [TrivConstSuccess okT, TrivConstError]
+        Nothing              -> [TrivConstError]  -- payload-free form; TC filters
         _                    -> []
       pairs = case mRet of
         Just (TPair a b) -> [TrivConstPair a b]
@@ -227,6 +240,15 @@ matchesReturnList :: Maybe Type -> Bool
 matchesReturnList (Just (TList _)) = True
 matchesReturnList _ = False
 
+-- | For the CDP catalog only: True when the return type is unannotated
+-- ('mRet = Nothing') OR structurally compatible with the given type.
+-- Generates candidates optimistically when the return type is unknown;
+-- 'tryCandidate''s type-check filters incompatible ones before the solver.
+-- Does NOT affect 'legacyCatalog' (which uses the stricter 'matchesReturnType').
+matchesReturnTypeOrUnknown :: Type -> Maybe Type -> Bool
+matchesReturnTypeOrUnknown _ Nothing     = True
+matchesReturnTypeOrUnknown t (Just retTy) = compatibleTypes t retTy
+
 -- | Structural type compatibility (simplified, for trivial body filtering).
 -- This is a conservative check — the type checker will catch false positives.
 compatibleTypes :: Type -> Type -> Bool
@@ -243,13 +265,14 @@ compatibleTypes a b = a == b
 -- | Try to construct a type-safe weakness candidate.
 -- Returns Nothing if the type checker rejects the synthetic body (INV-4).
 tryCandidate
-  :: Name
+  :: [Statement]
+  -> Name
   -> [(Name, Type)]
   -> Maybe Type
   -> Contract
   -> TrivialBody
   -> Maybe WeaknessCandidate
-tryCandidate name params mRet contract trivBody =
+tryCandidate allStmts name params mRet contract trivBody =
   let syntheticBody = trivialExpr trivBody
       syntheticStmt = SDefLogic
         ("__weakness_check_" <> name)
@@ -258,8 +281,14 @@ tryCandidate name params mRet contract trivBody =
         contract
         syntheticBody
       -- INV-4: Type-check the synthetic statement.
-      -- We use emptyEnv + builtinEnv since the function must be self-contained.
-      report = typeCheck builtinEnv [syntheticStmt]
+      -- Prepend STypeDef statements from the calling module so that
+      -- checkStatements populates tcAliasMap with any custom type aliases
+      -- (e.g. PositiveInt) referenced in the contract or parameter list.
+      -- Without this, expandAlias returns TCustom X unexpanded and
+      -- structuralUnify emits a false type-mismatch error on the
+      -- pre-condition, filtering every candidate (F-006).
+      typeDefs = [s | s@STypeDef{} <- allStmts]
+      report = typeCheck builtinEnv (typeDefs ++ [syntheticStmt])
       hasErrors = any (\d -> diagSeverity d == SevError) (reportDiagnostics report)
   in if hasErrors
      then Nothing  -- type-incompatible trivial body, skip silently
