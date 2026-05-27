@@ -1357,3 +1357,44 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 ```
 
 > Unicode aliases are supported: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`
+
+---
+
+### §4.14 Core/Shell Grammar (`--grammar=core-inversion`)
+
+Activated by the global `--grammar=core-inversion` flag (v0.11 LT-INV). Under this mode two new definition keywords are available alongside the existing `def-logic`:
+
+| Keyword | AST node | Body restriction | When to use |
+|---------|----------|-----------------|-------------|
+| `def` | `SDef` | Strict-core whitelist (QF-LIA, `ELet`, `EIf`, `EMatch` Result 2-arm, admitted `EApp`) | Pure integer-arithmetic functions intended for body-faithful SMT verification |
+| `def-shell` | `SDefShell` | None | Functions that use lambdas, IO, non-linear ops, or call unverified code |
+
+**Strict-core example:**
+
+```lisp
+(def add-positive [x: int y: int]
+  (pre (and (>= x 0) (>= y 0)))
+  (post (>= result 0))
+  (+ x y))
+```
+
+**Permissive shell example:**
+
+```lisp
+(def-shell format-name [first: string last: string]
+  (string-concat first (string-concat " " last)))
+```
+
+**Invocation:**
+
+```bash
+llmll --grammar=core-inversion check myfile.llmll
+llmll --grammar=core-inversion verify myfile.llmll --trust-report
+```
+
+`def-logic` and `letrec` continue to work unchanged under `--grammar=core-inversion`. The default (`--grammar=legacy`) is unaffected.
+
+**Known restrictions:**
+- `def` does not parse a return-type annotation (`: type` after the parameter list). The return type is always inferred.
+- `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
+- Schema `schemaVersion` stays `0.5.0`; the bump to `0.6.0` is gated on the §8 empirical-validation gate.

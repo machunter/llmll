@@ -2,7 +2,7 @@
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.10.8 (shipped).** Patch release — INT-1 `overflow_tainted` marking on body-faithful verified evidence + `--strict-verified-core` refusal extension. The verifier still proves what it proved pre-INT-1; the change is metadata layered atop the existing `DLVerified` + `erBodyFaithful = True` ground truth. `.verified.json` sidecars and trust-report JSON gain an additive `overflow_tainted` field (only-when-true); pre-v0.10.8 verified body-faithful sidecars are invalidated on read to eliminate silent under-strictness. No new language surface, no new builtins, no new SMT theory, no solver-time delta. This release also unblocks the DRIFT-1 §3 type-system catch-up (one cross-reference from §3.1 to the new §5.3.5 `overflow_tainted` callout). 672 Haskell + 37 Python tests passing. JSON-AST schemaVersion `0.5.0`. `trust_report_version` `1.1.0`. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule. Next milestone is v0.11 (core/shell grammar inversion + CDP evidence axis + predicate-carrying `?proof-required` + `int → Integer` codegen, which makes the v0.10.8 taint trigger set dormant on `int`); see [`docs/design/core-shell-inversion-direction.md`](docs/design/core-shell-inversion-direction.md), [`docs/design/int-2-boundary-shims.md`](docs/design/int-2-boundary-shims.md), and [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md). v0.11 features LT-INT (`int → Integer` codegen, see §3.1) and LT-CDP (contract discriminative power evidence axis, see §4.4.6) have shipped on branch (commits `9c37a5c4`, `121815a` respectively); LT-INV (core/shell grammar inversion) and LT-PPR (predicate-carrying `?proof-required`) remain pending per the §8 empirical-validation gate.
+> **Current version: v0.10.8 (shipped).** Patch release — INT-1 `overflow_tainted` marking on body-faithful verified evidence + `--strict-verified-core` refusal extension. The verifier still proves what it proved pre-INT-1; the change is metadata layered atop the existing `DLVerified` + `erBodyFaithful = True` ground truth. `.verified.json` sidecars and trust-report JSON gain an additive `overflow_tainted` field (only-when-true); pre-v0.10.8 verified body-faithful sidecars are invalidated on read to eliminate silent under-strictness. No new language surface, no new builtins, no new SMT theory, no solver-time delta. This release also unblocks the DRIFT-1 §3 type-system catch-up (one cross-reference from §3.1 to the new §5.3.5 `overflow_tainted` callout). 672 Haskell + 37 Python tests passing. JSON-AST schemaVersion `0.5.0`. `trust_report_version` `1.1.0`. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule. Next milestone is v0.11 (core/shell grammar inversion + CDP evidence axis + predicate-carrying `?proof-required` + `int → Integer` codegen, which makes the v0.10.8 taint trigger set dormant on `int`); see [`docs/design/core-shell-inversion-direction.md`](docs/design/core-shell-inversion-direction.md), [`docs/design/int-2-boundary-shims.md`](docs/design/int-2-boundary-shims.md), and [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md). v0.11 features LT-INT (`int → Integer` codegen, see §3.1) and LT-CDP (contract discriminative power evidence axis, see §4.4.6) have shipped on branch (commits `9c37a5c4`, `121815a` respectively); LT-INV (core/shell grammar inversion) shipped on branch behind `--grammar=core-inversion` opt-in flag (default remains `GrammarLegacy`; schema bump `0.5.0 → 0.6.0` and default flip gated on the §8 empirical-validation gate); LT-PPR (predicate-carrying `?proof-required`) remains pending per the §8 empirical-validation gate.
 
 <details><summary><strong>Release history</strong></summary>
 
@@ -253,6 +253,68 @@ Refinement type alias constraints are **checked at compile time**: the constrain
 > [!NOTE]
 > **Obligation-guided agent coding (v0.10, shipped).** LLMLL v0.10.0 provides the Idris workflow *feel* — goal-directed construction from rich obligations — through structured obligation reports that expose type, contract, and trust obligations to agents. `llmll verify --obligation-report` emits a JSON report with three channels per obligation, repair suggestions, and function lists. See [compiler-team-roadmap.md](docs/compiler-team-roadmap.md) § v0.10.
 
+#### 3.4.1 Checking-mode inference rule (REF-META-1)
+
+For a refinement-aliased type `A ≜ (where [x: τ] p)` (where `A` is the alias name, `τ` the underlying base type, and `p` the refinement predicate), the **checking-mode rule** is:
+
+```
+Γ ⊢ e : τ ⇝ O
+Γ ⊢ p[e/x] obligation
+─────────────────────────
+Γ ⊢ e ⇐ A ⇝ O ∪ { p[e/x] }
+```
+
+**Introduction.** When checking `e` against `A`, the type checker confirms `e` synthesizes the underlying base type `τ` (structural compatibility via `expandAlias` at [`TypeCheck.hs:1443`](compiler/src/LLMLL/TypeCheck.hs#L1443) and `unify` at [`TypeCheck.hs:969-1003`](compiler/src/LLMLL/TypeCheck.hs#L969)), and the refinement predicate `p[e/x]` joins the obligation set.
+
+**Elimination** is the dual: when `Γ` binds `x : A`, uses of `x` add `p` as a hypothesis to the typing context for downstream obligations within `x`'s scope:
+
+```
+Γ, x : A ⊢ e' : τ' ⇝ O'
+─────────────────────────────────────
+Γ, x : τ, p ⊢ e' : τ' ⇝ O'   (elim)
+```
+
+Introduction emits an obligation; elimination introduces a hypothesis. The pair makes refinement aliases *checked invariants* without exposing a user-visible subtyping relation.
+
+**Two-phase implementation.** [`TypeCheck.hs`](compiler/src/LLMLL/TypeCheck.hs) handles structural compatibility via `inferExpr` / `checkExpr` / `unify`; [`Contracts.hs`](compiler/src/LLMLL/Contracts.hs) and [`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs) emit the refinement-predicate obligation at introduction sites and add the hypothesis at elimination sites. The unified spec-level judgment is the conjunction of both phases; no single-pass refactor is implied.
+
+**Hypothesis lexical scoping.** The refinement hypothesis introduced at a binding site is *lexically scoped* — available within the binding's body but not propagated outside or across function boundaries. LLMLL has no flow-sensitive refinement reasoning; a variable's refinement hypothesis is determined by its declared type at the binding site (consequence of non-goal §3.4.2 #1).
+
+#### 3.4.2 Non-goals (exhaustive for v0.11)
+
+The following features are **deliberately absent** from LLMLL's refinement surface for v0.11. The list is closed; any addition requires explicit team consensus with a written soundness argument per [`docs/compiler-team-roadmap.md:33-36`](docs/compiler-team-roadmap.md).
+
+1. **No general refinement subtyping (`<:`).** LLMLL has no user-visible subtyping relation between refinement-aliased types. Refinement aliases interact only via the checking-mode rule (§3.4.1), which generates obligations at concrete introduction sites. This is operationally equivalent to Liquid Haskell's subtyping formulation at introduction sites (both produce the same obligation `p[e/x]`) — see Vazou et al. *Refinement Types for Haskell*, POPL 2014 — but the narrower surface pre-empts the closure of abstract, parametric, and bounded refinements that the broader subtyping framing invites.
+
+2. **No dependent pattern matching.** Pattern matching on a refinement-aliased value binds the underlying base type. A `match` arm on a `Letter` value (where `Letter ≜ (where [s: string] (= (string-length s) 1))`) binds `s : string`. The refinement hypothesis is available within the arm's lexical scope via the elimination rule (§3.4.1) but does not refine the bound variable's declared type.
+
+3. **No type-level computation.** Refinement predicates are first-order propositions in the QF-LIA fragment (or escape to `?proof-required`); they are not types. `(where [n: int] (> (factorial n) 0))` is not legal — the predicate must be a first-order proposition over base-typed bindings.
+
+4. **No proof terms.** Users do not author proof terms in LLMLL surface. Proof obligations are discharged by the verifier (QF-LIA fragment via liquid-fixpoint, §5.3.3) or routed to `?proof-required` for offline discharge (Leanstral pipeline).
+
+5. **No sigma types.** LLMLL has no dependent pair `Σ x : τ. p[x]`. A refinement-aliased type `A ≜ (where [x: τ] p)` is not a pair — no first projection extracting `x`, no second projection extracting a proof of `p[x]`.
+
+6. **No boolean-expression-as-type-equality.** LLMLL has no propositional equality type `e₁ ≡ e₂`. A refinement predicate may use an equality expression (`(= x 0)`), but no type-level proposition `e₁ ≡ e₂` exists.
+
+> Refinement-polymorphic functions and termination-via-refinement (Liquid Haskell, Vazou et al. ESOP 2013) are consequences of non-goals #1 and #3 respectively; deferred to REF-META-3 (predicate well-formedness rule) for explicit treatment of refinement-variable binding shapes.
+
+#### 3.4.3 Soundness statement of record (tier-aware, Path A)
+
+> If `Γ ⊢ e : τ ⇝ O`, all obligations in `O` are discharged at solver-backed evidence level, codegen is faithful for the involved constructs, and no trusted FFI/opaque primitive is used, then the erased generated program preserves the declared refinement predicates at checked introduction and elimination sites.
+
+All four preconditions are load-bearing:
+
+1. **Obligations discharged at solver-backed evidence level.** The function's evidence record (§4.4) is `verified` with body-faithful discharge — not `tested`, not `asserted`, not `verified` with body-fallback (per [`FixpointEmit.hs:506-516`](compiler/src/LLMLL/FixpointEmit.hs#L506-L516)).
+2. **Codegen is faithful.** Per §5.3.5: non-recursive QF-LIA with compositional call-chain reasoning. Constructs outside that set lower into runtime assertions or fall back to contract-only verification; the soundness claim does not extend to them under the same tier.
+3. **No trusted FFI or opaque primitive.** Functions reaching crypto stubs (§13.11) or other `asserted`-tier dependencies do not satisfy the precondition.
+4. **`erBodyFallback` and `erOverflowTainted` are not set.** The INT-1 mechanism ([`Syntax.hs:326-331`](compiler/src/LLMLL/Syntax.hs#L326-L331)) marks overflow-tainted verified evidence; `--strict-verified-core` refuses such evidence ([`Main.hs:1119-1158`](compiler/app/Main.hs#L1119-L1158)).
+
+**Operational enforcement.** `--strict-verified-core` is the operational embodiment of this statement. The strict-tier admissibility set is the *closure under composition*: a function fails admission if any callee in its transitive call graph has `erBodyFallback = True`, `erOverflowTainted = True`, or an `asserted`-tier dependency. Formal derivation of the compositional closure is REF-META-4 territory (erasure theorem with construction-side discipline).
+
+**Out-of-process-agent carve-out.** Values introduced by `?delegate` / `?delegate-async` / `?scaffold` holes are not checked-introduction sites — they arrive from out-of-process agents and fall under the trust tier per §4.4. The soundness statement does not extend to them.
+
+**Path B declined.** A mechanized soundness theorem against an independently-defined operational semantics remains declined per [`docs/design/verification-debate.md`](docs/design/verification-debate.md). This statement is a precise *commitment*, not a mechanized *theorem*.
+
 ---
 
 ## 4. Logic Structures & Design by Contract
@@ -260,6 +322,8 @@ Refinement type alias constraints are **checked at compile time**: the constrain
 ### 4.1 `def-logic` (Pure Functions)
 
 All logic is contained in pure functions declared with `def-logic`. Functions are stateless: they take inputs and return a value. They cannot mutate state or perform IO directly.
+
+> **Note (v0.11 LT-INV):** Under `--grammar=core-inversion`, the strict-core equivalent of `def-logic` is `def`, which restricts the function body to a whitelist of verifiable constructs (linear-arithmetic `EOp`, `ELet`, `EIf`, `EApp` to admitted callees, `EMatch` on `Result` 2-arm). The permissive form is `def-shell` (no body restriction). Both parse only when `--grammar=core-inversion` is active; `def-logic` and `letrec` remain the canonical forms under the default `--grammar=legacy`. See [`docs/getting-started.md §4.14`](docs/getting-started.md) for a worked example and `LLMLL.md §12` for the EBNF.
 
 ```lisp
 (def-logic function-name [param1: Type1 param2: Type2]
@@ -751,6 +815,8 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 3. Flagged with `?proof-required` holes when the predicate is detected as non-linear or requiring induction
 4. Propagated through the **trust report** — downstream `verified` conclusions that depend on `asserted` assumptions are flagged as epistemic drift
 
+**Refinement-alias predicate routing.** Refinement-alias predicate obligations — generated at introduction sites by the checking-mode rule at §3.4.1 — route through the same channels as ordinary contract obligations; no separate channel is introduced. A predicate `p` in `(where [x: τ] p)` that is linear over the base-type binding is QF-LIA and auto-discharged by liquid-fixpoint (contract channel, `Contracts.hs` / `FixpointEmit.hs`); a predicate outside QF-LIA falls to items 1–4 above. See §5.3.5 for per-construct rows.
+
 > [!IMPORTANT]
 > **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of `verified` correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
 
@@ -806,6 +872,8 @@ The following matrix documents the verification status of each syntax construct 
 | `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |
 | `ELambda` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | **Int overflow** | ✅ | ✅ | ✅ on `int` (Z3 `Int` = Haskell `Integer`, both unbounded — v0.11 LT-INT) | n/a on `int` | ✅ | gap closed on `int`; re-arms on `machine-int` (INT-3) |
+| `TCustom` alias predicate obligation at intro site (QF-LIA `p`) | ✅ | ✅ | ✅ (contract channel) | ✅ | ✅ | no separate channel; routes via `Contracts.hs` / `FixpointEmit.hs`; §3.4.1 checking-mode rule |
+| `TCustom` alias predicate obligation at intro site (non-QF-LIA `p`) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime assertion + `?proof-required`; same fallback as non-QF-LIA contract obligation |
 
 > [!NOTE]
 > **Integer overflow model — gap closed on `int` (v0.11, LT-INT).** Z3 reasons over mathematical integers (unbounded). Through v0.10.8, Haskell `Int` was 64-bit and the verifier/runtime semantics diverged at overflow boundaries — the documented gap. As of v0.11 LT-INT, LLMLL `int` lowers to Haskell `Integer` (unbounded) at codegen, and the verifier/runtime semantics agree on `int`. The gap re-arms only for programs that opt into a future bounded `machine-int` primitive (post-freeze, per [`docs/design/int-3-machine-int-sketch.md`](docs/design/int-3-machine-int-sketch.md)) under QF-BV verification with the higher solver cost that implies; on `int` there is no overflow event. Pre-v0.11 historical note: programs operating near `Int64` boundaries under the v0.10.8 codegen used QuickCheck tests with edge-case generators targeting `maxBound` and `minBound`; that discipline transfers to `machine-int` if/when it ships.
@@ -1610,11 +1678,12 @@ The grammar is given in EBNF. `{ x }` means zero or more `x`. `[ x ]` means opti
 (* Top-level structure                                           *)
 (* ============================================================ *)
 program     = { statement } ;
-statement   = type-decl | gen-decl | weakness-ok | def-logic | def-interface
-            | def-invariant | def-main | module-decl | import
+statement   = type-decl | gen-decl | weakness-ok | def-logic | def | def-shell
+            | def-interface | def-invariant | def-main | module-decl | import
             | open-decl | export-decl              (* NEW in v0.2 *)
             | trust-decl                            (* NEW in v0.3 *)
             | check | expr ;
+              (* def / def-shell available only under --grammar=core-inversion *)
 
 (* ============================================================ *)
 (* Module                                                        *)
@@ -1701,6 +1770,30 @@ SPEC_ENTROPY   = ":strict" | ":intentional" | ":unknown" ;
                   (* :strict when absent. :intentional suppresses the low-DP     *)
                   (* diagnostic per §4.4.6. The parser also accepts the clause  *)
                   (* on `letrec`. Unknown labels are a parse error.             *)
+
+(* ============================================================ *)
+(* Core/shell grammar — GrammarCoreInversion only (v0.11 LT-INV) *)
+(* Activated by --grammar=core-inversion; default is legacy.    *)
+(* ============================================================ *)
+def          = "(" "def"       IDENT "[" { typed-param } "]"
+                 [ pre-clause ] [ post-clause ] [ entropy-clause ]
+                 core-expr
+               ")" ;
+                 (* Strict-core: body must satisfy isCoreBodySyntactic.         *)
+                 (* Callee admission at EApp: body-faithful evidence, OR        *)
+                 (* trustedPrelude membership, OR builtinEnv membership.        *)
+
+def-shell    = "(" "def-shell" IDENT "[" { typed-param } "]"
+                 [ pre-clause ] [ post-clause ] [ entropy-clause ]
+                 expr
+               ")" ;
+                 (* Permissive form: no body restriction; no callee check.      *)
+
+core-expr    = literal | var | let | if | match | app | linear-op-expr | hole ;
+                 (* Excluded: lambda, do, pair, await, non-linear ops.         *)
+
+linear-op-expr = "(" ( "+" | "-" | "=" | "<" | "<=" | ">" | ">=" | "!=" )
+                     expr expr { expr } ")" ;
 
 (* ============================================================ *)
 (* Interfaces                                                    *)
