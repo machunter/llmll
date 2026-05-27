@@ -1,0 +1,203 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 2,
+        "distinct_observed_behavior_count": 2,
+        "distinguishing_inputs": [
+          "(lambda [a] a)",
+          "(lambda [b] b)"
+        ],
+        "satisfying_candidate_count": 2,
+        "score": 0,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "safe-subtract",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [
+        {
+          "name": "safe-subtract",
+          "post_level": "asserted",
+          "pre_level": "asserted"
+        }
+      ],
+      "discriminative_axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 2,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [amount] amount)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "spec-inconsistent"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "withdraw",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [
+        {
+          "name": "withdraw",
+          "post_level": "asserted",
+          "pre_level": "asserted"
+        }
+      ],
+      "discriminative_axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 2,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [from-bal] from-bal)",
+          "(lambda [amount] amount)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "spec-inconsistent"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "transfer",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [
+        {
+          "name": "withdraw",
+          "post_level": "asserted",
+          "pre_level": "asserted"
+        }
+      ],
+      "discriminative_axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 2,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [requested] requested)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "spec-inconsistent"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "clamp-withdraw",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [
+        {
+          "name": "withdraw",
+          "post_level": "asserted",
+          "pre_level": "asserted"
+        }
+      ],
+      "discriminative_axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 3,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [first] first)",
+          "(lambda [second] second)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "spec-inconsistent"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "withdraw-twice",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 1,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [amount] amount)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "spec-inconsistent"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "compute-fee",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 6,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [],
+  "tier_profile": {
+    "asserted": 6,
+    "contract_checked": 0,
+    "no_contract": 0,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 6,
+    "contract_checked": 0,
+    "no_contract": 0,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 6,
+    "contract_checked": 0,
+    "no_contract": 0,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}

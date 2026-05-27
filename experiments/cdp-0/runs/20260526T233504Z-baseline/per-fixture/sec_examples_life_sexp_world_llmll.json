@@ -1,0 +1,174 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "make-world",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world-grid",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world-width",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world-height",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "get-cell",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "count-neighbors",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "evolve-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "evolve",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "cell-to-char",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "render-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "render-world",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "make-empty-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "set-cell-in-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "set-cell-in-grid",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "glider-grid",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.is-underpopulated",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.is-overpopulated",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.is-stable",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.next-cell-state",
+      "post_level": null,
+      "pre_level": null
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 19,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [],
+  "tier_profile": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 19,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 19,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 19,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}

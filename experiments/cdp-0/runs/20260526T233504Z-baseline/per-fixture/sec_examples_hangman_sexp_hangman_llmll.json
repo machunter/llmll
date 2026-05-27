@@ -1,0 +1,153 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "state-word",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "state-guessed",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "state-wrong",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "state-max",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "make-state",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "gallows-art",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "show-letter",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "display-word",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "all-guessed?",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "game-won?",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "game-lost?",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "is-game-over?",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "render-board",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "start-game",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "game-loop",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "show-result",
+      "post_level": null,
+      "pre_level": null
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 16,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [],
+  "tier_profile": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 16,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 16,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 16,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}

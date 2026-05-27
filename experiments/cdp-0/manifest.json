@@ -1,0 +1,52 @@
+{
+  "experiment": "cdp-0",
+  "rev": 1,
+  "manifest_version": "1.0.0",
+  "design_ref": {
+    "doc": "docs/design/contract-discriminative-power-proposal.md",
+    "rev": "Rev 2",
+    "sha": "f1ef0c0",
+    "section": "§2 Rev 2 baseline-first sequencing"
+  },
+  "consumer_ref": {
+    "doc": "docs/design/core-shell-inversion-proposal.md",
+    "section": "§8 empirical-validation gate",
+    "axis": "spec-strength distribution",
+    "comparison_anchor_path": "experiments/cdp-0/runs/<timestamp>-baseline/baseline.json"
+  },
+  "compiler_ref": {
+    "sha": "121815a8c45596f8d125e85b3333bdf7b850582b",
+    "short_sha": "121815a",
+    "branch": "lt-cdp/discriminative-power-axis",
+    "version_string": "llmll 0.10.8"
+  },
+  "cdp_scope": "CDPScopeAllDefLogic",
+  "primary_corpus": [
+    {"id": "b1",      "path": "examples/benchmarks/b1-withdraw.llmll",        "reason": "OBLIG-B Tier 1; INT-PRE primary"},
+    {"id": "b3",      "path": "examples/benchmarks/b3-safe-first.llmll",      "reason": "OBLIG-B Tier 1; INT-PRE primary"},
+    {"id": "b5",      "path": "examples/benchmarks/b5-double.llmll",          "reason": "OBLIG-B Tier 1; INT-PRE primary"},
+    {"id": "totp",    "path": "examples/totp_rfc6238/totp_filled.ast.json",   "reason": "RFC-anchored real-world spec; INT-PRE primary"},
+    {"id": "erc20",   "path": "examples/erc20_token/erc20_filled.ast.json",   "reason": "Real-world contract surface; INT-PRE primary"},
+    {"id": "banking", "path": "examples/banking_ledger/banking.llmll",        "reason": "LT-INT canonical; --strict-verified-core-clean post-LT-INT"}
+  ],
+  "secondary_corpus_discovery": {
+    "include_globs": ["examples/**/*.llmll", "examples/**/*.ast.json"],
+    "exclude_globs": [
+      "examples/proof_required_test/**",
+      "examples/delegate_demo/**"
+    ],
+    "verify_clean_filter": true
+  },
+  "outcome_labels": {
+    "cdp-discriminating":     {"defined_fraction_ge": 0.50, "midrange_fraction_ge": 0.25, "description": "viable LT-INV axis; continuous-shift comparison"},
+    "cdp-discriminating-weak": {"defined_fraction_ge": 0.50, "midrange_fraction_lt": 0.25, "description": "viable LT-INV axis; coarse pass/fail rule only"},
+    "cdp-null":               {"defined_fraction_lt": 0.10, "description": "binding finding: proposal §10 Risk #2; LT-INV cannot use CDP"},
+    "cdp-corpus-inadequate":  {"contracted_total_lt": 10, "description": "sample too small; route to language-team to settle canonical CDP corpus"}
+  },
+  "stop_policy": "log-and-continue",
+  "writes": {
+    "raw_per_fixture_json": "runs/{ts}-baseline/per-fixture/{id}.json",
+    "aggregated_baseline_json": "runs/{ts}-baseline/baseline.json",
+    "summary_md": "runs/{ts}-baseline/summary.md"
+  }
+}

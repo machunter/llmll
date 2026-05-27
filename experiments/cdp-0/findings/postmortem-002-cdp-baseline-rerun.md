@@ -1,0 +1,251 @@
+# Postmortem 002 — CDP-0 baseline re-run (successful collection; degenerate distribution)
+
+> **Date:** 2026-05-26
+> **Status:** **Complete; load-bearing artifact.** `runs/20260526T233504Z-baseline/baseline.json` is the LT-INV §8 empirical-validation gate's comparison anchor per [`docs/design/contract-discriminative-power-proposal.md`](../../../docs/design/contract-discriminative-power-proposal.md) Rev 2 §2 baseline-first sequencing.
+> **Predecessor:** [`postmortem-001-cdp-baseline-blocked.md`](postmortem-001-cdp-baseline-blocked.md) — the three halted attempts on F-001 + F-003.
+
+## Headline finding
+
+CDP-0 baseline at compiler SHA `cc712aa` (HEAD of `fix/diagnosticfq-partial-record`, which includes LT-CDP feature ship `121815a` and F-001 fix `e5e6d04`; manifest pins `121815a` for measurement-equivalence — doc-only commits between) on 6 primary + 30 secondary fixtures (8 excluded for pre-existing verify failure) collected DP measurements for **37 contracted functions**. The driver mechanically adjudicates **`cdp-discriminating-weak`** — but **only 4 of 37 functions (10.8%) produced a defined score, and every one of the 4 scored exactly `0.000`** with `WarnIdentitySatisfiesPost`. The remaining 33 split into 6 `spec-inconsistent`, 5 `candidates-empty-under-limit`, and 22 `not-requested` (cross-module imports outside CDP-0's measurement scope). The true signal is closer to `cdp-null` than to `cdp-discriminating-weak`; the driver's intermediate-slice fall-through (F-008) is misleading on this data. The §4.3.1 enumeration produces no midrange `(0.0, 1.0)` score on the canonical Tier-1 benchmark corpus, supporting proposal §10 Risk #2 (small enumeration) as the binding constraint.
+
+## Sample composition
+
+- **Total fixture invocations:** 36 (6 primary + 30 secondary discovered).
+- **Excluded for pre-existing verify failure:** 8 (`conways_life_json_verifier/life`, `hangman_json_verifier/hangman`, `life_json/main`, `life_json/world`, `pair_type_test/do_emit_ac`, `pair_type_test/pair_match_ac4`, `pair_type_test/pair_type_test`, `tictactoe_json_verifier/tictactoe`). Failure modes are stale type errors and missing `(import wasi.io (capability ...))` declarations; not CDP-related. Detailed per-fixture in `runs/20260526T233504Z-baseline/summary.md` "Excluded fixtures" section.
+- **Contracted functions across the 28 verify-clean fixtures:** 37.
+- **Compiler SHA:** `cc712aa` (working-tree HEAD of `fix/diagnosticfq-partial-record`). Manifest pins `121815a` per [`manifest.json:compiler_ref`](../manifest.json).
+- **`llmll version`:** `llmll 0.10.8`.
+- **`CDPScope`:** `CDPScopeAllDefLogic` (pre-LT-INV default per [`docs/design/v0.11-cross-proposal-rollback-discipline.md`](../../../docs/design/v0.11-cross-proposal-rollback-discipline.md) §2).
+- **Harness git SHA:** uncommitted — F-003 patch at [`experiments/cdp-0/scripts/cdp_baseline.py:83-100`](../scripts/cdp_baseline.py) is the working-tree delta from the prior session.
+- **Run directory:** [`experiments/cdp-0/runs/20260526T233504Z-baseline/`](../runs/20260526T233504Z-baseline/) — contains `baseline.json` (full per-function axes + aggregate), `summary.md` (one-page human-readable), and `per-fixture/*.json` (raw trust-report JSON per fixture).
+
+## Verified findings
+
+### F-004. Defined-score distribution collapses to {0.000}; midrange empty
+
+**Priority:** High
+**Consumer:** language-team (informational); user (CDP-0 adjudication interpretation)
+
+#### Evidence
+
+[`runs/20260526T233504Z-baseline/baseline.json`](../runs/20260526T233504Z-baseline/baseline.json) `per_function_axes`: 4 of 37 entries have non-null `score`; all 4 scores are `0.000`:
+
+| fixture_id | fn_name | score | candidate_count | satisfying | warnings |
+|---|---|---|---|---|---|
+| `banking` | `safe-subtract` | 0.000 | 2 | 2 | `identity-satisfies-post` |
+| `sec_examples_auth_module_…` | `login-handler` | 0.000 | 2 | 2 | `identity-satisfies-post` |
+| `sec_examples_orchestrator_walkthrough_auth_module_…` | `login-handler` | 0.000 | 2 | 2 | `identity-satisfies-post` |
+| `sec_examples_orchestrator_walkthrough_auth_module_filled_…` | `login-handler` | 0.000 | 2 | 2 | `identity-satisfies-post` |
+
+Aggregate distribution (`aggregate.score_stats` in baseline.json): mean 0.000, median 0.000, p10 / p50 / p90 / min / max all 0.000. Midrange `(0.0, 1.0)`: 0 of 4 defined scores.
+
+#### Why we saw what we saw
+
+The §4.3.1 enumeration produces type-compatible candidates only when the function's return type matches an enumerator's admitted-types row (per [`compiler/src/LLMLL/WeaknessCheck.hs:cdpCatalog`](../../../compiler/src/LLMLL/WeaknessCheck.hs)). For the 4 functions that produced any candidates, both the identity body and a constant body satisfied the contract — meaning the contract is permissive enough to admit each. With `|⟦S⟧_Ω| = |B_{T,U,Ω}| = 2`, the Shannon score formula yields `1 − log(2) / log(2) = 0`.
+
+The deeper observation: across the canonical Tier-1 corpus (`b1`, `b3`, `b5`, `totp`, `erc20`, `banking`), no contract is *both* tight enough to reject some candidates AND loose enough to admit some candidates from the §4.3.1 closed set. The corpus splits into "no candidate typechecks" (F-006: `Result`-returning functions), "no candidate satisfies" (F-005: arithmetic / banking contracts with tight per-input formulas), and "all candidates satisfy" (F-004 itself: auth-handler-style contracts permissive enough for identity).
+
+#### Implication
+
+For **language-team** (informational): the v0.11 candidate-set enumeration produces a degenerate score distribution on the canonical example corpus. No function in the corpus produces a midrange `(0.0, 1.0)` score; every measurable function is 0.0 (spec admits trivial body). Proposal §10 Risk #2 (small enumeration) is empirically the binding constraint. The four-cell matrix in proposal §1 (verified-strong / verified-weak / tested-strong / asserted-strong) cannot be populated from this baseline because no function reaches "strong" via DP > 0. The v0.12+ widening to LLM-generated candidates per [`docs/design/invariant-discovery-review.md §5`](../../../docs/design/invariant-discovery-review.md) is the proposal-side stated mitigation; this finding is empirical evidence that the widening is load-bearing for CDP's utility as a measurement axis, not just a future nicety.
+
+For **user**: the CDP-0 adjudication label `cdp-discriminating-weak` is mechanically correct per the driver's intermediate-slice fall-through but is materially misleading on this data. Treat the adjudication as `cdp-null` for downstream consumer guidance. See F-008 for the driver-rule refinement candidate.
+
+#### Acceptance
+
+Re-running after a §4.3.1 enumeration widening that produces at least one `(0.0, 1.0)`-midrange score across the same corpus would close this finding. The widening itself is a spec-side decision — not adjudicated by experiment-lead.
+
+### F-005. `spec-inconsistent` warning name is misleading at small Ω
+
+**Priority:** High
+**Consumer:** language-team (informational); compiler-engineer (possible candidate-generation bug, see F-006)
+
+#### Evidence
+
+6 functions fire `WarnSpecInconsistent` (zero of the type-compatible candidates satisfied the contract):
+
+| fixture_id | fn_name | candidate_count | satisfying |
+|---|---|---|---|
+| `b5` | `double` | 1 | 0 |
+| `banking` | `withdraw` | 2 | 0 |
+| `banking` | `transfer` | 2 | 0 |
+| `banking` | `clamp-withdraw` | 2 | 0 |
+| `banking` | `withdraw-twice` | 3 | 0 |
+| `banking` | `compute-fee` | 1 | 0 |
+
+These are real, body-faithful-verifiable functions with consistent contracts — the underlying programs verify SAFE under `--strict-verified-core`, confirmed during the v0.10.8 INT-1 ship and the LT-INT post-shim regen of `banking_ledger.verified.json`. A truly inconsistent contract (`(pre (and (> n 0) (< n 0)))`) would not verify; the `spec-inconsistent` label here is reporting that the §4.3.1 candidate set does not include a valid implementation, NOT that the contract is logically inconsistent.
+
+[`compiler/src/LLMLL/CDP.hs`](../../../compiler/src/LLMLL/CDP.hs) `buildWarnings` defines `WarnSpecInconsistent` to fire when `null satisfying && not (null candidates)`. Proposal §5 documents the warning as "S is inconsistent (`|⟦S⟧_Ω| = 0`)" — technically correct *relative to Ω* per the observational caveat at proposal §1 Rev 2, but the warning name overstates the claim.
+
+#### Why we saw what we saw
+
+For `b5::double` (return type `int`, body `(+ n n)`): the §4.3.1 enumeration for `int → int` admits `TrivIdentity n` + `TrivConstInt {0, 1, -1, 42}` (5 candidates). The trust-report shows `candidate_count: 1` — only 1 of the 5 typechecked against the synthetic stmt's typecheck pass. That 1 (`TrivConstInt 0`, which satisfies `result = n + n` only at `n = 0`) does not satisfy universally → `spec-inconsistent`. The `identity` body `λn.n` does not satisfy `result = n + n` for nonzero `n` either, so even if all 5 typechecked, none would satisfy.
+
+Banking contracts have similar shapes: per-input formulas (`(= result (- balance amount))`) that no constant satisfies and identity-on-`int` does not satisfy.
+
+#### Implication
+
+For **language-team:** the `WarnSpecInconsistent` warning name conflates "spec logically inconsistent" with "spec too tight for the candidate set Ω." Two reasonable directions:
+- (a) Rename to `no-candidate-satisfies` or `vacuous-over-omega` to surface the observational-not-semantic framing (matches proposal §1 Rev 2's load-bearing caveat).
+- (b) Introduce a second warning `spec-too-tight-for-omega` that fires for "no candidate satisfies AND `|Ω| ≥ N` for some N"; reserve `spec-inconsistent` for a (rare, possibly never-occurring) "no behavior in `B_{T,U,Ω}` could satisfy" semantic case.
+
+Either is a spec-side rename + corresponding compiler-side warning-construction tweak. Not blocking; not adjudicated by experiment-lead.
+
+For **compiler-engineer**: ancillary observation — `b5::double` reports `candidate_count: 1` where `cdpCatalog` should have produced 5 (identity-int + 4 int constants). Possible `tryCandidate` over-strictness in the synthetic typecheck path. Worth a brief look at [`compiler/src/LLMLL/WeaknessCheck.hs:158-186`](../../../compiler/src/LLMLL/WeaknessCheck.hs) (`tryCandidate`) — does the synthetic-stmt typecheck against `builtinEnv` actually accept `(+ x 0)`-shaped trivial bodies, or does the type-checker reject them for some unrelated reason? If the over-strictness is real, fixing it would expose the rest of the §4.3.1 enumeration to the metric.
+
+**Fix shipped:** compiler-side warning rename (a) landed at commit `0b5b249` on branch `fix/diagnosticfq-partial-record`: `WarnVacuousOverOmega` fires when `functionVerifies && inconsistent`; `WarnSpecInconsistent` retained for `not functionVerifies && inconsistent`. The candidate-generation bug for `b5::double` (F-005 ancillary: `candidate_count: 1 → ≥ 5`) fixed at commit `6f2ea39` via `matchesReturnTypeOrUnknown _ Nothing = True`. Spec-side scope-policy clarification (language-team) remains open.
+
+#### Acceptance
+
+After (a) warning rename AND/OR (b) candidate-generation fix, re-run shows that permissive contracts fire the renamed warning and arithmetic-tight contracts produce a non-zero `candidate_count` (even if `satisfying_candidate_count` stays at 0).
+
+**Post-fix re-confirmation owed:** experiment-lead to re-run CDP-0 harness against HEAD of `fix/diagnosticfq-partial-record` and verify `b5::double candidate_count ≥ 5`.
+
+### F-006. `Result`-returning functions get zero candidates
+
+**Priority:** Medium (highest signal-to-effort engineer fix in the priority matrix)
+**Consumer:** compiler-engineer
+
+#### Evidence
+
+5 functions return `candidate_count: 0`, `WarnCandidatesEmptyUnderLimit`:
+
+| fixture_id | fn_name |
+|---|---|
+| `b1` | `withdraw` |
+| `b3` | `safe-first` |
+| `sec_examples_withdraw-demo_withdraw_llmll` | `withdraw` |
+| `sec_examples_withdraw_llmll` | `withdraw` |
+| `sec_examples_withdraw-demo_withdraw_ast_json` | `withdraw` |
+
+All five return `Result[int, string]` or similar `Result[T, E]` shapes (verified by inspecting source files).
+
+[`compiler/src/LLMLL/WeaknessCheck.hs:cdpCatalog`](../../../compiler/src/LLMLL/WeaknessCheck.hs) `sums` case:
+
+```haskell
+sums = case mRet of
+  Just (TResult okT _) -> [TrivConstSuccess okT, TrivConstError]
+  _                    -> []
+```
+
+This SHOULD produce 2 candidates per `Result`-returning function (`Success`-wrapping the default of `okT`, plus `Error "default"`). `candidate_count: 0` means both candidates failed `tryCandidate`'s synthetic-typecheck filter.
+
+#### Why we saw what we saw
+
+[`compiler/src/LLMLL/WeaknessCheck.hs:174`](../../../compiler/src/LLMLL/WeaknessCheck.hs) type-checks the synthetic stmt against `builtinEnv` only — no imported-module env, no cross-module aliases. Likely causes (in suspected-likelihood order):
+
+1. The `Success` and `Error` constructors are not in `builtinEnv` for the synthetic typecheck path. The `Result` type is defined elsewhere; if `builtinEnv` only carries primitive operators, the synthetic body `EApp "Success" [ELit (LitInt 0)]` is type-rejected with "call to unknown function Success".
+2. The return type `Result[int, string]` is a `TResult okT errT` whose `okT` resolves to a refinement-aliased type (e.g. `PositiveInt`) rather than raw `TInt`; `cdpCatalog`'s pattern `Just (TResult okT _)` does not unwrap the refinement and the `defaultExpr okT` produces a value that does not typecheck against the refinement.
+3. The `Result` type alias maps to a `TCustom "Result"` (or similar) at the type-checker level rather than `TResult okT errT`; `cdpCatalog`'s `case mRet of Just (TResult …)` never matches.
+
+A single targeted reproduction with `b1::withdraw` would distinguish the three causes — but the experiment-lead seat does not patch compiler source; routed to compiler-engineer.
+
+#### Implication
+
+For **compiler-engineer**: the candidate-generation path for `Result`-returning functions silently produces zero candidates on the canonical Tier-1 benchmarks. This is the most consequential gap for CDP-0's discriminating power — these are exactly the functions the proposal §4.3.1 enumeration table targets. Fix is plausibly local to [`compiler/src/LLMLL/WeaknessCheck.hs:cdpCatalog` + `:tryCandidate`](../../../compiler/src/LLMLL/WeaknessCheck.hs). Acceptance: post-fix re-run shows `candidate_count: 2` (or more) for `b1::withdraw`, `b3::safe-first`, and the three withdraw-demo variants; downstream `satisfying_candidate_count` and `score` populate from there.
+
+#### Acceptance
+
+`b1::withdraw` and `b3::safe-first` return `candidate_count ≥ 2` post-engineer-fix; the per-fixture entries acquire a defined `score` (likely 0.5 for typical `Result`-returning withdraw contracts, since `Success`-wrapping the default int passes the postcondition for one input class and `Error` passes for another).
+
+**Fix shipped:** commit `6f2ea39` on branch `fix/diagnosticfq-partial-record` — `generateForStmt` now receives full module-level `[Statement]` list; `tryCandidate` prepends `[s | s@STypeDef{} <- allStmts]` before the synthetic typecheck so `checkStatements` populates `tcAliasMap` with module-level aliases (root cause: option 2 in the three suspected causes list above — refinement-aliased `okT` caused `structuralUnify` to reject every candidate). Six regression tests F6-1–F6-6 added to [`compiler/test/Spec.hs`](../../../compiler/test/Spec.hs). **Post-fix re-confirmation owed:** experiment-lead to re-run CDP-0 harness against HEAD of `fix/diagnosticfq-partial-record` and verify `b1::withdraw candidate_count ≥ 2`, `b3::safe-first candidate_count ≥ 2`.
+
+### F-007. CDP-0 measurement scope excludes cross-module imports (22 `not-requested` entries)
+
+**Priority:** Medium
+**Consumer:** experiment-lead (harness owner; informational); language-team (scope policy question)
+
+#### Evidence
+
+22 of 37 `per_function_axes` entries carry `warnings: ["not-requested"]`. First six by fixture: `totp::compute-time-step`, `totp::dynamic-truncate`, `totp::generate-totp`, `totp::validate-totp`, `totp::pad-otp`, `erc20::total-supply`. These are the trust-report's cross-module entries: when `totp_filled.ast.json` is the entry file, the trust-report includes its 5 entry-module functions PLUS 5 cross-module imports from the cached module env. The same 5 function names appear in the secondary corpus as `sec_examples_totp_rfc6238_totp_ast_json`, where they ARE the entry module and DO get CDP measured.
+
+[`compiler/src/LLMLL/CDP.hs:computeCDPFor`](../../../compiler/src/LLMLL/CDP.hs) iterates only over the entry statement list `stmts`; transitive imports from the module cache are not measured. The trust-report at [`compiler/src/LLMLL/TrustReport.hs:cdpAxisJson`](../../../compiler/src/LLMLL/TrustReport.hs) then merges entry + cache entries and finds no CDP map entry for the cross-module ones → uniform-shape `not-requested` warning per [`compiler/src/LLMLL/CDP.hs:WarnNotRequested`](../../../compiler/src/LLMLL/CDP.hs).
+
+#### Why we saw what we saw
+
+CDP-0 scope was set to "the entry file's contracted functions" by my reading of proposal §2. The trust-report's cross-module behavior (merging entry + cached `ModuleEnv` entries into a single `entries:` array) was not factored into the harness design. Effect: a fixture's CDP coverage depends on whether its functions are entry-module or imported, which over-aggregates same-function-different-fixture pairs.
+
+#### Implication
+
+For **experiment-lead** (myself): the harness over-aggregates. A future revision could:
+- (a) Deduplicate on canonical-name keys (qualified module-path + function-name) so a function measured as entry-module under one fixture is not double-counted as cross-module-not-requested under another.
+- (b) Extend `computeCDPFor` to walk the module cache (requires routing to compiler-engineer for a CDP scope change). Adds compiler complexity for a question that may not load-bear.
+
+For **language-team**: proposal §2 does not specify CDP scope across module boundaries. The current behavior (entry-module only) is a reasonable conservative default; widening to transitive scope is a scope-policy decision worth recording in a Rev 3 of the proposal, the v0.11-cross-proposal-rollback-discipline doc, or as a v0.12+ roadmap row.
+
+Not blocking. The LT-INV §8 gate can use the same scope discipline post-LT-INV for pre/post comparability — the over-aggregation is consistent across pre and post measurements.
+
+#### Acceptance
+
+Either (a) harness dedup (one-pass aggregation change in [`experiments/cdp-0/scripts/cdp_baseline.py:aggregate`](../scripts/cdp_baseline.py)) lands and the next baseline shows fewer `not-requested` entries while preserving the entry-module data; or (b) proposal §2 Rev 3 adopts an explicit scope-policy statement and the harness mirrors it. Either move closes the finding.
+
+### F-008. Harness adjudication fall-through label is misleading on the intermediate slice
+
+**Priority:** Medium
+**Consumer:** experiment-lead (harness owner; self-routed)
+
+#### Evidence
+
+[`experiments/cdp-0/scripts/cdp_baseline.py:aggregate`](../scripts/cdp_baseline.py) computes `defined_fraction = 4/37 = 0.108`. The manifest labels at [`manifest.json:outcome_labels`](../manifest.json):
+
+- `cdp-discriminating`: `defined_fraction >= 0.50 AND midrange_fraction >= 0.25`
+- `cdp-discriminating-weak`: `defined_fraction >= 0.50`
+- `cdp-null`: `defined_fraction < 0.10`
+- `cdp-corpus-inadequate`: `contracted_total < 10`
+
+`0.108` is the intermediate slice (`0.10 ≤ defined < 0.50`), which has no manifest-declared label. The script falls through to `cdp-discriminating-weak` with the comment "No manifest-declared label for this slice; fall back to weak with a flag" — but no flag is emitted in the JSON output, and the label reads as positive signal when in reality the corpus produced only 4 of 37 scored functions, all at 0.000.
+
+#### Why we saw what we saw
+
+I designed the four-threshold manifest with an unintended fourth slice (10% ≤ defined < 50%) and a defensive fall-through default that backfires on real data.
+
+#### Implication
+
+For **experiment-lead** (myself): the manifest's `outcome_labels` table needs refinement before publishing this baseline as the LT-INV §8 gate anchor. Two reasonable options:
+
+- (a) Extend `cdp-null` to `defined_fraction < 0.30` (recognizing that <30% defined-fraction is operationally indistinguishable from null for gate purposes).
+- (b) Introduce a fourth label `cdp-discriminating-thin` for the slice and document its consumer treatment explicitly.
+
+Either is a one-line manifest + driver edit.
+
+#### Acceptance
+
+Re-run after manifest refinement emits a non-misleading adjudication label for this corpus. Manifest revision lands with the next harness iteration commit (not bundled with this postmortem ship).
+
+## Withdrawn items
+
+None. The pre-stated hypothesis ("the §4.3.1 enumeration produces measurable variance") is empirically not supported (F-004) — surfaced as a verified finding, not as a withdrawn item per the experiment-lead convention for falsifying-empirical results.
+
+## Null results
+
+The pre-stated null ("≥ 90% return `score: null` with `enumeration-too-narrow` or `candidates-empty-under-limit`") is **partially supported**: 33/37 = 89.2% return undefined-or-not-requested scores, just under the 90% threshold. The warning distribution does not match the null's specific predicted breakdown — `not-requested` (22, cross-module) was not anticipated; `spec-inconsistent` (6) was anticipated but at lower frequency. The high-level signal (most contracts produce no measurable DP) holds.
+
+## Priority matrix
+
+| # | Finding | Consumer | Priority | Effort estimate |
+|---|---------|----------|----------|-----------------|
+| F-004 | Defined scores cluster at 0.000; midrange empty | language-team | High | Spec-side widening (v0.12+); zero immediate engineer/doc work |
+| F-005 | `spec-inconsistent` warning name misleading at small Ω | language-team; compiler-engineer | High | Spec rename + possible candidate-typecheck-strictness fix |
+| F-006 | `Result`-returning functions get zero candidates | compiler-engineer | Medium | ≈ 30 min engineer fix in `WeaknessCheck.hs:cdpCatalog`/`tryCandidate` |
+| F-007 | Cross-module scope gap (22 `not-requested`) | experiment-lead; language-team | Medium | Harness dedup or proposal Rev 3 scope-policy statement |
+| F-008 | Driver fall-through label misleading on intermediate slice | experiment-lead | Medium | One-line manifest + driver edit |
+
+## Findings file(s) written
+
+- This file: [`experiments/cdp-0/findings/postmortem-002-cdp-baseline-rerun.md`](postmortem-002-cdp-baseline-rerun.md) — full integrated report.
+- [`experiments/cdp-0/findings.md`](../findings.md) — H2-per-role per DOC-CONSOLIDATE M1; carries F-001 (closure cite), F-003 (closure cite), F-006 under `## Compiler-engineer`; F-004, F-005, F-007 under `## Language-team`; F-003 (closure cite), F-007, F-008 under `## Experiment-lead`; `## Documentation-lead` empty (F-005 spec rename routes here only after language-team adjudicates).
+
+## Hand-offs (user routes)
+
+- **`compiler-engineer`** — F-006 (small candidate-typecheck fix at `WeaknessCheck.hs:cdpCatalog`/`tryCandidate`). Highest signal-to-effort. Recommended first action.
+- **`language-team`** — F-004 (proposal §10 Risk #2 empirically confirmed; v0.12+ enumeration widening is load-bearing not optional); F-005 (`spec-inconsistent` warning rename); F-007 (cross-module scope policy for proposal Rev 3). Three findings, all spec-side judgment calls.
+- **`experiment-lead`** (next session) — F-007 dedup + F-008 manifest refinement; then re-run after F-006 lands to see whether the defined-fraction crosses the discrimination threshold.
+
+## LT-INV §8 gate consumer status
+
+CDP-0 baseline at `runs/20260526T233504Z-baseline/baseline.json` is on disk and citable. The data tells the LT-INV §8 gate that CDP is **currently not usable as a continuous-shift discriminating axis on the canonical corpus**: defined-fraction 10.8%, midrange-fraction 0% of defined, all defined scores at 0.0. Gate planning should either:
+
+- (a) Run with CDP gated only on coarse pass/fail (any non-null score-distribution shift counts as signal) per [LT-INV §8 rollback paths](../../../docs/design/core-shell-inversion-direction.md);
+- (b) Wait for F-006 fix + a re-run to determine whether CDP becomes usable as a continuous axis after the candidate-typecheck gap is closed.
+
+Routing call belongs to language-team adjudicating against the §8 gate criteria.

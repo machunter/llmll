@@ -1,0 +1,195 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "start-game",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "game-step",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "never-done",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.is-underpopulated",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.is-overpopulated",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.is-stable",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "core.next-cell-state",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.make-world",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.world-grid",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.world-width",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.world-height",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.get-cell",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.count-neighbors",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.evolve-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.evolve",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.cell-to-char",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.render-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.render-world",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.make-empty-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.set-cell-in-row",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.set-cell-in-grid",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "world.glider-grid",
+      "post_level": null,
+      "pre_level": null
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 22,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [],
+  "tier_profile": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 22,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 22,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 22,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}

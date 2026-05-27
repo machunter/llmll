@@ -1,0 +1,161 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "total-supply",
+      "post_level": "asserted",
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "balance-of",
+      "post_level": "asserted",
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "transfer",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "approve",
+      "post_level": null,
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "allowance",
+      "post_level": "asserted",
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "transfer-from",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 6,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [],
+  "tier_profile": {
+    "asserted": 6,
+    "contract_checked": 0,
+    "no_contract": 0,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 5,
+    "contract_checked": 0,
+    "no_contract": 1,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 3,
+    "contract_checked": 0,
+    "no_contract": 3,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}
