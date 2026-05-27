@@ -249,3 +249,68 @@ CDP-0 baseline at `runs/20260526T233504Z-baseline/baseline.json` is on disk and 
 - (b) Wait for F-006 fix + a re-run to determine whether CDP becomes usable as a continuous axis after the candidate-typecheck gap is closed.
 
 Routing call belongs to language-team adjudicating against the §8 gate criteria.
+
+---
+
+## Appendix: Post-fix re-run — 2026-05-27
+
+**Purpose:** Empirical confirmation of F-006 and F-005 ancillary acceptance criteria per the "Post-fix re-confirmation owed" obligations in §F-006 and §F-005 above.
+
+**Run directory:** [`experiments/cdp-0/runs/20260527T140751Z-baseline/`](../runs/20260527T140751Z-baseline/) — `baseline.json`, `summary.md`, `per-fixture/`.
+
+**Sample composition:**
+
+- Primary corpus only (`--primary-only` flag); secondary corpus excluded to isolate acceptance-criterion signal
+- 6 primary fixtures; 20 contracted functions
+- Binary: `llmll 0.10.8` built from HEAD `cff26d5` (includes fix commits `6f2ea39` + `0b5b249` + three subsequent doc/harness commits)
+- Harness git SHA: `cff26d5` (run directory untracked; no other working-tree delta)
+- Manifest `compiler_ref` still pins `121815a` (unchanged); actual running SHA is `cff26d5`
+
+### F-006 acceptance criteria
+
+| function | baseline `candidate_count` | post-fix `candidate_count` | threshold | accepted |
+|---|---|---|---|---|
+| `b1::withdraw` | 0 (`WarnCandidatesEmptyUnderLimit`) | 7 (`satisfying=2`, `score=0.6438`) | ≥ 2 | ✅ |
+| `b3::safe-first` | 0 (`WarnCandidatesEmptyUnderLimit`) | 5 (`satisfying=5`, `score=0.000`) | ≥ 2 | ✅ |
+
+`WarnCandidatesEmptyUnderLimit` no longer fires on any primary-corpus fixture. F-006 **closed**.
+
+### F-005 ancillary acceptance criteria
+
+| function | baseline `candidate_count` | post-fix `candidate_count` | threshold | accepted |
+|---|---|---|---|---|
+| `b5::double` | 1 (`WarnSpecInconsistent`) | 6 (`satisfying=1`, `score=1.000`) | ≥ 5 | ✅ |
+
+`WarnSpecInconsistent` no longer fires; `WarnVacuousOverOmega` correctly fires on the banking arithmetic-tight functions (F-005 rename, commit `0b5b249`, confirmed). F-005 ancillary **closed**.
+
+### Distribution shift (primary corpus — apples-to-apples)
+
+| axis | baseline primary (reconstructed) | post-fix primary |
+|---|---|---|
+| contracted functions | 20 | 20 |
+| defined scores | 1 (5.0%) | 5 (25.0%) |
+| midrange scores | 0 | 1 (`b1::withdraw` at 0.6438) |
+| adjudication | `cdp-null` territory (5%) | `cdp-discriminating-weak` (25%) |
+| score mean / median | 0.000 / 0.000 | 0.529 / 0.644 |
+| min / max | 0.000 / 0.000 | 0.000 / 1.000 |
+
+Baseline primary counts are reconstructed from the per-function table in `runs/20260526T233504Z-baseline/baseline.json` — the baseline run was primary+secondary (37 functions); primary-only counts extracted from `per_function_axes[fixture_id in {b1, b3, b5, totp, erc20, banking}]`.
+
+`b1::withdraw` at `score=0.6438` is the first midrange CDP score in the Tier-1 corpus. The F-004 finding (midrange empty) does not close from this run: F-004 was scoped to the full baseline corpus (primary+secondary, 37 functions); this re-run is primary-only. A full post-fix run (primary+secondary) would determine whether the midrange fraction holds across the secondary corpus.
+
+### Warning distribution shift (primary corpus)
+
+| warning | baseline primary | post-fix primary |
+|---|---|---|
+| `candidates-empty-under-limit` | 3 | 0 |
+| `spec-inconsistent` | 6 | 0 |
+| `vacuous-over-omega` | 0 | 4 |
+| `identity-satisfies-post` | 2 | 2 |
+| `const-satisfies-post` | 2 | 5 |
+| `not-requested` | 11 | 11 |
+
+`banking::withdraw` moved from `WarnVacuousOverOmega` (0 satisfying of 2 candidates) to `score=1.000` (1 satisfying of 7 candidates). This is a positive ancillary signal: the alias-threading fix (`6f2ea39`) widened the candidate set for Result-adjacent integer functions beyond what the acceptance criteria required.
+
+### Status update
+
+F-006 and F-005 ancillary are empirically confirmed closed at harness SHA `cff26d5`, run `20260527T140751Z`. The "Post-fix re-confirmation owed" obligations in both sections above are discharged.
