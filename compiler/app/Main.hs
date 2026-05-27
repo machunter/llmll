@@ -1239,8 +1239,9 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
               FQError e ->
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
 
-          -- v0.3: write .verified.json sidecar on SAFE
-          case fqResult of
+          -- v0.3: write .verified.json sidecar on SAFE; return provenCS so the
+          -- CDP block below can derive the verifMap oracle without a disk re-read.
+          provenCS <- case fqResult of
             FQSafe -> do
               let bodyFaithfulSet     = Set.fromList (erBodyFaithfulFns emitR)
                   -- INT-1 (v0.10.8): functions whose body-faithful evidence carries
@@ -1272,7 +1273,8 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
                     ]
               saveVerified fp provenCS
               unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
-            _ -> pure ()
+              pure provenCS
+            _ -> pure Map.empty
 
           -- v0.3.5: Weakness check — only runs on SAFE results
           case fqResult of
@@ -1309,7 +1311,22 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
             (FQSafe, True) -> do
               unless json $ TIO.putStrLn "   Running CDP measurement (LT-CDP v0.11) ..."
               let runOneCandidate wc = checkCDPCandidate lfBin wc
-              results <- computeCDPFor CDPScopeAllDefLogic runOneCandidate stmts
+                  verifMap = if trustReport
+                        then Map.map (\cs ->
+                                case csPost cs of
+                                  Just er -> case erDisplayLevel er of
+                                    DLVerified _        -> True
+                                    DLContractChecked _ -> True
+                                    _                   -> False
+                                  Nothing -> False)
+                              provenCS
+                        else Map.empty
+              unless trustReport $
+                hPutStrLn stderr
+                  "Note: --cdp without --trust-report: WarnSpecInconsistent used conservatively \
+                  \for all zero-satisfying functions; pass --trust-report to enable \
+                  \WarnVacuousOverOmega disambiguation."
+              results <- computeCDPFor CDPScopeAllDefLogic runOneCandidate verifMap stmts
               -- Module-level over-annotation diagnostic (proposal Risk #3).
               let intentRatio = overAnnotationRatio stmts
               when (intentRatio > overAnnotationThreshold) $

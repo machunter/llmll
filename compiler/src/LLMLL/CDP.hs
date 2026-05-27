@@ -110,8 +110,14 @@ data CDPWarning
   | WarnConstSatisfiesPost
     -- ^ A trivial constant body satisfied the contract.
   | WarnSpecInconsistent
-    -- ^ Zero candidates satisfied the contract — distinct from low DP, the
-    -- spec is inconsistent. Score is suppressed.
+    -- ^ Zero candidates satisfied the contract and there is no verification
+    -- evidence for the post-condition. Score is suppressed.
+  | WarnVacuousOverOmega
+    -- ^ The post-condition carries DLVerified or DLContractChecked evidence
+    -- (the spec is provably correct), but no trivial-body candidate from the
+    -- §4.3.1 enumeration satisfies it — the spec is tight with respect to the
+    -- candidate set Ω, not vacuous. Score is suppressed; consumers should
+    -- treat this as a strong-spec signal, not a spec defect.
   | WarnEnumerationTooNarrow
     -- ^ |B_{T,U,Ω}| ≤ 1 — fewer than two distinct observable behaviors;
     -- score formula is degenerate, score reported as undefined.
@@ -137,6 +143,7 @@ cdpWarningLabel :: CDPWarning -> Text
 cdpWarningLabel WarnIdentitySatisfiesPost     = "identity-satisfies-post"
 cdpWarningLabel WarnConstSatisfiesPost        = "const-satisfies-post"
 cdpWarningLabel WarnSpecInconsistent          = "spec-inconsistent"
+cdpWarningLabel WarnVacuousOverOmega          = "vacuous-over-omega"
 cdpWarningLabel WarnEnumerationTooNarrow      = "enumeration-too-narrow"
 cdpWarningLabel WarnDefShellOutOfScope        = "def-shell-out-of-scope"
 cdpWarningLabel WarnCandidatesEmptyUnderLimit = "candidates-empty-under-limit"
@@ -191,12 +198,14 @@ overAnnotationRatio stmts =
 computeCDPFor
   :: CDPScope
   -> (WeaknessCandidate -> IO Bool)
+  -> Map Name Bool
   -> [Statement]
   -> IO (Map Name CDPResult)
-computeCDPFor scope runCandidate stmts = do
+computeCDPFor scope runCandidate verifMap stmts = do
   let funcs = mapStmts stmts
   pairs <- mapM (\(name, contract, candidates) ->
-                    fmap ((,) name) (resultFor scope runCandidate contract candidates))
+                    let verifies = Map.findWithDefault False name verifMap
+                    in fmap ((,) name) (resultFor scope runCandidate verifies contract candidates))
                 funcs
   pure (Map.fromList pairs)
   where
@@ -221,10 +230,11 @@ computeCDPFor scope runCandidate stmts = do
 resultFor
   :: CDPScope
   -> (WeaknessCandidate -> IO Bool)
+  -> Bool
   -> Contract
   -> [WeaknessCandidate]
   -> IO CDPResult
-resultFor _scope runCandidate contract candidates = do
+resultFor _scope runCandidate functionVerifies contract candidates = do
   let annotation = case contractSpecEntropy contract of
                      Just se -> se
                      Nothing -> SpecEntropyStrict
@@ -250,7 +260,7 @@ resultFor _scope runCandidate contract candidates = do
           satCount     = length satisfying
           distinctSat  = length (equivalenceClasses (map wcTrivialLabel satisfying))
           distinctAll  = length (equivalenceClasses (map wcTrivialLabel candidates))
-          warns        = buildWarnings candidates satisfying distinctAll annotation
+          warns        = buildWarnings candidates satisfying distinctAll annotation functionVerifies
           score        = computeScore satCount distinctAll
           distInputs   = take 4 [wcTrivialLabel wc | wc <- nonSatisfying ++ satisfying]
       pure CDPResult
@@ -269,17 +279,18 @@ buildWarnings
   -> [WeaknessCandidate]   -- ^ satisfying candidates
   -> Int                   -- ^ distinct candidate behaviors over Ω
   -> SpecEntropy           -- ^ spec-entropy annotation
+  -> Bool                  -- ^ True when post carries DLVerified / DLContractChecked evidence
   -> [CDPWarning]
-buildWarnings candidates satisfying distinctAll _annotation =
-  let identityOk = any (isIdentity . wcTrivialBody) satisfying
-      constOk    = any (isConst    . wcTrivialBody) satisfying
+buildWarnings candidates satisfying distinctAll _annotation functionVerifies =
+  let identityOk   = any (isIdentity . wcTrivialBody) satisfying
+      constOk      = any (isConst    . wcTrivialBody) satisfying
       inconsistent = null satisfying && not (null candidates)
-      narrow     = distinctAll <= 1
+      narrow       = distinctAll <= 1
   in concat
-       [ [WarnIdentitySatisfiesPost     | identityOk]
-       , [WarnConstSatisfiesPost        | constOk]
-       , [WarnSpecInconsistent          | inconsistent]
-       , [WarnEnumerationTooNarrow      | narrow && not inconsistent]
+       [ [WarnIdentitySatisfiesPost | identityOk]
+       , [WarnConstSatisfiesPost    | constOk]
+       , [if functionVerifies then WarnVacuousOverOmega else WarnSpecInconsistent | inconsistent]
+       , [WarnEnumerationTooNarrow  | narrow && not inconsistent]
        ]
   where
     isIdentity (TrivIdentity _) = True

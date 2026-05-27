@@ -6354,8 +6354,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "C9 score undefined when |total| <= 1" $ do
         cdpScore (mkResult 1 1 [WarnEnumerationTooNarrow]) `shouldBe` Nothing
 
-      it "C10 score undefined when |satisfying| = 0 (spec-inconsistent)" $ do
+      it "C10a score undefined when |satisfying| = 0 with WarnSpecInconsistent" $ do
         cdpScore (mkResult 0 5 [WarnSpecInconsistent]) `shouldBe` Nothing
+
+      it "C10b score undefined when |satisfying| = 0 with WarnVacuousOverOmega" $ do
+        cdpScore (mkResult 0 5 [WarnVacuousOverOmega]) `shouldBe` Nothing
 
       it "C11 score positive when sat < total" $ do
         case cdpScore (mkResult 2 10 []) of
@@ -6424,18 +6427,20 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonTxt = formatTrustReportJson report
         T.isInfixOf "\"trust_report_version\":\"1.2.0\"" jsonTxt `shouldBe` True
 
-      it "C19 all seven warning labels round-trip" $ do
+      it "C19 all nine warning labels round-trip" $ do
         let labels = map cdpWarningLabel
               [ WarnIdentitySatisfiesPost, WarnConstSatisfiesPost
-              , WarnSpecInconsistent, WarnEnumerationTooNarrow
-              , WarnDefShellOutOfScope, WarnCandidatesEmptyUnderLimit
-              , WarnOverAnnotationModule, WarnNotRequested
+              , WarnSpecInconsistent, WarnVacuousOverOmega
+              , WarnEnumerationTooNarrow, WarnDefShellOutOfScope
+              , WarnCandidatesEmptyUnderLimit, WarnOverAnnotationModule
+              , WarnNotRequested
               ]
         labels `shouldBe`
           [ "identity-satisfies-post", "const-satisfies-post"
-          , "spec-inconsistent", "enumeration-too-narrow"
-          , "def-shell-out-of-scope", "candidates-empty-under-limit"
-          , "over-annotation-warning", "not-requested"
+          , "spec-inconsistent", "vacuous-over-omega"
+          , "enumeration-too-narrow", "def-shell-out-of-scope"
+          , "candidates-empty-under-limit", "over-annotation-warning"
+          , "not-requested"
           ]
 
     -- C20: joint-witness ∩ CDP interaction (OBLIG-PBT-5a regression guard)
@@ -6468,7 +6473,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , STypeDef "Foo" TInt  -- non-contracted: should not appear in result
               ]
             stubSolver _wc = pure True  -- all candidates "satisfy" — yields score 0.0 + identity-satisfies-post
-        results <- computeCDPFor CDPScopeAllDefLogic stubSolver stmts
+        results <- computeCDPFor CDPScopeAllDefLogic stubSolver Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "f" results of
           Just r -> do
@@ -6563,6 +6568,57 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             candidates = generateCDPCandidates stmts
             ints = [i | wc <- candidates, TrivConstInt i <- [wcTrivialBody wc]]
         ints `shouldBe` [0, 1, -1, 42]
+
+    -- C23a-C23c: WarnVacuousOverOmega / WarnSpecInconsistent dispatch
+    describe "C23a-C23c vacuous-over-omega vs spec-inconsistent disambiguation" $ do
+
+      it "C23a WarnVacuousOverOmega fires when function verifies but no candidate satisfies" $ do
+        let stmts =
+              [ SDefLogic "withdraw"
+                  [("balance", TInt), ("amount", TInt)] Nothing
+                  (Contract
+                    (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
+                    (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            stubFail _wc = pure False
+            verifMap = Map.fromList [("withdraw", True)]
+        results <- computeCDPFor CDPScopeAllDefLogic stubFail verifMap stmts
+        case Map.lookup "withdraw" results of
+          Just r  -> cdpWarnings r `shouldSatisfy` (WarnVacuousOverOmega `elem`)
+          Nothing -> expectationFailure "expected entry for withdraw"
+
+      it "C23b no inconsistency warning emitted when candidates satisfy (verifMap active)" $ do
+        let stmts =
+              [ SDefLogic "compute-fee" [("amount", TInt)] Nothing
+                  (Contract
+                    (Just (EApp ">=" [EVar "amount", ELit (LitInt 0)])) Nothing
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            stubPass _wc = pure True
+            verifMap = Map.fromList [("compute-fee", True)]
+        results <- computeCDPFor CDPScopeAllDefLogic stubPass verifMap stmts
+        case Map.lookup "compute-fee" results of
+          Just r  -> do
+            cdpWarnings r `shouldSatisfy` (WarnVacuousOverOmega `notElem`)
+            cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `notElem`)
+          Nothing -> expectationFailure "expected entry for compute-fee"
+
+      it "C23c WarnSpecInconsistent used as conservative fallback when verifMap is empty" $ do
+        let stmts =
+              [ SDefLogic "withdraw"
+                  [("balance", TInt), ("amount", TInt)] Nothing
+                  (Contract
+                    (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
+                    (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) Nothing Nothing)
+                  (ELit (LitInt 0))
+              ]
+            stubFail _wc = pure False
+        results <- computeCDPFor CDPScopeAllDefLogic stubFail Map.empty stmts
+        case Map.lookup "withdraw" results of
+          Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `elem`)
+          Nothing -> expectationFailure "expected entry for withdraw"
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
