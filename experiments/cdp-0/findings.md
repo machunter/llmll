@@ -67,9 +67,7 @@ Across 37 contracted functions in the verify-clean CDP-0 corpus, only 4 produced
 ### F-008. Driver fall-through adjudication label misleading on intermediate slice
 
 **Priority:** Medium
-**Status:** Open. Self-routed.
-
-[`manifest.json:outcome_labels`](manifest.json) defines four thresholds with an unintended fourth slice (`0.10 ≤ defined < 0.50`) that falls through to `cdp-discriminating-weak` with a defensive comment but no JSON-emit flag. On the load-bearing baseline run, the corpus produced `defined_fraction = 0.108`, landing in this slice and emitting a positive-sounding label when the underlying data is closer to `cdp-null`. Two options: (a) extend `cdp-null` to `defined_fraction < 0.30`; (b) introduce a fourth label `cdp-discriminating-thin`. One-line manifest + driver edit. Should land before publishing this baseline as the LT-INV §8 gate's adjudicated comparison anchor. See [`findings/postmortem-002-cdp-baseline-rerun.md` §F-008](findings/postmortem-002-cdp-baseline-rerun.md).
+**Status:** **Closed.** `cdp-null` threshold extended from `< 0.10` to `< 0.30` in [`manifest.json`](manifest.json) and [`scripts/cdp_baseline.py:186`](scripts/cdp_baseline.py). Both run artifacts patched in-place: `runs/20260526T233504Z-baseline/baseline.json` and `runs/20260527T140751Z-baseline/baseline.json` both now carry `adjudication_label: "cdp-null"`. The 30–50% slice falls cleanly to `cdp-discriminating-weak` (partial signal, no dead fallthrough). README §4 outcome-labels table updated. See [`findings/postmortem-002-cdp-baseline-rerun.md` §F-008](findings/postmortem-002-cdp-baseline-rerun.md).
 
 ## Documentation-lead
 

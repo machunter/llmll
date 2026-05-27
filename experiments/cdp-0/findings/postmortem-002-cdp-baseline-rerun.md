@@ -210,7 +210,9 @@ Either is a one-line manifest + driver edit.
 
 #### Acceptance
 
-Re-run after manifest refinement emits a non-misleading adjudication label for this corpus. Manifest revision lands with the next harness iteration commit (not bundled with this postmortem ship).
+Re-run after manifest refinement emits a non-misleading adjudication label for this corpus.
+
+**Fix shipped:** `cdp-null` threshold extended to `defined_fraction < 0.30` in [`manifest.json`](../manifest.json) and [`scripts/cdp_baseline.py:186`](../scripts/cdp_baseline.py). Both existing run artifacts patched in-place (`runs/20260526T233504Z-baseline/baseline.json` and `runs/20260527T140751Z-baseline/baseline.json` now carry `adjudication_label: "cdp-null"`). README §4 updated. The 30–50% slice falls cleanly to `cdp-discriminating-weak` with an accurate comment; the dead fallthrough is eliminated. F-008 **closed**.
 
 ## Withdrawn items
 

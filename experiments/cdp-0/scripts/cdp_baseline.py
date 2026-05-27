@@ -183,15 +183,14 @@ def aggregate(per_fixture_axes: list[tuple[str, list[dict[str, Any]]]]) -> dict[
 
     if contracted_total < 10:
         label = "cdp-corpus-inadequate"
-    elif defined_fraction < 0.10:
+    elif defined_fraction < 0.30:
         label = "cdp-null"
     elif defined_fraction >= 0.50 and midrange_fraction >= 0.25:
         label = "cdp-discriminating"
     elif defined_fraction >= 0.50:
         label = "cdp-discriminating-weak"
     else:
-        # 0.10 <= defined_fraction < 0.50
-        # No manifest-declared label for this slice; fall back to weak with a flag.
+        # 0.30 <= defined_fraction < 0.50: partial signal, not null, not majority-defined
         label = "cdp-discriminating-weak"
 
     return {

@@ -51,7 +51,7 @@ The driver emits exactly one of four labels per run, computed mechanically from 
 |---|---|---|
 | **`cdp-discriminating`** | Defined-score functions ≥ 50% of contracted total **AND** ≥ 25% of defined scores fall in (0.0, 1.0) | CDP is a viable LT-INV §8 axis; baseline publishable as continuous-shift comparison anchor |
 | **`cdp-discriminating-weak`** | Defined-score functions ≥ 50% **BUT** scores cluster at extremes (≥ 75% are 0.0 or 1.0) | CDP viable but low-resolution; LT-INV gate uses CDP with a coarse pass/fail rule, not a continuous-shift threshold |
-| **`cdp-null`** | Defined-score functions < 10% of contracted total | Binding finding: proposal §10 Risk #2 (small enumeration) fires. LT-INV §8 gate cannot use CDP as discriminating axis. Routes to language-team for §4.3.1 enumeration widening or to compiler-engineer for candidate-set extension. |
+| **`cdp-null`** | Defined-score functions < 30% of contracted total | Binding finding: proposal §10 Risk #2 (small enumeration) fires. LT-INV §8 gate cannot use CDP as discriminating axis. Routes to language-team for §4.3.1 enumeration widening or to compiler-engineer for candidate-set extension. |
 | **`cdp-corpus-inadequate`** | Total contracted functions across the verify-clean corpus < 10 | Sample too small to publish baseline; route to language-team to settle "what's the canonical CDP corpus" before re-running |
 
 ## 5. Compiler pin
