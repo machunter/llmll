@@ -355,28 +355,47 @@ class ScanFeaturesMissingRequiredTests(unittest.TestCase):
 
 
 class ContractExpectationE3Tests(unittest.TestCase):
-    def test_experiment_001_login_handler_pre_proof_required_is_false(self):
-        # E3-revert (post-EL-A re-validation, batch 20260510T235111Z):
-        # The original EL-A E3 change flipped this to True to lift the B
-        # ceiling, but in production all 9 top-tier attempts dropped B→C
-        # because top-tier agents (correctly) do not emit ?proof-required
-        # on the pre clause — `(password not empty)` is QF-LIA-tractable
-        # and ?proof-required is scoped to postconditions the verifier
-        # cannot discharge (LLMLL.md §13.8 / §5.3.5).
-        # Regression guard: keep this at False until experiment 001 is
-        # restructured to encapsulate the delegate in an uncontracted
-        # helper (Option 2 of the E3 finding, deferred).
+    def test_experiment_001_login_handler_pre_not_in_contract_expectations(self):
+        # E3 Option 2 (2026-05-28): pre removed from CONTRACT_EXPECTATIONS[1].
+        # Pre is QF-LIA-tractable but structurally asserted (login-handler
+        # contains ?delegate). With proof_required=False and status="asserted",
+        # asserted_without_proof incremented to 1 → grade B ceiling even when
+        # all tests and contracts otherwise passed. Removing the pre expectation
+        # lets asserted_without_proof stay 0 when the post is handled correctly.
+        # Pre is still enforced by REQUIRED_FEATURES[1] (feature scan).
+        # See postmortem-001-el-a-revalidation F-201 for the revert history.
+        login_handler = evaluate_run.CONTRACT_EXPECTATIONS.get(1, {}).get("login-handler", {})
+        self.assertNotIn(
+            "pre",
+            login_handler,
+            "E3 Option 2: login-handler.pre must not be in CONTRACT_EXPECTATIONS[1]. "
+            "Keeping it causes asserted_without_proof=1 → grade B ceiling. "
+            "See postmortem-001-el-a-revalidation F-201.",
+        )
+
+    def test_experiment_001_login_handler_post_proof_required_is_true(self):
+        # E3 Option 2: the post clause is now the quality gate. Agents that mark
+        # the post ?proof-required (delegation-bounded postcondition) satisfy
+        # all_required_contracts_met with asserted_without_proof=0 → grade A
+        # reachable when combined with a non-delegation-dependent check.
         expectations = evaluate_run.CONTRACT_EXPECTATIONS
         self.assertIn(1, expectations)
         self.assertIn("login-handler", expectations[1])
-        self.assertIn("pre", expectations[1]["login-handler"])
-        self.assertFalse(
-            expectations[1]["login-handler"]["pre"]["proof_required"],
-            "E3-revert regression: login-handler.pre.proof_required must "
-            "remain False. Flipping to True over-restricts the experiment "
-            "because the pre clause is QF-LIA-tractable and does not need "
-            "a ?proof-required marker. See postmortem-001-el-a-revalidation "
-            "F-201 for the empirical evidence.",
+        self.assertIn("post", expectations[1]["login-handler"])
+        self.assertTrue(
+            expectations[1]["login-handler"]["post"]["proof_required"],
+            "E3 Option 2: login-handler.post.proof_required must be True. "
+            "The postcondition is delegation-bounded; ?proof-required is the "
+            "correct escape per LLMLL.md §13.8.",
+        )
+
+    def test_experiment_001_post_in_required_features(self):
+        # E3 Option 2: "post" added to REQUIRED_FEATURES[1] so agents that omit
+        # the post clause get F (feature scan), not just a contract miss.
+        self.assertIn(
+            "post",
+            evaluate_run.REQUIRED_FEATURES[1],
+            "E3 Option 2: 'post' must be in REQUIRED_FEATURES[1].",
         )
 
 
@@ -525,6 +544,26 @@ class QualityGradeTests(unittest.TestCase):
             },
         )
         self.assertEqual(grade, "B")
+
+    def test_e001_grade_a_with_nondelegation_check_and_proof_required_post(self):
+        # E3 Option 2: experiment 001 shape after the restructure.
+        # One non-delegation-dependent check (effective_total=1) clears the
+        # test-exclusion B gate; login-handler post marked ?proof-required
+        # satisfies the contract expectation with asserted_without_proof=0.
+        grade = self._grade(
+            test_assessment={
+                "effective_total": 1,
+                "effective_passed": 1,
+                "all_applicable_passed": True,
+                "excluded_delegation_dependent": 2,
+            },
+            contract_assessment={
+                "all_required_contracts_met": True,
+                "asserted_without_proof": 0,
+                "proof_required_ceiling_accepted": 1,
+            },
+        )
+        self.assertEqual(grade, "A")
 
 
 if __name__ == "__main__":

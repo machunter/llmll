@@ -33,3 +33,7 @@ Build a user authentication module for a simple web service. The system has two 
    - The fallback for `validate-session` always returns `false` (fail-closed)
 
 5. Include a `pre` contract on `login-handler`: the password must not be empty
+
+6. Include a `post` contract on `login-handler`: on success, the returned hash must be non-empty. This postcondition is delegation-bounded — the hash is produced by the crypto agent and cannot be verified independently of the delegated call. Mark the clause `?proof-required` to declare the obligation (the documented escape per `LLMLL.md §13.8`).
+
+7. Include one non-delegation-dependent `check` block that asserts a pure property without invoking `login-handler` or `validate-session` (for example, that a concrete non-empty password string satisfies the pre-condition length predicate directly).

@@ -51,7 +51,7 @@ FEATURE_PATTERNS = {
 # spec explicitly mandates `Result[string, string]` as login-handler's
 # return type (001-two-agent-auth.md:23).
 REQUIRED_FEATURES = {
-    1: ["def-interface", "delegate", "on-failure", "check", "pre", "Result-type"],
+    1: ["def-interface", "delegate", "on-failure", "check", "pre", "post", "Result-type"],
     2: [
         "def-interface",
         "delegate",
@@ -102,18 +102,18 @@ def feature_label(spec: Any) -> str:
 
 CONTRACT_EXPECTATIONS = {
     1: {
-        # E3-revert (post-EL-A re-validation, batch 20260510T235111Z):
-        # flipping this to True over-restricted the experiment. The pre clause
-        # `(password not empty)` is QF-LIA-tractable; ?proof-required is
-        # scoped to postconditions the verifier cannot discharge (LLMLL.md
-        # §13.8 / §5.3.5), not preconditions on input shape. Top-tier agents
-        # (correctly) did not emit the marker → 8/9 attempts dropped B→C.
-        # Reverted to False; B ceiling on 001 is the honest reflection of
-        # the verification matrix until experiment 001 is restructured to
-        # encapsulate the delegate in an uncontracted helper (Option 2 of
-        # the E3 finding, deferred).
+        # E3 Option 2 (2026-05-28): pre removed from contract expectations
+        # because it is QF-LIA-tractable but structurally asserted (login-handler
+        # contains ?delegate → whole contract is asserted per §5.3.5). Keeping
+        # pre with proof_required=False caused asserted_without_proof=1 → grade B
+        # regardless of test results. Pre is still required by REQUIRED_FEATURES[1]
+        # (feature scan enforces it); it is just not quality-tracked here.
+        # Grade A is reachable when: (1) the solution includes a non-delegation-
+        # dependent check (effective_total > 0), and (2) the agent marks the post
+        # clause ?proof-required (asserted_without_proof stays 0).
+        # See postmortem-001-el-a-revalidation F-201 for pre-flip history.
         "login-handler": {
-            "pre": {"proof_required": False},
+            "post": {"proof_required": True},
         },
     },
     2: {
