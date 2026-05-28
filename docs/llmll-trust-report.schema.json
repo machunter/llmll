@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llmll.dev/schemas/v1.2/trust-report.schema.json",
   "title": "LLMLL Trust Report JSON Emit Schema",
-  "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major. v1.1.0 (OBLIG-PBT-3, v0.10.5) added parallel `tier_profile_pre` and `tier_profile_post` aggregates plus an optional `stale_downgrades` array, all additive over v1.0.0. v0.10.7 (OBLIG-PBT-5a) added the optional `joint_pbt_witnesses` array and the optional `joint_pbt_witness` per-entry flag for multi-subject PBT-Lift over-credit detection; no `trust_report_version` bump per the 2026-05-23 critique-triage routing. v1.2.0 (LT-CDP, v0.11) adds the optional `discriminative_axis` per-entry block carrying the contract-discriminative-power score, candidate counts, distinguishing inputs, spec-entropy annotation, and typed warning enumeration per `contract-discriminative-power-proposal.md` §5. The field is populated under `--cdp`; without `--cdp` a single `not-requested` warning is emitted so consumers see a uniform shape. Additive over v1.1.0 — existing consumers ignore the new block.",
+  "description": "Shape of the JSON emitted by `llmll verify --trust-report --json`. Emit-only — the compiler never re-parses this artifact. Versioning is independent of the source JSON-AST schema (docs/llmll-ast.schema.json); the source `schemaVersion` and this `trust_report_version` track different surfaces. Consumers (e.g. the repair-loop harness) should pin to a major version of `trust_report_version`. Additive-only changes within a major version; breaking shape changes bump the major. v1.1.0 (OBLIG-PBT-3, v0.10.5) added parallel `tier_profile_pre` and `tier_profile_post` aggregates plus an optional `stale_downgrades` array, all additive over v1.0.0. v0.10.7 (OBLIG-PBT-5a) added the optional `joint_pbt_witnesses` array and the optional `joint_pbt_witness` per-entry flag for multi-subject PBT-Lift over-credit detection; no `trust_report_version` bump per the 2026-05-23 critique-triage routing. v1.2.0 (LT-CDP, v0.11) adds the optional `discriminative_axis` per-entry block carrying the contract-discriminative-power score, candidate counts, distinguishing inputs, spec-entropy annotation, and typed warning enumeration per `contract-discriminative-power-proposal.md` §5. The field is populated under `--cdp`; without `--cdp` a single `not-requested` warning is emitted so consumers see a uniform shape. Additive over v1.1.0 — existing consumers ignore the new block. LT-PPR (v0.11) adds six optional per-entry fields under `$defs/TrustEntry` when a predicate-carrying `?proof-required` is present: `pre_predicate_form`, `pre_predicate_text`, `pre_runtime_check_emitted`, and `post_*` equivalents. `trust_report_version` stays \"1.2.0\"; these fields are strictly additive over the LT-CDP v1.2.0 surface.",
 
   "type": "object",
   "required": ["trust_report_version", "entries", "summary", "tier_profile", "suppressions"],
@@ -88,6 +88,34 @@
         "discriminative_axis": {
           "$ref": "#/$defs/DiscriminativeAxis",
           "description": "v1.2.0 (LT-CDP, v0.11) — optional per-function contract-discriminative-power measurement. Populated under `--cdp` per `contract-discriminative-power-proposal.md` §5. Without `--cdp`, the block populates with `score: null`, `basis: \"not-measured\"`, and a single `not-requested` warning so the shape is uniform. Additive over v1.1.0."
+        },
+        "pre_predicate_form": {
+          "type": "string",
+          "enum": ["symbolic", "runtime"],
+          "description": "LT-PPR (v0.11) — enforcement-mode label for the pre-clause predicate when a predicate-carrying ?proof-required is present. \"runtime\": predicate is enforced via a Haskell runtime assertion emitted at codegen (TrustReport.hs:320). \"symbolic\": reserved for a future solver-submission path; not emitted in v0.11. Omitted when the pre clause carries no predicate-carrying ?proof-required. Distinct from pre_predicate_text: this field is the mode label; that field is the expression text."
+        },
+        "pre_predicate_text": {
+          "type": "string",
+          "description": "LT-PPR (v0.11) — JSON-encoded serialization of the pre-clause predicate expression (exprToJson of the carried Expr payload in HProofRequired). Omitted when the pre clause carries no predicate-carrying ?proof-required. Distinct from pre_predicate_form: this field is the expression; that field is the enforcement-mode label."
+        },
+        "pre_runtime_check_emitted": {
+          "type": "boolean",
+          "const": true,
+          "description": "LT-PPR (v0.11) — present and true iff codegen emitted a Haskell runtime assertion for the pre-clause predicate-carrying ?proof-required (`if <pred> then () else error \"proof-required: <reason>\"`). Omitted when false. Trust tier stays asserted regardless; this flag records the presence of a codegen enforcement artifact (TrustReport.hs:811)."
+        },
+        "post_predicate_form": {
+          "type": "string",
+          "enum": ["symbolic", "runtime"],
+          "description": "LT-PPR (v0.11) — enforcement-mode label for the post-clause predicate when a predicate-carrying ?proof-required is present. Semantics mirror pre_predicate_form. Omitted when the post clause carries no predicate-carrying ?proof-required."
+        },
+        "post_predicate_text": {
+          "type": "string",
+          "description": "LT-PPR (v0.11) — JSON-encoded serialization of the post-clause predicate expression. `result` is in scope in post-position per LLMLL.md §13.10. Semantics mirror pre_predicate_text. Omitted when the post clause carries no predicate-carrying ?proof-required."
+        },
+        "post_runtime_check_emitted": {
+          "type": "boolean",
+          "const": true,
+          "description": "LT-PPR (v0.11) — present and true iff codegen emitted a Haskell runtime assertion for the post-clause predicate-carrying ?proof-required. Semantics mirror pre_runtime_check_emitted (TrustReport.hs:812)."
         }
       }
     },
