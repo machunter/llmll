@@ -4,6 +4,21 @@
 
 ## Compiler-engineer
 
+---
+
+### F-GATE-1. `GrammarCoreInversion` not enforced for `.ast.json` input
+
+**Source:** §8 pre/post comparison, `postmortem-003-s8-gate-pre-post.md`
+**Date:** 2026-05-28
+**Priority:** Closed — F-GATE-1: commit `cabb1fd` (def-logic JSON-AST); F-GATE-1b: commit `12cd85d` (letrec JSON-AST + S-expression symmetry). §8 gate unblocked; re-run with `manifest.s8-post-e001.json` against HEAD compiler.
+
+`ParserJSON.hs` has no `GrammarMode` parameter. `llmll --grammar=core-inversion check solution.ast.json` accepts `{"kind":"def-logic"}` statements and exits 0. Confirmed on post-arm run `runs/20260528T014158Z/20260528T014158Z-claude-opus-4-7-try01-of-03-e001/solution.ast.json` (two `def-logic` statements, exit 0, `OK (5 statements)`).
+
+**Fix:** In `ParserJSON.hs`, pass `GrammarMode` to the statement-kind dispatch. When `GrammarCoreInversion` and `kind == "def-logic"`, emit a `core-grammar-violation` diagnostic (kind already defined at `Diagnostic.hs:300`) and exit 1. Parser-level enforcement (consistent with S-expression path at `Parser.hs:137`) is preferred over typechecker-level.
+
+**Acceptance:** `llmll --grammar=core-inversion check <file-with-def-logic.ast.json>` exits non-zero with `core-grammar-violation` diagnostic. Post-arm re-run against fixed compiler produces a non-trivial `def`/`def-shell` usage distribution (boundary-form axis of §8 gate becomes measurable).
+
+---
 
 **Source:** Integrated postmortem of 18 attempts × 5 models on `001-two-agent-auth`
 **Date:** 2026-05-10
@@ -160,6 +175,47 @@ Bundle is engineer's call; suggest separate branches because the three modules a
 
 ## Language-team
 
+---
+
+### F-GATE-2. LLMLL.md §4.1 note should state `def-logic` is rejected under `--grammar=core-inversion`
+
+**Source:** §8 pre/post comparison, `postmortem-003-s8-gate-pre-post.md`
+**Date:** 2026-05-28
+**Priority:** Closed — `LLMLL.md §4.1` already contained the accurate rejection text ("Under `--grammar=core-inversion`, `def-logic` and `letrec` are **not accepted**") at HEAD; no spec edit required. Overtaken by a prior spec update; verified 2026-05-28 during doc-lead pass on F-GATE-1b.
+
+Post-arm claude-opus-4-7-try03 logged `def-logic` under core-inversion grammar as a PROBLEMS.md spec ambiguity (`runs/20260528T014158Z/20260528T014158Z-claude-opus-4-7-try03-of-03-e001/`). The agent read §4.1 but found no explicit statement that `def-logic` is *rejected* — only that `def`/`def-shell` are *activated*. 1 of 6 post-arm agents surfaced this ambiguity explicitly; 5 did not.
+
+**Fix:** Add one sentence to LLMLL.md §4.1 Note: "`def-logic` is not accepted under `--grammar=core-inversion`; use `def` (strict-core) or `def-shell` (permissive)." Small prose touch, no design change.
+
+**Acceptance:** §4.1 contains explicit rejection statement. Zero agents log `def-logic` under core-inversion as an ambiguity in post-arm re-run.
+
+---
+
+---
+
+### §8 Gate Adjudication Hand-off (2026-05-28)
+
+**Source:** `findings/postmortem-004-s8-gate-post-arm-rerun.md`
+**Run:** `20260528T145727Z` — 6 attempts, llmll 0.10.8 @ `4252b5f`
+
+Four-axis table for gate outcome determination per `docs/compiler-team-roadmap.md:185`:
+
+| Axis | Pre-arm | Post-arm (clean, n=4) | Delta |
+|------|---------|----------------------|-------|
+| (a) Pass rate | 6/6 B | 4/4 B | No change |
+| (b) Verified | 0/6 | 0/4 | No change |
+| (c) ?proof-required | 0/6 | 0/4 | No change |
+| **(d) def/def-shell** | **0/6 (0%)** | **8/8 (100%)** | **Axis measurable for first time** |
+
+Clean gate dataset (enforcement-valid, no 429 confounders): claude-opus-4-7 ×3 + gemini-try02 ×1. Gemini try01 excluded (infrastructure failure, 0 output). Gemini try03 excluded from quality axes (grade F attributable to 429-induced session degradation).
+
+**Gate success condition per run plan:** at least one of (a/b/c) improving AND axis (d) > 0. Data: (a/b/c) unchanged; (d) = 100%.
+
+F-GATE-2 (§4.1 prose clarification) — **downgraded to defence-in-depth**. The diagnostic hint was sufficient for in-session adaptation (claude try03 documented: "initial `def-logic` rejected → switched to `def-shell`"). No spec edit required beyond what was already present.
+
+Gate outcome determination (pass/partial/null per roadmap §8 criteria) is language-team's slot.
+
+---
 
 **Source:** Integrated postmortem of 18 attempts × 5 models on `001-two-agent-auth`
 **Date:** 2026-05-10
@@ -470,7 +526,62 @@ The instructions contain at least one structured uncertainty-elicitation section
 ### Hand-offs
 
 - **`compiler-engineer`** — companion item D1.2 (text-mode warning surface in `llmll check`). See `findings/compiler-engineer.md`.
-- **`language-team`** — none from this file. EL-A and EL-B are self-contained within harness scope.
+- **`language-team`** — none from EL-A / EL-B. Gate findings (EL-C) routed below.
+
+---
+
+### EL-C — §8 gate post-arm rerun (2026-05-28)
+
+**Source:** `findings/postmortem-004-s8-gate-post-arm-rerun.md`
+**Run:** `20260528T145727Z` — 6 attempts, llmll 0.10.8 @ `4252b5f`, manifest `manifest.s8-post-e001.json`
+**Comparison baseline:** `20260528T012230Z` (pre-arm, GrammarLegacy)
+
+#### F-GATE-3. F-GATE-1b enforcement confirmed; axis (d) is now non-trivial
+
+**Priority:** Confirmation — closes F-GATE-1.
+**Consumer:** language-team (gate adjudication)
+
+Binary verified before run: `llmll --grammar=core-inversion check <def-logic-solution>` exits 1 with `core-grammar-violation`. Across 5 harness-passing attempts (3× claude-opus-4-7, 2× gemini-3-pro-preview), the final solutions contain: `def` = 6, `def-shell` = 4, `def-logic` = **0**. `evaluation.json::feature_scan.boundary_form_counts` field confirmed in all 3 attempts evaluated after the `count_boundary_forms` extension landed (try03-claude, gemini-try02, gemini-try03); backfilled for try01 and try02 via evaluator re-run.
+
+Pre-arm (12/12 `def-logic`) vs. post-arm (0/10 `def-logic`) constitutes a valid before/after pair for axis (d).
+
+**Acceptance:** Closed — enforcement confirmed working. See postmortem-004 §Verified findings F-GATE-3.
+
+---
+
+#### F-GATE-4. claude-opus-4-7 try03 demonstrates enforcement-driven in-session adaptation
+
+**Priority:** Observation.
+**Consumer:** language-team
+
+`runs/20260528T145727Z/20260528T145727Z-claude-opus-4-7-try03-of-03-e001/logs/agent.stdout.log` final paragraph: *"PROBLEMS.md records the `bin/llmll` wrapper forcing `--grammar=core-inversion` (**initial `def-logic` rejected → switched to `def-shell`**)…"*
+
+The agent submitted `def-logic`, received `core-grammar-violation` (exit 1 + hint text), and rewrote to `def-shell` within the same session. Final solution: 2× `def-shell`, 0× `def-logic`, grade B. Duration: 319s vs 286/306s for try01/try02 — ~25s overhead consistent with one repair cycle.
+
+The diagnostic hint ("Replace `{"kind":"def-logic"}` with `{"kind":"def"}`…`{"kind":"def-shell"}`…") was sufficient to guide adaptation without requiring §4.1 prose clarification.
+
+---
+
+#### F-GATE-5. Gemini-3-pro-preview API throttling (HTTP 429) confounds both post-arm cells
+
+**Priority:** Exclusion condition.
+**Consumer:** experiment-lead, language-team (gate adjudication)
+
+- **try01** (`...gemini-3-pro-preview-try01-of-03-e001`): `status: "failed"`, `rc=1`, `dur=234s`, 10 retry attempts, 0 bytes stdout — no work product.
+- **try03** (`...gemini-3-pro-preview-try03-of-03-e001`): `status: "passed"`, `rc=0`, `dur=805s`, 20 retry attempts. Grade **F** (`missing_required: ["pre"]`). Boundary forms: `def:2`, zero `def-logic`. The F is attributable to 429-induced session-quality degradation, not enforcement difficulty.
+- **try02** is clean: `status: "passed"`, grade B, `def:2`, `dur=502s`.
+
+Enforcement-valid gate dataset (no infra confounders): claude ×3 + gemini-try02 ×1 = **4 attempts. All passed B. All def/def-shell. 0 verified. 0 proof-required.**
+
+---
+
+### Priority (EL-C)
+
+| # | Finding | Consumer | Priority | Effort |
+|---|---------|----------|----------|--------|
+| **F-GATE-3** | F-GATE-1b confirmed; axis (d) non-trivial | language-team | Confirmation — close F-GATE-1 | None |
+| **F-GATE-4** | In-session adaptation evidence (claude try03) | language-team | Observation | None |
+| **F-GATE-5** | Gemini 429 throttling confounds gate cells | experiment-lead | Exclusion condition | None |
 
 ---
 

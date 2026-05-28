@@ -339,6 +339,7 @@ def scan_features(solution: Path, metadata: dict[str, Any], run_dir: Path) -> di
         "required": [feature_label(spec) for spec in required],
         "found": found,
         "missing_required": missing,
+        "boundary_form_counts": count_boundary_forms(text),
     }
 
 
@@ -357,6 +358,21 @@ def detect_scaffold_usage(run_dir: Path) -> bool:
         except ValueError:
             return True
     return False
+
+
+def count_boundary_forms(text: str) -> dict[str, int]:
+    """Count def / def-shell / def-logic statement kinds for gate axis (d)."""
+    counts: dict[str, int] = {"def": 0, "def-shell": 0, "def-logic": 0}
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError:
+        return counts
+    for stmt in document.get("statements", []):
+        if isinstance(stmt, dict):
+            kind = stmt.get("kind")
+            if kind in counts:
+                counts[kind] += 1
+    return counts
 
 
 def scan_json_ast_features(text: str) -> dict[str, bool]:
@@ -484,17 +500,20 @@ DELEGATION_LABEL_RE = re.compile(
 
 
 def build_function_table(solution_ast: dict[str, Any] | None) -> dict[str, Any]:
-    """E1: Map function name -> body AST over def-logic (includes letrec, which is
-    encoded as def-logic with an optional `decreases` field in JSON-AST).
-    Interface methods are not bodies; def-interface declares signatures only.
+    """E1: Map function name -> body AST over def-logic / def / def-shell.
+    LT-INV (v0.11): SDef emits {"kind":"def"} and SDefShell {"kind":"def-shell"};
+    legacy SDefLogic emits {"kind":"def-logic"}. All three carry a body and are
+    user-defined functions. Interface methods (def-interface) declare signatures
+    only and are excluded.
     """
+    DEF_KINDS = {"def-logic", "def", "def-shell"}
     table: dict[str, Any] = {}
     if not isinstance(solution_ast, dict):
         return table
     for stmt in solution_ast.get("statements", []):
         if not isinstance(stmt, dict):
             continue
-        if stmt.get("kind") == "def-logic":
+        if stmt.get("kind") in DEF_KINDS:
             name = stmt.get("name")
             body = stmt.get("body")
             if isinstance(name, str) and body is not None:
@@ -696,10 +715,11 @@ def find_def_logic(
 ) -> dict[str, Any] | None:
     if not solution_ast:
         return None
+    DEF_KINDS = {"def-logic", "def", "def-shell"}
     for statement in solution_ast.get("statements", []):
         if (
             isinstance(statement, dict)
-            and statement.get("kind") == "def-logic"
+            and statement.get("kind") in DEF_KINDS
             and statement.get("name") == name
         ):
             return statement

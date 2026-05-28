@@ -1,0 +1,18 @@
+{
+  "experiments": ["001"],
+  "run_count": 3,
+  "llmll_cmd": "llmll --grammar=core-inversion",
+  "grammar_mode": "core-inversion",
+  "timeout_seconds": 1800,
+  "skip_verify": false,
+  "agents": [
+    {
+      "name": "claude-opus-4-7",
+      "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-7 'Read AGENT_INSTRUCTIONS.md and complete the task.'"
+    },
+    {
+      "name": "gemini-3-pro-preview",
+      "cmd": "gemini -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model gemini-3-pro-preview --yolo"
+    }
+  ]
+}
