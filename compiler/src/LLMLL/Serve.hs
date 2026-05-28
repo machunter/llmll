@@ -140,7 +140,7 @@ parseBody req body =
       isJson   = maybe True (T.isPrefixOf "application/json") ctHeader
       src      = TE.decodeUtf8 (BL.toStrict body)
   in if isJson
-       then case parseJSONAST "<serve>" body of
+       then case parseJSONAST GrammarLegacy "<serve>" body of
               Right stmts -> Right stmts
               Left _      -> tryText src   -- fallback
        else tryText src

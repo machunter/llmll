@@ -42,8 +42,8 @@ expectedSchemaVersion = "0.5.0"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
-parseJSONAST :: FilePath -> BL.ByteString -> Either Diagnostic [Statement]
-parseJSONAST fp bs =
+parseJSONAST :: GrammarMode -> FilePath -> BL.ByteString -> Either Diagnostic [Statement]
+parseJSONAST mode fp bs =
   case eitherDecode bs of
     Left err ->
       -- B1: aeson surfaces \x1b and other invalid JSON escapes as a UTF-8 decode
@@ -62,22 +62,30 @@ parseJSONAST fp bs =
                    }
       in Left diag
     Right val ->
-      case parseEither (parseProgram fp) val of
-        Left msg -> Left $ (mkError Nothing (T.pack msg))
-          { diagKind = Just (extractKind (T.pack msg))
-          , diagCode = Just "E011"
-          }
+      case parseEither (parseProgram mode fp) val of
+        Left msg ->
+          let k = extractKind (T.pack msg)
+              diag = (mkError Nothing (T.pack msg))
+                       { diagKind       = Just k
+                       , diagCode       = Just "E011"
+                       , diagSuggestion = if k == "core-grammar-violation"
+                                            then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} for strict-core or {\"kind\":\"def-shell\",...} for permissive bodies"
+                                            else Nothing
+                       }
+          in Left diag
         Right stmts -> Right stmts
   where
     extractKind msg
       | "schema-version-mismatch" `T.isInfixOf` msg = "schema-version-mismatch"
+      | "core-grammar-violation"  `T.isInfixOf` msg = "core-grammar-violation"
       | otherwise = "json-decode-error"
 
 -- | Parse a JSON Value (already decoded) into statements.
 -- Returns multi-error diagnostics for agent round-trip efficiency.
+-- Always uses GrammarLegacy: patch-apply callers have no grammar-mode context.
 parseJSONASTValue :: Value -> Either [Diagnostic] [Statement]
 parseJSONASTValue val =
-  case parseEither (parseProgram "<patch>") val of
+  case parseEither (parseProgram GrammarLegacy "<patch>") val of
     Left msg -> Left [(mkError Nothing (T.pack msg))
       { diagKind = Just "json-decode-error"
       , diagCode = Just "E011"
@@ -88,8 +96,8 @@ parseJSONASTValue val =
 -- Program-level decoder
 -- ---------------------------------------------------------------------------
 
-parseProgram :: FilePath -> Value -> Parser [Statement]
-parseProgram _fp = withObject "Program" $ \o -> do
+parseProgram :: GrammarMode -> FilePath -> Value -> Parser [Statement]
+parseProgram mode _fp = withObject "Program" $ \o -> do
   sv <- o .: "schemaVersion" :: Parser Text
   if sv /= expectedSchemaVersion
     then fail $
@@ -100,17 +108,25 @@ parseProgram _fp = withObject "Program" $ \o -> do
       ++ "' (see docs/json-ast-versioning.md)"
     else do
       stmtVals <- o .: "statements" :: Parser [Value]
-      mapM parseStatement stmtVals
+      mapM (parseStatement mode) stmtVals
 
 -- ---------------------------------------------------------------------------
 -- Statement decoder
 -- ---------------------------------------------------------------------------
 
-parseStatement :: Value -> Parser Statement
-parseStatement = withObject "Statement" $ \o -> do
+parseStatement :: GrammarMode -> Value -> Parser Statement
+parseStatement mode = withObject "Statement" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
-    "def-logic"    -> parseDefLogic o
+    "def-logic" ->
+      case mode of
+        GrammarCoreInversion -> do
+          name <- o .:? "name" .!= ("(unknown)" :: Text)
+          fail $ "core-grammar-violation: 'def-logic' (function '"
+                 ++ T.unpack name
+                 ++ "') is not admitted under --grammar=core-inversion; "
+                 ++ "use 'def' for strict-core or 'def-shell' for permissive"
+        GrammarLegacy -> parseDefLogic o
     -- LT-INV (v0.11): strict-core and permissive-shell variants
     "def"          -> parseDefCore o
     "def-shell"    -> parseDefShellJSON o

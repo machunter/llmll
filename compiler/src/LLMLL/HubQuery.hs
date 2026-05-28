@@ -134,7 +134,7 @@ parseModuleFunctions :: FilePath -> IO [(Name, Type, Bool)]
 parseModuleFunctions fp
   | takeExtension fp == ".json" = do
       bs <- BL.readFile fp
-      case PJ.parseJSONAST fp bs of
+      case PJ.parseJSONAST GrammarLegacy fp bs of
         Left _      -> pure []
         Right stmts -> pure (extractFunctions stmts)
   | otherwise = do

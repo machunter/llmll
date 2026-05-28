@@ -368,8 +368,8 @@ parseSrc gm fp src =
     Left  err   -> Left (megaparsecToDiagnostic fp err)
 
 -- | Parse source from a lazy ByteString (used for .ast.json files).
-parseSrcBS :: FilePath -> BL.ByteString -> Either Diagnostic [Statement]
-parseSrcBS fp bs = parseJSONAST fp bs
+parseSrcBS :: GrammarMode -> FilePath -> BL.ByteString -> Either Diagnostic [Statement]
+parseSrcBS mode fp bs = parseJSONAST mode fp bs
 
 -- | Unified file loader: reads the file and dispatches to the right parser.
 -- Returns Left () if an error was already emitted to stdout/stderr.
@@ -377,7 +377,7 @@ loadStatements :: Bool -> GrammarMode -> FilePath -> IO (Either () [Statement])
 loadStatements json gm fp
   | takeExtension fp == ".json" = do
       bs <- BL.readFile fp
-      case parseSrcBS fp bs of
+      case parseSrcBS gm fp bs of
         Left diag -> do { emitParseDiag json fp diag; return (Left ()) }
         Right ss  -> return (Right ss)
   | otherwise = do

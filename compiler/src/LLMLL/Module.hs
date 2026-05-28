@@ -214,7 +214,7 @@ parseFile :: FilePath -> IO (Either Diagnostic [Statement])
 parseFile fp
   | ext == ".json" = do
       bs <- BL.readFile fp
-      pure (PJ.parseJSONAST fp bs)
+      pure (PJ.parseJSONAST GrammarLegacy fp bs)
   | otherwise = do
       src <- TIO.readFile fp
       case P.parseTopLevel GrammarLegacy fp src of

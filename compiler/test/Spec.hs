@@ -630,7 +630,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST "<test>" src of
+      case parseJSONAST GrammarLegacy "<test>" src of
         Left err  -> expectationFailure (show err)
         Right stmts -> do
           -- Check the SDefMain node carries non-Nothing done and on-done
@@ -657,7 +657,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST "<test>" src of
+      case parseJSONAST GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = generateHaskell "test" stmts
@@ -921,7 +921,7 @@ main = hspec $ do
             , ",\"body\":{\"kind\":\"hole-proof-required\",\"reason\":\"manual\""
             , ",\"predicate\":{\"kind\":\"lit-bool\",\"value\":true}}}]}"
             ]
-      case parseJSONAST "<test>" src of
+      case parseJSONAST GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
@@ -1131,7 +1131,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST "<test>" src of
+      case parseJSONAST GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right [SDefLogic _ params _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
@@ -1190,7 +1190,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST "<test>" src of
+      case parseJSONAST GrammarLegacy "<test>" src of
         Left diag ->
           -- The error message should mention unexpected keys
           diagMessage diag `shouldSatisfy` T.isInfixOf "unexpected keys"
@@ -1218,7 +1218,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST "<test>" src of
+      case parseJSONAST GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right _  -> pure ()
 
@@ -2719,7 +2719,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST "<test>" jsonSrc of
+      case parseJSONAST GrammarLegacy "<test>" jsonSrc of
         Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
           scaffoldTemplate spec `shouldBe` "rest-api"
         other -> expectationFailure $ "unexpected: " ++ show other
@@ -4295,7 +4295,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                          laws
                      ]
           emitted = emitJsonAST original
-      case parseJSONAST "<test>" emitted of
+      case parseJSONAST GrammarLegacy "<test>" emitted of
         Left err    -> expectationFailure (show err)
         Right parsed -> do
           length parsed `shouldBe` 1
@@ -5290,7 +5290,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  ]"
               , "}"
               ]
-        case parseJSONAST "<test>" src of
+        case parseJSONAST GrammarLegacy "<test>" src of
           Left _   -> pure ()  -- expected
           Right _  -> expectationFailure "expected parse error for on_failure on hole-delegate-async"
 
@@ -5994,7 +5994,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  ]"
               , "}"
               ]
-        case parseJSONAST "<test>" src of
+        case parseJSONAST GrammarLegacy "<test>" src of
           Right [SCheck p] -> propSubjects p `shouldBe` ["foo", "bar"]
           other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -6221,7 +6221,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  ]"
               , "}"
               ]
-        case parseJSONAST "<test>" src of
+        case parseJSONAST GrammarLegacy "<test>" src of
           Left err -> expectationFailure (show err)
           Right stmts -> do
             let report = typeCheck emptyEnv stmts
@@ -6593,13 +6593,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "C14 JSON-AST accepts spec_entropy string" $ do
         let ast = "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
-        case parseJSONAST "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
+        case parseJSONAST GrammarLegacy "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
           Right [SDefLogic _ _ _ c _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
           other -> expectationFailure (show other)
 
       it "C15 JSON-AST rejects unknown spec_entropy value" $ do
         let ast = "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"bogus\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
-        case parseJSONAST "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
+        case parseJSONAST GrammarLegacy "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
           Left _ -> pure ()  -- expected: parse rejects unknown label
           Right _ -> expectationFailure "expected parse error on unknown spec_entropy value"
 
@@ -6882,6 +6882,27 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseStatements GrammarLegacy "<test>" src of
           Left  _  -> pure ()
           Right ss -> expectationFailure ("expected parse failure, got: " ++ show ss)
+
+      it "INV-P9 JSON-AST def-logic rejected under GrammarCoreInversion with core-grammar-violation" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Left diag -> diagKind diag `shouldBe` Just "core-grammar-violation"
+          Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
+
+      it "INV-P10 JSON-AST def accepted under GrammarCoreInversion" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Right [SDef {}] -> pure ()
+          other           -> expectationFailure (show other)
+
+      it "INV-P11 JSON-AST def-logic still accepted under GrammarLegacy" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+        case parseJSONAST GrammarLegacy "<test>" src of
+          Right [SDefLogic {}] -> pure ()
+          other                -> expectationFailure (show other)
 
     describe "INV-W: well-typed" $ do
 
