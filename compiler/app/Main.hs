@@ -38,7 +38,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..))
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..))
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrict, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -121,8 +121,9 @@ data LeanstralOpts = LeanstralOpts
   } deriving (Show)
 
 data Options = Options
-  { optCommand :: Command
-  , optJson    :: Bool
+  { optCommand     :: Command
+  , optJson        :: Bool
+  , optGrammarMode :: GrammarMode
   } deriving (Show)
 
 optionsParser :: ParserInfo Options
@@ -136,6 +137,9 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
     opts = Options
       <$> commandParser
       <*> switch (long "json" <> help "Output diagnostics as JSON")
+      <*> option (eitherReader parseGrammarMode)
+            (long "grammar" <> value GrammarLegacy <> metavar "MODE"
+            <> help "LT-INV: grammar mode: legacy (default) or core-inversion")
 
     commandParser = subparser
       ( command "check" (info (helper <*> (CmdCheck <$> fileArg <*> switch (long "strict" <> help "v0.6.3: Treat warnings (unbound vars, unknown fns) as hard errors")))
@@ -193,6 +197,11 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
     parseContractsMode "unproven" = Right ContractsUnproven
     parseContractsMode "none"     = Right ContractsNone
     parseContractsMode s          = Left $ "unknown --contracts mode: " ++ s ++ " (expected: full, unproven, none)"
+
+    parseGrammarMode :: String -> Either String GrammarMode
+    parseGrammarMode "legacy"          = Right GrammarLegacy
+    parseGrammarMode "core-inversion"  = Right GrammarCoreInversion
+    parseGrammarMode s                 = Left $ "unknown --grammar mode: " ++ s ++ " (expected: legacy, core-inversion)"
 
     buildJsonCmd = CmdBuildFromJson
       <$> fileArg
@@ -321,27 +330,28 @@ main = do
   hSetEncoding stderr utf8
   opts <- execParser optionsParser
   let json = optJson opts
+      gm   = optGrammarMode opts
   case optCommand opts of
-    CmdCheck fp strict            -> doCheck  json fp strict
-    CmdHoles fp deps mDepsOut  -> doHoles  json fp deps mDepsOut
-    CmdTest  fp emitOnly         -> doTest   json fp emitOnly
-    CmdBuild fp mOut wasm emitJson emitOnly contracts -> doBuild json fp mOut wasm emitJson emitOnly contracts
-    CmdBuildFromJson fp mOut emitOnly contracts -> doBuildFromJson json fp mOut emitOnly contracts
-    CmdRun   fp args          -> doRun    json fp args
-    CmdRepl                   -> doRepl
-    CmdHub   tarball          -> doHubFetch json tarball
-    CmdHubScaffold tmpl mOut  -> doHubScaffold json tmpl mOut
-    CmdHubQuery sig           -> doHubQuery json sig
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag -> doVerify json fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag
-    CmdTypecheck fp sketch    -> doTypecheck json fp sketch
-    CmdServe serveOpts        -> runServe serveOpts
-    CmdCheckout fp ptr        -> doCheckout json fp (T.pack ptr)
-    CmdCheckoutRelease fp tok -> doCheckoutRelease json fp (T.pack tok)
-    CmdCheckoutStatus fp tok  -> doCheckoutStatusCmd json fp (T.pack tok)
-    CmdPatch fp patchFp       -> doPatch json fp patchFp
-    CmdReplay fp logFp        -> doReplay json fp logFp
-    CmdSpec jsonOut            -> doSpec jsonOut
-    CmdVersion                -> doVersion json
+    CmdCheck fp strict            -> doCheck  json gm fp strict
+    CmdHoles fp deps mDepsOut     -> doHoles  json gm fp deps mDepsOut
+    CmdTest  fp emitOnly          -> doTest   json gm fp emitOnly
+    CmdBuild fp mOut wasm emitJson emitOnly contracts -> doBuild json gm fp mOut wasm emitJson emitOnly contracts
+    CmdBuildFromJson fp mOut emitOnly contracts -> doBuildFromJson json gm fp mOut emitOnly contracts
+    CmdRun   fp args              -> doRun    json gm fp args
+    CmdRepl                       -> doRepl gm
+    CmdHub   tarball              -> doHubFetch json tarball
+    CmdHubScaffold tmpl mOut      -> doHubScaffold json gm tmpl mOut
+    CmdHubQuery sig               -> doHubQuery json sig
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag
+    CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
+    CmdServe serveOpts            -> runServe serveOpts
+    CmdCheckout fp ptr            -> doCheckout json fp (T.pack ptr)
+    CmdCheckoutRelease fp tok     -> doCheckoutRelease json fp (T.pack tok)
+    CmdCheckoutStatus fp tok      -> doCheckoutStatusCmd json fp (T.pack tok)
+    CmdPatch fp patchFp           -> doPatch json fp patchFp
+    CmdReplay fp logFp            -> doReplay json gm fp logFp
+    CmdSpec jsonOut               -> doSpec jsonOut
+    CmdVersion                    -> doVersion json
 
 -- ---------------------------------------------------------------------------
 -- Shared source loader
@@ -350,10 +360,10 @@ main = do
 -- | Parse source (S-expression or JSON-AST). Dispatches on file extension.
 -- .ast.json / .json files are read as ByteString and routed to ParserJSON;
 -- all other files go through the S-expression parser.
-parseSrc :: FilePath -> T.Text -> Either Diagnostic [Statement]
-parseSrc fp src =
+parseSrc :: GrammarMode -> FilePath -> T.Text -> Either Diagnostic [Statement]
+parseSrc gm fp src =
   -- JSON path is handled by loadStatements (reads as BS); this path is S-expr only.
-  case parseTopLevel fp src of
+  case parseTopLevel gm fp src of
     Right stmts -> Right stmts
     Left  err   -> Left (megaparsecToDiagnostic fp err)
 
@@ -363,8 +373,8 @@ parseSrcBS fp bs = parseJSONAST fp bs
 
 -- | Unified file loader: reads the file and dispatches to the right parser.
 -- Returns Left () if an error was already emitted to stdout/stderr.
-loadStatements :: Bool -> FilePath -> IO (Either () [Statement])
-loadStatements json fp
+loadStatements :: Bool -> GrammarMode -> FilePath -> IO (Either () [Statement])
+loadStatements json gm fp
   | takeExtension fp == ".json" = do
       bs <- BL.readFile fp
       case parseSrcBS fp bs of
@@ -372,7 +382,7 @@ loadStatements json fp
         Right ss  -> return (Right ss)
   | otherwise = do
       src <- TIO.readFile fp
-      case parseSrc fp src of
+      case parseSrc gm fp src of
         Left diag -> do { emitParseDiag json fp diag; return (Left ()) }
         Right ss  -> return (Right ss)
 
@@ -401,9 +411,9 @@ emitParseDiag json fp d
 -- Returns (entryStmts, moduleCache, loadOrder) where loadOrder is a
 -- topologically-sorted list of module paths (dependencies first) for codegen.
 -- Falls back gracefully when no filesystem imports are found (single-file path).
-loadStatementsMulti :: Bool -> FilePath -> IO (Either () ([Statement], ModuleCache, [ModulePath]))
-loadStatementsMulti json fp = do
-  mStmts <- loadStatements json fp
+loadStatementsMulti :: Bool -> GrammarMode -> FilePath -> IO (Either () ([Statement], ModuleCache, [ModulePath]))
+loadStatementsMulti json gm fp = do
+  mStmts <- loadStatements json gm fp
   case mStmts of
     Left ()     -> pure (Left ())
     Right stmts -> do
@@ -441,9 +451,9 @@ takeDirectory = reverse . dropWhile (\c -> c /= '/' && c /= '\\') . drop 1 . rev
 -- check
 -- ---------------------------------------------------------------------------
 
-doCheck :: Bool -> FilePath -> Bool -> IO ()
-doCheck json fp strict = do
-  mResult <- loadStatementsMulti json fp
+doCheck :: Bool -> GrammarMode -> FilePath -> Bool -> IO ()
+doCheck json gm fp strict = do
+  mResult <- loadStatementsMulti json gm fp
   case mResult of
     Left ()                      -> exitFailure
     Right (ss, cache, _loadOrder) -> do
@@ -470,9 +480,9 @@ doCheck json fp strict = do
 -- holes
 -- ---------------------------------------------------------------------------
 
-doHoles :: Bool -> FilePath -> Bool -> Maybe FilePath -> IO ()
-doHoles json fp deps mDepsOut = do
-  stmts <- loadStatements json fp
+doHoles :: Bool -> GrammarMode -> FilePath -> Bool -> Maybe FilePath -> IO ()
+doHoles json gm fp deps mDepsOut = do
+  stmts <- loadStatements json gm fp
   case stmts of
     Left () -> exitFailure
     Right ss -> do
@@ -512,11 +522,11 @@ doHoles json fp deps mDepsOut = do
 -- test
 -- ---------------------------------------------------------------------------
 
-doTest :: Bool -> FilePath -> Bool -> IO ()
-doTest json fp emitOnly = do
+doTest :: Bool -> GrammarMode -> FilePath -> Bool -> IO ()
+doTest json gm fp emitOnly = do
   -- MOD-PBT-1: use loadStatementsMulti so PBT FuncEnv can see imported
   -- def-logic via assembleTestStatements (F-018 closure).
-  mResult <- loadStatementsMulti json fp
+  mResult <- loadStatementsMulti json gm fp
   case mResult of
     Left ()    -> exitFailure
     Right (stmts, cache, _loadOrder) -> do
@@ -598,18 +608,18 @@ pbtResultJson fp r writebackDiags =
 -- build (Rust codegen + optional WASM)
 -- ---------------------------------------------------------------------------
 
-doBuild :: Bool -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> ContractsMode -> IO ()
-doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
+doBuild :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> ContractsMode -> IO ()
+doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
   unless (json || contractsMode == ContractsFull) $
     TIO.putStrLn $ "   --contracts=" <> T.pack (show contractsMode)
   -- Auto-detect JSON-AST files and delegate to the JSON build path.
   if takeExtension fp == ".json"
-    then doBuildFromJson json fp mOutDir emitOnly contractsMode
+    then doBuildFromJson json gm fp mOutDir emitOnly contractsMode
     else do
       -- --emit json-ast: parse the file directly to round-trip to JSON (no module merge needed)
       when emitJson $ do
         src <- TIO.readFile fp
-        case parseSrc fp src of
+        case parseSrc gm fp src of
           Left diag -> do { emitParseDiag json fp diag; exitFailure }
           Right stmts -> do
             let modName = T.pack $ takeBaseName fp
@@ -627,7 +637,7 @@ doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
 
       -- B3: use loadStatementsMulti so imported modules' definitions are
       -- inlined into Lib.hs (mirrors the doBuildFromJson path).
-      mResult <- loadStatementsMulti json fp
+      mResult <- loadStatementsMulti json gm fp
       case mResult of
         Left () -> exitFailure
         Right (stmts, cache, loadOrder) -> do
@@ -702,10 +712,10 @@ doBuild json fp mOutDir doWasm emitJson emitOnly contractsMode = do
 
     -- | Build from a JSON-AST (.ast.json) file.
 
-doBuildFromJson :: Bool -> FilePath -> Maybe FilePath -> Bool -> ContractsMode -> IO ()
-doBuildFromJson json fp mOutDir emitOnly contractsMode = do
+doBuildFromJson :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> Bool -> ContractsMode -> IO ()
+doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
   -- P3: use loadStatementsMulti to resolve imports and get load-order
-  mResult <- loadStatementsMulti json fp
+  mResult <- loadStatementsMulti json gm fp
   case mResult of
     Left () -> exitFailure
     Right (stmts, cache, loadOrder) -> do
@@ -755,13 +765,13 @@ doBuildFromJson json fp mOutDir emitOnly contractsMode = do
 -- run (build into temp dir + cargo run)
 -- ---------------------------------------------------------------------------
 
-doRun :: Bool -> FilePath -> [String] -> IO ()
-doRun json fp extraArgs = do
+doRun :: Bool -> GrammarMode -> FilePath -> [String] -> IO ()
+doRun json gm fp extraArgs = do
   let modName = T.unpack . T.pack $ takeBaseName fp
       tmpDir  = "/tmp/llmll-run-" <> modName
   -- Build into tmp dir (reuses doBuild logic via shared helpers)
   src <- TIO.readFile fp
-  case parseSrc fp src of
+  case parseSrc gm fp src of
     Left diag -> do
       emitParseDiag json fp diag
       exitFailure
@@ -883,15 +893,15 @@ buildResultJson fp outDir warnings mWasmPkg =
 -- repl
 -- ---------------------------------------------------------------------------
 
-doRepl :: IO ()
-doRepl = do
+doRepl :: GrammarMode -> IO ()
+doRepl gm = do
   TIO.putStrLn "LLMLL REPL v0.1 — type :help for commands, :quit to exit"
   TIO.putStrLn "Parse expressions and see their AST representation."
   TIO.putStrLn ""
-  replLoop Map.empty
+  replLoop gm Map.empty
 
-replLoop :: Map.Map T.Text T.Text -> IO ()
-replLoop _env = do
+replLoop :: GrammarMode -> Map.Map T.Text T.Text -> IO ()
+replLoop gm _env = do
   TIO.putStr "llmll> "
   hFlush stdout
   line <- TIO.getLine
@@ -906,19 +916,19 @@ replLoop _env = do
       TIO.putStrLn ":holes F  — show holes in file F"
       TIO.putStrLn ""
       TIO.putStrLn "Enter any LLMLL expression or statement to parse and display its AST."
-      replLoop _env
+      replLoop gm _env
     _ | T.isPrefixOf ":check " trimmed -> do
         let fp = T.unpack (T.drop 7 trimmed)
-        doCheck False fp False
-        replLoop _env
+        doCheck False gm fp False
+        replLoop gm _env
       | T.isPrefixOf ":holes " trimmed -> do
         let fp = T.unpack (T.drop 7 trimmed)
-        doHoles False fp False Nothing
-        replLoop _env
-      | T.null trimmed -> replLoop _env
+        doHoles False gm fp False Nothing
+        replLoop gm _env
+      | T.null trimmed -> replLoop gm _env
       | otherwise -> do
           -- Try to parse as a statement or expression
-          case parseTopLevel "<repl>" trimmed of
+          case parseTopLevel gm "<repl>" trimmed of
             Left err ->
               TIO.putStrLn $ formatDiagnosticSExp (megaparsecToDiagnostic "<repl>" err)
             Right stmts -> do
@@ -926,7 +936,7 @@ replLoop _env = do
               let report = typeCheck emptyEnv stmts
               mapM_ (TIO.putStrLn . ("  type: " <>) . formatDiagnostic)
                     (reportDiagnostics report)
-          replLoop _env
+          replLoop gm _env
 
 -- ---------------------------------------------------------------------------
 -- Shared Helpers
@@ -960,8 +970,8 @@ doHubFetch json tarball = do
 -- v0.3: hub scaffold
 -- ---------------------------------------------------------------------------
 
-doHubScaffold :: Bool -> T.Text -> Maybe FilePath -> IO ()
-doHubScaffold json template mOutDir = do
+doHubScaffold :: Bool -> GrammarMode -> T.Text -> Maybe FilePath -> IO ()
+doHubScaffold json gm template mOutDir = do
   mPath <- resolveScaffold template
   case mPath of
     Nothing -> do
@@ -981,7 +991,7 @@ doHubScaffold json template mOutDir = do
       let outFile = outDir </> takeFileName srcPath
       BL.writeFile outFile srcBytes
       -- Parse and report holes
-      mStmts <- loadStatements json outFile
+      mStmts <- loadStatements json gm outFile
       case mStmts of
         Left () -> do
           unless json $ TIO.putStrLn $ "   Scaffolded to " <> T.pack outDir <> " (parse errors — holes not analyzed)"
@@ -1068,10 +1078,10 @@ parseOneType t
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
-doVerify :: Bool -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
-doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport cdpFlag = do
+doVerify :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
+doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport cdpFlag = do
   -- 1. Parse + type-check
-  mResult <- loadStatementsMulti json fp
+  mResult <- loadStatementsMulti json gm fp
   case mResult of
     Left () -> exitFailure
     Right (stmts, _cache, _) -> do
@@ -1255,14 +1265,14 @@ doVerify json fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverag
                   -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False))
+                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False Nothing Nothing False))
                                        (contractPre c)
                             -- Pre remains asserted: no call-site VCs in v0.8.1b
                         , csPost = if Set.member n bodyFaithfulSet
                                    then let tainted = Set.member n overflowTaintedSet
-                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted))
+                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False))
                                                 (contractPost c)
-                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False))
+                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False))
                                              (contractPost c)
                             -- Post verified only when body-faithful VC succeeded
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9
@@ -1418,9 +1428,13 @@ checkWeaknessCandidate lfBin _json wc = do
 runLeanstralPipeline :: Bool -> FilePath -> [Statement] -> LeanstralOpts -> IO ()
 runLeanstralPipeline json fp stmts lsOpts = do
   let proofHoles = [ (n, c)
-                   | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts
+                   | SDefLogic n _ _ c (EHole (HProofRequired _ _)) <- stmts
                    ] ++ [ (n, c)
-                   | SLetrec n _ _ c _ (EHole (HProofRequired _)) <- stmts
+                   | SLetrec n _ _ c _ (EHole (HProofRequired _ _)) <- stmts
+                   ] ++ [ (n, c)
+                   | SDef n _ _ c (EHole (HProofRequired _ _)) <- stmts
+                   ] ++ [ (n, c)
+                   | SDefShell n _ _ c (EHole (HProofRequired _ _)) <- stmts
                    ]
   if null proofHoles
     then unless json $ putStrLn "   No proof-required holes found."
@@ -1472,11 +1486,11 @@ runLeanstralPipeline json fp stmts lsOpts = do
 -- Phase 2c: typecheck [--sketch]
 -- ---------------------------------------------------------------------------
 
-doTypecheck :: Bool -> FilePath -> Bool -> IO ()
-doTypecheck json fp False = doCheck json fp False   -- non-sketch: identical to check
-doTypecheck json fp True  = do
+doTypecheck :: Bool -> GrammarMode -> FilePath -> Bool -> IO ()
+doTypecheck json gm fp False = doCheck json gm fp False   -- non-sketch: identical to check
+doTypecheck json gm fp True  = do
   -- Sketch mode: propagate types into holes
-  mResult <- loadStatementsMulti json fp
+  mResult <- loadStatementsMulti json gm fp
   case mResult of
     Left () -> exitFailure
     Right (ss, cache, _) -> do
@@ -1609,14 +1623,16 @@ doPatch _json fp patchFp = do
 extractContract :: Statement -> Maybe (Name, Contract)
 extractContract (SDefLogic name _ _ c _)  = Just (name, c)
 extractContract (SLetrec name _ _ c _ _)  = Just (name, c)
+extractContract (SDef      name _ _ c _)  = Just (name, c)
+extractContract (SDefShell name _ _ c _)  = Just (name, c)
 extractContract _                         = Nothing
 
 -- ---------------------------------------------------------------------------
 -- v0.3.1: event log replay
 -- ---------------------------------------------------------------------------
 
-doReplay :: Bool -> FilePath -> FilePath -> IO ()
-doReplay json srcFp logFp = do
+doReplay :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
+doReplay json gm srcFp logFp = do
   logContents <- TIO.readFile logFp
   let entries = parseEventLog logContents
   if null entries
@@ -1631,7 +1647,7 @@ doReplay json srcFp logFp = do
       let modName = takeBaseName srcFp
           outDir  = "generated/" ++ modName
       unless json $ putStrLn $ "Building " ++ srcFp ++ " ..."
-      doBuild json srcFp Nothing False False False ContractsFull
+      doBuild json gm srcFp Nothing False False False ContractsFull
 
       -- Find the executable (stack build puts it in .stack-work)
       let execFinder = (proc "stack" ["exec", "which", modName])

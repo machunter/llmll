@@ -54,7 +54,7 @@ import LLMLL.TypeCheck (typeCheck, emptyEnv, runSketch)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (DiagnosticReport(..), Diagnostic(..))
 import LLMLL.Sketch (encodeSketchResult, SketchResult(..))
-import LLMLL.Syntax (Statement)
+import LLMLL.Syntax (Statement, GrammarMode(..))
 import LLMLL.Checkout (checkoutHole, releaseHole, checkoutStatus, CheckoutToken(..))
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), PatchRequest(..))
 
@@ -145,7 +145,7 @@ parseBody req body =
               Left _      -> tryText src   -- fallback
        else tryText src
   where
-    tryText src = case parseStatements "<serve>" src of
+    tryText src = case parseStatements GrammarLegacy "<serve>" src of
       Right stmts -> Right stmts
       Left err    -> Left (T.pack (show err))
 

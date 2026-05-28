@@ -167,6 +167,13 @@ generateForStmt allStmts catalog (SDefLogic name params mRet contract _body)
 generateForStmt allStmts catalog (SLetrec name params mRet contract _dec _body)
   | hasContracts contract =
       mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
+-- LT-INV (v0.11): SDef and SDefShell contribute to weakness check identically.
+generateForStmt allStmts catalog (SDef name params mRet contract _body)
+  | hasContracts contract =
+      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
+generateForStmt allStmts catalog (SDefShell name params mRet contract _body)
+  | hasContracts contract =
+      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
 generateForStmt _ _ _ = []
 
 -- | Does this contract have at least one clause?

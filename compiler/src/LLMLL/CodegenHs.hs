@@ -400,6 +400,9 @@ emitStmt :: Statement -> Text
 emitStmt (STypeDef name body)             = emitTypeDef name body
 emitStmt (SDefInterface name fns laws)      = emitInterface name fns laws
 emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
+-- LT-INV (v0.11): SDef and SDefShell emit identically to SDefLogic.
+emitStmt (SDef      name params mRet c b) = emitDefLogic name params mRet c b
+emitStmt (SDefShell name params mRet c b) = emitDefLogic name params mRet c b
 -- D2: SLetrec emits as a regular Haskell function.
 -- The {- letrec :decreases ... -} marker is a breadcrumb for the D4 LH annotation pass.
 emitStmt (SLetrec name params mRet c dec b) =
@@ -520,11 +523,23 @@ emitDefLogic name params mRet contract body = T.unlines $
     paramNames = if null params then ""
                  else " " <> T.unwords (map (toHsIdent . fst) params)
     -- Wrap body in a pre-condition assertion using seq (purely functional).
+    -- LT-PPR (v0.11): predicate-carrying ?proof-required in pre-position emits
+    -- the predicate directly as the assertion; the error stub is elided since
+    -- the predicate IS the runnable check. Post-position wraps result in a let
+    -- so the assertion sees the computed value before it is returned.
     bodyWithPre = case contractPre contract of
-      Nothing -> emitExpr body
+      Just (EHole (HProofRequired _ (Just pred))) ->
+        let preExpr = "if " <> emitExpr pred <> " then () else error \"pre-condition (proof-required predicate) failed\""
+        in "(let { _pre_ = " <> preExpr <> " } in _pre_ `seq` " <> bodyWithPost <> ")"
+      Nothing -> bodyWithPost
       Just e  ->
         let preExpr = "if " <> emitExpr e <> " then () else error \"pre-condition failed\""
-        in "(let { _pre_ = " <> preExpr <> " } in _pre_ `seq` " <> emitExpr body <> ")"
+        in "(let { _pre_ = " <> preExpr <> " } in _pre_ `seq` " <> bodyWithPost <> ")"
+    bodyWithPost = case contractPost contract of
+      Just (EHole (HProofRequired _ (Just pred))) ->
+        "(let { _result_ = " <> emitExpr body <> "; _ppost_ = if " <> emitExpr pred
+        <> " then () else error \"post-condition (proof-required predicate) failed\" } in _ppost_ `seq` _result_)"
+      _ -> emitExpr body
 
 -- | Emit a check block as a QuickCheck property.
 emitCheck :: Property -> Text
@@ -694,8 +709,9 @@ emitHole (HDelegate spec)  = case delegateOnFailure spec of
   Just fb -> emitExpr fb
 emitHole (HDelegateAsync s)= "( error (\"delegate-async: \" ++ " <> T.pack (show (T.unpack (delegateAgent s))) <> ") )"
 emitHole (HDelegatePending _) = "( error \"delegate-pending: blocking hole\" )"
--- D3: proof-required holes compile to an explicit error stub — the LH pipeline validates this site
-emitHole (HProofRequired r) = "( error \"PROOF REQUIRED [" <> r <> "]: add LiquidHaskell annotation\" )"
+-- D3: proof-required holes in body position compile to an error stub — the LH pipeline validates this site.
+-- LT-PPR (v0.11): predicate-carrying form in pre/post is handled by emitDefLogic; body position ignores the predicate.
+emitHole (HProofRequired r _) = "( error \"PROOF REQUIRED [" <> r <> "]: add LiquidHaskell annotation\" )"
 emitHole (HScaffold spec)  = "( error (\"scaffold: \" ++ " <> T.pack (show (T.unpack (scaffoldTemplate spec))) <> ") )"
 emitHole _                 = "( error \"unresolved hole\" )"
 

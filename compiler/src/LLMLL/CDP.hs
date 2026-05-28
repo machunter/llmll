@@ -171,8 +171,11 @@ overAnnotationRatio stmts =
   in if total == 0 then 0.0 else fromIntegral intent / fromIntegral total
   where
     mapEntropies = concatMap go
-    go (SDefLogic _ _ _ c _) = [resolveEntropy c]
+    go (SDefLogic _ _ _ c _)   = [resolveEntropy c]
     go (SLetrec   _ _ _ c _ _) = [resolveEntropy c]
+    -- LT-INV (v0.11)
+    go (SDef      _ _ _ c _)   = [resolveEntropy c]
+    go (SDefShell _ _ _ c _)   = [resolveEntropy c]
     go _ = []
     resolveEntropy c = case contractSpecEntropy c of
       Just se -> se
@@ -215,8 +218,11 @@ computeCDPFor scope runCandidate verifMap stmts = do
       | s <- ss
       , Just (n, c) <- [contractedFunc s]
       ]
-    contractedFunc (SDefLogic n _ _ c _) | hasContracts c = Just (n, c)
+    contractedFunc (SDefLogic n _ _ c _)   | hasContracts c = Just (n, c)
     contractedFunc (SLetrec   n _ _ c _ _) | hasContracts c = Just (n, c)
+    -- LT-INV (v0.11)
+    contractedFunc (SDef      n _ _ c _)   | hasContracts c = Just (n, c)
+    contractedFunc (SDefShell n _ _ c _)   | hasContracts c = Just (n, c)
     contractedFunc _ = Nothing
     candidatesFor n ss = filter (\wc -> wcFunctionName wc == n) (generateCDPCandidates ss)
     hasContracts (Contract pre _ post _ _) =

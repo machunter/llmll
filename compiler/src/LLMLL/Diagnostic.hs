@@ -36,6 +36,9 @@ module LLMLL.Diagnostic
   , mkSpecWeakness
   -- * v0.4: Capability enforcement (CAP-1)
   , mkMissingCapability
+  -- * LT-INV (v0.11): core/shell grammar violations
+  , mkCoreGrammarViolation
+  , mkCoreMembershipViolation
   ) where
 
 import Data.Text (Text)
@@ -280,6 +283,34 @@ mkNonExhaustiveMatch fnName typeName missing covered =
   in (mkError Nothing msg)
        { diagKind    = Just "non-exhaustive-match"
        , diagPointer = Just ("/def-logic/" <> fnName <> "/body")
+       }
+
+-- ---------------------------------------------------------------------------
+-- LT-INV (v0.11): Core/Shell Grammar Violations
+-- ---------------------------------------------------------------------------
+
+-- | Emitted when a strict-core (def) body contains non-core syntax: lambda,
+-- do-notation, await, non-linear arithmetic (*\//mod/rem), an unrestricted
+-- match expression, or a ?proof-required hole.
+mkCoreGrammarViolation :: Text -> Text -> Diagnostic
+mkCoreGrammarViolation defName detail =
+  let msg = "def '" <> defName <> "': body contains non-core syntax \x2014 " <> detail
+            <> "; use def-shell for permissive bodies"
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-grammar-violation"
+       , diagSuggestion = Just ("Replace (def " <> defName <> " ...) with (def-shell " <> defName <> " ...)")
+       }
+
+-- | Emitted when a callee inside a strict-core (def) body is neither
+-- body-faithful (verified) nor in the trusted-prelude set.
+mkCoreMembershipViolation :: Text -> Text -> Diagnostic
+mkCoreMembershipViolation defName callee =
+  let msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' is not body-faithful and not in the trusted prelude; "
+            <> "only verified (body-faithful) functions and trusted builtins are admissible in strict-core bodies"
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-membership-violation"
+       , diagSuggestion = Just ("Verify '" <> callee <> "' with (llmll verify) before calling it from a strict-core def")
        }
 
 -- ---------------------------------------------------------------------------

@@ -54,6 +54,7 @@ import Control.Monad.State.Strict
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
+import LLMLL.HoleAnalysis (isNonLinear)
 
 -- ---------------------------------------------------------------------------
 -- Type Environment
@@ -212,6 +213,9 @@ data TCState = TCState
   , tcModuleStmts    :: [Statement]  -- ^ module's top-level statements, for capability import checks
   -- v0.6.3: strict mode for build/run/verify (BUG-4)
   , tcStrictMode     :: Bool         -- ^ True when unbound vars / unknown fns are hard errors
+  -- LT-INV (v0.11): core/shell grammar mode
+  , tcGrammarMode    :: GrammarMode  -- ^ active grammar mode, set by the caller
+  , tcCoreMode       :: Bool         -- ^ True while type-checking inside a strict-core SDef body
   } deriving (Show)
 
 type TC a = State TCState a
@@ -319,6 +323,43 @@ withFunctionContext name isLetrec action = do
   modify $ \s -> s { tcCurrentFn = oldFn, tcIsLetrec = oldLet }
   pure result
 
+-- | LT-INV (v0.11): enter strict-core checking scope, restoring on exit.
+-- Patterned on withFunctionContext — safe under State-accumulates-errors discipline.
+withCoreMode :: TC a -> TC a
+withCoreMode action = do
+  old <- gets tcCoreMode
+  modify $ \s -> s { tcCoreMode = True }
+  result <- action
+  modify $ \s -> s { tcCoreMode = old }
+  pure result
+
+-- | LT-INV (v0.11): prelude functions unconditionally admitted inside SDef bodies.
+-- These are pure, well-typed builtins with no side-effects; no body-faithful VC required.
+trustedPrelude :: Set.Set Name
+trustedPrelude = Set.fromList
+  [ "string-length", "string-concat", "list-head", "list-tail"
+  , "list-length", "list-is-empty?", "pair", "first", "second"
+  , "random-int", "int-to-string"
+  ]
+
+-- | LT-INV (v0.11): under core mode, verify a callee is body-faithful or trusted-prelude.
+-- Emits a CoreMembershipViolation error when neither condition holds.
+checkCalleeAdmissibility :: Name -> TC ()
+checkCalleeAdmissibility func = do
+  inCore <- gets tcCoreMode
+  when inCore $ do
+    csMap <- gets tcContractStatus
+    let bodyFaithful = case Map.lookup func csMap of
+          Just cs -> maybe False erBodyFaithful (csPre cs)
+                     || maybe False erBodyFaithful (csPost cs)
+          Nothing -> False
+        trusted = func `Set.member` trustedPrelude
+                  || Map.member func builtinEnv
+    unless (bodyFaithful || trusted) $ do
+      enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
+      modify $ \s -> s
+        { tcErrors = tcErrors s ++ [mkCoreMembershipViolation enclosing func] }
+
 -- | Emit a structured non-exhaustive-match error using the registered diagnostic.
 tcEmitNonExhaustive :: Name -> [Name] -> [Name] -> TC ()
 tcEmitNonExhaustive typeName missing covered = do
@@ -329,13 +370,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False GrammarLegacy False)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode — collects hole types.
 runTCSketch :: TypeEnv -> TC a -> (a, TCState)
 runTCSketch env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False)
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False GrammarLegacy False)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -440,7 +481,7 @@ typeCheckStrict env stmts =
 
 runTCStrict :: TypeEnv -> TC a -> (a, [Diagnostic])
 runTCStrict env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True GrammarLegacy False)
   in (result, tcErrors st)
 
 -- | v0.6.3: Strict typecheck with module cache.
@@ -455,7 +496,7 @@ typeCheckWithCacheMode strict cache baseEnv stmts =
       -- v0.3: merge contract status from all cached modules (qualified names)
       seededCS  = Map.foldlWithKey' seedStatus Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [] strict)
+        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [] strict GrammarLegacy False)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -555,6 +596,15 @@ collectTopLevel (SLetrec name params mRet _contract _dec _body) =
   let argTypes = map snd params
       retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
+-- LT-INV (v0.11): strict-core and permissive-shell definitions register identically.
+collectTopLevel (SDef name params mRet _contract _body) =
+  let argTypes = map snd params
+      retType  = fromMaybe (TVar "?") mRet
+  in Just (name, TFn argTypes retType)
+collectTopLevel (SDefShell name params mRet _contract _body) =
+  let argTypes = map snd params
+      retType  = fromMaybe (TVar "?") mRet
+  in Just (name, TFn argTypes retType)
 collectTopLevel (SDefInterface name fns _laws) =
   Just (name, TCustom name)  -- interfaces register as custom types
 collectTopLevel (STypeDef name body) =
@@ -637,6 +687,66 @@ checkStatement (SLetrec name params mRet contract dec body) = do
           unless preOk $
             tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
       -- Check post-condition
+      case contractPost contract of
+        Nothing -> pure ()
+        Just post -> do
+          let resultType = fromMaybe bodyType mRet
+          postType <- withEnv [("result", resultType)] (inferExpr post)
+          postOk <- compatibleExpanded postType TBool
+          unless postOk $
+            tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
+
+-- | LT-INV (v0.11): strict-core definition.
+-- Activates core mode so that inferExpr/EApp enforces callee admissibility.
+-- Also gates on isCoreBodySyntactic before type-inference — structural violations
+-- are reported once here rather than as cascading downstream errors.
+checkStatement (SDef name params mRet contract body) = do
+  unless (isCoreBodySyntactic body) $
+    modify $ \s -> s
+      { tcErrors = tcErrors s ++
+          [mkCoreGrammarViolation name "lambda, do, await, non-linear arithmetic, or unrestricted match"] }
+  withFunctionContext name False $ withCoreMode $ do
+    withTaggedEnv SrcParam params $ do
+      bodyType <- withSegment "body" (inferExpr body)
+      case mRet of
+        Nothing -> pure ()
+        Just retTy -> unify name retTy bodyType
+      case contractPre contract of
+        Nothing -> pure ()
+        Just pre -> do
+          when (exprContainsVar "result" pre) $
+            tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
+          preType <- inferExpr pre
+          preOk <- compatibleExpanded preType TBool
+          unless preOk $
+            tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
+      case contractPost contract of
+        Nothing -> pure ()
+        Just post -> do
+          let resultType = fromMaybe bodyType mRet
+          postType <- withEnv [("result", resultType)] (inferExpr post)
+          postOk <- compatibleExpanded postType TBool
+          unless postOk $
+            tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
+
+-- | LT-INV (v0.11): permissive-shell definition.
+-- Same type-checking rules as SDefLogic; no structural or callee-admissibility restrictions.
+checkStatement (SDefShell name params mRet contract body) = do
+  withFunctionContext name False $ do
+    withTaggedEnv SrcParam params $ do
+      bodyType <- withSegment "body" (inferExpr body)
+      case mRet of
+        Nothing -> pure ()
+        Just retTy -> unify name retTy bodyType
+      case contractPre contract of
+        Nothing -> pure ()
+        Just pre -> do
+          when (exprContainsVar "result" pre) $
+            tcError $ "pre condition of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
+          preType <- inferExpr pre
+          preOk <- compatibleExpanded preType TBool
+          unless preOk $
+            tcError $ "pre condition of '" <> name <> "' must be bool, got " <> typeLabel preType
       case contractPost contract of
         Nothing -> pure ()
         Just post -> do
@@ -919,6 +1029,8 @@ inferExpr (EApp func args) = do
   -- Check is here (in inferExpr, not checkStatement) because EApp can appear
   -- in any nesting context: let RHS, if branches, match arms, do steps, contracts.
   when ("wasi." `T.isPrefixOf` func) $ checkWasiCapability func
+  -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
+  checkCalleeAdmissibility func
   -- S4: warn on dotted function names in app position (non-wasi)
   when ("." `T.isInfixOf` func && not ("wasi." `T.isPrefixOf` func)) $
     tcWarn $ "dotted function name '" <> func <> "' in app position is not supported; "
@@ -1085,8 +1197,17 @@ inferHole HConflictResolution = do
   tcError "unresolved merge conflict hole"
   pure (TVar "?")
 
-inferHole (HProofRequired reason) = do
+inferHole (HProofRequired reason mPred) = do
   tcWarn $ "proof-required hole [" <> reason <> "]: needs formal verification"
+  case mPred of
+    Nothing -> pure ()
+    Just pred -> do
+      predType <- inferExpr pred
+      predOk <- compatibleExpanded predType TBool
+      unless predOk $
+        tcError $ "?proof-required predicate must be bool, got " <> typeLabel predType
+      when (isNonLinear pred) $
+        tcWarn "?proof-required predicate contains non-linear arithmetic: cannot be discharged by QF-LIA; Leanstral obligation required"
   pure (TVar "?")
 
 -- | Infer type from do-steps with pair-thread enforcement (PR 2).

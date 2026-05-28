@@ -159,9 +159,12 @@ extractFunctions stmts =
   [ (name, contract)
   | stmt <- stmts
   , (name, contract) <- case stmt of
-      SDefLogic n _ _ c _ -> [(n, c)]
+      SDefLogic n _ _ c _   -> [(n, c)]
       SLetrec   n _ _ c _ _ -> [(n, c)]
-      _                   -> []
+      -- LT-INV (v0.11)
+      SDef      n _ _ c _   -> [(n, c)]
+      SDefShell n _ _ c _   -> [(n, c)]
+      _                     -> []
   ]
 
 -- | Classify a single function and build its coverage entry.

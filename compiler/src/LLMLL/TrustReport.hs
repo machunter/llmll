@@ -42,6 +42,7 @@ import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
 import LLMLL.PBT (canonicalPropBodyHash)
 import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel)
+import LLMLL.AstEmit (exprToJson)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -299,15 +300,27 @@ collectAllContractStatus cache entryStmts =
   where
     extractCS (SDefLogic name _ _ c _)  = mkCS name c
     extractCS (SLetrec name _ _ c _ _)  = mkCS name c
+    -- LT-INV (v0.11)
+    extractCS (SDef      name _ _ c _)  = mkCS name c
+    extractCS (SDefShell name _ _ c _)  = mkCS name c
     extractCS _                         = Nothing
     mkCS name c
       | contractPre c /= Nothing || contractPost c /= Nothing =
           Just (name, ContractStatus
-            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [] False)) (contractPre c)
-            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [] False)) (contractPost c)
+            { csPre  = fmap mkER (contractPre c)
+            , csPost = fmap mkER (contractPost c)
             , csAssumptions = []
             })
       | otherwise = Nothing
+    -- LT-PPR (v0.11): populate predicate fields when clause is a
+    -- predicate-carrying ?proof-required hole; otherwise use defaults.
+    mkER :: Expr -> EvidenceRecord
+    mkER (EHole (HProofRequired _ (Just pred))) =
+      EvidenceRecord DLAsserted False Nothing [] False
+        (Just "runtime")
+        (Just (T.pack (BLC.unpack (encode (exprToJson pred)))))
+        True
+    mkER _ = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False
 
 -- | Collect all exports from cached modules.
 collectAllExports :: ModuleCache -> Map Name Type
@@ -327,6 +340,13 @@ buildEntry prefix allCS stmt = case stmt of
     let qname = prefix <> name
     in Just (mkEntry qname contract body allCS)
   SLetrec name _ _ contract _ body ->
+    let qname = prefix <> name
+    in Just (mkEntry qname contract body allCS)
+  -- LT-INV (v0.11): SDef and SDefShell contribute to trust report identically.
+  SDef      name _ _ contract body ->
+    let qname = prefix <> name
+    in Just (mkEntry qname contract body allCS)
+  SDefShell name _ _ contract body ->
     let qname = prefix <> name
     in Just (mkEntry qname contract body allCS)
   _ -> Nothing
@@ -780,7 +800,16 @@ formatTrustReportJson report =
       -- ignoring 'discriminative_axis' continue to work.
       [ "discriminative_axis" .= cdpAxisJson (Map.lookup (teName e) (trCDP report))
       | tePre e /= Nothing || tePost e /= Nothing
-      ]
+      ] ++
+      -- LT-PPR (v0.11): predicate enrichment fields — emitted only when a
+      -- predicate-carrying ?proof-required clause is present. Additive over
+      -- v1.2.0; consumers ignoring these fields continue to work.
+      maybe [] (\f -> ["pre_predicate_form" .= f])  (tePre e  >>= erPredicateForm) ++
+      maybe [] (\t -> ["pre_predicate_text" .= t])  (tePre e  >>= erPredicateText) ++
+      maybe [] (\f -> ["post_predicate_form" .= f]) (tePost e >>= erPredicateForm) ++
+      maybe [] (\t -> ["post_predicate_text" .= t]) (tePost e >>= erPredicateText) ++
+      [ "pre_runtime_check_emitted"  .= True | maybe False erRuntimeCheckEmitted (tePre e)  ] ++
+      [ "post_runtime_check_emitted" .= True | maybe False erRuntimeCheckEmitted (tePost e) ]
     depJson d = object
       [ "name"       .= tdName d
       , "pre_level"  .= fmap dlLabel (tdPreLevel d)

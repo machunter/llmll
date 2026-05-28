@@ -111,6 +111,9 @@ parseStatement = withObject "Statement" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
     "def-logic"    -> parseDefLogic o
+    -- LT-INV (v0.11): strict-core and permissive-shell variants
+    "def"          -> parseDefCore o
+    "def-shell"    -> parseDefShellJSON o
     "letrec"       -> parseLetrec o
     "def-interface"-> parseDefInterface o
     "def-invariant"-> parseDefInvariant o
@@ -140,6 +143,32 @@ parseDefLogic o = do
   mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
   body   <- o .: "body"   >>= parseExpr
   pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+
+-- | LT-INV (v0.11): parse {"kind":"def",...} into SDef (strict-core).
+parseDefCore :: Object -> Parser Statement
+parseDefCore o = do
+  name     <- o .: "name"
+  params   <- o .: "params" >>= mapM parseTypedParam
+  mPre     <- o .:? "pre"         >>= mapM parseExpr
+  mPreSrc  <- o .:? "pre_source"
+  mPost    <- o .:? "post"        >>= mapM parseExpr
+  mPostSrc <- o .:? "post_source"
+  mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
+  body     <- o .: "body"         >>= parseExpr
+  pure $ SDef name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+
+-- | LT-INV (v0.11): parse {"kind":"def-shell",...} into SDefShell (permissive).
+parseDefShellJSON :: Object -> Parser Statement
+parseDefShellJSON o = do
+  name     <- o .: "name"
+  params   <- o .: "params" >>= mapM parseTypedParam
+  mPre     <- o .:? "pre"         >>= mapM parseExpr
+  mPreSrc  <- o .:? "pre_source"
+  mPost    <- o .:? "post"        >>= mapM parseExpr
+  mPostSrc <- o .:? "post_source"
+  mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
+  body     <- o .: "body"         >>= parseExpr
+  pure $ SDefShell name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | LT-CDP (v0.11): decode the optional `spec_entropy` field on a JSON-AST
 -- contract object. Strict — unknown labels are a parse error rather than a
@@ -487,10 +516,11 @@ parseExpr = withObject "Expr" $ \o -> do
       case normalizeAsyncDelegateSpec raw of
         Left err -> fail (T.unpack err)
         Right spec -> pure $ EHole (HDelegateAsync spec)
-    -- D3: ?proof-required hole
+    -- D3: ?proof-required hole; LT-PPR (v0.11): optional predicate field
     "hole-proof-required" -> do
       reason <- o .:? "reason" .!= "manual"
-      pure $ EHole (HProofRequired reason)
+      mPred  <- o .:? "predicate" >>= mapM parseExpr
+      pure $ EHole (HProofRequired reason mPred)
 
     _ -> fail $ "unknown Expr kind: " ++ T.unpack kind
 

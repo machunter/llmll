@@ -168,6 +168,9 @@ buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
   where
     go (SDefLogic name params mRet contract _) = Just (name, (params, contract, mRet))
     go (SLetrec name params mRet contract _ _) = Just (name, (params, contract, mRet))
+    -- LT-INV (v0.11)
+    go (SDef      name params mRet contract _) = Just (name, (params, contract, mRet))
+    go (SDefShell name params mRet contract _) = Just (name, (params, contract, mRet))
     go _ = Nothing
 
 -- | v0.10 MOD-1: Build a ContractEnv merging local contracts with imported
@@ -282,6 +285,19 @@ emitFixpointWith opts srcFile stmts = do
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
           name params mRet contract Nothing (Just dec) idx
+
+      -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
+      SDef name params mRet contract body ->
+        emitFnConstraints opts srcFile freshCid freshBid addBind addConst
+          addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
+          name params mRet contract (Just body) Nothing idx
+
+      SDefShell name params mRet contract body ->
+        emitFnConstraints opts srcFile freshCid freshBid addBind addConst
+          addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
+          name params mRet contract (Just body) Nothing idx
 
       _ -> pure ()
 

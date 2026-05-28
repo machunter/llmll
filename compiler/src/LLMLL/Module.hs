@@ -217,7 +217,7 @@ parseFile fp
       pure (PJ.parseJSONAST fp bs)
   | otherwise = do
       src <- TIO.readFile fp
-      case P.parseTopLevel fp src of
+      case P.parseTopLevel GrammarLegacy fp src of
         Left err    -> pure $ Left (megaparsecToDiagnostic fp err)
         Right stmts -> pure $ Right stmts
   where
@@ -261,6 +261,13 @@ buildModuleEnv path stmts _env =
     toExport (SLetrec name params mRet _ _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
+    -- LT-INV (v0.11): SDef and SDefShell export identically to SDefLogic.
+    toExport (SDef name params mRet _ _) =
+      let retType = fromMaybe (TVar "?") mRet
+      in Just (name, TFn (map snd params) retType)
+    toExport (SDefShell name params mRet _ _) =
+      let retType = fromMaybe (TVar "?") mRet
+      in Just (name, TFn (map snd params) retType)
     toExport (SDefInterface name _ _) = Just (name, TCustom name)
     toExport (STypeDef name body)   = Just (name, body)
     toExport _                      = Nothing
@@ -268,13 +275,16 @@ buildModuleEnv path stmts _env =
     -- v0.8.1b: build default contract status (DLAsserted for any clause that exists)
     extractContractStatus (SDefLogic name _ _ contract _) = mkCS name contract
     extractContractStatus (SLetrec name _ _ contract _ _) = mkCS name contract
+    -- LT-INV (v0.11)
+    extractContractStatus (SDef      name _ _ contract _) = mkCS name contract
+    extractContractStatus (SDefShell name _ _ contract _) = mkCS name contract
     extractContractStatus _ = Nothing
 
     mkCS name contract
       | contractPre contract /= Nothing || contractPost contract /= Nothing =
           Just (name, ContractStatus
-            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [] False)) (contractPre contract)
-            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [] False)) (contractPost contract)
+            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (contractPre contract)
+            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (contractPost contract)
             , csAssumptions = []
             })
       | otherwise = Nothing
@@ -283,6 +293,11 @@ buildModuleEnv path stmts _env =
     extractContracts (SDefLogic name params mRet contract _) =
       Just (name, (params, contract, mRet))
     extractContracts (SLetrec name params mRet contract _ _) =
+      Just (name, (params, contract, mRet))
+    -- LT-INV (v0.11)
+    extractContracts (SDef      name params mRet contract _) =
+      Just (name, (params, contract, mRet))
+    extractContracts (SDefShell name params mRet contract _) =
       Just (name, (params, contract, mRet))
     extractContracts _ = Nothing
 

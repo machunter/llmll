@@ -139,7 +139,7 @@ parseModuleFunctions fp
         Right stmts -> pure (extractFunctions stmts)
   | otherwise = do
       src <- TIO.readFile fp
-      case P.parseTopLevel fp src of
+      case P.parseTopLevel GrammarLegacy fp src of
         Left _      -> pure []
         Right stmts -> pure (extractFunctions stmts)
 
@@ -153,6 +153,17 @@ extractFunctions = mapMaybe go
           hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing
       in Just (name, funcType, hasCon)
     go (SLetrec name params mRet contract _ _) =
+      let retType   = maybe (TVar "?") id mRet
+          funcType  = TFn (map snd params) retType
+          hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing
+      in Just (name, funcType, hasCon)
+    -- LT-INV (v0.11)
+    go (SDef name params mRet contract _) =
+      let retType   = maybe (TVar "?") id mRet
+          funcType  = TFn (map snd params) retType
+          hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing
+      in Just (name, funcType, hasCon)
+    go (SDefShell name params mRet contract _) =
       let retType   = maybe (TVar "?") id mRet
           funcType  = TFn (map snd params) retType
           hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing

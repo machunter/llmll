@@ -164,9 +164,11 @@ assembleTestStatements localStmts cache =
                 Just ns -> let s = Set.fromList ns in (`Set.member` s)
               isExported n = Map.member n (meExports menv)
           in [ s | s@SDefLogic{defLogicName = n} <- meStatements menv
-                 , isExported n
-                 , nameFilter n
-                 ]
+                 , isExported n, nameFilter n ]
+             ++ [ s | s@SDef{defName = n} <- meStatements menv
+                    , isExported n, nameFilter n ]
+             ++ [ s | s@SDefShell{defShellName = n} <- meStatements menv
+                    , isExported n, nameFilter n ]
 
 -- ---------------------------------------------------------------------------
 -- Entry Points
@@ -520,6 +522,13 @@ headContractedSubject mergedStmts body =
         `Set.union` Set.fromList
         [ n | SLetrec{letrecName=n, letrecContract=c} <- mergedStmts
             , contractPost c /= Nothing ]
+        -- LT-INV (v0.11)
+        `Set.union` Set.fromList
+        [ n | SDef{defName=n, defContract=c} <- mergedStmts
+            , contractPost c /= Nothing ]
+        `Set.union` Set.fromList
+        [ n | SDefShell{defShellName=n, defShellContract=c} <- mergedStmts
+            , contractPost c /= Nothing ]
       mentioned = Set.fromList (collectHeadOps body)
       hits = Set.toList (Set.intersection mentioned contractedPostNames)
   in case hits of
@@ -639,7 +648,10 @@ pbtTrustWriteback localStmts cache result =
       -- because we work off 'localStmts' directly.
       localNames = Set.fromList
         ([n | SDefLogic{defLogicName=n} <- localStmts] ++
-         [n | SLetrec{letrecName=n} <- localStmts])
+         [n | SLetrec{letrecName=n} <- localStmts] ++
+         -- LT-INV (v0.11)
+         [n | SDef{defName=n} <- localStmts] ++
+         [n | SDefShell{defShellName=n} <- localStmts])
       qualMap     = buildQualMap localStmts cache localNames
       mergedStmts = assembleTestStatements localStmts cache
       -- Subject resolution happens against the merged list so imported
@@ -651,6 +663,11 @@ pbtTrustWriteback localStmts cache result =
         [ (n, c) | SDefLogic{defLogicName=n, defLogicContract=c} <- mergedStmts ]
         ++
         [ (n, c) | SLetrec{letrecName=n, letrecContract=c} <- mergedStmts ]
+        -- LT-INV (v0.11)
+        ++
+        [ (n, c) | SDef{defName=n, defContract=c} <- mergedStmts ]
+        ++
+        [ (n, c) | SDefShell{defShellName=n, defShellContract=c} <- mergedStmts ]
       -- SCheck blocks stay with the owning module (assembleTestStatements
       -- comment line 124-126); property descriptions are local-only.
       propsByDesc = Map.fromList $
@@ -693,7 +710,7 @@ processRun contractByName qualMap propsByDesc run =
               h      = canonicalPropBodyHash body
               w      = PbtWitness h desc
               mkEntry f =
-                let er  = EvidenceRecord (DLTested n) False Nothing [w] False
+                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
                     key = Map.findWithDefault f f qualMap
                 in (key, cs)
@@ -768,7 +785,12 @@ mergePbtWriteback a b = ContractStatus
            -- DLTested evidence never sets the flag in v0.10.8, so the OR is
            -- effectively dormant on the PBT joiner; written explicitly so a
            -- future verifier-side taint join inherits the right semantics.
-           , erOverflowTainted = erOverflowTainted x || erOverflowTainted y
+           , erOverflowTainted     = erOverflowTainted x || erOverflowTainted y
+           -- LT-PPR (v0.11): predicate fields not carried through PBT join;
+           -- PBT evidence is never predicate-carrying (asserted origin only).
+           , erPredicateForm       = Nothing
+           , erPredicateText       = Nothing
+           , erRuntimeCheckEmitted = False
            }
 
     dedupWitnesses ws =
@@ -800,5 +822,10 @@ buildQualMap localStmts cache localNames =
     extractContractedName (SDefLogic{defLogicName=n, defLogicContract=c})
       | contractPost c /= Nothing = Just n
     extractContractedName (SLetrec{letrecName=n, letrecContract=c})
+      | contractPost c /= Nothing = Just n
+    -- LT-INV (v0.11)
+    extractContractedName (SDef{defName=n, defContract=c})
+      | contractPost c /= Nothing = Just n
+    extractContractedName (SDefShell{defShellName=n, defShellContract=c})
       | contractPost c /= Nothing = Just n
     extractContractedName _ = Nothing

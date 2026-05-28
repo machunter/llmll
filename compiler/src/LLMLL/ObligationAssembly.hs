@@ -489,7 +489,8 @@ assembleFunctionLists stmts aliases trustMap expectedTy =
                  , "params"  .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
                  , "returns" .= typeLabel ret
                  , "status"  .= trustLabel trustMap fname ]
-        | SDefLogic fname ps (Just ret) c _ <- stmts
+        | stmt <- stmts
+        , Just (fname, ps, Just ret, c, _) <- [normalizeDefStmt stmt]
         , contractPre c /= Nothing || contractPost c /= Nothing
         , isTypeCompatible aliases expectedTy ret
         ]
@@ -722,12 +723,18 @@ assembleConstraintObligations stmts table mFqResult _trustRpt faithful suppresse
 
 findFunctionInfo :: Name -> [Statement] -> (Maybe Contract, Maybe [(Name, Type)], Maybe Expr)
 findFunctionInfo name stmts = case filter (matchesName name) stmts of
-  (SDefLogic _ params mRet contract body : _) -> (Just contract, Just params, Just body)
-  (SLetrec _ params mRet contract _ body : _) -> (Just contract, Just params, Just body)
+  (SDefLogic _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
+  (SLetrec _ params _mRet contract _ body : _) -> (Just contract, Just params, Just body)
+  -- LT-INV (v0.11)
+  (SDef      _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
+  (SDefShell _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
   _ -> (Nothing, Nothing, Nothing)
   where
     matchesName n (SDefLogic nm _ _ _ _)    = nm == n
     matchesName n (SLetrec nm _ _ _ _ _)    = nm == n
+    -- LT-INV (v0.11)
+    matchesName n (SDef      nm _ _ _ _)    = nm == n
+    matchesName n (SDefShell nm _ _ _ _)    = nm == n
     matchesName _ _                         = False
 
 findTrustEntry :: Name -> TrustReport -> Maybe TrustEntry

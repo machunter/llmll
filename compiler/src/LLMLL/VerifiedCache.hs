@@ -79,7 +79,11 @@ erToJSON er = object $
   (if null (erPbtWitnesses er) then [] else ["pbt_witnesses" .= map pwToJSON (erPbtWitnesses er)]) ++
   -- INT-1 (v0.10.8): emit overflow_tainted only when True (additive, omitted
   -- when False to keep older sidecar shape byte-identical for untouched records).
-  ["overflow_tainted" .= True | erOverflowTainted er]
+  ["overflow_tainted" .= True | erOverflowTainted er] ++
+  -- LT-PPR (v0.11): predicate fields emitted only when present/true (additive).
+  maybe [] (\f -> ["predicate_form" .= f]) (erPredicateForm er) ++
+  maybe [] (\t -> ["predicate_text" .= t]) (erPredicateText er) ++
+  ["runtime_check_emitted" .= True | erRuntimeCheckEmitted er]
 
 erFromJSON :: Value -> Maybe EvidenceRecord
 erFromJSON (Object o) = do
@@ -102,7 +106,17 @@ erFromJSON (Object o) = do
       ot  = case KM.lookup "overflow_tainted" o of
               Just (Bool b) -> b
               _             -> False
-  Just $ EvidenceRecord dl bf src ws ot
+      -- LT-PPR (v0.11): optional fields; pre-v0.11 sidecars default to Nothing/False.
+      pf  = case KM.lookup "predicate_form" o of
+              Just (String s) -> Just s
+              _               -> Nothing
+      pt  = case KM.lookup "predicate_text" o of
+              Just (String s) -> Just s
+              _               -> Nothing
+      rc  = case KM.lookup "runtime_check_emitted" o of
+              Just (Bool b) -> b
+              _             -> False
+  Just $ EvidenceRecord dl bf src ws ot pf pt rc
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — PbtWitness (OBLIG-PBT-3)

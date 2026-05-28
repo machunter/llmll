@@ -12,6 +12,8 @@ module LLMLL.Parser
   , parseTopLevel
   , parseExpr
   , ParseError
+    -- * LT-INV (v0.11)
+  , isCoreBodySyntactic
   ) where
 
 import Data.Text (Text)
@@ -61,12 +63,12 @@ brackets = between (symbol "[") (symbol "]")
 -- ---------------------------------------------------------------------------
 
 -- | Parse a complete LLMLL module.
-parseModule :: FilePath -> Text -> Either ParseError Module
-parseModule fp = parse (sc *> pModule <* eof) fp
+parseModule :: GrammarMode -> FilePath -> Text -> Either ParseError Module
+parseModule mode fp = parse (sc *> pModule mode <* eof) fp
 
 -- | Parse a list of top-level statements (for files without a module wrapper).
-parseStatements :: FilePath -> Text -> Either ParseError [Statement]
-parseStatements fp = parse (sc *> many pStatement <* eof) fp
+parseStatements :: GrammarMode -> FilePath -> Text -> Either ParseError [Statement]
+parseStatements mode fp = parse (sc *> many (pStatement mode) <* eof) fp
 
 -- | Unified top-level parser: accepts both bare statements and files that
 -- begin with an optional @(module Name imports body)@ wrapper (single-file
@@ -79,8 +81,8 @@ parseStatements fp = parse (sc *> many pStatement <* eof) fp
 --
 -- @(import ...)@ at top level (inside or outside a module block) is parsed
 -- as an 'SImport' node; capability enforcement is deferred to v0.2.
-parseTopLevel :: FilePath -> Text -> Either ParseError [Statement]
-parseTopLevel fp = parse (sc *> (concat <$> many pTopLevelItem) <* eof) fp
+parseTopLevel :: GrammarMode -> FilePath -> Text -> Either ParseError [Statement]
+parseTopLevel mode fp = parse (sc *> (concat <$> many (pTopLevelItem mode)) <* eof) fp
 
 -- | Parse a single expression (for testing/REPL).
 parseExpr :: FilePath -> Text -> Either ParseError Expr
@@ -93,20 +95,20 @@ parseExpr fp = parse (sc *> pExpr <* eof) fp
 -- | One top-level item expands to zero or more statements.
 -- A @(module Name imports body)@ form is flattened into its imports + body.
 -- Any other form is a single statement.
-pTopLevelItem :: Parser [Statement]
-pTopLevelItem = pModuleFlattened <|> (pure <$> pStatement)
+pTopLevelItem :: GrammarMode -> Parser [Statement]
+pTopLevelItem mode = pModuleFlattened mode <|> (pure <$> pStatement mode)
 
 -- | Parse @(module Name [imports...] [open/export...] [statements...])@ and return
 -- its contents as a flat list of statements.  The module name is
 -- ignored (single-file model).  Imports become 'SImport' nodes.
 -- v0.2: open/export declarations are also accepted before body statements.
-pModuleFlattened :: Parser [Statement]
-pModuleFlattened = do
+pModuleFlattened :: GrammarMode -> Parser [Statement]
+pModuleFlattened mode = do
   _ <- try (symbol "(" *> symbol "module")
   _ <- pIdent          -- module name: recorded but not used in single-file model
   imports <- many (try pImportStmt)
   opens   <- many (try pOpenDecl <|> try pExportDecl)
-  body    <- many pStatement
+  body    <- many (pStatement mode)
   _ <- symbol ")"
   pure (imports ++ opens ++ body)
 
@@ -114,12 +116,12 @@ pModuleFlattened = do
 -- Module (full module form, used by parseModule)
 -- ---------------------------------------------------------------------------
 
-pModule :: Parser Module
-pModule = parens $ do
+pModule :: GrammarMode -> Parser Module
+pModule mode = parens $ do
   _ <- symbol "module"
   name <- pIdent
   imports <- many (try pImportStmt)
-  body <- many pStatement
+  body <- many (pStatement mode)
   pure $ Module name (map extractImport imports) body
   where
     extractImport (SImport i) = i
@@ -129,8 +131,11 @@ pModule = parens $ do
 -- Statements
 -- ---------------------------------------------------------------------------
 
-pStatement :: Parser Statement
-pStatement = choice
+pStatement :: GrammarMode -> Parser Statement
+pStatement mode = choice $
+  (case mode of
+    GrammarCoreInversion -> [pDef, pDefShell]
+    GrammarLegacy        -> []) ++
   [ pDefLogic
   , pLetrec
   , pDefMain
@@ -192,6 +197,51 @@ pLetrec = do
                Nothing     -> (Nothing, Nothing)
                Just (p, s) -> (Just p, s)
   pure $ SLetrec name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) dec body
+
+-- | LT-INV (v0.11): Parse (def name [params] (pre ...) (post ...) body) — strict-core.
+-- Uses notFollowedBy (char '-') so that (def-logic), (def-shell), (def-main),
+-- (def-interface) are not consumed as (def ...) with a leading '-'.
+pDef :: Parser Statement
+pDef = do
+  _ <- try (symbol "(" *>
+            lexeme' (string "def" <* notFollowedBy (char '-' <|> alphaNumChar <|> char '_')))
+  name <- pIdent
+  params <- brackets (many pDefParam)
+  preClauses <- many (try pPreClause)
+  postClause <- optional (try pPostClause)
+  mEntropy <- optional (try pSpecEntropyClause)
+  body <- pExpr
+  _ <- symbol ")"
+  let (mPre, mPreSrc) = case preClauses of
+               []       -> (Nothing, Nothing)
+               [(p, s)] -> (Just p, s)
+               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
+                            Nothing)
+      (mPost, mPostSrc) = case postClause of
+               Nothing     -> (Nothing, Nothing)
+               Just (p, s) -> (Just p, s)
+  pure $ SDef name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+
+-- | LT-INV (v0.11): Parse (def-shell name [params] (pre ...) (post ...) body) — permissive.
+pDefShell :: Parser Statement
+pDefShell = do
+  _ <- try (symbol "(" *> symbol "def-shell")
+  name <- pIdent
+  params <- brackets (many pDefParam)
+  preClauses <- many (try pPreClause)
+  postClause <- optional (try pPostClause)
+  mEntropy <- optional (try pSpecEntropyClause)
+  body <- pExpr
+  _ <- symbol ")"
+  let (mPre, mPreSrc) = case preClauses of
+               []       -> (Nothing, Nothing)
+               [(p, s)] -> (Just p, s)
+               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
+                            Nothing)
+      (mPost, mPostSrc) = case postClause of
+               Nothing     -> (Nothing, Nothing)
+               Just (p, s) -> (Just p, s)
+  pure $ SDefShell name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -738,16 +788,25 @@ pHoleExpr = choice
   , try pScaffoldHole
   , try pChooseHole
   , try pRequestCapHole
-  , try pProofRequiredHole  -- D3: must come before pNamedHole
+  , try pProofRequiredParensHole  -- LT-PPR: predicate-carrying form, before bare form
+  , try pProofRequiredHole        -- D3: bare form, must come before pNamedHole
   , pNamedHole
   ]
 
--- | Parse ?proof-required (D3 manual proof obligation marker).
+-- | Parse (?proof-required :reason "tag" pred-expr) — LT-PPR predicate-carrying form.
+pProofRequiredParensHole :: Parser Expr
+pProofRequiredParensHole = parens $ do
+  _ <- symbol "?proof-required"
+  reason <- option "manual" (symbol ":reason" *> pStringLiteral)
+  pred <- pExpr
+  pure $ EHole (HProofRequired reason (Just pred))
+
+-- | Parse ?proof-required (D3 manual proof obligation marker, bare leaf form).
 pProofRequiredHole :: Parser Expr
 pProofRequiredHole = do
   _ <- string "?proof-required"
   sc
-  pure $ EHole (HProofRequired "manual")
+  pure $ EHole (HProofRequired "manual" Nothing)
 
 pNamedHole :: Parser Expr
 pNamedHole = do
@@ -958,4 +1017,8 @@ reservedWords =
   , "capability", "letrec"
   -- v0.2 module system
   , "open", "export"
+  -- LT-INV (v0.11) core/shell grammar
+  , "def", "def-shell"
   ]
+
+-- isCoreBodySyntactic is defined in LLMLL.Syntax and re-exported from here.

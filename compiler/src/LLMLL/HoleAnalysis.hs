@@ -31,6 +31,8 @@ module LLMLL.HoleAnalysis
   , buildCallGraph
     -- * v0.10: pointer → function name (shared with ObligationAssembly)
   , enclosingFunc
+    -- * v0.11 LT-PPR: non-linear arithmetic predicate (shared with TypeCheck)
+  , isNonLinear
   ) where
 
 import Data.Text (Text)
@@ -145,14 +147,31 @@ collectHolesStmtIdx idx (SDefLogic name _params _ret contract body) =
       postHoles = maybe [] (collectHolesExprPath (base <> "/post") (ctx <> " [post]")) (contractPost contract)
       -- D3: auto-emit proof-required for non-linear pre/post constraints
       nlPreH  = maybe [] (\e -> if isNonLinear e
-                  then [classifyHoleP (base <> "/pre") (ctx <> " [pre]") Nothing (HProofRequired "non-linear-contract")]
+                  then [classifyHoleP (base <> "/pre") (ctx <> " [pre]") Nothing (HProofRequired "non-linear-contract" Nothing)]
                   else []) (contractPre contract)
       nlPostH = maybe [] (\e -> if isNonLinear e
-                  then [classifyHoleP (base <> "/post") (ctx <> " [post]") Nothing (HProofRequired "non-linear-contract")]
+                  then [classifyHoleP (base <> "/post") (ctx <> " [post]") Nothing (HProofRequired "non-linear-contract" Nothing)]
                   else []) (contractPost contract)
   in bodyHoles ++ preHoles ++ postHoles ++ nlPreH ++ nlPostH
 
 collectHolesStmtIdx _idx (SDefInterface _ _ _) = []
+
+-- LT-INV (v0.11): SDef and SDefShell collect holes identically to SDefLogic.
+collectHolesStmtIdx idx (SDef name _params _ret contract body) =
+  let base = "statements/" <> tshow idx
+      ctx  = "def " <> name
+      bodyHoles = collectHolesExprPath (base <> "/body") ctx body
+      preHoles  = maybe [] (collectHolesExprPath (base <> "/pre") (ctx <> " [pre]"))  (contractPre contract)
+      postHoles = maybe [] (collectHolesExprPath (base <> "/post") (ctx <> " [post]")) (contractPost contract)
+  in bodyHoles ++ preHoles ++ postHoles
+
+collectHolesStmtIdx idx (SDefShell name _params _ret contract body) =
+  let base = "statements/" <> tshow idx
+      ctx  = "def-shell " <> name
+      bodyHoles = collectHolesExprPath (base <> "/body") ctx body
+      preHoles  = maybe [] (collectHolesExprPath (base <> "/pre") (ctx <> " [pre]"))  (contractPre contract)
+      postHoles = maybe [] (collectHolesExprPath (base <> "/post") (ctx <> " [post]")) (contractPost contract)
+  in bodyHoles ++ preHoles ++ postHoles
 
 collectHolesStmtIdx idx (SLetrec name _params _ret contract dec body) =
   let base = "statements/" <> tshow idx
@@ -163,14 +182,14 @@ collectHolesStmtIdx idx (SLetrec name _params _ret contract dec body) =
       postHoles = maybe [] (collectHolesExprPath (base <> "/post") (ctx <> " [post]")) (contractPost contract)
       -- D3: complex :decreases
       complexDecH = if not (isSimpleDecreases dec)
-                    then [classifyHoleP (base <> "/decreases") (ctx <> " [decreases]") Nothing (HProofRequired "complex-decreases")]
+                    then [classifyHoleP (base <> "/decreases") (ctx <> " [decreases]") Nothing (HProofRequired "complex-decreases" Nothing)]
                     else []
       -- D3: non-linear contract constraints
       nlPreH  = maybe [] (\e -> if isNonLinear e
-                  then [classifyHoleP (base <> "/pre") (ctx <> " [pre]") Nothing (HProofRequired "non-linear-contract")]
+                  then [classifyHoleP (base <> "/pre") (ctx <> " [pre]") Nothing (HProofRequired "non-linear-contract" Nothing)]
                   else []) (contractPre contract)
       nlPostH = maybe [] (\e -> if isNonLinear e
-                  then [classifyHoleP (base <> "/post") (ctx <> " [post]") Nothing (HProofRequired "non-linear-contract")]
+                  then [classifyHoleP (base <> "/post") (ctx <> " [post]") Nothing (HProofRequired "non-linear-contract" Nothing)]
                   else []) (contractPost contract)
   in bodyHoles ++ decHoles ++ preHoles ++ postHoles
       ++ complexDecH ++ nlPreH ++ nlPostH
@@ -333,7 +352,7 @@ classifyHoleP path ctx mType hk = HoleEntry
   , holeStatus       = holeStatus' hk
   , holeDescription  = holeDesc hk
   , holeComplexity   = case hk of
-      HProofRequired reason -> Just (normalizeComplexity reason)
+      HProofRequired reason _ -> Just (normalizeComplexity reason)
       _                     -> Nothing
   , holeDependsOn    = []     -- filled later by computeHoleDeps
   , holeCycleWarn    = False  -- filled later by detectCycles
@@ -365,7 +384,7 @@ holeKindLabel (HDelegate spec)    = "?delegate @" <> delegateAgent spec
 holeKindLabel (HDelegateAsync s)  = "?delegate-async @" <> delegateAgent s
 holeKindLabel (HDelegatePending t) = "?pending(" <> typeLabel t <> ")"
 holeKindLabel HConflictResolution = "?conflict"
-holeKindLabel (HProofRequired r)  = "?proof-required(" <> r <> ")"
+holeKindLabel (HProofRequired r _) = "?proof-required(" <> r <> ")"
 
 holeDesc :: HoleKind -> Text
 holeDesc (HNamed n)           = "Named implementation hole: " <> n
@@ -376,7 +395,7 @@ holeDesc (HDelegate spec)     = delegateDescription spec
 holeDesc (HDelegateAsync spec) = delegateDescription spec <> " (async)"
 holeDesc (HDelegatePending t) = "Pending delegate returning " <> typeLabel t
 holeDesc HConflictResolution  = "Unresolved merge conflict — manual resolution required"
-holeDesc (HProofRequired r)   = "LiquidHaskell proof required [" <> r <> "]: this site cannot be statically verified without LH"
+holeDesc (HProofRequired r _) = "LiquidHaskell proof required [" <> r <> "]: this site cannot be statically verified without LH"
 
 -- ---------------------------------------------------------------------------
 -- Report Builder
@@ -478,7 +497,7 @@ formatHoleReportJson _fp includeDeps report =
     holeKindTag (HDelegateAsync _)  = "delegate-async"
     holeKindTag (HDelegatePending _)= "delegate-pending"
     holeKindTag HConflictResolution = "conflict"
-    holeKindTag (HProofRequired _)  = "proof-required"
+    holeKindTag (HProofRequired _ _) = "proof-required"
 
     statusStr Blocking    = "blocking"      :: Text
     statusStr AgentTask   = "agent-task"
@@ -499,10 +518,24 @@ holeDensityWarnings = concatMap checkStmt
     checkStmt (SDefLogic name _params _ret _contract body) =
       case body of
         EHole (HNamed holeName_) ->
-          [ (mkWarning Nothing $
-              "def-logic '" <> name <> "' body is entirely a single named hole (?" <> holeName_ <> "). "
-              <> "Prefer targeted holes over wholesale stubs.")
-          ]
+          [mkWarning Nothing $
+            "def-logic '" <> name <> "' body is entirely a single named hole (?" <> holeName_ <> "). "
+            <> "Prefer targeted holes over wholesale stubs."]
+        _ -> []
+    -- LT-INV (v0.11): same density check for SDef and SDefShell.
+    checkStmt (SDef name _params _ret _contract body) =
+      case body of
+        EHole (HNamed holeName_) ->
+          [mkWarning Nothing $
+            "def '" <> name <> "' body is entirely a single named hole (?" <> holeName_ <> "). "
+            <> "Prefer targeted holes over wholesale stubs."]
+        _ -> []
+    checkStmt (SDefShell name _params _ret _contract body) =
+      case body of
+        EHole (HNamed holeName_) ->
+          [mkWarning Nothing $
+            "def-shell '" <> name <> "' body is entirely a single named hole (?" <> holeName_ <> "). "
+            <> "Prefer targeted holes over wholesale stubs."]
         _ -> []
     checkStmt _ = []
 
@@ -545,6 +578,9 @@ buildCallGraph stmts = Map.fromList $ mapMaybe go stmts
   where
     go (SDefLogic name _ _ _ body)  = Just (name, nub $ extractCalls body)
     go (SLetrec name _ _ _ _ body)  = Just (name, nub $ extractCalls body)
+    -- LT-INV (v0.11)
+    go (SDef      name _ _ _ body)  = Just (name, nub $ extractCalls body)
+    go (SDefShell name _ _ _ body)  = Just (name, nub $ extractCalls body)
     go _                            = Nothing
 
 -- | Build map: function name → list of body holes (only AgentTask/Blocking).
@@ -578,6 +614,9 @@ enclosingFunc pointer stmts =
   where
     stmtName (SDefLogic name _ _ _ _)    = Just name
     stmtName (SLetrec name _ _ _ _ _)    = Just name
+    -- LT-INV (v0.11)
+    stmtName (SDef      name _ _ _ _)    = Just name
+    stmtName (SDefShell name _ _ _ _)    = Just name
     stmtName _                           = Nothing
 
 -- | Compute dependency edges for all holes.

@@ -4,7 +4,7 @@ module Main (main) where
 import Test.Hspec
 import Control.Monad (forM_)
 import Control.Exception (finally)
-import Data.Maybe (fromJust, isJust, listToMaybe)
+import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Encoding as TE
@@ -109,7 +109,7 @@ main = hspec $ do
   describe "Parser" $ do
     it "parses a type definition" $ do
       let src = "(type PositiveInt (where [x: int] (> x 0)))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
 
@@ -118,7 +118,7 @@ main = hspec $ do
                 \  (pre (>= balance amount))\n\
                 \  (post (= result (- balance amount)))\n\
                 \  (- balance amount))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -134,7 +134,7 @@ main = hspec $ do
       let src = "(check \"Addition is commutative\"\n\
                 \  (for-all [a: int b: int]\n\
                 \    (= (+ a b) (+ b a))))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -151,7 +151,7 @@ main = hspec $ do
 
     it "parses the withdraw example file" $ do
       src <- TIO.readFile "../examples/withdraw.llmll"
-      case parseStatements "../examples/withdraw.llmll" src of
+      case parseStatements GrammarLegacy "../examples/withdraw.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> length stmts `shouldSatisfy` (>= 3)
 
@@ -159,7 +159,7 @@ main = hspec $ do
       let src = "(def-interface AuthSystem\n\
                 \  [hash-password (fn [raw: string] -> bytes[64])]\n\
                 \  [verify-token  (fn [token: string] -> bool)])"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -230,7 +230,7 @@ main = hspec $ do
     it "def-interface with → parses same as with ->" $ do
       let ascii   = "(def-interface X [f (fn [string] -> bool)])"
           unicode = "(def-interface X [f (fn [string] → bool)])"
-      let parseOne src = parseStatements "<test>" src
+      let parseOne src = parseStatements GrammarLegacy "<test>" src
       case (parseOne ascii, parseOne unicode) of
         (Right a, Right b) -> a `shouldBe` b
         (Left err, _)      -> expectationFailure $ "ASCII parse failed: " ++ show err
@@ -238,14 +238,14 @@ main = hspec $ do
 
     it "∀ expression in check block parses correctly" $ do
       let src = "(check \"commutativity\" (∀ [a: int b: int] (= (+ a b) (+ b a))))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err   -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
 
   describe "TypeCheck (where binding scope)" $ do
     it "string where-type binding name preserved in AST" $ do
       let src = "(type Word (where [s: string] (> (string-length s) 0)))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right [STypeDef _name (TDependent bName _base _constraint)] ->
           bName `shouldBe` "s"
@@ -253,7 +253,7 @@ main = hspec $ do
 
     it "int where-type binding name preserved in AST" $ do
       let src = "(type NonNeg (where [n: int] (>= n 0)))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right [STypeDef _name (TDependent bName _base _constraint)] ->
           bName `shouldBe` "n"
@@ -268,7 +268,7 @@ main = hspec $ do
             [ "(type NonNeg (where [n: int] (>= n 0)))"
             , "(def-logic use-nonneg [x: NonNeg] x)"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -279,7 +279,7 @@ main = hspec $ do
             [ "(type Word (where [s: string] (> (string-length s) 0)))"
             , "(def-logic use-word [w: Word] w)"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -301,7 +301,7 @@ main = hspec $ do
             , "    ((Success (Blue)) \"blue\")"
             , "    ((Error e) \"err\")))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -320,7 +320,7 @@ main = hspec $ do
             , "    ((pair (Green) n) n)"
             , "    ((pair (Blue) n) n)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -337,7 +337,7 @@ main = hspec $ do
             , "(def-logic f [x: A]"
             , "  (match x ((Foo) \"found\")))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -350,7 +350,7 @@ main = hspec $ do
             , "(def-logic f [x: A y: A]"
             , "  (+ x y))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -367,7 +367,7 @@ main = hspec $ do
             , "(def-logic f [b: bool c: Color]"
             , "  (if b c 42))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -389,7 +389,7 @@ main = hspec $ do
             , "(def-logic f [x: MyInt b: bool]"
             , "  (if b x 42))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -404,7 +404,7 @@ main = hspec $ do
             [ "(type Flag bool)"
             , "(def-logic f [x: Flag] (pre x) x)"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -423,7 +423,7 @@ main = hspec $ do
             , "    ((Red) x)"
             , "    ((Green) 42)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -439,7 +439,7 @@ main = hspec $ do
             , "(def-logic f [p: P]"
             , "  (match p ((pair a b) a)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -451,7 +451,7 @@ main = hspec $ do
             [ "(type A B)"
             , "(type B A)"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -466,7 +466,7 @@ main = hspec $ do
             [ "(type A list[B])"
             , "(type B list[A])"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -484,7 +484,7 @@ main = hspec $ do
             , "    ((Leaf) 0)"
             , "    ((Node sub) 1)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -500,7 +500,7 @@ main = hspec $ do
             , "(def-logic f [xs: list[Color]]"
             , "  (list-length xs))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -516,7 +516,7 @@ main = hspec $ do
             , "    ((Green) \"green\")"
             , "    ((Blue) \"blue\")))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -530,7 +530,7 @@ main = hspec $ do
       -- v0.4 U2-lite: first :: TFn [TPair a b] a (was TFn [TVar p] (TVar a))
       let src = T.pack $ unlines
             [ "(def-logic state-word [s: (string, int)] (first s))" ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -539,7 +539,7 @@ main = hspec $ do
     it "second accepts a pair-typed param (v0.4 U2-lite: requires TPair)" $ do
       let src = T.pack $ unlines
             [ "(def-logic state-rest [s: (int, string)] (second s))" ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -548,7 +548,7 @@ main = hspec $ do
     it "first on non-pair (string) now produces type error (U2-lite)" $ do
       let src = T.pack $ unlines
             [ "(def-logic state-word [s: string] (first s))" ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -677,7 +677,7 @@ main = hspec $ do
   describe "TSumType (structured sum type)" $ do
     it "S-expression: (type Color (| Red) (| Green) (| Blue)) parses to TSumType" $ do
       let src = "(type Color (| Red) (| Green) (| Blue))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -692,7 +692,7 @@ main = hspec $ do
 
     it "S-expression: sum type with payload parses payload type" $ do
       let src = "(type Shape (| Circle int) (| Rect))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case stmts of
@@ -724,7 +724,7 @@ main = hspec $ do
             , "    ((Green) \"green\")"
             , "    ((Blue) \"blue\")))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -741,7 +741,7 @@ main = hspec $ do
             , "    ((Red) \"red\")"
             , "    ((Green) \"green\")))"   -- Blue is missing
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -758,7 +758,7 @@ main = hspec $ do
             , "    ((Red) \"red\")"
             , "    (_ \"other\")))"   -- wildcard covers rest
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -772,7 +772,7 @@ main = hspec $ do
             , "  (match r"
             , "    ((Success v) v)))"   -- Error arm missing
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -787,7 +787,7 @@ main = hspec $ do
   describe "D2 letrec :decreases" $ do
     it "S-expression: letrec with :decreases parses to SLetrec" $ do
       let src = "(letrec count-down [n: int] :decreases n (if (= n 0) 0 (count-down (- n 1))))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -803,7 +803,7 @@ main = hspec $ do
             [ "(def-logic count-down [n: int]"
             , "  (if (= n 0) 0 (count-down (- n 1))))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -814,7 +814,7 @@ main = hspec $ do
 
     it "letrec self-call does NOT emit self-recursion warning" $ do
       let src = "(letrec count-down [n: int] :decreases n (if (= n 0) 0 (count-down (- n 1))))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -837,11 +837,11 @@ main = hspec $ do
   describe "D3 ?proof-required hole" $ do
     it "?proof-required parses as HProofRequired manual in S-expression" $ do
       let src = "(def-logic dummy [] ?proof-required)"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefLogic _ _ _ _ (EHole (HProofRequired r)) ->
+            SDefLogic _ _ _ _ (EHole (HProofRequired r _)) ->
               r `shouldBe` "manual"
             _ -> expectationFailure "Expected EHole (HProofRequired \"manual\")"
 
@@ -849,7 +849,7 @@ main = hspec $ do
       let stmts = [SLetrec "f" [("n", TInt)] Nothing
                      (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "n") (EVar "n")]
       let report = analyzeHoles stmts
-      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases")
+      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases" Nothing)
                            (holeEntries report)
       prHoles `shouldBe` []
 
@@ -860,7 +860,7 @@ main = hspec $ do
                      (EApp "-" [EVar "n", ELit (LitInt 1)])
                      (EVar "n")]
       let report = analyzeHoles stmts
-      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases")
+      let prHoles = filter (\h -> holeKind h == HProofRequired "complex-decreases" Nothing)
                            (holeEntries report)
       length prHoles `shouldBe` 1
 
@@ -870,9 +870,216 @@ main = hspec $ do
       let stmts = [SDefLogic "f" [("n", TInt)] Nothing
                      (Contract (Just nlExpr) Nothing Nothing Nothing Nothing) (EVar "n")]
       let report = analyzeHoles stmts
-      let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract")
+      let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract" Nothing)
                            (holeEntries report)
       length prHoles `shouldBe` 1
+
+  -- -----------------------------------------------------------------------
+  -- LT-PPR (v0.11): predicate-carrying ?proof-required
+  -- -----------------------------------------------------------------------
+  describe "LT-PPR predicate-carrying ?proof-required" $ do
+
+    -- PPR-P1: leaf form unchanged
+    it "PPR-P1 leaf ?proof-required still parses as HProofRequired manual Nothing" $ do
+      let src = "(def-logic f [] ?proof-required)"
+      case parseStatements GrammarLegacy "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case head stmts of
+            SDefLogic _ _ _ _ (EHole (HProofRequired r mp)) -> do
+              r  `shouldBe` "manual"
+              mp `shouldBe` Nothing
+            _ -> expectationFailure "Expected SDefLogic with HProofRequired"
+
+    -- PPR-P2: parens form with predicate, default reason
+    it "PPR-P2 (?proof-required pred) parses as HProofRequired manual (Just pred)" $ do
+      let src = "(def-logic f [n: int] (?proof-required (> n 0)))"
+      case parseStatements GrammarLegacy "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case head stmts of
+            SDefLogic _ _ _ _ (EHole (HProofRequired r (Just _))) ->
+              r `shouldBe` "manual"
+            _ -> expectationFailure "Expected predicate-carrying HProofRequired"
+
+    -- PPR-P3: parens form with :reason tag
+    it "PPR-P3 (?proof-required :reason \"custom\" pred) uses supplied reason" $ do
+      let src = "(def-logic f [n: int] (?proof-required :reason \"custom\" (> n 0)))"
+      case parseStatements GrammarLegacy "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case head stmts of
+            SDefLogic _ _ _ _ (EHole (HProofRequired r (Just _))) ->
+              r `shouldBe` "custom"
+            _ -> expectationFailure "Expected custom reason in HProofRequired"
+
+    -- PPR-P4: JSON-AST predicate field roundtrips through parseJSONAST
+    it "PPR-P4 JSON hole-proof-required with predicate field parses correctly" $ do
+      let src = BLC.pack $ unlines
+            [ "{\"schemaVersion\":\"0.5.0\",\"statements\":["
+            , "{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[]"
+            , ",\"body\":{\"kind\":\"hole-proof-required\",\"reason\":\"manual\""
+            , ",\"predicate\":{\"kind\":\"lit-bool\",\"value\":true}}}]}"
+            ]
+      case parseJSONAST "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          case head stmts of
+            SDefLogic _ _ _ _ (EHole (HProofRequired _ (Just _))) -> pure ()
+            _ -> expectationFailure "Expected predicate-carrying HProofRequired from JSON"
+
+    -- PPR-T1: valid bool predicate passes typecheck
+    it "PPR-T1 bool predicate in PPR contract clause passes typecheck" $ do
+      let src = "(def-logic f [n: int] (pre (?proof-required (> n 0))) n)"
+      case parseStatements GrammarLegacy "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+          errs `shouldBe` []
+
+    -- PPR-T2: non-bool predicate emits a type error
+    it "PPR-T2 non-bool predicate in PPR clause emits type error" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EHole (HProofRequired "manual" (Just (EVar "n"))))) Nothing Nothing Nothing Nothing)
+                     (EVar "n")]
+      let report = typeCheck emptyEnv stmts
+      let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      length errs `shouldBe` 1
+
+    -- PPR-T3: no-predicate form emits proof-required warning only
+    it "PPR-T3 no-predicate ?proof-required emits warning but no error" $ do
+      let stmts = [SDefLogic "f" [] Nothing
+                     (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EHole (HProofRequired "manual" Nothing))]
+      let report = typeCheck emptyEnv stmts
+      let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      errs `shouldBe` []
+
+    -- PPR-T4: non-linear predicate emits a QF-LIA warning
+    it "PPR-T4 non-linear predicate in PPR clause emits non-linear warning" $ do
+      let nlPred = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
+          stmts  = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                      (Contract (Just (EHole (HProofRequired "manual" (Just nlPred)))) Nothing Nothing Nothing Nothing)
+                      (EVar "n")]
+      let report = typeCheck emptyEnv stmts
+      let warns = filter (\d -> diagSeverity d == SevWarning
+                              && T.isInfixOf "non-linear" (diagMessage d))
+                         (reportDiagnostics report)
+      length warns `shouldSatisfy` (>= 1)
+
+    -- PPR-T5: predicate in post position with result variable passes typecheck
+    it "PPR-T5 bool predicate in post-position PPR clause with result passes typecheck" $ do
+      let src = "(def-logic f [n: int] (post (?proof-required (> result 0))) n)"
+      case parseStatements GrammarLegacy "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck emptyEnv stmts
+          let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+          errs `shouldBe` []
+
+    -- PPR-A1: leaf form holeToJson emits no predicate field
+    it "PPR-A1 leaf HProofRequired holeToJson has no predicate key" $ do
+      let stmt = SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                            (EHole (HProofRequired "manual" Nothing))
+          json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
+      T.isInfixOf "predicate" json `shouldBe` False
+
+    -- PPR-A2: predicate form holeToJson includes predicate field
+    it "PPR-A2 predicate-carrying HProofRequired holeToJson includes predicate key" $ do
+      let pred = EApp ">" [EVar "n", ELit (LitInt 0)]
+          stmt = SDefLogic "f" [("n", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                            (EHole (HProofRequired "manual" (Just pred)))
+          json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
+      T.isInfixOf "predicate" json `shouldBe` True
+
+    -- PPR-TR1: erPredicateForm = Just "runtime" for predicate-carrying clause
+    it "PPR-TR1 predicate-carrying pre clause has erPredicateForm = Just runtime" $ do
+      let pred  = EApp ">" [EVar "n", ELit (LitInt 0)]
+          stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EHole (HProofRequired "manual" (Just pred)))) Nothing Nothing Nothing Nothing)
+                     (EVar "n")]
+          report = buildTrustReport Map.empty stmts Map.empty
+          entries = trEntries report
+      case filter (\e -> teName e == "f") entries of
+        [e] -> erPredicateForm <$> tePre e `shouldBe` Just (Just "runtime")
+        _   -> expectationFailure "Expected entry for f"
+
+    -- PPR-TR2: plain clause has erPredicateForm = Nothing
+    it "PPR-TR2 plain contract clause has erPredicateForm = Nothing" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
+                     (EVar "n")]
+          report = buildTrustReport Map.empty stmts Map.empty
+          entries = trEntries report
+      case filter (\e -> teName e == "f") entries of
+        [e] -> erPredicateForm <$> tePre e `shouldBe` Just Nothing
+        _   -> expectationFailure "Expected entry for f"
+
+    -- PPR-TR3: erRuntimeCheckEmitted = True for predicate-carrying clause
+    it "PPR-TR3 predicate-carrying clause has erRuntimeCheckEmitted = True" $ do
+      let pred  = EApp ">" [EVar "n", ELit (LitInt 0)]
+          stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EHole (HProofRequired "manual" (Just pred)))) Nothing Nothing Nothing Nothing)
+                     (EVar "n")]
+          report = buildTrustReport Map.empty stmts Map.empty
+          entries = trEntries report
+      case filter (\e -> teName e == "f") entries of
+        [e] -> erRuntimeCheckEmitted <$> tePre e `shouldBe` Just True
+        _   -> expectationFailure "Expected entry for f"
+
+    -- PPR-TR4: formatTrustReportJson emits pre_predicate_form when PPR predicate present
+    it "PPR-TR4 formatTrustReportJson includes pre_predicate_form for PPR clause" $ do
+      let pred  = EApp ">" [EVar "n", ELit (LitInt 0)]
+          stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EHole (HProofRequired "manual" (Just pred)))) Nothing Nothing Nothing Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          jsonTxt = formatTrustReportJson report
+      T.isInfixOf "pre_predicate_form" jsonTxt `shouldBe` True
+
+    -- PPR-CG1: pre-position predicate-carrying PPR emits predicate assertion
+    it "PPR-CG1 pre-position predicate-carrying PPR emits runtime predicate assertion" $ do
+      let pred  = EApp ">" [EVar "n", ELit (LitInt 0)]
+          stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EHole (HProofRequired "manual" (Just pred)))) Nothing Nothing Nothing Nothing)
+                     (EVar "n")]
+          result = generateHaskell "Test" stmts
+          src    = cgHsSource result
+      T.isInfixOf "pre-condition (proof-required predicate) failed" src `shouldBe` True
+      T.isInfixOf "PROOF REQUIRED" src `shouldBe` False
+
+    -- PPR-CG2: post-position predicate-carrying PPR wraps result in let
+    it "PPR-CG2 post-position predicate-carrying PPR wraps result in let binding" $ do
+      let pred  = EApp ">" [EVar "result", ELit (LitInt 0)]
+          stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract Nothing Nothing (Just (EHole (HProofRequired "manual" (Just pred)))) Nothing Nothing)
+                     (EVar "n")]
+          result = generateHaskell "Test" stmts
+          src    = cgHsSource result
+      T.isInfixOf "_result_" src `shouldBe` True
+      T.isInfixOf "post-condition (proof-required predicate) failed" src `shouldBe` True
+
+    -- PPR-CG3: body-position HProofRequired still emits error stub
+    it "PPR-CG3 body-position HProofRequired emits PROOF REQUIRED error stub" $ do
+      let out = emitHole (HProofRequired "manual" Nothing)
+      T.isInfixOf "PROOF REQUIRED" out `shouldBe` True
+      let out2 = emitHole (HProofRequired "manual" (Just (EVar "x")))
+      T.isInfixOf "PROOF REQUIRED" out2 `shouldBe` True
+
+    -- PPR-G1: isCoreBodySyntactic rejects HProofRequired in body regardless of predicate
+    it "PPR-G1 isCoreBodySyntactic rejects HProofRequired hole in def body" $ do
+      isCoreBodySyntactic (EHole (HProofRequired "manual" Nothing))      `shouldBe` False
+      isCoreBodySyntactic (EHole (HProofRequired "manual" (Just (EVar "n")))) `shouldBe` False
+
+    -- PPR-G2: holeName field of HoleEntry includes reason tag for 2-arg form
+    it "PPR-G2 HoleEntry holeName includes reason tag for predicate-carrying HProofRequired" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] Nothing
+                     (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EHole (HProofRequired "custom" (Just (EVar "n"))))]
+          report = analyzeHoles stmts
+          names  = map holeName (holeEntries report)
+      any (T.isInfixOf "custom") names `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- Phase 2c: pair-type in typed-param positions
@@ -880,13 +1087,13 @@ main = hspec $ do
   describe "Phase 2c pair-type in typed-param" $ do
     it "S-expression: (int, string) in def-logic param parses without error" $ do
       let src = "(def-logic f [acc: (int, string)] (first acc))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
 
     it "S-expression: pair-type parameter parsed as TPair TInt TString" $ do
       let src = "(def-logic f [acc: (int, string)] (first acc))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right [SDefLogic _ params _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
@@ -895,7 +1102,7 @@ main = hspec $ do
     it "S-expression: (int, string) typed param passes type-check" $ do
       let src = T.pack $ unlines
             [ "(def-logic f [acc: (int, string)] (first acc))" ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -939,7 +1146,7 @@ main = hspec $ do
             [ "(def-logic f [a: string b: string c: string]"
             , "  (string-concat a b c))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -948,7 +1155,7 @@ main = hspec $ do
 
     it "string-concat with correct 2 args has no arity error" $ do
       let src = "(def-logic f [a: string b: string] (string-concat a b))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -1029,7 +1236,7 @@ main = hspec $ do
             [ "(def-logic greet [formal: bool]"
             , "  (if formal \"Good day.\" ?informal))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1044,7 +1251,7 @@ main = hspec $ do
             [ "(def-logic safe-div [n: int]"
             , "  (if (= n 0) ?zero_case 42))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1061,7 +1268,7 @@ main = hspec $ do
             , "    ((Green) \"green\")"
             , "    ((Blue) ?blue_label)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1078,7 +1285,7 @@ main = hspec $ do
             , "    ((Green) 42)"
             , "    ((Blue) ?conflict_arm)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1097,7 +1304,7 @@ main = hspec $ do
             , "    ((Green) 42)"
             , "    ((Blue) ?conflict_arm)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1109,7 +1316,7 @@ main = hspec $ do
             [ "(def-logic f [x: int] x)"
             , "(def-logic caller [] (f ?arg))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1120,7 +1327,7 @@ main = hspec $ do
     it "isolated hole with no context gets HoleUnknown" $ do
       let src = T.pack $ unlines
             [ "(def-logic mystery [] ?isolated)" ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1133,7 +1340,7 @@ main = hspec $ do
             [ "(def-logic id-str [s: string]"
             , "  (if (= (string-length s) 0) \"empty\" s))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -1149,7 +1356,7 @@ main = hspec $ do
       -- (def-logic f [] (if true 42 "hello")) — branches differ, no holes
       let src = T.pack $ unlines
             [ "(def-logic f [] (if true 42 \"hello\"))" ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let diags = reportDiagnostics (typeCheck emptyEnv stmts)
@@ -1164,7 +1371,7 @@ main = hspec $ do
       let src = T.pack $ unlines
             [ "(def-logic f [x: int] ?impl)"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           -- In sketch mode: ?impl synthesises to TVar "?impl".
@@ -1181,7 +1388,7 @@ main = hspec $ do
       -- A hole in synthesis position must return TVar "?name", not TVar "?"
       let src = T.pack $ unlines
             [ "(def-logic f [x: int] ?impl)" ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1200,7 +1407,7 @@ main = hspec $ do
             [ "(def-logic greet [formal: bool]"
             , "  (if formal \"Good day.\" ?informal))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1217,7 +1424,7 @@ main = hspec $ do
             , "    ((Green) \"green\")"   -- arm 1
             , "    ((Blue) ?blue_label)))" -- arm 2
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -1230,7 +1437,7 @@ main = hspec $ do
             [ "(def-logic f [x: int] x)"
             , "(def-logic g [s: string] s)"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -1870,8 +2077,8 @@ main = hspec $ do
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
         defaultCS = ContractStatus Nothing Nothing []
-        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) []
-        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) []
+        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) []
+        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) []
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -1901,61 +2108,61 @@ main = hspec $ do
 
   describe "parseTrustDecl (S-expression)" $ do
     it "parses (trust foo.bar :level tested)" $ do
-      case parseStatements "<test>" "(trust foo.bar :level tested)" of
+      case parseStatements GrammarLegacy "<test>" "(trust foo.bar :level tested)" of
         Right [STrust target (DLTested _)] -> do
           target `shouldBe` "foo.bar"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (trust crypto.hash.pbkdf2 :level asserted)" $ do
-      case parseStatements "<test>" "(trust crypto.hash.pbkdf2 :level asserted)" of
+      case parseStatements GrammarLegacy "<test>" "(trust crypto.hash.pbkdf2 :level asserted)" of
         Right [STrust target level] -> do
           target `shouldBe` "crypto.hash.pbkdf2"
           level `shouldBe` DLAsserted
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (trust z3.verify :level contract-checked)" $ do
-      case parseStatements "<test>" "(trust z3.verify :level contract-checked)" of
+      case parseStatements GrammarLegacy "<test>" "(trust z3.verify :level contract-checked)" of
         Right [STrust target (DLContractChecked _)] -> do
           target `shouldBe` "z3.verify"
         other -> expectationFailure $ "unexpected: " ++ show other
 
   describe "parseWeaknessOk (S-expression)" $ do
     it "parses (weakness-ok f \"known identity\")" $ do
-      case parseStatements "<test>" "(weakness-ok f \"known identity\")" of
+      case parseStatements GrammarLegacy "<test>" "(weakness-ok f \"known identity\")" of
         Right [SWeaknessOk name reason] -> do
           name `shouldBe` "f"
           reason `shouldBe` "known identity"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "WO-5: rejects (weakness-ok f \"\") — empty reason" $ do
-      case parseStatements "<test>" "(weakness-ok f \"\")" of
+      case parseStatements GrammarLegacy "<test>" "(weakness-ok f \"\")" of
         Left _err -> pure ()  -- expected: parse error
         Right r   -> expectationFailure $ "should reject empty reason, got: " ++ show r
 
   describe "contract :source annotation (v0.6)" $ do
     it "parses (pre expr :source \"...\") with source" $ do
-      case parseStatements "<test>" "(def-logic f [x: int] (pre (>= x 0) :source \"ERC-20 §6.1\") x)" of
+      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (pre (>= x 0) :source \"ERC-20 §6.1\") x)" of
         Right [SDefLogic _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Just "ERC-20 §6.1"
           contractPostSource contract `shouldBe` Nothing
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (post expr :source \"...\") with source" $ do
-      case parseStatements "<test>" "(def-logic f [x: int] (post (>= result 0) :source \"safety invariant\") x)" of
+      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (post (>= result 0) :source \"safety invariant\") x)" of
         Right [SDefLogic _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Just "safety invariant"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses both pre and post with :source" $ do
-      case parseStatements "<test>" "(def-logic f [x: int] (pre (> x 0) :source \"precond\") (post (>= result 0) :source \"postcond\") x)" of
+      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (pre (> x 0) :source \"precond\") (post (>= result 0) :source \"postcond\") x)" of
         Right [SDefLogic _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Just "precond"
           contractPostSource contract `shouldBe` Just "postcond"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "backward compat: pre/post without :source still parse" $ do
-      case parseStatements "<test>" "(def-logic f [x: int] (pre (>= x 0)) (post (>= result 0)) x)" of
+      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (pre (>= x 0)) (post (>= result 0)) x)" of
         Right [SDefLogic _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Nothing
@@ -1987,8 +2194,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
-          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) Nothing [])
+          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
+          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) Nothing [])
           ]
         emptyMap = DM.empty
 
@@ -2017,8 +2224,8 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False)) [])
-            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) Nothing [])
+            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False)) [])
+            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) Nothing [])
             ]
       saveVerified testFile statuses
       loaded <- loadVerified testFile
@@ -2047,7 +2254,7 @@ main = hspec $ do
           , meAliasMap = DM.empty
           , mePath = modPath
           , meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])]
+              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])]
           , meContracts = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
@@ -2060,7 +2267,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])] }
+              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache provenCache emptyEnv callerStmts
@@ -2114,28 +2321,28 @@ main = hspec $ do
 
     -- Test 1: Asserted contracts emit trust-gap warnings
     it "asserted contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -2144,7 +2351,7 @@ main = hspec $ do
 
     -- Test 5: Trust declaration at DLTested suppresses DLTested gap
     it "trust declaration at tested level suppresses tested trust-gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" (DLTested 0)
@@ -2158,7 +2365,7 @@ main = hspec $ do
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
     -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
     it "trust at asserted does NOT suppress tested-level gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" DLAsserted  -- asserted < tested
@@ -2179,7 +2386,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])]
+                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])]
             , meContracts      = DM.empty
             }
           cryptoEnv = ModuleEnv
@@ -2189,7 +2396,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
-                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) Nothing [])]
+                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) Nothing [])]
             , meContracts      = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
@@ -2245,9 +2452,9 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           -- Entry function is proven but calls asserted crypto.hash
           stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
@@ -2265,7 +2472,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing Nothing)
@@ -2278,9 +2485,9 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) (Just (EvidenceRecord DLAsserted False Nothing [] False)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")
@@ -2312,7 +2519,7 @@ main = hspec $ do
     -- Test 6: Human-readable format contains function names and levels
     it "formatTrustReport contains function names and verification levels" $ do
       let assertedMod = mkModEnv "verify-token" ["auth"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False)) Nothing [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) Nothing [])
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
           report = buildTrustReport cache stmts Map.empty
@@ -2333,8 +2540,8 @@ main = hspec $ do
     let mkEntry name pre post =
           TrustEntry
             { teName               = name
-            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing [] False) pre
-            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing [] False) post
+            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False) pre
+            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False) post
             , teDeps               = []
             , teDrifts             = []
             , teEffectiveLevel     = Nothing  -- aggregateTiers falls back to ContractStatus meet
@@ -2468,7 +2675,7 @@ main = hspec $ do
 
     -- Parser roundtrip (1)
     it "(await expr) parses to EAwait" $ do
-      case parseStatements "<test>" "(def-logic f [] (await (+ 1 2)))" of
+      case parseStatements GrammarLegacy "<test>" "(def-logic f [] (await (+ 1 2)))" of
         Right [SDefLogic _ _ _ _ (EAwait _)] -> pure ()
         other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -2498,7 +2705,7 @@ main = hspec $ do
 
     -- Parser (2)
     it "(?scaffold todo-app) parses to EHole (HScaffold ...)" $ do
-      case parseStatements "<test>" "(def-logic f [] (?scaffold todo-app))" of
+      case parseStatements GrammarLegacy "<test>" "(def-logic f [] (?scaffold todo-app))" of
         Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
           scaffoldTemplate spec `shouldBe` "todo-app"
         other -> expectationFailure $ "unexpected: " ++ show other
@@ -2551,7 +2758,7 @@ main = hspec $ do
     -- Codegen integration (1)
     it "Generated Main.hs for console mode contains event-log.jsonl" $ do
       let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Right stmts -> do
           let result = generateHaskell "testmod" stmts
           case cgMainHs result of
@@ -2687,7 +2894,7 @@ main = hspec $ do
 
     it "formatHoleReportJson includes complexity for proof-required holes" $ do
       let stmts = [SDefLogic "safe-div" [("n", TInt), ("d", TInt)] Nothing
-                     (Contract Nothing Nothing Nothing Nothing Nothing) (EHole (HProofRequired "complex-decreases"))]
+                     (Contract Nothing Nothing Nothing Nothing Nothing) (EHole (HProofRequired "complex-decreases" Nothing))]
           report = HA.analyzeHoles stmts
           json   = HA.formatHoleReportJson "<test>" False report
       T.isInfixOf "complexity" json `shouldBe` True
@@ -2795,10 +3002,10 @@ verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
                          Nothing
                          (Just (EOp ">" [EVar "result", ELit (LitInt 0)]))
                          Nothing Nothing)
-                      (EHole (HProofRequired "complex-decreases"))
+                      (EHole (HProofRequired "complex-decreases" Nothing))
                   ]
           proofHoles = [ (n, c)
-                       | SDefLogic n _ _ c (EHole (HProofRequired _)) <- stmts
+                       | SDefLogic n _ _ c (EHole (HProofRequired _ _)) <- stmts
                        ]
       length proofHoles `shouldBe` 1
       case proofHoles of
@@ -3001,7 +3208,7 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
     it "Generated Main.hs with :done? has loop s' logHandle seqRef" $ do
       -- Use a console program with :done? that stops when input is "quit"
       let src = "(def-main :mode console :init \"\" :step (fn [s: string input: string] (pair input (wasi.io.stdout input))) :done? (fn [s: string] (= s \"quit\")))"
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Right stmts -> do
           let result = generateHaskell "testdone" stmts
           case cgMainHs result of
@@ -3030,12 +3237,12 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
                           (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
                           Nothing Nothing
                       , letrecDecreases = EVar "n"
-                      , letrecBody     = EHole (HProofRequired "complex-decreases")
+                      , letrecBody     = EHole (HProofRequired "complex-decreases" Nothing)
                       }
                   ]
           -- Same pattern used by runLeanstralPipeline
           proofHoles = [ (n, c)
-                       | SLetrec n _ _ c _ (EHole (HProofRequired _)) <- stmts
+                       | SLetrec n _ _ c _ (EHole (HProofRequired _ _)) <- stmts
                        ]
       length proofHoles `shouldBe` 1
       fst (head proofHoles) `shouldBe` "fib"
@@ -3162,7 +3369,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Dependency scope exclusions" $ do
     it "?proof-required holes do not appear in depends_on" $ do
       let prog = [ SDefLogic "hash" [("x", TString)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
-                     (EHole (HProofRequired "complex-decreases"))
+                     (EHole (HProofRequired "complex-decreases" Nothing))
                  , SDefLogic "login" [("u", TString)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EApp "hash" [EHole (HDelegate (DelegateSpec "agent" "login" TString Nothing))])
                  ]
@@ -3237,7 +3444,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "    (let [(x 42)] x)"
             , "    ?else_hole))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -3254,7 +3461,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ "(def-logic greet [name: string]"
             , "  ?greeting)"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -3272,7 +3479,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  (let [(y (+ x 1))]"
             , "    ?body))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -3293,7 +3500,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "    ((Green) \"green\")"
             , "    ((Blue) ?blue)))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch emptyEnv stmts []
@@ -3440,7 +3647,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ "(def-logic greet [name: string]"
             , "  (wasi.io.stdout name))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -3457,7 +3664,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  (let [(msg (wasi.io.stdout name))]"
             , "    msg))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -3583,7 +3790,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ "(type Word (where [s: string] (> (string-length s) 0)))"
             , "(def-logic get-word [p: (Word, int)] (first p))"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -3986,7 +4193,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  [(for-all [x: string]"
             , "    (= (normalize (normalize x)) (normalize x)))])"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -4008,7 +4215,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  [serialize (fn [x: int] -> string)]"
             , "  [deserialize (fn [x: string] -> int)])"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           case head stmts of
@@ -4029,7 +4236,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "   (for-all [x: int]"
             , "    (= (encode x) (encode x)))])"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           case head stmts of
@@ -4045,7 +4252,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  [(for-all [x: string]"
             , "    (= (normalize (normalize x)) (normalize x)))])"
             ]
-      case parseStatements "<test>" src of
+      case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck emptyEnv stmts
@@ -4189,7 +4396,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "BODY-VC" $ do
     -- Helper: parse a def-logic and extract the body expression
     let parseBody :: T.Text -> Expr
-        parseBody src = case parseStatements "<test>" src of
+        parseBody src = case parseStatements GrammarLegacy "<test>" src of
           Left e -> error $ "parse failed: " <> show e
           Right stmts -> case head stmts of
             SDefLogic _ _ _ _ body -> body
@@ -4416,7 +4623,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "P01: EOp (= result x) parses and translates via exprToPred" $ do
         -- The parser emits EOp for operators, not EApp
         let src = "(def-logic identity [x: int] (post (= result x)) x)"
-        case parseStatements "test" src of
+        case parseStatements GrammarLegacy "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right [SDefLogic _ _ _ contract _] -> do
             let Just postExpr = contractPost contract
@@ -4427,7 +4634,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "P02: EOp (!= result 0) translates via exprToPred" $ do
         let src = "(def-logic nonzero [x: int] (post (!= result 0)) x)"
-        case parseStatements "test" src of
+        case parseStatements GrammarLegacy "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right [SDefLogic _ _ _ contract _] -> do
             let Just postExpr = contractPost contract
@@ -4437,7 +4644,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "P03: parsed EOp contracts emit body-faithful VCs (not standalone post)" $ do
         let src = "(def-logic add1 [x: int] (post (= result (+ x 1))) (+ x 1))"
-        case parseStatements "test" src of
+        case parseStatements GrammarLegacy "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right stmts -> do
             emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
@@ -4578,7 +4785,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  (post (= result (- bal amt)))"
               , "  (safe-sub bal amt))"
               ]
-        case parseStatements "test.llmll" src of
+        case parseStatements GrammarLegacy "test.llmll" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right stmts -> do
             emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
@@ -4948,7 +5155,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Phase 4: B1 withdraw golden" $ do
     it "B1-1: generates (- balance amount) suggestion" $ do
       src <- TIO.readFile "../examples/benchmarks/b1-withdraw.llmll"
-      case parseStatements "../examples/benchmarks/b1-withdraw.llmll" src of
+      case parseStatements GrammarLegacy "../examples/benchmarks/b1-withdraw.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let aliases = buildAliasMap stmts
@@ -4963,7 +5170,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "B1-2: PositiveInt param included via isIntLike" $ do
       src <- TIO.readFile "../examples/benchmarks/b1-withdraw.llmll"
-      case parseStatements "../examples/benchmarks/b1-withdraw.llmll" src of
+      case parseStatements GrammarLegacy "../examples/benchmarks/b1-withdraw.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let aliases = buildAliasMap stmts
@@ -4980,7 +5187,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Phase 4: B3 safe-first golden" $ do
     it "B3-1: parses with EMatch body" $ do
       src <- TIO.readFile "../examples/benchmarks/b3-safe-first.llmll"
-      case parseStatements "../examples/benchmarks/b3-safe-first.llmll" src of
+      case parseStatements GrammarLegacy "../examples/benchmarks/b3-safe-first.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let bodies = [body | SDefLogic "safe-first" _ _ _ body <- stmts]
@@ -5295,7 +5502,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- A property body containing an unsupported hole reduces to
         -- Nothing on every sample. samples_run = 0, bodyDiscards = 100.
         let prop = Property "body-unreducible" [("x", TInt)]
-                     (EHole (HProofRequired "manual"))
+                     (EHole (HProofRequired "manual" Nothing))
                      []
         result <- runPropertyTests [SCheck prop]
         case pbtResults result of
@@ -5473,8 +5680,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- Prior sidecar entry at DLVerified — replicates the verifier write
             -- shape at Main.hs:1196-1206.
             priorCS    = Map.singleton "f" $ ContractStatus
-                           (Just (EvidenceRecord DLAsserted False Nothing [] False))
-                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False))
+                           (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False))
+                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False))
                            []
             -- Replicate Main.hs:doTest order: pbtCS on the sidecar side, prior
             -- sidecar on the base side, merged via Module.mergeCS.
@@ -5554,9 +5761,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "0"  -- never matches a live body
             staleW    = PbtWitness staleHash "f-id"
-            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False
+            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False Nothing Nothing False
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing [] False))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False))
                          (Just staleEr)
                          []
             -- Live property covers f but with a body whose hash ≠ staleHash.
@@ -5578,9 +5785,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "a"
             staleEr   = EvidenceRecord (DLTested 100) False Nothing
-                          [PbtWitness staleHash "f-id"] False
+                          [PbtWitness staleHash "f-id"] False Nothing Nothing False
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing [] False))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False))
                          (Just staleEr)
                          []
             stmts     = [f]  -- no SCheck — property deleted
@@ -5754,19 +5961,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "sexp: (check :subject f (for-all …)) parses with propSubjects = [f]" $ do
         let src = T.pack
                   "(check \"d\" :subject foo (for-all [x: int] (= x x)))"
-        case parseStatements "<test>" src of
+        case parseStatements GrammarLegacy "<test>" src of
           Right [SCheck p] -> propSubjects p `shouldBe` ["foo"]
           other -> expectationFailure $ "unexpected: " ++ show other
       it "sexp: (check :subjects [f g] (for-all …)) parses both names" $ do
         let src = T.pack
                   "(check \"d\" :subjects [foo bar] (for-all [x: int] (= x x)))"
-        case parseStatements "<test>" src of
+        case parseStatements GrammarLegacy "<test>" src of
           Right [SCheck p] -> propSubjects p `shouldBe` ["foo", "bar"]
           other -> expectationFailure $ "unexpected: " ++ show other
       it "sexp: (check :subjects [] …) is rejected with S6 diag" $ do
         let src = T.pack
                   "(check \"d\" :subjects [] (for-all [x: int] (= x x)))"
-        case parseStatements "<test>" src of
+        case parseStatements GrammarLegacy "<test>" src of
           Left _  -> pure ()
           Right _ -> expectationFailure "expected parse failure on empty :subjects"
       it "JSON: CheckDecl with subjects array decodes to propSubjects" $ do
@@ -5866,7 +6073,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             sidecar = Map.fromList
               [ ("f", ContractStatus
                   { csPre  = Nothing
-                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [] False)
+                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)
                   , csAssumptions = []
                   })
               ]
@@ -5930,7 +6137,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "S4 dotted-fn typecheck warning" $ do
       it "(def-logic f [] (Result.Error 0)) produces a dotted-name warning" $ do
         let src = T.pack "(def-logic f [] (Result.Error 0))"
-        case parseStatements "<test>" src of
+        case parseStatements GrammarLegacy "<test>" src of
           Left err    -> expectationFailure (show err)
           Right stmts -> do
             let report = typeCheck emptyEnv stmts
@@ -5948,7 +6155,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- pass to confirm both frontends route through the same typecheck path.
     describe "TC-EOP-1 EOp arity and arg-type checking" $ do
       let checkSrc src =
-            case parseStatements "<test>" src of
+            case parseStatements GrammarLegacy "<test>" src of
               Left err -> Left (T.pack (show err))
               Right stmts -> Right (typeCheck emptyEnv stmts)
           errorsOf rep =
@@ -6095,7 +6302,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  (post (= result (+ x 1)))"
             , "  (+ x 1))"
             ]
-      case parseStatements "<int1-test>" src of
+      case parseStatements GrammarLegacy "<int1-test>" src of
         Left err    -> expectationFailure ("parse: " ++ show err)
         Right stmts -> do
           emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T10.llmll" stmts
@@ -6112,7 +6319,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  (post (>= result 0))"
             , "  x)"
             ]
-      case parseStatements "<int1-test>" src of
+      case parseStatements GrammarLegacy "<int1-test>" src of
         Left err    -> expectationFailure ("parse: " ++ show err)
         Right stmts -> do
           emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T11.llmll" stmts
@@ -6121,7 +6328,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T12: VerifiedCache round-trip: erOverflowTainted=True survives JSON encode/decode.
     it "T12 .verified.json round-trip preserves overflow_tainted: true" $ do
       let path = "/tmp/llmll-int1-roundtrip.llmll"
-          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True
+          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False
           cs   = ContractStatus Nothing (Just er) []
           cs0  = Map.singleton "f" cs
       saveVerified path cs0
@@ -6161,8 +6368,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T15: TrustReport JSON aggregation surfaces both top-level fns array and
     -- per-entry flag when a verified+tainted entry is present.
     it "T15 trust-report JSON surfaces overflow_tainted at top-level and per-entry" $ do
-      let taintedEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True
-          cleanEr   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False
+      let taintedEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False
+          cleanEr   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False
           cs   = Map.fromList
             [ ("add-one", ContractStatus Nothing (Just taintedEr) [])
             , ("is-pos",  ContractStatus Nothing (Just cleanEr)   [])
@@ -6175,7 +6382,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  (post (>= result 0))"
             , "  x)"
             ]
-          stmts = case parseStatements "<int1-test>" src of
+          stmts = case parseStatements GrammarLegacy "<int1-test>" src of
                     Right ss -> ss
                     Left err -> error (show err)
           report = buildTrustReport Map.empty stmts cs
@@ -6373,14 +6580,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "(def-logic g [n: int] (post (>= result 0)) (spec-entropy :intentional) n)"
               , "(def-logic h [n: int] (post (>= result 0)) (spec-entropy :unknown) n)"
               ]
-        case parseStatements "<test>" src of
+        case parseStatements GrammarLegacy "<test>" src of
           Right stmts ->
             map (\(SDefLogic _ _ _ c _) -> contractSpecEntropy c) stmts
               `shouldBe` [Just SpecEntropyStrict, Just SpecEntropyIntentional, Just SpecEntropyUnknown]
           Left e -> expectationFailure (show e)
 
       it "C13 absent annotation defaults to Nothing on Contract" $ do
-        case parseStatements "<test>" "(def-logic f [n: int] (post (>= result 0)) n)" of
+        case parseStatements GrammarLegacy "<test>" "(def-logic f [n: int] (post (>= result 0)) n)" of
           Right [SDefLogic _ _ _ c _] -> contractSpecEntropy c `shouldBe` Nothing
           other -> expectationFailure (show other)
 
@@ -6619,6 +6826,251 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case Map.lookup "withdraw" results of
           Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `elem`)
           Nothing -> expectationFailure "expected entry for withdraw"
+
+  -- -----------------------------------------------------------------------
+  -- LT-INV (v0.11): core/shell grammar inversion
+  -- -----------------------------------------------------------------------
+
+  describe "LT-INV (v0.11): core/shell grammar inversion" $ do
+
+    describe "INV-P: parser" $ do
+
+      it "INV-P1 (def ...) parses as SDef in GrammarCoreInversion" $ do
+        let src = "(def f [n: int] n)"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Right [SDef {}] -> pure ()
+          other           -> expectationFailure (show other)
+
+      it "INV-P2 (def-shell ...) parses as SDefShell in GrammarCoreInversion" $ do
+        let src = "(def-shell f [n: int] n)"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Right [SDefShell {}] -> pure ()
+          other                -> expectationFailure (show other)
+
+      it "INV-P3 (def ...) with two params parses as SDef" $ do
+        let src = "(def add [x: int y: int] (+ x y))"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Right [SDef { defParams = [_, _] }] -> pure ()
+          other                               -> expectationFailure (show other)
+
+      it "INV-P4 (def ...) with zero params parses as SDef" $ do
+        let src = "(def const-42 [] 42)"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Right [SDef { defParams = [] }] -> pure ()
+          other                           -> expectationFailure (show other)
+
+      it "INV-P5 (def-shell ...) with fn body parses without parse error" $ do
+        let src = "(def-shell g [n: int] (fn [x: int] x))"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Right [SDefShell {}] -> pure ()
+          other                -> expectationFailure (show other)
+
+      it "INV-P6 (def-logic ...) still parses as SDefLogic in GrammarCoreInversion" $ do
+        let src = "(def-logic f [n: int] n)"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Right [SDefLogic {}] -> pure ()
+          other                -> expectationFailure (show other)
+
+      it "INV-P7 (def ...) fails to parse in GrammarLegacy" $ do
+        let src = "(def f [n: int] n)"
+        case parseStatements GrammarLegacy "<test>" src of
+          Left  _  -> pure ()
+          Right ss -> expectationFailure ("expected parse failure, got: " ++ show ss)
+
+      it "INV-P8 (def-shell ...) fails to parse in GrammarLegacy" $ do
+        let src = "(def-shell f [n: int] n)"
+        case parseStatements GrammarLegacy "<test>" src of
+          Left  _  -> pure ()
+          Right ss -> expectationFailure ("expected parse failure, got: " ++ show ss)
+
+    describe "INV-W: well-typed" $ do
+
+      it "INV-W1 SDef with arithmetic body typechecks without error" $ do
+        let stmts = [ SDef { defName = "add", defParams = [("x", TInt), ("y", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EOp "+" [EVar "x", EVar "y"] } ]
+            report = typeCheck emptyEnv stmts
+        reportSuccess report `shouldBe` True
+
+      it "INV-W2 SDef with let binding typechecks without error" $ do
+        let stmts = [ SDef { defName = "f", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = ELet [(PVar "x", Nothing, ELit (LitInt 1))]
+                                            (EOp "+" [EVar "n", EVar "x"]) } ]
+            report = typeCheck emptyEnv stmts
+        reportSuccess report `shouldBe` True
+
+      it "INV-W3 SDef with if expression typechecks without error" $ do
+        let stmts = [ SDef { defName = "abs-val", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EIf (EOp ">" [EVar "n", ELit (LitInt 0)])
+                                          (EVar "n")
+                                          (EOp "-" [ELit (LitInt 0), EVar "n"]) } ]
+            report = typeCheck emptyEnv stmts
+        reportSuccess report `shouldBe` True
+
+      it "INV-W4 SDefShell with lambda body has no core-grammar-violation" $ do
+        let stmts = [ SDefShell { defShellName = "f", defShellParams = [("n", TInt)]
+                                , defShellReturn = Nothing
+                                , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
+                                , defShellBody = ELambda [("x", TInt)] (EVar "x") } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldNotContain` ["core-grammar-violation"]
+
+      it "INV-W5 SDef calling trusted prelude 'string-length' is admitted" $ do
+        let stmts = [ SDef { defName = "len", defParams = [("s", TString)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EApp "string-length" [EVar "s"] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldNotContain` ["core-membership-violation"]
+
+      it "INV-W6 SDef with pre/post contract has no grammar or membership violation" $ do
+        let stmts = [ SDef { defName = "inc"
+                           , defParams = [("n", TInt)]
+                           , defReturn = Just TInt
+                           , defContract = Contract
+                               Nothing Nothing
+                               (Just (EApp ">=" [EVar "n", ELit (LitInt 0)]))
+                               Nothing Nothing
+                           , defBody = EOp "+" [EVar "n", ELit (LitInt 1)] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldNotContain` ["core-grammar-violation"]
+        kinds `shouldNotContain` ["core-membership-violation"]
+
+      it "INV-W7 SDefShell calling unverified user function has no core-membership-violation" $ do
+        let stmts = [ SDefLogic "helper" [("x", TInt)] (Just TInt)
+                        (Contract Nothing Nothing Nothing Nothing Nothing)
+                        (EVar "x")
+                    , SDefShell { defShellName = "caller", defShellParams = [("n", TInt)]
+                                , defShellReturn = Nothing
+                                , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
+                                , defShellBody = EApp "helper" [EVar "n"] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldNotContain` ["core-membership-violation"]
+
+    describe "INV-A: core-grammar-violation" $ do
+
+      it "INV-A1 SDef with lambda body emits core-grammar-violation" $ do
+        let stmts = [ SDef { defName = "f", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = ELambda [("x", TInt)] (EVar "x") } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-grammar-violation"]
+
+      it "INV-A2 SDef with non-linear '*' emits core-grammar-violation" $ do
+        let stmts = [ SDef { defName = "sq", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EOp "*" [EVar "n", EVar "n"] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-grammar-violation"]
+
+      it "INV-A3 SDef with await expression emits core-grammar-violation" $ do
+        let stmts = [ SDef { defName = "f", defParams = [("p", TPromise TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EAwait (EVar "p") } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-grammar-violation"]
+
+      it "INV-A4 SDef with do block emits core-grammar-violation" $ do
+        let stmts = [ SDef { defName = "f", defParams = []
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EDo [DoStep Nothing (ELit (LitInt 1))] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-grammar-violation"]
+
+      it "INV-A5 SDef with HProofRequired hole emits core-grammar-violation" $ do
+        let stmts = [ SDef { defName = "f", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EHole (HProofRequired "pending" Nothing) } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-grammar-violation"]
+
+    describe "INV-C: core-membership-violation" $ do
+
+      it "INV-C1 SDef calling unverified SDefLogic emits core-membership-violation" $ do
+        let stmts = [ SDefLogic "helper" [("x", TInt)] (Just TInt)
+                        (Contract Nothing Nothing Nothing Nothing Nothing)
+                        (EVar "x")
+                    , SDef { defName = "caller", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EApp "helper" [EVar "n"] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-membership-violation"]
+
+      it "INV-C2 SDef calling 'string-length' (trusted prelude) has no violation" $ do
+        let stmts = [ SDef { defName = "strlen", defParams = [("s", TString)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EApp "string-length" [EVar "s"] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldNotContain` ["core-membership-violation"]
+
+      it "INV-C3 SDef calling 'random-int' (trusted prelude) has no violation" $ do
+        let stmts = [ SDef { defName = "rnd", defParams = [("lo", TInt), ("hi", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EApp "random-int" [EVar "lo", EVar "hi"] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldNotContain` ["core-membership-violation"]
+
+      it "INV-C4 SDef calling SDefShell (no evidence) emits core-membership-violation" $ do
+        let stmts = [ SDefShell { defShellName = "sh", defShellParams = [("x", TInt)]
+                                , defShellReturn = Just TInt
+                                , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
+                                , defShellBody = EVar "x" }
+                    , SDef { defName = "caller", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EApp "sh" [EVar "n"] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-membership-violation"]
+
+      it "INV-C5 SDef calling another SDef (no evidence) emits core-membership-violation" $ do
+        let stmts = [ SDef { defName = "inc", defParams = [("n", TInt)]
+                           , defReturn = Just TInt
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EOp "+" [EVar "n", ELit (LitInt 1)] }
+                    , SDef { defName = "double-inc", defParams = [("n", TInt)]
+                           , defReturn = Nothing
+                           , defContract = Contract Nothing Nothing Nothing Nothing Nothing
+                           , defBody = EApp "inc" [EApp "inc" [EVar "n"]] } ]
+            report = typeCheck emptyEnv stmts
+            kinds  = mapMaybe diagKind (reportDiagnostics report)
+        kinds `shouldContain` ["core-membership-violation"]
+
+    describe "INV-G: isCoreBodySyntactic" $ do
+
+      it "INV-G1 ELit is core-syntactic" $
+        isCoreBodySyntactic (ELit (LitInt 42)) `shouldBe` True
+
+      it "INV-G2 ELambda is not core-syntactic" $
+        isCoreBodySyntactic (ELambda [("x", TInt)] (EVar "x")) `shouldBe` False
+
+      it "INV-G3 EOp with '*' (non-linear) is not core-syntactic" $
+        isCoreBodySyntactic (EOp "*" [EVar "a", EVar "b"]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

@@ -349,6 +349,9 @@ hasContracts = any stmtHasContract
   where
     stmtHasContract (SDefLogic _ _ _ c _)  = contractPre c /= Nothing || contractPost c /= Nothing
     stmtHasContract (SLetrec _ _ _ c _ _)  = contractPre c /= Nothing || contractPost c /= Nothing
+    -- LT-INV (v0.11)
+    stmtHasContract (SDef      _ _ _ c _)  = contractPre c /= Nothing || contractPost c /= Nothing
+    stmtHasContract (SDefShell _ _ _ c _)  = contractPre c /= Nothing || contractPost c /= Nothing
     stmtHasContract _ = False
 
 -- | Re-verify patched statements via emitFixpoint + liquid-fixpoint.

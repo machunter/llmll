@@ -191,8 +191,11 @@ isQfLia expr = case expr of
 -- | Find a function's contract by name in the statement list.
 findContract :: Name -> [Statement] -> Maybe Contract
 findContract name stmts =
-  let matches = [ c | SDefLogic n _ _ c _ <- stmts, n == name ]
+  let matches = [ c | SDefLogic n _ _ c _   <- stmts, n == name ]
              ++ [ c | SLetrec   n _ _ c _ _ <- stmts, n == name ]
+             -- LT-INV (v0.11)
+             ++ [ c | SDef      n _ _ c _   <- stmts, n == name ]
+             ++ [ c | SDefShell n _ _ c _   <- stmts, n == name ]
   in case matches of
     (c:_) -> Just c
     []    -> Nothing

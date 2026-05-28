@@ -64,6 +64,33 @@ stmtToJson (SDefLogic name params _ret (Contract mPre _preSource mPost _postSour
     maybe [] (\s -> ["post_source" .= s]) _postSource ++
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
+-- LT-INV (v0.11): SDef emits {"kind":"def",...} and SDefShell emits {"kind":"def-shell",...}.
+stmtToJson (SDef name params _ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
+  object $
+    [ "kind"   .= ("def" :: Text)
+    , "name"   .= name
+    , "params" .= map typedParamToJson params
+    , "body"   .= exprToJson body
+    ] ++
+    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
+    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
+    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
+    maybe [] (\s -> ["post_source" .= s]) _postSource ++
+    maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
+
+stmtToJson (SDefShell name params _ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
+  object $
+    [ "kind"   .= ("def-shell" :: Text)
+    , "name"   .= name
+    , "params" .= map typedParamToJson params
+    , "body"   .= exprToJson body
+    ] ++
+    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
+    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
+    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
+    maybe [] (\s -> ["post_source" .= s]) _postSource ++
+    maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
+
 stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource mEntropy) dec body) =
   object $
     [ "kind"      .= ("letrec" :: Text)
@@ -330,7 +357,9 @@ holeToJson (HDelegatePending t)  = object
   , "return_type" .= typeToJson t
   ]
 holeToJson (HConflictResolution)   = object ["kind" .= ("hole-named" :: Text), "name" .= ("conflict" :: Text)]
-holeToJson (HProofRequired reason) = object ["kind" .= ("hole-proof-required" :: Text), "reason" .= reason]
+holeToJson (HProofRequired reason mPred) = object $
+  ["kind" .= ("hole-proof-required" :: Text), "reason" .= reason] ++
+  maybe [] (\p -> ["predicate" .= exprToJson p]) mPred
 
 delegateToJson :: Text -> DelegateSpec -> Value
 delegateToJson kindStr spec =

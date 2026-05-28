@@ -77,6 +77,11 @@ module LLMLL.Syntax
   , ModulePath
   , ModuleEnv(..)
   , ModuleCache
+
+    -- * Grammar Mode (LT-INV v0.11)
+  , GrammarMode(..)
+  , normalizeDefStmt
+  , isCoreBodySyntactic
   ) where
 
 import Data.Map.Strict (Map)
@@ -243,7 +248,7 @@ data HoleKind
   | HDelegatePending Type         -- ^ Unresolved delegate (blocks execution)
   | HConflictResolution           -- ^ Merge conflict marker
   -- D3: LiquidHaskell proof obligations
-  | HProofRequired Text           -- ^ ?proof-required, reason tag e.g. "complex-decreases", "non-linear-contract", "manual"
+  | HProofRequired Text (Maybe Expr) -- ^ ?proof-required; reason tag + optional contract predicate (LT-PPR v0.11)
   deriving (Show, Eq, Generic)
 
 -- | Specification for a scaffold hole.
@@ -371,11 +376,15 @@ data DisplayLevel
 -- evidence levels the value is irrelevant. Defaults to 'False' on read of
 -- pre-v0.10.8 sidecars (additive back-compat).
 data EvidenceRecord = EvidenceRecord
-  { erDisplayLevel    :: DisplayLevel   -- ^ What kind of evidence backs this clause
-  , erBodyFaithful    :: Bool           -- ^ True when body VC was generated and passed
-  , erSource          :: Maybe Text     -- ^ :source provenance annotation
-  , erPbtWitnesses    :: [PbtWitness]   -- ^ OBLIG-PBT-3: PBT property-body provenance
-  , erOverflowTainted :: Bool           -- ^ INT-1: body has unbounded-Int arithmetic
+  { erDisplayLevel         :: DisplayLevel   -- ^ What kind of evidence backs this clause
+  , erBodyFaithful         :: Bool           -- ^ True when body VC was generated and passed
+  , erSource               :: Maybe Text     -- ^ :source provenance annotation
+  , erPbtWitnesses         :: [PbtWitness]   -- ^ OBLIG-PBT-3: PBT property-body provenance
+  , erOverflowTainted      :: Bool           -- ^ INT-1: body has unbounded-Int arithmetic
+  -- LT-PPR (v0.11): predicate-carrying ?proof-required enrichment
+  , erPredicateForm        :: Maybe Text     -- ^ "symbolic" | "runtime" | Nothing when absent
+  , erPredicateText        :: Maybe Text     -- ^ pretty-printed predicate expression, when present
+  , erRuntimeCheckEmitted  :: Bool           -- ^ True when codegen emitted a runtime assertion
   } deriving (Show, Eq, Generic)
 
 -- | OBLIG-PBT-3: SHA-256 hash + description of a property body whose
@@ -487,6 +496,13 @@ data Property = Property
 -- Statements (Top-Level Forms)
 -- ---------------------------------------------------------------------------
 
+-- | LT-INV (v0.11): grammar mode selected by --grammar=core-inversion flag.
+-- 'GrammarLegacy' is the default (v0.10 behaviour unchanged).
+-- 'GrammarCoreInversion' activates the def/def-shell keyword split and
+-- core-membership predicate in the typechecker.
+data GrammarMode = GrammarLegacy | GrammarCoreInversion
+  deriving (Show, Eq)
+
 data Statement
   = SDefLogic
     { defLogicName   :: Name
@@ -494,6 +510,26 @@ data Statement
     , defLogicReturn :: Maybe Type
     , defLogicContract :: Contract
     , defLogicBody   :: Expr
+    }
+  -- | LT-INV (v0.11): strict-core definition form ('def' keyword).
+  -- Body is syntactically restricted to QF-LIA constructs; callee admissibility
+  -- is enforced by the typechecker under --grammar=core-inversion.
+  | SDef
+    { defName     :: Name
+    , defParams   :: [(Name, Type)]
+    , defReturn   :: Maybe Type
+    , defContract :: Contract
+    , defBody     :: Expr
+    }
+  -- | LT-INV (v0.11): permissive definition form ('def-shell' keyword).
+  -- Identical verification semantics to SDefLogic; explicitly marks the
+  -- permissive regime at the source level.
+  | SDefShell
+    { defShellName     :: Name
+    , defShellParams   :: [(Name, Type)]
+    , defShellReturn   :: Maybe Type
+    , defShellContract :: Contract
+    , defShellBody     :: Expr
     }
   -- | Explicitly recursive function with a termination measure.
   -- D2: `:decreases expr` must be an integer-valued expression that strictly
@@ -545,6 +581,47 @@ data Statement
     , weaknessReason :: Text           -- ^ Mandatory reason string (non-empty)
     }
   deriving (Show, Eq, Generic)
+
+-- | LT-INV (v0.11): extract the shared def-like fields from SDefLogic, SDef,
+-- or SDefShell.  Returns Nothing for any other statement kind.
+-- Use this in the 22-file fan-out wherever all three forms are treated
+-- identically (codegen, trust report, fixpoint emission, etc.).
+normalizeDefStmt :: Statement -> Maybe (Name, [(Name, Type)], Maybe Type, Contract, Expr)
+normalizeDefStmt (SDefLogic n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt (SDef      n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt (SDefShell n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt _                     = Nothing
+
+-- | LT-INV (v0.11): return 'True' if an expression is admissible inside a
+-- strict-core ('SDef') body per the grammar production in the proposal §3.2.
+-- Admits: literals, variables, QF-LIA operators (no *\/mod/rem), let, if,
+-- function application, two-arm Result EMatch, pair constructor, and
+-- non-'HProofRequired' holes.
+-- Rejects: lambdas, do-notation, await, non-linear operators, general match
+-- arms, and '?proof-required' holes.
+isCoreBodySyntactic :: Expr -> Bool
+isCoreBodySyntactic expr = case expr of
+  ELit _                   -> True
+  EVar _                   -> True
+  EOp op args              -> isLinearOp op && all isCoreBodySyntactic args
+  ELet binds body          -> all (\(_, _, e) -> isCoreBodySyntactic e) binds
+                              && isCoreBodySyntactic body
+  EIf c t e                -> all isCoreBodySyntactic [c, t, e]
+  EApp _ args              -> all isCoreBodySyntactic args
+  EPair a b                -> isCoreBodySyntactic a && isCoreBodySyntactic b
+  EMatch scr cases         -> isCoreBodySyntactic scr
+                              && length cases == 2
+                              && all (isResultArm . fst) cases
+                              && all (isCoreBodySyntactic . snd) cases
+  EHole (HProofRequired _ _) -> False
+  EHole _                  -> True
+  ELambda _ _              -> False
+  EAwait _                 -> False
+  EDo _                    -> False
+  where
+    isLinearOp op = op `notElem` (["*", "/", "mod", "rem"] :: [Name])
+    isResultArm (PConstructor n _) = n `elem` (["Success", "Error"] :: [Name])
+    isResultArm _                  = False
 
 -- | Selects the runtime harness template generated by the compiler.
 data EntryMode
