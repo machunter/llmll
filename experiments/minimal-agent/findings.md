@@ -440,7 +440,7 @@ Three independent signals:
 
 #### E3. Experiment 001's Contract Expectation Is Internally Inconsistent
 
-**Priority:** Blocker for grade-A signal
+**Priority:** ~~Blocker for grade-A signal~~ **Closed — Option 2 landed 2026-05-28**
 
 ##### Evidence
 
@@ -450,14 +450,14 @@ These three commitments are not jointly satisfiable.
 
 ##### Fix (pick one)
 
-1. **Set `login-handler.pre.proof_required: True`.** The agent's `?proof-required` becomes the documented escape; grade A is reachable.
-2. **Restructure the experiment** so the contracted function does not directly contain the delegation hole. Encapsulate `?delegate` in an uncontracted helper and put `pre` on the wrapper.
+1. **Set `login-handler.pre.proof_required: True`.** The agent's `?proof-required` becomes the documented escape; grade A is reachable. *(Empirically falsified by postmortem-001 F-201 — 8/9 attempts dropped B→C because the pre clause is QF-LIA-tractable and agents correctly did not emit the marker. Reverted in commit `008495f`. Option 1 closed.)*
+2. **Restructure the experiment** so the contracted function does not directly contain the delegation hole. Encapsulate `?delegate` in an uncontracted helper and put `pre` on the wrapper. *(Implemented 2026-05-28: `CONTRACT_EXPECTATIONS[1]["login-handler"]` now carries `post.proof_required: True` only (pre removed); `REQUIRED_FEATURES[1]` gains `"post"`; `001-two-agent-auth.md` items 6–7 add the delegation-bounded post contract and a non-delegation-dependent check. Grade A now reachable. Option 2 closed.)*
 
 "Document max grade B" is not a fix — it preserves the inconsistency and trains agents to expect the ceiling rather than exercising the verification surface the rubric is designed to measure.
 
 ##### Acceptance
 
-A grade-A solution sketch exists for the chosen formulation and is referenced from the experiment markdown (`experiments/minimal-agent/experiments/001-two-agent-auth.md`).
+**Met (2026-05-28).** `evaluate_run.py` `CONTRACT_EXPECTATIONS[1]` carries `{"login-handler": {"post": {"proof_required": True}}}`. `REQUIRED_FEATURES[1]` includes `"post"`. `001-two-agent-auth.md` items 6–7 define the post contract and non-delegation-dependent check. `test_evaluate_run.py` `ContractExpectationE3Tests` guards the new state (3 assertions); `QualityGradeTests.test_e001_grade_a_with_nondelegation_check_and_proof_required_post` confirms grade A is reachable with the restructured setup. CHANGELOG entry under `### Experiments — E3 Option 2` in `## Unreleased`. Documented by `documentation-lead`, 2026-05-28.
 
 ---
 
@@ -518,7 +518,7 @@ The instructions contain at least one structured uncertainty-elicitation section
 | # | Issue | Impact | Effort |
 |---|-------|--------|--------|
 | **E1** | Call-graph delegation analysis | Blocker for B/C separation | Medium |
-| **E3** | Contract expectation inconsistency | Blocker for grade-A signal | Low |
+| **E3** | Contract expectation inconsistency | ~~Blocker~~ **Closed** (Option 2, 2026-05-28) | — |
 | **D1.1** | Require `--strict` in instructions | High leverage, trivial | Low |
 | **E2** | Three-signal feature scan | Quality of grading | Low |
 | **D4** | Structured uncertainty elicitation | Process quality | Low |

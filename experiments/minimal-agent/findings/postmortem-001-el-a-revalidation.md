@@ -66,6 +66,8 @@ E3 reverted in commit `008495f`: `CONTRACT_EXPECTATIONS[1]["login-handler"]["pre
 
 The original E3 finding's Option 2 (restructure `001-two-agent-auth.md` to encapsulate the delegate in an uncontracted helper) remains available for a future batch when 001's structure is updated. Until then, grade A is not reachable on 001 — that is intentional and structurally correct.
 
+**Addendum (2026-05-28) — Option 2 landed.** The compiler-engineer plan for E3 Option 2 was approved and implemented. `CONTRACT_EXPECTATIONS[1]["login-handler"]` now carries `{"post": {"proof_required": True}}` only (pre removed to eliminate the `asserted_without_proof = 1` path that was the root cause of the B ceiling). `REQUIRED_FEATURES[1]` gains `"post"`. `001-two-agent-auth.md` items 6–7 add: a delegation-bounded post contract on `login-handler` (marked `?proof-required`), and a non-delegation-dependent check block (necessary to clear the `effective_total == 0` test-exclusion B gate, which fires independently of contract quality and was not accounted for in the original Option 1 analysis). Three new tests guard the new state. Grade A is now reachable for experiment 001. CHANGELOG entry: `CHANGELOG.md §## Unreleased → ### Experiments — E3 Option 2`. E3 finding closed in `experiments/minimal-agent/findings.md`.
+
 #### Acceptance
 
 Confirmed by the revert commit landing on `main` (`008495f`). A future smoke-test re-run of the 9-attempt panel against the reverted evaluator is expected to produce grades matching the v0.10.2 baseline (B/B/B Claude+Gemini, F/B/B gpt-5.5). Not gated on this postmortem.
