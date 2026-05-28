@@ -820,7 +820,7 @@
           }
         },
         {
-          "description": "?proof-required — Phase 2b. Emitted by the compiler for pre/post constraints outside the QF linear arithmetic fragment, or for letrec :decreases measures that are not simple variables. Also valid as a manual annotation. Non-blocking: code compiles with a runtime assertion fallback. See LLMLL.md §6 and getting-started.md §4.11.",
+          "description": "?proof-required — Phase 2b. Emitted by the compiler for pre/post constraints outside the QF linear arithmetic fragment, or for letrec :decreases measures that are not simple variables. Also valid as a manual annotation. Non-blocking: code compiles with a runtime assertion fallback. Two forms: (1) bare leaf — no 'predicate' field; marks the clause asserted, no active runtime assertion at codegen. (2) predicate-carrying (LT-PPR, v0.11) — optional 'predicate' field present; compiler type-checks it as bool and emits a Haskell runtime assertion (if pred then () else error ...) in pre/post position; non-linear predicates emit a QF-LIA warning at llmll check. Body-position ?proof-required is unchanged. See LLMLL.md §6 and getting-started.md §4.11.",
           "type": "object",
           "required": ["kind"],
           "additionalProperties": false,
@@ -831,12 +831,28 @@
               "enum": ["manual", "non-linear-contract", "complex-decreases"],
               "default": "manual",
               "description": "Why this hole was emitted. 'manual' = authored by agent; others = compiler-emitted."
+            },
+            "predicate": {
+              "$ref": "#/$defs/Expr",
+              "description": "LT-PPR (v0.11): optional predicate expression for the predicate-carrying form. Valid in pre/post position only. When present, type-checked as bool; emits a runtime assertion at codegen. Absent for the bare-leaf form."
             }
           },
           "examples": [
             { "kind": "hole-proof-required", "reason": "non-linear-contract" },
             { "kind": "hole-proof-required", "reason": "complex-decreases" },
-            { "kind": "hole-proof-required" }
+            { "kind": "hole-proof-required" },
+            {
+              "kind": "hole-proof-required",
+              "reason": "non-linear-contract",
+              "predicate": {
+                "kind": "op",
+                "op": ">=",
+                "args": [
+                  { "kind": "var", "name": "result" },
+                  { "kind": "lit-int", "value": 0 }
+                ]
+              }
+            }
           ]
         }
       ]

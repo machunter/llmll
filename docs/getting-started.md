@@ -930,17 +930,43 @@ The compiler auto-emits `?proof-required` holes for constraints outside the deci
 |------|-------------|-----------|
 | `?proof-required(complex-decreases)` | `letrec :decreases` is a non-variable expression | No |
 | `?proof-required(non-linear-contract)` | `pre`/`post` contains `*`, `/`, `mod`, `^` | No |
+| `(?proof-required :reason "tag" pred-expr)` in `pre`/`post` | Manual annotation; author supplies the predicate expression (LT-PPR, v0.11) | No (emits runtime assertion) |
 
-**Manual annotation** (S-expression):
+**Manual annotation — bare form** (S-expression):
 
 ```lisp
-?proof-required    ;; skip this expression in the verifier
+?proof-required    ;; trust=asserted, no runtime assertion emitted
 ```
 
-**JSON-AST node:**
+**Manual annotation — predicate-carrying form** (LT-PPR, v0.11; `pre`/`post` position only):
+
+```lisp
+(pre (?proof-required :reason "non-linear-contract" (>= (* x y) 0)))
+```
+
+A predicate-carrying `?proof-required` in `pre`/`post` emits a Haskell runtime assertion (`if pred then () else error "proof-required: reason"`). Non-linear predicates (`*`, `/`, `mod`, `^`) also emit a `QF-LIA` warning at `llmll check`.
+
+**JSON-AST node — bare form:**
 
 ```json
 { "kind": "hole-proof-required", "reason": "non-linear-contract" }
+```
+
+**JSON-AST node — predicate-carrying form (LT-PPR, v0.11):**
+
+```json
+{
+  "kind": "hole-proof-required",
+  "reason": "non-linear-contract",
+  "predicate": {
+    "kind": "op",
+    "op": ">=",
+    "args": [
+      { "kind": "var", "name": "result" },
+      { "kind": "lit-int", "value": 0 }
+    ]
+  }
+}
 ```
 
 `llmll holes --json` reports all `?proof-required` holes. `llmll verify` skips them without error and lists skipped function names.
@@ -1392,7 +1418,7 @@ llmll --grammar=core-inversion check myfile.llmll
 llmll --grammar=core-inversion verify myfile.llmll --trust-report
 ```
 
-`def-logic` and `letrec` continue to work unchanged under `--grammar=core-inversion`. The default (`--grammar=legacy`) is unaffected.
+`def-logic` and `letrec` are **not accepted** under `--grammar=core-inversion`; the compiler emits `core-grammar-violation` and exits non-zero. Use `def` for strict-core functions and `def-shell` for permissive functions. The default (`--grammar=legacy`) is unaffected; under legacy, `def` and `def-shell` are not available.
 
 **Known restrictions:**
 - `def` does not parse a return-type annotation (`: type` after the parameter list). The return type is always inferred.
