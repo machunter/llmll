@@ -140,12 +140,14 @@ parseBody req body =
       isJson   = maybe True (T.isPrefixOf "application/json") ctHeader
       src      = TE.decodeUtf8 (BL.toStrict body)
   in if isJson
-       then case parseJSONAST GrammarLegacy "<serve>" body of
+       -- GrammarCoreInversion is the v0.11 default; agents sending def-logic should
+       -- pass --grammar=legacy. A per-request grammar header is a future extension.
+       then case parseJSONAST GrammarCoreInversion "<serve>" body of
               Right stmts -> Right stmts
               Left _      -> tryText src   -- fallback
        else tryText src
   where
-    tryText src = case parseStatements GrammarLegacy "<serve>" src of
+    tryText src = case parseStatements GrammarCoreInversion "<serve>" src of
       Right stmts -> Right stmts
       Left err    -> Left (T.pack (show err))
 

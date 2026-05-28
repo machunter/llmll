@@ -135,14 +135,15 @@ type LoadResult = Either [Diagnostic] (ModuleCache, [ModulePath], ModuleEnv)
 --   5. Recurse into each SImport (push path, pop after).
 --   6. Type-check with imported envs seeded.
 --   7. Build ModuleEnv + insert into cache.
-loadModule :: Bool             -- ^ json mode
+loadModule :: GrammarMode      -- ^ grammar mode threaded from the entry-file parse
+           -> Bool             -- ^ json mode
            -> FilePath         -- ^ source root (dir of entry file)
            -> [FilePath]       -- ^ extra roots
            -> ModuleCache      -- ^ already-loaded modules
            -> [ModulePath]    -- ^ DFS stack for cycle detection (head = most recent)
            -> ModulePath       -- ^ module to load
            -> IO LoadResult
-loadModule jsonMode srcRoot extraRoots cache0 visitedStack modPath
+loadModule gm jsonMode srcRoot extraRoots cache0 visitedStack modPath
   | modPath `elem` visitedStack =
       -- Slice: only report the cycle, not ancestors outside it.
       -- visitedStack is [C, B, A] (most-recent-first) and modPath is B.
@@ -160,18 +161,18 @@ loadModule jsonMode srcRoot extraRoots cache0 visitedStack modPath
       case mFp of
         Nothing -> pure $ Left
           [ mkModuleNotFound (pathToText modPath) (srcRoot : extraRoots) ]
-        Just fp -> loadFromFile jsonMode srcRoot extraRoots cache0 visitedStack modPath fp
+        Just fp -> loadFromFile gm jsonMode srcRoot extraRoots cache0 visitedStack modPath fp
 
-loadFromFile :: Bool -> FilePath -> [FilePath] -> ModuleCache -> [ModulePath]
+loadFromFile :: GrammarMode -> Bool -> FilePath -> [FilePath] -> ModuleCache -> [ModulePath]
              -> ModulePath -> FilePath -> IO LoadResult
-loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
-  mStmts <- parseFile fp
+loadFromFile gm _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
+  mStmts <- parseFile gm fp
   case mStmts of
     Left diag -> pure $ Left [diag]
     Right stmts -> do
       let imports  = [imp | SImport imp <- stmts]
           newStack = modPath : visitedStack
-      result <- foldM (loadOneImport srcRoot extraRoots newStack) (Right (cache0, [])) imports
+      result <- foldM (loadOneImport gm srcRoot extraRoots newStack) (Right (cache0, [])) imports
       case result of
         Left diags -> pure $ Left diags
         Right (cache1, depOrder) -> do
@@ -193,31 +194,32 @@ loadFromFile _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
             then pure $ Right (cache2, order2, env)
             else pure $ Left hardErrors
 
-loadOneImport :: FilePath -> [FilePath] -> [ModulePath]
+loadOneImport :: GrammarMode -> FilePath -> [FilePath] -> [ModulePath]
               -> Either [Diagnostic] (ModuleCache, [ModulePath])
               -> Import
               -> IO (Either [Diagnostic] (ModuleCache, [ModulePath]))
-loadOneImport _       _          _     (Left diags) _   = pure (Left diags)
-loadOneImport srcRoot extraRoots stack (Right (cache, ord)) imp = do
+loadOneImport _  _       _          _     (Left diags) _   = pure (Left diags)
+loadOneImport gm srcRoot extraRoots stack (Right (cache, ord)) imp = do
   let path = splitDotted (importPath imp)
   -- P1 fix: skip file resolution for built-in capability namespaces.
   if isBuiltinImport path
     then pure (Right (cache, ord))
     else do
-      result <- loadModule False srcRoot extraRoots cache stack path
+      result <- loadModule gm False srcRoot extraRoots cache stack path
       case result of
         Left diags         -> pure (Left diags)
         Right (c', o', _)  -> pure (Right (c', ord ++ o'))
 
 -- | Parse a file dispatching on extension (.llmll vs. .ast.json / .json).
-parseFile :: FilePath -> IO (Either Diagnostic [Statement])
-parseFile fp
+-- GrammarMode is threaded from the top-level CLI flag via loadModule.
+parseFile :: GrammarMode -> FilePath -> IO (Either Diagnostic [Statement])
+parseFile gm fp
   | ext == ".json" = do
       bs <- BL.readFile fp
-      pure (PJ.parseJSONAST GrammarLegacy fp bs)
+      pure (PJ.parseJSONAST gm fp bs)
   | otherwise = do
       src <- TIO.readFile fp
-      case P.parseTopLevel GrammarLegacy fp src of
+      case P.parseTopLevel gm fp src of
         Left err    -> pure $ Left (megaparsecToDiagnostic fp err)
         Right stmts -> pure $ Right stmts
   where

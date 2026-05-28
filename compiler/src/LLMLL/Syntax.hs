@@ -496,10 +496,10 @@ data Property = Property
 -- Statements (Top-Level Forms)
 -- ---------------------------------------------------------------------------
 
--- | LT-INV (v0.11): grammar mode selected by --grammar=core-inversion flag.
--- 'GrammarLegacy' is the default (v0.10 behaviour unchanged).
--- 'GrammarCoreInversion' activates the def/def-shell keyword split and
--- core-membership predicate in the typechecker.
+-- | LT-INV (v0.11): grammar mode selected by --grammar flag.
+-- 'GrammarCoreInversion' is the default from v0.11+; def/def-shell are the
+-- canonical forms and def-logic/letrec are rejected at parse time.
+-- 'GrammarLegacy' is the explicit opt-out (--grammar=legacy) for v0.10 programs.
 data GrammarMode = GrammarLegacy | GrammarCoreInversion
   deriving (Show, Eq)
 

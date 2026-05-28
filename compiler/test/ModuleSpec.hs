@@ -192,7 +192,7 @@ moduleSpec = describe "Module System" $ do
     it "circular import returns diagnostic with kind circular-import" $ do
       -- Use loadModule with actual fixture files.
       let srcRoot = "test/fixtures/modules"
-      result <- loadModule False srcRoot [] Map.empty [] ["modC_cycle"]
+      result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["modC_cycle"]
       case result of
         Left diags -> do
           length diags `shouldSatisfy` (>= 1)
@@ -367,7 +367,7 @@ moduleSpec = describe "Module System" $ do
       -- Files: test/fixtures/pbt-cross-module/{imported,local}.llmll
       -- Local: (import imported) (open imported) (check (= (plus-one 1) 2))
       let srcRoot = "test/fixtures/pbt-cross-module"
-      result <- loadModule False srcRoot [] Map.empty [] ["local"]
+      result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["local"]
       case result of
         Left diags -> expectationFailure $
           "Failed to load fixture: " ++ show (length diags) ++ " diagnostics"

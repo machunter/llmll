@@ -134,11 +134,14 @@ parseModuleFunctions :: FilePath -> IO [(Name, Type, Bool)]
 parseModuleFunctions fp
   | takeExtension fp == ".json" = do
       bs <- BL.readFile fp
+      -- Hub packages are pre-v0.11 migration; always parse under GrammarLegacy
+      -- until hub migration is scheduled (def/def-shell JSON-AST is mode-agnostic).
       case PJ.parseJSONAST GrammarLegacy fp bs of
         Left _      -> pure []
         Right stmts -> pure (extractFunctions stmts)
   | otherwise = do
       src <- TIO.readFile fp
+      -- Hub packages use def-logic / letrec (v0.10 grammar); GrammarLegacy intentional.
       case P.parseTopLevel GrammarLegacy fp src of
         Left _      -> pure []
         Right stmts -> pure (extractFunctions stmts)

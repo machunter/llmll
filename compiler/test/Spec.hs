@@ -7114,6 +7114,34 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         isCoreBodySyntactic (EOp "*" [EVar "a", EVar "b"]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
+  -- Grammar default flip (INV-DEFAULT / INV-MODULE-THREAD)
+  -- -----------------------------------------------------------------------
+  describe "Grammar default flip" $ do
+
+    it "INV-DEFAULT-1 GrammarCoreInversion (new default) rejects def-logic at parse time" $ do
+      let src = "(def-logic f [] 0)"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left  _ -> pure ()
+        Right _ -> expectationFailure "expected parse error for def-logic under GrammarCoreInversion"
+
+    it "INV-DEFAULT-2 GrammarLegacy (explicit opt-out) accepts def-logic" $ do
+      let src = "(def-logic f [] 0)"
+      case parseStatements GrammarLegacy "<test>" src of
+        Right _ -> pure ()
+        Left  e -> expectationFailure $ "expected successful parse under GrammarLegacy, got: " ++ show e
+
+    it "INV-MODULE-THREAD-1 GrammarCoreInversion rejects (def ...) under GrammarLegacy S-expr parser" $ do
+      -- Validates that the S-expression parser mode asymmetry is real:
+      -- after migration, a .llmll module using (def ...) will fail under GrammarLegacy.
+      let src = "(def f [] 0)"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right _ -> pure ()
+        Left  e -> expectationFailure $ "GrammarCoreInversion should accept (def ...): " ++ show e
+      case parseStatements GrammarLegacy "<test>" src of
+        Left  _ -> pure ()
+        Right _ -> expectationFailure "GrammarLegacy should NOT recognise (def ...) keyword"
+
+  -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec

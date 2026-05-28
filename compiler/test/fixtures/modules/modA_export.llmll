@@ -1,4 +1,4 @@
 ;; modA_export: defines f and g, exports only f
 (export f)
-(def-logic f [x: int] (+ x 1))
-(def-logic g [x: int] (+ x 2))
+(def f [x: int] (+ x 1))
+(def g [x: int] (+ x 2))

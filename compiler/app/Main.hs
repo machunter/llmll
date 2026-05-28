@@ -138,8 +138,8 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <$> commandParser
       <*> switch (long "json" <> help "Output diagnostics as JSON")
       <*> option (eitherReader parseGrammarMode)
-            (long "grammar" <> value GrammarLegacy <> metavar "MODE"
-            <> help "LT-INV: grammar mode: legacy (default) or core-inversion")
+            (long "grammar" <> value GrammarCoreInversion <> metavar "MODE"
+            <> help "LT-INV: grammar mode: core-inversion (default) or legacy (v0.10 compatibility)")
 
     commandParser = subparser
       ( command "check" (info (helper <*> (CmdCheck <$> fileArg <*> switch (long "strict" <> help "v0.6.3: Treat warnings (unbound vars, unknown fns) as hard errors")))
@@ -199,9 +199,9 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
     parseContractsMode s          = Left $ "unknown --contracts mode: " ++ s ++ " (expected: full, unproven, none)"
 
     parseGrammarMode :: String -> Either String GrammarMode
-    parseGrammarMode "legacy"          = Right GrammarLegacy
     parseGrammarMode "core-inversion"  = Right GrammarCoreInversion
-    parseGrammarMode s                 = Left $ "unknown --grammar mode: " ++ s ++ " (expected: legacy, core-inversion)"
+    parseGrammarMode "legacy"          = Right GrammarLegacy
+    parseGrammarMode s                 = Left $ "unknown --grammar mode: " ++ s ++ " (expected: core-inversion, legacy)"
 
     buildJsonCmd = CmdBuildFromJson
       <$> fileArg
@@ -435,7 +435,7 @@ loadStatementsMulti json gm fp = do
       if isBuiltinImport path
         then pure (Right (c, ord))
         else do
-          res <- loadModule j srcRoot [] c [] path
+          res <- loadModule gm j srcRoot [] c [] path
           case res of
             Left diags         -> pure (Left diags)
             Right (c', o', _)  -> pure (Right (c', ord ++ o'))

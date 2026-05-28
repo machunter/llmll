@@ -83,6 +83,7 @@ parseJSONAST mode fp bs =
 -- | Parse a JSON Value (already decoded) into statements.
 -- Returns multi-error diagnostics for agent round-trip efficiency.
 -- Always uses GrammarLegacy: patch-apply callers have no grammar-mode context.
+-- TODO: thread GrammarMode through llmll-patch once a per-file mode is tracked.
 parseJSONASTValue :: Value -> Either [Diagnostic] [Statement]
 parseJSONASTValue val =
   case parseEither (parseProgram GrammarLegacy "<patch>") val of
