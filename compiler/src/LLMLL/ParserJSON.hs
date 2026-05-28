@@ -69,7 +69,7 @@ parseJSONAST mode fp bs =
                        { diagKind       = Just k
                        , diagCode       = Just "E011"
                        , diagSuggestion = if k == "core-grammar-violation"
-                                            then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} for strict-core or {\"kind\":\"def-shell\",...} for permissive bodies"
+                                            then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive); replace {\"kind\":\"letrec\",...} with {\"kind\":\"def-shell\",...}"
                                             else Nothing
                        }
           in Left diag
@@ -130,7 +130,15 @@ parseStatement mode = withObject "Statement" $ \o -> do
     -- LT-INV (v0.11): strict-core and permissive-shell variants
     "def"          -> parseDefCore o
     "def-shell"    -> parseDefShellJSON o
-    "letrec"       -> parseLetrec o
+    "letrec"       ->
+      case mode of
+        GrammarCoreInversion -> do
+          name <- o .:? "name" .!= ("(unknown)" :: Text)
+          fail $ "core-grammar-violation: 'letrec' (function '"
+                 ++ T.unpack name
+                 ++ "') is not admitted under --grammar=core-inversion; "
+                 ++ "use 'def-shell' for permissive recursive definitions"
+        GrammarLegacy -> parseLetrec o
     "def-interface"-> parseDefInterface o
     "def-invariant"-> parseDefInvariant o
     "type-decl"    -> parseTypeDecl o

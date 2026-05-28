@@ -135,10 +135,8 @@ pStatement :: GrammarMode -> Parser Statement
 pStatement mode = choice $
   (case mode of
     GrammarCoreInversion -> [pDef, pDefShell]
-    GrammarLegacy        -> []) ++
-  [ pDefLogic
-  , pLetrec
-  , pDefMain
+    GrammarLegacy        -> [pDefLogic, pLetrec]) ++
+  [ pDefMain
   , pDefInterface
   , pTypeDef
   , pCheckBlock

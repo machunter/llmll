@@ -6865,11 +6865,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Right [SDefShell {}] -> pure ()
           other                -> expectationFailure (show other)
 
-      it "INV-P6 (def-logic ...) still parses as SDefLogic in GrammarCoreInversion" $ do
+      it "INV-P6 (def-logic ...) fails to parse in GrammarCoreInversion" $ do
         let src = "(def-logic f [n: int] n)"
         case parseStatements GrammarCoreInversion "<test>" src of
-          Right [SDefLogic {}] -> pure ()
-          other                -> expectationFailure (show other)
+          Left  _  -> pure ()
+          Right ss -> expectationFailure ("expected parse failure, got: " ++ show ss)
 
       it "INV-P7 (def ...) fails to parse in GrammarLegacy" $ do
         let src = "(def f [n: int] n)"
@@ -6903,6 +6903,26 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseJSONAST GrammarLegacy "<test>" src of
           Right [SDefLogic {}] -> pure ()
           other                -> expectationFailure (show other)
+
+      it "INV-P12 (letrec ...) fails to parse in GrammarCoreInversion" $ do
+        let src = "(letrec f [n: int] :decreases n n)"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Left  _  -> pure ()
+          Right ss -> expectationFailure ("expected parse failure, got: " ++ show ss)
+
+      it "INV-P13 JSON-AST letrec rejected under GrammarCoreInversion with core-grammar-violation" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"letrec\",\"name\":\"countdown\",\"params\":[{\"name\":\"n\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}}],\"decreases\":{\"kind\":\"var\",\"name\":\"n\"},\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Left diag -> diagKind diag `shouldBe` Just "core-grammar-violation"
+          Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
+
+      it "INV-P14 JSON-AST letrec accepted under GrammarLegacy" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"letrec\",\"name\":\"countdown\",\"params\":[{\"name\":\"n\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}}],\"decreases\":{\"kind\":\"var\",\"name\":\"n\"},\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
+        case parseJSONAST GrammarLegacy "<test>" src of
+          Right [SLetrec {}] -> pure ()
+          other              -> expectationFailure (show other)
 
     describe "INV-W: well-typed" $ do
 
