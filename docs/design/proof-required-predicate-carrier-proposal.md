@@ -1,7 +1,7 @@
 # LT-PPR — Predicate-Carrying `?proof-required`
 
-> **Version:** Rev 2 — incorporates professor review findings (six gaps and two author-question answers folded; cross-proposal C-2 settlement governs Outcome-1/2 contingent shipping per §6.3)
-> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2)
+> **Version:** Rev 3 — truncation mitigation (Risk #1) dropped; sidecar-safety-valve framing removed; `predicate_text` confirmed unbounded (2026-05-28)
+> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2); 2026-05-28 (Rev 3)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 3 (LT-PPR)
 > **Prerequisites:** LT-INV grammar inversion (sequenced after — predicate-carrying form is `def-shell`-only per memo §1.4). Cross-proposal shipping under LT-INV gate outcomes specified at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) §2 and §6.3 below.
 > **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §3); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §6 routing; supersedes [`proof-required-predicate-carrier.md`](proof-required-predicate-carrier.md) deferred-exploration seed material (status flipped to "Superseded by LT-PPR" 2026-05-23)
@@ -170,11 +170,9 @@ The `EvidenceRecord` for a `?proof-required`-bearing clause gains two fields:
 
 `tier` is `asserted` in both cases (the diamond lattice is unaltered). The *enrichment* is the predicate field. Downstream consumers reading `tier: "asserted"` are unaffected; consumers reading the new `predicate_form` field gain the distinction between leaf and predicate-carrying forms and can route accordingly.
 
-**Bounded predicate-text length.** Per Risk #1 below, `predicate_text` is truncated to a configurable limit (default 256 chars) in the trust-report emit. The full predicate AST lives in the `.verified.json` sidecar where size is less constrained.
-
 **`runtime_check_emitted: bool` flag** records whether codegen produced the runtime assertion. Predicate-carrying forms default to `true`; leaf forms default to `false`. A future codegen flag can opt out of runtime-assertion emission for performance-critical paths, in which case `runtime_check_emitted: false` and the trust report flags the asymmetry.
 
-**Trust-report-vs-sidecar fragmentation note (Rev 2, per the professor review's Gap #4).** The trust report's `predicate_text` is *display-truncated* to the configurable 256-char limit; the full predicate AST lives in `.verified.json` where size is less constrained. Downstream consumers reading the trust report see the truncated text; consumers reading the sidecar see the canonical form. The two views diverge for predicates longer than 256 chars (non-trivial nested predicates). **Consumer-facing documentation must be explicit** that the trust report carries a *summary* surface and the sidecar carries the *canonical* form; cross-consumer comparison of `predicate_text` across the two surfaces is unsafe without explicit acknowledgment of the truncation. This is documented in [`docs/llmll-trust-report.schema.json`](../llmll-trust-report.schema.json) (the schema's per-field `description` block) and in `LLMLL.md §4.4` (the evidence-model section that documents the trust report's role).
+**`predicate_text` note (Rev 3, replaces Rev 2 Gap #4 fragmentation note).** The trust report's `predicate_text` carries the full JSON-encoded predicate expression (`exprToJson` of the carried `Expr` payload), unbounded. The `.verified.json` sidecar stores the same `EvidenceRecord` representation including `erPredicateText`; both surfaces carry equivalent data and there is no divergence between them. This is documented in [`docs/llmll-trust-report.schema.json`](../llmll-trust-report.schema.json) (per-field `description` blocks) and in `LLMLL.md §4.4` (the evidence-model section).
 
 ---
 
@@ -264,7 +262,7 @@ No new SMT obligations are emitted. No new fragment expansion. No new Lean inges
 - [`compiler/src/LLMLL/Syntax.hs:243`](../../compiler/src/LLMLL/Syntax.hs) — `HProofRequired Text` extends to `HProofRequired Text (Maybe Expr)`; round-trip through `AstEmit.hs` for both forms
 - [`compiler/src/LLMLL/Parser.hs`](../../compiler/src/LLMLL/Parser.hs), [`compiler/src/LLMLL/ParserJSON.hs`](../../compiler/src/LLMLL/ParserJSON.hs) — optional-predicate parsing in both frontends; both must produce identical AST shape from equivalent input
 - [`compiler/src/LLMLL/TypeCheck.hs`](../../compiler/src/LLMLL/TypeCheck.hs) — typecheck the predicate as `bool` in the surrounding pre/post context with `result` bound where applicable
-- [`compiler/src/LLMLL/TrustReport.hs`](../../compiler/src/LLMLL/TrustReport.hs) — emit `predicate_form`, `predicate_text` (length-bounded), and `runtime_check_emitted` fields in the `EvidenceRecord`
+- [`compiler/src/LLMLL/TrustReport.hs`](../../compiler/src/LLMLL/TrustReport.hs) — emit `predicate_form`, `predicate_text` (unbounded), and `runtime_check_emitted` fields in the `EvidenceRecord`
 - [`compiler/src/LLMLL/CodegenHs.hs`](../../compiler/src/LLMLL/CodegenHs.hs) — emit runtime-assertion fallback over the predicate (the runtime check the deferred-exploration doc anticipated); opt-out flag for performance-critical paths
 - [`compiler/src/LLMLL/HoleAnalysis.hs`](../../compiler/src/LLMLL/HoleAnalysis.hs) — predicate-carrying form is one of the hole-forms forbidden in `def` per LT-INV (b) whitelist
 - [`docs/llmll-ast.schema.json`](../llmll-ast.schema.json) — extends `hole-proof-required` shape with optional `predicate` field; bundled with LT-INV `schemaVersion 0.5.0 → 0.6.0` bump
@@ -276,7 +274,7 @@ No new SMT obligations are emitted. No new fragment expansion. No new Lean inges
 
 ## 11. Risks and open questions
 
-1. **Predicate-text in the trust report is unbounded by default.** Severity: medium. Classification: spec-drift (trust-report consumer side). Cite: current trust-report consumers expect bounded fields per [`docs/llmll-trust-report.schema.json`](../llmll-trust-report.schema.json) v1.1.0. Bite: a maliciously-large or pathologically-nested predicate could bloat trust-report emit. **Mitigation:** truncate `predicate_text` to a configurable limit (default 256 chars) in the trust-report emit; full predicate lives in the `.verified.json` sidecar where size is less constrained. Documented in §5.
+1. **Predicate-text in the trust report is unbounded.** Severity: low (accepted). Classification: spec-drift (mitigation dropped — Rev 3). Cite: `TrustReport.hs:321` emits the full `exprToJson pred` without truncation; `Syntax.hs:386` `erPredicateText :: Maybe Text`. **Disposition (Rev 3):** Truncation mitigation dropped. The proposed safety valve — recovery from the `.verified.json` sidecar — does not exist: the sidecar stores `Map Name ContractStatus` with the same `erPredicateText :: Maybe Text`, not a richer predicate-AST representation. Truncation without a recovery path would be information-destroying. The predicate vocabulary in v0.11 scope (simple boolean expressions over builtins per §4.1) is compact in practice; the risk is accepted. A non-truncating size advisory (high-watermark warning, no information loss) is a v0.12+ direction if empirical evidence from the experiment harness warrants it.
 
 2. **Runtime-assertion fallback over the predicate may diverge from the verifier's symbolic interpretation.** Severity: medium. Classification: soundness. Cite: erasure-theorem framing in [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.1 — runtime checks are *separate* from verifier checks. Bite: a predicate using a builtin whose runtime behavior differs from its symbolic interpretation (e.g., a partial function) may runtime-fail in cases the spec did not consider. **Mitigation:** runtime-assertion fallback is opt-in via a codegen flag (default: emit assertion). The trust report records emit/skip explicitly via `runtime_check_emitted`. Functions in `def-shell` with predicate-carrying `?proof-required` get the assertion automatically; pathological cases can opt out per-function.
 
