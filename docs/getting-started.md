@@ -1386,9 +1386,9 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 
 ---
 
-### §4.14 Core/Shell Grammar (`--grammar=core-inversion`)
+### §4.14 Core/Shell Grammar (default from v0.11; `--grammar=legacy` for v0.10)
 
-Activated by the global `--grammar=core-inversion` flag (v0.11 LT-INV). Under this mode two new definition keywords are available alongside the existing `def-logic`:
+Active by default from v0.11 (LT-INV). Pass `--grammar=legacy` to parse v0.10 `def-logic` / `letrec` programs. Two definition keywords are available under this mode:
 
 | Keyword | AST node | Body restriction | When to use |
 |---------|----------|-----------------|-------------|
@@ -1414,13 +1414,14 @@ Activated by the global `--grammar=core-inversion` flag (v0.11 LT-INV). Under th
 **Invocation:**
 
 ```bash
-llmll --grammar=core-inversion check myfile.llmll
-llmll --grammar=core-inversion verify myfile.llmll --trust-report
+llmll check myfile.llmll                          # core-inversion by default
+llmll --grammar=legacy check myfile.llmll         # v0.10 def-logic programs
+llmll verify myfile.llmll --trust-report          # core-inversion by default
 ```
 
-`def-logic` and `letrec` are **not accepted** under `--grammar=core-inversion`; the compiler emits `core-grammar-violation` and exits non-zero. Use `def` for strict-core functions and `def-shell` for permissive functions. The default (`--grammar=legacy`) is unaffected; under legacy, `def` and `def-shell` are not available.
+`def-logic` and `letrec` are **not accepted** under the default `GrammarCoreInversion` mode; the compiler emits `core-grammar-violation` and exits non-zero. Use `def` for strict-core functions and `def-shell` for permissive functions. Pass `--grammar=legacy` to parse v0.10 `def-logic` / `letrec` programs; under legacy, `def` and `def-shell` are not available.
 
 **Known restrictions:**
 - `def` does not parse a return-type annotation (`: type` after the parameter list). The return type is always inferred.
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
-- Schema `schemaVersion` stays `0.5.0`; the bump to `0.6.0` is gated on the §8 empirical-validation gate.
+- Schema `schemaVersion` is still `0.5.0`; the bump to `0.6.0` is pending the `expectedSchemaVersion` update in `compiler/src/LLMLL/ParserJSON.hs` and `examples/*` migration.
