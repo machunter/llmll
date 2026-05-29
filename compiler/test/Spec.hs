@@ -6564,8 +6564,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "C10a score undefined when |satisfying| = 0 with WarnSpecInconsistent" $ do
         cdpScore (mkResult 0 5 [WarnSpecInconsistent]) `shouldBe` Nothing
 
-      it "C10b score undefined when |satisfying| = 0 with WarnVacuousOverOmega" $ do
-        cdpScore (mkResult 0 5 [WarnVacuousOverOmega]) `shouldBe` Nothing
+      it "C10b score undefined when |satisfying| = 0 with WarnSpecTooTightForOmega" $ do
+        cdpScore (mkResult 0 5 [WarnSpecTooTightForOmega]) `shouldBe` Nothing
 
       it "C11 score positive when sat < total" $ do
         case cdpScore (mkResult 2 10 []) of
@@ -6637,14 +6637,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "C19 all nine warning labels round-trip" $ do
         let labels = map cdpWarningLabel
               [ WarnIdentitySatisfiesPost, WarnConstSatisfiesPost
-              , WarnSpecInconsistent, WarnVacuousOverOmega
+              , WarnSpecInconsistent, WarnSpecTooTightForOmega
               , WarnEnumerationTooNarrow, WarnDefShellOutOfScope
               , WarnCandidatesEmptyUnderLimit, WarnOverAnnotationModule
               , WarnNotRequested
               ]
         labels `shouldBe`
           [ "identity-satisfies-post", "const-satisfies-post"
-          , "spec-inconsistent", "vacuous-over-omega"
+          , "spec-inconsistent", "spec-too-tight-for-omega"
           , "enumeration-too-narrow", "def-shell-out-of-scope"
           , "candidates-empty-under-limit", "over-annotation-warning"
           , "not-requested"
@@ -6673,14 +6673,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "C22 computeCDPFor with stub solver returns one entry per contracted function" $ do
         let stmts =
-              [ SDefLogic "f" [("n", TInt)] (Just TInt)
+              [ SDef "f" [("n", TInt)] (Just TInt)
                   (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing
                             (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (EVar "n")
               , STypeDef "Foo" TInt  -- non-contracted: should not appear in result
               ]
             stubSolver _wc = pure True  -- all candidates "satisfy" — yields score 0.0 + identity-satisfies-post
-        results <- computeCDPFor CDPScopeAllDefLogic stubSolver Map.empty stmts
+        results <- computeCDPFor CDPScopeCoreOnly stubSolver Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "f" results of
           Just r -> do
@@ -6777,11 +6777,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         ints `shouldBe` [0, 1, -1, 42]
 
     -- C23a-C23c: WarnVacuousOverOmega / WarnSpecInconsistent dispatch
-    describe "C23a-C23c vacuous-over-omega vs spec-inconsistent disambiguation" $ do
+    describe "C23a-C23c spec-too-tight-for-omega vs spec-inconsistent disambiguation" $ do
 
-      it "C23a WarnVacuousOverOmega fires when function verifies but no candidate satisfies" $ do
+      it "C23a WarnSpecTooTightForOmega fires when function verifies but no candidate satisfies" $ do
         let stmts =
-              [ SDefLogic "withdraw"
+              [ SDef "withdraw"
                   [("balance", TInt), ("amount", TInt)] Nothing
                   (Contract
                     (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
@@ -6790,14 +6790,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               ]
             stubFail _wc = pure False
             verifMap = Map.fromList [("withdraw", True)]
-        results <- computeCDPFor CDPScopeAllDefLogic stubFail verifMap stmts
+        results <- computeCDPFor CDPScopeCoreOnly stubFail verifMap stmts
         case Map.lookup "withdraw" results of
-          Just r  -> cdpWarnings r `shouldSatisfy` (WarnVacuousOverOmega `elem`)
+          Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecTooTightForOmega `elem`)
           Nothing -> expectationFailure "expected entry for withdraw"
 
       it "C23b no inconsistency warning emitted when candidates satisfy (verifMap active)" $ do
         let stmts =
-              [ SDefLogic "compute-fee" [("amount", TInt)] Nothing
+              [ SDef "compute-fee" [("amount", TInt)] Nothing
                   (Contract
                     (Just (EApp ">=" [EVar "amount", ELit (LitInt 0)])) Nothing
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
@@ -6805,16 +6805,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               ]
             stubPass _wc = pure True
             verifMap = Map.fromList [("compute-fee", True)]
-        results <- computeCDPFor CDPScopeAllDefLogic stubPass verifMap stmts
+        results <- computeCDPFor CDPScopeCoreOnly stubPass verifMap stmts
         case Map.lookup "compute-fee" results of
           Just r  -> do
-            cdpWarnings r `shouldSatisfy` (WarnVacuousOverOmega `notElem`)
+            cdpWarnings r `shouldSatisfy` (WarnSpecTooTightForOmega `notElem`)
             cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `notElem`)
           Nothing -> expectationFailure "expected entry for compute-fee"
 
       it "C23c WarnSpecInconsistent used as conservative fallback when verifMap is empty" $ do
         let stmts =
-              [ SDefLogic "withdraw"
+              [ SDef "withdraw"
                   [("balance", TInt), ("amount", TInt)] Nothing
                   (Contract
                     (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
@@ -6822,10 +6822,73 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (ELit (LitInt 0))
               ]
             stubFail _wc = pure False
-        results <- computeCDPFor CDPScopeAllDefLogic stubFail Map.empty stmts
+        results <- computeCDPFor CDPScopeCoreOnly stubFail Map.empty stmts
         case Map.lookup "withdraw" results of
           Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `elem`)
           Nothing -> expectationFailure "expected entry for withdraw"
+
+    -- CDP-SCOPE-1 through CDP-SCOPE-4: CDPScopeCoreOnly filtering (§8 Outcome 0)
+    describe "CDP-SCOPE: CDPScopeCoreOnly scope filtering" $ do
+
+      it "CDP-SCOPE-1 SDef under CDPScopeCoreOnly is measured (score populated)" $ do
+        let stmts =
+              [ SDef "g" [("n", TInt)] (Just TInt)
+                  (Contract Nothing Nothing
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (EVar "n")
+              ]
+            stubPass _wc = pure True
+        results <- computeCDPFor CDPScopeCoreOnly stubPass Map.empty stmts
+        Map.size results `shouldBe` 1
+        case Map.lookup "g" results of
+          Just r  -> cdpScore r `shouldSatisfy` (/= Nothing)
+          Nothing -> expectationFailure "expected entry for g"
+
+      it "CDP-SCOPE-2 SDefLogic under CDPScopeCoreOnly produces WarnDefShellOutOfScope entry" $ do
+        let stmts =
+              [ SDefLogic "h" [("n", TInt)] Nothing
+                  (Contract Nothing Nothing
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (EVar "n")
+              ]
+            stubPass _wc = pure True
+        results <- computeCDPFor CDPScopeCoreOnly stubPass Map.empty stmts
+        Map.size results `shouldBe` 1
+        case Map.lookup "h" results of
+          Just r  -> do
+            cdpScore r `shouldBe` Nothing
+            cdpWarnings r `shouldSatisfy` (WarnDefShellOutOfScope `elem`)
+          Nothing -> expectationFailure "expected entry for h"
+
+      it "CDP-SCOPE-3 SDefShell under CDPScopeCoreOnly produces WarnDefShellOutOfScope entry" $ do
+        let stmts =
+              [ SDefShell "s" [("n", TInt)] Nothing
+                  (Contract Nothing Nothing
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (EVar "n")
+              ]
+            stubPass _wc = pure True
+        results <- computeCDPFor CDPScopeCoreOnly stubPass Map.empty stmts
+        Map.size results `shouldBe` 1
+        case Map.lookup "s" results of
+          Just r  -> do
+            cdpScore r `shouldBe` Nothing
+            cdpWarnings r `shouldSatisfy` (WarnDefShellOutOfScope `elem`)
+          Nothing -> expectationFailure "expected entry for s"
+
+      it "CDP-SCOPE-4 SDefLogic under CDPScopeAllDefLogic is still measured (legacy path)" $ do
+        let stmts =
+              [ SDefLogic "legacy" [("n", TInt)] Nothing
+                  (Contract Nothing Nothing
+                    (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                  (EVar "n")
+              ]
+            stubPass _wc = pure True
+        results <- computeCDPFor CDPScopeAllDefLogic stubPass Map.empty stmts
+        Map.size results `shouldBe` 1
+        case Map.lookup "legacy" results of
+          Just r  -> cdpScore r `shouldSatisfy` (/= Nothing)
+          Nothing -> expectationFailure "expected entry for legacy"
 
   -- -----------------------------------------------------------------------
   -- LT-INV (v0.11): core/shell grammar inversion

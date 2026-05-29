@@ -112,12 +112,14 @@ data CDPWarning
   | WarnSpecInconsistent
     -- ^ Zero candidates satisfied the contract and there is no verification
     -- evidence for the post-condition. Score is suppressed.
-  | WarnVacuousOverOmega
+  | WarnSpecTooTightForOmega
     -- ^ The post-condition carries DLVerified or DLContractChecked evidence
     -- (the spec is provably correct), but no trivial-body candidate from the
     -- §4.3.1 enumeration satisfies it — the spec is tight with respect to the
     -- candidate set Ω, not vacuous. Score is suppressed; consumers should
     -- treat this as a strong-spec signal, not a spec defect.
+    -- Wire-line label: "spec-too-tight-for-omega" (renamed from
+    -- "vacuous-over-omega" per F-005 adjudication, CDP proposal Rev 4 §5).
   | WarnEnumerationTooNarrow
     -- ^ |B_{T,U,Ω}| ≤ 1 — fewer than two distinct observable behaviors;
     -- score formula is degenerate, score reported as undefined.
@@ -143,7 +145,7 @@ cdpWarningLabel :: CDPWarning -> Text
 cdpWarningLabel WarnIdentitySatisfiesPost     = "identity-satisfies-post"
 cdpWarningLabel WarnConstSatisfiesPost        = "const-satisfies-post"
 cdpWarningLabel WarnSpecInconsistent          = "spec-inconsistent"
-cdpWarningLabel WarnVacuousOverOmega          = "vacuous-over-omega"
+cdpWarningLabel WarnSpecTooTightForOmega      = "spec-too-tight-for-omega"
 cdpWarningLabel WarnEnumerationTooNarrow      = "enumeration-too-narrow"
 cdpWarningLabel WarnDefShellOutOfScope        = "def-shell-out-of-scope"
 cdpWarningLabel WarnCandidatesEmptyUnderLimit = "candidates-empty-under-limit"
@@ -205,49 +207,85 @@ computeCDPFor
   -> [Statement]
   -> IO (Map Name CDPResult)
 computeCDPFor scope runCandidate verifMap stmts = do
-  let funcs = mapStmts stmts
-  pairs <- mapM (\(name, contract, candidates) ->
-                    let verifies = Map.findWithDefault False name verifMap
-                    in fmap ((,) name) (resultFor scope runCandidate verifies contract candidates))
-                funcs
-  pure (Map.fromList pairs)
+  -- Split contracted functions into in-scope (measure) and out-of-scope
+  -- (emit WarnDefShellOutOfScope, no solver call).  Per
+  -- 'v0.11-cross-proposal-rollback-discipline.md' §2.1 (Outcome 0):
+  -- CDPScopeCoreOnly / CDPScopeFlagGated → SDef only;
+  -- CDPScopeAllDefLogic → all four forms (legacy path).
+  let inScopeFuncs  = [ (n, c, candidatesFor n stmts)
+                      | s <- stmts, Just (n, c) <- [inScopeFunc scope s] ]
+      outOfScopeFuncs = [ (n, c)
+                        | s <- stmts, Just (n, c) <- [outOfScopeFunc scope s] ]
+  measured <- mapM (\(name, contract, candidates) ->
+                       let verifies = Map.findWithDefault False name verifMap
+                       in fmap ((,) name) (resultFor runCandidate verifies contract candidates))
+                   inScopeFuncs
+  let skipped = [ (name, outOfScopeResult contract)
+                | (name, contract) <- outOfScopeFuncs ]
+  pure (Map.fromList (measured ++ skipped))
   where
-    mapStmts = mapMaybeStmts
-    mapMaybeStmts ss =
-      [ (n, c, candidatesFor n ss)
-      | s <- ss
-      , Just (n, c) <- [contractedFunc s]
-      ]
-    contractedFunc (SDefLogic n _ _ c _)   | hasContracts c = Just (n, c)
-    contractedFunc (SLetrec   n _ _ c _ _) | hasContracts c = Just (n, c)
-    -- LT-INV (v0.11)
-    contractedFunc (SDef      n _ _ c _)   | hasContracts c = Just (n, c)
-    contractedFunc (SDefShell n _ _ c _)   | hasContracts c = Just (n, c)
-    contractedFunc _ = Nothing
+    -- In-scope: forms that enter the measurement pipeline.
+    inScopeFunc CDPScopeAllDefLogic s = allContractedFunc s
+    inScopeFunc CDPScopeCoreOnly    s = coreOnlyFunc s
+    inScopeFunc CDPScopeFlagGated   s = coreOnlyFunc s
+
+    -- Out-of-scope contracted forms: emit WarnDefShellOutOfScope, no score.
+    outOfScopeFunc CDPScopeAllDefLogic _ = Nothing
+    outOfScopeFunc _                   s = nonCoreContractedFunc s
+
+    -- CDPScopeAllDefLogic: legacy — all four forms in scope.
+    allContractedFunc (SDefLogic n _ _ c _)   | hasContracts c = Just (n, c)
+    allContractedFunc (SLetrec   n _ _ c _ _) | hasContracts c = Just (n, c)
+    allContractedFunc (SDef      n _ _ c _)   | hasContracts c = Just (n, c)
+    allContractedFunc (SDefShell n _ _ c _)   | hasContracts c = Just (n, c)
+    allContractedFunc _ = Nothing
+
+    -- CDPScopeCoreOnly / CDPScopeFlagGated: only def (strict-core) form.
+    coreOnlyFunc (SDef n _ _ c _) | hasContracts c = Just (n, c)
+    coreOnlyFunc _                                 = Nothing
+
+    -- Contracted forms that are out of scope under CDPScopeCoreOnly.
+    nonCoreContractedFunc (SDefLogic n _ _ c _)   | hasContracts c = Just (n, c)
+    nonCoreContractedFunc (SLetrec   n _ _ c _ _) | hasContracts c = Just (n, c)
+    nonCoreContractedFunc (SDefShell n _ _ c _)   | hasContracts c = Just (n, c)
+    nonCoreContractedFunc _                                        = Nothing
+
+    -- Out-of-scope result: no score, WarnDefShellOutOfScope, annotation preserved.
+    outOfScopeResult contract =
+      let annotation = case contractSpecEntropy contract of
+                         Just se -> se
+                         Nothing -> SpecEntropyStrict
+      in CDPResult
+           { cdpCandidateCount        = 0
+           , cdpSatisfyingCount       = 0
+           , cdpDistinctBehaviorCount = 0
+           , cdpScore                 = Nothing
+           , cdpWarnings              = [WarnDefShellOutOfScope]
+           , cdpDistinguishingInputs  = []
+           , cdpSpecEntropyAnnotation = annotation
+           }
+
     candidatesFor n ss = filter (\wc -> wcFunctionName wc == n) (generateCDPCandidates ss)
     hasContracts (Contract pre _ post _ _) =
       pre /= Nothing || post /= Nothing
 
--- | Compute the per-function result, given the function's candidates and the
--- IO solver runner. In-scope but candidate-empty cases fire
--- 'WarnCandidatesEmptyUnderLimit'; in-scope inconsistent contracts fire
--- 'WarnSpecInconsistent'; observational equivalence is the per-candidate
+-- | Compute the per-function result for an in-scope function, given its
+-- candidates and the IO solver runner.  Scope filtering has already been
+-- applied by 'computeCDPFor'; every function reaching here is in scope.
+-- Candidate-empty cases fire 'WarnCandidatesEmptyUnderLimit'; inconsistent
+-- contracts fire 'WarnSpecInconsistent' or 'WarnSpecTooTightForOmega' per
+-- 'buildWarnings'; observational equivalence is the per-candidate
 -- 'trivialLabel' partition (proposal §4.3 corpus-bias caveat applies).
 resultFor
-  :: CDPScope
-  -> (WeaknessCandidate -> IO Bool)
+  :: (WeaknessCandidate -> IO Bool)
   -> Bool
   -> Contract
   -> [WeaknessCandidate]
   -> IO CDPResult
-resultFor _scope runCandidate functionVerifies contract candidates = do
+resultFor runCandidate functionVerifies contract candidates = do
   let annotation = case contractSpecEntropy contract of
                      Just se -> se
                      Nothing -> SpecEntropyStrict
-  -- Scope filtering is decided by the caller in 'Main.hs' (which knows the
-  -- form context — def vs def-logic vs def-shell — once LT-INV lands). Until
-  -- then, all contracted functions reach here and the result is computed
-  -- against 'CDPScopeAllDefLogic' semantics.
   if null candidates
     then pure CDPResult
       { cdpCandidateCount = 0
@@ -295,7 +333,7 @@ buildWarnings candidates satisfying distinctAll _annotation functionVerifies =
   in concat
        [ [WarnIdentitySatisfiesPost | identityOk]
        , [WarnConstSatisfiesPost    | constOk]
-       , [if functionVerifies then WarnVacuousOverOmega else WarnSpecInconsistent | inconsistent]
+       , [if functionVerifies then WarnSpecTooTightForOmega else WarnSpecInconsistent | inconsistent]
        , [WarnEnumerationTooNarrow  | narrow && not inconsistent]
        ]
   where

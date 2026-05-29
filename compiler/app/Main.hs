@@ -1312,11 +1312,13 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
             _ -> pure ()
 
           -- LT-CDP (v0.11): contract discriminative power — runs on SAFE results.
-          -- Per 'v0.11-cross-proposal-rollback-discipline.md' §2, scope defaults
-          -- to CDPScopeAllDefLogic until LT-INV ships and the §8 gate selects the
-          -- post-gate default. The CDP result map is threaded into the trust
-          -- report via 'buildTrustReportWithCDP' when '--trust-report --json'
-          -- is also requested; otherwise it surfaces as a stdout summary block.
+          -- CDPScopeCoreOnly: §8 gate PASSED (Outcome 0, 2026-05-28, postmortem-004);
+          -- only def (strict-core) form is measured. def-shell and legacy def-logic
+          -- forms emit WarnDefShellOutOfScope entries.  Per
+          -- 'v0.11-cross-proposal-rollback-discipline.md' §2.1.
+          -- The CDP result map is threaded into the trust report via
+          -- 'buildTrustReportWithCDP' when '--trust-report --json' is also requested;
+          -- otherwise it surfaces as a stdout summary block.
           cdpResults <- case (fqResult, cdpFlag) of
             (FQSafe, True) -> do
               unless json $ TIO.putStrLn "   Running CDP measurement (LT-CDP v0.11) ..."
@@ -1335,8 +1337,8 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                 hPutStrLn stderr
                   "Note: --cdp without --trust-report: WarnSpecInconsistent used conservatively \
                   \for all zero-satisfying functions; pass --trust-report to enable \
-                  \WarnVacuousOverOmega disambiguation."
-              results <- computeCDPFor CDPScopeAllDefLogic runOneCandidate verifMap stmts
+                  \WarnSpecTooTightForOmega disambiguation."
+              results <- computeCDPFor CDPScopeCoreOnly runOneCandidate verifMap stmts
               -- Module-level over-annotation diagnostic (proposal Risk #3).
               let intentRatio = overAnnotationRatio stmts
               when (intentRatio > overAnnotationThreshold) $
