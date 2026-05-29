@@ -323,6 +323,8 @@ All four preconditions are load-bearing:
 
 All logic is contained in pure functions declared with `def-logic`. Functions are stateless: they take inputs and return a value. They cannot mutate state or perform IO directly.
 
+Under `--grammar=core-inversion`, the keyword `def-logic` is rejected at parse time (exit 1, `core-grammar-violation` diagnostic); use `def` for the strict-core form or `def-shell` for the permissive form.
+
 > **Note (v0.11 LT-INV):** Under `--grammar=core-inversion`, the strict-core equivalent of `def-logic` is `def`, which restricts the function body to a whitelist of verifiable constructs (linear-arithmetic `EOp`, `ELet`, `EIf`, `EApp` to admitted callees, `EMatch` on `Result` 2-arm). The permissive form is `def-shell` (no body restriction). Both parse only when `--grammar=core-inversion` is active. Under `--grammar=core-inversion`, `def-logic` and `letrec` are **not accepted**: the compiler emits a `core-grammar-violation` diagnostic and exits non-zero. From v0.11, **`GrammarCoreInversion` is the default**; `def-logic` and `letrec` are rejected unless `--grammar=legacy` is passed explicitly. Under `--grammar=legacy`, `def` and `def-shell` are unavailable. See [`docs/getting-started.md §4.14`](docs/getting-started.md) for a worked example and `LLMLL.md §12` for the EBNF.
 
 ```lisp
