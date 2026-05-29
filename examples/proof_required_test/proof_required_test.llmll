@@ -13,10 +13,10 @@
 
 (import wasi.io (capability stdout :deterministic false))
 
-(def-logic safe-div [n: int d: int]
+(def-shell safe-div [n: int d: int]
   ?proof-required)
 
-(def-logic main-step [state: string input: string]
+(def-shell main-step [state: string input: string]
   (pair state (wasi.io.stdout "proof-required test")))
 
 (def-main :mode console

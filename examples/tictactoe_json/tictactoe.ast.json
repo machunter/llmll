@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.1.3",
+  "schemaVersion": "0.6.0",
   "llmll_version": "0.1.3",
   "source_file": "tictactoe.ast.json",
   "statements": [
@@ -11,21 +11,21 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "state-board",
       "params": [{ "name": "s" }],
       "body": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "s" }] }
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "state-turn",
       "params": [{ "name": "s" }],
       "body": { "kind": "app", "fn": "second", "args": [{ "kind": "var", "name": "s" }] }
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "make-state",
       "params": [
         { "name": "board" },
@@ -39,7 +39,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "cell-at",
       "params": [
         { "name": "board" },
@@ -63,7 +63,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "set-cell",
       "params": [
         { "name": "board" },
@@ -103,7 +103,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "three-match?",
       "params": [
         { "name": "board" },
@@ -133,7 +133,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "winner?",
       "params": [{ "name": "board" }],
       "body": {
@@ -177,7 +177,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "board-full?",
       "params": [{ "name": "board" }],
       "body": {
@@ -197,7 +197,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "is-game-over?",
       "params": [{ "name": "s" }],
       "body": {
@@ -215,7 +215,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "render-board",
       "params": [{ "name": "board" }],
       "body": {
@@ -273,7 +273,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "next-player",
       "params": [{ "name": "turn", "param_type": { "kind": "primitive", "name": "string" } }],
       "body": {
@@ -285,7 +285,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "start-game",
       "params": [],
       "body": {
@@ -322,7 +322,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "game-loop",
       "params": [
         { "name": "s" },
@@ -430,7 +430,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "show-result",
       "params": [{ "name": "s" }],
       "body": {

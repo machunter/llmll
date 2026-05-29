@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "module": "erc20-token",
   "types": [
     {
@@ -15,7 +15,7 @@
   ],
   "statements": [
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "total-supply",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } }
@@ -33,7 +33,7 @@
       "body": { "kind": "hole-named", "name": "?total-supply-impl" }
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "balance-of",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -52,7 +52,7 @@
       "body": { "kind": "hole-named", "name": "?balance-of-impl" }
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "transfer",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -88,7 +88,7 @@
       "body": { "kind": "hole-named", "name": "?transfer-impl" }
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "approve",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -109,7 +109,7 @@
       "body": { "kind": "hole-named", "name": "?approve-impl" }
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "allowance",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -129,7 +129,7 @@
       "body": { "kind": "hole-named", "name": "?allowance-impl" }
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "transfer-from",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },

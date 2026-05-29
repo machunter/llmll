@@ -1,4 +1,4 @@
-(def-logic safe-first [xs: list[int]]
+(def-shell safe-first [xs: list[int]]
   (post (>= result 0))
   (match (list-head xs)
     ((Success val) ?success_impl)

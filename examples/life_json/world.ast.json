@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "llmll_version": "0.3.0",
   "source_file": "world.ast.json",
   "statements": [
@@ -15,7 +15,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "make-world",
       "params": [
         { "name": "grid",   "param_type": { "kind": "list", "elem_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } } },
@@ -34,28 +34,28 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "world-grid",
       "params": [ { "name": "w" } ],
       "body": { "kind": "app", "fn": "first",  "args": [ { "kind": "var", "name": "w" } ] }
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "world-width",
       "params": [ { "name": "w" } ],
       "body": { "kind": "app", "fn": "first",  "args": [ { "kind": "app", "fn": "second", "args": [ { "kind": "var", "name": "w" } ] } ] }
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "world-height",
       "params": [ { "name": "w" } ],
       "body": { "kind": "app", "fn": "second", "args": [ { "kind": "app", "fn": "second", "args": [ { "kind": "var", "name": "w" } ] } ] }
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "get-cell",
       "params": [
         { "name": "grid",   "param_type": { "kind": "list", "elem_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } } },
@@ -114,7 +114,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "count-neighbors",
       "params": [
         { "name": "grid",   "param_type": { "kind": "list", "elem_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } } },
@@ -172,7 +172,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "evolve-row",
       "params": [
         { "name": "grid",   "param_type": { "kind": "list", "elem_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } } },
@@ -213,7 +213,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "evolve",
       "params": [ { "name": "world" } ],
       "body": {
@@ -249,7 +249,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "cell-to-char",
       "params": [
         { "name": "cell", "param_type": { "kind": "primitive", "name": "int" } }
@@ -266,7 +266,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "render-row",
       "params": [
         { "name": "row", "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } }
@@ -300,7 +300,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "render-world",
       "params": [ { "name": "world" } ],
       "body": {
@@ -330,7 +330,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "make-empty-row",
       "params": [
         { "name": "width", "param_type": { "kind": "primitive", "name": "int" } }
@@ -349,7 +349,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "set-cell-in-row",
       "params": [
         { "name": "row",    "param_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } },
@@ -390,7 +390,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "set-cell-in-grid",
       "params": [
         { "name": "grid",       "param_type": { "kind": "list", "elem_type": { "kind": "list", "elem_type": { "kind": "primitive", "name": "int" } } } },
@@ -444,7 +444,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "glider-grid",
       "params": [
         { "name": "width",  "param_type": { "kind": "primitive", "name": "int" } },

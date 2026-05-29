@@ -6,17 +6,17 @@
 
 ;; Private helpers — not exported
 
-(def-logic is-underpopulated [neighbors: int]
+(def-shell is-underpopulated [neighbors: int]
   (< neighbors 2))
 
-(def-logic is-overpopulated [neighbors: int]
+(def-shell is-overpopulated [neighbors: int]
   (> neighbors 3))
 
-(def-logic is-stable [neighbors: int]
+(def-shell is-stable [neighbors: int]
   (or (= neighbors 2) (= neighbors 3)))
 
 ;; Public export — transitions a single cell
-(def-logic next-cell-state [alive: int neighbors: int]
+(def-shell next-cell-state [alive: int neighbors: int]
   (if (= alive 1)
       (if (or (is-underpopulated neighbors) (is-overpopulated neighbors))
           0

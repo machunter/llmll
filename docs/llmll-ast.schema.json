@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.5/ast.schema.json",
-  "title": "LLMLL v0.5 JSON-AST Schema",
+  "$id": "https://llmll.dev/schemas/v0.6/ast.schema.json",
+  "title": "LLMLL v0.6 JSON-AST Schema",
   "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline.",
 
   "$defs": {
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.5.0'. The compiler rejects files with an unrecognised version. Bumped from 0.4.0 in v0.10.6 to signal the additive optional CheckDecl.subjects field (OBLIG-PBT-4).",
+          "description": "Must be '0.6.0'. The compiler rejects files with an unrecognised version. Bumped from 0.5.0 in v0.11 to signal the grammar-default flip to GrammarCoreInversion (LT-INV §8 gate pass).",
           "type": "string",
-          "const": "0.5.0"
+          "const": "0.6.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",

@@ -3,7 +3,7 @@
 
 (type PositiveInt (where [x: int] (> x 0)))
 
-(def-logic withdraw [balance: int amount: PositiveInt]
+(def-shell withdraw [balance: int amount: PositiveInt]
   (pre (>= balance amount))
   (post (= result (- balance amount)))
   (- balance amount))

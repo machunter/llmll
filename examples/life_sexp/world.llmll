@@ -7,19 +7,19 @@
 
 (export make-world world-grid world-width world-height evolve render-world glider-grid)
 
-(def-logic make-world [grid: list[list[int]] width: int height: int]
+(def-shell make-world [grid: list[list[int]] width: int height: int]
   (pair grid (pair width height)))
 
-(def-logic world-grid [w]
+(def-shell world-grid [w]
   (first w))
 
-(def-logic world-width [w]
+(def-shell world-width [w]
   (first (second w)))
 
-(def-logic world-height [w]
+(def-shell world-height [w]
   (second (second w)))
 
-(def-logic get-cell [grid: list[list[int]] row: int col: int width: int height: int]
+(def-shell get-cell [grid: list[list[int]] row: int col: int width: int height: int]
   (if (or (or (< row 0) (>= row height))
           (or (< col 0) (>= col width)))
       0
@@ -28,7 +28,7 @@
             (cell-result (list-nth the-row col))]
         (unwrap-or cell-result 0))))
 
-(def-logic count-neighbors [grid: list[list[int]] row: int col: int width: int height: int]
+(def-shell count-neighbors [grid: list[list[int]] row: int col: int width: int height: int]
   (let [(neg1 (- 0 1))
         (zero 0)
         (pos1 1)
@@ -49,7 +49,7 @@
               (cell (get-cell grid nr nc width height))]
           (+ acc cell))))))
 
-(def-logic evolve-row [grid: list[list[int]] row-idx: int width: int height: int]
+(def-shell evolve-row [grid: list[list[int]] row-idx: int width: int height: int]
   (let [(col-indices (range 0 width))]
     (list-map col-indices
       (fn [c: int]
@@ -57,7 +57,7 @@
               (neighbors (count-neighbors grid row-idx c width height))]
           (next-cell-state alive neighbors))))))
 
-(def-logic evolve [world]
+(def-shell evolve [world]
   (let [(grid        (world-grid world))
         (width       (world-width world))
         (height      (world-height world))
@@ -67,22 +67,22 @@
                          (evolve-row grid r width height))))]
     (make-world new-grid width height)))
 
-(def-logic cell-to-char [cell: int]
+(def-shell cell-to-char [cell: int]
   (if (= cell 1) "#" "."))
 
-(def-logic render-row [row: list[int]]
+(def-shell render-row [row: list[int]]
   (let [(chars (list-map row (fn [cell: int] (cell-to-char cell))))]
     (string-concat (string-concat-many chars) "\n")))
 
-(def-logic render-world [world]
+(def-shell render-world [world]
   (let [(grid        (world-grid world))
         (row-strings (list-map grid (fn [row] (render-row row))))]
     (string-concat-many row-strings)))
 
-(def-logic make-empty-row [width: int]
+(def-shell make-empty-row [width: int]
   (list-map (range 0 width) (fn [_i: int] 0)))
 
-(def-logic set-cell-in-row [row: list[int] target: int val: int]
+(def-shell set-cell-in-row [row: list[int] target: int val: int]
   (let [(indices (range 0 (list-length row)))]
     (list-map indices
       (fn [i: int]
@@ -90,7 +90,7 @@
             val
             (unwrap-or (list-nth row i) 0))))))
 
-(def-logic set-cell-in-grid [grid: list[list[int]] target-row: int target-col: int val: int]
+(def-shell set-cell-in-grid [grid: list[list[int]] target-row: int target-col: int val: int]
   (let [(row-indices (range 0 (list-length grid)))]
     (list-map row-indices
       (fn [r: int]
@@ -103,7 +103,7 @@
 ;;   row 1 col 2: #
 ;;   row 2 col 3: #
 ;;   row 3 cols 1,2,3: ###
-(def-logic glider-grid [width: int height: int]
+(def-shell glider-grid [width: int height: int]
   (let [(empty-row  (make-empty-row width))
         (row-indices (range 0 height))
         (empty-grid (list-map row-indices (fn [_r: int] empty-row)))

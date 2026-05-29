@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "llmll_version": "0.3.0",
   "source_file": "auth_module.llmll",
   "statements": [
@@ -27,7 +27,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "hash-password-impl",
       "params": [
         {"name": "raw-pw", "type": {"kind": "primitive", "name": "string"}}
@@ -63,7 +63,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "verify-token-impl",
       "params": [
         {"name": "token", "type": {"kind": "primitive", "name": "string"}}
@@ -80,7 +80,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "login-handler",
       "params": [
         {"name": "username", "type": {"kind": "primitive", "name": "string"}},
@@ -127,7 +127,7 @@
     },
 
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "authenticate-request",
       "params": [
         {"name": "username", "type": {"kind": "primitive", "name": "string"}},
