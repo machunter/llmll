@@ -595,8 +595,8 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.5.0",
-  "llmll_version": "0.10.6",
+  "schemaVersion": "0.6.0",
+  "llmll_version": "0.10.8",
   "statements": [ ... ]
 }
 ```
