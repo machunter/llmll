@@ -20,6 +20,7 @@
 |---|---|---|
 | Engineer ships a release | CHANGELOG `## Latest`; roadmap "Upcoming Releases" → "Shipped"; LLMLL.md §14 if user-visible | README version (cites CHANGELOG); design-doc frontmatter |
 | Language-team settles a proposal | Proposal frontmatter `Status:`; INDEX label; hand-off summary | Roadmap (only changes when ticket completes, not when proposal settles) |
+| A role (or co-authoring pair, e.g. LT + EL) produces a settled prose amendment to a freeform roadmap section (milestone narrative, gate-criterion paragraph, empirical-gate pass-criteria text — not a table-row cell) and the user approves | `docs/compiler-team-roadmap.md` — doc-lead applies the settled text verbatim; no rewording without the originating role's re-authorization | `CHANGELOG.md` (not a release); `LLMLL.md`; `README.md`; table-row acceptance-criteria cells; design-doc frontmatter |
 | Professor reviews a proposal | New standalone `<proposal>-review.md`; nothing else | The proposal file itself (LT folds on revision) |
 | Doc-lead folds a settled review | Append `## Appendix — Professor review log` to proposal; archive `<proposal>-review.md` to `docs/archive/professor-reviews/` | Proposal frontmatter (no change) |
 | Engineer ships a settled proposal's ticket | Roadmap row status; CHANGELOG if user-visible; LLMLL.md §14 if user-visible; INDEX status label | Proposal frontmatter (it's done — archive when superseded, not when shipped) |
