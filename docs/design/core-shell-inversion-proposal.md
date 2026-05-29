@@ -1,13 +1,13 @@
 # LT-INV — Core/Shell Grammar Inversion
 
-> **Version:** Rev 2 — incorporates professor review findings (seven gaps and two author-question answers folded; cross-proposal observations C-1/C-2/C-3/C-4 acknowledged per the C-2 settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md))
-> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2)
+> **Version:** Rev 3 — builtinEnv admission clause added to §4 as the third callee-admission class inside `def`
+> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2); 2026-05-27 (Rev 3)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 1 (LT-INV); the v0.11 spine
 > **Prerequisites:** Feature freeze lifted for v0.11 (`docs/compiler-team-roadmap.md` Feature Freeze Policy, lifted 2026-05-23 with the inversion's freeze-exception soundness argument as the rationale)
 > **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4; STRICT-CORE-1 from the triage is subsumed by this proposal (the admissibility rules become grammatical, not adversarial-spec-only)
 > **Companion:** Professor direction memo [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) is the upstream architectural direction; cross-proposal settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) specifies LT-CDP / LT-PPR shipping conditions under §8 gate outcomes
 > **Reviewed:** Professor review at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Seven gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
-> **Status:** Settled (Rev 2) — professor review folded; pending compiler-engineer hand-off behind `--grammar=core-inversion` opt-in flag per §8 empirical-gate sequencing
+> **Status:** Settled (Rev 3) — builtinEnv clause added; pending compiler-engineer hand-off behind `--grammar=core-inversion` opt-in flag per §8 empirical-gate sequencing
 
 ---
 
@@ -55,7 +55,7 @@ LT-INV inverts the polarity at the grammar level. The strict-core form becomes t
 
 ### 3.1 Keyword choice: **adopt Option 2 (rename `def-logic → def`)**
 
-`def` is the canonical strict-core form. `def-logic` is **retired** as a source-level keyword in v0.11 (parsing produces a deprecation diagnostic that auto-rewrites to `def` for core-eligible bodies and `def-shell` otherwise per the mechanical classifier in §6). The permissive form is `def-shell`.
+`def` is the canonical strict-core form. `def-logic` is **retired** as a source-level keyword in v0.11 (under the opt-in flag `--grammar=core-inversion`, use produces a `core-grammar-violation` diagnostic and exit non-zero; when the default flips at Outcome 0, the `--migrate` tool auto-rewrites existing corpus files per the mechanical classifier in §6). The permissive form is `def-shell`.
 
 **Rationale.** The inversion's thesis is "the verified-core fragment IS the language." Option 1 (keep `def-logic` for the strict core, introduce `def-boundary` for the marked form) preserves the project's identity-keyword for its strongest reading but leaves a *legacy keyword for the legacy regime* in the surface; an agent reading the corpus continues to see `def-logic` as the canonical form, and the inversion's polarity claim is undermined at the lexical level. Option 2 makes the polarity unambiguous: the agent reading `def` is in the verified fragment by syntactic guarantee; the agent reading `def-shell` is in the permissive fragment.
 
@@ -126,6 +126,8 @@ If neither predicate holds, the typechecker emits a *core-membership-violation* 
 | `sha1`, `hmac-sha1` (crypto stubs per §13.11) | no | **NOT admitted** — `asserted-with-stub-backend` per the v0.10.6 CRYPTO-1 disclosure; verifier should not admit programs whose `def`-form claim of `verified` rests on a known-incorrect runtime implementation |
 | `?delegate` / `?delegate-async` / `?scaffold` resolved values | no | **NOT admitted** by default; post-resolution re-typecheck per §3.5 Rev 2 |
 
+The `builtinEnv` admission leg covers `EApp` nodes in contract clause expressions (`pre`/`post`) as well as function bodies, because `withCoreMode` wraps the full `checkStatement (SDef …)` block including contract-clause `inferExpr` calls ([`TypeCheck.hs:707–729`](../../compiler/src/LLMLL/TypeCheck.hs#L707-L729)).
+
 The whitelist is settled by language-team via a separate REF-META-3-adjacent settlement (the predicate WF rule's *trusted-axiomatization* sub-rule); the table above is the v0.11 starting set. Engineer-audit confirms each row by inspecting the `LLMLL.md §13` axiomatization and the codegen lowering; entries that pass audit ship in the v0.11 trusted prelude.
 
 **`meContracts` extension (Rev 2, per the professor review's Gap #2).** The typechecker query at the call site requires `erBodyFaithful` lookup, which is not currently in `ModuleEnv` per [`compiler/src/LLMLL/Syntax.hs`](../../compiler/src/LLMLL/Syntax.hs) (`meContracts :: Map Name ([(Name, Type)], Contract)` carries contracts only). Rev 2 commits to **extending `meContracts`** to carry an `erBodyFaithful :: Bool` field per function entry — i.e., the shape becomes `Map Name ([(Name, Type)], Contract, Bool)` or an equivalent named-field record. This is engineer scope, surfaced explicitly in the LT-INV engineer hand-off. The trusted-prelude whitelist is a separate `Set Name` in `ModuleEnv` (or equivalent), populated at compiler startup from a curated builtin list — no per-function `EvidenceRecord` query for prelude callees.
@@ -162,10 +164,11 @@ The table below is **illustrative**, derived from the verification matrix at [`L
 | Refinement-aliased base-int types per [`LLMLL.md §3.4:229-241`](../../LLMLL.md) | `?proof-required` (leaf or predicate-carrying); opaque crypto; untrusted FFI calls; `letrec` (per §3.3) |
 | `?hole`, `?name`, `?choose`, `?request-cap`, `?scaffold`, `?delegate`, `?delegate-async` (authoring intermediates per §3.5) | — |
 
-The two callouts the language-team explicitly decided:
+The three callee-admission classes inside `def` that the language-team explicitly decided:
 
 - **`EApp` to contracted callees** (§3.4 above): strict reading. Transitive body-faithful closure required.
 - **`letrec`** (§3.3 above): route (i). Outside the core as shell form in v0.11.
+- **builtinEnv callees**: builtins are the third callee-admission class inside `def`; their trust tier propagates into the caller via the lattice meet per [`LLMLL.md §4.4.1`](../../LLMLL.md).
 
 ---
 
@@ -413,3 +416,18 @@ The review carried the v0.11 cluster's cross-proposal observations; full text in
 ### Overall assessment (recorded)
 
 The review recommended `approve with revisions` on seven gaps and two author-question answers. Rev 2 (settled 2026-05-25) carries each resolution inline at the cited §-references above. The standalone `core-shell-inversion-review.md` is archived; this appendix is the in-proposal pointer.
+
+---
+
+## §8 Gate Outcome
+
+**Gate runs:** baseline `20260528T012230Z` (GrammarLegacy, n=6); post-arm `20260528T145727Z` ([PM-004](../../experiments/minimal-agent/findings/postmortem-004-s8-gate-post-arm-rerun.md), GrammarCoreInversion, n=6); redesigned `20260528T204620Z` ([PM-005](../../experiments/minimal-agent/findings/postmortem-005-s8-gate-redesigned-run.md), EL-1+EL-2+E3 evaluator, n=8, 2 excluded). Excluded invalid: `20260528T014158Z` (enforcement absent). Full evidence: PM-004 and PM-005.
+
+| Axis | Pre-arm (n=6) | Post-arm (n=6, PM-005 valid) | Result |
+|------|--------------|------------------------------|--------|
+| (a) Pass rate / grade distribution | 6/6 (100%), 6× B | 6/6 (100%), 3× A, 3× C | No pass-rate change; grade A first observed |
+| (b) Verified fraction | 0/6 (0%) | 0/6 (0%) | No change |
+| (c) `?proof-required` emission | 0/6 (0%) | 3/6 (50%) | **Improves — conjunctive gate criterion met** |
+| (d) Boundary-form distribution | 0% `def`/`def-shell`; 12/12 `def-logic` | 100% `def`/`def-shell`; 0/10 `def-logic` | Enforcement confirmed; ≥25% `def` threshold met |
+
+§8 Rev 2 conjunctive pass criterion satisfied on PM-005 data (axis (c) improves; axis (d) ≥25%; no material regression). Post-run evaluator fix (F-GATE-7) and compiler fix (F-GATE-8, commit `f62a38b`, 2026-05-29) mean PM-005 is not a clean reference run. **Default flip provisional** — `GrammarCoreInversion` is the CLI default at commit `5cab1b7`; schema bump and examples migration shipped at `afe80df`. Gate adjudication pending a clean redesigned run post-F-GATE-8 fix; if the redesigned run fails, rollback path (1) per [`v0.11-cross-proposal-rollback-discipline.md §2`](v0.11-cross-proposal-rollback-discipline.md) applies.
