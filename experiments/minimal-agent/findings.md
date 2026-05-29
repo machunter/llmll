@@ -20,6 +20,29 @@
 
 ---
 
+### F-GATE-8. `def-shell + bare hole-proof-required` post trust status is pre-clause-dependent
+
+**Source:** `findings/postmortem-005-s8-gate-redesigned-run.md`
+**Date:** 2026-05-29
+**Priority:** Medium — compiler investigation required.
+
+Four `def-shell` functions with identical `post: {"kind":"hole-proof-required","reason":"non-linear-contract"}` and `hole-delegate` body produce different trust statuses for the post clause, correlated with the pre clause shape:
+
+| Pre clause | post trust_status |
+|-----------|-------------------|
+| `string-length(password) > 0` | `"asserted"` |
+| `not(string-empty?(password))` | `"tested (100 samples)"` |
+
+A `def-shell` function containing `hole-delegate` in its body should produce `post: "asserted"` unconditionally — the delegation hole makes the return value opaque. The behavioral difference suggests that `string-length` being absent from the PBT static evaluator causes the verifier to flag the whole function "asserted" before attempting the post clause, while `not(string-empty?)` being evaluable causes the verifier to attempt PBT on the bare `hole-proof-required` post independently.
+
+**Route:** `FixpointEmit.hs` / `Contracts.hs` — verify that the `def-shell + hole-delegate` path marks all contract clauses "asserted" regardless of pre clause evaluability.
+
+**Acceptance:** `llmll verify` on a `def-shell` function with `not(string-empty? password)` pre, bare `hole-proof-required` post, and `hole-delegate` body reports `post: asserted`.
+
+Evidence runs: `runs/20260528T204620Z/20260528T204620Z-claude-opus-4-7-try02-of-05-e001/` (pre-clause-dependent "asserted") and `runs/20260528T204620Z/20260528T204620Z-claude-opus-4-7-try03-of-05-e001/` ("tested (100 samples)").
+
+---
+
 **Source:** Integrated postmortem of 18 attempts × 5 models on `001-two-agent-auth`
 **Date:** 2026-05-10
 **Re-routed:** 2026-05-10 — split from former `language-team.md` (S1, S3) and `documentation-team.md` (D1.2) under the new five-role pipeline. `compiler-engineer` owns implementation in `compiler/src/LLMLL/`.
@@ -181,7 +204,7 @@ Bundle is engineer's call; suggest separate branches because the three modules a
 
 **Source:** §8 pre/post comparison, `postmortem-003-s8-gate-pre-post.md`
 **Date:** 2026-05-28
-**Priority:** Closed — `LLMLL.md §4.1` already contained the accurate rejection text ("Under `--grammar=core-inversion`, `def-logic` and `letrec` are **not accepted**") at HEAD; no spec edit required. Overtaken by a prior spec update; verified 2026-05-28 during doc-lead pass on F-GATE-1b.
+**Priority:** Closed — defence-in-depth edit applied 2026-05-29 (commit `71658b7`). `LLMLL.md §4.1` main body now contains an explicit standalone rejection sentence; the substance was already present in the Note (v0.11 LT-INV) but lacked main-body-flow visibility. Overtaken by a prior spec update 2026-05-28; doc-lead pass 2026-05-29 applied the deferred sentence.
 
 Post-arm claude-opus-4-7-try03 logged `def-logic` under core-inversion grammar as a PROBLEMS.md spec ambiguity (`runs/20260528T014158Z/20260528T014158Z-claude-opus-4-7-try03-of-03-e001/`). The agent read §4.1 but found no explicit statement that `def-logic` is *rejected* — only that `def`/`def-shell` are *activated*. 1 of 6 post-arm agents surfaced this ambiguity explicitly; 5 did not.
 
@@ -211,9 +234,31 @@ Clean gate dataset (enforcement-valid, no 429 confounders): claude-opus-4-7 ×3 
 
 **Gate success condition per run plan:** at least one of (a/b/c) improving AND axis (d) > 0. Data: (a/b/c) unchanged; (d) = 100%.
 
-F-GATE-2 (§4.1 prose clarification) — **downgraded to defence-in-depth**. The diagnostic hint was sufficient for in-session adaptation (claude try03 documented: "initial `def-logic` rejected → switched to `def-shell`"). No spec edit required beyond what was already present.
+F-GATE-2 (§4.1 prose clarification) — **downgraded to defence-in-depth** at gate adjudication 2026-05-28. The diagnostic hint was sufficient for in-session adaptation (claude try03 documented: "initial `def-logic` rejected → switched to `def-shell`"). **Defence-in-depth edit applied 2026-05-29 (commit `71658b7`):** one sentence added to `LLMLL.md §4.1` main body: "Under `--grammar=core-inversion`, the keyword `def-logic` is rejected at parse time (exit 1, `core-grammar-violation` diagnostic); use `def` for the strict-core form or `def-shell` for the permissive form." Placed before the Note (v0.11 LT-INV) blockquote for main-body-flow visibility. Finding is **closed**.
 
 Gate outcome determination (pass/partial/null per roadmap §8 criteria) is language-team's slot.
+
+---
+
+### §8 Gate Adjudication Close-out (2026-05-28/29)
+
+**Source:** `findings/postmortem-005-s8-gate-redesigned-run.md`
+**Run:** `20260528T204620Z` — 8 attempts, manifest `manifest.e001-post-e3.json`, evaluator EL-1+EL-2+E3
+
+Four-axis table (redesigned gate, vs pre-arm `20260528T012230Z`):
+
+| Axis | Pre-arm (n=6) | Post-arm valid (n=6) | Delta |
+|------|--------------|----------------------|-------|
+| (a) Pass rate | 6/6 B | 6/6 (3× A, 3× C) | Grade A first seen |
+| (b) Verified | 0/6 | 0/6 | No change |
+| **(c) `?proof-required` emission** | **0/6 (0%)** | **3/6 (50%)** | **Improves — gate criterion met** |
+| (d) def/def-shell | 0/6 (0%) | 10/10 (100%) | Confirmed |
+
+Gate pass criterion (`docs/compiler-team-roadmap.md:185`): at least one of (a/b/c) must improve. Axis (c) improves 0→50%. Gate pass confirmed, backing the language-team adjudication at commit `5cab1b7`.
+
+Two grade-A paths: `def` + bare `?proof-required` (claude try01); `def-shell` + LT-PPR predicate-carrying (gemini try01 — first empirical exercise of LT-PPR syntax). Gemini try02 excluded (def-logic rejection, no correction). Gemini try03 excluded (TerminalQuotaError, 0 output).
+
+F-GATE-7 evaluator fix applied — does not change gate outcome. F-GATE-8 (compiler inconsistency: def-shell trust status pre-clause-dependent) routed to compiler-engineer; does not affect gate adjudication (grade A confirmed in 3 attempts independent of the affected cells).
 
 ---
 
@@ -582,6 +627,97 @@ Enforcement-valid gate dataset (no infra confounders): claude ×3 + gemini-try02
 | **F-GATE-3** | F-GATE-1b confirmed; axis (d) non-trivial | language-team | Confirmation — close F-GATE-1 | None |
 | **F-GATE-4** | In-session adaptation evidence (claude try03) | language-team | Observation | None |
 | **F-GATE-5** | Gemini 429 throttling confounds gate cells | experiment-lead | Exclusion condition | None |
+
+---
+
+### EL-D — §8 gate redesigned run (2026-05-28)
+
+**Source:** `findings/postmortem-005-s8-gate-redesigned-run.md`
+**Run:** `20260528T204620Z` — 8 attempts, llmll 0.10.8 @ `4252b5f`, manifest `manifest.e001-post-e3.json`
+**Evaluator:** EL-1 + EL-2 + E3 Option 2 (commit `0d5037e`)
+**Comparison baseline:** `20260528T012230Z` (pre-arm, GrammarLegacy)
+
+#### F-GATE-6. Grade A achieved; axis (c) non-trivial; two grade-A paths exercised
+
+**Priority:** Confirmation — gate pass evidenced.
+**Consumer:** language-team (gate adjudication close-out)
+
+3 of 6 valid post-arm attempts reached grade A (claude try01-02, gemini try01). Axis (c) — `?proof-required` emission on out-of-core contracts — improves from 0/6 (pre-arm) to 3/6 (post-arm), satisfying the §8 gate pass criterion per `docs/compiler-team-roadmap.md:185`.
+
+Two grade-A paths exercised:
+1. `def` (strict-core) + bare `?proof-required` → verifier: "asserted" → prc=1 (claude try01)
+2. `def-shell` + predicate-carrying `?proof-required` (LT-PPR) → verifier: "asserted" → prc=1 (gemini try01 — first empirical exercise of the LT-PPR predicate-carrying syntax in a live run)
+
+Grade distribution shift: postmortem-004 = 5× B, 0× A; this run = 3× A, 3× C. Grade B disappears because E3 Option 2's `login-handler.post.proof_required: True` makes the contract expectation mandatory — agents that don't mark `?proof-required` correctly fail `contracts_met` → grade C.
+
+Run directory citations: `runs/20260528T204620Z/20260528T204620Z-claude-opus-4-7-try01-of-05-e001/evaluation.json`, `runs/20260528T204620Z/20260528T204620Z-gemini-3-pro-preview-try01-of-03-e001/evaluation.json`.
+
+**Acceptance:** Closed — gate pass confirmed.
+
+---
+
+#### F-GATE-7. `normalize_trust_status` sample-count suffix mismatch — **fixed**
+
+**Priority:** Applied fix.
+**Consumer:** experiment-lead (own fix)
+
+`TRUST_STATUS_PRESENT` (line 137) contains `"tested"`. The trust report emits `"tested (100 samples)"` for PBT-run clauses. `normalize_trust_status` returned the value as-is → exact membership check `"tested (100 samples)" in TRUST_STATUS_PRESENT` failed → `accepted: False` → grade C for try03-05 (should be grade A).
+
+**Fix applied** to `evaluate_run.py:normalize_trust_status`: added `re.sub(r"\s*\(.*\)\s*$", "", value)` before `.lower()`. `"tested (100 samples)"` now normalizes to `"tested"`. Affects: any run where the verifier reports `"tested (N samples)"` for a contract clause.
+
+Note: with this fix applied, re-evaluating try03-05 against their existing solution files would produce grade A (contracts_met=True, effective_total=2, awp=0 → grade A per `quality_grade` function at line 882). The fix does not change the gate outcome — grade A is already confirmed in 3 attempts.
+
+---
+
+#### F-GATE-8. `def-shell + bare hole-proof-required` post trust status is pre-clause-dependent
+
+**Priority:** Medium — compiler-engineer investigation.
+**Consumer:** compiler-engineer
+
+Four `def-shell` functions with identical `post: hole-proof-required` (bare, no predicate) and `hole-delegate` body produce different post trust statuses:
+
+| Pre clause | post trust_status |
+|-----------|-------------------|
+| `string-length(password) > 0` (try02) | `"asserted"` |
+| `not(string-empty?(password))` (try03-05) | `"tested (100 samples)"` |
+
+Hypothesis: `string-length` is not in the PBT static evaluator's known-builtin set → unevaluable pre → verifier flags whole function "asserted" before attempting the post clause. `not(string-empty?)` is evaluable → PBT runs on pre; verifier then attempts bare `hole-proof-required` post independently → "tested (N)".
+
+A `def-shell + hole-delegate` body should produce `post: "asserted"` unconditionally — the delegation hole makes the return value opaque. Route to `compiler-engineer` for `FixpointEmit.hs` / `Contracts.hs` investigation.
+
+**Acceptance:** `def-shell + string-empty? pre + bare hole-proof-required post + hole-delegate body` → `post: "asserted"`.
+
+---
+
+#### F-GATE-9. Gemini-try02 submitted `def-logic` without in-session correction
+
+**Priority:** Observation.
+**Consumer:** experiment-lead
+
+`runs/20260528T204620Z/20260528T204620Z-gemini-3-pro-preview-try02-of-03-e001/` — `check` returned exit 1 with `core-grammar-violation` hint. Agent did not correct `def-logic` → `def`/`def-shell` before stop policy fired. `boundary_form_counts: {def-logic: 2}`. Duration: 180s. Excluded from gate analysis.
+
+Contrast: claude-opus-4-7-try03 (postmortem-004) corrected in-session with ~25s overhead. Enforcement signal was identical. Behavioral difference: gemini-try02 finalized solution without iterating on the compiler rejection.
+
+---
+
+#### F-GATE-10. Gemini-try03 TerminalQuotaError
+
+**Priority:** Exclusion condition.
+**Consumer:** experiment-lead
+
+`logs/agent.stderr.log`: `TerminalQuotaError: You have exhausted your capacity on this model. Your quota will reset after 4h11m59s.` `status: failed, rc: 1, dur: 82s`. Third occurrence of gemini quota exhaustion across four gate runs. Clean gemini cell count across postmortem-004 + 005: 2 of 6 gemini attempts usable (try02 in PM-004; try01 in PM-005).
+
+---
+
+### Priority (EL-D)
+
+| # | Finding | Consumer | Priority | Effort |
+|---|---------|----------|----------|--------|
+| **F-GATE-6** | Grade A confirmed; axis (c) improves; LT-PPR exercised | language-team | Confirmation — close gate | None |
+| **F-GATE-7** | normalize_trust_status suffix mismatch | experiment-lead | Applied | Done |
+| **F-GATE-8** | def-shell trust status pre-clause-dependent | compiler-engineer | Medium | Investigation + fix |
+| **F-GATE-9** | Gemini-try02 no correction on def-logic | experiment-lead | Observation | None |
+| **F-GATE-10** | Gemini-try03 TerminalQuotaError | experiment-lead | Exclusion | None |
 
 ---
 
