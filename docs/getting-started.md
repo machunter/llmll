@@ -595,7 +595,7 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.6.0",
+  "schemaVersion": "0.5.0",
   "llmll_version": "0.10.8",
   "statements": [ ... ]
 }
@@ -607,7 +607,7 @@ The compiler rejects mismatched versions immediately. **Strict mode:** only the 
 
 | Field | Meaning |
 |-------|---------|
-| `schemaVersion` | Version of the JSON-AST schema shape — this is what the compiler gates on. v0.10.2 bumped this to `0.4.0` to signal the new identifier-shape regex on `ExprApp.fn` and `ExprQualApp.qual_fn`; v0.10.6 bumped it to `0.5.0` for the additive optional `CheckDecl.subjects` field (OBLIG-PBT-4 `:subject` / `:subjects` keyword metadata on `(check ...)` blocks); v0.11 bumped it to `0.6.0` to signal the grammar-default flip to `GrammarCoreInversion` and the `examples/*` migration (commit `afe80df`, 2026-05-28). |
+| `schemaVersion` | Version of the JSON-AST schema shape — this is what the compiler gates on. v0.10.2 bumped this to `0.4.0` to signal the new identifier-shape regex on `ExprApp.fn` and `ExprQualApp.qual_fn`; v0.10.6 bumped it to `0.5.0` for the additive optional `CheckDecl.subjects` field (OBLIG-PBT-4 `:subject` / `:subjects` keyword metadata on `(check ...)` blocks); v0.11 ships `kind:"def"` / `kind:"def-shell"` for opt-in consumers under `--grammar=core-inversion`; bump to `0.6.0` deferred pending redesigned §8 gate experiment (rollback path 1, 2026-05-29; schema stays `0.5.0`). |
 | `llmll_version` | Version of the LLMLL compiler that emitted this file. Informational only — the compiler does not validate this field. Decoupled from `schemaVersion` (the schema bumps independently of the language version). |
 
 **Upgrade path:** bump `schemaVersion` in `docs/llmll-ast.schema.json`, update `expectedSchemaVersion` in `ParserJSON.hs`, re-emit fixtures.
@@ -1424,4 +1424,4 @@ llmll verify myfile.llmll --trust-report          # core-inversion by default
 **Known restrictions:**
 - `def` does not parse a return-type annotation (`: type` after the parameter list). The return type is always inferred.
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
-- Schema `schemaVersion` is `0.6.0` as of v0.11 (commit `afe80df`, 2026-05-28); all `.ast.json` files must carry `"schemaVersion": "0.6.0"`.
+- Schema `schemaVersion` is `0.5.0`. A bump to `0.6.0` is deferred pending the redesigned §8 gate experiment post-F-GATE-8 (rollback path 1, 2026-05-29); submitted `.ast.json` files must carry `"schemaVersion": "0.5.0"`. `kind:"def"` / `kind:"def-shell"` nodes are available to opt-in consumers under `--grammar=core-inversion`.
