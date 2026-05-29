@@ -7205,6 +7205,105 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Right _ -> expectationFailure "GrammarLegacy should NOT recognise (def ...) keyword"
 
   -- -----------------------------------------------------------------------
+  -- F-GATE-8: def-shell hole-delegate PBT trust guard
+  -- -----------------------------------------------------------------------
+  describe "F-GATE-8 def-shell hole-delegate PBT trust guard" $ do
+
+    -- FG8-1: string-length evaluates on a literal string (secondary fix:
+    -- TypeCheck.hs:109 registered but previously absent from evalBuiltinApp).
+    it "FG8-1 string-length evaluates on literal string" $ do
+      let result = evalExprStatic Map.empty (EApp "string-length" [ELit (LitString "hello")])
+      result `shouldBe` Just (ELit (LitInt 5))
+
+    -- FG8-2: string-empty? evaluates to True on empty string.
+    it "FG8-2 string-empty? evaluates to True on empty string" $ do
+      let result = evalExprStatic Map.empty (EApp "string-empty?" [ELit (LitString "")])
+      result `shouldBe` Just (ELit (LitBool True))
+
+    -- FG8-3: string-empty? evaluates to False on non-empty string.
+    it "FG8-3 string-empty? evaluates to False on non-empty string" $ do
+      let result = evalExprStatic Map.empty (EApp "string-empty?" [ELit (LitString "x")])
+      result `shouldBe` Just (ELit (LitBool False))
+
+    -- FG8-4: pbtTrustWriteback must NOT lift a def-shell function's post-clause
+    -- to DLTested when its body is a hole-delegate. The static evaluator only
+    -- observes delegateOnFailure — not the real implementation — so PBTPassed
+    -- carries no information about the actual postcondition. Post stays asserted.
+    it "FG8-4 pbtTrustWriteback blocks DLTested for hole-delegate body (primary fix)" $ do
+      let ds = DelegateSpec "agent" "test" TString (Just (ELit (LitString "fallback")))
+          postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
+          contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
+          shellStmt = SDefShell "my-fn" [("x", TString)] Nothing contract
+                        (EHole (HDelegate ds))
+          prop = Property
+            { propDescription = "check-my-fn"
+            , propBindings    = [("x", TString)]
+            , propBody        = EApp "my-fn" [EVar "x"]
+            , propSubjects    = []
+            }
+          stmts = [shellStmt, SCheck prop]
+          run = PBTRun
+            { pbtDescription    = "check-my-fn"
+            , pbtStatus         = PBTPassed
+            , pbtSamplesRun     = 100
+            , pbtCounterexample = Nothing
+            }
+          pbtResult = PBTResult 1 1 0 0 [run]
+      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      csMap `shouldBe` Map.empty
+      diags `shouldSatisfy` (not . null)
+
+    -- FG8-5: pbtTrustWriteback DOES lift a def-shell function's post-clause to
+    -- DLTested when its body is concrete (non-delegate). Regression guard: the
+    -- delegate guard must not block legitimate non-delegate shell functions.
+    it "FG8-5 pbtTrustWriteback lifts DLTested for non-delegate def-shell body" $ do
+      let postExpr = EOp "=" [EVar "result", ELit (LitBool True)]
+          contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
+          shellStmt = SDefShell "concrete-fn" [("x", TInt)] Nothing contract
+                        (ELit (LitBool True))
+          prop = Property
+            { propDescription = "check-concrete-fn"
+            , propBindings    = [("x", TInt)]
+            , propBody        = EApp "concrete-fn" [EVar "x"]
+            , propSubjects    = []
+            }
+          stmts = [shellStmt, SCheck prop]
+          run = PBTRun
+            { pbtDescription    = "check-concrete-fn"
+            , pbtStatus         = PBTPassed
+            , pbtSamplesRun     = 100
+            , pbtCounterexample = Nothing
+            }
+          pbtResult = PBTResult 1 1 0 0 [run]
+      let (csMap, _diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      csMap `shouldSatisfy` (not . Map.null)
+
+    -- FG8-6: HDelegateAsync body is also blocked, symmetric with HDelegate.
+    it "FG8-6 pbtTrustWriteback blocks DLTested for hole-delegate-async body" $ do
+      let ds = DelegateSpec "agent" "test" TString Nothing
+          postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
+          contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
+          shellStmt = SDefShell "async-fn" [("x", TString)] Nothing contract
+                        (EHole (HDelegateAsync ds))
+          prop = Property
+            { propDescription = "check-async-fn"
+            , propBindings    = [("x", TString)]
+            , propBody        = EApp "async-fn" [EVar "x"]
+            , propSubjects    = []
+            }
+          stmts = [shellStmt, SCheck prop]
+          run = PBTRun
+            { pbtDescription    = "check-async-fn"
+            , pbtStatus         = PBTPassed
+            , pbtSamplesRun     = 100
+            , pbtCounterexample = Nothing
+            }
+          pbtResult = PBTResult 1 1 0 0 [run]
+      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      csMap `shouldBe` Map.empty
+      diags `shouldSatisfy` (not . null)
+
+  -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec

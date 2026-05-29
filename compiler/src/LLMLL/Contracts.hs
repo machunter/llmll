@@ -545,6 +545,18 @@ evalBuiltinApp _ _ "is-some" [EApp "Success" _] = Just (ELit (LitBool True))
 evalBuiltinApp _ _ "is-some" [EApp "Error"   _] = Just (ELit (LitBool False))
 evalBuiltinApp _ _ "is-some" _                  = Nothing
 
+-- F-GATE-8: string-length and string-empty? are registered in TypeCheck.hs:109,118
+-- but were absent from the static evaluator. Adding them here allows check blocks
+-- that test string-predicate properties to evaluate on literal arguments.
+-- Both are constant-folding only: non-literal arguments fall through to Nothing.
+evalBuiltinApp _ _ "string-length" [ELit (LitString s)] =
+  Just (ELit (LitInt (toInteger (T.length s))))
+evalBuiltinApp _ _ "string-length" _ = Nothing
+
+evalBuiltinApp _ _ "string-empty?" [ELit (LitString s)] =
+  Just (ELit (LitBool (T.null s)))
+evalBuiltinApp _ _ "string-empty?" _ = Nothing
+
 evalBuiltinApp _ _ _ _ = Nothing
 
 -- ---------------------------------------------------------------------------

@@ -678,7 +678,16 @@ pbtTrustWriteback localStmts cache result =
         | SDefInterface ifName _ laws <- localStmts
         , (idx, p) <- zip [(1::Int)..] laws
         ]
-      processed = map (processRun contractByName qualMap propsByDesc) (pbtResults result)
+      -- F-GATE-8: Functions whose body is a delegation hole (HDelegate or
+      -- HDelegateAsync) are excluded from DLTested write-back. The static
+      -- evaluator can only observe the delegateOnFailure fallback — not the
+      -- real delegated implementation — so any PBTPassed result on such a
+      -- call tests the fallback path only and carries no information about
+      -- whether the actual postcondition holds.
+      delegateBodies = Set.fromList $
+        [ n | SDefShell n _ _ _ (EHole (HDelegate _))      <- mergedStmts ]
+        ++ [ n | SDefShell n _ _ _ (EHole (HDelegateAsync _)) <- mergedStmts ]
+      processed = map (processRun contractByName qualMap propsByDesc delegateBodies) (pbtResults result)
       (mapsList, diagsList) = unzip processed
       mergedMap = foldl' (Map.unionWith mergePbtWriteback) Map.empty mapsList
   in (mergedMap, concat diagsList)
@@ -695,9 +704,10 @@ pbtTrustWriteback localStmts cache result =
 processRun :: Map Name Contract
            -> Map Name Name      -- ^ bare → qualified sidecar key
            -> Map Name LLMLL.Syntax.Property
+           -> Set Name           -- ^ F-GATE-8: names with hole-delegate bodies
            -> PBTRun
            -> (Map Name ContractStatus, [Text])
-processRun contractByName qualMap propsByDesc run =
+processRun contractByName qualMap propsByDesc delegateBodies run =
   case pbtStatus run of
     PBTPassed ->
       case Map.lookup (pbtDescription run) propsByDesc of
@@ -714,6 +724,19 @@ processRun contractByName qualMap propsByDesc run =
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
                     key = Map.findWithDefault f f qualMap
                 in (key, cs)
+              -- F-GATE-8: Guard a candidate subject against delegation holes.
+              -- The static evaluator observes only delegateOnFailure, not the
+              -- real implementation, so PBTPassed carries no evidence about the
+              -- actual postcondition. Post-clause trust stays at DLAsserted.
+              guardDelegate f kLift =
+                if Set.member f delegateBodies
+                  then let d = "property \"" <> desc
+                             <> "\" subject \"" <> f
+                             <> "\" has a hole-delegate body — the static evaluator"
+                             <> " observes only the fallback path; post-clause trust"
+                             <> " not lifted (stays asserted)"
+                       in (Map.empty, [d])
+                  else kLift
           in if not (null subjects)
                then
                  -- OBLIG-PBT-4 path: explicit annotation. For each declared
@@ -724,8 +747,10 @@ processRun contractByName qualMap propsByDesc run =
                  let go f (accMap, accDiags) =
                        case Map.lookup f contractByName of
                          Just c | contractPost c /= Nothing ->
-                           let (k, cs) = mkEntry f
-                           in (Map.insert k cs accMap, accDiags)
+                           let (blockMap, blockDiags) = guardDelegate f $
+                                 let (k, cs) = mkEntry f
+                                 in (Map.singleton k cs, [])
+                           in (Map.union blockMap accMap, blockDiags ++ accDiags)
                          Just _ ->
                            let d = "property \"" <> desc
                                  <> "\" declares subject \"" <> f
@@ -741,9 +766,9 @@ processRun contractByName qualMap propsByDesc run =
                      hits            = Set.toList (Set.intersection mentioned contractedNames)
                  in case hits of
                       [] -> (Map.empty, [])
-                      [f] ->
-                        let (key, cs) = mkEntry f
-                        in (Map.singleton key cs, [])
+                      [f] -> guardDelegate f $
+                               let (key, cs) = mkEntry f
+                               in (Map.singleton key cs, [])
                       fs ->
                         let diag = "property \"" <> desc
                                  <> "\" covers multiple contracted callees ("
