@@ -6776,7 +6776,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ints = [i | wc <- candidates, TrivConstInt i <- [wcTrivialBody wc]]
         ints `shouldBe` [0, 1, -1, 42]
 
-    -- C23a-C23c: WarnVacuousOverOmega / WarnSpecInconsistent dispatch
+    -- C23a-C23c: WarnSpecTooTightForOmega / WarnSpecInconsistent dispatch
     describe "C23a-C23c spec-too-tight-for-omega vs spec-inconsistent disambiguation" $ do
 
       it "C23a WarnSpecTooTightForOmega fires when function verifies but no candidate satisfies" $ do
