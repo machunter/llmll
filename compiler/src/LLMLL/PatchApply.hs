@@ -44,7 +44,7 @@ import LLMLL.Checkout (loadLock, saveLock, expireStale, CheckoutToken(..), Check
 import LLMLL.ParserJSON (parseJSONASTValue)
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
-import LLMLL.Syntax (Statement(..), Contract(..))
+import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..))
 import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
 
@@ -212,8 +212,8 @@ applyOps (o:os) val = case applyOp o val of
 -- 3. Load and patch JSON Value
 -- 4. Re-parse and re-typecheck
 -- 5. On success: write file, clear lock
-applyPatch :: FilePath -> PatchRequest -> IO PatchResult
-applyPatch fp pr = do
+applyPatch :: GrammarMode -> FilePath -> PatchRequest -> IO PatchResult
+applyPatch mode fp pr = do
   now <- getCurrentTime
 
   -- 1. Load and validate lock
@@ -249,7 +249,7 @@ applyPatch fp pr = do
                       -- Build patch op info for diagnostic rebasing
                       let opInfos = toPatchOpInfos (prPatch pr)
                       -- 5. Re-parse patched JSON → statements
-                      case parseJSONASTValue patchedVal of
+                      case parseJSONASTValue mode patchedVal of
                         Left diags -> pure $ PatchTypeError DiagnosticReport
                           { reportPhase       = "patch"
                           , reportSuccess     = False

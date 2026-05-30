@@ -311,7 +311,7 @@ handlePatch req = do
         Just val -> case parsePatchBody val of
           Left err -> pure $ respond400 err
           Right (fp, pr) -> do
-            result <- applyPatch fp pr
+            result <- applyPatch GrammarCoreInversion fp pr
             pure $ respondOK (encode result)
 
 -- Body parsers for the HTTP handlers

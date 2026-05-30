@@ -27,7 +27,7 @@ import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatRe
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
-import LLMLL.ParserJSON (parseJSONAST)
+import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, maxFuel)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
@@ -1782,7 +1782,7 @@ main = hspec $ do
                              "args" .= [object ["kind" .= ("var" :: T.Text), "name" .= ("balance" :: T.Text)],
                                         object ["kind" .= ("var" :: T.Text), "name" .= ("amount" :: T.Text)]]])
                 ]
-          pResult <- applyPatch fp patchReq
+          pResult <- applyPatch GrammarCoreInversion fp patchReq
           case pResult of
             PatchSuccess _ -> pure ()
             other -> expectationFailure $ "expected PatchSuccess, got: " ++ show other
@@ -1809,7 +1809,7 @@ main = hspec $ do
                              "args" .= [object ["kind" .= ("var" :: T.Text), "name" .= ("balance" :: T.Text)],
                                         object ["kind" .= ("var" :: T.Text), "name" .= ("amount" :: T.Text)]]])
                 ]
-          pResult <- applyPatch fp patchReq
+          pResult <- applyPatch GrammarCoreInversion fp patchReq
           -- PatchVerifyError: fixpoint installed → contract violation caught ✅
           -- PatchSuccess: fixpoint NOT installed → graceful degradation ✅
           -- PatchTypeError: INVALID — typecheck should pass
@@ -1826,7 +1826,7 @@ main = hspec $ do
             [ "schemaVersion" .= ("0.6.0" :: T.Text)
             , "llmll_version" .= ("0.3.0" :: T.Text)
             , "statements" .= [object
-                [ "kind" .= ("def-logic" :: T.Text)
+                [ "kind" .= ("def" :: T.Text)
                 , "name" .= ("add" :: T.Text)
                 , "params" .= [object ["name" .= ("x" :: T.Text),
                                        "param_type" .= object ["kind" .= ("primitive" :: T.Text), "name" .= ("int" :: T.Text)]],
@@ -1852,7 +1852,7 @@ main = hspec $ do
                              "args" .= [object ["kind" .= ("var" :: T.Text), "name" .= ("x" :: T.Text)],
                                         object ["kind" .= ("var" :: T.Text), "name" .= ("y" :: T.Text)]]])
                 ]
-          pResult <- applyPatch fp patchReq
+          pResult <- applyPatch GrammarCoreInversion fp patchReq
           case pResult of
             PatchSuccess _ -> pure ()
             other -> expectationFailure $ "expected PatchSuccess (no contracts), got: " ++ show other
@@ -6986,6 +6986,28 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseJSONAST GrammarLegacy "<test>" src of
           Right [SLetrec {}] -> pure ()
           other              -> expectationFailure (show other)
+
+      it "INV-P15 JSON-AST def rejected under GrammarLegacy with legacy-grammar-violation" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+        case parseJSONAST GrammarLegacy "<test>" src of
+          Left diag -> diagKind diag `shouldBe` Just "legacy-grammar-violation"
+          Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
+
+      it "INV-P16 JSON-AST def-shell rejected under GrammarLegacy with legacy-grammar-violation" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":2}}]}"
+        case parseJSONAST GrammarLegacy "<test>" src of
+          Left diag -> diagKind diag `shouldBe` Just "legacy-grammar-violation"
+          Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
+
+      it "INV-P17 parseJSONASTValue GrammarCoreInversion accepts def node" $ do
+        let src = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}" :: String
+        case decode (BL.fromStrict (TE.encodeUtf8 (T.pack src))) of
+          Nothing  -> expectationFailure "JSON decode failed"
+          Just val -> case parseJSONASTValue GrammarCoreInversion val of
+            Right [SDef {}] -> pure ()
+            other           -> expectationFailure (show other)
 
     describe "INV-W: well-typed" $ do
 

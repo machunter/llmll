@@ -348,7 +348,7 @@ main = do
     CmdCheckout fp ptr            -> doCheckout json fp (T.pack ptr)
     CmdCheckoutRelease fp tok     -> doCheckoutRelease json fp (T.pack tok)
     CmdCheckoutStatus fp tok      -> doCheckoutStatusCmd json fp (T.pack tok)
-    CmdPatch fp patchFp           -> doPatch json fp patchFp
+    CmdPatch fp patchFp           -> doPatch json gm fp patchFp
     CmdReplay fp logFp            -> doReplay json gm fp logFp
     CmdSpec jsonOut               -> doSpec jsonOut
     CmdVersion                    -> doVersion json
@@ -1595,8 +1595,8 @@ doCheckoutStatusCmd _json fp token = do
 -- v0.3: Patch handler
 -- ---------------------------------------------------------------------------
 
-doPatch :: Bool -> FilePath -> FilePath -> IO ()
-doPatch _json fp patchFp = do
+doPatch :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
+doPatch _json gm fp patchFp = do
   ok <- guardJsonFile fp
   unless ok exitFailure
   -- Read and parse patch request
@@ -1611,7 +1611,7 @@ doPatch _json fp patchFp = do
           hPutStrLn stderr $ "Error parsing patch request: " ++ T.unpack err
           exitFailure
         Right pr -> do
-          result <- applyPatch fp pr
+          result <- applyPatch gm fp pr
           BLC.putStrLn (encode result)
           case result of
             PatchSuccess _ -> exitSuccess

@@ -69,25 +69,28 @@ parseJSONAST mode fp bs =
               diag = (mkError Nothing (T.pack msg))
                        { diagKind       = Just k
                        , diagCode       = Just "E011"
-                       , diagSuggestion = if k == "core-grammar-violation"
-                                            then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive); replace {\"kind\":\"letrec\",...} with {\"kind\":\"def-shell\",...}"
-                                            else Nothing
+                       , diagSuggestion =
+                           if k == "core-grammar-violation"
+                             then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive); replace {\"kind\":\"letrec\",...} with {\"kind\":\"def-shell\",...}"
+                           else if k == "legacy-grammar-violation"
+                             then Just "Drop --grammar=legacy to parse v0.11 programs; or replace {\"kind\":\"def\",...} with {\"kind\":\"def-logic\",...} and {\"kind\":\"def-shell\",...} with {\"kind\":\"letrec\",...} to produce v0.10-compatible output"
+                           else Nothing
                        }
           in Left diag
         Right stmts -> Right stmts
   where
     extractKind msg
-      | "schema-version-mismatch" `T.isInfixOf` msg = "schema-version-mismatch"
-      | "core-grammar-violation"  `T.isInfixOf` msg = "core-grammar-violation"
+      | "schema-version-mismatch"  `T.isInfixOf` msg = "schema-version-mismatch"
+      | "core-grammar-violation"   `T.isInfixOf` msg = "core-grammar-violation"
+      | "legacy-grammar-violation" `T.isInfixOf` msg = "legacy-grammar-violation"
       | otherwise = "json-decode-error"
 
 -- | Parse a JSON Value (already decoded) into statements.
 -- Returns multi-error diagnostics for agent round-trip efficiency.
--- Always uses GrammarLegacy: patch-apply callers have no grammar-mode context.
--- TODO: thread GrammarMode through llmll-patch once a per-file mode is tracked.
-parseJSONASTValue :: Value -> Either [Diagnostic] [Statement]
-parseJSONASTValue val =
-  case parseEither (parseProgram GrammarLegacy "<patch>") val of
+-- GrammarMode is threaded from the caller so patch-apply uses the host file's mode.
+parseJSONASTValue :: GrammarMode -> Value -> Either [Diagnostic] [Statement]
+parseJSONASTValue mode val =
+  case parseEither (parseProgram mode "<patch>") val of
     Left msg -> Left [(mkError Nothing (T.pack msg))
       { diagKind = Just "json-decode-error"
       , diagCode = Just "E011"
@@ -130,8 +133,26 @@ parseStatement mode = withObject "Statement" $ \o -> do
                  ++ "use 'def' for strict-core or 'def-shell' for permissive"
         GrammarLegacy -> parseDefLogic o
     -- LT-INV (v0.11): strict-core and permissive-shell variants
-    "def"          -> parseDefCore o
-    "def-shell"    -> parseDefShellJSON o
+    "def" ->
+      case mode of
+        GrammarCoreInversion -> parseDefCore o
+        GrammarLegacy -> do
+          name <- o .:? "name" .!= ("(unknown)" :: Text)
+          fail $ "legacy-grammar-violation: 'def' (function '"
+                 ++ T.unpack name
+                 ++ "') is not admitted under --grammar=legacy; "
+                 ++ "drop --grammar=legacy to parse v0.11 programs, "
+                 ++ "or use 'def-logic' for the v0.10 strict-core equivalent"
+    "def-shell" ->
+      case mode of
+        GrammarCoreInversion -> parseDefShellJSON o
+        GrammarLegacy -> do
+          name <- o .:? "name" .!= ("(unknown)" :: Text)
+          fail $ "legacy-grammar-violation: 'def-shell' (function '"
+                 ++ T.unpack name
+                 ++ "') is not admitted under --grammar=legacy; "
+                 ++ "drop --grammar=legacy to parse v0.11 programs, "
+                 ++ "or use 'letrec' for the v0.10 permissive-recursive equivalent"
     "letrec"       ->
       case mode of
         GrammarCoreInversion -> do
