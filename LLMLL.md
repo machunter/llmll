@@ -508,14 +508,15 @@ The `tested` display level can be assigned to a function's post clause from eith
               status(p) = PBTPassed
               evaluatedSamples(p) = n
               HEAD-contracted(propBody p, Σ) = {f}     (singleton)
-              SDefLogic f _ _ c _  ∈  Σ ∪ importedExposed(Σ)
-              contractPost c = Just _
+              f ∈ contractedNames(Σ ∪ importedExposed(Σ))
+              contractPost(f) = Just _
+              body(f) ∉ { EHole(HDelegate _), EHole(HDelegateAsync _) }
               hash(propBody p) = h
             ─────────────────────────────────────────────────────       (PBT-Lift)
             csPost(f) ⊑  DLTested n   with  pbt_witnesses ∋ {h, desc(p)}
 ```
 
-where `⊑` denotes lattice-respecting monotonic upgrade: the lift applies only when `csPost.erDisplayLevel` is currently `DLAsserted`. Pre-existing `DLTested`, `DLContractChecked`, or `DLVerified` entries are preserved by the `evidenceCovers` rule at §4.4.1.
+where `contractedNames(Σ)` is the set of names bound by any contracted statement form in `Σ`: `SDefLogic`, `SLetrec`, `SDef`, and `SDefShell`. This matches the `contractByName` union at [`compiler/src/LLMLL/PBT.hs:662–670`](compiler/src/LLMLL/PBT.hs#L662-L670). `⊑` denotes lattice-respecting monotonic upgrade: the lift applies only when `csPost.erDisplayLevel` is currently `DLAsserted`. Pre-existing `DLTested`, `DLContractChecked`, or `DLVerified` entries are preserved by the `evidenceCovers` rule at §4.4.1.
 
 **Side conditions.**
 
@@ -523,8 +524,9 @@ where `⊑` denotes lattice-respecting monotonic upgrade: the lift applies only 
 2. **Multi-subject suppression (default path).** Properties whose head-position set contains two or more contracted callees, *without* explicit `:subject` / `:subjects` metadata, do not lift any of them; the property is reported as an informational diagnostic from `llmll test` ("property covers multiple contracted callees; no trust evidence recorded"). The explicit-attribution route is `:subject` / `:subjects` metadata, shipped in v0.10.6; see the **Annotated-subject branch** below.
 3. **Skip and fail suppress the lift.** `PBTSkipped` (static-evaluator bottoms, QuickCheck-discard saturation) contributes zero evidence per §5.1's outcome table. `PBTFailed` runs are surfaced as user-facing diagnostics but record no `pbt_witnesses` and do not retract any prior `DLTested` evidence.
 4. **`PBTError` is treated as `PBTSkipped` for write-back.** Exceptions during QuickCheck propagate as user-facing diagnostics; the trust-report channel ignores them.
-5. **Interface laws do not lift `def-logic` posts.** Properties extracted from `def-interface :laws` are parametric over implementations, not concrete evidence for `def-logic` functions invoked in the law body; they live on a distinct trust channel.
+5. **Interface laws do not lift contracted-callee posts.** Properties extracted from `def-interface :laws` are parametric over implementations, not concrete evidence for contracted callees (`def-logic`, `def`, or `def-shell` form) invoked in the law body; they live on a distinct trust channel.
 6. **Lift targets `csPost` only.** Preconditions are caller-side obligations whose evidence channel is the call-site VC at §5.3.4. Lifting `csPre` from PBT would conflate two evidence channels and produce false trust; the lift rule above is therefore strictly asymmetric.
+7. **Delegation-body suppression (F-EL5-3, extending F-GATE-8).** When `body(f) ∈ { EHole(HDelegate _), EHole(HDelegateAsync _) }`, the lift is suppressed unconditionally regardless of whether the pre clause is evaluable by the static evaluator. `processRun` at [`compiler/src/LLMLL/PBT.hs:736–744`](compiler/src/LLMLL/PBT.hs#L736-L744) returns `(Map.empty, [d])` with an informational diagnostic; `csPost(f)` remains at its current display level (typically `DLAsserted`). The rationale: `evalExprStaticWith` on `EHole(HDelegate _)` cannot execute the function body — it observes only the `on-failure` fallback path if present, or bottoms otherwise. Any `PBTPassed` result on an evaluable pre clause reflects the property's pre-condition exercise only; it carries no evidence about the actual postcondition. The grammar distinction (`def` vs. `def-shell`) is irrelevant pre-resolution. In PBT-Lift-Annotated, suppression is per-subject: `fᵢ` with a delegation body is excluded from the conclusion range; other subjects in the `:subjects` list still lift. See `compiler/src/LLMLL/PBT.hs:681–694` (`delegateBodies`); §5.3.5 rows 882–883.
 
 **Multi-property accumulation.** When multiple `(check ...)` blocks lift the same `f` (each singleton on `f`, each `PBTPassed`):
 
@@ -544,12 +546,14 @@ The compiler implementation, including the within-channel join and the sidecar s
               status(p) = PBTPassed
               evaluatedSamples(p) = n
               subjects(p) = [f₁ … fₖ]                  (non-empty)
-              SDefLogic fᵢ _ _ cᵢ _  ∈  Σ ∪ importedExposed(Σ)     for each i
-              contractPost cᵢ = Just _                              for each i in lifted
+              fᵢ ∈ contractedNames(Σ ∪ importedExposed(Σ))              for each i
+              contractPost(fᵢ) = Just _                                  for each i in lifted
+              body(fᵢ) ∉ { EHole(HDelegate _), EHole(HDelegateAsync _) } for each i in lifted
               hash(propBody p) = h
             ──────────────────────────────────────────────────────  (PBT-Lift-Annotated)
             csPost(fᵢ) ⊑  DLTested n     with shared pbt_witnesses ∋ {h, desc(p)}
-                                          for each fᵢ with contractPost cᵢ = Just _
+                          for each fᵢ with contractPost(fᵢ) = Just _
+                              and body(fᵢ) ∉ { EHole(HDelegate _), EHole(HDelegateAsync _) }
 ```
 
 Subjects declared in `:subjects` but lacking a `post` clause are skipped with an informational diagnostic (the S3 case from `processRun`); the remaining annotated subjects still lift. Duplicate names are deduped (`:subjects [f f]` produces one record per `f`). Empty `:subjects []` is rejected at parse time (S6). The shared `pbt_witnesses` hash across all per-subject records of one property is the canonical-body-hash invariant from the PBT-Lift rule above; consumers can detect joint provenance by inspection of the shared hash. Cross-module subjects key under their qualified path via the existing `qualMap` (the S8 case), preserving the §4.4.4 sidecar invariant.
@@ -879,6 +883,8 @@ The following matrix documents the verification status of each syntax construct 
 | **Int overflow** | ✅ | ✅ | ✅ on `int` (Z3 `Int` = Haskell `Integer`, both unbounded — v0.11 LT-INT) | n/a on `int` | ✅ | gap closed on `int`; re-arms on `machine-int` (INT-3) |
 | `TCustom` alias predicate obligation at intro site (QF-LIA `p`) | ✅ | ✅ | ✅ (contract channel) | ✅ | ✅ | no separate channel; routes via `Contracts.hs` / `FixpointEmit.hs`; §3.4.1 checking-mode rule |
 | `TCustom` alias predicate obligation at intro site (non-QF-LIA `p`) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime assertion + `?proof-required`; same fallback as non-QF-LIA contract obligation |
+| `?delegate` / `?delegate-async` body (`def-shell`) | ✅ | ❌ (`on-failure` clause executes at runtime if present; unresolved → `?delegate-pending`) | ❌ (`asserted` tier; host-function contracts verified contract-only) | ❌ | skip | `asserted`; F-GATE-8 (`guardDelegate` in `PBT.hs:641–755`) blocks `DLTested` PBT write-back on delegate-body functions regardless of `on-failure` fallback path; `on-failure` enables runtime execution but does not promote trust; see §11.2 |
+| `?delegate` / `?delegate-async` body (`def`, pre-resolution) | ✅ | ❌ | ❌ | ❌ | skip | authoring intermediate (LT-INV §3.5 Rev 2); admitted in `def` pending resolution; post-resolution, agent loop re-typechecks resolving value's admissibility before merging into `def`-form host; pre-resolution trust is `asserted` unconditionally regardless of pre-clause evaluability — two mechanisms converge: (a) `guardDelegate` in `PBT.hs:pbtTrustWriteback` (F-EL5-3, extending F-GATE-8) blocks `DLTested` write-back when body is `EHole(HDelegate _)` / `EHole(HDelegateAsync _)` for `SDef` forms — evaluable-pre path; (b) pre-clause unevaluability propagation (`QC.discard` saturation → `PBTSkipped` → no lift) — unevaluable-pre path (EL-5 grade-A path B, PM-006). Mechanisms are independent and non-interfering. Post-resolution, the merging agent re-runs `checkCalleeAdmissibility` and re-verifies the resolved body; see §11.2. F-EL5-3 adjudicated language-team 2026-05-30 |
 
 > [!NOTE]
 > **LT-PPR (v0.11) — predicate-carrying `?proof-required` in `pre`/`post`.** When the predicate-carrying form `(?proof-required :reason "tag" pred-expr)` appears in a `pre` or `post` clause, the predicate `pred-expr` is type-checked as `bool` and emits a Haskell runtime assertion at codegen (Runtime assert column: ✅ — actively executed, not a no-op). If `pred-expr` contains non-linear operators (`*`, `/`, `mod`, `^`), `llmll check` emits a `QF-LIA` warning naming the function and clause. SMT contract and SMT body-faithful columns are ❌ for the carrying form regardless of predicate linearity — the predicate is enforced at runtime, not submitted to the solver. The bare `?proof-required` leaf in `pre`/`post` is unchanged: Runtime assert is ✅ but the generated assertion was previously a no-op; the predicate-carrying form is what enables active runtime enforcement. Body-position `?proof-required` (either form) emits an `error` stub and is not affected by LT-PPR.
@@ -911,6 +917,9 @@ A program with holes can be **parsed, type-checked, and analyzed** but **not exe
 | `?delegate @agent "description" -> Type` | Delegate implementation to a named agent (see §11.2). |
 | `?delegate-async @agent "description" -> Type` | Non-blocking delegation. `return_type` is the inner type `T`; the compiler wraps it in `Promise[T]` (see §11.2). |
 | `?proof-required` | A contract predicate outside the decidable QF arithmetic fragment. Two forms: (1) bare leaf `?proof-required` — marks the clause `asserted`, emits no runtime assertion; (2) predicate-carrying `(?proof-required :reason "tag" pred-expr)` in `pre`/`post` position (LT-PPR, v0.11) — `pred-expr` is type-checked as `bool` and emits a Haskell runtime assertion at codegen; non-linear predicates emit a `QF-LIA` warning at `llmll check`. Body-position `?proof-required` (either form) emits an `error` stub and is unchanged. Non-blocking. See §6 and `getting-started.md §4.11`. |
+
+> [!NOTE]
+> **`?delegate` / `?delegate-async` trust and verification.** These hole forms are authoring intermediates admitted by the typechecker anywhere an expression of the declared type is expected. In `def-shell` bodies, the host function's trust tier is `asserted`; PBT `DLTested` write-back is suppressed by F-GATE-8 (`guardDelegate`) regardless of whether an `on-failure` clause provides a runtime fallback. In `def` bodies (LT-INV), both forms are admitted pending out-of-process resolution; post-resolution, the agent loop re-runs the typechecker's core-membership predicate before merging the resolving value into the `def`-form host. Pre-resolution trust is `asserted` unconditionally regardless of pre-clause evaluability: F-EL5-3 (adjudicated language-team 2026-05-30) extends `guardDelegate` (F-GATE-8) to `SDef` forms, blocking `DLTested` write-back on the evaluable-pre path; pre-clause unevaluability independently produces `PBTSkipped` on the unevaluable-pre path (EL-5 grade-A path B, PM-006). Both paths converge on `asserted`. See §5.3.5 (verification matrix rows) and §11.2 (inference rules, `on-failure` type rule, async delegation flow).
 
 > [!NOTE]
 > **Bare `?proof-required`: a gap signal without a predicate payload.** The bare leaf form records that the clause involves reasoning outside the verifier's decidable fragment; no predicate expression is embedded. The intended predicate is documented in source comments, function docstrings, or trust-report annotations. The compiler treats bare `?proof-required` as `asserted` for trust-level purposes (per §5.3.5). **LT-PPR (v0.11) predicate-carrying form:** `(?proof-required :reason "tag" pred-expr)` in `pre`/`post` position *does* embed the predicate as an optional `Expr` payload — `HoleKind.HProofRequired Text (Maybe Expr)` in [`compiler/src/LLMLL/Syntax.hs`](compiler/src/LLMLL/Syntax.hs). The compiler type-checks `pred-expr` as `bool` and emits a runtime assertion at codegen. Body-position `?proof-required` (either form) is unchanged and emits an `error` stub regardless of predicate presence.
