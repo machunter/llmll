@@ -161,8 +161,32 @@
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -184,8 +208,32 @@
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -213,8 +261,32 @@
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -248,8 +320,32 @@
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -411,8 +507,32 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -454,8 +574,32 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -493,8 +637,32 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -532,8 +700,32 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         },
         {
@@ -1072,8 +1264,32 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],
@@ -1333,8 +1549,32 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         },
         {
@@ -1670,8 +1910,32 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "list",
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "named",
+                  "name": "MaxWrong"
+                }
+              }
+            }
           }
         }
       ],

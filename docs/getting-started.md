@@ -624,11 +624,11 @@ These patterns work in the **current compiler**. Each shows what works today and
 
 ```json
 { "kind": "def", "name": "state-word",
-  "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "string" } }],
+  "params": [{ "name": "s", "param_type": { "kind": "pair-type", "fst": { "kind": "primitive", "name": "string" }, "snd": { "kind": "primitive", "name": "string" } } }],
   "body": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "s" }] } }
 ```
 
-✅ **Works.** `first`/`second` accept any pair-like value regardless of annotation.
+✅ **Works.** `first :: pair[a,b] → a` and `second :: pair[a,b] → b` require a `pair-type` parameter; annotate the state param with `{"kind":"pair-type","fst":...,"snd":...}` in JSON-AST.
 
 
 ### 4.2 Type Aliases at Call Sites
