@@ -43,6 +43,29 @@ Evidence runs: `runs/20260528T204620Z/20260528T204620Z-claude-opus-4-7-try02-of-
 
 ---
 
+### F-EL5-3. `def + hole-delegate` post trust-status remains pre-clause-dependent (EL-5 observation)
+
+**Source:** `findings/postmortem-006-el5-clean-gate.md`
+**Date:** 2026-05-30
+**Priority:** Observation — non-blocking; spec decision required before any compiler change.
+
+EL-5 confirms F-GATE-8's scope boundary: the fix guards `SDefShell` only. For `def` kind (strict-core) with `hole-delegate` body, post trust-status is still pre-clause-dependent:
+
+| Pre clause evaluability | Post trust_status | prc_accepted | Grade |
+|------------------------|-------------------|--------------|-------|
+| Unevaluable (claude try02-04) | `"asserted"` | 1 | A |
+| Evaluable (gemini try01/03) | `"tested"` | 0 | A |
+
+"Tested" is accepted after F-GATE-7 fix → grade A reachable via either path; this is not a blocker.
+
+**If the spec decision is** that `def + hole-delegate` should also produce `post: "asserted"` unconditionally (rationale: delegation hole makes return value opaque regardless of `def` vs `def-shell`), the fix in `PBT.hs:pbtTrustWriteback` would extend the `delegateBodies` guard to include `SDef` with `EHole(HDelegate _)` or `EHole(HDelegateAsync _)` body alongside the existing `SDefShell` guard.
+
+**Acceptance (if fix requested):** `def + evaluable-pre + hole-delegate body + bare hole-proof-required post` → `post: "asserted"`. Regression tests: extend FG8-2/FG8-3 families for `SDef` kind. Evidence run: `runs/20260530T052351Z/20260530T052351Z-gemini-3-pro-preview-try01-of-03-e001/evaluation.json` (`verify_details.login-handler.post = "tested"`).
+
+Route spec question to language-team before implementation.
+
+---
+
 **Source:** Integrated postmortem of 18 attempts × 5 models on `001-two-agent-auth`
 **Date:** 2026-05-10
 **Re-routed:** 2026-05-10 — split from former `language-team.md` (S1, S3) and `documentation-team.md` (D1.2) under the new five-role pipeline. `compiler-engineer` owns implementation in `compiler/src/LLMLL/`.
@@ -259,6 +282,29 @@ Gate pass criterion (`docs/compiler-team-roadmap.md:185`): at least one of (a/b/
 Two grade-A paths: `def` + bare `?proof-required` (claude try01); `def-shell` + LT-PPR predicate-carrying (gemini try01 — first empirical exercise of LT-PPR syntax). Gemini try02 excluded (def-logic rejection, no correction). Gemini try03 excluded (TerminalQuotaError, 0 output).
 
 F-GATE-7 evaluator fix applied — does not change gate outcome. F-GATE-8 (compiler inconsistency: def-shell trust status pre-clause-dependent) routed to compiler-engineer; does not affect gate adjudication (grade A confirmed in 3 attempts independent of the affected cells).
+
+---
+
+### §8 Gate Adjudication — EL-5 Clean Run (2026-05-30)
+
+**Source:** `findings/postmortem-006-el5-clean-gate.md`
+**Run:** `20260530T052351Z` — 8 attempts, llmll 0.10.8 @ `b8c15dd`, 0 exclusions
+
+Four-axis table vs. pre-arm `20260528T012230Z` (n=6):
+
+| Axis | Pre-arm (n=6) | EL-5 all (n=8) | EL-5 claude (n=5) | Delta |
+|------|--------------|----------------|-------------------|-------|
+| (a) Grade A | 0/6 (0%) | 7/8 (87.5%) | 5/5 (100%) | **+87.5 pp / +100 pp claude** |
+| (a) Grade B | 6/6 (100%) | 0/8 (0%) | 0/5 (0%) | Eliminated |
+| (a) Grade C | 0/6 (0%) | 1/8 (12.5%) | 0/5 (0%) | See F-EL5-2 (test coverage gap) |
+| (b) Verified | 0/6 (0%) | 0/8 (0%) | 0/5 (0%) | No change (expected) |
+| (c) `?proof-required` emitted | 0/6 (0%) | 8/8 (100%) | 5/5 (100%) | **+100 pp** |
+| (c) prc_accepted (asserted ceiling) | 0/6 (0%) | 6/8 (75%) | 5/5 (100%) | **+75 pp** |
+| (d) def-logic in solutions | all (100%) | 0/8 (0%) | 0/5 (0%) | Eliminated |
+
+F-GATE-7+8 contamination eliminated. First run with 0 gemini quota failures — two-model comparison complete. Axis (c) reaches 8/8 (100%) on `?proof-required` emission; 5/5 (100%) on the asserted-ceiling path for claude.
+
+**Open question for adjudication (F-EL5-3):** For `def` kind with `hole-delegate` body, post trust-status remains pre-clause-dependent (unevaluable pre → "asserted"; evaluable pre → "tested"). F-GATE-8 fix addressed only `def-shell`. Whether `def + hole-delegate` should also produce "asserted" unconditionally is a spec question. Currently non-blocking (both trust statuses produce grade A). Language-team adjudication determines whether a follow-on compiler fix is warranted.
 
 ---
 
@@ -718,6 +764,60 @@ Contrast: claude-opus-4-7-try03 (postmortem-004) corrected in-session with ~25s 
 | **F-GATE-8** | def-shell trust status pre-clause-dependent | compiler-engineer | **Closed** — f62a38b | Done |
 | **F-GATE-9** | Gemini-try02 no correction on def-logic | experiment-lead | Observation | None |
 | **F-GATE-10** | Gemini-try03 TerminalQuotaError | experiment-lead | Exclusion | None |
+
+---
+
+### EL-E — EL-5 clean gate run (2026-05-30)
+
+**Source:** `findings/postmortem-006-el5-clean-gate.md`
+**Run:** `20260530T052351Z` — 8 attempts, llmll 0.10.8 @ `b8c15dd` (f62a38b + CE-2 revert), manifest `manifest.e001-post-e3.json`
+**Evaluator:** EL-1+EL-2+E3+F-GATE-7 fix (`49a1743`)
+**Comparison baseline:** `20260528T012230Z` (pre-arm, GrammarLegacy)
+
+#### F-EL5-1. Grade A confirmed 5/5 claude + 2/3 gemini; F-GATE-7+8 contamination path fully eliminated
+
+**Priority:** Confirmation — definitive gate evidence.
+**Consumer:** language-team
+
+5/5 claude-opus-4-7 attempts grade A; 3/3 tests passed; prc_accepted=1; trust_status=asserted. 0/5 grade C. F-GATE-7+8 contamination (3 grade-C mislabels in PM-005) eliminated. Gemini try01/03 grade A via "tested" path (def kind + evaluable pre, 3/3 properties passed). First gate run with 0 gemini quota failures. Full four-axis table in postmortem-006.
+
+---
+
+#### F-EL5-2. Gemini-try02 grade C — PBT property coverage gap
+
+**Priority:** Observation.
+**Consumer:** experiment-lead
+
+`runs/20260530T052351Z/20260530T052351Z-gemini-3-pro-preview-try02-of-03-e001/evaluation.json`: all 3 properties gave up at 1000 discards (`Gave up! Passed only 0 tests; 1000 discarded tests.` ×3). `effective_total: 1`, `effective_passed: 0`, `all_applicable_passed: False` → grade C. Contract fully met (`contracts_met: True`, `prc_accepted: 1`, `trust_status: asserted`). Grade C is driven by test-coverage gap, not contract quality. Behavioral note: gemini-3-pro-preview property-writing quality varies across attempts; try01/03 passed 3/3 properties with no delegation-dependent exclusions.
+
+---
+
+#### F-EL5-3. `def + hole-delegate` post trust-status remains pre-clause-dependent
+
+**Priority:** Observation — non-blocking residual.
+**Consumer:** compiler-engineer (see also language-team for spec decision)
+
+For `def` kind (strict-core), `hole-delegate` body does not trigger the F-GATE-8 guard (which targets `SDefShell` only). When pre clause is unevaluable, whole-function "asserted" propagation fires (same old mechanism). When evaluable, PBT runs; post trust_status = "tested". "Tested" accepted after F-GATE-7 fix → grade A reachable via either path. Does not currently affect grade; whether `def + hole-delegate` should produce "asserted" unconditionally is a spec question for language-team before any compiler change. See postmortem-006 F-EL5-3 for full evidence table.
+
+---
+
+#### F-EL5-4. First gate run with 0 gemini quota failures
+
+**Priority:** Observation.
+**Consumer:** experiment-lead
+
+3/3 gemini-3-pro-preview attempts completed without TerminalQuotaError or HTTP 429. EL-5 launched ~26 hours after PM-005 (quota reset window: 4h12m per PM-005 try03 log). Structural throttling risk from prior runs has resolved; two-model comparison is now complete across all 8 cells with no infrastructure exclusions.
+
+---
+
+### Priority (EL-E)
+
+| # | Finding | Consumer | Priority | Effort |
+|---|---------|----------|----------|--------|
+| **F-EL5-1** | Grade A confirmed; F-GATE-7+8 eliminated | language-team | Confirmation — close gate | None |
+| **F-EL5-2** | Gemini-try02 grade C — PBT coverage gap | experiment-lead | Observation | None |
+| **F-EL5-3** | `def + hole-delegate` trust status residual | compiler-engineer | Observation — non-blocking | Low (spec decision needed) |
+| **F-EL5-4** | First run with 0 gemini quota failures | experiment-lead | Observation | None |
 
 ---
 
