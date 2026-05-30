@@ -180,7 +180,7 @@ docs/
   UPDATE-PROTOCOL.md        ← Doc canonical-sources + per-change update matrix (DOC-CONSOLIDATE D1)
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog and shipped-releases history
-  llmll-ast.schema.json     ← JSON-AST schema v0.5.0 (use with AI agents; CheckoutToken introduced v0.3.0; CheckDecl.subjects introduced v0.5.0)
+  llmll-ast.schema.json     ← JSON-AST schema v0.6.0 (use with AI agents; CheckoutToken introduced v0.3.0; CheckDecl.subjects introduced v0.5.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
   design/                   ← Active design proposals (status in design/INDEX.md)
