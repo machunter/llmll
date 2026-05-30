@@ -623,7 +623,7 @@ These patterns work in the **current compiler**. Each shows what works today and
 ### 4.1 State Accessor Functions
 
 ```json
-{ "kind": "def-logic", "name": "state-word",
+{ "kind": "def", "name": "state-word",
   "params": [{ "name": "s", "param_type": { "kind": "primitive", "name": "string" } }],
   "body": { "kind": "app", "fn": "first", "args": [{ "kind": "var", "name": "s" }] } }
 ```
