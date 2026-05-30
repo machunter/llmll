@@ -1,4 +1,4 @@
-(def-shell make-pair [s : string] : (string, string)
+(def-logic make-pair [s : string] : (string, string)
   (pair s s))
 
 (def-main :console

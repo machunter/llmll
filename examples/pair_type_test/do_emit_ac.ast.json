@@ -1,9 +1,9 @@
 {
-  "schemaVersion": "0.6.0",
+  "schemaVersion": "0.5.0",
   "llmll_version": "0.3.0",
   "statements": [
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "step-fn",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "string" } },

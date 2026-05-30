@@ -7,23 +7,23 @@
 
 (import wasi.io (capability stdout :deterministic false))
 
-(def-shell state-board [s]
+(def-logic state-board [s]
   (first s))
 
-(def-shell state-turn [s]
+(def-logic state-turn [s]
   (second s))
 
-(def-shell make-state [board turn: string]
+(def-logic make-state [board turn: string]
   (pair board turn))
 
 ;; ---------------------------------------------------------------------------
 ;; Board helpers
 ;; ---------------------------------------------------------------------------
 
-(def-shell cell-at [board idx: int]
+(def-logic cell-at [board idx: int]
   (unwrap-or (list-nth board idx) " "))
 
-(def-shell set-cell [board target: int mark: string]
+(def-logic set-cell [board target: int mark: string]
   (let [(indices (range 0 9))]
     (list-map indices
       (fn [i: int]
@@ -35,7 +35,7 @@
 ;; Win detection
 ;; ---------------------------------------------------------------------------
 
-(def-shell three-match? [board a: int b: int c: int]
+(def-logic three-match? [board a: int b: int c: int]
   (let [(ca (cell-at board a))
         (cb (cell-at board b))
         (cc (cell-at board c))
@@ -44,7 +44,7 @@
         (ac-match (= ca cc))]
     (and not-empty (and ab-match ac-match))))
 
-(def-shell winner? [board]
+(def-logic winner? [board]
   (let [(r0 (three-match? board 0 1 2))
         (r1 (three-match? board 3 4 5))
         (r2 (three-match? board 6 7 8))
@@ -55,10 +55,10 @@
         (d1 (three-match? board 2 4 6))]
     (or r0 (or r1 (or r2 (or c0 (or c1 (or c2 (or d0 d1)))))))))
 
-(def-shell board-full? [board]
+(def-logic board-full? [board]
   (not (list-contains board " ")))
 
-(def-shell is-game-over? [s]
+(def-logic is-game-over? [s]
   (let [(board (state-board s))
         (won   (winner? board))
         (full  (board-full? board))]
@@ -69,7 +69,7 @@
 ;; (§4.7 restriction: [..] inside if-branch body causes parse error)
 ;; ---------------------------------------------------------------------------
 
-(def-shell render-board [board]
+(def-logic render-board [board]
   (let [(c0  (cell-at board 0))
         (c1  (cell-at board 1))
         (c2  (cell-at board 2))
@@ -94,14 +94,14 @@
 ;; Player helpers
 ;; ---------------------------------------------------------------------------
 
-(def-shell next-player [turn: string]
+(def-logic next-player [turn: string]
   (if (= turn "X") "O" "X"))
 
 ;; ---------------------------------------------------------------------------
 ;; Entry point
 ;; ---------------------------------------------------------------------------
 
-(def-shell start-game []
+(def-logic start-game []
   (let [(empty-board [" " " " " " " " " " " " " " " " " "])
         (init-state  (make-state empty-board "X"))
         (lines ["=== Tic-Tac-Toe ===\n"
@@ -115,7 +115,7 @@
 ;; Game loop — note: all [..] inside branches are hoisted to let above the if
 ;; ---------------------------------------------------------------------------
 
-(def-shell build-prompt [next-turn: string won-now: bool full-now: bool]
+(def-logic build-prompt [next-turn: string won-now: bool full-now: bool]
   (if won-now
       ""
       (if full-now
@@ -123,7 +123,7 @@
           (let [(parts ["Player " next-turn "'s turn. Enter position: "])]
             (string-concat-many parts)))))
 
-(def-shell game-loop [s input: string]
+(def-logic game-loop [s input: string]
   (let [(board  (state-board s))
         (turn   (state-turn  s))
         (clean  (string-trim input))
@@ -156,7 +156,7 @@
 ;; End-of-game message (:on-done hook)
 ;; ---------------------------------------------------------------------------
 
-(def-shell show-result [s]
+(def-logic show-result [s]
   (let [(board        (state-board s))
         (turn         (state-turn  s))
         (won          (winner? board))

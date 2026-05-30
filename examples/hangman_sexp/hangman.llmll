@@ -26,26 +26,26 @@
 ;;   wrong-count : first . second . second
 ;;   max-wrong : second . second . second
 
-(def-shell state-word [s: (string, (list[string], (int, int)))]
+(def-logic state-word [s: (string, (list[string], (int, int)))]
   (first s))
 
-(def-shell state-guessed [s: (string, (list[string], (int, int)))]
+(def-logic state-guessed [s: (string, (list[string], (int, int)))]
   (first (second s)))
 
-(def-shell state-wrong [s: (string, (list[string], (int, int)))]
+(def-logic state-wrong [s: (string, (list[string], (int, int)))]
   (first (second (second s))))
 
-(def-shell state-max [s: (string, (list[string], (int, int)))]
+(def-logic state-max [s: (string, (list[string], (int, int)))]
   (second (second (second s))))
 
 ;; ─── State constructor ─────────────────────────────────────────────────────
 
-(def-shell make-state [w: string g: list[string] wc: int mx: int]
+(def-logic make-state [w: string g: list[string] wc: int mx: int]
   (pair w (pair g (pair wc mx))))
 
 ;; ─── Gallows art ───────────────────────────────────────────────────────────
 
-(def-shell gallows-art [wrong: int]
+(def-logic gallows-art [wrong: int]
   (if (= wrong 0) " -----\n |   |\n |\n |\n |\n |\n-+----\n"
   (if (= wrong 1) " -----\n |   |\n |   O\n |\n |\n |\n-+----\n"
   (if (= wrong 2) " -----\n |   |\n |   O\n |   |\n |\n |\n-+----\n"
@@ -57,13 +57,13 @@
 ;; ─── Display word with blanks ──────────────────────────────────────────────
 
 ;; Returns "_" if letter not in guessed, else the letter itself
-(def-shell show-letter [letter: string guessed: list[string]]
+(def-logic show-letter [letter: string guessed: list[string]]
   (if (list-contains guessed letter)
       letter
       "_"))
 
 ;; Build a display string for the word: "h _ n g m _ n"
-(def-shell display-word [word: string guessed: list[string]]
+(def-logic display-word [word: string guessed: list[string]]
   (let [(n       (string-length word))
         (indices (range 0 n))
         (chars   (list-map indices (fn [i: int] (string-char-at word i))))
@@ -75,24 +75,24 @@
 ;; ─── Game status predicates ────────────────────────────────────────────────
 
 ;; true if every letter of word has been guessed
-(def-shell all-guessed? [word: string guessed: list[string]]
+(def-logic all-guessed? [word: string guessed: list[string]]
   (let [(n       (string-length word))
         (indices (range 0 n))
         (letters (list-map indices (fn [i: int] (string-char-at word i))))]
     (list-fold letters true (fn [acc c] (and acc (list-contains guessed c))))))
 
-(def-shell game-won? [s: (string, (list[string], (int, int)))]
+(def-logic game-won? [s: (string, (list[string], (int, int)))]
   (all-guessed? (state-word s) (state-guessed s)))
 
-(def-shell game-lost? [s: (string, (list[string], (int, int)))]
+(def-logic game-lost? [s: (string, (list[string], (int, int)))]
   (>= (state-wrong s) (state-max s)))
 
-(def-shell is-game-over? [s: (string, (list[string], (int, int)))]
+(def-logic is-game-over? [s: (string, (list[string], (int, int)))]
   (or (game-won? s) (game-lost? s)))
 
 ;; ─── Render current board ──────────────────────────────────────────────────
 
-(def-shell render-board [s: (string, (list[string], (int, int)))]
+(def-logic render-board [s: (string, (list[string], (int, int)))]
   (let [(art    (gallows-art (state-wrong s)))
         (disp   (display-word (state-word s) (state-guessed s)))
         (wrong  (state-wrong s))
@@ -106,7 +106,7 @@
 
 ;; ─── Init ──────────────────────────────────────────────────────────────────
 
-(def-shell start-game []
+(def-logic start-game []
   (let [(word  "hangman")
         (state (make-state word (list-empty) 0 6))
         (board (render-board state))
@@ -115,7 +115,7 @@
 
 ;; ─── Step ──────────────────────────────────────────────────────────────────
 
-(def-shell game-loop [s: (string, (list[string], (int, int))) input: string]
+(def-logic game-loop [s: (string, (list[string], (int, int))) input: string]
   (let [(trimmed (string-trim input))
         (letter  (if (> (string-length trimmed) 0)
                      (string-char-at trimmed 0)
@@ -143,7 +143,7 @@
 
 ;; ─── On-done ───────────────────────────────────────────────────────────────
 
-(def-shell show-result [s: (string, (list[string], (int, int)))]
+(def-logic show-result [s: (string, (list[string], (int, int)))]
   (let [(won    (game-won? s))
         (prefix (if won "You won! The word was: " "Game over! The word was: "))
         (msg    (string-concat prefix (string-concat (state-word s) "\n")))]

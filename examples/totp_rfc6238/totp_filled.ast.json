@@ -1,10 +1,10 @@
 {
-  "schemaVersion": "0.6.0",
+  "schemaVersion": "0.5.0",
   "module": "totp-rfc6238",
   "types": [],
   "statements": [
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "compute-time-step",
       "params": [
         { "name": "t", "param_type": { "kind": "primitive", "name": "int" } },
@@ -46,7 +46,7 @@
       }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "dynamic-truncate",
       "params": [
         { "name": "hmac-result", "param_type": { "kind": "bytes", "length": 20 } },
@@ -124,7 +124,7 @@
       "reason": "Cryptographic hash correctness is outside QF-LIA; asserted per RFC 2104"
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "hmac-sha1-wrap",
       "params": [
         { "name": "key", "param_type": { "kind": "bytes", "length": 20 } },
@@ -145,7 +145,7 @@
       }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "generate-totp",
       "params": [
         { "name": "key", "param_type": { "kind": "bytes", "length": 20 } },
@@ -228,7 +228,7 @@
       }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "validate-totp",
       "params": [
         { "name": "expected", "param_type": { "kind": "primitive", "name": "int" } },
@@ -259,7 +259,7 @@
       }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "pad-otp",
       "params": [
         { "name": "otp", "param_type": { "kind": "primitive", "name": "int" } },

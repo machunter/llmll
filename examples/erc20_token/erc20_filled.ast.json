@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.6.0",
+  "schemaVersion": "0.5.0",
   "module": "erc20-token",
   "types": [
     {
@@ -15,7 +15,7 @@
   ],
   "statements": [
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "total-supply",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } }
@@ -33,7 +33,7 @@
       "body": { "kind": "var", "name": "state" }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "balance-of",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -52,7 +52,7 @@
       "body": { "kind": "var", "name": "state" }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "transfer",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -88,7 +88,7 @@
       "body": { "kind": "var", "name": "state" }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "approve",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -109,7 +109,7 @@
       "body": { "kind": "var", "name": "state" }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "allowance",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
@@ -129,7 +129,7 @@
       "body": { "kind": "lit-int", "value": 0 }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "transfer-from",
       "params": [
         { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },

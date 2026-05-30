@@ -1,9 +1,9 @@
 {
-  "schemaVersion": "0.6.0",
+  "schemaVersion": "0.5.0",
   "llmll_version": "0.3.0",
   "statements": [
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "make-pair",
       "params": [
         { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
@@ -15,7 +15,7 @@
       }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "use-pair-name",
       "params": [
         { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
@@ -30,7 +30,7 @@
       }
     },
     {
-      "kind": "def-shell",
+      "kind": "def-logic",
       "name": "use-pair-pattern",
       "params": [
         { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }

@@ -10,7 +10,7 @@
 (import world)
 (open world)
 
-(def-shell start-game []
+(def-logic start-game []
   (let [(w      20)
         (h      10)
         (grid   (glider-grid w h))
@@ -20,7 +20,7 @@
         (msg    (string-concat banner board))]
     (pair world0 (wasi.io.stdout msg))))
 
-(def-shell game-step [world _input: string]
+(def-logic game-step [world _input: string]
   (let [(next-world (evolve world))
         (board      (render-world next-world))
         (sep        "----------------------------------------\n")
@@ -28,7 +28,7 @@
         (output     (string-concat sep (string-concat header board)))]
     (pair next-world (wasi.io.stdout output))))
 
-(def-shell never-done [_world]
+(def-logic never-done [_world]
   false)
 
 (def-main

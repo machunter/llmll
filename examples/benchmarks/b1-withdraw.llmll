@@ -1,6 +1,6 @@
 (type PositiveInt (where [x: int] (> x 0)))
 
-(def-shell withdraw [balance: int amount: PositiveInt]
+(def-logic withdraw [balance: int amount: PositiveInt]
   (pre  (>= balance amount))
   (post (= result (- balance amount)))
   ?body_impl)

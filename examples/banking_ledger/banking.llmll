@@ -13,28 +13,28 @@
 
 ;; --- Layer 1: Primitive arithmetic with safety guarantee ---
 
-(def-shell safe-subtract [a: int b: int]
+(def-logic safe-subtract [a: int b: int]
   (pre (and (>= a b) (>= b 0)))
   (post (and (= result (- a b)) (>= result 0)))
   (- a b))
 
 ;; --- Layer 2: Domain operation using safe-subtract ---
 
-(def-shell withdraw [balance: int amount: int]
+(def-logic withdraw [balance: int amount: int]
   (pre (and (>= balance amount) (>= amount 0)))
   (post (and (= result (- balance amount)) (>= result 0)))
   (safe-subtract balance amount))
 
 ;; --- Layer 3: Compound operation using withdraw ---
 
-(def-shell transfer [from-bal: int amount: int]
+(def-logic transfer [from-bal: int amount: int]
   (pre (and (>= from-bal amount) (>= amount 0)))
   (post (and (= result (- from-bal amount)) (>= result 0)))
   (withdraw from-bal amount))
 
 ;; --- Layer 2b: Conditional logic with call ---
 
-(def-shell clamp-withdraw [balance: int requested: int]
+(def-logic clamp-withdraw [balance: int requested: int]
   (pre (and (>= balance 0) (>= requested 0)))
   (post (>= result 0))
   (if (>= balance requested)
@@ -43,7 +43,7 @@
 
 ;; --- Layer 2c: Let-binding with call result ---
 
-(def-shell withdraw-twice [balance: int first: int second: int]
+(def-logic withdraw-twice [balance: int first: int second: int]
   (pre (and (>= balance (+ first second)) (and (>= first 0) (>= second 0))))
   (post (and (= result (- (- balance first) second)) (>= result 0)))
   (let [[after-first (withdraw balance first)]]
@@ -51,7 +51,7 @@
 
 ;; --- Layer 2d: Fee computation (no external calls, pure logic) ---
 
-(def-shell compute-fee [amount: int]
+(def-logic compute-fee [amount: int]
   (pre (>= amount 0))
   (post (and (>= result 0) (<= result 10)))
   (if (> amount 100)

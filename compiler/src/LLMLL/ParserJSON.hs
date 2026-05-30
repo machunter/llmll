@@ -38,7 +38,7 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- v0.10.2: bumped from 0.3.0 to 0.4.0 to signal identifier-shape regex
 -- constraints on ExprApp.fn and ExprQualApp.qual_fn.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.6.0"
+expectedSchemaVersion = "0.5.0"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
