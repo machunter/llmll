@@ -1,72 +1,153 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "module": "erc20-token",
   "types": [
     {
       "kind": "type",
       "name": "Address",
-      "body": { "kind": "primitive", "name": "string" }
+      "body": {
+        "kind": "primitive",
+        "name": "string"
+      }
     },
     {
       "kind": "type",
       "name": "Balance",
-      "body": { "kind": "primitive", "name": "int" }
+      "body": {
+        "kind": "primitive",
+        "name": "int"
+      }
     }
   ],
   "statements": [
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "total-supply",
       "params": [
-        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": null,
       "post": {
         "kind": "op",
         "op": ">=",
         "args": [
-          { "kind": "var", "name": "result" },
-          { "kind": "lit-int", "value": 0 }
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
         ]
       },
-      "body": { "kind": "var", "name": "state" }
+      "body": {
+        "kind": "var",
+        "name": "state"
+      }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "balance-of",
       "params": [
-        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "owner", "param_type": { "kind": "primitive", "name": "string" } }
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "owner",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": null,
       "post": {
         "kind": "op",
         "op": ">=",
         "args": [
-          { "kind": "var", "name": "result" },
-          { "kind": "lit-int", "value": 0 }
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
         ]
       },
-      "body": { "kind": "var", "name": "state" }
+      "body": {
+        "kind": "var",
+        "name": "state"
+      }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "transfer",
       "params": [
-        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "from", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "to", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "amount", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "from",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "to",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": {
         "kind": "op",
         "op": ">=",
         "args": [
-          { "kind": "var", "name": "amount" },
-          { "kind": "lit-int", "value": 0 }
+          {
+            "kind": "var",
+            "name": "amount"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
         ]
       },
       "post": {
@@ -76,69 +157,181 @@
           {
             "kind": "app",
             "fn": "total-supply",
-            "args": [{ "kind": "var", "name": "result" }]
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              }
+            ]
           },
           {
             "kind": "app",
             "fn": "total-supply",
-            "args": [{ "kind": "var", "name": "state" }]
+            "args": [
+              {
+                "kind": "var",
+                "name": "state"
+              }
+            ]
           }
         ]
       },
-      "body": { "kind": "var", "name": "state" }
+      "body": {
+        "kind": "var",
+        "name": "state"
+      }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "approve",
       "params": [
-        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "owner", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "spender", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "amount", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "owner",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "spender",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": {
         "kind": "op",
         "op": ">=",
         "args": [
-          { "kind": "var", "name": "amount" },
-          { "kind": "lit-int", "value": 0 }
+          {
+            "kind": "var",
+            "name": "amount"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
         ]
       },
       "post": null,
-      "body": { "kind": "var", "name": "state" }
+      "body": {
+        "kind": "var",
+        "name": "state"
+      }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "allowance",
       "params": [
-        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "owner", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "spender", "param_type": { "kind": "primitive", "name": "string" } }
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "owner",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "spender",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": null,
       "post": {
         "kind": "op",
         "op": ">=",
         "args": [
-          { "kind": "var", "name": "result" },
-          { "kind": "lit-int", "value": 0 }
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
         ]
       },
-      "body": { "kind": "lit-int", "value": 0 }
+      "body": {
+        "kind": "lit-int",
+        "value": 0
+      }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "transfer-from",
       "params": [
-        { "name": "state", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "caller", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "from", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "to", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "amount", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "caller",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "from",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "to",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": {
         "kind": "op",
         "op": "and",
@@ -147,8 +340,14 @@
             "kind": "op",
             "op": ">=",
             "args": [
-              { "kind": "var", "name": "amount" },
-              { "kind": "lit-int", "value": 0 }
+              {
+                "kind": "var",
+                "name": "amount"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
             ]
           },
           {
@@ -159,12 +358,24 @@
                 "kind": "app",
                 "fn": "allowance",
                 "args": [
-                  { "kind": "var", "name": "state" },
-                  { "kind": "var", "name": "from" },
-                  { "kind": "var", "name": "caller" }
+                  {
+                    "kind": "var",
+                    "name": "state"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "from"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "caller"
+                  }
                 ]
               },
-              { "kind": "var", "name": "amount" }
+              {
+                "kind": "var",
+                "name": "amount"
+              }
             ]
           }
         ]
@@ -176,16 +387,29 @@
           {
             "kind": "app",
             "fn": "total-supply",
-            "args": [{ "kind": "var", "name": "result" }]
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              }
+            ]
           },
           {
             "kind": "app",
             "fn": "total-supply",
-            "args": [{ "kind": "var", "name": "state" }]
+            "args": [
+              {
+                "kind": "var",
+                "name": "state"
+              }
+            ]
           }
         ]
       },
-      "body": { "kind": "var", "name": "state" }
+      "body": {
+        "kind": "var",
+        "name": "state"
+      }
     }
   ]
 }

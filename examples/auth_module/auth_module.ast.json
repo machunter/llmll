@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "llmll_version": "0.3.0",
   "source_file": "auth_module.llmll",
   "statements": [
@@ -11,58 +11,128 @@
           "name": "hash-password",
           "fn_type": {
             "kind": "fn-type",
-            "params": [{"name": "raw-pw", "type": {"kind": "primitive", "name": "string"}}],
-            "return_type": {"kind": "primitive", "name": "string"}
+            "params": [
+              {
+                "name": "raw-pw",
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            ],
+            "return_type": {
+              "kind": "primitive",
+              "name": "string"
+            }
           }
         },
         {
           "name": "verify-token",
           "fn_type": {
             "kind": "fn-type",
-            "params": [{"name": "token", "type": {"kind": "primitive", "name": "string"}}],
-            "return_type": {"kind": "primitive", "name": "bool"}
+            "params": [
+              {
+                "name": "token",
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            ],
+            "return_type": {
+              "kind": "primitive",
+              "name": "bool"
+            }
           }
         }
       ]
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "login-handler",
       "params": [
-        {"name": "username", "type": {"kind": "primitive", "name": "string"}},
-        {"name": "password", "type": {"kind": "primitive", "name": "string"}}
+        {
+          "name": "username",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "password",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
       ],
       "pre": {
         "kind": "op",
         "op": "not",
         "args": [
-          {"kind": "app", "fn": "string-empty?", "args": [{"kind": "var", "name": "password"}]}
+          {
+            "kind": "app",
+            "fn": "string-empty?",
+            "args": [
+              {
+                "kind": "var",
+                "name": "password"
+              }
+            ]
+          }
         ]
       },
       "body": {
         "kind": "hole-delegate",
         "agent": "@crypto-agent",
         "description": "Hash the password using AuthSystem.hash-password, return Result[string, string]",
-        "return_type": {"kind": "result", "ok_type": {"kind": "primitive", "name": "string"}, "err_type": {"kind": "primitive", "name": "string"}},
+        "return_type": {
+          "kind": "result",
+          "ok_type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "err_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
         "on_failure": {
           "kind": "app",
           "fn": "err",
-          "args": [{"kind": "lit-string", "value": "crypto-agent unavailable"}]
+          "args": [
+            {
+              "kind": "lit-string",
+              "value": "crypto-agent unavailable"
+            }
+          ]
         }
       }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "validate-session",
       "params": [
-        {"name": "session-token", "type": {"kind": "primitive", "name": "string"}}
+        {
+          "name": "session-token",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
       ],
       "body": {
         "kind": "hole-delegate",
         "agent": "@crypto-agent",
         "description": "Verify the session token using AuthSystem.verify-token, return bool",
-        "return_type": {"kind": "primitive", "name": "bool"},
-        "on_failure": {"kind": "lit-bool", "value": false}
+        "return_type": {
+          "kind": "primitive",
+          "name": "bool"
+        },
+        "on_failure": {
+          "kind": "lit-bool",
+          "value": false
+        }
       }
     }
   ]

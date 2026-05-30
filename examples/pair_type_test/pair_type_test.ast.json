@@ -1,17 +1,29 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "llmll_version": "0.3.0",
   "statements": [
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "make-pair",
       "params": [
-        { "name": "s", "param_type": { "kind": "primitive", "name": "string" } }
+        {
+          "name": "s",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
       ],
       "body": {
         "kind": "pair",
-        "fst": { "kind": "var", "name": "s" },
-        "snd": { "kind": "var", "name": "s" }
+        "fst": {
+          "kind": "var",
+          "name": "s"
+        },
+        "snd": {
+          "kind": "var",
+          "name": "s"
+        }
       }
     },
     {
@@ -19,19 +31,55 @@
       "mode": "console",
       "init": {
         "kind": "pair",
-        "fst": { "kind": "lit-string", "value": "hello" },
-        "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "starting" }] }
+        "fst": {
+          "kind": "lit-string",
+          "value": "hello"
+        },
+        "snd": {
+          "kind": "app",
+          "fn": "wasi.io.stdout",
+          "args": [
+            {
+              "kind": "lit-string",
+              "value": "starting"
+            }
+          ]
+        }
       },
       "step": {
         "kind": "lambda",
         "params": [
-          { "name": "state", "param_type": { "kind": "primitive", "name": "string" } },
-          { "name": "line",  "param_type": { "kind": "primitive", "name": "string" } }
+          {
+            "name": "state",
+            "param_type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          {
+            "name": "line",
+            "param_type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         ],
         "body": {
           "kind": "pair",
-          "fst": { "kind": "var", "name": "state" },
-          "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "line" }] }
+          "fst": {
+            "kind": "var",
+            "name": "state"
+          },
+          "snd": {
+            "kind": "app",
+            "fn": "wasi.io.stdout",
+            "args": [
+              {
+                "kind": "var",
+                "name": "line"
+              }
+            ]
+          }
         }
       }
     }

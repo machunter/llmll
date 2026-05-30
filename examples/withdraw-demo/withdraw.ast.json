@@ -33,7 +33,7 @@
         "kind": "hole-named",
         "name": "body_impl"
       },
-      "kind": "def-logic",
+      "kind": "def",
       "name": "withdraw",
       "params": [
         {

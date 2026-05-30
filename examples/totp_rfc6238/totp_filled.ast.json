@@ -1,120 +1,314 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "module": "totp-rfc6238",
   "types": [],
   "statements": [
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "compute-time-step",
       "params": [
-        { "name": "t", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "t0", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "x", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "t",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "t0",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": {
-        "kind": "op", "op": "and",
+        "kind": "op",
+        "op": "and",
         "args": [
-          { "kind": "op", "op": ">", "args": [
-            { "kind": "var", "name": "x" },
-            { "kind": "lit-int", "value": 0 }
-          ]},
-          { "kind": "op", "op": ">=", "args": [
-            { "kind": "var", "name": "t" },
-            { "kind": "var", "name": "t0" }
-          ]}
+          {
+            "kind": "op",
+            "op": ">",
+            "args": [
+              {
+                "kind": "var",
+                "name": "x"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "var",
+                "name": "t"
+              },
+              {
+                "kind": "var",
+                "name": "t0"
+              }
+            ]
+          }
         ]
       },
       "pre_source": "RFC 6238 §4.2 — time step computation",
       "post": {
-        "kind": "op", "op": ">=",
+        "kind": "op",
+        "op": ">=",
         "args": [
-          { "kind": "var", "name": "result" },
-          { "kind": "lit-int", "value": 0 }
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
         ]
       },
       "post_source": "RFC 6238 §4.2 — time step is non-negative",
       "body": {
-        "kind": "op", "op": "/",
+        "kind": "op",
+        "op": "/",
         "args": [
-          { "kind": "op", "op": "-", "args": [
-            { "kind": "var", "name": "t" },
-            { "kind": "var", "name": "t0" }
-          ]},
-          { "kind": "var", "name": "x" }
+          {
+            "kind": "op",
+            "op": "-",
+            "args": [
+              {
+                "kind": "var",
+                "name": "t"
+              },
+              {
+                "kind": "var",
+                "name": "t0"
+              }
+            ]
+          },
+          {
+            "kind": "var",
+            "name": "x"
+          }
         ]
       }
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "dynamic-truncate",
       "params": [
-        { "name": "hmac-result", "param_type": { "kind": "bytes", "length": 20 } },
-        { "name": "digits", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "hmac-result",
+          "param_type": {
+            "kind": "bytes",
+            "length": 20
+          }
+        },
+        {
+          "name": "digits",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": {
-        "kind": "op", "op": "and",
+        "kind": "op",
+        "op": "and",
         "args": [
-          { "kind": "op", "op": ">", "args": [
-            { "kind": "var", "name": "digits" },
-            { "kind": "lit-int", "value": 0 }
-          ]},
-          { "kind": "op", "op": "<=", "args": [
-            { "kind": "var", "name": "digits" },
-            { "kind": "lit-int", "value": 10 }
-          ]}
+          {
+            "kind": "op",
+            "op": ">",
+            "args": [
+              {
+                "kind": "var",
+                "name": "digits"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "<=",
+            "args": [
+              {
+                "kind": "var",
+                "name": "digits"
+              },
+              {
+                "kind": "lit-int",
+                "value": 10
+              }
+            ]
+          }
         ]
       },
       "pre_source": "RFC 4226 §5.3 — dynamic truncation",
       "post": {
-        "kind": "op", "op": "and",
+        "kind": "op",
+        "op": "and",
         "args": [
-          { "kind": "op", "op": ">=", "args": [
-            { "kind": "var", "name": "result" },
-            { "kind": "lit-int", "value": 0 }
-          ]},
-          { "kind": "op", "op": "<", "args": [
-            { "kind": "var", "name": "result" },
-            { "kind": "op", "op": "*", "args": [
-              { "kind": "lit-int", "value": 10 },
-              { "kind": "op", "op": "*", "args": [
-                { "kind": "lit-int", "value": 10 },
-                { "kind": "op", "op": "*", "args": [
-                  { "kind": "lit-int", "value": 10 },
-                  { "kind": "op", "op": "*", "args": [
-                    { "kind": "lit-int", "value": 10 },
-                    { "kind": "op", "op": "*", "args": [
-                      { "kind": "lit-int", "value": 10 },
-                      { "kind": "op", "op": "*", "args": [
-                        { "kind": "lit-int", "value": 10 },
-                        { "kind": "op", "op": "*", "args": [
-                          { "kind": "lit-int", "value": 10 },
-                          { "kind": "op", "op": "*", "args": [
-                            { "kind": "lit-int", "value": 10 },
-                            { "kind": "op", "op": "*", "args": [
-                              { "kind": "lit-int", "value": 10 },
-                              { "kind": "lit-int", "value": 10 }
-                            ]}
-                          ]}
-                        ]}
-                      ]}
-                    ]}
-                  ]}
-                ]}
-              ]}
-            ]}
-          ]}
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "<",
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "op",
+                "op": "*",
+                "args": [
+                  {
+                    "kind": "lit-int",
+                    "value": 10
+                  },
+                  {
+                    "kind": "op",
+                    "op": "*",
+                    "args": [
+                      {
+                        "kind": "lit-int",
+                        "value": 10
+                      },
+                      {
+                        "kind": "op",
+                        "op": "*",
+                        "args": [
+                          {
+                            "kind": "lit-int",
+                            "value": 10
+                          },
+                          {
+                            "kind": "op",
+                            "op": "*",
+                            "args": [
+                              {
+                                "kind": "lit-int",
+                                "value": 10
+                              },
+                              {
+                                "kind": "op",
+                                "op": "*",
+                                "args": [
+                                  {
+                                    "kind": "lit-int",
+                                    "value": 10
+                                  },
+                                  {
+                                    "kind": "op",
+                                    "op": "*",
+                                    "args": [
+                                      {
+                                        "kind": "lit-int",
+                                        "value": 10
+                                      },
+                                      {
+                                        "kind": "op",
+                                        "op": "*",
+                                        "args": [
+                                          {
+                                            "kind": "lit-int",
+                                            "value": 10
+                                          },
+                                          {
+                                            "kind": "op",
+                                            "op": "*",
+                                            "args": [
+                                              {
+                                                "kind": "lit-int",
+                                                "value": 10
+                                              },
+                                              {
+                                                "kind": "op",
+                                                "op": "*",
+                                                "args": [
+                                                  {
+                                                    "kind": "lit-int",
+                                                    "value": 10
+                                                  },
+                                                  {
+                                                    "kind": "lit-int",
+                                                    "value": 10
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
         ]
       },
       "post_source": "RFC 4226 §5.3 — truncated result is bounded",
       "body": {
-        "kind": "op", "op": "mod",
+        "kind": "op",
+        "op": "mod",
         "args": [
-          { "kind": "app", "fn": "abs", "args": [
-            { "kind": "var", "name": "digits" }
-          ]},
-          { "kind": "lit-int", "value": 1000000 }
+          {
+            "kind": "app",
+            "fn": "abs",
+            "args": [
+              {
+                "kind": "var",
+                "name": "digits"
+              }
+            ]
+          },
+          {
+            "kind": "lit-int",
+            "value": 1000000
+          }
         ]
       }
     },
@@ -124,13 +318,28 @@
       "reason": "Cryptographic hash correctness is outside QF-LIA; asserted per RFC 2104"
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "hmac-sha1-wrap",
       "params": [
-        { "name": "key", "param_type": { "kind": "bytes", "length": 20 } },
-        { "name": "message", "param_type": { "kind": "bytes", "length": 20 } }
+        {
+          "name": "key",
+          "param_type": {
+            "kind": "bytes",
+            "length": 20
+          }
+        },
+        {
+          "name": "message",
+          "param_type": {
+            "kind": "bytes",
+            "length": 20
+          }
+        }
       ],
-      "returns": { "kind": "bytes", "length": 20 },
+      "returns": {
+        "kind": "bytes",
+        "length": 20
+      },
       "pre": null,
       "post": null,
       "pre_source": "RFC 2104 — HMAC",
@@ -139,46 +348,121 @@
         "kind": "app",
         "fn": "hmac-sha1",
         "args": [
-          { "kind": "var", "name": "key" },
-          { "kind": "var", "name": "message" }
+          {
+            "kind": "var",
+            "name": "key"
+          },
+          {
+            "kind": "var",
+            "name": "message"
+          }
         ]
       }
     },
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "generate-totp",
       "params": [
-        { "name": "key", "param_type": { "kind": "bytes", "length": 20 } },
-        { "name": "time", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "time-step", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "digits", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "key",
+          "param_type": {
+            "kind": "bytes",
+            "length": 20
+          }
+        },
+        {
+          "name": "time",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "time-step",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "digits",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "int" },
+      "returns": {
+        "kind": "primitive",
+        "name": "int"
+      },
       "pre": {
-        "kind": "op", "op": "and",
+        "kind": "op",
+        "op": "and",
         "args": [
-          { "kind": "op", "op": ">", "args": [
-            { "kind": "var", "name": "time-step" },
-            { "kind": "lit-int", "value": 0 }
-          ]},
-          { "kind": "op", "op": "and", "args": [
-            { "kind": "op", "op": ">", "args": [
-              { "kind": "var", "name": "digits" },
-              { "kind": "lit-int", "value": 0 }
-            ]},
-            { "kind": "op", "op": "<=", "args": [
-              { "kind": "var", "name": "digits" },
-              { "kind": "lit-int", "value": 10 }
-            ]}
-          ]}
+          {
+            "kind": "op",
+            "op": ">",
+            "args": [
+              {
+                "kind": "var",
+                "name": "time-step"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "and",
+            "args": [
+              {
+                "kind": "op",
+                "op": ">",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "digits"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "<=",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "digits"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 10
+                  }
+                ]
+              }
+            ]
+          }
         ]
       },
       "pre_source": "RFC 6238 §4 — TOTP algorithm preconditions",
       "post": {
-        "kind": "op", "op": ">=",
+        "kind": "op",
+        "op": ">=",
         "args": [
-          { "kind": "var", "name": "result" },
-          { "kind": "lit-int", "value": 0 }
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
         ]
       },
       "post_source": "RFC 6238 §4 — TOTP code is non-negative",
@@ -188,90 +472,193 @@
           {
             "name": "step",
             "expr": {
-              "kind": "app", "fn": "compute-time-step",
+              "kind": "app",
+              "fn": "compute-time-step",
               "args": [
-                { "kind": "var", "name": "time" },
-                { "kind": "lit-int", "value": 0 },
-                { "kind": "var", "name": "time-step" }
+                {
+                  "kind": "var",
+                  "name": "time"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                },
+                {
+                  "kind": "var",
+                  "name": "time-step"
+                }
               ]
             }
           },
           {
             "name": "step-bytes",
             "expr": {
-              "kind": "app", "fn": "sha1",
+              "kind": "app",
+              "fn": "sha1",
               "args": [
-                { "kind": "app", "fn": "sha1", "args": [
-                  { "kind": "var", "name": "key" }
-                ]}
+                {
+                  "kind": "app",
+                  "fn": "sha1",
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "key"
+                    }
+                  ]
+                }
               ]
             }
           },
           {
             "name": "mac",
             "expr": {
-              "kind": "app", "fn": "hmac-sha1-wrap",
+              "kind": "app",
+              "fn": "hmac-sha1-wrap",
               "args": [
-                { "kind": "var", "name": "key" },
-                { "kind": "var", "name": "step-bytes" }
+                {
+                  "kind": "var",
+                  "name": "key"
+                },
+                {
+                  "kind": "var",
+                  "name": "step-bytes"
+                }
               ]
             }
           }
         ],
         "body": {
-          "kind": "app", "fn": "dynamic-truncate",
+          "kind": "app",
+          "fn": "dynamic-truncate",
           "args": [
-            { "kind": "var", "name": "mac" },
-            { "kind": "var", "name": "digits" }
+            {
+              "kind": "var",
+              "name": "mac"
+            },
+            {
+              "kind": "var",
+              "name": "digits"
+            }
           ]
         }
       }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "validate-totp",
       "params": [
-        { "name": "expected", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "actual", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "expected",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "actual",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "bool" },
+      "returns": {
+        "kind": "primitive",
+        "name": "bool"
+      },
       "pre": {
-        "kind": "op", "op": "and",
+        "kind": "op",
+        "op": "and",
         "args": [
-          { "kind": "op", "op": ">=", "args": [
-            { "kind": "var", "name": "expected" },
-            { "kind": "lit-int", "value": 0 }
-          ]},
-          { "kind": "op", "op": ">=", "args": [
-            { "kind": "var", "name": "actual" },
-            { "kind": "lit-int", "value": 0 }
-          ]}
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "var",
+                "name": "expected"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": ">=",
+            "args": [
+              {
+                "kind": "var",
+                "name": "actual"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ]
+          }
         ]
       },
       "pre_source": "RFC 6238 §5.2 — validation inputs are non-negative OTP codes",
       "post": null,
       "body": {
-        "kind": "op", "op": "=",
+        "kind": "op",
+        "op": "=",
         "args": [
-          { "kind": "var", "name": "expected" },
-          { "kind": "var", "name": "actual" }
+          {
+            "kind": "var",
+            "name": "expected"
+          },
+          {
+            "kind": "var",
+            "name": "actual"
+          }
         ]
       }
     },
     {
-      "kind": "def-logic",
+      "kind": "def",
       "name": "pad-otp",
       "params": [
-        { "name": "otp", "param_type": { "kind": "primitive", "name": "int" } },
-        { "name": "d", "param_type": { "kind": "primitive", "name": "int" } }
+        {
+          "name": "otp",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "d",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
       ],
-      "returns": { "kind": "primitive", "name": "string" },
+      "returns": {
+        "kind": "primitive",
+        "name": "string"
+      },
       "pre": null,
       "post": {
-        "kind": "op", "op": "=",
+        "kind": "op",
+        "op": "=",
         "args": [
-          { "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "result" }] },
-          { "kind": "var", "name": "d" }
+          {
+            "kind": "app",
+            "fn": "string-length",
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              }
+            ]
+          },
+          {
+            "kind": "var",
+            "name": "d"
+          }
         ]
       },
       "post_source": "RFC 4226 §5.4 — zero-padded OTP has exactly d digits",
@@ -280,44 +667,111 @@
         "bindings": [
           {
             "name": "raw",
-            "expr": { "kind": "app", "fn": "int-to-string", "args": [{ "kind": "var", "name": "otp" }] }
+            "expr": {
+              "kind": "app",
+              "fn": "int-to-string",
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "otp"
+                }
+              ]
+            }
           },
           {
             "name": "len",
-            "expr": { "kind": "app", "fn": "string-length", "args": [{ "kind": "var", "name": "raw" }] }
+            "expr": {
+              "kind": "app",
+              "fn": "string-length",
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "raw"
+                }
+              ]
+            }
           }
         ],
         "body": {
           "kind": "if",
-          "cond": { "kind": "op", "op": ">=", "args": [
-            { "kind": "var", "name": "len" },
-            { "kind": "var", "name": "d" }
-          ]},
-          "then_branch": {
-            "kind": "app", "fn": "string-slice",
+          "cond": {
+            "kind": "op",
+            "op": ">=",
             "args": [
-              { "kind": "var", "name": "raw" },
-              { "kind": "op", "op": "-", "args": [
-                { "kind": "var", "name": "len" },
-                { "kind": "var", "name": "d" }
-              ]},
-              { "kind": "var", "name": "len" }
+              {
+                "kind": "var",
+                "name": "len"
+              },
+              {
+                "kind": "var",
+                "name": "d"
+              }
+            ]
+          },
+          "then_branch": {
+            "kind": "app",
+            "fn": "string-slice",
+            "args": [
+              {
+                "kind": "var",
+                "name": "raw"
+              },
+              {
+                "kind": "op",
+                "op": "-",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "len"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "d"
+                  }
+                ]
+              },
+              {
+                "kind": "var",
+                "name": "len"
+              }
             ]
           },
           "else_branch": {
-            "kind": "app", "fn": "string-concat",
+            "kind": "app",
+            "fn": "string-concat",
             "args": [
-              { "kind": "app", "fn": "string-slice",
+              {
+                "kind": "app",
+                "fn": "string-slice",
                 "args": [
-                  { "kind": "lit-string", "value": "0000000000" },
-                  { "kind": "lit-int", "value": 0 },
-                  { "kind": "op", "op": "-", "args": [
-                    { "kind": "var", "name": "d" },
-                    { "kind": "var", "name": "len" }
-                  ]}
+                  {
+                    "kind": "lit-string",
+                    "value": "0000000000"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  },
+                  {
+                    "kind": "op",
+                    "op": "-",
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "d"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "len"
+                      }
+                    ]
+                  }
                 ]
               },
-              { "kind": "var", "name": "raw" }
+              {
+                "kind": "var",
+                "name": "raw"
+              }
             ]
           }
         }
@@ -329,14 +783,31 @@
       "for_all": {
         "bindings": [],
         "body": {
-          "kind": "op", "op": "=",
+          "kind": "op",
+          "op": "=",
           "args": [
-            { "kind": "app", "fn": "compute-time-step", "args": [
-              { "kind": "lit-int", "value": 59 },
-              { "kind": "lit-int", "value": 0 },
-              { "kind": "lit-int", "value": 30 }
-            ]},
-            { "kind": "lit-int", "value": 1 }
+            {
+              "kind": "app",
+              "fn": "compute-time-step",
+              "args": [
+                {
+                  "kind": "lit-int",
+                  "value": 59
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 30
+                }
+              ]
+            },
+            {
+              "kind": "lit-int",
+              "value": 1
+            }
           ]
         }
       }
@@ -347,14 +818,31 @@
       "for_all": {
         "bindings": [],
         "body": {
-          "kind": "op", "op": "=",
+          "kind": "op",
+          "op": "=",
           "args": [
-            { "kind": "app", "fn": "compute-time-step", "args": [
-              { "kind": "lit-int", "value": 1111111109 },
-              { "kind": "lit-int", "value": 0 },
-              { "kind": "lit-int", "value": 30 }
-            ]},
-            { "kind": "lit-int", "value": 37037036 }
+            {
+              "kind": "app",
+              "fn": "compute-time-step",
+              "args": [
+                {
+                  "kind": "lit-int",
+                  "value": 1111111109
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 30
+                }
+              ]
+            },
+            {
+              "kind": "lit-int",
+              "value": 37037036
+            }
           ]
         }
       }
@@ -364,12 +852,26 @@
       "label": "validate-totp reflexive",
       "for_all": {
         "bindings": [
-          { "name": "n", "param_type": { "kind": "primitive", "name": "int" } }
+          {
+            "name": "n",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
         ],
         "body": {
-          "kind": "app", "fn": "validate-totp", "args": [
-            { "kind": "var", "name": "n" },
-            { "kind": "var", "name": "n" }
+          "kind": "app",
+          "fn": "validate-totp",
+          "args": [
+            {
+              "kind": "var",
+              "name": "n"
+            },
+            {
+              "kind": "var",
+              "name": "n"
+            }
           ]
         }
       }
@@ -380,13 +882,27 @@
       "for_all": {
         "bindings": [],
         "body": {
-          "kind": "op", "op": "=",
+          "kind": "op",
+          "op": "=",
           "args": [
-            { "kind": "app", "fn": "pad-otp", "args": [
-              { "kind": "lit-int", "value": 42 },
-              { "kind": "lit-int", "value": 6 }
-            ]},
-            { "kind": "lit-string", "value": "000042" }
+            {
+              "kind": "app",
+              "fn": "pad-otp",
+              "args": [
+                {
+                  "kind": "lit-int",
+                  "value": 42
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 6
+                }
+              ]
+            },
+            {
+              "kind": "lit-string",
+              "value": "000042"
+            }
           ]
         }
       }

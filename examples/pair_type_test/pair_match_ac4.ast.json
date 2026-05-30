@@ -1,17 +1,35 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "llmll_version": "0.3.0",
   "statements": [
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "use-pair",
       "params": [
-        { "name": "p", "param_type": { "kind": "named", "name": "MyState" } }
+        {
+          "name": "p",
+          "param_type": {
+            "kind": "named",
+            "name": "MyState"
+          }
+        }
       ],
       "body": {
         "kind": "pair",
-        "fst": { "kind": "var", "name": "p" },
-        "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "cmd" }] }
+        "fst": {
+          "kind": "var",
+          "name": "p"
+        },
+        "snd": {
+          "kind": "app",
+          "fn": "wasi.io.stdout",
+          "args": [
+            {
+              "kind": "lit-string",
+              "value": "cmd"
+            }
+          ]
+        }
       }
     }
   ]

@@ -1,13 +1,25 @@
 {
-  "schemaVersion": "0.5.0",
+  "schemaVersion": "0.6.0",
   "llmll_version": "0.3.0",
   "statements": [
     {
-      "kind": "def-logic",
+      "kind": "def-shell",
       "name": "step-fn",
       "params": [
-        { "name": "state", "param_type": { "kind": "primitive", "name": "string" } },
-        { "name": "input", "param_type": { "kind": "primitive", "name": "string" } }
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "input",
+          "param_type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
       ],
       "body": {
         "kind": "do",
@@ -17,16 +29,40 @@
             "name": "s1",
             "expr": {
               "kind": "pair",
-              "fst": { "kind": "var", "name": "state" },
-              "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "var", "name": "input" }] }
+              "fst": {
+                "kind": "var",
+                "name": "state"
+              },
+              "snd": {
+                "kind": "app",
+                "fn": "wasi.io.stdout",
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "input"
+                  }
+                ]
+              }
             }
           },
           {
             "kind": "do-step",
             "expr": {
               "kind": "pair",
-              "fst": { "kind": "var", "name": "s1" },
-              "snd": { "kind": "app", "fn": "wasi.io.stdout", "args": [{ "kind": "lit-string", "value": "done" }] }
+              "fst": {
+                "kind": "var",
+                "name": "s1"
+              },
+              "snd": {
+                "kind": "app",
+                "fn": "wasi.io.stdout",
+                "args": [
+                  {
+                    "kind": "lit-string",
+                    "value": "done"
+                  }
+                ]
+              }
             }
           }
         ]
