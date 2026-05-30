@@ -1,0 +1,69 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "make-pair",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "use-pair",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "match-pair",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "simple-let",
+      "post_level": null,
+      "pre_level": null
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 4,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [],
+  "tier_profile": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 4,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 4,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 4,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}

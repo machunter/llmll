@@ -22,6 +22,8 @@ DEFAULT_OUTPUT = EXPERIMENT_ROOT / "runs"
 PROMPT_TEMPLATE = EXPERIMENT_ROOT / "prompts" / "agent-instructions.md"
 PROBLEMS_TEMPLATE = EXPERIMENT_ROOT / "templates" / "PROBLEMS.md"
 LLMLL_WRAPPER_TEMPLATE = EXPERIMENT_ROOT / "templates" / "llmll-wrapper.sh"
+LLMLL_WRAPPER_CORE_INVERSION_TEMPLATE = EXPERIMENT_ROOT / "templates" / "llmll-wrapper-core-inversion.sh"
+GRAMMAR_MODES = {"legacy", "core-inversion"}
 SCAFFOLD_TEMPLATES_ROOT = EXPERIMENT_ROOT / "scaffold-templates"
 EXPERIMENT_SCAFFOLD_TEMPLATES = {
     "003": ["ecommerce-order-handler"],
@@ -92,6 +94,14 @@ def main() -> int:
         help="Optional explicit run id prefix. Defaults to a UTC timestamp.",
     )
     parser.add_argument(
+        "--grammar-mode",
+        default="legacy",
+        choices=sorted(GRAMMAR_MODES),
+        help="LT-INV: grammar mode passed to the compiler wrapper in bin/llmll. "
+             "'core-inversion' installs the grammar-aware wrapper that injects "
+             "--grammar=core-inversion into every agent llmll call (default: legacy).",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         dest="json_output",
@@ -120,6 +130,7 @@ def main() -> int:
                 ast_schema=args.ast_schema,
                 label=args.label,
                 run_id=args.run_id,
+                grammar_mode=args.grammar_mode,
             )
         )
 
@@ -242,6 +253,7 @@ def prepare_one(
     ast_schema: Path,
     label: str,
     run_id: str | None,
+    grammar_mode: str = "legacy",
 ) -> dict[str, str]:
     experiment_id = experiment["experiment_id"]
     experiment_slug = experiment["slug"]
@@ -264,9 +276,14 @@ def prepare_one(
     (run_dir / "logs").mkdir()
     (run_dir / "bin").mkdir()
 
+    wrapper_src = (
+        LLMLL_WRAPPER_CORE_INVERSION_TEMPLATE
+        if grammar_mode == "core-inversion"
+        else LLMLL_WRAPPER_TEMPLATE
+    )
     shutil.copyfile(llmll_doc, run_dir / "LLMLL.md")
     shutil.copyfile(ast_schema, run_dir / "llmll-ast.schema.json")
-    shutil.copyfile(LLMLL_WRAPPER_TEMPLATE, run_dir / "bin" / "llmll")
+    shutil.copyfile(wrapper_src, run_dir / "bin" / "llmll")
     (run_dir / "bin" / "llmll").chmod(0o755)
     (run_dir / "problem.md").write_text(body, encoding="utf-8")
     shutil.copyfile(PROMPT_TEMPLATE, run_dir / "AGENT_INSTRUCTIONS.md")
@@ -304,6 +321,7 @@ def prepare_one(
         "stop_policy": "first_error",
         "solution_format": "json_ast",
         "ast_schema": "llmll-ast.schema.json",
+        "grammar_mode": grammar_mode,
         "provided_files": provided_files,
         "scaffold_templates_provided": scaffold_templates,
         "scaffold_template_root": ".llmll/templates",

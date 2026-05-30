@@ -63,6 +63,7 @@ def main() -> int:
     run_count = args.run_count if args.run_count is not None else manifest_run_count
     if run_count < 1:
         raise SystemExit("--run-count must be at least 1.")
+    grammar_mode = str(manifest.get("grammar_mode", "legacy"))
 
     batch_dir = args.output / batch_id
     batch_dir.mkdir(parents=True, exist_ok=False)
@@ -85,6 +86,7 @@ def main() -> int:
                     str(experiment),
                     attempt,
                     agent_run_count,
+                    grammar_mode=grammar_mode,
                 )
                 run_dir = Path(prepared["run_dir"])
 
@@ -115,7 +117,15 @@ def main() -> int:
                                 manifest.get("timeout_seconds", 1800),
                             )
                         ),
-                        llmll_cmd=agent.get("llmll_cmd", manifest.get("llmll_cmd", "llmll")),
+                        llmll_cmd=agent.get(
+                            "llmll_cmd",
+                            manifest.get(
+                                "llmll_cmd",
+                                "llmll --grammar=core-inversion"
+                                if grammar_mode == "core-inversion"
+                                else "llmll",
+                            ),
+                        ),
                         skip_verify=bool(
                             agent.get("skip_verify", manifest.get("skip_verify", False))
                         ),
@@ -143,6 +153,7 @@ def prepare_run(
     experiment: str,
     attempt: int,
     attempt_count: int,
+    grammar_mode: str = "legacy",
 ) -> dict[str, str]:
     label = f"{agent_name}-try{attempt:02d}-of-{attempt_count:02d}"
     cmd = [
@@ -156,6 +167,8 @@ def prepare_run(
         batch_id,
         "--label",
         label,
+        "--grammar-mode",
+        grammar_mode,
         "--json",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)

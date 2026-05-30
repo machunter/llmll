@@ -24,7 +24,7 @@
 
 **Source:** `findings/postmortem-005-s8-gate-redesigned-run.md`
 **Date:** 2026-05-29
-**Priority:** Medium — compiler investigation required.
+**Priority:** Closed — commit `f62a38b` (2026-05-29). `PBT.hs:pbtTrustWriteback` blocks `DLTested` lift for `def-shell + hole-delegate` bodies via `guardDelegate`; `Contracts.hs:evalBuiltinApp` gains `string-length`/`string-empty?`. Tests 773 → 783 Haskell (FG8-1–FG8-6). See CHANGELOG `### Compiler — F-GATE-8: def-shell hole-delegate PBT trust guard`.
 
 Four `def-shell` functions with identical `post: {"kind":"hole-proof-required","reason":"non-linear-contract"}` and `hole-delegate` body produce different trust statuses for the post clause, correlated with the pre clause shape:
 
@@ -35,9 +35,9 @@ Four `def-shell` functions with identical `post: {"kind":"hole-proof-required","
 
 A `def-shell` function containing `hole-delegate` in its body should produce `post: "asserted"` unconditionally — the delegation hole makes the return value opaque. The behavioral difference suggests that `string-length` being absent from the PBT static evaluator causes the verifier to flag the whole function "asserted" before attempting the post clause, while `not(string-empty?)` being evaluable causes the verifier to attempt PBT on the bare `hole-proof-required` post independently.
 
-**Route:** `FixpointEmit.hs` / `Contracts.hs` — verify that the `def-shell + hole-delegate` path marks all contract clauses "asserted" regardless of pre clause evaluability.
+**Fix applied:** `compiler/src/LLMLL/PBT.hs` + `compiler/src/LLMLL/Contracts.hs` — commit `f62a38b`. Primary: `pbtTrustWriteback` builds a `delegateBodies` set from any `SDefShell` with `EHole(HDelegate _)` or `EHole(HDelegateAsync _)` body; `processRun`'s `guardDelegate` helper suppresses the `DLTested` lift on both the OBLIG-PBT-4 and singleton-head-position paths. Secondary: `evalBuiltinApp` gains `string-length` (T.length on LitString → LitInt) and `string-empty?` (T.null on LitString → LitBool).
 
-**Acceptance:** `llmll verify` on a `def-shell` function with `not(string-empty? password)` pre, bare `hole-proof-required` post, and `hole-delegate` body reports `post: asserted`.
+**Acceptance:** Met — `llmll verify --trust-report` on a `def-shell` function with `hole-delegate` body reports `post: asserted` regardless of pre-clause builtin coverage or check-block structure. Tests FG8-2, FG8-3, FG8-5 in `compiler/test/Spec.hs`.
 
 Evidence runs: `runs/20260528T204620Z/20260528T204620Z-claude-opus-4-7-try02-of-05-e001/` (pre-clause-dependent "asserted") and `runs/20260528T204620Z/20260528T204620Z-claude-opus-4-7-try03-of-05-e001/` ("tested (100 samples)").
 
@@ -671,7 +671,7 @@ Note: with this fix applied, re-evaluating try03-05 against their existing solut
 
 #### F-GATE-8. `def-shell + bare hole-proof-required` post trust status is pre-clause-dependent
 
-**Priority:** Medium — compiler-engineer investigation.
+**Priority:** Closed — commit `f62a38b` (2026-05-29). See top-level `## Compiler-engineer` F-GATE-8 entry and CHANGELOG `### Compiler — F-GATE-8`.
 **Consumer:** compiler-engineer
 
 Four `def-shell` functions with identical `post: hole-proof-required` (bare, no predicate) and `hole-delegate` body produce different post trust statuses:
@@ -715,7 +715,7 @@ Contrast: claude-opus-4-7-try03 (postmortem-004) corrected in-session with ~25s 
 |---|---------|----------|----------|--------|
 | **F-GATE-6** | Grade A confirmed; axis (c) improves; LT-PPR exercised | language-team | Confirmation — close gate | None |
 | **F-GATE-7** | normalize_trust_status suffix mismatch | experiment-lead | Applied | Done |
-| **F-GATE-8** | def-shell trust status pre-clause-dependent | compiler-engineer | Medium | Investigation + fix |
+| **F-GATE-8** | def-shell trust status pre-clause-dependent | compiler-engineer | **Closed** — f62a38b | Done |
 | **F-GATE-9** | Gemini-try02 no correction on def-logic | experiment-lead | Observation | None |
 | **F-GATE-10** | Gemini-try03 TerminalQuotaError | experiment-lead | Exclusion | None |
 

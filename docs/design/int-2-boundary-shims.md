@@ -1,11 +1,11 @@
 # LT-INT / INT-2 — Boundary-Shim Catalog for `int → Integer` Codegen Switch
 
-> **Version:** Rev 3 — F-E1 (codegen-site citation) + F-E2 (`wasi_http_response` Class A entry) + F-E3 (`emitLit` literal-monomorphisation site) absorbed
-> **Date:** 2026-05-24
+> **Version:** Rev 4 — §8/§4 reconciliation confirmed; `range-idx` surface-exposure deferred rationale recorded
+> **Date:** 2026-05-24 (Rev 1–3); 2026-05-27 (Rev 4)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 4 (LT-INT / INT-2), Active Items row at `:313`
 > **Prerequisites:** v0.10.7 (TC-EOP-1, OBLIG-PBT-5a, INT-1) — INT-PRE baseline must include INT-1's `overflow_tainted` machinery
 > **Origin:** Rev 1 — language-team review of experiment-lead's INT-PRE run plan (2026-05-23); finding F1 (boundary-shim catalog underspecification) — the roadmap permission "indexing primitives **may stay** `Int` and use `fromIntegral` at boundary" is not a catalog; INT-PRE Variant B fidelity requires this enumeration to be authored before the engineer mechanically realizes the codegen patch. Rev 2 — absorption of two compiler-engineer findings (F-E1, F-E2) surfaced by the INT-PRE Variant B prototype (commit 03d5722 on the `int-pre/variant-b` branch, deleted after INT-PRE cleared); corrections land here before the fresh INT-2 engineer build reads the catalog. Rev 3 — F-E3 absorbed in the same session: a third `int → Integer` codegen site (`emitLit` at [`CodegenHs.hs:706`](../../compiler/src/LLMLL/CodegenHs.hs)) was surfaced by the language-team during F-E1 verification (2026-05-24) and is parallel in structure to F-E1.
-> **Status:** Settled (proposal) — INT-PRE cleared; awaiting INT-2 compiler-engineer hand-off
+> **Status:** Settled (Rev 4) — INT-PRE cleared; `range-idx` deferred rationale recorded; §8/§4 reconciliation confirmed; awaiting INT-2 compiler-engineer hand-off
 
 ---
 
@@ -112,6 +112,8 @@ Codegen-side rewrite: pattern-match call sites of `range`. If the result feeds a
 
 A cleaner alternative — make `range-idx` an internal Haskell helper not exposed to LLMLL surface at all, and rely on codegen synthesizing `range-idx` calls only where pattern-matched as index-iteration — is the recommended realization. The engineer adjudicates the precise codegen mechanism; the catalog ratifies the *outcome*: two Haskell symbols, one LLMLL surface symbol (`range`), with the value-shape semantics dominant.
 
+**`range-idx` surface-exposure deferred (v0.12+).** `range-idx` is not exposed at the LLMLL surface in v0.11 and is not added to the trusted-prelude whitelist or grammar. The deferred rationale: (a) surface exposure would require a grammar addition, a new trust-report trusted-prelude entry, and a potential naming commitment before the v0.12+ LLM-generated-candidate widening clarifies whether a distinct surface builtin is warranted; (b) every v0.11 use case for `range-idx` is an index-iteration pattern mechanically detectable by the codegen pattern detector — no agent needs to write `range-idx` directly; (c) premature surface exposure risks confusion with the user-facing `range` builtin and would invite non-index callers to reach the `Int`-typed variant accidentally. This rationale is the justification for the "(location TBD)" and "(not directly exposed at the LLMLL surface in v0.11)" phrasing in §8 and §3.4 respectively.
+
 The mechanical-classifier risk is well-bounded: the existing benchmark suite (B1 / B3 / B5 / TOTP / ERC-20) uses `range` only in `range 0 (length xs)`-shaped index-iteration patterns (TOTP `pad-otp`, no others) per spot-check. Any LLMLL programs in `examples/` that use `range` in value-shape acquire correct Integer semantics post-INT-2 by default; the index-shape callers are mechanically detectable.
 
 ---
@@ -127,6 +129,8 @@ The machinery remains armed for the eventual `machine-int` opt-in tracked at INT
 The boundary `fromIntegral` conversion at the LLMLL/Haskell seam (Class A primitives) does *not* produce `overflow_tainted` because LLMLL's verification layer sees only `int` types at the seam, and `int` is unbounded. The Haskell-level `Int` arithmetic *inside* a Class A primitive is FFI-sealed at the builtin boundary and outside INT-1's verification scope by construction (per the FFI-builtin trust model at [`LLMLL.md §7:814`](../../LLMLL.md)).
 
 This clause is the catalog's full statement on the INT-1 / INT-2 interaction. No new INT-1 sub-design is required for INT-2 to ship; the interaction is by-construction-correct given each piece's separately-ratified semantics.
+
+**§8/§4 reconciliation (Rev 4).** Read side-by-side, §8's affected-surface list and §4's INT-1 interaction clause are consistent on every item. §8 lists no changes to INT-1 modules (`overflow_tainted` propagation, `WeaknessCheck.hs` INT-1 arm), which is consistent with §4's explicit "no new INT-1 sub-design is required for INT-2 to ship" — confirmed. §8's affected surface contains only codegen sites and spec-doc changes with no new verification-layer additions, which is consistent with §4's claim that `fromIntegral` at the Class A boundary is FFI-sealed and outside INT-1's verification scope by construction — confirmed.
 
 ---
 

@@ -1,7 +1,7 @@
 # Postmortem 002 — CDP-0 baseline re-run (successful collection; degenerate distribution)
 
-> **Date:** 2026-05-26
-> **Status:** **Complete; load-bearing artifact.** `runs/20260526T233504Z-baseline/baseline.json` is the LT-INV §8 empirical-validation gate's comparison anchor per [`docs/design/contract-discriminative-power-proposal.md`](../../../docs/design/contract-discriminative-power-proposal.md) Rev 2 §2 baseline-first sequencing.
+> **Date:** 2026-05-26 (updated 2026-05-27)
+> **Status:** **Complete; definitive anchor.** `runs/20260527T154040Z-baseline/baseline.json` (Appendix B) is the LT-INV §8 empirical-validation gate's comparison anchor — the first full primary+secondary run after F-006 + F-005 fixes (`cdp-discriminating-weak`, 11/26 defined, 4 midrange). The original pre-fix full run at `runs/20260526T233504Z-baseline/` and the post-fix primary-only run at `runs/20260527T140751Z-baseline/` are retained as lineage evidence.
 > **Predecessor:** [`postmortem-001-cdp-baseline-blocked.md`](postmortem-001-cdp-baseline-blocked.md) — the three halted attempts on F-001 + F-003.
 
 ## Headline finding
@@ -179,6 +179,8 @@ Not blocking. The LT-INV §8 gate can use the same scope discipline post-LT-INV 
 
 Either (a) harness dedup (one-pass aggregation change in [`experiments/cdp-0/scripts/cdp_baseline.py:aggregate`](../scripts/cdp_baseline.py)) lands and the next baseline shows fewer `not-requested` entries while preserving the entry-module data; or (b) proposal §2 Rev 3 adopts an explicit scope-policy statement and the harness mirrors it. Either move closes the finding.
 
+**Fix shipped:** option (a) landed at harness working-tree (uncommitted) — dedup within the `not-requested` group at [`experiments/cdp-0/scripts/cdp_baseline.py:158–172`](../scripts/cdp_baseline.py). Within the `not-requested` bucket, `fn_name` is the dedup key; first occurrence per unique name is kept, measured entries untouched. Verified on both existing artifacts: full run 37 → 26 contracted entries (11 duplicates removed); primary-only run 20 → 20 (no duplicates present). Adjudication label unaffected (`cdp-null`). F-007 (experiment-lead) **closed**.
+
 ### F-008. Harness adjudication fall-through label is misleading on the intermediate slice
 
 **Priority:** Medium
@@ -316,3 +318,72 @@ Baseline primary counts are reconstructed from the per-function table in `runs/2
 ### Status update
 
 F-006 and F-005 ancillary are empirically confirmed closed at harness SHA `cff26d5`, run `20260527T140751Z`. The "Post-fix re-confirmation owed" obligations in both sections above are discharged.
+
+---
+
+## Appendix B: Definitive full post-fix run — 2026-05-27
+
+**Purpose:** Full primary+secondary baseline at HEAD `27586c6` after all F-005, F-006, F-007, and F-008 fixes. This run is the CDP-0 definitive anchor for the LT-INV §8 empirical-validation gate.
+
+**Run directory:** [`experiments/cdp-0/runs/20260527T154040Z-baseline/`](../runs/20260527T154040Z-baseline/) — `baseline.json`, `summary.md`, `per-fixture/`.
+
+**Sample composition:**
+
+- Primary corpus: 6 fixtures; secondary corpus: 30 discovered, 22 verify-clean, 8 excluded.
+- 28 fixtures processed; 26 contracted functions (after F-007 dedup of `not-requested` group).
+- **Binary:** `llmll 0.10.8` built from HEAD `27586c6` (includes all fix commits through `27586c6` F-008 threshold extension).
+- **Harness git SHA:** `27586c6` (run directory untracked).
+- **Manifest `compiler_ref`** still pins `121815a` (measurement-equivalence anchor unchanged); actual running SHA is `27586c6`.
+- **Excluded secondary (8, all pre-existing):** `conways_life_json_verifier/life` (type-mismatch), `hangman_json_verifier/hangman` (infinite type + type-mismatch), `life_json/main` (unknown functions), `life_json/world` (unknown function), `pair_type_test/do_emit_ac`, `pair_type_test/pair_match_ac4`, `pair_type_test/pair_type_test` (wasi.io capability missing), `tictactoe_json_verifier/tictactoe` (type-mismatch + branch-type mismatch). Same 8 as the pre-fix full run.
+
+### Aggregate
+
+| axis | pre-fix full (20260526T233504Z) | post-fix primary-only (20260527T140751Z) | **definitive full (20260527T154040Z)** |
+|---|---|---|---|
+| fixtures processed | 28 (6+22) | 6 (primary only) | **28 (6+22)** |
+| contracted_fns_total | 37* | 20 | **26** |
+| defined_scores | 4 (10.8%) | 5 (25.0%) | **11 (42.3%)** |
+| midrange_scores | 0 | 1 | **4** |
+| midrange_fraction | 0% | 20.0% | **36.4% of defined** |
+| adjudication_label | cdp-null (retroactively; F-008 fix) | cdp-null | **cdp-discriminating-weak** |
+| score mean / median | 0.000 / 0.000 | 0.529 / 0.644 | **0.416 / 0.644** |
+| score min / max | 0.000 / 0.000 | 0.000 / 1.000 | **0.000 / 1.000** |
+
+\* Pre-fix run preceded the F-007 dedup patch; 37 = 26 deduped + 11 suppressed duplicate `not-requested` entries.
+
+### Defined-score breakdown
+
+| fixture_id | fn_name | score | warnings |
+|---|---|---|---|
+| `b1` | `withdraw` | **0.6438** (midrange) | identity-satisfies-post, const-satisfies-post |
+| `b3` | `safe-first` | 0.000 | const-satisfies-post |
+| `b5` | `double` | 1.000 | const-satisfies-post |
+| `banking` | `safe-subtract` | 0.000 | identity-satisfies-post, const-satisfies-post |
+| `banking` | `withdraw` | 1.000 | const-satisfies-post |
+| `sec_withdraw-demo_llmll` | `withdraw` | **0.6438** (midrange) | identity-satisfies-post, const-satisfies-post |
+| `sec_withdraw_llmll` | `withdraw` | **0.6438** (midrange) | identity-satisfies-post, const-satisfies-post |
+| `sec_auth_module_ast_json` | `login-handler` | 0.000 | identity-satisfies-post, const-satisfies-post |
+| `sec_orchestrator_auth_module_ast_json` | `login-handler` | 0.000 | identity-satisfies-post, const-satisfies-post |
+| `sec_orchestrator_auth_module_filled_ast_json` | `login-handler` | 0.000 | identity-satisfies-post, const-satisfies-post |
+| `sec_withdraw-demo_ast_json` | `withdraw` | **0.6438** (midrange) | identity-satisfies-post, const-satisfies-post |
+
+Score distribution (defined only): mean 0.416, median 0.644, p10 0.000, p50 0.644, p90 1.000, min 0.000, max 1.000.
+
+### Warning distribution (full corpus)
+
+| warning | pre-fix full | definitive full |
+|---|---|---|
+| `candidates-empty-under-limit` | 5 | 0 |
+| `spec-inconsistent` | 6 | 0 |
+| `vacuous-over-omega` | 0 | 4 |
+| `identity-satisfies-post` | 4 | 8 |
+| `const-satisfies-post` | 4 | 11 |
+| `not-requested` | 22 (pre-dedup) | 11 (post-dedup) |
+
+### Implications for F-004 (open finding)
+
+F-004 was stated as "midrange empty across canonical corpus" — that claim was accurate at the pre-fix baseline. The definitive run shows **4 midrange scores (36.4% of defined)**, all at `score=0.6438`, all from `withdraw`-family functions. The F-004 finding for language-team (v0.12+ LLM-generated-candidate widening is load-bearing) remains open — the `score=0.6438` midrange cluster is produced by the §4.3.1 *constant* enumeration (2 satisfying of 7 total candidates), not by LLM-generated candidates. The proposal §10 Risk #2 claim (small enumeration limits discrimination) remains structurally valid: 4 of 11 defined scores are in the midrange; 4 of 11 score exactly 0.000 (`login-handler` × 3 + `safe-subtract`) because all 12 type-compatible candidates satisfy the permissive auth contract. The four-cell matrix at proposal §1 remains unpopulated on "verified-strong" (DP close to 1.0) functions — `b5::double` and `banking::withdraw` at `score=1.000` are verified-strong by CDP but their contracts are permissive (one satisfying candidate out of many, i.e., high discrimination) not tight. F-004 should be refined to note partial resolution: *midrange now achievable on `withdraw`-family contracts; `login-handler`-family contracts remain at 0.000 (identity-satisfies-post); LLM-widening remains load-bearing for non-trivial real-world contract families.*
+
+### LT-INV §8 gate consumer status — updated
+
+CDP-0 definitive anchor is `runs/20260527T154040Z-baseline/baseline.json`. The data tells the LT-INV §8 gate that CDP is **usable as a coarse discriminating axis on the canonical corpus post F-006 fix**: defined-fraction 42.3%, midrange-fraction 36.4% of defined, score range [0.000, 1.000]. Gate option (b) from postmortem-002 §LT-INV — "wait for F-006 fix + re-run to determine whether CDP becomes usable as a continuous axis" — is now answered: yes, CDP produces meaningful score variation post-fix. Gate option (a) — "coarse pass/fail only" — is superseded; continuous-shift comparison is viable for `withdraw`-family contracts and `double`-family contracts. The residual limitation is the `login-handler`-family at `score=0.000`: these contracts admit every candidate, which remains a genuine discrimination failure not addressed by F-006. Routing call for LT-INV §8 gate planning belongs to language-team.

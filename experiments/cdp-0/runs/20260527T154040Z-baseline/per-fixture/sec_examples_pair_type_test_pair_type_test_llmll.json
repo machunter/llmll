@@ -1,0 +1,10 @@
+{
+  "code": "E001",
+  "col": 35,
+  "file": "/Users/burcsahinoglu/Documents/llmll/examples/pair_type_test/pair_type_test.llmll",
+  "holeSensitive": false,
+  "line": 1,
+  "message": "|\n1 | (def-logic make-pair [s : string] : (string, string)\n  |                                   ^^^^^^^^^^^^^^^\nunexpected \": (string, stri\"\nexpecting \"()\", \"?proof-required\", \"false\", \"true\", '\"', '(', '-', '?', '[', '_', digit, integer, or letter",
+  "severity": "error",
+  "suggestion": "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)"
+}

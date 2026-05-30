@@ -1,0 +1,973 @@
+{
+  "experiment": "cdp-0",
+  "rev": 1,
+  "timestamp_utc": "20260527T154040Z",
+  "compiler_ref": {
+    "sha": "121815a8c45596f8d125e85b3333bdf7b850582b",
+    "short_sha": "121815a",
+    "branch": "lt-cdp/discriminative-power-axis",
+    "version_string": "llmll 0.10.8"
+  },
+  "cdp_scope": "CDPScopeAllDefLogic",
+  "primary_corpus_size": 6,
+  "secondary_corpus_size": 30,
+  "primary_results": [
+    {
+      "id": "b1",
+      "path": "examples/benchmarks/b1-withdraw.llmll",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "b3",
+      "path": "examples/benchmarks/b3-safe-first.llmll",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "b5",
+      "path": "examples/benchmarks/b5-double.llmll",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "totp",
+      "path": "examples/totp_rfc6238/totp_filled.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 5,
+      "reason": ""
+    },
+    {
+      "id": "erc20",
+      "path": "examples/erc20_token/erc20_filled.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 6,
+      "reason": ""
+    },
+    {
+      "id": "banking",
+      "path": "examples/banking_ledger/banking.llmll",
+      "status": "ok",
+      "n_contracted_fns": 6,
+      "reason": ""
+    }
+  ],
+  "secondary_results": [
+    {
+      "id": "sec_examples_event_log_test_event_log_test_llmll",
+      "path": "examples/event_log_test/event_log_test.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_hangman_sexp_hangman_llmll",
+      "path": "examples/hangman_sexp/hangman.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_life_sexp_core_llmll",
+      "path": "examples/life_sexp/core.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_life_sexp_main_llmll",
+      "path": "examples/life_sexp/main.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_life_sexp_world_llmll",
+      "path": "examples/life_sexp/world.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_destruct_let_llmll",
+      "path": "examples/pair_type_test/pair_destruct_let.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_destruct_nested_llmll",
+      "path": "examples/pair_type_test/pair_destruct_nested.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_type_test_llmll",
+      "path": "examples/pair_type_test/pair_type_test.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_pair_type_test_string_concat_sugar_llmll",
+      "path": "examples/pair_type_test/string_concat_sugar.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_tictactoe_sexp_tictactoe_llmll",
+      "path": "examples/tictactoe_sexp/tictactoe.llmll",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_withdraw-demo_withdraw_llmll",
+      "path": "examples/withdraw-demo/withdraw.llmll",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_withdraw_llmll",
+      "path": "examples/withdraw.llmll",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_auth_module_auth_module_ast_json",
+      "path": "examples/auth_module/auth_module.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_conways_life_json_verifier_life_ast_json",
+      "path": "examples/conways_life_json_verifier/life.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: type mismatch in 'first': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nwarning: :done? should return bool; found non-bool type (ignored in v0.2)\n"
+    },
+    {
+      "id": "sec_examples_erc20_token_erc20_ast_json",
+      "path": "examples/erc20_token/erc20.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 6,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_hangman_json_hangman_ast_json",
+      "path": "examples/hangman_json/hangman.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_hangman_json_verifier_hangman_ast_json",
+      "path": "examples/hangman_json_verifier/hangman.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: infinite type: a occurs in list[a]\nerror: type mismatch in 'first': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nwarning: :done? should return bool; found non-bool type (ignored in v0.2)\n"
+    },
+    {
+      "id": "sec_examples_life_json_core_ast_json",
+      "path": "examples/life_json/core.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_life_json_main_ast_json",
+      "path": "examples/life_json/main.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: call to unknown function 'glider-grid'\nerror: call to unknown function 'make-world'\nerror: call to unknown function 'render-world'\nerror: call to unknown function 'evolve'\nerror: call to unknown function 'render-world'\nwarning: :done? should return bool; found non-bool type (ignored in v0.2)\n"
+    },
+    {
+      "id": "sec_examples_life_json_world_ast_json",
+      "path": "examples/life_json/world.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: call to unknown function 'next-cell-state'\n"
+    },
+    {
+      "id": "sec_examples_orchestrator_walkthrough_auth_module_ast_json",
+      "path": "examples/orchestrator_walkthrough/auth_module.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_orchestrator_walkthrough_auth_module_filled_ast_json",
+      "path": "examples/orchestrator_walkthrough/auth_module_filled.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_pair_type_test_do_emit_ac_ast_json",
+      "path": "examples/pair_type_test/do_emit_ac.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: wasi.io.stdout requires (import wasi.io (capability ...)) \u2014 wasi.* functions need an explicit capability import in each module\n  suggestion: Add: (import wasi.io (capability ...))\nwarning: do-block step 0: current codegen discards this intermediate command. Use `seq-commands` to sequence IO actions explicitly.\nerror: wasi.io.stdout requires (import wasi.io (capability ...)) \u2014 wasi.* functions need an explicit capability import in each module\n  suggestion: Add: (import wasi.io (capability "
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_destruct_let_ast_json",
+      "path": "examples/pair_type_test/pair_destruct_let.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_match_ac4_ast_json",
+      "path": "examples/pair_type_test/pair_match_ac4.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: wasi.io.stdout requires (import wasi.io (capability ...)) \u2014 wasi.* functions need an explicit capability import in each module\n  suggestion: Add: (import wasi.io (capability ...))\n"
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_type_test_ast_json",
+      "path": "examples/pair_type_test/pair_type_test.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: wasi.io.stdout requires (import wasi.io (capability ...)) \u2014 wasi.* functions need an explicit capability import in each module\n  suggestion: Add: (import wasi.io (capability ...))\n"
+    },
+    {
+      "id": "sec_examples_tictactoe_json_tictactoe_ast_json",
+      "path": "examples/tictactoe_json/tictactoe.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 0,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_tictactoe_json_verifier_tictactoe_ast_json",
+      "path": "examples/tictactoe_json_verifier/tictactoe.ast.json",
+      "status": "fail",
+      "n_contracted_fns": 0,
+      "reason": "error: type mismatch in 'first': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nerror: type mismatch in 'second': expected (a, b), got unit\nerror: if branches have different types: (unit, Command) vs ((?, (?, ?)), Command)\nwarning: :done? should return bool; found non-bool type (ignored in v0.2)\n"
+    },
+    {
+      "id": "sec_examples_totp_rfc6238_totp_ast_json",
+      "path": "examples/totp_rfc6238/totp.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 5,
+      "reason": ""
+    },
+    {
+      "id": "sec_examples_withdraw-demo_withdraw_ast_json",
+      "path": "examples/withdraw-demo/withdraw.ast.json",
+      "status": "ok",
+      "n_contracted_fns": 1,
+      "reason": ""
+    }
+  ],
+  "per_function_axes": [
+    {
+      "fixture_id": "b1",
+      "fn_name": "withdraw",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 2,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)",
+          "(lambda [...] -1)"
+        ],
+        "satisfying_candidate_count": 2,
+        "score": 0.6437928128919779,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "b3",
+      "fn_name": "safe-first",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 5,
+        "distinct_observed_behavior_count": 5,
+        "distinguishing_inputs": [
+          "(lambda [...] 0)",
+          "(lambda [...] 1)",
+          "(lambda [...] -1)",
+          "(lambda [...] 42)"
+        ],
+        "satisfying_candidate_count": 5,
+        "score": 0,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "b5",
+      "fn_name": "double",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 6,
+        "distinct_observed_behavior_count": 1,
+        "distinguishing_inputs": [
+          "(lambda [n] n)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)",
+          "(lambda [...] -1)"
+        ],
+        "satisfying_candidate_count": 1,
+        "score": 1,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "totp",
+      "fn_name": "compute-time-step",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "totp",
+      "fn_name": "dynamic-truncate",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "totp",
+      "fn_name": "generate-totp",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "totp",
+      "fn_name": "validate-totp",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "totp",
+      "fn_name": "pad-otp",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "erc20",
+      "fn_name": "total-supply",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "erc20",
+      "fn_name": "balance-of",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "erc20",
+      "fn_name": "transfer",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "erc20",
+      "fn_name": "approve",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "erc20",
+      "fn_name": "allowance",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "erc20",
+      "fn_name": "transfer-from",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "banking",
+      "fn_name": "safe-subtract",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 7,
+        "distinguishing_inputs": [
+          "(lambda [a] a)",
+          "(lambda [b] b)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 7,
+        "score": 0,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "banking",
+      "fn_name": "withdraw",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 1,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [amount] amount)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 1,
+        "score": 1,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "banking",
+      "fn_name": "transfer",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [from-bal] from-bal)",
+          "(lambda [amount] amount)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "vacuous-over-omega"
+        ]
+      }
+    },
+    {
+      "fixture_id": "banking",
+      "fn_name": "clamp-withdraw",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [requested] requested)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "vacuous-over-omega"
+        ]
+      }
+    },
+    {
+      "fixture_id": "banking",
+      "fn_name": "withdraw-twice",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 8,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [first] first)",
+          "(lambda [second] second)",
+          "(lambda [...] 0)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "vacuous-over-omega"
+        ]
+      }
+    },
+    {
+      "fixture_id": "banking",
+      "fn_name": "compute-fee",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 6,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [
+          "(lambda [amount] amount)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)",
+          "(lambda [...] -1)"
+        ],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "vacuous-over-omega"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_withdraw-demo_withdraw_llmll",
+      "fn_name": "withdraw",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 2,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)",
+          "(lambda [...] -1)"
+        ],
+        "satisfying_candidate_count": 2,
+        "score": 0.6437928128919779,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_withdraw_llmll",
+      "fn_name": "withdraw",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 2,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)",
+          "(lambda [...] -1)"
+        ],
+        "satisfying_candidate_count": 2,
+        "score": 0.6437928128919779,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_auth_module_auth_module_ast_json",
+      "fn_name": "login-handler",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 12,
+        "distinct_observed_behavior_count": 12,
+        "distinguishing_inputs": [
+          "(lambda [username] username)",
+          "(lambda [password] password)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 12,
+        "score": 0,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_erc20_token_erc20_ast_json",
+      "fn_name": "total-supply",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_erc20_token_erc20_ast_json",
+      "fn_name": "balance-of",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_erc20_token_erc20_ast_json",
+      "fn_name": "transfer",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_erc20_token_erc20_ast_json",
+      "fn_name": "approve",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_erc20_token_erc20_ast_json",
+      "fn_name": "allowance",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_erc20_token_erc20_ast_json",
+      "fn_name": "transfer-from",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_orchestrator_walkthrough_auth_module_ast_json",
+      "fn_name": "login-handler",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 12,
+        "distinct_observed_behavior_count": 12,
+        "distinguishing_inputs": [
+          "(lambda [username] username)",
+          "(lambda [password] password)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 12,
+        "score": 0,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_orchestrator_walkthrough_auth_module_filled_ast_json",
+      "fn_name": "login-handler",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 12,
+        "distinct_observed_behavior_count": 12,
+        "distinguishing_inputs": [
+          "(lambda [username] username)",
+          "(lambda [password] password)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 12,
+        "score": 0,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_totp_rfc6238_totp_ast_json",
+      "fn_name": "compute-time-step",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_totp_rfc6238_totp_ast_json",
+      "fn_name": "dynamic-truncate",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_totp_rfc6238_totp_ast_json",
+      "fn_name": "generate-totp",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_totp_rfc6238_totp_ast_json",
+      "fn_name": "validate-totp",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_totp_rfc6238_totp_ast_json",
+      "fn_name": "pad-otp",
+      "axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      }
+    },
+    {
+      "fixture_id": "sec_examples_withdraw-demo_withdraw_ast_json",
+      "fn_name": "withdraw",
+      "axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 7,
+        "distinct_observed_behavior_count": 2,
+        "distinguishing_inputs": [
+          "(lambda [balance] balance)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)",
+          "(lambda [...] -1)"
+        ],
+        "satisfying_candidate_count": 2,
+        "score": 0.6437928128919779,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      }
+    }
+  ],
+  "aggregate": {
+    "contracted_fns_total": 26,
+    "defined_scores": 11,
+    "defined_fraction": 0.423077,
+    "midrange_scores": 4,
+    "midrange_fraction": 0.363636,
+    "score_stats": {
+      "mean": 0.415925,
+      "median": 0.643793,
+      "min": 0,
+      "max": 1,
+      "p10": 0.0,
+      "p50": 0.643793,
+      "p90": 1.0
+    },
+    "warning_counts": {
+      "const-satisfies-post": 11,
+      "identity-satisfies-post": 8,
+      "not-requested": 11,
+      "vacuous-over-omega": 4
+    },
+    "spec_entropy_annotation_counts": {
+      "strict": 26
+    },
+    "adjudication_label": "cdp-discriminating-weak"
+  }
+}

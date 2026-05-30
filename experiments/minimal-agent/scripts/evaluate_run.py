@@ -633,6 +633,8 @@ def normalize_trust_status(value: str) -> str:
     value = value.strip()
     if not value or value in {"—", "-"}:
         return "none"
+    # Strip trailing sample-count suffix: "tested (100 samples)" → "tested"
+    value = re.sub(r"\s*\(.*\)\s*$", "", value)
     return value.lower()
 
 

@@ -1,0 +1,74 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "observational-candidate-set",
+        "candidate_count": 12,
+        "distinct_observed_behavior_count": 12,
+        "distinguishing_inputs": [
+          "(lambda [username] username)",
+          "(lambda [password] password)",
+          "(lambda [...] 0)",
+          "(lambda [...] 1)"
+        ],
+        "satisfying_candidate_count": 12,
+        "score": 0,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "identity-satisfies-post",
+          "const-satisfies-post"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "login-handler",
+      "post_level": null,
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "validate-session",
+      "post_level": null,
+      "pre_level": null
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 1,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 1,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [],
+  "tier_profile": {
+    "asserted": 1,
+    "contract_checked": 0,
+    "no_contract": 1,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 0,
+    "contract_checked": 0,
+    "no_contract": 2,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 1,
+    "contract_checked": 0,
+    "no_contract": 1,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}

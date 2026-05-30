@@ -7,7 +7,7 @@
 > **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4; STRICT-CORE-1 from the triage is subsumed by this proposal (the admissibility rules become grammatical, not adversarial-spec-only)
 > **Companion:** Professor direction memo [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) is the upstream architectural direction; cross-proposal settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) specifies LT-CDP / LT-PPR shipping conditions under §8 gate outcomes
 > **Reviewed:** Professor review at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Seven gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
-> **Status:** Settled (Rev 3) — builtinEnv clause added; pending compiler-engineer hand-off behind `--grammar=core-inversion` opt-in flag per §8 empirical-gate sequencing
+> **Status:** Settled (Rev 3) — builtinEnv clause added; §8 gate adjudicated (rollback path 1, definitive 2026-05-29; F-GATE-8 fix `f62a38b`); redesigned gate experiment unblocked
 
 ---
 
@@ -430,4 +430,4 @@ The review recommended `approve with revisions` on seven gaps and two author-que
 | (c) `?proof-required` emission | 0/6 (0%) | 3/6 (50%) | **Improves — conjunctive gate criterion met** |
 | (d) Boundary-form distribution | 0% `def`/`def-shell`; 12/12 `def-logic` | 100% `def`/`def-shell`; 0/10 `def-logic` | Enforcement confirmed; ≥25% `def` threshold met |
 
-§8 Rev 2 conjunctive pass criterion satisfied on PM-005 data (axis (c) improves; axis (d) ≥25%; no material regression). Post-run evaluator fix (F-GATE-7) and compiler fix (F-GATE-8, commit `f62a38b`, 2026-05-29) mean PM-005 is not a clean reference run. **Default flip provisional** — `GrammarCoreInversion` is the CLI default at commit `5cab1b7`; schema bump and examples migration shipped at `afe80df`. Gate adjudication pending a clean redesigned run post-F-GATE-8 fix; if the redesigned run fails, rollback path (1) per [`v0.11-cross-proposal-rollback-discipline.md §2`](v0.11-cross-proposal-rollback-discipline.md) applies.
+§8 Rev 2 conjunctive pass criterion satisfied on PM-005 data (axis (c) improves; axis (d) ≥25%; no material regression). Post-run evaluator fix (F-GATE-7) and compiler fix (F-GATE-8, commit `f62a38b`, 2026-05-29) identify contamination sources; PM-005 is not a clean reference run. **Gate adjudication: rollback path (1) definitive (2026-05-29).** Grammar default: `GrammarLegacy`. Schema: `0.5.0`. `GrammarCoreInversion` remains the explicit opt-in (`--grammar=core-inversion`). F-GATE-8 fix eliminates the contamination source; redesigned gate experiment is now unblocked.

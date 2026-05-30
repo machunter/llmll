@@ -1,0 +1,164 @@
+{
+  "entries": [
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "compute-time-step",
+      "post_level": "tested (100 samples)",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "dynamic-truncate",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "drifts": [],
+      "name": "hmac-sha1-wrap",
+      "post_level": null,
+      "pre_level": null
+    },
+    {
+      "dependencies": [
+        {
+          "name": "compute-time-step",
+          "post_level": "tested (100 samples)",
+          "pre_level": "asserted"
+        },
+        {
+          "name": "dynamic-truncate",
+          "post_level": "asserted",
+          "pre_level": "asserted"
+        }
+      ],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "generate-totp",
+      "post_level": "asserted",
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "validate-totp",
+      "post_level": null,
+      "pre_level": "asserted"
+    },
+    {
+      "dependencies": [],
+      "discriminative_axis": {
+        "basis": "not-measured",
+        "candidate_count": 0,
+        "distinct_observed_behavior_count": 0,
+        "distinguishing_inputs": [],
+        "satisfying_candidate_count": 0,
+        "score": null,
+        "spec_entropy_annotation": "strict",
+        "warnings": [
+          "not-requested"
+        ]
+      },
+      "drifts": [],
+      "effective_level": "asserted",
+      "name": "pad-otp",
+      "post_level": "asserted",
+      "pre_level": null
+    }
+  ],
+  "joint_pbt_witnesses": [],
+  "overflow_tainted_fns": [],
+  "stale_downgrades": [],
+  "summary": {
+    "asserted": 5,
+    "contract_checked": 0,
+    "drifts": 0,
+    "no_contract": 1,
+    "tested": 0,
+    "verified": 0
+  },
+  "suppressions": [
+    {
+      "name": "hmac-sha1-wrap",
+      "reason": "Cryptographic hash correctness is outside QF-LIA; asserted per RFC 2104"
+    }
+  ],
+  "tier_profile": {
+    "asserted": 5,
+    "contract_checked": 0,
+    "no_contract": 1,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "tier_profile_post": {
+    "asserted": 3,
+    "contract_checked": 0,
+    "no_contract": 2,
+    "proved": 0,
+    "tested": 1,
+    "verified": 0
+  },
+  "tier_profile_pre": {
+    "asserted": 4,
+    "contract_checked": 0,
+    "no_contract": 2,
+    "proved": 0,
+    "tested": 0,
+    "verified": 0
+  },
+  "trust_report_version": "1.2.0"
+}

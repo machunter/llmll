@@ -151,6 +151,24 @@ def aggregate(per_fixture_axes: list[tuple[str, list[dict[str, Any]]]]) -> dict[
             entry["fixture_id"] = fixture_id
             all_axes.append(entry)
 
+    # Deduplicate within the not-requested group: the same cross-module function
+    # can appear under multiple fixtures (once as a cross-module import under the
+    # entry file, again under a secondary-discovery fixture for that same module).
+    # Collapsing by fn_name within this group prevents the denominator from being
+    # inflated by redundant out-of-scope entries.  Measured entries (no
+    # not-requested warning) are untouched — a fn_name shared between a measured
+    # entry and a not-requested entry represents two distinct functions from
+    # different modules, and both should count independently.
+    _seen_nr: set[str | None] = set()
+    deduped: list[dict[str, Any]] = []
+    for e in all_axes:
+        if "not-requested" in e["axis"].get("warnings", []):
+            if e["fn_name"] in _seen_nr:
+                continue
+            _seen_nr.add(e["fn_name"])
+        deduped.append(e)
+    all_axes = deduped
+
     contracted_total = len(all_axes)
     scored = [e for e in all_axes if e["axis"].get("score") is not None]
     defined_count = len(scored)

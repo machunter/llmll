@@ -151,7 +151,11 @@ def build_agent_env(run_dir: Path, llmll_cmd: str) -> dict[str, str]:
         env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
 
     parts = shlex.split(llmll_cmd)
-    if len(parts) == 1:
+    if parts:
+        # Resolve the executable (parts[0]) regardless of whether extra global
+        # flags follow (e.g. "llmll --grammar=core-inversion"). The wrapper
+        # script needs LLMLL_REAL to be the bare binary path; the grammar flag
+        # is handled separately by the grammar-aware wrapper template.
         real_llmll = shutil.which(parts[0], path=os.environ.get("PATH", ""))
         if real_llmll:
             env["LLMLL_REAL"] = real_llmll

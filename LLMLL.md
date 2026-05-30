@@ -572,17 +572,18 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
 
 **Observational, not semantic.** The score is meaningful relative to `Ω` only — two implementations that disagree semantically but agree on every input in `Ω` collapse to one observed behavior. Cross-function and cross-version score comparison requires same-`Ω` discipline; the `basis` field in the trust-report `discriminative_axis` block records `Ω`'s identity for auditability. Consumers setting CI gates on CDP scores must respect this distinction or risk gating on the wrong reading. See [`docs/design/contract-discriminative-power-proposal.md`](docs/design/contract-discriminative-power-proposal.md) §1 Rev 2.
 
-**`(spec-entropy …)` annotation.** Three values per `def-logic` / `letrec` contract:
+**`(spec-entropy …)` annotation.** Three values per contracted `def` / `def-shell` function (under `--grammar=core-inversion`; also accepted on `def-logic` under `--grammar=legacy` but `def-logic` functions receive `WarnDefShellOutOfScope` under `--cdp` and are not scored):
 
 ```lisp
-(def-logic transfer [from: AccountId to: AccountId amount: PositiveInt]
+;; Requires --grammar=core-inversion. Under --grammar=legacy, use def-logic (out of CDP scope under --cdp).
+(def transfer [from: AccountId to: AccountId amount: PositiveInt]
   (pre  (>= (balance-of from) amount))
   (post (and (= (balance-of from) (- (old (balance-of from)) amount))
              (= (balance-of to)   (+ (old (balance-of to))   amount))))
   ;; (spec-entropy :strict)  — default; can be elided
   ...)
 
-(def-logic cache-lookup [k: Key]
+(def cache-lookup [k: Key]
   (post (or (is-ok result) (is-error result)))
   (spec-entropy :intentional)
   ...)
@@ -593,6 +594,8 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
 - **`:unknown`** — CDP is computed and reported but does not raise. For spec-development workflows where the contract is in flux.
 
 **CLI.** `llmll verify <file> --cdp` runs the closed v0.11 candidate-set sweep per §4.3.1 of the proposal after the SAFE result and emits one `discriminative_axis` block per contracted function. Combined with `--trust-report --json`, the score is paired with the diamond-lattice evidence level in the trust-report JSON (`trust_report_version 1.2.0`, additive over v1.1.0 — existing consumers ignore `discriminative_axis`).
+
+**Scope (CDPScopeCoreOnly, v0.11).** `--cdp` scores only `def`-form (`SDef`) functions regardless of grammar mode. `def-shell` and legacy `def-logic` functions appear in the trust-report `discriminative_axis` block with `"score": null` and `"warnings": ["def-shell-out-of-scope"]`; the result map is uniform — every contracted function has an entry. `CDPScopeAllDefLogic` is available in the compiler for testing contexts but is not exposed via a CLI flag in v0.11. See [`docs/design/contract-discriminative-power-proposal.md §2`](docs/design/contract-discriminative-power-proposal.md) for the scope-selection rationale under LT-INV gate Outcome 0.
 
 ### 4.5 Suppression Governance (`weakness-ok`)
 

@@ -12,7 +12,7 @@
     "doc": "docs/design/core-shell-inversion-proposal.md",
     "section": "§8 empirical-validation gate",
     "axis": "spec-strength distribution",
-    "comparison_anchor_path": "experiments/cdp-0/runs/<timestamp>-baseline/baseline.json"
+    "comparison_anchor_path": "experiments/cdp-0/runs/20260527T154040Z-baseline/baseline.json"
   },
   "compiler_ref": {
     "sha": "121815a8c45596f8d125e85b3333bdf7b850582b",
@@ -40,7 +40,7 @@
   "outcome_labels": {
     "cdp-discriminating":     {"defined_fraction_ge": 0.50, "midrange_fraction_ge": 0.25, "description": "viable LT-INV axis; continuous-shift comparison"},
     "cdp-discriminating-weak": {"defined_fraction_ge": 0.50, "midrange_fraction_lt": 0.25, "description": "viable LT-INV axis; coarse pass/fail rule only"},
-    "cdp-null":               {"defined_fraction_lt": 0.30, "description": "binding finding: proposal §10 Risk #2; LT-INV cannot use CDP"},
+    "cdp-null":               {"defined_fraction_lt": 0.30, "description": "defined-fraction below 30% threshold; insufficient signal for continuous-shift comparison on current corpus"},
     "cdp-corpus-inadequate":  {"contracted_total_lt": 10, "description": "sample too small; route to language-team to settle canonical CDP corpus"}
   },
   "stop_policy": "log-and-continue",
