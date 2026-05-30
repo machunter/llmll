@@ -37,8 +37,9 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- | The schema version this parser accepts. Compiler rejects any other value.
 -- v0.10.2: bumped from 0.3.0 to 0.4.0 to signal identifier-shape regex
 -- constraints on ExprApp.fn and ExprQualApp.qual_fn.
+-- v0.11 LT-INV: bumped from 0.5.0 to 0.6.0; gate confirmed EL-5 2026-05-30.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.5.0"
+expectedSchemaVersion = "0.6.0"
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.

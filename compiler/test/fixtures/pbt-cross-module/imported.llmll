@@ -1,3 +1,3 @@
 ;; F-018 / MOD-PBT-1 fixture: imported module exporting plus-one.
 ;; Consumed by test/fixtures/pbt-cross-module/local.llmll and ModuleSpec.hs M-08.5.
-(def-logic plus-one [n: int] (+ n 1))
+(def plus-one [n: int] (+ n 1))

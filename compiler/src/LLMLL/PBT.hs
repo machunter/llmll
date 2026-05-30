@@ -684,9 +684,14 @@ pbtTrustWriteback localStmts cache result =
       -- real delegated implementation — so any PBTPassed result on such a
       -- call tests the fallback path only and carries no information about
       -- whether the actual postcondition holds.
+      -- F-EL5-3: Extended to SDef (strict-core) for the same reason — a
+      -- delegation hole inside def makes the return value opaque regardless
+      -- of grammar form.
       delegateBodies = Set.fromList $
-        [ n | SDefShell n _ _ _ (EHole (HDelegate _))      <- mergedStmts ]
+        [ n | SDefShell n _ _ _ (EHole (HDelegate _))        <- mergedStmts ]
         ++ [ n | SDefShell n _ _ _ (EHole (HDelegateAsync _)) <- mergedStmts ]
+        ++ [ n | SDef      n _ _ _ (EHole (HDelegate _))        <- mergedStmts ]
+        ++ [ n | SDef      n _ _ _ (EHole (HDelegateAsync _)) <- mergedStmts ]
       processed = map (processRun contractByName qualMap propsByDesc delegateBodies) (pbtResults result)
       (mapsList, diagsList) = unzip processed
       mergedMap = foldl' (Map.unionWith mergePbtWriteback) Map.empty mapsList

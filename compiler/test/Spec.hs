@@ -618,7 +618,7 @@ main = hspec $ do
       -- JSON-AST with done? and on-done fields
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.5.0\","
+            , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","
@@ -645,7 +645,7 @@ main = hspec $ do
     it "parsed done? wires into generated Main.hs (harness terminates)" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.5.0\","
+            , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-main\","
@@ -916,7 +916,7 @@ main = hspec $ do
     -- PPR-P4: JSON-AST predicate field roundtrips through parseJSONAST
     it "PPR-P4 JSON hole-proof-required with predicate field parses correctly" $ do
       let src = BLC.pack $ unlines
-            [ "{\"schemaVersion\":\"0.5.0\",\"statements\":["
+            [ "{\"schemaVersion\":\"0.6.0\",\"statements\":["
             , "{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[]"
             , ",\"body\":{\"kind\":\"hole-proof-required\",\"reason\":\"manual\""
             , ",\"predicate\":{\"kind\":\"lit-bool\",\"value\":true}}}]}"
@@ -1113,7 +1113,7 @@ main = hspec $ do
     it "JSON-AST: pair-type param_type decodes to TPair TInt TString" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.5.0\","
+            , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -1171,7 +1171,7 @@ main = hspec $ do
     it "let binding with extra 'kind' key is rejected with clear error" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.5.0\","
+            , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -1200,7 +1200,7 @@ main = hspec $ do
     it "let binding with only 'name' and 'expr' keys accepts successfully" $ do
       let src = BLC.pack $ unlines
             [ "{"
-            , "  \"schemaVersion\": \"0.5.0\","
+            , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
             , "      \"kind\": \"def-logic\","
@@ -1452,7 +1452,7 @@ main = hspec $ do
 
   describe "JsonPointer" $ do
     let testAst = object
-          [ "schemaVersion" .= ("0.5.0" :: T.Text)
+          [ "schemaVersion" .= ("0.6.0" :: T.Text)
           , "statements" .= [ object
               [ "kind" .= ("def-logic" :: T.Text)
               , "name" .= ("foo" :: T.Text)
@@ -1823,7 +1823,7 @@ main = hspec $ do
     it "OBLIG-3: patch function with no contracts returns PatchSuccess" $ do
       let tmpDir = "test/_tmp_patch_no_contract"
           astJson = object
-            [ "schemaVersion" .= ("0.5.0" :: T.Text)
+            [ "schemaVersion" .= ("0.6.0" :: T.Text)
             , "llmll_version" .= ("0.3.0" :: T.Text)
             , "statements" .= [object
                 [ "kind" .= ("def-logic" :: T.Text)
@@ -2698,7 +2698,7 @@ main = hspec $ do
       let dir = root ++ "/test-scaffold-tmp"
           file = dir ++ "/scaffold.ast.json"
       createDirectoryIfMissing True dir
-      writeFile file "{\"schemaVersion\": \"0.5.0\", \"statements\": []}"
+      writeFile file "{\"schemaVersion\": \"0.6.0\", \"statements\": []}"
       result <- resolveScaffold "test-scaffold-tmp"
       result `shouldBe` Just file
       removeDirectoryRecursive dir
@@ -2712,7 +2712,7 @@ main = hspec $ do
 
     it "JSON-AST hole-scaffold parses correctly" $ do
       let jsonSrc = BLC.pack $ unlines
-            [ "{ \"schemaVersion\": \"0.5.0\""
+            [ "{ \"schemaVersion\": \"0.6.0\""
             , ", \"statements\": ["
             , "    { \"kind\": \"def-logic\", \"name\": \"f\", \"params\": []"
             , "    , \"body\": { \"kind\": \"hole-scaffold\", \"template\": \"rest-api\" } }"
@@ -5272,7 +5272,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "ParserJSON fails when hole-delegate-async carries on_failure" $ do
         let src = BLC.pack $ unlines
               [ "{"
-              , "  \"schemaVersion\": \"0.5.0\","
+              , "  \"schemaVersion\": \"0.6.0\","
               , "  \"statements\": ["
               , "    {"
               , "      \"kind\": \"def-logic\","
@@ -5979,7 +5979,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "JSON: CheckDecl with subjects array decodes to propSubjects" $ do
         let src = BLC.pack $ unlines
               [ "{"
-              , "  \"schemaVersion\": \"0.5.0\","
+              , "  \"schemaVersion\": \"0.6.0\","
               , "  \"statements\": ["
               , "    {"
               , "      \"kind\": \"check\","
@@ -6209,7 +6209,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "JSON-AST (+ \"x\" 1) raises the same type error" $ do
         let src = BLC.pack $ unlines
               [ "{"
-              , "  \"schemaVersion\": \"0.5.0\","
+              , "  \"schemaVersion\": \"0.6.0\","
               , "  \"statements\": ["
               , "    { \"kind\": \"def-logic\""
               , "    , \"name\": \"f\""
@@ -6592,13 +6592,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           other -> expectationFailure (show other)
 
       it "C14 JSON-AST accepts spec_entropy string" $ do
-        let ast = "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
+        let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
         case parseJSONAST GrammarLegacy "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
           Right [SDefLogic _ _ _ c _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
           other -> expectationFailure (show other)
 
       it "C15 JSON-AST rejects unknown spec_entropy value" $ do
-        let ast = "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"bogus\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
+        let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"bogus\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
         case parseJSONAST GrammarLegacy "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
           Left _ -> pure ()  -- expected: parse rejects unknown label
           Right _ -> expectationFailure "expected parse error on unknown spec_entropy value"
@@ -6948,21 +6948,21 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "INV-P9 JSON-AST def-logic rejected under GrammarCoreInversion with core-grammar-violation" $ do
         let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
-                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
         case parseJSONAST GrammarCoreInversion "<test>" src of
           Left diag -> diagKind diag `shouldBe` Just "core-grammar-violation"
           Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
 
       it "INV-P10 JSON-AST def accepted under GrammarCoreInversion" $ do
         let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
-                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
         case parseJSONAST GrammarCoreInversion "<test>" src of
           Right [SDef {}] -> pure ()
           other           -> expectationFailure (show other)
 
       it "INV-P11 JSON-AST def-logic still accepted under GrammarLegacy" $ do
         let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
-                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
         case parseJSONAST GrammarLegacy "<test>" src of
           Right [SDefLogic {}] -> pure ()
           other                -> expectationFailure (show other)
@@ -6975,14 +6975,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "INV-P13 JSON-AST letrec rejected under GrammarCoreInversion with core-grammar-violation" $ do
         let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
-                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"letrec\",\"name\":\"countdown\",\"params\":[{\"name\":\"n\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}}],\"decreases\":{\"kind\":\"var\",\"name\":\"n\"},\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"letrec\",\"name\":\"countdown\",\"params\":[{\"name\":\"n\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}}],\"decreases\":{\"kind\":\"var\",\"name\":\"n\"},\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
         case parseJSONAST GrammarCoreInversion "<test>" src of
           Left diag -> diagKind diag `shouldBe` Just "core-grammar-violation"
           Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
 
       it "INV-P14 JSON-AST letrec accepted under GrammarLegacy" $ do
         let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
-                    "{\"schemaVersion\":\"0.5.0\",\"statements\":[{\"kind\":\"letrec\",\"name\":\"countdown\",\"params\":[{\"name\":\"n\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}}],\"decreases\":{\"kind\":\"var\",\"name\":\"n\"},\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"letrec\",\"name\":\"countdown\",\"params\":[{\"name\":\"n\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}}],\"decreases\":{\"kind\":\"var\",\"name\":\"n\"},\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
         case parseJSONAST GrammarLegacy "<test>" src of
           Right [SLetrec {}] -> pure ()
           other              -> expectationFailure (show other)
@@ -7294,6 +7294,58 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           stmts = [shellStmt, SCheck prop]
           run = PBTRun
             { pbtDescription    = "check-async-fn"
+            , pbtStatus         = PBTPassed
+            , pbtSamplesRun     = 100
+            , pbtCounterexample = Nothing
+            }
+          pbtResult = PBTResult 1 1 0 0 [run]
+      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      csMap `shouldBe` Map.empty
+      diags `shouldSatisfy` (not . null)
+
+    -- FG8-7: SDef (strict-core) with hole-delegate body must also be blocked.
+    -- F-EL5-3: delegation hole makes return value opaque regardless of def vs
+    -- def-shell — same rationale as F-GATE-8; guard extended to SDef.
+    it "FG8-7 pbtTrustWriteback blocks DLTested for SDef hole-delegate body" $ do
+      let ds = DelegateSpec "agent" "test" TString (Just (ELit (LitString "fallback")))
+          postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
+          contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
+          defStmt = SDef "def-fn" [("x", TString)] Nothing contract
+                      (EHole (HDelegate ds))
+          prop = Property
+            { propDescription = "check-def-fn"
+            , propBindings    = [("x", TString)]
+            , propBody        = EApp "def-fn" [EVar "x"]
+            , propSubjects    = []
+            }
+          stmts = [defStmt, SCheck prop]
+          run = PBTRun
+            { pbtDescription    = "check-def-fn"
+            , pbtStatus         = PBTPassed
+            , pbtSamplesRun     = 100
+            , pbtCounterexample = Nothing
+            }
+          pbtResult = PBTResult 1 1 0 0 [run]
+      let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
+      csMap `shouldBe` Map.empty
+      diags `shouldSatisfy` (not . null)
+
+    -- FG8-8: SDef with HDelegateAsync body is also blocked, symmetric with FG8-7.
+    it "FG8-8 pbtTrustWriteback blocks DLTested for SDef hole-delegate-async body" $ do
+      let ds = DelegateSpec "agent" "test" TString Nothing
+          postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
+          contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
+          defStmt = SDef "def-async-fn" [("x", TString)] Nothing contract
+                      (EHole (HDelegateAsync ds))
+          prop = Property
+            { propDescription = "check-def-async-fn"
+            , propBindings    = [("x", TString)]
+            , propBody        = EApp "def-async-fn" [EVar "x"]
+            , propSubjects    = []
+            }
+          stmts = [defStmt, SCheck prop]
+          run = PBTRun
+            { pbtDescription    = "check-def-async-fn"
             , pbtStatus         = PBTPassed
             , pbtSamplesRun     = 100
             , pbtCounterexample = Nothing
