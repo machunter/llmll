@@ -168,8 +168,32 @@
         {
           "name": "w",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],
@@ -191,8 +215,32 @@
         {
           "name": "w",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],
@@ -220,8 +268,32 @@
         {
           "name": "w",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],
@@ -255,8 +327,32 @@
         {
           "name": "w",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],
@@ -1270,8 +1366,32 @@
         {
           "name": "world",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],
@@ -2082,8 +2202,32 @@
         {
           "name": "world",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],
@@ -2372,8 +2516,32 @@
         {
           "name": "world",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],
@@ -2682,7 +2850,7 @@
                 "args": [
                   {
                     "kind": "lit-string",
-                    "value": "Conway's Game of Life — press Enter to advance, 'q' to quit.\n"
+                    "value": "Conway's Game of Life \u2014 press Enter to advance, 'q' to quit.\n"
                   },
                   {
                     "kind": "var",
@@ -2702,8 +2870,32 @@
         {
           "name": "world",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         },
         {
@@ -2853,8 +3045,32 @@
         {
           "name": "world",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "int"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "int"
+              },
+              "snd": {
+                "kind": "pair-type",
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
       ],

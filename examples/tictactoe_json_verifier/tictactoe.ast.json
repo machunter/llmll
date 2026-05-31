@@ -108,8 +108,25 @@
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "snd": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
           }
         }
       ],
@@ -131,8 +148,25 @@
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "snd": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
           }
         }
       ],
@@ -160,8 +194,25 @@
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "snd": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
           }
         }
       ],
@@ -1447,8 +1498,25 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "snd": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
           }
         },
         {
@@ -1850,8 +1918,25 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "snd": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
           }
         }
       ],
@@ -1883,8 +1968,25 @@
         {
           "name": "state",
           "param_type": {
-            "kind": "primitive",
-            "name": "unit"
+            "kind": "pair-type",
+            "fst": {
+              "kind": "list",
+              "elem_type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "snd": {
+              "kind": "pair-type",
+              "fst": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "snd": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
           }
         }
       ],
