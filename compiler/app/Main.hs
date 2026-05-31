@@ -341,7 +341,7 @@ main = do
     CmdRepl                       -> doRepl gm
     CmdHub   tarball              -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut      -> doHubScaffold json gm tmpl mOut
-    CmdHubQuery sig               -> doHubQuery json sig
+    CmdHubQuery sig               -> doHubQuery json GrammarLegacy sig
     CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag
     CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
     CmdServe serveOpts            -> runServe serveOpts
@@ -458,8 +458,8 @@ doCheck json gm fp strict = do
     Left ()                      -> exitFailure
     Right (ss, cache, _loadOrder) -> do
       let report = if strict
-                     then typeCheckStrictWithCache cache emptyEnv ss
-                     else typeCheckWithCache cache emptyEnv ss
+                     then typeCheckStrictWithCache gm cache emptyEnv ss
+                     else typeCheckWithCache gm cache emptyEnv ss
       if json
         then TIO.putStrLn (formatReportJson report)
         else if reportSuccess report
@@ -644,7 +644,7 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
           let modName      = T.pack $ takeBaseName fp
               importedEnvs = topoSortedEnvs cache loadOrder
           -- v0.6.3: typecheck gate (BUG-4) — hard error before codegen
-          let tcReport = typeCheckStrictWithCache cache emptyEnv stmts
+          let tcReport = typeCheckStrictWithCache gm cache emptyEnv stmts
           unless (reportSuccess tcReport) $ do
             mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
             exitFailure
@@ -724,7 +724,7 @@ doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
           -- P3: collect imported envs in topo order and call generateHaskellMulti
           importedEnvs = topoSortedEnvs cache loadOrder
       -- v0.6.3: typecheck gate (BUG-4)
-      let tcReport = typeCheckStrictWithCache cache emptyEnv stmts
+      let tcReport = typeCheckStrictWithCache gm cache emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
@@ -777,7 +777,7 @@ doRun json gm fp extraArgs = do
       exitFailure
     Right stmts -> do
       -- v0.6.3: typecheck gate (BUG-4)
-      let tcReport = typeCheckStrict emptyEnv stmts
+      let tcReport = typeCheckStrict gm emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
@@ -933,7 +933,7 @@ replLoop gm _env = do
               TIO.putStrLn $ formatDiagnosticSExp (megaparsecToDiagnostic "<repl>" err)
             Right stmts -> do
               mapM_ (\stmt -> TIO.putStrLn $ T.pack (show stmt)) stmts
-              let report = typeCheck emptyEnv stmts
+              let report = typeCheck gm emptyEnv stmts
               mapM_ (TIO.putStrLn . ("  type: " <>) . formatDiagnostic)
                     (reportDiagnostics report)
           replLoop gm _env
@@ -1010,8 +1010,8 @@ doHubScaffold json gm template mOutDir = do
 -- v0.6.1: hub query
 -- ---------------------------------------------------------------------------
 
-doHubQuery :: Bool -> T.Text -> IO ()
-doHubQuery json sigText = do
+doHubQuery :: Bool -> GrammarMode -> T.Text -> IO ()
+doHubQuery json _gm sigText = do
   -- Parse the signature text into a Type for matching.
   -- Simple format: "int -> int -> int" for a 2-arg function returning int.
   let queryType = parseSigText sigText
@@ -1086,7 +1086,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
     Left () -> exitFailure
     Right (stmts, _cache, _) -> do
       -- v0.6.3: typecheck gate (BUG-4)
-      let tcReport = typeCheckStrictWithCache _cache emptyEnv stmts
+      let tcReport = typeCheckStrictWithCache gm _cache emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
@@ -1290,7 +1290,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           case fqResult of
             FQSafe | weaknessCheck -> do
               unless json $ TIO.putStrLn "   Running weakness check ..."
-              let candidates = generateWeaknessCandidates stmts
+              let candidates = generateWeaknessCandidates gm stmts
               weakDiags <- fmap concat $ mapM (checkWeaknessCandidate lfBin json) candidates
               if null weakDiags
                 then unless json $ TIO.putStrLn "   No spec weaknesses detected."
@@ -1338,7 +1338,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                   "Note: --cdp without --trust-report: WarnSpecInconsistent used conservatively \
                   \for all zero-satisfying functions; pass --trust-report to enable \
                   \WarnSpecTooTightForOmega disambiguation."
-              results <- computeCDPFor CDPScopeCoreOnly runOneCandidate verifMap stmts
+              results <- computeCDPFor gm CDPScopeCoreOnly runOneCandidate verifMap stmts
               -- Module-level over-annotation diagnostic (proposal Risk #3).
               let intentRatio = overAnnotationRatio stmts
               when (intentRatio > overAnnotationThreshold) $
@@ -1498,7 +1498,7 @@ doTypecheck json gm fp True  = do
     Right (ss, cache, _) -> do
       -- Seed env with cross-module names then run sketch inference
       let seededEnv = Map.foldlWithKey' seedModule emptyEnv cache
-          result    = runSketch seededEnv ss defaultPatterns
+          result    = runSketch gm seededEnv ss defaultPatterns
       -- encodeSketchResult produces schemaVersion + sorted errors + structured fields
       BLC.putStrLn (encodeSketchResult result)
       exitSuccess

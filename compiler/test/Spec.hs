@@ -76,7 +76,7 @@ import ModuleSpec (moduleSpec)
 -- Used by U-Full tests to directly test structuralUnify.
 runTCPure :: TC a -> ([Diagnostic], a)
 runTCPure action =
-  let (result, diags) = runTC emptyEnv action
+  let (result, diags) = runTC GrammarCoreInversion emptyEnv action
   in (diags, result)
 
 main :: IO ()
@@ -271,7 +271,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     it "string literal matches a where-alias (Word) without error" $ do
@@ -282,7 +282,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
   -- -----------------------------------------------------------------------
@@ -304,7 +304,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let warns = filter (\d -> T.isInfixOf "unknown constructor" (diagMessage d))
                              (reportDiagnostics report)
           warns `shouldBe` []
@@ -323,7 +323,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let warns = filter (\d -> T.isInfixOf "unknown constructor" (diagMessage d))
                              (reportDiagnostics report)
           warns `shouldBe` []
@@ -340,7 +340,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     -- Test #4: TPair sibling branches both expand
@@ -353,7 +353,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     -- Test #5: Diagnostic preservation — alias name in unify error
@@ -370,7 +370,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           -- Should have a warning/error about different types in branches
           let diags = reportDiagnostics report
           let hasBranchMismatch = any (\d -> T.isInfixOf "different types" (diagMessage d)) diags
@@ -392,7 +392,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let warns = filter (\d -> T.isInfixOf "different types" (diagMessage d))
                              (reportDiagnostics report)
           warns `shouldBe` []
@@ -407,7 +407,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let errs = filter (\d -> T.isInfixOf "must be bool" (diagMessage d))
                             (reportDiagnostics report)
           errs `shouldBe` []
@@ -426,7 +426,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let warns = filter (\d -> T.isInfixOf "different types" (diagMessage d))
                              (reportDiagnostics report)
           warns `shouldBe` []
@@ -442,7 +442,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     -- Test #10: Direct alias cycle diagnostic
@@ -454,7 +454,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` False
           let errs = filter (\d -> T.isInfixOf "type alias cycle" (diagMessage d))
                             (reportDiagnostics report)
@@ -469,7 +469,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` False
           let errs = filter (\d -> T.isInfixOf "type alias cycle" (diagMessage d))
                             (reportDiagnostics report)
@@ -487,7 +487,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let cycleErrs = filter (\d -> T.isInfixOf "type alias cycle" (diagMessage d))
                                  (reportDiagnostics report)
           cycleErrs `shouldBe` []
@@ -503,7 +503,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     -- Test #14: End-to-end delegate-async -> await -> PConstructor
@@ -519,7 +519,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let warns = filter (\d -> T.isInfixOf "unknown constructor" (diagMessage d))
                              (reportDiagnostics report)
           warns `shouldBe` []
@@ -533,7 +533,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     it "second accepts a pair-typed param (v0.4 U2-lite: requires TPair)" $ do
@@ -542,7 +542,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     it "first on non-pair (string) now produces type error (U2-lite)" $ do
@@ -551,7 +551,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` False
 
   -- -----------------------------------------------------------------------
@@ -727,7 +727,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           -- Must have no non-exhaustive-match errors
           let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
                               (reportDiagnostics report)
@@ -744,7 +744,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
                               (reportDiagnostics report)
           length nonExh `shouldBe` 1
@@ -761,7 +761,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
                               (reportDiagnostics report)
           nonExh `shouldBe` []
@@ -775,7 +775,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
                               (reportDiagnostics report)
           length nonExh `shouldBe` 1
@@ -806,7 +806,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let warns = filter (\d -> diagSeverity d == SevWarning
                                  && T.isInfixOf "self-recursive" (diagMessage d))
                              (reportDiagnostics report)
@@ -817,7 +817,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let warns = filter (\d -> diagSeverity d == SevWarning
                                  && T.isInfixOf "self-recursive" (diagMessage d))
                              (reportDiagnostics report)
@@ -934,7 +934,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
           errs `shouldBe` []
 
@@ -943,7 +943,7 @@ main = hspec $ do
       let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
                      (Contract (Just (EHole (HProofRequired "manual" (Just (EVar "n"))))) Nothing Nothing Nothing Nothing)
                      (EVar "n")]
-      let report = typeCheck emptyEnv stmts
+      let report = typeCheck GrammarCoreInversion emptyEnv stmts
       let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldBe` 1
 
@@ -952,7 +952,7 @@ main = hspec $ do
       let stmts = [SDefLogic "f" [] Nothing
                      (Contract Nothing Nothing Nothing Nothing Nothing)
                      (EHole (HProofRequired "manual" Nothing))]
-      let report = typeCheck emptyEnv stmts
+      let report = typeCheck GrammarCoreInversion emptyEnv stmts
       let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       errs `shouldBe` []
 
@@ -962,7 +962,7 @@ main = hspec $ do
           stmts  = [SDefLogic "f" [("n", TInt)] (Just TInt)
                       (Contract (Just (EHole (HProofRequired "manual" (Just nlPred)))) Nothing Nothing Nothing Nothing)
                       (EVar "n")]
-      let report = typeCheck emptyEnv stmts
+      let report = typeCheck GrammarCoreInversion emptyEnv stmts
       let warns = filter (\d -> diagSeverity d == SevWarning
                               && T.isInfixOf "non-linear" (diagMessage d))
                          (reportDiagnostics report)
@@ -974,7 +974,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
           errs `shouldBe` []
 
@@ -1105,7 +1105,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           -- No errors (warnings OK — first is polymorphic anyway)
           let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
           errs `shouldBe` []
@@ -1149,7 +1149,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
           errs `shouldBe` []
 
@@ -1158,7 +1158,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           let arityErrs = filter (\d -> diagSeverity d == SevError
                                      && T.isInfixOf "expects" (diagMessage d))
                                  (reportDiagnostics report)
@@ -1239,7 +1239,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case findHole "?informal" result of
             Nothing -> expectationFailure "?informal hole not recorded"
             Just h  -> do
@@ -1254,7 +1254,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case findHole "?zero_case" result of
             Nothing -> expectationFailure "?zero_case hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleTyped TInt
@@ -1271,7 +1271,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case findHole "?blue_label" result of
             Nothing -> expectationFailure "?blue_label hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleTyped TString
@@ -1288,7 +1288,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case findHole "?conflict_arm" result of
             Nothing -> expectationFailure "?conflict_arm hole not recorded"
             Just h  -> case shStatus h of
@@ -1307,7 +1307,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           let ambigErrs = filter (T.isInfixOf "ambiguous-hole" . diagMessage) (sketchErrors result)
           ambigErrs `shouldSatisfy` (not . null)
 
@@ -1319,7 +1319,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case findHole "?arg" result of
             Nothing -> expectationFailure "?arg hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleTyped TInt
@@ -1330,7 +1330,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case findHole "?isolated" result of
             Nothing -> expectationFailure "?isolated hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleUnknown
@@ -1343,9 +1343,9 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
-          let skRes = runSketch emptyEnv stmts []
+          let skRes = runSketch GrammarCoreInversion emptyEnv stmts []
           sketchHoles skRes `shouldBe` []
 
   -- -----------------------------------------------------------------------
@@ -1359,7 +1359,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let diags = reportDiagnostics (typeCheck emptyEnv stmts)
+          let diags = reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
           let typeMismatches = filter (maybe False (T.isInfixOf "type-mismatch") . diagKind) diags
               -- type-mismatch between int and string: certain, no holes
               allCertain = all (not . diagHoleSensitive) diags
@@ -1379,7 +1379,7 @@ main = hspec $ do
           -- the synthesis produces no type mismatch.  Verify at least that
           -- holeSensitive = False errors are NOT emitted here (no spurious
           -- certain errors should appear for a well-typed partial program).
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           let certainErrs = filter (\d -> diagSeverity d == SevError && not (diagHoleSensitive d)) (sketchErrors result)
           certainErrs `shouldBe` []
 
@@ -1391,7 +1391,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           -- ?impl should be recorded as HoleUnknown (synthesis context)
           let holes = sketchHoles result
           holes `shouldSatisfy` (not . null)
@@ -1410,7 +1410,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case filter ((== "?informal") . shName) (sketchHoles result) of
             []    -> expectationFailure "?informal hole not recorded"
             (h:_) -> shPointer h `shouldBe` "/statements/0/body/else"
@@ -1427,7 +1427,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case filter ((== "?blue_label") . shName) (sketchHoles result) of
             []    -> expectationFailure "?blue_label hole not recorded"
             (h:_) -> shPointer h `shouldBe` "/statements/1/body/arms/2/body"
@@ -1440,9 +1440,9 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           sketchHoles result `shouldBe` []
 
 
@@ -2261,7 +2261,7 @@ main = hspec $ do
 
     it "emits trust-gap warning for unproven cross-module call" $ do
       let callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
-          report = typeCheckWithCache cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       length trustGaps `shouldSatisfy` (> 0)
 
@@ -2270,7 +2270,7 @@ main = hspec $ do
               [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
-          report = typeCheckWithCache provenCache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion provenCache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       trustGaps `shouldBe` []
 
@@ -2279,7 +2279,7 @@ main = hspec $ do
             [ STrust "math.safe-add" DLAsserted  -- acknowledge the assertion level
             , SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])
             ]
-          report = typeCheckWithCache cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
           trustGaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       trustGaps `shouldBe` []
 
@@ -2323,28 +2323,28 @@ main = hspec $ do
     it "asserted contract in imported module emits trust-gap warning" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
       let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
-          report  = typeCheckWithCache cache emptyEnv mkCallerStmts
+          report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       -- Should have exactly 1 gap (for the asserted postcondition)
       length gaps `shouldBe` 1
@@ -2359,7 +2359,7 @@ main = hspec $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "auth.verify.auth.verify" [EVar "uid"])
             ]
-          report = typeCheckWithCache cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
@@ -2373,7 +2373,7 @@ main = hspec $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "auth.verify.auth.verify" [EVar "uid"])
             ]
-          report = typeCheckWithCache cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
       -- Trust at asserted is insufficient for tested contracts → gap still emitted
       countTrustGaps report `shouldSatisfy` (> 0)
 
@@ -2408,7 +2408,7 @@ main = hspec $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "crypto.hash" [EVar "s"])
             ]
-          report = typeCheckWithCache cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
           gaps = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
       -- math.safe-add is proven → no gap
       -- crypto.hash is asserted → 1 gap (pre only, post is Nothing)
@@ -2661,7 +2661,7 @@ main = hspec $ do
       let delegSpec = DelegateSpec "agent" "task" TInt Nothing
           prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                     (EAwait (EHole (HDelegateAsync delegSpec)))]
-          report = typeCheck emptyEnv prog
+          report = typeCheck GrammarCoreInversion emptyEnv prog
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       errs `shouldBe` []
 
@@ -2669,7 +2669,7 @@ main = hspec $ do
       let delegSpec = DelegateSpec "agent" "task" TInt Nothing
           prog = [SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                     (EHole (HDelegateAsync delegSpec))]
-          report = typeCheck emptyEnv prog
+          report = typeCheck GrammarCoreInversion emptyEnv prog
           hardErrs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       hardErrs `shouldBe` []
 
@@ -3447,7 +3447,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case filter ((== "?else_hole") . shName) (sketchHoles result) of
             []    -> expectationFailure "?else_hole not recorded"
             (h:_) -> do
@@ -3464,7 +3464,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case filter ((== "?greeting") . shName) (sketchHoles result) of
             []    -> expectationFailure "?greeting not recorded"
             (h:_) -> do
@@ -3482,7 +3482,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           case filter ((== "?body") . shName) (sketchHoles result) of
             []    -> expectationFailure "?body not recorded"
             (h:_) -> do
@@ -3503,7 +3503,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
-          let result = runSketch emptyEnv stmts []
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
           -- The Blue arm's hole should have a match-arm env (the constructor pattern)
           -- Note: Blue is a nullary constructor, so no pattern bindings are introduced.
           -- The important thing is that the hole is correctly recorded.
@@ -3564,7 +3564,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                           Nothing Nothing)
                 (EApp "+" [EVar "x", ELit (LitInt 1)])
             ]
-          candidates = generateWeaknessCandidates stmts
+          candidates = generateWeaknessCandidates GrammarCoreInversion stmts
           identityCandidates = [c | c <- candidates, case wcTrivialBody c of
                                                        TrivIdentity _ -> True
                                                        _ -> False]
@@ -3578,7 +3578,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                 (EVar "x")
             ]
-          candidates = generateWeaknessCandidates stmts
+          candidates = generateWeaknessCandidates GrammarCoreInversion stmts
           -- LT-CDP (v0.11): TrivConstZero subsumed into TrivConstInt 0.
           zeroCandidates = [c | c <- candidates, wcTrivialBody c == TrivConstInt 0]
       zeroCandidates `shouldSatisfy` (not . null)
@@ -3590,7 +3590,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
                 (EApp "to-string" [EVar "x"])
             ]
-          candidates = generateWeaknessCandidates stmts
+          candidates = generateWeaknessCandidates GrammarCoreInversion stmts
           identityCandidates = [c | c <- candidates, case wcTrivialBody c of
                                                        TrivIdentity _ -> True
                                                        _ -> False]
@@ -3604,7 +3604,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EVar "x")
             ]
-          candidates = generateWeaknessCandidates stmts
+          candidates = generateWeaknessCandidates GrammarCoreInversion stmts
       candidates `shouldSatisfy` null
 
     -- W1: Multiple functions independently
@@ -3617,7 +3617,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
                 (EVar "s")
             ]
-          candidates = generateWeaknessCandidates stmts
+          candidates = generateWeaknessCandidates GrammarCoreInversion stmts
           fCandidates = [c | c <- candidates, wcFunctionName c == "f"]
           gCandidates = [c | c <- candidates, wcFunctionName c == "g"]
       fCandidates `shouldSatisfy` (not . null)
@@ -3631,7 +3631,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract pre Nothing (Just (EApp ">" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                 (EApp "+" [EVar "x", ELit (LitInt 1)])
             ]
-          candidates = generateWeaknessCandidates stmts
+          candidates = generateWeaknessCandidates GrammarCoreInversion stmts
       case candidates of
         []    -> expectationFailure "expected at least one candidate"
         (c:_) -> wcPrecondition c `shouldBe` pre
@@ -3650,7 +3650,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
               capErrors = filter (\d -> diagKind d == Just "missing-capability")
                                  (reportDiagnostics report)
           length capErrors `shouldBe` 1
@@ -3667,7 +3667,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
               capErrors = filter (\d -> diagKind d == Just "missing-capability")
                                  (reportDiagnostics report)
           length capErrors `shouldBe` 1
@@ -3680,7 +3680,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , SDefLogic "greet" [("name", TString)] (Just (TCustom "Command"))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "name"])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           capErrors = filter (\d -> diagKind d == Just "missing-capability")
                              (reportDiagnostics report)
       capErrors `shouldBe` []
@@ -3692,7 +3692,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , SDefLogic "write-file" [("path", TString), ("content", TString)] (Just (TCustom "Command"))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "wasi.fs.write" [EVar "path", EVar "content"])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           capErrors = filter (\d -> diagKind d == Just "missing-capability")
                              (reportDiagnostics report)
       length capErrors `shouldBe` 1
@@ -3722,7 +3722,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "caller" [("s", TString)] (Just (TCustom "Command"))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "wasi.io.stdout" [EVar "s"])
             ]
-          report = typeCheckWithCache cache emptyEnv callerStmts
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv callerStmts
           capErrors = filter (\d -> diagKind d == Just "missing-capability")
                              (reportDiagnostics report)
       -- Module B has no wasi.io import → error (non-transitive)
@@ -3740,7 +3740,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [] (Just TBool) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "=" [ELit (LitInt 42), ELit (LitString "hello")])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
 
@@ -3750,7 +3750,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [("xs", TList TInt)] (Just TBool) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "list-contains" [EVar "xs", ELit (LitString "hello")])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
 
@@ -3760,7 +3760,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [("xs", TList TInt)] (Just (TList TString)) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "list-map" [EVar "xs", ELambda [("x", TString)] (EVar "x")])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
 
@@ -3770,7 +3770,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "first" [ELit (LitInt 42)])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
 
@@ -3780,7 +3780,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [] (Just (TVar "b")) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "second" [ELit (LitString "hello")])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
 
@@ -3793,7 +3793,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     -- U7a: TSumType structural inequality — different sum types are now incompatible
@@ -3804,7 +3804,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , SDefLogic "f" [("c", TCustom "Color")] (Just (TCustom "Shape"))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "c")
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
 
@@ -3815,7 +3815,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , SDefLogic "f" [("c", TCustom "Color")] (Just (TCustom "Color"))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "c")
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
       reportSuccess report `shouldBe` True
 
     -- U-Lite positive: polymorphic functions still work correctly
@@ -3824,7 +3824,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [("xs", TList TInt)] (Just (TResult TInt TString))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "list-head" [EVar "xs"])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
       reportSuccess report `shouldBe` True
 
     it "U-Lite: pair(1, \"hello\") then first gives int" $ do
@@ -3832,7 +3832,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [] (Just (TVar "a")) (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "first" [EApp "pair" [ELit (LitInt 1), ELit (LitString "hello")]])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
       reportSuccess report `shouldBe` True
 
   -- =========================================================================
@@ -3863,7 +3863,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "f" [("xs", TList TInt)] (Just (TResult TInt TString))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "list-head" [EVar "xs"])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
       reportSuccess report `shouldBe` True
 
     -- U2-full: TVar-TVar binding — polymorphic function called with TVar arg
@@ -3886,7 +3886,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (EApp "=" [ EApp "identity" [ELit (LitInt 42)]
                           , ELit (LitInt 42) ])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
       reportSuccess report `shouldBe` True
 
     -- U2-full: Same-call-site conflict — f(5, "hello") where f : a -> a -> a
@@ -3898,7 +3898,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "same-type" [ELit (LitInt 5), ELit (LitString "hello")])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
 
@@ -3911,7 +3911,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing)
                 (EApp "same-check" [ELit (LitInt 5), ELit (LitString "hello")])
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       -- Should reject: a bound to int from first arg, string conflicts at second
       length errs `shouldSatisfy` (> 0)
@@ -3973,7 +3973,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ SDefLogic "my-sort" [("xs", TList TInt)] (Just (TList TInt))
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "xs")
             ]
-          result = runSketch emptyEnv stmts defaultPatterns
+          result = runSketch GrammarCoreInversion emptyEnv stmts defaultPatterns
           ids = map isPatternId (sketchInvariants result)
       ids `shouldSatisfy` elem "sorted"
       ids `shouldSatisfy` elem "list-preserving"
@@ -4255,7 +4255,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           reportSuccess report `shouldBe` True
 
     -- T5: Law body returning non-bool → type error
@@ -4265,7 +4265,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 [("f", TFn [TInt] TInt)]
                 [Property "" [("x", TInt)] (EApp "f" [EVar "x"]) []]  -- returns int, not bool
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
       length errs `shouldSatisfy` (> 0)
       any (T.isInfixOf ":laws clause must be bool") (map diagMessage errs) `shouldBe` True
@@ -4277,7 +4277,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 [("f", TFn [TInt] TBool)]
                 [Property "" [("x", TInt)] (EApp "undefined-fn" [EVar "x"]) []]
             ]
-          report = typeCheck emptyEnv stmts
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
           diags = reportDiagnostics report
       -- Should produce a diagnostic about undefined-fn
       length diags `shouldSatisfy` (> 0)
@@ -5230,7 +5230,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                         (EHole (HDelegate (DelegateSpec "agent" "task" TInt
                                             (Just (ELit (LitInt 0))))))
                     ]
-        let report = typeCheck emptyEnv stmts
+        let report = typeCheck GrammarCoreInversion emptyEnv stmts
         let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
         errs `shouldBe` []
 
@@ -5240,7 +5240,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                         (EHole (HDelegate (DelegateSpec "agent" "task" TString
                                             (Just (ELit (LitInt 0))))))
                     ]
-        let report = typeCheck emptyEnv stmts
+        let report = typeCheck GrammarCoreInversion emptyEnv stmts
         let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
         errs `shouldNotBe` []
 
@@ -5251,7 +5251,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                              (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))
                              (ELit (LitString "fallback")))
                     ]
-        let report = typeCheck emptyEnv stmts
+        let report = typeCheck GrammarCoreInversion emptyEnv stmts
         let errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
         errs `shouldNotBe` []
 
@@ -6140,7 +6140,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseStatements GrammarLegacy "<test>" src of
           Left err    -> expectationFailure (show err)
           Right stmts -> do
-            let report = typeCheck emptyEnv stmts
+            let report = typeCheck GrammarCoreInversion emptyEnv stmts
             let warns  = filter (\d -> diagSeverity d == SevWarning)
                                 (reportDiagnostics report)
             any (\d -> "dotted function name" `T.isInfixOf` diagMessage d) warns
@@ -6157,7 +6157,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let checkSrc src =
             case parseStatements GrammarLegacy "<test>" src of
               Left err -> Left (T.pack (show err))
-              Right stmts -> Right (typeCheck emptyEnv stmts)
+              Right stmts -> Right (typeCheck GrammarCoreInversion emptyEnv stmts)
           errorsOf rep =
             filter (\d -> diagSeverity d == SevError) (reportDiagnostics rep)
           anyMsg sub rep = any (\d -> sub `T.isInfixOf` diagMessage d) (errorsOf rep)
@@ -6224,7 +6224,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case parseJSONAST GrammarLegacy "<test>" src of
           Left err -> expectationFailure (show err)
           Right stmts -> do
-            let report = typeCheck emptyEnv stmts
+            let report = typeCheck GrammarCoreInversion emptyEnv stmts
             any (\d -> "type mismatch in '+'" `T.isInfixOf` diagMessage d)
                 (filter (\d -> diagSeverity d == SevError) (reportDiagnostics report))
               `shouldBe` True
@@ -6479,7 +6479,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
                       (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                       (EVar "n")]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             ints = [n | wc <- candidates, TrivConstInt n <- [wcTrivialBody wc]]
         ints `shouldBe` [0, 1, -1, 42]
 
@@ -6487,7 +6487,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefLogic "f" [("b", TBool)] (Just TBool)
                       (Contract Nothing Nothing (Just (EVar "result")) Nothing Nothing)
                       (EVar "b")]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             bools = [b | wc <- candidates, TrivConstBool b <- [wcTrivialBody wc]]
         bools `shouldBe` [True, False]
 
@@ -6495,7 +6495,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefLogic "f" [("s", TString)] (Just TString)
                       (Contract Nothing Nothing (Just (EApp ">" [EApp "string-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
                       (EVar "s")]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             strs = [s | wc <- candidates, TrivConstString s <- [wcTrivialBody wc]]
         strs `shouldBe` ["", "a"]
 
@@ -6503,7 +6503,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefLogic "f" [("xs", TList TInt)] (Just (TList TInt))
                       (Contract Nothing Nothing (Just (EApp ">=" [EApp "list-length" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
                       (EVar "xs")]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             listBodies = filter (\b -> case b of
                                           TrivConstEmptyList     -> True
                                           TrivConstListSingle _  -> True
@@ -6515,7 +6515,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefLogic "f" [("x", TInt)] (Just (TResult TInt TString))
                       (Contract Nothing Nothing (Just (EApp "is-ok" [EVar "result"])) Nothing Nothing)
                       (EApp "Success" [EVar "x"])]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             sums = filter (\b -> case b of
                                     TrivConstSuccess _ -> True
                                     TrivConstError     -> True
@@ -6527,7 +6527,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefLogic "f" [("a", TInt), ("b", TInt)] (Just (TPair TInt TInt))
                       (Contract Nothing Nothing (Just (EApp ">=" [EApp "first" [EVar "result"], ELit (LitInt 0)])) Nothing Nothing)
                       (EApp "pair" [EVar "a", EVar "b"])]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             pairs = [() | wc <- candidates, case wcTrivialBody wc of
                                               TrivConstPair{} -> True
                                               _               -> False]
@@ -6537,7 +6537,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
                       (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                       (EVar "n")]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             ids = [p | wc <- candidates, TrivIdentity p <- [wcTrivialBody wc]]
         ids `shouldBe` ["n"]
 
@@ -6680,7 +6680,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , STypeDef "Foo" TInt  -- non-contracted: should not appear in result
               ]
             stubSolver _wc = pure True  -- all candidates "satisfy" — yields score 0.0 + identity-satisfies-post
-        results <- computeCDPFor CDPScopeCoreOnly stubSolver Map.empty stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubSolver Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "f" results of
           Just r -> do
@@ -6708,7 +6708,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                     , EApp "-" [EVar "balance", EVar "amount"]])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
         length candidates `shouldSatisfy` (> 0)
 
       it "F6-2 (F-005) mRet=Nothing: int constants {0,1,-1,42} generated" $ do
@@ -6722,7 +6722,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                     , EApp "+" [EVar "n", EVar "n"]])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             ints = [i | wc <- candidates, TrivConstInt i <- [wcTrivialBody wc]]
         ints `shouldBe` [0, 1, -1, 42]
 
@@ -6734,7 +6734,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                     , EApp "+" [EVar "n", EVar "n"]])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             bools = [wc | wc <- candidates, case wcTrivialBody wc of
                                               TrivConstBool _ -> True
                                               _               -> False]
@@ -6748,7 +6748,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                     , EApp "+" [EVar "n", EVar "n"]])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
         length candidates `shouldSatisfy` (>= 5)
 
       it "F6-5 (F-006) b3::safe-first shape: candidate_count >= 2 with TrivConstInt 0 present" $ do
@@ -6761,7 +6761,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
         length candidates `shouldSatisfy` (>= 2)
         map wcTrivialBody candidates `shouldSatisfy` (TrivConstInt 0 `elem`)
 
@@ -6772,7 +6772,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (EVar "n")
               ]
-            candidates = generateCDPCandidates stmts
+            candidates = generateCDPCandidates GrammarCoreInversion stmts
             ints = [i | wc <- candidates, TrivConstInt i <- [wcTrivialBody wc]]
         ints `shouldBe` [0, 1, -1, 42]
 
@@ -6790,7 +6790,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               ]
             stubFail _wc = pure False
             verifMap = Map.fromList [("withdraw", True)]
-        results <- computeCDPFor CDPScopeCoreOnly stubFail verifMap stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubFail verifMap stmts
         case Map.lookup "withdraw" results of
           Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecTooTightForOmega `elem`)
           Nothing -> expectationFailure "expected entry for withdraw"
@@ -6805,7 +6805,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               ]
             stubPass _wc = pure True
             verifMap = Map.fromList [("compute-fee", True)]
-        results <- computeCDPFor CDPScopeCoreOnly stubPass verifMap stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass verifMap stmts
         case Map.lookup "compute-fee" results of
           Just r  -> do
             cdpWarnings r `shouldSatisfy` (WarnSpecTooTightForOmega `notElem`)
@@ -6822,7 +6822,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (ELit (LitInt 0))
               ]
             stubFail _wc = pure False
-        results <- computeCDPFor CDPScopeCoreOnly stubFail Map.empty stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubFail Map.empty stmts
         case Map.lookup "withdraw" results of
           Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `elem`)
           Nothing -> expectationFailure "expected entry for withdraw"
@@ -6838,7 +6838,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (EVar "n")
               ]
             stubPass _wc = pure True
-        results <- computeCDPFor CDPScopeCoreOnly stubPass Map.empty stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "g" results of
           Just r  -> cdpScore r `shouldSatisfy` (/= Nothing)
@@ -6852,7 +6852,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (EVar "n")
               ]
             stubPass _wc = pure True
-        results <- computeCDPFor CDPScopeCoreOnly stubPass Map.empty stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "h" results of
           Just r  -> do
@@ -6868,7 +6868,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (EVar "n")
               ]
             stubPass _wc = pure True
-        results <- computeCDPFor CDPScopeCoreOnly stubPass Map.empty stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "s" results of
           Just r  -> do
@@ -6884,7 +6884,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (EVar "n")
               ]
             stubPass _wc = pure True
-        results <- computeCDPFor CDPScopeAllDefLogic stubPass Map.empty stmts
+        results <- computeCDPFor GrammarCoreInversion CDPScopeAllDefLogic stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "legacy" results of
           Just r  -> cdpScore r `shouldSatisfy` (/= Nothing)
@@ -7016,7 +7016,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EOp "+" [EVar "x", EVar "y"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
         reportSuccess report `shouldBe` True
 
       it "INV-W2 SDef with let binding typechecks without error" $ do
@@ -7025,7 +7025,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = ELet [(PVar "x", Nothing, ELit (LitInt 1))]
                                             (EOp "+" [EVar "n", EVar "x"]) } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
         reportSuccess report `shouldBe` True
 
       it "INV-W3 SDef with if expression typechecks without error" $ do
@@ -7035,7 +7035,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defBody = EIf (EOp ">" [EVar "n", ELit (LitInt 0)])
                                           (EVar "n")
                                           (EOp "-" [ELit (LitInt 0), EVar "n"]) } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
         reportSuccess report `shouldBe` True
 
       it "INV-W4 SDefShell with lambda body has no core-grammar-violation" $ do
@@ -7043,7 +7043,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                 , defShellReturn = Nothing
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
                                 , defShellBody = ELambda [("x", TInt)] (EVar "x") } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-grammar-violation"]
 
@@ -7052,7 +7052,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EApp "string-length" [EVar "s"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-membership-violation"]
 
@@ -7065,7 +7065,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                (Just (EApp ">=" [EVar "n", ELit (LitInt 0)]))
                                Nothing Nothing
                            , defBody = EOp "+" [EVar "n", ELit (LitInt 1)] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-grammar-violation"]
         kinds `shouldNotContain` ["core-membership-violation"]
@@ -7078,7 +7078,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                 , defShellReturn = Nothing
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
                                 , defShellBody = EApp "helper" [EVar "n"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-membership-violation"]
 
@@ -7089,7 +7089,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = ELambda [("x", TInt)] (EVar "x") } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
 
@@ -7098,7 +7098,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EOp "*" [EVar "n", EVar "n"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
 
@@ -7107,7 +7107,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EAwait (EVar "p") } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
 
@@ -7116,7 +7116,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EDo [DoStep Nothing (ELit (LitInt 1))] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
 
@@ -7125,7 +7125,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EHole (HProofRequired "pending" Nothing) } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
 
@@ -7139,7 +7139,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EApp "helper" [EVar "n"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-membership-violation"]
 
@@ -7148,7 +7148,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EApp "string-length" [EVar "s"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-membership-violation"]
 
@@ -7157,7 +7157,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EApp "random-int" [EVar "lo", EVar "hi"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-membership-violation"]
 
@@ -7170,7 +7170,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EApp "sh" [EVar "n"] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-membership-violation"]
 
@@ -7183,7 +7183,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
                            , defBody = EApp "inc" [EApp "inc" [EVar "n"]] } ]
-            report = typeCheck emptyEnv stmts
+            report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-membership-violation"]
 

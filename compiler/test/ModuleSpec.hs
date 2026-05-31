@@ -94,7 +94,7 @@ moduleSpec = describe "Module System" $ do
             , defLogic "h" [("x", TInt)] (Just TInt) (EApp "f" [EVar "x"])
             ]
           cache = mkCache [modA_env]
-          report = typeCheckStrictWithCache cache emptyEnv entryStmts
+          report = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv entryStmts
       reportSuccess report `shouldBe` True
 
   -- -----------------------------------------------------------------------
@@ -109,7 +109,7 @@ moduleSpec = describe "Module System" $ do
             , defLogic "h" [("x", TInt)] (Just TInt) (EApp "f" [EVar "x"])
             ]
           cache = mkCache [modA_env]
-          report = typeCheckStrictWithCache cache emptyEnv entryStmts
+          report = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv entryStmts
       reportSuccess report `shouldBe` False
       -- Should have at least one error referencing unbound "f"
       let errs = filter ((== SevError) . diagSeverity) (reportDiagnostics report)
@@ -133,7 +133,7 @@ moduleSpec = describe "Module System" $ do
             , defLogic "h" [("x", TInt)] (Just TInt) (EApp "g" [EVar "x"])
             ]
           cache = mkCache [modA_export_env]
-          report = typeCheckStrictWithCache cache emptyEnv entryStmts
+          report = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv entryStmts
       reportSuccess report `shouldBe` False
 
   -- -----------------------------------------------------------------------
@@ -148,7 +148,7 @@ moduleSpec = describe "Module System" $ do
             , defLogic "h" [("x", TInt)] (Just TInt) (EApp "f" [EVar "x"])
             ]
           cache = mkCache [modA_env]
-          report_ok = typeCheckStrictWithCache cache emptyEnv entryStmts_ok
+          report_ok = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv entryStmts_ok
       reportSuccess report_ok `shouldBe` True
 
     it "(open modA (f)) leaves g unresolvable under strict typecheck" $ do
@@ -158,7 +158,7 @@ moduleSpec = describe "Module System" $ do
             , defLogic "h" [("x", TInt)] (Just TInt) (EApp "g" [EVar "x"])
             ]
           cache = mkCache [modA_env]
-          report_fail = typeCheckStrictWithCache cache emptyEnv entryStmts_fail
+          report_fail = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv entryStmts_fail
       reportSuccess report_fail `shouldBe` False
 
   -- -----------------------------------------------------------------------
@@ -175,7 +175,7 @@ moduleSpec = describe "Module System" $ do
             , defLogic "h" [("x", TInt)] (Just TInt) (EApp "f" [EVar "x"])
             ]
           cache = mkCache [modA_env, modE_env]
-          report = typeCheckStrictWithCache cache emptyEnv entryStmts
+          report = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv entryStmts
       -- Should have at least one warning with "open-shadow-warning" in the message.
       -- NOTE: tcWarn in TypeCheck.hs:609 leaves diagKind as Nothing,
       -- so we assert only on severity + message text.

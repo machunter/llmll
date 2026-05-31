@@ -201,12 +201,13 @@ overAnnotationRatio stmts =
 -- Returns a per-function map; entries are populated for every contracted
 -- function so the trust-report shape is uniform.
 computeCDPFor
-  :: CDPScope
+  :: GrammarMode
+  -> CDPScope
   -> (WeaknessCandidate -> IO Bool)
   -> Map Name Bool
   -> [Statement]
   -> IO (Map Name CDPResult)
-computeCDPFor scope runCandidate verifMap stmts = do
+computeCDPFor gm scope runCandidate verifMap stmts = do
   -- Split contracted functions into in-scope (measure) and out-of-scope
   -- (emit WarnDefShellOutOfScope, no solver call).  Per
   -- 'v0.11-cross-proposal-rollback-discipline.md' §2.1 (Outcome 0):
@@ -265,7 +266,7 @@ computeCDPFor scope runCandidate verifMap stmts = do
            , cdpSpecEntropyAnnotation = annotation
            }
 
-    candidatesFor n ss = filter (\wc -> wcFunctionName wc == n) (generateCDPCandidates ss)
+    candidatesFor n ss = filter (\wc -> wcFunctionName wc == n) (generateCDPCandidates gm ss)
     hasContracts (Contract pre _ post _ _) =
       pre /= Nothing || post /= Nothing
 

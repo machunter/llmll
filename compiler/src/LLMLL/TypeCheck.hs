@@ -12,7 +12,7 @@
 -- Dependent types (TDependent) are partially supported: the constraint
 -- expression is well-formedness checked but not evaluated at compile time.
 module LLMLL.TypeCheck
-  ( -- * Entry Points
+  ( -- * Entry Points (GrammarMode is always the first argument)
     typeCheck
   , typeCheckModule
   , typeCheckWithCache
@@ -368,15 +368,15 @@ tcEmitNonExhaustive typeName missing covered = do
     { tcErrors = tcErrors s ++ [mkNonExhaustiveMatch fn typeName missing covered] }
 
 -- | Run the type checker monad.
-runTC :: TypeEnv -> TC a -> (a, [Diagnostic])
-runTC env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False GrammarLegacy False)
+runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
+runTC gm env action =
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False)
   in (result, tcErrors st)
 
--- | Run the type checker in sketch mode — collects hole types.
-runTCSketch :: TypeEnv -> TC a -> (a, TCState)
-runTCSketch env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False GrammarLegacy False)
+-- | Run the type checker in sketch mode.
+runTCSketch :: GrammarMode -> TypeEnv -> TC a -> (a, TCState)
+runTCSketch gm env action =
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -446,9 +446,9 @@ emitAmbiguous name t1 t2 = do
 -- ---------------------------------------------------------------------------
 
 -- | Type-check a list of top-level statements.
-typeCheck :: TypeEnv -> [Statement] -> DiagnosticReport
-typeCheck env stmts =
-  let (_, diags) = runTC env (checkStatements stmts)
+typeCheck :: GrammarMode -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheck gm env stmts =
+  let (_, diags) = runTC gm env (checkStatements stmts)
       hasErrors  = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
     { reportPhase       = "typecheck"
@@ -457,21 +457,20 @@ typeCheck env stmts =
     }
 
 -- | Type-check a full Module.
-typeCheckModule :: TypeEnv -> Module -> DiagnosticReport
-typeCheckModule env m = typeCheck env (moduleBody m)
+typeCheckModule :: GrammarMode -> TypeEnv -> Module -> DiagnosticReport
+typeCheckModule gm env m = typeCheck gm env (moduleBody m)
 
 -- | Type-check with an existing ModuleCache.
 -- Seeds the TypeEnv with all qualified names from imported modules before
 -- running the standard single-file check. Empty cache = single-file path.
--- This is the Phase 2a cross-module entry point.
 -- v0.3: also seeds tcContractStatus for trust-gap warnings.
-typeCheckWithCache :: ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
-typeCheckWithCache = typeCheckWithCacheMode False
+typeCheckWithCache :: GrammarMode -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckWithCache gm = typeCheckWithCacheMode gm False
 
--- | v0.6.3: Strict typecheck — unbound vars, unknown fns are hard errors.
-typeCheckStrict :: TypeEnv -> [Statement] -> DiagnosticReport
-typeCheckStrict env stmts =
-  let (_, diags) = runTCStrict env (checkStatements stmts)
+-- | v0.6.3: Strict typecheck — unbound vars and unknown fns are hard errors.
+typeCheckStrict :: GrammarMode -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckStrict gm env stmts =
+  let (_, diags) = runTCStrict gm env (checkStatements stmts)
       hasErrors  = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
     { reportPhase       = "typecheck"
@@ -479,24 +478,24 @@ typeCheckStrict env stmts =
     , reportSuccess     = not hasErrors
     }
 
-runTCStrict :: TypeEnv -> TC a -> (a, [Diagnostic])
-runTCStrict env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True GrammarLegacy False)
+runTCStrict :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
+runTCStrict gm env action =
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False)
   in (result, tcErrors st)
 
 -- | v0.6.3: Strict typecheck with module cache.
-typeCheckStrictWithCache :: ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
-typeCheckStrictWithCache = typeCheckWithCacheMode True
+typeCheckStrictWithCache :: GrammarMode -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckStrictWithCache gm = typeCheckWithCacheMode gm True
 
--- | Internal: shared implementation for typeCheckWithCache and typeCheckStrictWithCache.
-typeCheckWithCacheMode :: Bool -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
-typeCheckWithCacheMode strict cache baseEnv stmts =
+-- | Internal: shared implementation for typeCheckWith(Strict)Cache(WithMode).
+typeCheckWithCacheMode :: GrammarMode -> Bool -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckWithCacheMode gm strict cache baseEnv stmts =
   let -- Inject qualified names from all cached modules
       seededEnv = Map.foldlWithKey' seedModule baseEnv cache
       -- v0.3: merge contract status from all cached modules (qualified names)
       seededCS  = Map.foldlWithKey' seedStatus Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [] strict GrammarLegacy False)
+        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -1625,11 +1624,10 @@ data SketchResult = SketchResult
 -- Accepts partial programs with holes everywhere. Returns each named hole's
 -- status (Typed / Ambiguous / Unknown) and JSON Pointer, plus any type errors.
 -- v0.4: Also matches function signatures against the invariant pattern registry.
-runSketch :: TypeEnv -> [Statement] -> [InvariantPattern] -> SketchResult
-runSketch env stmts patterns =
+runSketch :: GrammarMode -> TypeEnv -> [Statement] -> [InvariantPattern] -> SketchResult
+runSketch gm env stmts patterns =
   let action          = checkStatements stmts
-      (_, finalState) = runTCSketch env action
-      -- v0.4: Match each def-logic / letrec against invariant patterns
+      (_, finalState) = runTCSketch gm env action
       invariants = concatMap (matchStmt (tcEnv finalState)) stmts
   in SketchResult
        { sketchHoles      = reverse (tcHoles finalState)

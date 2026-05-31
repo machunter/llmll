@@ -190,7 +190,7 @@ handleTypecheck req = do
         Left msg -> pure $ respond400 msg
         Right stmts ->
           -- Fresh TCState per request: stateless by construction (spec invariant 2)
-          let report = typeCheck emptyEnv stmts
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
           in pure $ respondOK $ encode $ object
                [ "success"     .= reportSuccess report
                , "diagnostics" .= reportDiagnostics report ]
@@ -207,7 +207,7 @@ handleSketch req = do
         Left msg -> pure $ respond400 msg
         Right stmts ->
           -- Fresh runSketch call per request; trivially concurrent (no shared state)
-          let result = runSketch emptyEnv stmts defaultPatterns
+          let result = runSketch GrammarCoreInversion emptyEnv stmts defaultPatterns
           in pure $ respondOK (encodeSketchResult result)
 
 -- ---------------------------------------------------------------------------

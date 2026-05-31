@@ -179,7 +179,7 @@ loadFromFile gm _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
           let importedEnvs = mapMaybe
                 (\imp -> Map.lookup (splitDotted (importPath imp)) cache1) imports
               baseEnv = mergeModuleEnvs importedEnvs emptyEnv
-              report  = typeCheck baseEnv stmts
+              report  = typeCheck gm baseEnv stmts
               env0    = buildModuleEnv modPath stmts baseEnv
           -- v0.3: merge sidecar .verified.json to upgrade contract statuses
           sidecar <- loadVerified fp

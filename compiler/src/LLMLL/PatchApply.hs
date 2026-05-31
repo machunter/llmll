@@ -257,7 +257,7 @@ applyPatch mode fp pr = do
                           }
                         Right stmts -> do
                           -- 6. Re-typecheck
-                          let report = typeCheck emptyEnv stmts
+                          let report = typeCheck mode emptyEnv stmts
                           if reportSuccess report
                             then do
                               -- 6.5 Re-verify via SMT (if contracts present)

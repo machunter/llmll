@@ -140,15 +140,15 @@ data WeaknessCandidate = WeaknessCandidate
 --   2. For each function, generate the trivial body catalog
 --   3. Type-check each synthetic statement (INV-4)
 --   4. Keep only type-safe candidates
-generateWeaknessCandidates :: [Statement] -> [WeaknessCandidate]
-generateWeaknessCandidates stmts = concatMap (generateForStmt stmts legacyCatalog) stmts
+generateWeaknessCandidates :: GrammarMode -> [Statement] -> [WeaknessCandidate]
+generateWeaknessCandidates gm stmts = concatMap (generateForStmt gm stmts legacyCatalog) stmts
 
 -- | LT-CDP (v0.11) — closed candidate enumeration per
 -- 'contract-discriminative-power-proposal.md' §4.3.1. Same per-function
 -- contract-and-typecheck workflow as 'generateWeaknessCandidates'; the
 -- catalog is the widened set that drives the counted DP measurement.
-generateCDPCandidates :: [Statement] -> [WeaknessCandidate]
-generateCDPCandidates stmts = concatMap (generateForStmt stmts cdpCatalog) stmts
+generateCDPCandidates :: GrammarMode -> [Statement] -> [WeaknessCandidate]
+generateCDPCandidates gm stmts = concatMap (generateForStmt gm stmts cdpCatalog) stmts
 
 -- | Walk one statement and produce candidates per the supplied catalog
 -- builder. Statements without contracts produce no candidates.
@@ -157,24 +157,25 @@ generateCDPCandidates stmts = concatMap (generateForStmt stmts cdpCatalog) stmts
 -- (F-006: functions with custom-type-alias params produced zero candidates
 -- because the alias was absent from the synthetic check's tcAliasMap).
 generateForStmt
-  :: [Statement]
+  :: GrammarMode
+  -> [Statement]
   -> ([(Name, Type)] -> Maybe Type -> [TrivialBody])
   -> Statement
   -> [WeaknessCandidate]
-generateForStmt allStmts catalog (SDefLogic name params mRet contract _body)
+generateForStmt gm allStmts catalog (SDefLogic name params mRet contract _body)
   | hasContracts contract =
-      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
-generateForStmt allStmts catalog (SLetrec name params mRet contract _dec _body)
+      mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
+generateForStmt gm allStmts catalog (SLetrec name params mRet contract _dec _body)
   | hasContracts contract =
-      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
+      mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
 -- LT-INV (v0.11): SDef and SDefShell contribute to weakness check identically.
-generateForStmt allStmts catalog (SDef name params mRet contract _body)
+generateForStmt gm allStmts catalog (SDef name params mRet contract _body)
   | hasContracts contract =
-      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
-generateForStmt allStmts catalog (SDefShell name params mRet contract _body)
+      mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
+generateForStmt gm allStmts catalog (SDefShell name params mRet contract _body)
   | hasContracts contract =
-      mapMaybe (tryCandidate allStmts name params mRet contract) (catalog params mRet)
-generateForStmt _ _ _ = []
+      mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
+generateForStmt _ _ _ _ = []
 
 -- | Does this contract have at least one clause?
 hasContracts :: Contract -> Bool
@@ -272,14 +273,15 @@ compatibleTypes a b = a == b
 -- | Try to construct a type-safe weakness candidate.
 -- Returns Nothing if the type checker rejects the synthetic body (INV-4).
 tryCandidate
-  :: [Statement]
+  :: GrammarMode
+  -> [Statement]
   -> Name
   -> [(Name, Type)]
   -> Maybe Type
   -> Contract
   -> TrivialBody
   -> Maybe WeaknessCandidate
-tryCandidate allStmts name params mRet contract trivBody =
+tryCandidate gm allStmts name params mRet contract trivBody =
   let syntheticBody = trivialExpr trivBody
       syntheticStmt = SDefLogic
         ("__weakness_check_" <> name)
@@ -295,7 +297,7 @@ tryCandidate allStmts name params mRet contract trivBody =
       -- structuralUnify emits a false type-mismatch error on the
       -- pre-condition, filtering every candidate (F-006).
       typeDefs = [s | s@STypeDef{} <- allStmts]
-      report = typeCheck builtinEnv (typeDefs ++ [syntheticStmt])
+      report = typeCheck gm builtinEnv (typeDefs ++ [syntheticStmt])
       hasErrors = any (\d -> diagSeverity d == SevError) (reportDiagnostics report)
   in if hasErrors
      then Nothing  -- type-incompatible trivial body, skip silently
