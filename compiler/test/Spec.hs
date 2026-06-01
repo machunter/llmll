@@ -798,7 +798,7 @@ main = hspec $ do
               dec `shouldBe` EVar "n"
             _ -> expectationFailure "Expected SLetrec"
 
-    it "self-recursive def-logic emits self-recursion warning" $ do
+    it "self-recursive def-logic emits self-recursion warning under GrammarLegacy" $ do
       let src = T.pack $ unlines
             [ "(def-logic count-down [n: int]"
             , "  (if (= n 0) 0 (count-down (- n 1))))"
@@ -806,7 +806,7 @@ main = hspec $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let report = typeCheck GrammarCoreInversion emptyEnv stmts
+          let report = typeCheck GrammarLegacy emptyEnv stmts
           let warns = filter (\d -> diagSeverity d == SevWarning
                                  && T.isInfixOf "self-recursive" (diagMessage d))
                              (reportDiagnostics report)
@@ -815,6 +815,17 @@ main = hspec $ do
     it "letrec self-call does NOT emit self-recursion warning" $ do
       let src = "(letrec count-down [n: int] :decreases n (if (= n 0) 0 (count-down (- n 1))))"
       case parseStatements GrammarLegacy "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck GrammarLegacy emptyEnv stmts
+          let warns = filter (\d -> diagSeverity d == SevWarning
+                                 && T.isInfixOf "self-recursive" (diagMessage d))
+                             (reportDiagnostics report)
+          warns `shouldBe` []
+
+    it "def-shell self-recursive does NOT emit self-recursion warning under GrammarCoreInversion" $ do
+      let src = "(def-shell count-down [n: int] (if (= n 0) 0 (count-down (- n 1))))"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
