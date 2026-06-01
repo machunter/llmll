@@ -71,7 +71,7 @@ LLMLL's operational semantics are defined by the generated Haskell program. The 
 
 ### 2.1 Basic Tokens
 
-- **Keywords:** `module`, `import`, `def-logic`, `def-interface`, `type`, `let`, `if`, `match`, `check`, `pre`, `post`, `for-all`, `gen`, `pair`, `fn`, `where`, `await`, `do`.
+- **Keywords:** `module`, `import`, `def`, `def-shell`, `def-interface`, `type`, `let`, `if`, `match`, `check`, `pre`, `post`, `for-all`, `gen`, `pair`, `fn`, `where`, `await`, `do`. Under `--grammar=legacy` only: `def-logic`, `letrec`.
 - **Reserved identifiers:** `result` (see §4.2), `unit`, `true`, `false`.
 - **Primitive types:** `int`, `float`, `string`, `bool`, `unit`.
 - **Holes:** Always start with `?` (e.g., `?logic_name`, `?choose(option1, option2)`).
@@ -138,7 +138,7 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | Type names | **PascalCase** | `Ledger`, `Balance`, `PositiveInt` |
 | Constructor / variant names | **PascalCase** | `Success`, `Error`, `Ok` |
 | Boolean predicates | **kebab-case + trailing `?`** | `empty?`, `string-empty?`, `is-game-over?` |
-| Built-in keywords and builtins | **kebab-case** (no underscore) | `def-logic`, `for-all`, `map-get`, `list-empty` |
+| Built-in keywords and builtins | **kebab-case** (no underscore) | `def`, `def-shell`, `for-all`, `map-get`, `list-empty` |
 | Reserved identifiers | **lowercase** | `result`, `unit`, `true`, `false` |
 
 **Cross-language API spec translation.** When a language-neutral problem statement uses snake_case (`create_ledger`, `total_balance`) or camelCase (`createLedger`), the LLMLL solution must transliterate to kebab-case: `create-ledger`, `total-balance`. The grammar **accepts** snake_case and camelCase identifiers, but the canonical examples and built-in surface use only kebab-case; emitting non-kebab identifiers produces parseable but non-idiomatic LLMLL.
@@ -320,78 +320,85 @@ All four preconditions are load-bearing:
 
 ## 4. Logic Structures & Design by Contract
 
-### 4.1 `def-logic` (Pure Functions)
+### 4.1 Function Declarations (`def` and `def-shell`)
 
-All logic is contained in pure functions declared with `def-logic`. Functions are stateless: they take inputs and return a value. They cannot mutate state or perform IO directly.
+All LLMLL functions are **stateless**: they take inputs and return a value. They cannot mutate state or perform IO directly (IO-capable functions route their effects through `Command` values and the `def-main` shell — see §9).
 
-Under `--grammar=core-inversion`, the keyword `def-logic` is rejected at parse time (exit 1, `core-grammar-violation` diagnostic); use `def` for the strict-core form or `def-shell` for the permissive form.
+Two declaration forms are available under the default grammar (`GrammarCoreInversion`):
 
-> **Note (v0.11 LT-INV):** Under `--grammar=core-inversion`, the strict-core equivalent of `def-logic` is `def`, which restricts the function body to a whitelist of verifiable constructs (linear-arithmetic `EOp`, `ELet`, `EIf`, `EApp` to admitted callees, `EMatch` on `Result` 2-arm). The permissive form is `def-shell` (no body restriction). Both parse only when `--grammar=core-inversion` is active. Under `--grammar=core-inversion`, `def-logic` and `letrec` are **not accepted**: the compiler emits a `core-grammar-violation` diagnostic and exits non-zero. **`GrammarCoreInversion` is now the default** (CE-3, EL-5 gate confirmed 2026-05-30). Use `--grammar=legacy` to parse v0.10 `def-logic` / `letrec` programs. Under `--grammar=legacy`, `def` and `def-shell` are unavailable. See [`docs/getting-started.md §4.14`](docs/getting-started.md) for a worked example and `LLMLL.md §12` for the EBNF.
+| Keyword | AST node | Body restriction | Verification tier reachable |
+|---------|----------|-----------------|----------------------------|
+| `def` | `SDef` | Strict-core whitelist (QF-LIA arithmetic, `ELet`, `EIf`, `EMatch` on `Result` 2-arm, `EApp` to admitted callees — see §5.3.5) | `verified` (body-faithful SMT) |
+| `def-shell` | `SDefShell` | None | `contract-checked`, `tested`, `asserted` |
+
+**Syntax (both forms are identical):**
 
 ```lisp
-(def-logic function-name [param1: Type1 param2: Type2]
+(def function-name [param1: Type1 param2: Type2]
   (pre  boolean-expression)   ;; optional precondition
   (post boolean-expression)   ;; optional postcondition
   body-expression)             ;; the return value
 ```
 
-**Return type is always inferred.** Do not write a return type annotation — none exists in the syntax.
+```lisp
+(def-shell function-name [param1: Type1 param2: Type2]
+  (pre  boolean-expression)   ;; optional
+  (post boolean-expression)   ;; optional
+  body-expression)
+```
 
-**Complete example:**
+**Return type is always inferred.** Neither `def` nor `def-shell` accepts a return-type annotation.
+
+**When to use `def` vs `def-shell`.** Use `def` when the function body is composed exclusively of linear arithmetic, `let` bindings, conditionals, pair operations, `Result` 2-arm matching, and calls to builtins or body-faithfully verified functions. The typechecker enforces this at compile time and emits `core-grammar-violation` or `core-membership-violation` on non-admitted constructs. Use `def-shell` for everything else: functions that use lambdas (`fn`), call user-defined functions from the same module, perform IO via `wasi.*`, contain `?proof-required` holes, or are self-recursive.
+
+**Complete `def` example:**
 
 ```lisp
-(def-logic withdraw [balance: int amount: PositiveInt]
+(def withdraw [balance: int amount: PositiveInt]
   (pre  (>= balance amount))
   (post (= result (- balance amount)))
   (- balance amount))
 ```
 
-### 4.2 `letrec` (Recursive Functions with Termination Measures)
-
-Self-recursive functions must be declared with `letrec`, not `def-logic`. The `:decreases` measure is **required** — the compiler verifies that the measure expression is well-founded (`measure ≥ 0`) via `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) is **not yet verified** — it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7).
+**Complete `def-shell` example:**
 
 ```lisp
-(letrec function-name [param1: Type1 ...]
-  :decreases decrease-expr   ;; required: checked for well-foundedness (≥ 0)
-  (pre  boolean-expression)  ;; optional
-  (post boolean-expression)  ;; optional
-  body-expression)
+(def-shell format-greeting [name: string count: int]
+  (string-concat "Hello " (string-concat name (string-concat " x" (int-to-string count)))))
 ```
 
-**Example:**
+> **Legacy grammar.** Under `--grammar=legacy`, the keyword `def-logic` is accepted in place of `def` or `def-shell` and is parsed as `SDefLogic` (semantically equivalent to `def-shell`; no body restriction enforced). `def-logic` is rejected under the default `GrammarCoreInversion` with a `core-grammar-violation` diagnostic. `def` and `def-shell` are not available under `--grammar=legacy`. See [`docs/getting-started.md §4.14`](docs/getting-started.md) for a worked example and `LLMLL.md §12` for the EBNF.
+
+### 4.2 Recursive Functions (`def-shell`)
+
+Self-recursive functions are declared with `def-shell`. The self-call is a user-defined callee and fails the `def` callee-admissibility predicate (`compiler/src/LLMLL/TypeCheck.hs:347-361`), so recursion is outside the strict-core fragment. No `:decreases` annotation is required or available under the default grammar.
 
 ```lisp
-(letrec countdown [n: int]
-  :decreases n
+(def-shell countdown [n: int]
   (if (= n 0) 0 (countdown (- n 1))))
 ```
 
-- A **simple variable** measure (`:decreases n`) is checked for well-founded domain membership (`n ≥ 0`) by `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) is not yet verified; it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7).
-- A **complex expression** (`:decreases (- n 1)`) emits a `?proof-required(complex-decreases)` hole — non-blocking, but the solver skips that function.
-- Using `def-logic` for a self-recursive function emits a **self-recursion warning**. `letrec` is the correct verified form.
+**Partial-correctness caveat.** The verifier proves postconditions under the assumption the function terminates — strict recursive descent is not discharged (see [`docs/design/verification-debate.md`](docs/design/verification-debate.md) Q4 "Where is totality enforced?"). The trust report does not currently emit an automatic flag for self-recursive `def-shell` functions; authors should apply `:trust tested` or verify postconditions with property-based tests when termination is not obvious.
 
-> [!IMPORTANT]
-> **Partial-correctness reading.** Because strict recursive descent is not discharged in v0.10, postconditions on `letrec` functions hold **conditionally on termination**: the verifier proves *if the function returns, then the postcondition holds* (standard partial-correctness reading; see [`docs/design/verification-debate.md`](docs/design/verification-debate.md) Q4 "Where is totality enforced?"). The trust report flags `letrec`-derived `verified` claims as partial-correctness when the descent obligation is unfulfilled. Total-correctness reasoning awaits the call-site strict-descent encoding tracked at [`docs/research-track.md`](docs/research-track.md) §7.
+**Mutual recursion** follows the same rule: all mutually recursive functions are `def-shell`.
 
-`pre`/`post` contracts on `letrec` behave identically to `def-logic` (see §4.3–4.4).
+> **Legacy grammar (`--grammar=legacy`).** The `letrec` form is available and provides an explicit `:decreases` termination measure that is checked for well-foundedness (`measure ≥ 0`) by `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) remains a research-track item. The trust report flags `letrec`-derived `verified` claims as partial-correctness when the descent obligation is unfulfilled. Under the default `GrammarCoreInversion`, `letrec` is rejected with a `core-grammar-violation` diagnostic.
+
+`pre`/`post` contracts on recursive `def-shell` functions behave identically to non-recursive ones (see §4.3–4.4).
 
 ### 4.3 The `result` Keyword in `post` Clauses
 
 Inside a `post` clause, the identifier `result` is **automatically bound to the return value of the function body**. It is a compile error to use `result` anywhere else (including `pre` clauses, `let` bindings, or as a parameter name).
 
 ```lisp
-(def-logic double [x: int]
+(def double [x: int]
   (post (= result (* x 2)))  ;; `result` = the value returned by the body
-  (* x 2))
+  (+ x x))                   ;; body uses (+ x x); (* x 2) is nonlinear and not admitted in def bodies
 
 ;; ILLEGAL — result in pre:
-(def-logic bad [x: int]
+(def bad [x: int]
   (pre (> result 0))   ;; COMPILE ERROR: result not in scope here
   x)
-
-;; ILLEGAL — result as parameter name:
-(def-logic also-bad [result: int]   ;; COMPILE ERROR: reserved keyword
-  result)
 ```
 
 ### 4.4 Contract Semantics
@@ -417,8 +424,8 @@ contract-checked  tested
 | Level | Meaning | When assigned |
 |-------|---------|---------------|
 | `verified` | Body-faithful SMT proof: the solver proved the function body satisfies the contract for all well-typed inputs. | `llmll verify` reports SAFE and the function's body VC was emitted |
-| `contract-checked` | The solver proved contract consistency (pre ⇒ post is valid — holds for all models of the contract pair), but the function body was not encoded as a VC. | `llmll verify` reports SAFE for a fallback function (non-QF-LIA body, `letrec`, path-limit exceeded) |
-| `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` reports `pass` and the property body resolves to a singleton head-position contracted callee under the PBT-Lift rule in §4.4.5 (a unique `def-logic`/`letrec` reachable as an `EApp` operator inside `propBody` whose contract has a `post` clause). Multi-subject properties produce a diagnostic and no lift. Also assignable via `:trust tested` source annotation. |
+| `contract-checked` | The solver proved contract consistency (pre ⇒ post is valid — holds for all models of the contract pair), but the function body was not encoded as a VC. | `llmll verify` reports SAFE for a fallback function (non-QF-LIA body, path-limit exceeded, or self-recursive `def-shell`) |
+| `tested` | Not formally proven, but not falsified by property-based testing. Trust is proportional to sample coverage. | `llmll test` reports `pass` and the property body resolves to a singleton head-position contracted callee under the PBT-Lift rule in §4.4.5 (a unique `def` or `def-shell` reachable as an `EApp` operator inside `propBody` whose contract has a `post` clause). Multi-subject properties produce a diagnostic and no lift. Also assignable via `:trust tested` source annotation. |
 | `asserted` | Enforced as a runtime assertion only. No static or dynamic evidence of correctness beyond the assertion itself. | Default for any contract not yet run through `verify` or `test` |
 
 `contract-checked` and `tested` are **incomparable** — neither implies the other. Their meet (greatest lower bound) is `asserted`. This prevents a `tested`-only function from being silently treated as equivalent to a solver-checked function, or vice versa.
@@ -467,7 +474,7 @@ The downstream module can acknowledge the gap explicitly:
 
 This silences the warning and makes the trust decision visible in source. An agent auditing module B can enumerate all `(trust ...)` declarations to see which unproven contracts it depends on.
 
-`(trust ...)` declarations follow `import` semantics — per-function, multiple declarations per module, must appear before any `def-logic`. Duplicate declarations for the same function are idempotent (not an error).
+`(trust ...)` declarations follow `import` semantics — per-function, multiple declarations per module, must appear before any `def` or `def-shell`. Duplicate declarations for the same function are idempotent (not an error).
 
 When the sidecar `.verified.json` file is missing for an imported module, all contracts default to `asserted`.
 
