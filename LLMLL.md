@@ -1029,10 +1029,10 @@ A `(module Name ...)` declaration is accepted at the top of any file. The module
   (import wasi.io (capability stdin  :deterministic true))
   (import wasi.io (capability stdout :deterministic false))
 
-  ;; Module body: type declarations, def-logic, def-interface, check, gen
+  ;; Module body: type declarations, def/def-shell, def-interface, check, gen
   (type Word (where [s: string] (> (string-length s) 0)))
 
-  (def-logic game-won? [state: GameState]
+  (def-shell game-won? [state: GameState]
     (all-guessed? (state-word state) (state-guessed state))))
 ```
 
