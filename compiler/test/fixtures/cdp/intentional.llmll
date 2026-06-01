@@ -1,8 +1,8 @@
-; LT-CDP (v0.11) fixture — (spec-entropy :intentional) suppression.
-; Cache lookup: the contract intentionally admits any (ok|error) result; the
-; (spec-entropy :intentional) annotation suppresses the over-permissive
-; diagnostic while still reporting the score.
-(def-logic cache-lookup [k: int] -> int
+;;LT-CDP (v0.11) fixture — (spec-entropy :intentional) suppression.
+;;Cache lookup: the contract intentionally admits any (ok|error) result; the
+;;(spec-entropy :intentional) annotation suppresses the over-permissive
+;;diagnostic while still reporting the score.
+(def-shell cache-lookup [k: int]
   (post (>= result 0))
   (spec-entropy :intentional)
   k)

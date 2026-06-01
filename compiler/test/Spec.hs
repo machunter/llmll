@@ -6576,30 +6576,30 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "C12-C15 (spec-entropy ...) annotation parse + roundtrip" $ do
       it "C12 S-exp parser accepts :strict :intentional :unknown" $ do
         let src = T.unlines
-              [ "(def-logic f [n: int] (post (>= result 0)) (spec-entropy :strict) n)"
-              , "(def-logic g [n: int] (post (>= result 0)) (spec-entropy :intentional) n)"
-              , "(def-logic h [n: int] (post (>= result 0)) (spec-entropy :unknown) n)"
+              [ "(def-shell f [n: int] (post (>= result 0)) (spec-entropy :strict) n)"
+              , "(def-shell g [n: int] (post (>= result 0)) (spec-entropy :intentional) n)"
+              , "(def-shell h [n: int] (post (>= result 0)) (spec-entropy :unknown) n)"
               ]
-        case parseStatements GrammarLegacy "<test>" src of
+        case parseStatements GrammarCoreInversion "<test>" src of
           Right stmts ->
-            map (\(SDefLogic _ _ _ c _) -> contractSpecEntropy c) stmts
+            map (\(SDefShell _ _ _ c _) -> contractSpecEntropy c) stmts
               `shouldBe` [Just SpecEntropyStrict, Just SpecEntropyIntentional, Just SpecEntropyUnknown]
           Left e -> expectationFailure (show e)
 
       it "C13 absent annotation defaults to Nothing on Contract" $ do
-        case parseStatements GrammarLegacy "<test>" "(def-logic f [n: int] (post (>= result 0)) n)" of
-          Right [SDefLogic _ _ _ c _] -> contractSpecEntropy c `shouldBe` Nothing
+        case parseStatements GrammarCoreInversion "<test>" "(def-shell f [n: int] (post (>= result 0)) n)" of
+          Right [SDefShell _ _ _ c _] -> contractSpecEntropy c `shouldBe` Nothing
           other -> expectationFailure (show other)
 
       it "C14 JSON-AST accepts spec_entropy string" $ do
-        let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
-        case parseJSONAST GrammarLegacy "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
-          Right [SDefLogic _ _ _ c _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
+        let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
+          Right [SDefShell _ _ _ c _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
           other -> expectationFailure (show other)
 
       it "C15 JSON-AST rejects unknown spec_entropy value" $ do
-        let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"bogus\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
-        case parseJSONAST GrammarLegacy "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
+        let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"bogus\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
           Left _ -> pure ()  -- expected: parse rejects unknown label
           Right _ -> expectationFailure "expected parse error on unknown spec_entropy value"
 

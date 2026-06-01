@@ -1,9 +1,9 @@
-; LT-CDP (v0.11) fixture — low-DP function (identity-satisfies-post).
-; The postcondition (or (= result n) (>= result 0)) is too permissive: the
-; trivial identity body (fn n n) and the trivial constant body 0 both satisfy
-; the contract, so DP should be near 0 and the warnings field includes
-; "identity-satisfies-post" + "const-satisfies-post".
-(def-logic permissive-return [n: int] -> int
+;;LT-CDP (v0.11) fixture — low-DP function (identity-satisfies-post).
+;;The postcondition (or (= result n) (>= result 0)) is too permissive: the
+;;trivial identity body (fn n n) and the trivial constant body 0 both satisfy
+;;the contract, so DP should be near 0 and the warnings field includes
+;;"identity-satisfies-post" + "const-satisfies-post".
+(def permissive-return [n: int]
   (pre  (>= n 0))
   (post (or (= result n) (>= result 0)))
   n)
