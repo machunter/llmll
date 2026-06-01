@@ -1223,7 +1223,7 @@ The `occursIn` helper is structurally total over the `Type` ADT, including `TSum
 
 #### Let-generalization
 
-Top-level `def-logic` and `letrec` functions are let-generalized: each call site gets its own fresh type variable instantiation. TVar-TVar wildcard closure ensures type variable bindings propagate through chains, and bound-TVar consistency uses recursive `structuralUnify` instead of `compatibleWith`.
+Top-level `def`, `def-shell`, `def-logic` (legacy), and `letrec` (legacy) functions are let-generalized: each call site gets its own fresh type variable instantiation. TVar-TVar wildcard closure ensures type variable bindings propagate through chains, and bound-TVar consistency uses recursive `structuralUnify` instead of `compatibleWith`.
 
 ```lisp
 ;; ✅ Polymorphic function works at independent call sites:
@@ -1235,7 +1235,7 @@ Top-level `def-logic` and `letrec` functions are let-generalized: each call site
 ```
 
 > [!NOTE]
-> **Known limitation:** Let-generalization applies to top-level `def-logic` and `letrec` functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for a future release.
+> **Known limitation:** Let-generalization applies to top-level `def`, `def-shell`, `def-logic` (legacy), and `letrec` (legacy) functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for a future release.
 
 > [!NOTE]
 > **L1055 asymmetric wildcard:** The asymmetric wildcard at line 1055 of `TypeCheck.hs` is documented as safe under per-call-site scoping (Language Team Issue 3). Each `EApp` gets fresh type variables, so the asymmetry does not leak across call boundaries.

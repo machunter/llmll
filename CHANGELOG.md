@@ -24,7 +24,8 @@
 
 ### Doc lead — getting-started.md §1–§4.13 def-logic/letrec prose canonicalization (2026-06-01)
 
-- **`docs/getting-started.md §1–§4.13`: prose references to `def-logic` and `letrec` updated** to name `def`/`def-shell` as canonical and `def-logic`/`letrec` as `--grammar=legacy`-only forms. Seven prose sites updated; code-block examples left untouched (stale code-block findings are compiler-engineer scope). §4.10 section heading and prose rewritten around the existing `letrec` code blocks; §4.11 `?proof-required(complex-decreases)` table row qualified; §3 coverage sentence updated; §4.7 import-ordering table and blockquote prose updated; §4.8 export-ordering prose updated; §4.15+ occurrences deferred. No test count delta. No schema delta.
+- **`docs/getting-started.md §1–§4.13`: prose references to `def-logic` and `letrec` updated** to name `def`/`def-shell` as canonical and `def-logic`/`letrec` as `--grammar=legacy`-only forms. Seven prose sites updated; code-block examples left untouched (stale code-block findings are compiler-engineer scope). §4.10 section heading and prose rewritten around the existing `letrec` code blocks; §4.11 `?proof-required(complex-decreases)` table row qualified; §3 coverage sentence updated; §4.7 import-ordering table and blockquote prose updated; §4.8 export-ordering prose updated. No test count delta. No schema delta.
+- **`docs/getting-started.md §4.15+`: two remaining prose sites updated.** `§4.17` let-generalization sentence and `§4.17` `Known limitation` NOTE updated: `def-logic`/`letrec` → `def`/`def-shell` (canonical) plus `def-logic`/`letrec` (legacy). Six stale `def-logic` code-block examples in §4.15–§4.19 deferred to compiler-engineer pass.
 
 ### Compiler — self-recursion warning gated to GrammarLegacy (2026-05-31)
 
