@@ -164,7 +164,7 @@ Output layout:
 generated/hangman_json/
   package.yaml     ← hpack descriptor
   stack.yaml       ← GHC 9.6.6 pin
-  src/Lib.hs       ← all def-logic, types, builtins preamble
+  src/Lib.hs       ← all def/def-shell, types, builtins preamble
   src/Main.hs      ← runtime harness (only if def-main present)
 ```
 
@@ -256,7 +256,7 @@ stack exec llmll -- verify file.llmll --weakness-check
 # ✅ hangman.llmll — SAFE (liquid-fixpoint)
 # ⚠ Spec weakness detected for `sort-list`:
 #   Your contract: (post (= (list-length result) (list-length input)))
-#   Trivial valid implementation: (def-logic sort-list [input: list[int]] input)
+#   Trivial valid implementation: (def sort-list [input: list[int]] input)
 #   Consider strengthening the postcondition.
 
 # Contract Discriminative Power (v0.11 LT-CDP) — counted spec-strength metric:
@@ -330,7 +330,7 @@ Each example with a JSON-AST verifier includes a `VERIFICATION_SCOPE.md` file do
 Contracts can carry a `:source` annotation linking each clause to an external standard or specification:
 
 ```lisp
-(def-logic transfer [from: string to: string amount: int]
+(def-shell transfer [from: string to: string amount: int]
   (pre (>= amount 0)
     :source "ERC-20 §transfer — amount must be non-negative")
   (post (= (total-supply result) (total-supply state))
@@ -635,7 +635,7 @@ These patterns work in the **current compiler**. Each shows what works today and
 
 ```lisp
 (type NonNeg (where [n: int] (>= n 0)))
-(def-logic use-nonneg [x: NonNeg] x)
+(def use-nonneg [x: NonNeg] x)
 ```
 
 Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to its base `int` before unification.
@@ -737,11 +737,11 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 > (module my-app
 >   (import wasi.io stdout)
 >   (import haskell.aeson Data.Aeson)
->   (def-logic greet [name: string] (wasi.io.stdout name)))
+>   (def-shell greet [name: string] (wasi.io.stdout name)))
 >
-> ;; WRONG — import after def-logic is ignored:
+> ;; WRONG — import after def-shell is ignored:
 > (module my-app
->   (def-logic greet [name: string] (wasi.io.stdout name))
+>   (def-shell greet [name: string] (wasi.io.stdout name))
 >   (import wasi.io stdout))   ;; ← ignored, wasi.io.stdout unknown
 > ```
 
@@ -1005,7 +1005,7 @@ The compiler emits a hint when it detects the `\x1b` pattern:
 **S-expression:** uses Haskell-style escapes. `\uXXXX` is now also supported:
 
 ```lisp
-(def-logic clear-screen [] "\u001b[2J\u001b[H")
+(def clear-screen [] "\u001b[2J\u001b[H")
 ```
 
 ---
@@ -1047,7 +1047,7 @@ The binding head of a `let` form can be a **pattern** instead of a simple name, 
 
 ```lisp
 ;; S-expression: (pair p1 p2) pattern in let binding
-(def-logic use-pair [x: int]
+(def use-pair [x: int]
   (let [((pair n msg) (make-pair x))]
     (string-concat msg (int-to-string n))))
 ```
@@ -1055,7 +1055,7 @@ The binding head of a `let` form can be a **pattern** instead of a simple name, 
 Nested destructuring is supported:
 
 ```lisp
-(def-logic use-nested [w: string g: int r: bool]
+(def use-nested [w: string g: int r: bool]
   (let [((pair word (pair count flag)) (make-triple w g r))]
     (if flag
       (string-concat word (int-to-string count))
@@ -1093,7 +1093,7 @@ When a `let` binding's RHS is a complex expression (delegation, `await`, functio
 
 ```lisp
 ;; ✅ CORRECT — each step is a separate let binding:
-(def-logic build-report [state: AppState data: ReportData]
+(def-shell build-report [state: AppState data: ReportData]
   (let [(chart-future (?delegate-async @viz-agent
                          "Render a bar chart from data"
                          -> ImageBytes))]
@@ -1103,7 +1103,7 @@ When a `let` binding's RHS is a complex expression (delegation, `await`, functio
         (Error err)   (pair state (wasi.http.response 500 "Agent failed"))))))
 
 ;; ❌ WRONG — inlining await + delegate-async as a direct argument:
-(def-logic build-report [state: AppState data: ReportData]
+(def-shell build-report [state: AppState data: ReportData]
   (match (await (?delegate-async @viz-agent "Render chart" -> ImageBytes))
     (Success img) (pair state (wasi.http.response 200 img))
     (Error err)   (pair state (wasi.http.response 500 "Agent failed"))))
@@ -1142,12 +1142,12 @@ Calling a `wasi.*` function without a matching capability import is a **compile-
 ;; ✅ CORRECT — capability import present:
 (module my-app
   (import wasi.io (capability stdout))
-  (def-logic greet [name: string]
+  (def-shell greet [name: string]
     (wasi.io.stdout (string-concat "Hello, " name))))
 
 ;; ❌ COMPILE ERROR — missing capability import:
 (module my-app
-  (def-logic greet [name: string]
+  (def-shell greet [name: string]
     (wasi.io.stdout (string-concat "Hello, " name))))
 ;; Error: wasi.io.stdout requires (import wasi.io (capability ...))
 ```
@@ -1159,7 +1159,7 @@ Calling a `wasi.*` function without a matching capability import is a **compile-
 (module app.main
   (import app.auth)
   (import wasi.io (capability stdout))   ;; required even though app.auth has it
-  (def-logic log-login [user: string]
+  (def-shell log-login [user: string]
     (wasi.io.stdout (string-concat "Login: " user))))
 ```
 
@@ -1215,7 +1215,7 @@ A type variable cannot unify with a type that contains itself. This prevents inf
 ```lisp
 ;; ❌ Infinite type error:
 ;; TVar "a" cannot unify with list[TVar "a"]
-(def-logic bad [x: a] (list-prepend x x))
+(def bad [x: a] (list-prepend x x))
 ;; Error: occurs check failed: a ~ list[a] (infinite type)
 ```
 
@@ -1227,7 +1227,7 @@ Top-level `def`, `def-shell`, `def-logic` (legacy), and `letrec` (legacy) functi
 
 ```lisp
 ;; ✅ Polymorphic function works at independent call sites:
-(def-logic id [x: a] x)
+(def id [x: a] x)
 (let [(n (id 42))
       (s (id "hello"))]
   (pair n s))
@@ -1272,7 +1272,7 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 
 ```lisp
 ;; Construct — expression position
-(def-logic safe-divide [a: int b: int]
+(def safe-divide [a: int b: int]
   (if (= b 0)
       (err "division by zero")
       (ok (/ a b))))
@@ -1361,7 +1361,7 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 (type Name (where [var: basetype] constraint-expr))
 
 ;; Pure function with contracts
-(def-logic name [param: type ...]
+(def name [param: type ...]
   (pre  precondition-expr)      ;; optional
   (post postcondition-expr)     ;; optional — can reference `result`
   body-expr)
