@@ -2,7 +2,12 @@
 
 ---
 
-## Unreleased
+## v0.11.0 — Core/Shell Grammar Inversion + Evidence-Axis Enrichment (2026-05-31)
+
+### Compiler — LT-INV: sexp example migration complete; version bump 0.11.0 (2026-05-31)
+
+- **17 `.llmll` S-expression example files migrated from `def-logic` to `def`/`def-shell`** (commits [`283f4e5`](compiler/test/Spec.hs), [`5241965`](compiler/package.yaml)). 38 functions → `def` (49.4%), 39 → `def-shell` (50.6%) per `isCoreBodySyntactic` ([`Syntax.hs:602-624`](compiler/src/LLMLL/Syntax.hs)) + `checkCalleeAdmissibility` ([`TypeCheck.hs:347-361`](compiler/src/LLMLL/TypeCheck.hs)) classification, cross-referenced against commit `f09c498` JSON-AST migration. All `examples/**` S-expression source now parses under the default `GrammarCoreInversion` mode without `--grammar=legacy`. Four `parseStatements GrammarLegacy` file-reading calls in [`compiler/test/Spec.hs`](compiler/test/Spec.hs) (lines 154, 5158, 5173, 5190) updated to `GrammarCoreInversion`; three `SDefLogic` golden patterns (lines 5163, 5177, 5193) updated to `SDef`. No test count delta. **Tests: 788 Haskell + 62 Python.**
+- **Version bump `0.10.8 → 0.11.0`** in [`compiler/package.yaml`](compiler/package.yaml) and [`compiler/llmll.cabal`](compiler/llmll.cabal).
 
 ### Experiments — §8 gate: EL-5 clean gate run (20260530T052351Z)
 
