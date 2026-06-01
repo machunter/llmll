@@ -1,10 +1,10 @@
 ;; PR 4 Acceptance Test: Nested pair destructuring
 ;; AC #4: (let [((pair word (pair g rest)) state)] ...) type-checks correctly
 
-(def-logic make-triple [w: string g: int r: bool]
+(def make-triple [w: string g: int r: bool]
   (pair w (pair g r)))
 
-(def-logic use-nested [w: string g: int r: bool]
+(def-shell use-nested [w: string g: int r: bool]
   (let [((pair word (pair count flag)) (make-triple w g r))]
     (if flag
       (string-concat word (int-to-string count))

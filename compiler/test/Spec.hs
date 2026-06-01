@@ -151,7 +151,7 @@ main = hspec $ do
 
     it "parses the withdraw example file" $ do
       src <- TIO.readFile "../examples/withdraw.llmll"
-      case parseStatements GrammarLegacy "../examples/withdraw.llmll" src of
+      case parseStatements GrammarCoreInversion "../examples/withdraw.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> length stmts `shouldSatisfy` (>= 3)
 
@@ -5155,12 +5155,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Phase 4: B1 withdraw golden" $ do
     it "B1-1: generates (- balance amount) suggestion" $ do
       src <- TIO.readFile "../examples/benchmarks/b1-withdraw.llmll"
-      case parseStatements GrammarLegacy "../examples/benchmarks/b1-withdraw.llmll" src of
+      case parseStatements GrammarCoreInversion "../examples/benchmarks/b1-withdraw.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let aliases = buildAliasMap stmts
               -- withdraw has params [("balance", TInt), ("amount", TCustom "PositiveInt")]
-              params = case [ps | SDefLogic "withdraw" ps _ _ _ <- stmts] of
+              params = case [ps | SDef "withdraw" ps _ _ _ <- stmts] of
                 (ps:_) -> ps
                 []     -> []
               intNames = [n | (n, t) <- params, isIntLike aliases t]
@@ -5170,11 +5170,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "B1-2: PositiveInt param included via isIntLike" $ do
       src <- TIO.readFile "../examples/benchmarks/b1-withdraw.llmll"
-      case parseStatements GrammarLegacy "../examples/benchmarks/b1-withdraw.llmll" src of
+      case parseStatements GrammarCoreInversion "../examples/benchmarks/b1-withdraw.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let aliases = buildAliasMap stmts
-              params = case [ps | SDefLogic "withdraw" ps _ _ _ <- stmts] of
+              params = case [ps | SDef "withdraw" ps _ _ _ <- stmts] of
                 (ps:_) -> ps
                 []     -> []
           any (\(n,t) -> n == "amount" && isIntLike aliases t) params `shouldBe` True
@@ -5187,10 +5187,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "Phase 4: B3 safe-first golden" $ do
     it "B3-1: parses with EMatch body" $ do
       src <- TIO.readFile "../examples/benchmarks/b3-safe-first.llmll"
-      case parseStatements GrammarLegacy "../examples/benchmarks/b3-safe-first.llmll" src of
+      case parseStatements GrammarCoreInversion "../examples/benchmarks/b3-safe-first.llmll" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
-          let bodies = [body | SDefLogic "safe-first" _ _ _ body <- stmts]
+          let bodies = [body | SDef "safe-first" _ _ _ body <- stmts]
           length bodies `shouldBe` 1
           case bodies of
             [EMatch _ arms] -> length arms `shouldBe` 2

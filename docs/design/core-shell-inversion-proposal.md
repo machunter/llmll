@@ -1,13 +1,13 @@
 # LT-INV — Core/Shell Grammar Inversion
 
-> **Version:** Rev 3 — builtinEnv admission clause added to §4 as the third callee-admission class inside `def`
-> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2); 2026-05-27 (Rev 3)
+> **Version:** Rev 4 — def-logic removed in v0.12 (no auto-rewrite, no escape valve); Rev 3: builtinEnv admission clause added to §4 as the third callee-admission class inside `def`
+> **Date:** 2026-05-23 (Rev 1); 2026-05-25 (Rev 2); 2026-05-27 (Rev 3); 2026-05-31 (Rev 4)
 > **Implements:** `docs/compiler-team-roadmap.md` v0.11 milestone, Implementation Item 1 (LT-INV); the v0.11 spine
 > **Prerequisites:** Feature freeze lifted for v0.11 (`docs/compiler-team-roadmap.md` Feature Freeze Policy, lifted 2026-05-23 with the inversion's freeze-exception soundness argument as the rationale)
 > **Origin:** 2026-05-23 external critique processed via professor channel ([`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §1); language-team triage at [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §4; STRICT-CORE-1 from the triage is subsumed by this proposal (the admissibility rules become grammatical, not adversarial-spec-only)
 > **Companion:** Professor direction memo [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) is the upstream architectural direction; cross-proposal settlement at [`v0.11-cross-proposal-rollback-discipline.md`](v0.11-cross-proposal-rollback-discipline.md) specifies LT-CDP / LT-PPR shipping conditions under §8 gate outcomes
 > **Reviewed:** Professor review at [`core-shell-inversion-review.md`](core-shell-inversion-review.md) (Rev 1, 2026-05-25); recommendation `approve with revisions`. Seven gaps and two author-question answers folded into this Rev 2. Standalone review awaits doc-lead M2 fold-and-archive.
-> **Status:** Settled (Rev 3) — builtinEnv clause added; §8 gate PASS definitive (EL-5, PM-006, 2026-05-30); CE-3 (commit `63b9bb3`) ships GrammarCoreInversion as default; schema `0.6.0`; F-EL5-3 adjudicated: `asserted` unconditionally for `def + hole-delegate` pre-resolution (2026-05-30)
+> **Status:** Settled (Rev 4) — def-logic removed in v0.12 (parse error under all modes; no auto-rewrite; 17 pending .llmll files must migrate first); Rev 3: builtinEnv clause added; §8 gate PASS definitive (EL-5, PM-006, 2026-05-30); CE-3 (commit `63b9bb3`) ships GrammarCoreInversion as default; schema `0.6.0`; F-EL5-3 adjudicated: `asserted` unconditionally for `def + hole-delegate` pre-resolution (2026-05-30)
 
 ---
 
@@ -44,7 +44,7 @@ LT-INV inverts the polarity at the grammar level. The strict-core form becomes t
 **Out of scope (deferred):**
 - **`letrec` strict-descent verification.** Research-track per [`docs/research-track.md`](../research-track.md) §7. LT-INV routes `letrec` to `def-shell` only; recursion in `def` waits for descent encoding.
 - **Refinement-aliased non-int types inside core.** v0.11 admits `EVar` int-typed and refinement-aliased base-int types (`PositiveInt`, `NonNegInt`); relaxation to refinement-aliased strings (`Word`, `Letter`), refinement-aliased ADT-fields, and refinement-aliased lists is a v0.12+ widening conditional on `FixpointEmit.hs` support landing.
-- **`def-logic` deprecation timeline beyond v0.11.** v0.11 ships an auto-rewrite-with-warning behavior on `def-logic`; v0.12 may harden to error-only. Decided at v0.12 planning, not here.
+- **`def-logic` deprecation timeline — settled (Rev 4, 2026-05-31).** v0.11 ships auto-rewrite-with-warning on `def-logic` as a temporary migration aid. v0.12 removes `def-logic` entirely: the token is unrecognized under all grammar modes (parse error, exit 1, no auto-rewrite). The 17 pending `.llmll` S-expression files (engineer scope) must migrate before v0.12 ships this change.
 
 **Out of scope under v0.11 sequencing:**
 - LT-CDP, LT-PPR ship in parallel with LT-INV per the v0.11 milestone but are gate-independent of LT-INV per [`core-shell-inversion-direction.md`](core-shell-inversion-direction.md) §8.3 rollback path (2).

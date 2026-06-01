@@ -822,7 +822,7 @@ After fetching a package with `llmll hub fetch`, import it with the `hub.` prefi
 ]))
 ```
 
-The `hub.` prefix tells the resolver to search only `~/.llmll/modules/`, never the local source tree.
+The `hub.` prefix tells the resolver to search only `~/.llmll/modules/`, never the local source tree. Hub-cached modules are parsed under the same grammar mode as the invoking command (see `LLMLL.md §8.2`); hub packages must use `def`/`def-shell` node kinds under the default `GrammarCoreInversion` mode.
 
 #### Cross-module `(check ...)` bodies
 

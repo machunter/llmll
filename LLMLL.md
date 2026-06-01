@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.10.8)
+# LLMLL: Large Language Model Logical Language (v0.11.0)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.10.8 (shipped).** Patch release — INT-1 `overflow_tainted` marking on body-faithful verified evidence + `--strict-verified-core` refusal extension. The verifier still proves what it proved pre-INT-1; the change is metadata layered atop the existing `DLVerified` + `erBodyFaithful = True` ground truth. `.verified.json` sidecars and trust-report JSON gain an additive `overflow_tainted` field (only-when-true); pre-v0.10.8 verified body-faithful sidecars are invalidated on read to eliminate silent under-strictness. No new language surface, no new builtins, no new SMT theory, no solver-time delta. This release also unblocks the DRIFT-1 §3 type-system catch-up (one cross-reference from §3.1 to the new §5.3.5 `overflow_tainted` callout). 672 Haskell + 37 Python tests passing. JSON-AST schemaVersion `0.5.0`. `trust_report_version` `1.1.0`. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule. Next milestone is v0.11 (core/shell grammar inversion + CDP evidence axis + predicate-carrying `?proof-required` + `int → Integer` codegen, which makes the v0.10.8 taint trigger set dormant on `int`); see [`docs/design/core-shell-inversion-direction.md`](docs/design/core-shell-inversion-direction.md), [`docs/design/int-2-boundary-shims.md`](docs/design/int-2-boundary-shims.md), and [`docs/design/critique-2026-05-23-triage.md`](docs/design/critique-2026-05-23-triage.md). v0.11 features LT-INT (`int → Integer` codegen, see §3.1) and LT-CDP (contract discriminative power evidence axis, see §4.4.6) have shipped on branch (commits `9c37a5c4`, `121815a` respectively); LT-INV (core/shell grammar inversion): `--grammar=core-inversion` opt-in flag shipped; **grammar default is now `GrammarCoreInversion` (CE-3, EL-5 gate confirmed 2026-05-30)**; schema bumped to `0.6.0`; LT-PPR (predicate-carrying `?proof-required`) shipped on branch (commit `3391713`).
+> **Current version: v0.11.0 (shipped).** Architectural release — core/shell grammar inversion (LT-INV): `def` (strict-core, body-faithful SMT) and `def-shell` (permissive) replace `def-logic`; `GrammarCoreInversion` is the default grammar mode (EL-5 gate confirmed 2026-05-30). `int` lowers to Haskell `Integer` (LT-INT), closing the documented `Int64` overflow gap. Contract discriminative power evidence axis `--cdp` (LT-CDP); `trust_report_version` `1.2.0`. Predicate-carrying `?proof-required` (LT-PPR). All `examples/**` source migrated to `def`/`def-shell`. JSON-AST `schemaVersion` `0.6.0`. 788 Haskell + 62 Python tests. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.11.0** | Core/Shell Grammar Inversion + Evidence-Axis Enrichment: `def` (strict-core) and `def-shell` (permissive) replace `def-logic`; `GrammarCoreInversion` is the default grammar mode (EL-5 gate PASS, 2026-05-30). `int` lowers to `Integer` (LT-INT). Contract discriminative power axis `--cdp` (LT-CDP); `trust_report_version` `1.2.0`. Predicate-carrying `?proof-required` (LT-PPR). All `examples/**` migrated. JSON-AST `schemaVersion` `0.6.0`. 788 Haskell + 62 Python tests (+116 Haskell, +25 Python from v0.10.8). |
 | **v0.10.8** | INT-1 Overflow-Taint Marking + Strict-Core Refusal: `erOverflowTainted :: Bool` added to `EvidenceRecord`; `bodyHasOverflowArith` at `FixpointEmit.hs:597-642` syntactically walks the body for `EOp` / `EApp` arithmetic over non-`Int64`-folding operands; activated post-body-faithful at `:506-516`. `--strict-verified-core` at `Main.hs:1119-1158` refuses `erBodyFallback ∪ erOverflowTaintedFns` with distinct diagnostics naming the `?proof-required` + Leanstral / INT-2 escape paths. Additive `overflow_tainted: true` (only-when-true) in `.verified.json` + trust-report JSON top-level `overflow_tainted_fns` + per-entry flag + obligation-report `TrustChannel`; pre-v0.10.8 verified body-faithful sidecars are invalidated on read. `trust_report_version` stays `1.1.0`; JSON-AST `schemaVersion` stays `0.5.0`. Closes DRIFT-1 §3 residual via §3.1 cross-reference to §5.3.5 callout. 672 tests (+16 from v0.10.7). |
 | **v0.10.7** | TC-EOP-1 EOp Arity/Type-Check + OBLIG-PBT-5a Joint PBT Witness Exclusion: `inferExpr (EOp op args)` at `TypeCheck.hs:981` rewritten to mirror `EApp`'s arity-check + `structuralUnify` loop; arity-bad and type-incorrect operator calls now produce structured `type-mismatch` and arity diagnostics; polymorphic `=` / `!=` unify both operands against one bound `TVar` (no `any × any → bool` degrade). `TrustReport.hs` computes joint-witness hashes (post-clause hashes appearing on ≥2 distinct subjects) and demotes pure-joint `DLTested` entries to `DLAsserted`; per-entry `joint_pbt_witness: true` + top-level `joint_pbt_witnesses` JSON additions. `trust_report_version` stays `1.1.0`; JSON-AST `schemaVersion` stays `0.5.0`. 656 tests (+16 from v0.10.6). |
 | **v0.10.6** | `:subjects` Metadata + PBT Body-Static-Eval Coverage + Residual Builtin Coverage: OBLIG-PBT-4 explicit-attribution `:subject`/`:subjects` metadata on `(check ...)` blocks bypasses head-position scan and lifts per declared subject (shared `pbt_witnesses` hash). F-033 `unwrap` static-eval coverage. F-034 five residual `evalBuiltinApp` clauses (`list-empty`, `list-prepend`, `list-filter`, `int-to-string`, `string-concat-many`) plus `list-head`/`list-tail` Success-wrapped return-shape correctness fix. JSON-AST schemaVersion `0.4.0 → 0.5.0` (additive `CheckDecl.subjects`). 640 tests (+26 from v0.10.5). |
@@ -1047,6 +1048,20 @@ foo/bar/baz.ast.json     (JSON-AST      — tried second)
 
 If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precedence.
 
+> [!NOTE]
+> **Grammar-mode inheritance for imported modules.** All imported modules — whether
+> resolved from the local source root, `extraRoots`, or the `llmll-hub` cache
+> (`~/.llmll/modules/`) — are parsed under the **same `GrammarMode` as the invoking
+> command**. In v0.11+, the default grammar mode is `GrammarCoreInversion`.
+>
+> Under `GrammarCoreInversion`, any imported `.ast.json` file containing
+> `{"kind": "def-logic"}` or `{"kind": "letrec"}` nodes produces a
+> `core-grammar-violation` diagnostic (exit 1). Hub publishers must ship
+> `schemaVersion 0.6.0` modules using `def`/`def-shell` node kinds.
+>
+> `wasi.*`, `haskell.*`, and `c.*` builtin-namespace imports carry no parseable
+> file and are exempt from grammar-mode checking.
+
 ### 8.3 Declaration Ordering
 
 All `import`, `open`, and `export` declarations should appear **before** any `def-logic`, `type`, or `def-interface` statements — both inside a `(module ...)` block and at file scope. The parser accepts declarations in any position, but **ordering has semantic impact**: the type-checker processes statements sequentially, so an `(open A)` placed after a `(def-logic f ...)` will not inject A's names into `f`'s body scope.
@@ -1238,6 +1253,10 @@ Import syntax:
 The `hub.` prefix prevents local files from accidentally shadowing registry packages. Publishing, semantic versioning beyond `major.minor.patch`, and a web registry API are deferred (not version-pinned).
 
 Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7).
+
+> [!NOTE]
+> Hub-cached modules (both `.llmll` and `.ast.json`) inherit the invoking command's
+> grammar mode per §8.2. Hub publishers must ship `def`/`def-shell` node kinds.
 
 ---
 

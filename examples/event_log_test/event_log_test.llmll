@@ -13,7 +13,7 @@
 
 (import wasi.io (capability stdout :deterministic false))
 
-(def-logic echo-step [state: string input: string]
+(def-shell echo-step [state: string input: string]
   (pair state (wasi.io.stdout input)))
 
 (def-main :mode console
