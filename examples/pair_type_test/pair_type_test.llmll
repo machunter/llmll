@@ -1,7 +1,9 @@
-(def make-pair [s : string] : (string, string)
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell make-pair [s: string]
   (pair s s))
 
-(def-main :console
+(def-main :mode console
   :init (pair "hello" (wasi.io.stdout "starting"))
-  :step (lambda [state line]
+  :step (fn [state: string line: string]
     (pair state (wasi.io.stdout line))))
