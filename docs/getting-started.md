@@ -414,7 +414,7 @@ P ∧ (result = ⟦B⟧) ⟹ Q
 
 This means `VLProvenSMT` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent.
 
-**Coverage:** `ELet` (with alpha-renaming), `EIf` (path-sensitive), and QF-LIA operators. `EMatch`, `letrec`, and non-linear expressions fall back to contract-only verification. Functions with >4096 execution paths also fall back with a diagnostic warning.
+**Coverage:** `ELet` (with alpha-renaming), `EIf` (path-sensitive), and QF-LIA operators. `EMatch`, recursive `def-shell` bodies, and non-linear expressions fall back to contract-only verification. Functions with >4096 execution paths also fall back with a diagnostic warning.
 
 **JSON output:** `--json verify` includes per-function `body_faithful` and `body_fallback` metadata:
 
@@ -726,11 +726,11 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `"isDone"` instead of `"done?"` | Silently ignored | `"done?"` |
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
 | `[...]` list literal as direct argument inside S-expression `if` branch | Parse error: `unexpected ]` | Hoist into a `let` binding before the `if` (see §4.7) |
-| `import` after `def-logic` inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def-logic` |
+| `import` after a function definition inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def`, `def-shell`, or `def-logic` (legacy) |
 | Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` before any `wasi.io.*` call |
 
 > [!IMPORTANT]
-> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def-logic`, `type`, or `def-interface` statements. The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
+> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def`, `def-shell`, `type`, or `def-interface` statements (or `def-logic` under `--grammar=legacy`). The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
 >
 > ```lisp
 > ;; CORRECT — imports first:
@@ -809,7 +809,7 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 ;; Omitting export entirely: all top-level defs are exported by default.
 ```
 
-The `export` declaration must appear before the first `def-logic` — consistent with the "imports before defs" rule.
+The `export` declaration must appear before the first function definition (`def` or `def-shell`) — consistent with the "imports before defs" rule.
 
 #### Hub imports
 
@@ -889,9 +889,11 @@ Omit `"names"` in an `open` node to bring all exports into scope.
 
 ---
 
-### §4.10 `letrec` — Recursive Functions with Termination Measures
+### §4.10 Recursive Functions (`def-shell`)
 
-Use `letrec` (not `def-logic`) for any self-recursive function. The `:decreases` measure is required — the compiler uses it to verify termination.
+Self-recursive functions are declared with `def-shell`. The self-call is a user-defined callee outside the strict-core fragment; no `:decreases` annotation is required or available under the default grammar.
+
+> **Legacy grammar (`--grammar=legacy`).** The `letrec` form provides an explicit `:decreases` termination measure checked for well-foundedness (`measure ≥ 0`) by `llmll verify`. The following examples use `letrec` syntax and require `--grammar=legacy` to parse:
 
 ```lisp
 ;; Simple variable measure — verified automatically by llmll verify:
@@ -918,7 +920,7 @@ JSON-AST:
 > A **simple variable** measure (`:decreases n`) is verified by `llmll verify`. A **complex expression** (`:decreases (- n 1)`) emits a `?proof-required(complex-decreases)` hole — non-blocking, but the solver skips that function.
 
 > [!WARNING]
-> Using `def-logic` for a self-recursive function emits a self-recursion warning. `letrec` is the correct verified form.
+> Under `--grammar=legacy`: using `def-logic` for a self-recursive function emits a self-recursion warning; `letrec` is the correct legacy form. Under the default `GrammarCoreInversion`: use `def-shell` for any self-recursive function; `letrec` is not available.
 
 ---
 
@@ -928,7 +930,7 @@ The compiler auto-emits `?proof-required` holes for constraints outside the deci
 
 | Hole | Emitted when | Blocking? |
 |------|-------------|-----------|
-| `?proof-required(complex-decreases)` | `letrec :decreases` is a non-variable expression | No |
+| `?proof-required(complex-decreases)` | `letrec :decreases` is a non-variable expression (`--grammar=legacy` only) | No |
 | `?proof-required(non-linear-contract)` | `pre`/`post` contains `*`, `/`, `mod`, `^` | No |
 | `(?proof-required :reason "tag" pred-expr)` in `pre`/`post` | Manual annotation; author supplies the predicate expression (LT-PPR, v0.11) | No (emits runtime assertion) |
 
