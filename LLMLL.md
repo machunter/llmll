@@ -1047,6 +1047,20 @@ foo/bar/baz.ast.json     (JSON-AST      — tried second)
 
 If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precedence.
 
+> [!NOTE]
+> **Grammar-mode inheritance for imported modules.** All imported modules — whether
+> resolved from the local source root, `extraRoots`, or the `llmll-hub` cache
+> (`~/.llmll/modules/`) — are parsed under the **same `GrammarMode` as the invoking
+> command**. In v0.11+, the default grammar mode is `GrammarCoreInversion`.
+>
+> Under `GrammarCoreInversion`, any imported `.ast.json` file containing
+> `{"kind": "def-logic"}` or `{"kind": "letrec"}` nodes produces a
+> `core-grammar-violation` diagnostic (exit 1). Hub publishers must ship
+> `schemaVersion 0.6.0` modules using `def`/`def-shell` node kinds.
+>
+> `wasi.*`, `haskell.*`, and `c.*` builtin-namespace imports carry no parseable
+> file and are exempt from grammar-mode checking.
+
 ### 8.3 Declaration Ordering
 
 All `import`, `open`, and `export` declarations should appear **before** any `def-logic`, `type`, or `def-interface` statements — both inside a `(module ...)` block and at file scope. The parser accepts declarations in any position, but **ordering has semantic impact**: the type-checker processes statements sequentially, so an `(open A)` placed after a `(def-logic f ...)` will not inject A's names into `f`'s body scope.
@@ -1238,6 +1252,10 @@ Import syntax:
 The `hub.` prefix prevents local files from accidentally shadowing registry packages. Publishing, semantic versioning beyond `major.minor.patch`, and a web registry API are deferred (not version-pinned).
 
 Modules declared in `llmll-hub` include verified proof metadata and are importable by name. Third-party modules must be explicitly wrapped (§7).
+
+> [!NOTE]
+> Hub-cached modules (both `.llmll` and `.ast.json`) inherit the invoking command's
+> grammar mode per §8.2. Hub publishers must ship `def`/`def-shell` node kinds.
 
 ---
 
