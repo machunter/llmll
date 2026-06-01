@@ -1037,10 +1037,13 @@ inferExpr (EApp func args) = do
            <> "For Result constructors, use 'ok' and 'err' instead of qualified forms."
   mFuncTy <- tcLookup func
   let nArgs = length args
-  -- D2: warn when a plain def-logic calls itself recursively without :decreases
+  -- D2: warn when a def-logic calls itself recursively without :decreases (GrammarLegacy only).
+  -- Under GrammarCoreInversion: def-shell self-calls are correct (no warning); def self-calls
+  -- are already caught by checkCalleeAdmissibility (core-membership-violation).
   isLetrec <- gets tcIsLetrec
   mCurrent <- gets tcCurrentFn
-  when (mCurrent == Just func && not isLetrec) $
+  gm       <- gets tcGrammarMode
+  when (mCurrent == Just func && not isLetrec && gm == GrammarLegacy) $
     tcWarn $ "self-recursive call to '" <> func <> "' inside def-logic; "
               <> "use (letrec " <> func <> " [...] :decreases ...) to provide a termination measure"
   -- v0.3: trust-gap warning for cross-module calls with unproven contracts
