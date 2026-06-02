@@ -7020,6 +7020,40 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Right [SDef {}] -> pure ()
             other           -> expectationFailure (show other)
 
+    describe "schema alignment: DefCore / DefShell (LT-INV schema fix)" $ do
+
+      it "SCHEMA-1 kind:def-shell parses as SDefShell under GrammarCoreInversion" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"loop\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Right [SDefShell {}] -> pure ()
+          other                -> expectationFailure (show other)
+
+      it "SCHEMA-2 kind:def with spec_entropy field parses under GrammarCoreInversion" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"g\",\"params\":[],\"spec_entropy\":\"strict\",\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Right [SDef {}] -> pure ()
+          other           -> expectationFailure (show other)
+
+      it "SCHEMA-3 kind:def-shell with spec_entropy field parses under GrammarCoreInversion" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"h\",\"params\":[],\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"lit-int\",\"value\":2}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Right [SDefShell {}] -> pure ()
+          other                -> expectationFailure (show other)
+
+      it "SCHEMA-4 kind:def-logic diagnostic carries suggestion pointing to def/def-shell" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"old\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Left diag -> do
+            diagKind diag `shouldBe` Just "core-grammar-violation"
+            case diagSuggestion diag of
+              Just s  -> s `shouldSatisfy` (T.isInfixOf "def")
+              Nothing -> expectationFailure "expected a suggestion in the diagnostic"
+          Right ss -> expectationFailure ("expected rejection, got: " ++ show ss)
+
     describe "INV-W: well-typed" $ do
 
       it "INV-W1 SDef with arithmetic body typechecks without error" $ do

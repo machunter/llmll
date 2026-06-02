@@ -35,7 +35,8 @@
     "Statement": {
       "description": "A top-level definition. Corresponds to EBNF 'statement'.",
       "oneOf": [
-        { "$ref": "#/$defs/DefLogic" },
+        { "$ref": "#/$defs/DefCore" },
+        { "$ref": "#/$defs/DefShell" },
         { "$ref": "#/$defs/DefInterface" },
         { "$ref": "#/$defs/DefInvariant" },
         { "$ref": "#/$defs/TypeDecl" },
@@ -51,7 +52,7 @@
     },
 
     "DefLogic": {
-      "description": "A pure function with optional pre/post contracts. Corresponds to EBNF 'def-logic'. Return type is always inferred — omit it.",
+      "description": "DEPRECATED — v0.11 (LT-INV). kind:'def-logic' is rejected under GrammarCoreInversion (the default since v0.11). Use kind:'def' (DefCore) for strict-core functions or kind:'def-shell' (DefShell) for permissive functions. This entry is retained in $defs for --grammar=legacy users only and is no longer reachable from Statement.oneOf under the default grammar. Will be removed entirely in v0.12.",
       "type": "object",
       "required": ["kind", "name", "params", "body"],
       "additionalProperties": false,
@@ -65,18 +66,103 @@
         "pre":    { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'." },
         "post":   { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only." },
         "body":   { "$ref": "#/$defs/Expr" }
+      }
+    },
+
+    "DefCore": {
+      "description": "A strict-core function with optional pre/post contracts. Corresponds to EBNF 'def'. Kind must be exactly 'def'. Body is restricted to the core-body whitelist (ELit, EVar, QF-LIA EOp, ELet with PVar, EIf under path-limit, EApp to body-faithful or trusted-prelude callees, EMatch on Result 2-arm, ?hole/?name/?choose/?request-cap/?scaffold/?delegate/?delegate-async). Excluded: lambda, letrec, do-notation, ?proof-required, non-linear arithmetic, opaque crypto, untrusted FFI. Self-recursion is excluded — use def-shell for recursive functions. Return type is always inferred — omit it. Under GrammarCoreInversion (default since v0.11), this is the standard form for high-assurance functions eligible for body-faithful SMT verification. LT-INV v0.11.",
+      "type": "object",
+      "required": ["kind", "name", "params", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":         { "type": "string", "const": "def" },
+        "name":         { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" }
+        },
+        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'." },
+        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only." },
+        "spec_entropy": {
+          "type": "string",
+          "enum": ["strict", "intentional", "unknown"],
+          "description": "Optional contract discriminative-power annotation (LT-CDP v0.11). 'strict' = maximally constraining spec; 'intentional' = intentionally loose to allow diverse implementations; 'unknown' = not yet classified. Absent means the compiler applies heuristic classification."
+        },
+        "body":         { "$ref": "#/$defs/Expr" }
       },
       "examples": [
         {
-          "kind": "def-logic",
+          "kind": "def",
           "name": "withdraw",
           "params": [
-            {"name": "balance", "type": {"kind": "primitive", "name": "int"}},
-            {"name": "amount",  "type": {"kind": "named",    "name": "PositiveInt"}}
+            {"name": "balance", "param_type": {"kind": "primitive", "name": "int"}},
+            {"name": "amount",  "param_type": {"kind": "primitive", "name": "int"}}
           ],
           "pre":  {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]},
           "post": {"kind": "op", "op": "=",  "args": [{"kind": "var", "name": "result"}, {"kind": "op", "op": "-", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}]},
           "body": {"kind": "op", "op": "-", "args": [{"kind": "var", "name": "balance"}, {"kind": "var", "name": "amount"}]}
+        },
+        {
+          "kind": "def",
+          "name": "clamp",
+          "params": [
+            {"name": "lo",  "param_type": {"kind": "primitive", "name": "int"}},
+            {"name": "hi",  "param_type": {"kind": "primitive", "name": "int"}},
+            {"name": "val", "param_type": {"kind": "primitive", "name": "int"}}
+          ],
+          "pre":  {"kind": "op", "op": "<=", "args": [{"kind": "var", "name": "lo"}, {"kind": "var", "name": "hi"}]},
+          "post": {"kind": "op", "op": "and", "args": [
+            {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "result"}, {"kind": "var", "name": "lo"}]},
+            {"kind": "op", "op": "<=", "args": [{"kind": "var", "name": "result"}, {"kind": "var", "name": "hi"}]}
+          ]},
+          "body": {"kind": "if",
+            "cond": {"kind": "op", "op": "<", "args": [{"kind": "var", "name": "val"}, {"kind": "var", "name": "lo"}]},
+            "then": {"kind": "var", "name": "lo"},
+            "else": {"kind": "if",
+              "cond": {"kind": "op", "op": ">", "args": [{"kind": "var", "name": "val"}, {"kind": "var", "name": "hi"}]},
+              "then": {"kind": "var", "name": "hi"},
+              "else": {"kind": "var", "name": "val"}}}
+        }
+      ]
+    },
+
+    "DefShell": {
+      "description": "A permissive-shell function with optional pre/post contracts. Corresponds to EBNF 'def-shell'. Kind must be exactly 'def-shell'. Admits the full body language: lambda, self-recursive calls, wasi.* capability calls, do-notation, ?proof-required, and arbitrary user-function calls. Verified at the contract tier (pre/post contract-only proof) rather than body-faithful SMT. Use for recursive algorithms, effectful computations, and any body form excluded from the strict-core whitelist. Return type is always inferred — omit it. LT-INV v0.11.",
+      "type": "object",
+      "required": ["kind", "name", "params", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":         { "type": "string", "const": "def-shell" },
+        "name":         { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypedParam" }
+        },
+        "pre":          { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'." },
+        "post":         { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only." },
+        "spec_entropy": {
+          "type": "string",
+          "enum": ["strict", "intentional", "unknown"],
+          "description": "Optional contract discriminative-power annotation (LT-CDP v0.11). Same semantics as on DefCore."
+        },
+        "body":         { "$ref": "#/$defs/Expr" }
+      },
+      "examples": [
+        {
+          "kind": "def-shell",
+          "name": "factorial",
+          "params": [
+            {"name": "n", "param_type": {"kind": "primitive", "name": "int"}}
+          ],
+          "pre":  {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "n"}, {"kind": "lit-int", "value": 0}]},
+          "post": {"kind": "op", "op": ">=", "args": [{"kind": "var", "name": "result"}, {"kind": "lit-int", "value": 1}]},
+          "body": {"kind": "if",
+            "cond": {"kind": "op", "op": "=", "args": [{"kind": "var", "name": "n"}, {"kind": "lit-int", "value": 0}]},
+            "then": {"kind": "lit-int", "value": 1},
+            "else": {"kind": "app", "fn": "*", "args": [
+              {"kind": "var", "name": "n"},
+              {"kind": "app", "fn": "factorial", "args": [{"kind": "op", "op": "-", "args": [{"kind": "var", "name": "n"}, {"kind": "lit-int", "value": 1}]}]}
+            ]}}
         }
       ]
     },
@@ -1031,7 +1117,7 @@
     },
 
     "TrustDecl": {
-      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Must appear before any def-logic. Multiple trust declarations per module are allowed; duplicates are idempotent.",
+      "description": "Trust acknowledgment for an imported function's unproven contract (v0.3, \u00a74.4.3). Silences TrustGapWarning diagnostics. Must appear before any def or def-shell function declaration. Multiple trust declarations per module are allowed; duplicates are idempotent.",
       "type": "object",
       "required": ["kind", "target", "level"],
       "additionalProperties": false,
