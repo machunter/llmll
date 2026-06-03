@@ -4,6 +4,17 @@
 
 ## v0.11.0 — Core/Shell Grammar Inversion + Evidence-Axis Enrichment (2026-05-31)
 
+### Schema — LT-INV schema-update subtask: DefCore/DefShell (2026-06-02)
+
+- **`docs/llmll-ast.schema.json`: `DefCore` and `DefShell` definitions added to `$defs`; `Statement.oneOf` updated; `DefLogic` deprecated** (commit [`d3de0da`](compiler/test/Spec.hs)). Under `GrammarCoreInversion` (default since v0.11), `{"kind":"def-logic"}` was rejected by the compiler but `DefLogic` was still the only function-definition node in the schema — any LLM generating from the schema produced files the compiler rejected with `core-grammar-violation`. Closes the LT-INV schema-update subtask recorded in [`docs/design/core-shell-inversion-proposal.md`](docs/design/core-shell-inversion-proposal.md) Rev 4.
+- **`DefCore`** (`kind:"def"`; required: `kind, name, params, body`; optional: `pre, post, spec_entropy`): strict-core function node. Description cites the core-body whitelist and the `GrammarCoreInversion` default. Two `examples` blocks added (`withdraw`, `clamp`).
+- **`DefShell`** (`kind:"def-shell"`; same required/optional fields): permissive-shell function node. Description notes lambda, recursion, `wasi.*`, `?proof-required` are admitted. One `examples` block added (`factorial` with self-recursive call).
+- **`DefLogic`** (`kind:"def-logic"`): retained in `$defs` with a `DEPRECATED — v0.11 (LT-INV)` description header; **removed from `Statement.oneOf`**. Schema validators now reject `kind:"def-logic"` (no matching `oneOf` branch); the compiler already rejected it since v0.11. Will be removed from `$defs` entirely in v0.12.
+- **`spec_entropy` field** added to `DefCore` and `DefShell` (backfills the LT-CDP JSON-AST gap: `ParserJSON.hs:parseDefCore/parseDefShellJSON` accepted `spec_entropy` via `.:?` since LT-CDP shipped, but `additionalProperties: false` in the old `DefLogic` definition blocked schema-conforming files from including it).
+- **`TrustDecl` description** updated: "Must appear before any def-logic" → "Must appear before any `def` or `def-shell` function declaration."
+- **`schemaVersion` const and `$id` URL unchanged** (`"0.6.0"`, `/schemas/v0.6/`). DRIFT-CI-1 C3/C4 PASS confirmed by `scripts/version_gate.sh`.
+- **4 new tests** (SCHEMA-1..4 in [`compiler/test/Spec.hs`](compiler/test/Spec.hs)): SCHEMA-1 `kind:"def-shell"` parses as `SDefShell` under `GrammarCoreInversion`; SCHEMA-2/3 `spec_entropy` round-trip for `def` and `def-shell`; SCHEMA-4 `kind:"def-logic"` diagnostic carries suggestion referencing `def`/`def-shell`. **Tests: 793 Haskell + 62 Python.**
+
 ### Compiler — LT-INV: CDP fixture + test surface def-logic cleanup (2026-05-31)
 
 - **`compiler/test/fixtures/cdp/*.llmll` migrated `def-logic` → `def`/`def-shell`** (commit `56f00dd`). These three fixture files (`verified-strong.llmll`, `verified-weak.llmll`, `intentional.llmll`) were dead — no test loads them — but carried `def-logic` and single-semicolon comments, neither of which parse under `GrammarCoreInversion` (lexer requires `;;`). `verified-strong.llmll` and `verified-weak.llmll` → `def` (QF-LIA / `EVar-int` bodies); `intentional.llmll` → `def-shell` (`spec-entropy :intentional` marks intentional CDP suppression; `def-shell` scope is semantically appropriate). Return-type annotations (`-> int`) stripped from all three (`def`/`def-shell` do not parse return-type annotations).
