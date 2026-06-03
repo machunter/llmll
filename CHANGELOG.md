@@ -2,6 +2,8 @@
 
 ---
 
+<a id="Latest"></a>
+
 ## v0.11.0 — Core/Shell Grammar Inversion + Evidence-Axis Enrichment (2026-05-31)
 
 ### Schema — LT-INV schema-update subtask: DefCore/DefShell (2026-06-02)

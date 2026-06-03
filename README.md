@@ -2,7 +2,7 @@
 
 **LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
 
-> **Current version:** see [`CHANGELOG.md`](CHANGELOG.md) `## Latest`. Full release notes per version live in CHANGELOG; this README does not duplicate them.
+> **Current version:** see [`CHANGELOG.md § Latest`](CHANGELOG.md#Latest). Full release notes per version live in CHANGELOG; this README does not duplicate them.
 
 ---
 
@@ -204,7 +204,7 @@ tools/
 |----------|---------|
 | [`LLMLL.md`](LLMLL.md) | Full language specification — types, syntax, FFI, grammar, builtins |
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
-| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog and shipped-releases history (current version cited in CHANGELOG `## Latest`) |
+| [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog and shipped-releases history (current version in [CHANGELOG § Latest](CHANGELOG.md#Latest)) |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
 | [`docs/UPDATE-PROTOCOL.md`](docs/UPDATE-PROTOCOL.md) | Doc canonical-sources table and per-change update matrix (DOC-CONSOLIDATE D1) |
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |

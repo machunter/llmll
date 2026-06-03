@@ -1,6 +1,6 @@
 # LLMLL Compiler Team Implementation Roadmap
 
-> **Status:** Active — see [`../CHANGELOG.md`](../CHANGELOG.md) `## Latest` for shipped version (canonical per DOC-CONSOLIDATE P1; this header no longer version-stamps).  
+> **Status:** Active — see [`../CHANGELOG.md § Latest`](../CHANGELOG.md#Latest) for shipped version (canonical per DOC-CONSOLIDATE P1; this header no longer version-stamps).  
 > **Source documents:** `LLMLL.md` · `consolidated-proposals.md` · `proposal-haskell-target.md` · `analysis-leanstral.md` · `design-team-assessment.md` · `proposal-review-compiler-team.md` · Professor's five-round review (2026-04-30)
 >
 > **Governing design criterion:** Every compiler deliverable is evaluated against *progress toward one-shot correctness* — does this release reduce the iteration burden, increase obligation completeness, or shorten the repair distance for an AI agent producing LLMLL code? The intended terminal state is that an agent writes a program once, the compiler accepts it, contracts verify.
