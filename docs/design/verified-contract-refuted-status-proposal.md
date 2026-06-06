@@ -6,7 +6,7 @@
 > **Prerequisites:** Feature freeze lifted (v0.11 architectural lane); VERIFY-RPT-1 engineer plan (Defect 1 fail-closed + Defect 3 strict-core verdict) is the code-track sibling
 > **Origin:** demo-readiness investigation surfaced three verify-path reporting defects, recorded at [`verify-reporting-defects-2026-06-04-bug.md`](verify-reporting-defects-2026-06-04-bug.md); Defect 3 (strict-core admits body-faithful-UNSAFE) has a spec-level twin this proposal closes
 > **Reviewed:** Professor review in-conversation (2026-06-04/05); recommendation `adopt with one revision` — refuted≠asserted (Finding 1), VCgen anchor, QF-LIA antecedent. Folded into this Rev 2. Standalone `*-review.md` not yet emitted; awaits doc-lead M2 fold if a written review is produced.
-> **Status:** Settled (Rev 2) — pending user adjudication and engineer hand-off. Bundles with VERIFY-RPT-1 Defect 3.
+> **Status:** Shipped — VERIFY-RPT-1 (`b914587`, 2026-06-06); spec promoted to LLMLL.md §3.4.3 / §5.3.4 / §4.4 / §5.3.5. Bundles with VERIFY-RPT-1 Defect 3.
 
 ---
 

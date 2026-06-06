@@ -1,6 +1,6 @@
 # Bug Report — `llmll verify` reporting path fails open on UNSAFE; `--trust-report` never surfaces `verified`
 
-> **Status:** Open — for compiler-engineer triage
+> **Status:** Resolved — VERIFY-RPT-1 shipped (`b914587`, 2026-06-06); all three defects fixed, regression tests VR-1..VR-8 landed
 > **Date:** 2026-06-04
 > **Reporter:** review pass (demo-readiness investigation)
 > **Severity:** High — `verify` reports success on contract-violating code; the trust dashboard cannot show the `verified` tier
