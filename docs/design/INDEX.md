@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-05-25  
+> **Last updated:** 2026-06-06  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -29,6 +29,8 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [int-2-boundary-shims.md](int-2-boundary-shims.md) | LT-INT/INT-2: fifteen `Int`-touching preamble entries classified A/B/C | **Settled (Rev 4)** — §8/§4 reconciliation confirmed; `range-idx` deferred rationale recorded |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
 | [positioning-constraint-decay-proposal.md](positioning-constraint-decay-proposal.md) | Dente et al. (2026) external anchor; spec-source primary, mechanisms secondary; bounded-iteration framing | **Settled (Rev 1)** — promoted into 3 design docs; paper verified 2026-05-25 with two minor corrections applied |
+| [verify-reporting-defects-2026-06-04-bug.md](verify-reporting-defects-2026-06-04-bug.md) | Three verify-path reporting defects: fail-open on UNSAFE; `--trust-report` cannot show `verified` | **Resolved** — VERIFY-RPT-1 shipped (`b914587`) |
+| [verified-contract-refuted-status-proposal.md](verified-contract-refuted-status-proposal.md) | Solver-SAFE conjunct on `verified`/strict-core; `refuted` as orthogonal trust status | **Settled (Rev 2) → Shipped** (`b914587`); promoted to LLMLL.md §3.4.3/§5.3.4/§4.4/§5.3.5 |
 
 ---
 
