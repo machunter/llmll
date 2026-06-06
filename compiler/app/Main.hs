@@ -19,7 +19,7 @@ module Main (main) where
 import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
 import Data.Version (showVersion)
 import Paths_llmll (version)
-import System.Exit (exitFailure, exitSuccess, ExitCode(..))
+import System.Exit (exitFailure, exitSuccess, exitWith, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
@@ -1078,6 +1078,15 @@ parseOneType t
 -- D4: verify (liquid-fixpoint)
 -- ---------------------------------------------------------------------------
 
+-- | VERIFY-RPT-1 (Commit 4): map a solver verdict to a process exit code.
+-- SAFE succeeds; UNSAFE (refuted) and solver ERROR fail closed. Used by the
+-- report-flag early-exit paths so they agree with the final verdict routing
+-- and never exit 0 on a disproved file.
+fqExitCode :: FQVerifyResult -> ExitCode
+fqExitCode FQSafe        = ExitSuccess
+fqExitCode (FQUnsafe _)  = ExitFailure 1
+fqExitCode (FQError _)   = ExitFailure 1
+
 doVerify :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
 doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport cdpFlag = do
   -- 1. Parse + type-check
@@ -1239,7 +1248,11 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
             let trustRpt = markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
-            unless strictCore exitSuccess
+            -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
+            -- unconditionally — a refuted file must fail closed even via the
+            -- obligation-report view. Under '--strict-verified-core' fall through
+            -- to the post-solver gate instead.
+            unless strictCore (exitWith (fqExitCode fqResult))
 
           let report = fqResultToReport fp table fqResult
 
@@ -1397,11 +1410,19 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           -- '--strict-verified-core' too, so the gate below can fail closed.
           when (trustReport && cdpFlag && not strictCore) $ do
             sidecar <- loadVerified fp
-            let report = buildTrustReportWithCDP _cache stmts sidecar cdpResults
+            -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
+            -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
+            -- emitters already exist; they were being fed an unmarked report).
+            let report = markRefuted refutedSet
+                           (buildTrustReportWithCDP _cache stmts sidecar cdpResults)
             if json
               then TIO.putStrLn (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
-            exitSuccess
+            -- VERIFY-RPT-1 (Commit 4): fail closed on a refuted/UNSAFE verdict
+            -- instead of the prior unconditional exitSuccess (which re-opened the
+            -- Defect-1 fail-open on '--trust-report --cdp'). Keyed identically to
+            -- the final verdict routing below.
+            exitWith (fqExitCode fqResult)
 
           -- VERIFY-RPT-1 (Commit 4): post-solver '--strict-verified-core'
           -- conjunct (c). The pre-solver gate (fallback/overflow-tainted) runs

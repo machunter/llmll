@@ -5104,23 +5104,34 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "ObligationAssembly: obligationStatus" $ do
     let emptyTable = Map.empty :: Map.Map Int ConstraintOrigin
         noSuppressed = Set.empty :: Set.Set T.Text
+        noRefuted    = Set.empty :: Set.Set T.Text
 
     it "OA-ST1: open when no solver" $
-      obligationStatus Nothing "f" HoleObligation emptyTable noSuppressed `shouldBe` "open"
+      obligationStatus Nothing "f" HoleObligation emptyTable noSuppressed noRefuted `shouldBe` "open"
 
     it "OA-ST2: discharged when SAFE" $
-      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable noSuppressed `shouldBe` "discharged"
+      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable noSuppressed noRefuted `shouldBe` "discharged"
 
     it "OA-ST3: deferred when in suppression set" $
-      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable (Set.singleton "f") `shouldBe` "deferred"
+      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable (Set.singleton "f") noRefuted `shouldBe` "deferred"
 
     it "OA-ST4: open when UNSAFE and function failed" $ do
       let table = Map.fromList [(1, ConstraintOrigin "f" "post" "" "")]
-      obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed `shouldBe` "open"
+      obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed noRefuted `shouldBe` "open"
 
     it "OA-ST5: discharged when UNSAFE but function not in failed set" $ do
       let table = Map.fromList [(1, ConstraintOrigin "other" "post" "" "")]
-      obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed `shouldBe` "discharged"
+      obligationStatus (Just (FQUnsafe [1])) "f" ContractObligation table noSuppressed noRefuted `shouldBe` "discharged"
+
+    -- VERIFY-RPT-1 (Commit 4): "refuted" status takes precedence
+    it "VR4-ST1: refuted when in refuted set (overrides discharged)" $
+      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable noSuppressed (Set.singleton "f") `shouldBe` "refuted"
+
+    it "VR4-ST2: refuted overrides deferred (suppression)" $
+      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable (Set.singleton "f") (Set.singleton "f") `shouldBe` "refuted"
+
+    it "VR4-ST3: not refuted when function absent from refuted set" $
+      obligationStatus (Just FQSafe) "f" HoleObligation emptyTable noSuppressed (Set.singleton "other") `shouldBe` "discharged"
 
   describe "ObligationAssembly: classifyContractFragment" $ do
     it "OA-CF1: absent when no pre and no post" $

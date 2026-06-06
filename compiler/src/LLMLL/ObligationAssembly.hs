@@ -148,6 +148,7 @@ data ReportSummary = ReportSummary
   , rsDischarged :: Int
   , rsDeferred   :: Int
   , rsAsserted   :: Int
+  , rsRefuted    :: Int   -- VERIFY-RPT-1 (Commit 4): body-faithful disproved
   } deriving (Show)
 
 -- | Top-level obligation report (spec §2.1)
@@ -157,6 +158,7 @@ data ObligationReport = ObligationReport
   , orCrossModule   :: Text
   , orObligations   :: [ObligationObj]
   , orSummary       :: ReportSummary
+  , orRefutedFns    :: [Name]   -- VERIFY-RPT-1 (Commit 4): top-level refuted_fns
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -296,9 +298,15 @@ alphaCanonExpr _     e              = e  -- literals, holes unchanged
 
 -- | Determine obligation status (spec §2.5).
 -- F5: Takes weakness-ok suppression set for "deferred" status.
+-- VERIFY-RPT-1 (Commit 4): takes the refuted set (body-faithful functions the
+-- solver disproved, per verified-contract-refuted-status-proposal §3.2). A
+-- refuted function's obligation reports "refuted" — distinct from "open"
+-- (un-discharged / unknown) — and refuted takes precedence over every other
+-- status: a disproved implementation is neither merely open nor deferrable.
 obligationStatus :: Maybe FQVerifyResult -> Name -> ObligationKind -> ConstraintTable
-                 -> Set Name -> Text
-obligationStatus mFqResult fnName kind table suppressedSet
+                 -> Set Name -> Set Name -> Text
+obligationStatus mFqResult fnName kind table suppressedSet refutedSet
+  | fnName `Set.member` refutedSet    = "refuted"
   | fnName `Set.member` suppressedSet = "deferred"
   | Nothing <- mFqResult              = "open"  -- F8: no solver
   | Just FQSafe <- mFqResult          = "discharged"
@@ -363,15 +371,19 @@ lookupConstructorPayload aliases scrutTy ctorName =
 
 -- | Assemble branch obligations from EMatch in hole-bearing functions (F1).
 -- Two-pass: takes hole obligations for parent_id linkage.
+-- VERIFY-RPT-1 (Commit 4): 'refutedSet' threaded through the branch path
+-- because branch obligations (body-post-then/else) of a refuted body-faithful
+-- function must report "refuted" too. This path carries no TrustReport, so the
+-- set is passed explicitly from 'assembleReport'.
 assembleBranchObligations :: [ObligationObj] -> [Statement] -> ConstraintTable
-                          -> Maybe FQVerifyResult -> Set Name -> AliasMap
+                          -> Maybe FQVerifyResult -> Set Name -> Set Name -> AliasMap
                           -> [ObligationObj]
-assembleBranchObligations holeObls stmts table mFqResult suppressed aliases =
-  concatMap (branchesForHole stmts table mFqResult suppressed aliases) holeObls
+assembleBranchObligations holeObls stmts table mFqResult suppressed refutedSet aliases =
+  concatMap (branchesForHole stmts table mFqResult suppressed refutedSet aliases) holeObls
 
 branchesForHole :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
-                -> Set Name -> AliasMap -> ObligationObj -> [ObligationObj]
-branchesForHole stmts table mFqResult suppressed aliases parentObl =
+                -> Set Name -> Set Name -> AliasMap -> ObligationObj -> [ObligationObj]
+branchesForHole stmts table mFqResult suppressed refutedSet aliases parentObl =
   let fnName = ooFunction parentObl
       (mContract, mParams, mBody) = findFunctionInfo fnName stmts
       params = fromMaybe [] mParams
@@ -379,12 +391,12 @@ branchesForHole stmts table mFqResult suppressed aliases parentObl =
   in case mBody of
     Nothing -> []
     Just body -> findMatchBranches fnName params contract parentObl
-                   table mFqResult suppressed aliases body
+                   table mFqResult suppressed refutedSet aliases body
 
 findMatchBranches :: Name -> [(Name, Type)] -> Contract -> ObligationObj
-                  -> ConstraintTable -> Maybe FQVerifyResult -> Set Name
+                  -> ConstraintTable -> Maybe FQVerifyResult -> Set Name -> Set Name
                   -> AliasMap -> Expr -> [ObligationObj]
-findMatchBranches fnName params contract parentObl table mFqResult suppressed aliases = go
+findMatchBranches fnName params contract parentObl table mFqResult suppressed refutedSet aliases = go
   where
     go (EMatch scrut arms) =
       let scrutTy = inferScrutineeType params scrut
@@ -405,7 +417,7 @@ findMatchBranches fnName params contract parentObl table mFqResult suppressed al
               Nothing -> map (\(n, src) ->
                 object ["name" .= n, "type" .= ("_" :: Text), "source" .= src]) binds
             pathEntry = PathEntry ("(match-" <> ctorName <> ")") "structural"
-            status = obligationStatus mFqResult fnName BranchObligation table suppressed
+            status = obligationStatus mFqResult fnName BranchObligation table suppressed refutedSet
             backing = deriveBacking table fnName BranchObligation
             oblId = normalizeForFingerprint fnName params (contractPost contract)
                       ("branch-" <> T.pack (show i))
@@ -544,6 +556,10 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
       tainted    = erOverflowTaintedFns emitR  -- INT-1: per-fn overflow-taint set
       recNames   = recursiveNames stmts
       suppressed = Set.fromList (map fst (trSuppressions trustRpt))
+      -- VERIFY-RPT-1 (Commit 4): the refuted set is whatever 'markRefuted'
+      -- stamped onto the trust report upstream (Main.hs); empty when no
+      -- body-faithful function was disproved.
+      refutedSet = trRefutedFns trustRpt
       holeReport = analyzeHoles stmts
 
       -- Assemble hole obligations
@@ -553,7 +569,7 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
       -- Assemble branch obligations from EMatch (F1: two-pass)
       aliases = buildAliasMap stmts
       branchObls = assembleBranchObligations holeObls stmts table
-                     mFqResult suppressed aliases
+                     mFqResult suppressed refutedSet aliases
 
       -- Assemble contract/precondition/termination obligations from UNSAFE
       unsafeObls = case mFqResult of
@@ -569,13 +585,17 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
         , rsDischarged = length [o | o <- allObls, ooStatus o == "discharged"]
         , rsDeferred   = length [o | o <- allObls, ooStatus o == "deferred"]
         , rsAsserted   = length [o | o <- allObls, ooStatus o == "asserted"]
+        , rsRefuted    = length [o | o <- allObls, ooStatus o == "refuted"]
         }
       report = ObligationReport
-        { orSchemaVersion = "0.10.0"
+        -- VERIFY-RPT-1 (Commit 4): 0.10.0 -> 0.11.0 (additive: "refuted" status
+        -- enum value, top-level refuted_fns, summary refuted count).
+        { orSchemaVersion = "0.11.0"
         , orSourceFile    = T.pack fp
         , orCrossModule   = "unsupported"
         , orObligations   = allObls
         , orSummary       = summary
+        , orRefutedFns    = Set.toList refutedSet
         }
   in encodeReport report
 
@@ -595,7 +615,7 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames supp
   let (mContract, mParams, mBody) = findFunctionInfo fnName stmts
       params   = fromMaybe [] mParams
       contract = fromMaybe emptyContract mContract
-      status   = obligationStatus mFqResult fnName HoleObligation table suppressed
+      status   = obligationStatus mFqResult fnName HoleObligation table suppressed (trRefutedFns trustRpt)
       backing  = deriveBacking table fnName HoleObligation
       oblId    = normalizeForFingerprint fnName params (contractPost contract) "body"
 
@@ -672,7 +692,7 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames supp
 assembleConstraintObligations :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
                               -> TrustReport -> [Text] -> Set Name -> [Int]
                               -> [ObligationObj]
-assembleConstraintObligations stmts table mFqResult _trustRpt faithful suppressed failedIds =
+assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed failedIds =
   mapMaybe mkObl failedIds
   where
     mkObl cid = do
@@ -680,7 +700,7 @@ assembleConstraintObligations stmts table mFqResult _trustRpt faithful suppresse
       let fnName  = coFunction origin
           clause  = coClause origin
           kind    = classifyClause clause
-          status  = obligationStatus mFqResult fnName kind table suppressed
+          status  = obligationStatus mFqResult fnName kind table suppressed (trRefutedFns trustRpt)
           backing = deriveBacking table fnName kind
           (mContract, mParams, _) = findFunctionInfo fnName stmts
           params  = fromMaybe [] mParams
@@ -759,6 +779,7 @@ encodeReport r = T.pack . map (toEnum . fromEnum) . BL.unpack . encode $ object
   , "cross_module"   .= orCrossModule r
   , "obligations"    .= map encodeObligation (orObligations r)
   , "summary"        .= encodeSummary (orSummary r)
+  , "refuted_fns"    .= orRefutedFns r
   ]
 
 encodeObligation :: ObligationObj -> Value
@@ -823,4 +844,5 @@ encodeSummary s = object
   , "discharged" .= rsDischarged s
   , "deferred"   .= rsDeferred s
   , "asserted"   .= rsAsserted s
+  , "refuted"    .= rsRefuted s
   ]
