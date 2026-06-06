@@ -374,7 +374,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | Spec-adequacy benchmark (ERC-20) | **Shipped** (v0.6.0 BM-1..3/5, v0.6.1 BM-4) |
 | Spec-adequacy benchmark (TOTP) | **Shipped** (v0.6.1, BM2-1..BM2-5) |
 | Verification-scope matrix policy | **Shipped** (VSM-2 policy, VSM-1 backfill in v0.6.2) |
-| Suppression governance (`weakness-ok`) | **Shipped** (v0.6.0) |
+| Suppression governance (`weakness-ok`) | **Shipped** (v0.6.0); JSON-AST schema gap closed (v0.11.0, commit `6af4975`, 2026-06-06): `WeaknessOkDecl` added to `docs/llmll-ast.schema.json` `$defs` and `Statement.oneOf`; empty-reason guard added to `parseWeaknessOkDecl` (`ParserJSON.hs:397`); 804 → 807 Haskell tests. |
 | Claim-to-evidence appendix | **Shipped** in one-pager (2026-04-23) |
 | Contract clause-level provenance | **Shipped** (v0.6.0 PROV-1/2/4, v0.6.1 PROV-3) |
 | Hub query-by-signature | **Shipped** (v0.6.1, HUB-1..HUB-3) |
