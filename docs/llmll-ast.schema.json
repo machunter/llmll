@@ -47,7 +47,8 @@
         { "$ref": "#/$defs/OpenDecl" },
         { "$ref": "#/$defs/ExportDecl" },
         { "$ref": "#/$defs/DefMain" },
-        { "$ref": "#/$defs/TrustDecl" }
+        { "$ref": "#/$defs/TrustDecl" },
+        { "$ref": "#/$defs/WeaknessOkDecl" }
       ]
     },
 
@@ -1129,6 +1130,21 @@
       "examples": [
         { "kind": "trust", "target": "crypto.hash.pbkdf2", "level": "asserted" },
         { "kind": "trust", "target": "auth.verify-token", "level": "tested" }
+      ]
+    },
+
+    "WeaknessOkDecl": {
+      "description": "Suppression governance declaration. Silences --spec-coverage 'unspecified' warnings for a named function. Both 'name' and 'reason' are required; an empty reason is rejected by the parser (LLMLL.md §4.5). Corresponds to EBNF '(weakness-ok fn-name \"reason\")'. v0.6.",
+      "type": "object",
+      "required": ["kind", "name", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":   { "type": "string", "const": "weakness-ok" },
+        "name":   { "type": "string", "description": "Name of the function to suppress weakness warnings for." },
+        "reason": { "type": "string", "minLength": 1, "description": "Mandatory non-empty reason for the suppression." }
+      },
+      "examples": [
+        { "kind": "weakness-ok", "name": "render-board", "reason": "pure string rendering — no meaningful postcondition" }
       ]
     }
 

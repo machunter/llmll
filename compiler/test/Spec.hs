@@ -7178,6 +7178,29 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               Nothing -> expectationFailure "expected a suggestion in the diagnostic"
           Right ss -> expectationFailure ("expected rejection, got: " ++ show ss)
 
+    describe "schema alignment: WeaknessOkDecl (v0.6 schema fix)" $ do
+
+      it "WO-J1 kind:weakness-ok parses as SWeaknessOk under GrammarCoreInversion" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"weakness-ok\",\"name\":\"render-board\",\"reason\":\"pure string rendering\"}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Right [SWeaknessOk "render-board" "pure string rendering"] -> pure ()
+          other -> expectationFailure (show other)
+
+      it "WO-J2 kind:weakness-ok with empty reason is rejected" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"weakness-ok\",\"name\":\"f\",\"reason\":\"\"}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Left diag -> diagKind diag `shouldBe` Just "json-decode-error"
+          Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
+
+      it "WO-J3 kind:weakness-ok co-parses with a def node in the same program" $ do
+        let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
+                    "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"g\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":0}},{\"kind\":\"weakness-ok\",\"name\":\"g\",\"reason\":\"intentional\"}]}"
+        case parseJSONAST GrammarCoreInversion "<test>" src of
+          Right [SDef {}, SWeaknessOk "g" "intentional"] -> pure ()
+          other -> expectationFailure (show other)
+
     describe "INV-W: well-typed" $ do
 
       it "INV-W1 SDef with arithmetic body typechecks without error" $ do

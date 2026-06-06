@@ -14,6 +14,7 @@ module LLMLL.ParserJSON
   , expectedSchemaVersion
   ) where
 
+import Control.Monad (when)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BL
@@ -394,6 +395,7 @@ parseWeaknessOkDecl :: Object -> Parser Statement
 parseWeaknessOkDecl o = do
   name   <- o .: "name"   :: Parser Name
   reason <- o .: "reason" :: Parser Text
+  when (T.null reason) $ fail "weakness-ok requires a non-empty reason string"
   pure $ SWeaknessOk name reason
 
 parseDefMain :: Object -> Parser Statement
