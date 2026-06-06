@@ -20,7 +20,7 @@ import LLMLL.ObligationAssembly
   , recursiveNames, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, fqResultToReport)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
@@ -34,13 +34,13 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash)
 import LLMLL.Module (mergeCS)
-import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified)
+import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified, sidecarNeedsRevalidation)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
@@ -1767,6 +1767,119 @@ main = hspec $ do
       T.isInfixOf "\"phase\":\"lh-fixpoint\"" jsonTxt `shouldBe` True
 
   -- =========================================================================
+  -- VERIFY-RPT-1: reporting-path fail-open fix + refuted trust status.
+  -- VR-1..VR-8 per docs/design/verify-reporting-defects-2026-06-04-bug.md.
+  -- =========================================================================
+
+  describe "VERIFY-RPT-1 (reporting fail-open + refuted status)" $ do
+
+    -- VR-1 (Defect 1a/1b): an UNSAFE verdict that resolves no constraint id
+    -- still fails closed, with a synthesized fallback diagnostic.
+    it "VR-1: fqResultToReport (FQUnsafe []) fails closed with a non-empty payload" $ do
+      let r = fqResultToReport "test.llmll" Map.empty (FQUnsafe [])
+      reportSuccess r                          `shouldBe` False
+      length (reportDiagnostics r) `shouldSatisfy` (>= 1)
+
+    -- VR-5 (Defect 1b pointer quality): a resolvable body-post id maps to its
+    -- /statements/N/body counterexample pointer.
+    it "VR-5: fqResultToReport resolves a body-post id to its /body pointer" $ do
+      let table = Map.fromList
+            [(0, ConstraintOrigin "withdraw" "body-post" "/statements/1/body" "withdraw.ast.json")]
+          r = fqResultToReport "withdraw.ast.json" table (FQUnsafe [0])
+      reportSuccess r                              `shouldBe` False
+      map diagPointer (reportDiagnostics r) `shouldBe` [Just "/statements/1/body"]
+
+    -- VR-2 (Commit 2): the -q --json envelope decoder, including the
+    -- ANSI-prefixed fallback line and noise rejection.
+    it "VR-2: parseFQResultJSON decodes Unsafe/Safe envelopes and rejects noise" $ do
+      parseFQResultJSON "{\"contents\":[{\"numVald\":0},[0]],\"tag\":\"Unsafe\"}"
+        `shouldBe` Just (FQUnsafe [0])
+      parseFQResultJSON "{\"contents\":{\"numVald\":1},\"tag\":\"Safe\"}"
+        `shouldBe` Just FQSafe
+      parseFQResultJSON "\ESC[0m{\"contents\":[{\"n\":1},[0,2]],\"tag\":\"Unsafe\"}"
+        `shouldBe` Just (FQUnsafe [0, 2])
+      parseFQResultJSON "Liquid-Fixpoint banner with no json"
+        `shouldBe` Nothing
+
+    -- VR-3 (Defect 2): a v0.11 verified body-faithful sidecar (no
+    -- overflow_tainted field) round-trips through loadVerified non-empty.
+    it "VR-3: loadVerified round-trips a v0.11 verified sidecar (Defect-2 guard)" $ do
+      let fp = "test/_tmp_vr3.ast.json"
+          cs = Map.fromList
+                 [ ("withdraw", ContractStatus
+                     Nothing
+                     (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False))
+                     []) ]
+      saveVerified fp cs
+      loaded <- loadVerified fp
+      Map.member "withdraw" loaded `shouldBe` True
+      removeFile (verifiedPath fp)
+
+    -- VR-4 (Defect 2): the field-absence revalidation trigger is disarmed.
+    it "VR-4: sidecarNeedsRevalidation is disarmed on a v0.11-shape sidecar" $ do
+      let er  = KM.fromList [ ("display_level", object ["level" .= ("verified" :: T.Text)])
+                            , ("body_faithful", Bool True) ]
+          cs  = KM.fromList [ ("post", Object er) ]
+          top = KM.fromList [ ("withdraw", Object cs) ]
+      sidecarNeedsRevalidation top `shouldBe` False
+
+    -- VR-6 (Commit 4): refutedClosure includes a directly-refuted function.
+    it "VR-6: refutedClosure includes a directly-refuted function" $ do
+      let stmts = [ SDefLogic "f" [("n", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
+                      (EVar "n") ]
+          report = buildTrustReport Map.empty stmts Map.empty
+      refutedClosure (Set.fromList ["f"]) report `shouldBe` Set.fromList ["f"]
+
+    -- VR-8 (Commit 4): refutedClosure is transitive (assume-guarantee) and
+    -- markRefuted stamps a depends-on-refuted drift on the caller.
+    it "VR-8: refutedClosure + markRefuted propagate depends-on-refuted to a caller" $ do
+      let mkFn name body = SDefLogic name [("n", TInt)] (Just TInt)
+                             (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing)
+                             body
+          callee  = mkFn "callee" (EVar "n")
+          caller  = mkFn "caller" (EApp "callee" [EVar "n"])
+          report  = buildTrustReport Map.empty [callee, caller] Map.empty
+          closure = refutedClosure (Set.fromList ["callee"]) report
+          marked  = markRefuted (Set.fromList ["callee"]) report
+          callerDrifts = concat [ teDrifts e | e <- trEntries marked, teName e == "caller" ]
+      Set.member "caller" closure `shouldBe` True
+      Set.member "callee" closure `shouldBe` True
+      any (T.isInfixOf "depends-on-refuted") callerDrifts `shouldBe` True
+
+    -- VR-7 (Cross-cutting): a wrong patch fill yields PatchVerifyError whose
+    -- diagnostics are non-empty and carry a JSON pointer (or PatchSuccess when
+    -- the solver is not installed — graceful degradation).
+    it "VR-7: patch wrong fill → PatchVerifyError with pointer-bearing diagnostics" $ do
+      let tmpDir = "test/_tmp_vr7_patch"
+      createDirectoryIfMissing True tmpDir
+      BL.readFile "../examples/withdraw-demo/withdraw.ast.json"
+        >>= BL.writeFile (tmpDir </> "withdraw.ast.json")
+      let fp = tmpDir </> "withdraw.ast.json"
+      raw <- BL.readFile fp
+      let Just astVal = decode raw
+      result <- checkoutHole fp astVal "/statements/1/body"
+      case result of
+        Left diag -> expectationFailure $ T.unpack (diagMessage diag)
+        Right ct -> do
+          let patchReq = PatchRequest (ctToken ct)
+                [ PatchTest "/statements/1/body"
+                    (object ["kind" .= ("hole-named" :: T.Text), "name" .= ("body_impl" :: T.Text)])
+                , PatchReplace "/statements/1/body"
+                    (object ["kind" .= ("app" :: T.Text), "fn" .= ("+" :: T.Text),
+                             "args" .= [object ["kind" .= ("var" :: T.Text), "name" .= ("balance" :: T.Text)],
+                                        object ["kind" .= ("var" :: T.Text), "name" .= ("amount" :: T.Text)]]])
+                ]
+          pResult <- applyPatch GrammarCoreInversion fp patchReq
+          case pResult of
+            PatchVerifyError rpt -> do
+              length (reportDiagnostics rpt) `shouldSatisfy` (>= 1)
+              any (\d -> diagPointer d /= Nothing) (reportDiagnostics rpt) `shouldBe` True
+            PatchSuccess _ -> pure ()  -- solver absent: graceful degradation
+            other -> expectationFailure $ "expected PatchVerifyError or PatchSuccess, got: " ++ show other
+      removeDirectoryRecursive tmpDir
+
+  -- =========================================================================
   -- v0.10 BUG-PATCH-VERIFY: full lifecycle IO tests
   -- =========================================================================
 
@@ -2617,7 +2730,7 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.2.0")
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.3.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All six required fields present
@@ -4025,14 +4138,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -4044,7 +4157,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -4057,7 +4170,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -4070,7 +4183,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -4082,7 +4195,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -5822,7 +5935,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.2.0")
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.3.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -6129,7 +6242,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
         -- LT-CDP (v0.11): trust_report_version bumped 1.1.0 → 1.2.0
-        T.isInfixOf "\"trust_report_version\":\"1.2.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.3.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
     -- evalContract isolation regression: empty-FuncEnv invariant
@@ -6351,19 +6464,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Nothing  -> expectationFailure "post evidence lost"
           Just er' -> erOverflowTainted er' `shouldBe` True
 
-    -- T13: VerifiedCache invalidate-on-missing — a pre-v0.10.8 sidecar where
-    -- a DLVerified body-faithful entry lacks the field returns empty,
-    -- forcing re-verify under v0.10.8.
-    it "T13 pre-v0.10.8 sidecar with DLVerified body-faithful but no overflow_tainted field is invalidated" $ do
+    -- T13: VERIFY-RPT-1 (Defect 2) DISARMED the INT-1 field-absence
+    -- invalidation. LT-INT (v0.11) emptied the overflow-taint emitter, so a
+    -- verified body-faithful entry legitimately lacks 'overflow_tainted'; the
+    -- old trigger invalidated every such (i.e. every v0.11) sidecar, the cause
+    -- of "--trust-report never shows verified". Such a sidecar now LOADS.
+    it "T13 v0.11 sidecar with DLVerified body-faithful and no overflow_tainted field loads (VERIFY-RPT-1 disarm)" $ do
       let path = "/tmp/llmll-int1-stale.llmll"
           sidecarPath = verifiedPath path
-          -- Hand-crafted pre-v0.10.8 sidecar shape: 'display_level: verified',
-          -- 'body_faithful: true', no 'overflow_tainted' key.
           stale = "{\"f\":{\"post\":{\"display_level\":{\"level\":\"verified\",\"prover\":\"liquid-fixpoint\"},\"body_faithful\":true}}}"
       BL.writeFile sidecarPath stale
       back <- loadVerified path
       removeFile sidecarPath
-      Map.null back `shouldBe` True
+      Map.size back `shouldBe` 1
 
     -- T14: a v0.10.7-vintage sidecar without verified body-faithful entries
     -- (e.g. DLAsserted only) loads normally — invalidation is targeted.
@@ -6640,10 +6753,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"warnings\":[\"not-requested\"]" jsonTxt `shouldBe` True
         T.isInfixOf "\"basis\":\"not-measured\"" jsonTxt `shouldBe` True
 
-      it "C18 trust_report_version is 1.2.0" $ do
+      it "C18 trust_report_version is 1.3.0" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.2.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.3.0\"" jsonTxt `shouldBe` True
 
       it "C19 all nine warning labels round-trip" $ do
         let labels = map cdpWarningLabel

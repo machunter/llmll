@@ -58,7 +58,7 @@ import LLMLL.Diagnostic
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions)
-import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
+import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -70,7 +70,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..))
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), markRefuted, refutedClosure)
 import LLMLL.CDP
   ( CDPResult(..), CDPScope(..)
   , computeCDPFor
@@ -1094,7 +1094,12 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
       -- LT-CDP (v0.11): when '--cdp' is also requested, defer the trust-report
       -- emit to the post-solver path so 'discriminative_axis' can be
       -- populated from the CDP measurement.
-      when (trustReport && not cdpFlag) $ do
+      -- VERIFY-RPT-1 (Commit 4): also defer when '--strict-verified-core' is
+      -- set, so the solver runs and the post-solver gate can both render
+      -- 'refuted' and fail the build closed. A solver-less '--trust-report'
+      -- render shows 'asserted' (no refuted info) by design — see the refuted
+      -- proposal edge case 3.
+      when (trustReport && not cdpFlag && not strictCore) $ do
         -- v0.9.0: load .verified.json sidecar so trust report reflects solver results
         sidecar <- loadVerified fp
         let report = buildTrustReport _cache stmts sidecar
@@ -1205,17 +1210,36 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
         Just lfBin -> do
           -- 5. Run liquid-fixpoint
           unless json $ TIO.putStrLn "   Running liquid-fixpoint ..."
-          (code, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
-          let outT    = T.pack out
-              fqResult = parseFQResult (outT <> T.pack err)
+          -- VERIFY-RPT-1 (Commit 2): invoke with '-q --json' so the verdict
+          -- carries resolvable constraint ids. '-q' suppresses the human banner
+          -- (otherwise the JSON line is ANSI-prefixed and banner-wrapped), and
+          -- '--json' selects the structured envelope. Fall back to the text
+          -- scrape when the JSON envelope does not parse (a differently-built
+          -- fixpoint, or a crash with no envelope).
+          (_code, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
+          let outT     = T.pack out
+              merged   = outT <> T.pack err
+              fqResult = fromMaybe (parseFQResult merged) (parseFQResultJSON merged)
+              -- VERIFY-RPT-1 (Commit 4): refuted functions = body-faithful fns
+              -- named by the constraint-table origin of each unsafe id.
+              bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
+              refutedSet = case fqResult of
+                FQUnsafe ids -> Set.fromList
+                  [ coFunction o
+                  | i <- ids, Just o <- [Map.lookup i table]
+                  , Set.member (coFunction o) bodyFaithfulSet ]
+                _ -> Set.empty
 
-          -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE)
+          -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
+          -- embedded trust report is refuted-marked. Under
+          -- '--strict-verified-core' do not exit here — fall through to the
+          -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             oblSidecar <- loadVerified fp
-            let trustRpt = buildTrustReport _cache stmts oblSidecar
+            let trustRpt = markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
-            exitSuccess
+            unless strictCore exitSuccess
 
           let report = fqResultToReport fp table fqResult
 
@@ -1369,7 +1393,9 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           -- was set), emit the trust report here so 'discriminative_axis' can
           -- be populated from the CDP map. The non-CDP early-exit at line ~1078
           -- already handled the trust-report-only path.
-          when (trustReport && cdpFlag) $ do
+          -- VERIFY-RPT-1 (Commit 4): defer the CDP trust emit under
+          -- '--strict-verified-core' too, so the gate below can fail closed.
+          when (trustReport && cdpFlag && not strictCore) $ do
             sidecar <- loadVerified fp
             let report = buildTrustReportWithCDP _cache stmts sidecar cdpResults
             if json
@@ -1377,12 +1403,53 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
               else TIO.putStr (formatTrustReport report)
             exitSuccess
 
-          if reportSuccess report then do
-            -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
-            when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
-              runLeanstralPipeline json fp stmts lsOpts
-            exitSuccess
-          else exitFailure
+          -- VERIFY-RPT-1 (Commit 4): post-solver '--strict-verified-core'
+          -- conjunct (c). The pre-solver gate (fallback/overflow-tainted) runs
+          -- before the solver and cannot see the verdict; this refuses a
+          -- body-faithful function the solver disproved (refuted), transitively
+          -- per assume-guarantee. The '--trust-report'/'--obligation-report'
+          -- early exits were deferred under strict mode so this point is
+          -- reached; emit a refuted-marked trust report here when requested
+          -- (and not already emitted via the obligation report) before failing.
+          when strictCore $ do
+            stSidecar <- loadVerified fp
+            let stReport = markRefuted refutedSet (buildTrustReport _cache stmts stSidecar)
+                refusal  = refutedClosure refutedSet stReport
+            when (trustReport && not obligationReport) $
+              if json
+                then TIO.putStrLn (formatTrustReportJson stReport)
+                else TIO.putStr (formatTrustReport stReport)
+            unless (Set.null refusal) $ do
+              if json
+                then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                       object [ "file" .= fp
+                              , "strict_errors" .=
+                                  [ object
+                                      [ "cause" .= ("refuted" :: T.Text)
+                                      , "fns"   .= Set.toList refusal
+                                      , "msg"   .= ("body-faithful function(s) disproved by liquid-fixpoint, or transitively depending on one: "
+                                                    <> T.intercalate ", " (Set.toList refusal))
+                                      ]
+                                  ]
+                              ]
+                else mapM_ (\n -> TIO.putStrLn $ "ERROR: --strict-verified-core: refuted: " <> n)
+                           (Set.toList refusal)
+              exitFailure
+
+          -- VERIFY-RPT-1 (Defect 1a): route the verdict through the
+          -- 'FQVerifyResult' constructor, not the lossy 'reportSuccess'
+          -- projection. An UNSAFE result that resolved no constraint id used to
+          -- project 'reportSuccess = True' and fail open here; keying on the
+          -- constructor makes 'FQUnsafe'/'FQError' fail closed unconditionally.
+          -- Placed after the SAFE sidecar write above so SAFE still persists.
+          case fqResult of
+            FQSafe -> do
+              -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
+              when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
+                runLeanstralPipeline json fp stmts lsOpts
+              exitSuccess
+            FQUnsafe _ -> exitFailure
+            FQError _  -> exitFailure
 
 -- | LT-CDP (v0.11): Run the solver on one CDP candidate; return True iff the
 -- solver reports SAFE (the candidate's trivial body satisfies the contract).

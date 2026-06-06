@@ -37,6 +37,7 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Maybe (fromMaybe)
 import GHC.Generics (Generic)
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, parsePointer)
@@ -46,7 +47,7 @@ import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..))
 import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
-import LLMLL.DiagnosticFQ (parseFQResult, fqResultToReport, FQVerifyResult(..))
+import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..))
 
 import Data.Time.Clock (getCurrentTime)
 import System.Directory (doesFileExist, findExecutable)
@@ -382,10 +383,15 @@ reVerify fp stmts
           let baseName = takeBaseName fp
               fqPath   = "/tmp/llmll-patch-" <> baseName <> ".fq"
           TIO.writeFile fqPath fqText
-          -- Run solver
-          (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+          -- Run solver. VERIFY-RPT-1 (Commit 2): '-q --json' yields resolvable
+          -- constraint ids so the PatchVerifyError payload carries source
+          -- pointers; fall back to the text scrape if the envelope fails to
+          -- parse. Shares 'fqResultToReport', so the Defect-1b fallback
+          -- diagnostic applies here too — the payload is never empty on reject.
+          (_, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
           let outT     = T.pack out
-              fqResult = parseFQResult (outT <> T.pack err)
+              merged   = outT <> T.pack err
+              fqResult = fromMaybe (parseFQResult merged) (parseFQResultJSON merged)
               fqReport = fqResultToReport fp table fqResult
           case fqResult of
             FQSafe     -> pure Nothing       -- SAFE → proceed with write

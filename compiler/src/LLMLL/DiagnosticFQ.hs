@@ -14,6 +14,7 @@ module LLMLL.DiagnosticFQ
     -- * Parse liquid-fixpoint output
   , FQVerifyResult(..)
   , parseFQResult
+  , parseFQResultJSON
   , fqResultToReport
   ) where
 
@@ -21,7 +22,14 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromMaybe, listToMaybe)
+import qualified Data.Aeson as A
+import Data.Aeson (Value(..))
+import qualified Data.Aeson.KeyMap as KM
+import Data.Aeson.Types (parseMaybe, parseJSON)
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString.Lazy as BL
+import Data.Foldable (toList)
 
 import LLMLL.FixpointIR (FQConstraintId)
 import LLMLL.Diagnostic
@@ -82,6 +90,55 @@ parseFQResult out
                                _        -> Nothing
                _          -> Nothing
 
+-- | VERIFY-RPT-1 (Defect 1b / pointer quality): parse the structured envelope
+-- emitted by @fixpoint -q --json@. The text 'parseFQResult' path scrapes
+-- constraint ids from the human banner and finds none (the @Unsafe:@ status
+-- line carries no @id N@ tokens), yielding @FQUnsafe []@ — no resolvable
+-- pointer. The JSON envelope carries the real ids, so they map through the
+-- 'ConstraintTable' to source pointers.
+--
+-- Envelope shape is tag-keyed and heterogeneous in @contents@:
+--   @{"tag":"Safe","contents":{stats}}@
+--   @{"tag":"Unsafe","contents":[{stats},[ids]]}@
+-- With @-q@ the output is a single clean JSON line; without it the line is
+-- ANSI-prefixed and preceded by banner noise, so we strip ANSI and scan for a
+-- JSON-object line as a robustness fallback. Returns 'Nothing' on any parse
+-- failure so callers fall back to 'parseFQResult'.
+parseFQResultJSON :: Text -> Maybe FQVerifyResult
+parseFQResultJSON txt =
+  listToMaybe (mapMaybe tryDecode candidates)
+  where
+    cleaned    = stripAnsi txt
+    candidates = filter looksJson (T.lines cleaned) ++ [T.strip cleaned]
+    looksJson l = "{" `T.isPrefixOf` T.strip l
+    tryDecode s =
+      A.decode (BL.fromStrict (TE.encodeUtf8 (T.strip s))) >>= envelopeToResult
+
+    envelopeToResult :: Value -> Maybe FQVerifyResult
+    envelopeToResult (Object o) =
+      case KM.lookup "tag" o of
+        Just (String "Safe")   -> Just FQSafe
+        Just (String "Unsafe") ->
+          case KM.lookup "contents" o of
+            Just (Array arr) ->
+              case toList arr of
+                [_stats, idsV] ->
+                  Just (FQUnsafe (fromMaybe [] (parseMaybe parseJSON idsV)))
+                _ -> Just (FQUnsafe [])
+            _ -> Just (FQUnsafe [])
+        _ -> Nothing
+    envelopeToResult _ = Nothing
+
+-- | Drop ANSI CSI escape sequences (@ESC [ … m@) so a banner-wrapped JSON line
+-- is recoverable. Used only by 'parseFQResultJSON'.
+stripAnsi :: Text -> Text
+stripAnsi = go
+  where
+    go t = case T.break (== '\x1b') t of
+      (before, rest)
+        | T.null rest -> before
+        | otherwise   -> before <> go (T.drop 1 (T.dropWhile (/= 'm') rest))
+
 -- ---------------------------------------------------------------------------
 -- Convert to DiagnosticReport
 -- ---------------------------------------------------------------------------
@@ -99,11 +156,20 @@ fqResultToReport _fp _table FQSafe =
     , reportSuccess     = True
     }
 fqResultToReport fp table (FQUnsafe ids) =
-  let diags = mapMaybe (toDiag fp table) ids
+  let diags0 = mapMaybe (toDiag fp table) ids
+      -- VERIFY-RPT-1 (Defect 1b): when the solver reports UNSAFE but no
+      -- constraint id resolves to a diagnostic — empty 'ids' (text-scrape
+      -- failure) or ids absent from the table — synthesize a function-level
+      -- fallback so the payload is never empty.
+      diags  = if null diags0 then [fallbackUnsafeDiag table] else diags0
   in DiagnosticReport
     { reportPhase       = "lh-fixpoint"
+    -- VERIFY-RPT-1 (Defect 1a, load-bearing): UNSAFE always fails closed,
+    -- regardless of whether any id resolved. An unmappable unsafe id is still
+    -- unsafe. The exit/verdict decision in doVerify routes through the
+    -- 'FQVerifyResult' constructor, not this projection.
     , reportDiagnostics = diags
-    , reportSuccess     = null diags  -- might be unknown constraint IDs
+    , reportSuccess     = False
     }
 fqResultToReport _fp _table (FQError txt) =
   let d = mkError Nothing ("liquid-fixpoint error: " <> txt)
@@ -136,3 +202,22 @@ toDiag fp table cid =
                 <> " (constraint #" <> T.pack (show cid) <> ")"
           d   = mkError Nothing msg
       in Just d { diagPointer = Just (coJsonPtr orig) }
+
+-- | VERIFY-RPT-1 (Defect 1b): fallback diagnostic for an UNSAFE verdict that
+-- carries no resolvable constraint id. Points at the first known origin's
+-- pointer (the '/statements/N/body' clause carrying the offending fill — the
+-- target a repair agent must edit), else the document root. Guarantees the
+-- 'FQUnsafe' diagnostic payload is never empty, so 'verify' and 'patch' never
+-- report an unsafe result with zero diagnostics.
+fallbackUnsafeDiag :: ConstraintTable -> Diagnostic
+fallbackUnsafeDiag table =
+  let mOrig = case Map.elems table of
+                (o:_) -> Just o
+                []    -> Nothing
+      ptr   = maybe "/" coJsonPtr mOrig
+      fn    = maybe "" (\o -> " of '" <> coFunction o <> "'") mOrig
+      msg   = "body verification" <> fn
+              <> " failed \8212 implementation does not satisfy contract "
+              <> "(liquid-fixpoint UNSAFE; no constraint id resolved to a source location)"
+      d     = mkError Nothing msg
+  in d { diagPointer = Just ptr, diagKind = Just "lh-unsafe" }

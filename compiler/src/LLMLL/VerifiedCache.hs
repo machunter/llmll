@@ -9,6 +9,7 @@ module LLMLL.VerifiedCache
   ( verifiedPath
   , loadVerified
   , saveVerified
+  , sidecarNeedsRevalidation
   ) where
 
 import Data.Aeson (Value(..), (.=), object)
@@ -18,7 +19,6 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (doesFileExist)
@@ -181,15 +181,13 @@ csFromJSON _ = Nothing
 -- | Load verified status from sidecar file. Returns empty map if file missing
 -- or if the file uses an old/incompatible format.
 --
--- INT-1 (v0.10.8): sidecars written by pre-v0.10.8 verify runs lack the
--- 'overflow_tainted' field on DLVerified body-faithful records. The reader
--- defaults the missing field to False (additive back-compat), but a strict-core
--- consumer that trusts a default-False on what was actually an unbounded-Int
--- arithmetic body would see a silent false negative. To eliminate that
--- exposure, 'loadVerified' invalidates the entire sidecar (returns empty,
--- forcing re-verify) whenever any verified body-faithful entry lacks the
--- field. Pre-v0.10.8 sidecars therefore regenerate on first verify against
--- v0.10.8+.
+-- VERIFY-RPT-1 (Defect 2): the INT-1 (v0.10.8) field-absence revalidation
+-- trigger is disarmed (see 'sidecarNeedsRevalidation'). It over-invalidated
+-- every v0.11 verified sidecar — LT-INT (v0.11) emptied the overflow-taint
+-- emitter ('FixpointEmit.hs') so the writer legitimately omits
+-- 'overflow_tainted' on all verified entries, which the old trigger read as
+-- "stale, re-verify" and returned 'Map.empty', so '--trust-report' could never
+-- surface 'verified'.
 loadVerified :: FilePath -> IO (Map Name ContractStatus)
 loadVerified fp = do
   let path = verifiedPath fp
@@ -210,26 +208,33 @@ loadVerified fp = do
                 ]
         _ -> pure Map.empty
 
--- | INT-1 (v0.10.8): True when the sidecar contains at least one
--- 'DLVerified' body-faithful entry that lacks the 'overflow_tainted' field.
--- Such entries pre-date v0.10.8's overflow-taint marking, so the file as a
--- whole is treated as stale and re-verified rather than silently reading the
--- taint as False.
+-- | Whether a loaded sidecar must be discarded and re-verified.
+--
+-- DISARMED (VERIFY-RPT-1, v0.11). Always 'False'. The INT-1 (v0.10.8) trigger
+-- invalidated any 'DLVerified' body-faithful entry that lacked the
+-- 'overflow_tainted' field (absence read pessimistically as "could be tainted").
+-- LT-INT (v0.11) made 'int' codegen unbounded ('Integer') and emptied the taint
+-- emitter, so the field is now legitimately absent on every verified entry —
+-- the trigger fired on all of them, the load-bearing cause of Defect 2.
+--
+-- SOUNDNESS SIDE-CONDITION (professor adjudication, VERIFY-RPT-1):
+--   'overflow_tainted'-absent ⇒ False is sound IFF the loading binary's codegen
+--   semantics are unbounded for every type the record's body ranges over.
+-- Discharged by construction in the v0.11 window: all 'int' codegen is 'Integer';
+-- already-shipped v0.10.x binaries retain the old invalidate-on-absence in the
+-- one cross-binary direction that could otherwise reopen the gap.
+--
+-- !! TRIP-WIRE for INT-3 / machine-int (docs/design/int-3-machine-int-sketch.md
+-- §3.2): 'machine-int' reintroduces bounded (2^64 two's-complement) codegen
+-- inside a v0.11+ binary, so loader-version no longer implies runtime semantics
+-- and the antecedent above is FALSIFIED. When INT-3 lands, this disarm MUST be
+-- replaced by a 'codegen_semantics_version'-keyed check (proposal §3.5) — NOT by
+-- restoring the field-absence trigger, and re-arming the FixpointEmit walker
+-- alone is insufficient. The pre-disarm logic to port: invalidate when a
+-- 'verified' + 'body_faithful=true' entry lacks 'overflow_tainted' AND was
+-- produced under bounded-codegen semantics.
 sidecarNeedsRevalidation :: KM.KeyMap Value -> Bool
-sidecarNeedsRevalidation top = any csNeedsRevalidation (KM.elems top)
-  where
-    csNeedsRevalidation (Object cs) =
-      any erNeedsRevalidation [v | k <- ["pre", "post"], Just v <- [KM.lookup k cs]]
-    csNeedsRevalidation _ = False
-
-    erNeedsRevalidation (Object er) =
-      let isVerifiedBodyFaithful = case (KM.lookup "display_level" er, KM.lookup "body_faithful" er) of
-            (Just (Object dl), Just (Bool True))
-              | KM.lookup "level" dl == Just (String "verified") -> True
-            _ -> False
-          taintFieldAbsent = isNothing (KM.lookup "overflow_tainted" er)
-      in isVerifiedBodyFaithful && taintFieldAbsent
-    erNeedsRevalidation _ = False
+sidecarNeedsRevalidation _top = False
 
 -- | Save verified status to sidecar file.
 saveVerified :: FilePath -> Map Name ContractStatus -> IO ()

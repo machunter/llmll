@@ -24,6 +24,8 @@ module LLMLL.TrustReport
   , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
   , computeJointHashes -- OBLIG-PBT-5a: joint witness hash detection
   , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
+  , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
+  , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
   , trustReportEmitVersion
   ) where
 
@@ -107,6 +109,13 @@ data TrustReport = TrustReport
   -- and emit a single 'WarnNotRequested' entry per function so the JSON
   -- shape stays uniform (proposal §5).
   , trCDP              :: Map Name CDPResult
+  -- VERIFY-RPT-1 (Commit 4): body-faithful functions whose body VC the solver
+  -- reported UNSAFE (refuted). A verify-time-only status (never persisted to
+  -- '.verified.json'); the base 'buildTrustReport' leaves it empty and the
+  -- post-solver path populates it via 'markRefuted'. Orthogonal to the
+  -- 'DisplayLevel' diamond — refutation is negative evidence, off the
+  -- evidence-strength axis (verified-contract-refuted-status-proposal §3.2).
+  , trRefutedFns       :: Set Name
   } deriving (Show, Eq)
 
 data TrustSummary = TrustSummary
@@ -150,8 +159,13 @@ data TierProfile = TierProfile
 -- warning enumeration per 'contract-discriminative-power-proposal.md' §5.
 -- The block is optional in the schema and populated under '--cdp' or with a
 -- single 'WarnNotRequested' marker otherwise.
+--
+-- VERIFY-RPT-1 (1.3.0): additive 'refuted' per-entry flag, top-level
+-- 'refuted_fns', and the 'depends-on-refuted' drift kind. No 'DisplayLevel'
+-- change, no 'evidenceMeet'/'evidenceCovers' change; existing consumers ignore
+-- the new keys (verified-contract-refuted-status-proposal §6).
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.2.0"
+trustReportEmitVersion = "1.3.0"
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -230,7 +244,47 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trStaleDowngrades = stales
        , trJointWitnesses  = jointGroups
        , trCDP             = cdpMap
+       , trRefutedFns      = Set.empty  -- VERIFY-RPT-1: populated by markRefuted post-solver
        }
+
+-- | VERIFY-RPT-1 (Commit 4): refusal set for '--strict-verified-core' conjunct
+-- (c). Returns the directly-refuted functions together with every function that
+-- transitively calls one (depends-on-refuted). The transitive closure is taken
+-- because assume-guarantee composition (LLMLL.md §0.1) makes a caller of a
+-- refuted callee unsound — its own SAFE VC rests on a disproved assumption.
+refutedClosure :: Set Name -> TrustReport -> Set Name
+refutedClosure refuted report =
+  let callGraph = Map.fromList [ (teName e, map tdName (teDeps e)) | e <- trEntries report ]
+      reachable = transitiveClose callGraph
+      callers   = Set.fromList
+        [ teName e
+        | e <- trEntries report
+        , not (Set.null (Set.intersection
+                           (Map.findWithDefault Set.empty (teName e) reachable)
+                           refuted))
+        ]
+  in Set.union refuted callers
+
+-- | VERIFY-RPT-1 (Commit 4): stamp a solver-derived refuted set onto a report.
+-- Sets 'trRefutedFns' (the directly-refuted functions, driving the per-entry
+-- 'refuted' flag and top-level 'refuted_fns' at JSON emit) and appends drift
+-- lines: a 'refuted' note on each directly-refuted entry and a
+-- 'depends-on-refuted' note on each transitive caller. Verify-time only.
+markRefuted :: Set Name -> TrustReport -> TrustReport
+markRefuted refuted report =
+  let closure   = refutedClosure refuted report
+      dependsOn = Set.difference closure refuted
+      stamp e
+        | Set.member (teName e) refuted =
+            e { teDrifts = teDrifts e ++
+                  ["refuted: body VC disproved by liquid-fixpoint (solver UNSAFE); implementation contradicts its contract"] }
+        | Set.member (teName e) dependsOn =
+            e { teDrifts = teDrifts e ++
+                  ["depends-on-refuted: transitively calls a refuted function; assume-guarantee proof rests on a disproved postcondition"] }
+        | otherwise = e
+  in report { trEntries    = map stamp (trEntries report)
+            , trRefutedFns = refuted
+            }
 
 -- | OBLIG-PBT-3: collect SHA-256 hashes of every live property body across
 -- the entry module and the cached module set. Used by 'buildTrustReport' on
@@ -768,6 +822,9 @@ formatTrustReportJson report =
                                 | e <- trEntries report
                                 , taintedFns e
                                 ]
+    -- VERIFY-RPT-1 (1.3.0): top-level list of refuted functions (body VC the
+    -- solver reported UNSAFE). Verify-time only; empty on a solver-less render.
+    , "refuted_fns" .= Set.toList (trRefutedFns report)
     ]
   where
     -- INT-1: an entry is overflow-tainted at the report level iff any of its
@@ -793,6 +850,9 @@ formatTrustReportJson report =
       -- True on any clause. Mirrors the joint-witness emit shape (only-on-true)
       -- so unchanged trust-report JSON for non-tainting fns stays byte-identical.
       [ "overflow_tainted" .= True | taintedFns e ] ++
+      -- VERIFY-RPT-1 (1.3.0): per-entry refuted flag, emitted only when true,
+      -- mirroring the only-on-true shape so non-refuted JSON stays byte-identical.
+      [ "refuted" .= True | Set.member (teName e) (trRefutedFns report) ] ++
       -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
       -- contracted entries; populated from 'trCDP report' when present,
       -- otherwise a single 'not-requested' warning so consumers see a uniform
