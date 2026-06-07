@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## v0.11.0 — Core/Shell Grammar Inversion + Evidence-Axis Enrichment (2026-05-31)
+## v0.11.1 — Verify Fail-Open Closure + Schema-Gap Catch-Up (2026-06-06)
 
 ### Compiler — VERIFY-RPT-1: verify reporting fail-open + refuted trust status (2026-06-06)
 
@@ -30,6 +30,16 @@
 - **`docs/llmll-ast.schema.json`: `WeaknessOkDecl` added to `$defs` and `Statement.oneOf`** (commit [`6af4975`](compiler/src/LLMLL/ParserJSON.hs)). `kind:"weakness-ok"` was dispatched by `ParserJSON.hs:179` and emitted by `AstEmit.hs:200-202` since v0.6.0, but was absent from `Statement.oneOf` — `examples/totp_rfc6238/totp.ast.json` and `totp_filled.ast.json` failed external JSON Schema validation, and any LLM generating from the schema could not produce a conforming `weakness-ok` node. `WeaknessOkDecl` requires `kind, name, reason`; `reason` carries `minLength: 1`, aligning the schema with `LLMLL.md §4.5:621` ("the parser rejects bare `weakness-ok` without a reason string"). `schemaVersion` unchanged at `"0.6.0"`.
 - **Empty-reason guard added to `parseWeaknessOkDecl`** ([`compiler/src/LLMLL/ParserJSON.hs:397`](compiler/src/LLMLL/ParserJSON.hs)). The S-expression parser (`Parser.hs:447`) has enforced non-empty reason since v0.6; the JSON path did not — `{"reason":""}` was silently admitted. `when (T.null reason) $ fail "weakness-ok requires a non-empty reason string"` closes the asymmetry. `Control.Monad (when)` added to imports.
 - **3 new tests** (WO-J1..WO-J3 in [`compiler/test/Spec.hs`](compiler/test/Spec.hs)): WO-J1 positive parse as `SWeaknessOk`; WO-J2 empty-reason rejection (`json-decode-error`); WO-J3 co-parse alongside a `def` node. **Tests: 804 → 807 Haskell + 62 Python.**
+
+### Doc lead — CHANGELOG `## Latest` anchor restored (2026-06-03)
+
+- **`<a id="Latest">` anchor re-added to `CHANGELOG.md`** (commit [`84d8166`](CHANGELOG.md)). The `README.md:5` "Current version" callout links to `CHANGELOG.md#Latest`; the anchor had been dropped, breaking the deep-link. Prose backtick citations in the affected entries converted to hyperlinks. Doc-infra only; no schema, spec, code, test, or version change.
+
+**Tests: 807 Haskell + 62 Python.**
+
+---
+
+## v0.11.0 — Core/Shell Grammar Inversion + Evidence-Axis Enrichment (2026-05-31)
 
 ### Compiler — LT-INV: CDP fixture + test surface def-logic cleanup (2026-05-31)
 
