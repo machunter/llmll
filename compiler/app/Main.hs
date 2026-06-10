@@ -39,7 +39,7 @@ import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..))
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrict, emptyEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrict, emptyEnv, builtinEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
@@ -57,12 +57,12 @@ import LLMLL.Diagnostic
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness)
 -- D4: liquid-fixpoint verification backend
-import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions)
+import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
 import LLMLL.InvariantRegistry (defaultPatterns)
-import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..))
+import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), buildScopeEntries, collectTypeDefinitions, normalizePointer)
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (saveVerified, loadVerified, verifiedPath)
@@ -80,7 +80,7 @@ import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
-import LLMLL.ObligationAssembly (assembleReport)
+import LLMLL.ObligationAssembly (assembleReport, holeContractBrief)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -345,7 +345,7 @@ main = do
     CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag
     CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
     CmdServe serveOpts            -> runServe serveOpts
-    CmdCheckout fp ptr            -> doCheckout json fp (T.pack ptr)
+    CmdCheckout fp ptr            -> doCheckout json gm fp (T.pack ptr)
     CmdCheckoutRelease fp tok     -> doCheckoutRelease json fp (T.pack tok)
     CmdCheckoutStatus fp tok      -> doCheckoutStatusCmd json fp (T.pack tok)
     CmdPatch fp patchFp           -> doPatch json gm fp patchFp
@@ -1611,8 +1611,8 @@ guardJsonFile fp = do
       hPutStrLn stderr $ "  Got: " ++ fp
       pure False
 
-doCheckout :: Bool -> FilePath -> T.Text -> IO ()
-doCheckout _json fp pointer = do
+doCheckout :: Bool -> GrammarMode -> FilePath -> T.Text -> IO ()
+doCheckout json gm fp pointer = do
   ok <- guardJsonFile fp
   unless ok exitFailure
   -- Load JSON-AST as raw Value
@@ -1629,16 +1629,47 @@ doCheckout _json fp pointer = do
       mVerifiedHash <- if verifiedExists
         then Just <$> hashFile verifiedFp
         else pure Nothing
+      -- OBLIG-1 (population): assemble the per-hole brief from parse + sketch
+      -- type-check. No constraint emission, no solver — checkout stays at
+      -- typecheck cost. On parse/load failure we proceed with an empty brief;
+      -- checkout still acquires the lock.
+      let normPtr = normalizePointer pointer
+      (mScope, mTypeDefs, mPre, mPost, mPath) <- do
+        mStmts <- loadStatementsMulti json gm fp
+        case mStmts of
+          Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing)
+          Right (stmts, _cache, _) -> do
+            let sketch = runSketch gm builtinEnv stmts defaultPatterns
+                mHole  = case [ h | h <- sketchHoles sketch
+                                  , normalizePointer (shPointer h) == normPtr ] of
+                           (h:_) -> Just h
+                           []    -> Nothing
+                scope  = fmap (buildScopeEntries . shEnv) mHole
+                holeNm = maybe "" shName mHole
+                (pre, post, path) = holeContractBrief stmts normPtr holeNm
+                tdefs  = case mHole of
+                  Nothing -> Nothing
+                  Just h  ->
+                    let scopeTypes = Map.map sbType (shEnv h)
+                        defs = collectTypeDefinitions scopeTypes Nothing
+                                 (buildAliasMap stmts)
+                    in if null defs then Nothing else Just defs
+            pure ( scope
+                 , tdefs
+                 , pre
+                 , post
+                 , if null path then Nothing else Just path
+                 )
       let ctx = CheckoutContext
-            { ccScope          = Nothing
-            , ccExpectedReturn = Nothing
-            , ccFunctions      = Nothing
-            , ccTypeDefs       = Nothing
-            -- v0.10: contract fields deferred to OBLIG-2 (requires parsed statements)
-            , ccContractPre    = Nothing
-            , ccPostGoal       = Nothing
-            , ccPathCondition  = Nothing
-            , ccAssumptions    = Nothing
+            { ccScope          = mScope
+            , ccExpectedReturn = Nothing  -- best-effort: SketchHole carries no inferred type
+            , ccFunctions      = Nothing  -- deferred (follow-on: assembleFunctionLists)
+            , ccTypeDefs       = mTypeDefs
+            -- OBLIG-1 (population): contract context now filled (was deferred to OBLIG-2)
+            , ccContractPre    = mPre
+            , ccPostGoal       = mPost
+            , ccPathCondition  = mPath
+            , ccAssumptions    = Nothing  -- deferred (follow-on: trust-entry labels)
             , ccObligationId   = Nothing
             -- v0.10: staleness hashes
             , ccSourceHash     = Just sourceHash

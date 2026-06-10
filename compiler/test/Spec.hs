@@ -15,7 +15,7 @@ import LLMLL.Syntax
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationAssembly
-  ( exprToSExpr, deriveBacking, collectHoleGuards, normalizeForFingerprint
+  ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyBodyFragment
   , recursiveNames, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel )
@@ -5205,6 +5205,38 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                    (EHole (HNamed "body"))
           results = collectHoleGuards emptyRename intEnv expr
       length results `shouldBe` 1
+
+  describe "ObligationAssembly: holeContractBrief (OBLIG-1 checkout population)" $ do
+    let src = T.unlines
+          [ "(type PositiveInt (where [x: int] (> x 0)))"
+          , "(def withdraw [balance: int amount: PositiveInt]"
+          , "  (pre  (>= balance amount))"
+          , "  (post (= result (- balance amount)))"
+          , "  ?body_impl)"
+          , "(def stub [n: int] ?s)"
+          , "(def br [x: int] (post (>= result 0)) (if (> x 0) ?pos ?neg))" ]
+        withStmts k = case parseStatements GrammarCoreInversion "<test>" src of
+          Left e      -> expectationFailure ("parse failed: " <> show e)
+          Right stmts -> k stmts
+
+    it "OBR-1: contracted hole yields pre + post, empty path" $ withStmts $ \stmts -> do
+      let (pre, post, path) = holeContractBrief stmts "/statements/1/body" "?body_impl"
+      pre  `shouldBe` Just "(>= balance amount)"
+      post `shouldBe` Just "(= result (- balance amount))"
+      path `shouldBe` []
+
+    it "OBR-2: contract-free hole yields all Nothing/empty" $ withStmts $ \stmts -> do
+      holeContractBrief stmts "/statements/2/body" "?s"
+        `shouldBe` (Nothing, Nothing, [])
+
+    it "OBR-3: branch hole surfaces its path condition" $ withStmts $ \stmts -> do
+      let (_, post, path) = holeContractBrief stmts "/statements/3/body" "?pos"
+      post `shouldBe` Just "(>= result 0)"
+      path `shouldSatisfy` elem "(> x 0)"
+
+    it "OBR-4: unknown pointer yields empty brief (no enclosing function)" $ withStmts $ \stmts ->
+      holeContractBrief stmts "/statements/99/body" "?x"
+        `shouldBe` (Nothing, Nothing, [])
 
   describe "ObligationAssembly: recursiveNames" $ do
     it "OA-RN1: empty for non-recursive" $ do

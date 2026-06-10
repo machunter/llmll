@@ -21,6 +21,7 @@ module LLMLL.ObligationAssembly
   , deriveBacking
   , classifyGuard
   , collectHoleGuards
+  , holeContractBrief
   , classifyContractFragment
   , classifyBodyFragment
   , normalizeForFingerprint
@@ -767,6 +768,31 @@ paramToScope (n, ty) = object ["name" .= n, "type" .= typeLabel ty, "source" .= 
 
 emptyContract :: Contract
 emptyContract = Contract Nothing Nothing Nothing Nothing Nothing
+
+-- | OBLIG-1: per-hole contract brief for @llmll checkout@. Shares the exact
+-- primitives 'mkHoleObl' uses (enclosingFunc / findFunctionInfo /
+-- collectHoleGuards / exprToSExpr) so the checkout path and the obligation
+-- report agree by construction. Given the hole's normalized JSON pointer and
+-- its name, returns @(precondition, postcondition-goal, path-condition guard
+-- texts)@ for the enclosing function. Pure: no constraint emission, no solver.
+holeContractBrief :: [Statement] -> Text -> Text -> (Maybe Text, Maybe Text, [Text])
+holeContractBrief stmts pointer holeNm =
+  case enclosingFunc pointer stmts of
+    Nothing -> (Nothing, Nothing, [])
+    Just fnName ->
+      let (mContract, mParams, mBody) = findFunctionInfo fnName stmts
+          contract = fromMaybe emptyContract mContract
+          params   = fromMaybe [] mParams
+          aliases  = buildAliasMap stmts
+          sortEnv  = buildSortEnv aliases params
+          guards   = collectHoleGuards Map.empty sortEnv
+                       (fromMaybe (ELit (LitBool True)) mBody)
+          hName    = T.dropWhile (== '?') holeNm
+          myGuards = fromMaybe [] (lookup hName guards)
+      in ( fmap exprToSExpr (contractPre contract)
+         , fmap exprToSExpr (contractPost contract)
+         , map peGuard (take 16 myGuards)
+         )
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding (spec §2.1)
