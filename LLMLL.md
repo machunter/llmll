@@ -1680,10 +1680,20 @@ The checkout response includes four optional fields (present when the compiler h
 | Field | Type | Content |
 |-------|------|---------|
 | `in_scope` | `[ScopeEntry]` | Bindings visible at the hole site (Γ delta: `tcEnv \ builtinEnv`). Each entry has `name`, `type` (LLMLL notation), and `source` (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by source priority; truncated at 50 entries with `scope_truncated: true`. |
-| `expected_return_type` | `string` | The inferred return type at the hole site (τ as a type label). |
-| `available_functions` | `[FuncEntry]` | Non-`wasi.*` function signatures (Σ), monomorphized against concrete scope types. E.g., when `xs : list[int]` is in scope, `list-head` appears as `list[int] → Result[int, string]` rather than `list[a] → Result[a, string]`. Each entry has `name`, `params` (with types), `returns`, and `status` (`filled`, `hole`, `builtin`). |
+| `expected_return_type` | `string` | The inferred return type at the hole site (τ as a type label). **Reserved — not yet populated (returns absent); requires sketch-mode hole-type capture in `SketchHole`. See OBLIG-1 follow-on.** |
+| `available_functions` | `[FuncEntry]` | Non-`wasi.*` function signatures (Σ), monomorphized against concrete scope types. E.g., when `xs : list[int]` is in scope, `list-head` appears as `list[int] → Result[int, string]` rather than `list[a] → Result[a, string]`. Each entry has `name`, `params` (with types), `returns`, and `status` (`filled`, `hole`, `builtin`). **Reserved — not yet populated (returns absent); depends on `expected_return_type`. See OBLIG-1 follow-on.** |
 | `type_definitions` | `[TypeDefEntry]` | User-defined types referenced by in-scope bindings. Sum types include constructors; aliases include the base type. Depth-bounded expansion (max 5 levels) with cycle detection (`recursive: true`). |
 | `scope_truncated` | `bool` | `true` if the scope was truncated to the 50-entry limit; absent or `false` otherwise. |
+
+**Contract context (OBLIG-1).** `checkout` also returns the enclosing function's contract context for the hole. Unlike the typing fields above (omitted when absent), these are emitted unconditionally — `null` when the enclosing function lacks the clause:
+
+| Field | Type | Content |
+|-------|------|---------|
+| `contract_pre` | `string` \| `null` | The enclosing function's precondition as an S-expression (e.g. `(>= balance amount)`). |
+| `postcondition_goal` | `string` \| `null` | The postcondition the fill must satisfy (e.g. `(= result (- balance amount))`). |
+| `path_condition` | `[string]` \| `null` | Guard expressions on the path to the hole; non-empty only for holes inside `if` / `match` branches. |
+
+`assumptions` is reserved (currently `null`). These contract fields are assembled from a parse + sketch type-check (no constraint emission, no solver), so `checkout` stays at type-check cost. The whole-program view of the same obligations — across every hole, unproven contract, call-site failure, and `refuted_fns` — remains `llmll verify --obligation-report` (§ OBLIG-2).
 
 **Pointer normalization:** RFC 6901 pointer segments with leading zeros are normalized: `/statements/02/body` → `/statements/2/body`.
 

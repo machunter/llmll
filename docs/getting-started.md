@@ -513,7 +513,7 @@ Every `POST /sketch` is **stateless** — a fresh type-check context per request
 ### `checkout` — lock a hole for exclusive editing
 
 ```bash
-# Lock a hole and get a checkout token (includes typing context)
+# Lock a hole and get a checkout token (includes the hole's contract + typing context)
 stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/2/body
 # {
 #   "pointer": "/statements/2/body",

@@ -4,6 +4,19 @@
 
 <a id="Latest"></a>
 
+## v0.11.2 — Checkout Context Population (OBLIG-1) (2026-06-11)
+
+### Compiler — OBLIG-1: `llmll checkout` returns the per-hole brief inline (2026-06-11)
+
+- **`llmll checkout` now emits the hole's contract + typing context inline** instead of `null` (commit [`f2262c5`](compiler/app/Main.hs)). `doCheckout` runs parse + sketch type-check — no constraint emission, no solver, so checkout stays at type-check cost — and populates `contract_pre`, `postcondition_goal`, `path_condition` via the new shared extractor [`ObligationAssembly.holeContractBrief`](compiler/src/LLMLL/ObligationAssembly.hs) (reusing the same `enclosingFunc` / `findFunctionInfo` / `collectHoleGuards` / `exprToSExpr` primitives as `mkHoleObl`), plus `in_scope` and `type_definitions` via the Phase-C `buildScopeEntries` / `collectTypeDefinitions` producers — the C3 `Main.hs` threading marked done but never landed. Closes the **OBLIG-1 population gap**: this per-hole brief was previously delivered only by `verify --obligation-report` (OBLIG-2), which remains the whole-program view (all holes, unproven contracts, call-site failures, `refuted_fns`, cross-module).
+- **Reserved, not yet populated:** `expected_return_type` and `available_functions` (require sketch-mode hole-type capture in `SketchHole`; `available_functions` additionally depends on the former for monomorphization), and `assumptions`. Cross-module hole scope uses single-file scope. All additive — populating them later needs no token-shape change. `LLMLL.md §11.2` marks these fields reserved.
+- **Schema: none.** The OBLIG-1 `CheckoutToken` fields exist since v0.10; the checkout response is a CLI payload, not JSON-AST. `schemaVersion` stays `0.6.0`; `trust_report_version` stays `1.3.0`.
+- **4 new tests** (OBR-1..OBR-4 in [`compiler/test/Spec.hs`](compiler/test/Spec.hs)): `holeContractBrief` on a contracted hole (pre + post, empty path), a contract-free hole (all empty), a branch hole (path condition surfaced), and an unknown pointer (empty brief). **Tests: 807 → 811 Haskell + 62 Python.**
+
+**Tests: 811 Haskell + 62 Python.**
+
+---
+
 ## v0.11.1 — Verify Fail-Open Closure + Schema-Gap Catch-Up (2026-06-06)
 
 ### Compiler — VERIFY-RPT-1: verify reporting fail-open + refuted trust status (2026-06-06)
