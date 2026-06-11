@@ -1,0 +1,28 @@
+;; LLMLL Repair-Loop Demo — human-readable source.
+;; JSON-AST twin: demo.ast.json (the form the checkout/patch workflow operates on).
+;; Regenerate the twin after editing: llmll build ./demo.llmll --emit -o .
+;; Capture script: DEMO-RUNBOOK.md
+;;
+;; Three functions, three points the demo makes:
+;;   withdraw — a contract whose post restates the body; the legible on-ramp (sign-error catch).
+;;   double   — proven, no precondition: a "fully closed" companion that earns top-tier `verified`.
+;;   maxi     — a post that is a complete *property* (result is ≥ both inputs and is one of them),
+;;              not a copy of the body: the evidential case. A plausible wrong fill (returns the
+;;              min) type-checks and passes most tests, but the verifier refutes it for all inputs
+;;              and localizes the defect to each branch.
+
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (= result (- balance amount)))
+  ?body_impl)
+
+(def double [x: int]
+  (post (= result (+ x x)))
+  (+ x x))
+
+(def maxi [a: int b: int]
+  (post (and (and (>= result a) (>= result b))
+             (or (= result a) (= result b))))
+  ?maxi_body)

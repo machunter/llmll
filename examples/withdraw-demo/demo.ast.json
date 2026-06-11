@@ -1,0 +1,243 @@
+{
+  "llmll_version": "0.11.1",
+  "schemaVersion": "0.6.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "x",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "x"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": ">"
+        }
+      },
+      "kind": "type-decl",
+      "name": "PositiveInt"
+    },
+    {
+      "body": {
+        "kind": "hole-named",
+        "name": "body_impl"
+      },
+      "kind": "def",
+      "name": "withdraw",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "named",
+            "name": "PositiveInt"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "var",
+                "name": "amount"
+              }
+            ],
+            "kind": "op",
+            "op": "-"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "balance"
+          },
+          {
+            "kind": "var",
+            "name": "amount"
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      }
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "x"
+          },
+          {
+            "kind": "var",
+            "name": "x"
+          }
+        ],
+        "kind": "op",
+        "op": "+"
+      },
+      "kind": "def",
+      "name": "double",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "x"
+              },
+              {
+                "kind": "var",
+                "name": "x"
+              }
+            ],
+            "kind": "op",
+            "op": "+"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      }
+    },
+    {
+      "body": {
+        "kind": "hole-named",
+        "name": "maxi_body"
+      },
+      "kind": "def",
+      "name": "maxi",
+      "params": [
+        {
+          "name": "a",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "b",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "a"
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "b"
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "a"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "b"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "or"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      }
+    }
+  ]
+}
