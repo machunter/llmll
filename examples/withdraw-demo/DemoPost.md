@@ -528,7 +528,7 @@ The **score** is the measure (`maxi` and `double` are maximal at `1.000`; `withd
 In one tiny program we walked the entire LLMLL loop a developer actually cares about:
 
 - **Holes + pointers** — work is addressable down to a single AST node.
-- **The spec rides in with the lock** *(new in v0.11.2)* — `checkout` returns the hole's full per-hole brief inline: the contract `pre`/`post` to prove, the in-scope vocabulary, and the relevant type definitions. An agent reserves a hole *and* receives what to build in one call, no separate obligation query — the same three-channel contract `verify --obligation-report` emits program-wide, scoped to the one hole you hold.
+- **The spec rides in with the lock** — `checkout` returns the hole's full per-hole brief inline: the contract `pre`/`post` to prove, the in-scope vocabulary, and the relevant type definitions. An agent reserves a hole *and* receives what to build in one call, no separate obligation query — the same three-channel contract `verify --obligation-report` emits program-wide, scoped to the one hole you hold.
 - **Checkout/patch with locks** — multiple agents reserve and edit one program, with a compare-and-swap model that refuses lost updates instead of silently clobbering.
 - **A gate that fails closed on two channels** — type errors (`PatchTypeError`) and contract violations (`PatchVerifyError`) are both rejected *before* anything lands, with the offending branch named.
 - **A trust report that's a lattice** — `proven` vs `assumed`, per clause, so you know precisely how much of "correct" is machine-checked.
