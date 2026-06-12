@@ -10,7 +10,7 @@ This post walks the whole loop on a tiny three-function program: surveying holes
 
 A note on formats: LLMLL source comes in two shapes — a human-readable **s-expression** form, and a machine-processable (and mildly human-readable) **JSON-AST**. We'll read the program in s-expression form; the checkout/patch protocol operates on the JSON-AST.
 
-> **Versions.** This walkthrough was captured with **`llmll 0.11.1`** against **JSON-AST schema `0.6.0`**. Both are stamped into the program itself — `demo.ast.json` opens with `"llmll_version": "0.11.1"` and `"schemaVersion": "0.6.0"` — so any tool or agent downstream can refuse an input it doesn't understand instead of misreading it. The compiler version moves with releases; the schema version moves only when the AST shape changes (it's currently `0.6.0`), so a patch written today keeps parsing across compiler patch releases. If your `llmll --version` differs, expect minor cosmetic drift in the output blocks below.
+> **Versions.** This walkthrough was captured with **`llmll 0.11.2`** against **JSON-AST schema `0.6.0`**. The schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.6.0"` (and `"llmll_version": "0.11.1"`, the release the fixture was authored under) — so any tool or agent downstream can refuse an input it doesn't understand instead of misreading it. The compiler version moves with releases; the schema version moves only when the AST shape changes (it's currently `0.6.0`), so a patch written today keeps parsing across compiler patch releases — which is exactly why `0.11.2` reads the `0.11.1`-stamped fixture byte-for-byte unchanged (its `source_hash` is identical). If your `llmll --version` differs, expect minor cosmetic drift in the output blocks below.
 
 ## The program we're building
 
@@ -104,18 +104,46 @@ llmll verify ./demo.ast.json --obligation-report --json 2>/dev/null \
 
 That's the whole job, machine-readable: fill `withdraw`'s body with an expression over `balance` and `amount` that — *assuming* `balance ≥ amount` — *proves* `result = balance − amount`. An agent never has to guess the spec; it's handed the in-scope vocabulary, the assumption, and the goal. (The full report also lists the callable `available_functions` and, once a fill fails, concrete repair `suggestions`.)
 
-One architectural note worth knowing: as of v0.11.2, `checkout` returns this same per-hole brief inline — so an agent can reserve a hole *and* get its spec in one call. `verify --obligation-report` remains the **whole-program** view (every hole, unproven contract, and call-site failure at once), which is what you reach for when surveying rather than working a single hole. *Where* and *what* (holes + obligation) come first; *who's working on it* (the lock) comes when an agent commits to a hole.
+One shortcut worth knowing before we grab locks: as of `0.11.2`, `checkout` returns this same per-hole brief inline — an agent reserves the hole *and* gets its spec in one call. `verify --obligation-report` remains the **whole-program** view (every hole, unproven contract, and call-site failure at once), which is what you reach for when surveying rather than working a single hole; the checkout brief is the per-hole working view. *Where* and *what* (holes + obligation) come first; *who's working on it* (the lock) comes when an agent commits to a hole — and we'll watch the brief ride in with that lock next.
 
 ## Getting the locks
 
-Picture a swarm of agents told to fill these holes. The first thing each one does is grab a token-lock — essentially *"I'm working on this node."* You call `llmll checkout` with the pointer; it hands back a token. Let's take both holes now:
+Picture a swarm of agents told to fill these holes. The first thing each one does is grab a token-lock — essentially *"I'm working on this node."* You call `llmll checkout` with the pointer; it hands back a token. Capture the **full** response, not just the token — as of `0.11.2` it carries the hole's brief inline, so one call gives both the lock and the spec. Let's take both holes now:
 
 ```bash
-TOKEN_W=$(llmll checkout ./demo.ast.json /statements/1/body --json | jq -r '.token')
-TOKEN_M=$(llmll checkout ./demo.ast.json /statements/3/body --json | jq -r '.token')
+CO_W=$(llmll checkout ./demo.ast.json /statements/1/body --json)
+CO_M=$(llmll checkout ./demo.ast.json /statements/3/body --json)
+TOKEN_W=$(jq -r '.token' <<<"$CO_W"); TOKEN_M=$(jq -r '.token' <<<"$CO_M")
 ```
 
-This creates a lock file, `demo.llmll-lock.json`. Peeking under the hood:
+**The spec rode in with the lock.** Project agent A's response — it's the same three-channel contract the obligation report gave us, scoped to the one hole A reserved:
+
+```bash
+jq '{contract_pre, postcondition_goal,
+     in_scope: [.in_scope[] | {name, type}], type_definitions}' <<<"$CO_W"
+```
+
+```json
+{
+  "contract_pre": "(>= balance amount)",
+  "postcondition_goal": "(= result (- balance amount))",
+  "in_scope": [
+    { "name": "PositiveInt", "type": "PositiveInt" },
+    { "name": "amount", "type": "PositiveInt" },
+    { "name": "balance", "type": "int" },
+    { "name": "double", "type": "fn[1 args] -> ?" },
+    { "name": "maxi", "type": "fn[2 args] -> ?" },
+    { "name": "withdraw", "type": "fn[2 args] -> ?" }
+  ],
+  "type_definitions": [
+    { "base_type": "int", "kind": "dependent", "name": "PositiveInt" }
+  ]
+}
+```
+
+`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from the obligation report. The checkout `in_scope` is *wider*, though: the report projected to the contract's free variables (`balance`, `amount`), while checkout returns the full scope — the `PositiveInt` alias and the sibling top-level functions (`double`, `maxi`, `withdraw`, each `"source": "let-binding"`) as the agent's callable vocabulary. (`expected_return_type` and `available_functions` are reserved for a later OBLIG pass and omitted for now.)
+
+This same call also creates a lock file, `demo.llmll-lock.json`. Peeking under the hood:
 
 ```json
 {
@@ -143,7 +171,39 @@ This creates a lock file, `demo.llmll-lock.json`. Peeking under the hood:
 }
 ```
 
-(Trimmed for brevity — each entry also carries `assumptions`, `contract_pre`, `path_condition`, etc.) One lock file holds an **array** of reservations: two agents, two holes, one program. The fields that do the work are `pointer`, `source_hash`, `ttl`, and the `token` we carry across operations.
+(Trimmed to the lock-bookkeeping fields — each entry also carries the full per-hole brief shown above: `in_scope`, `contract_pre`, `postcondition_goal`, `type_definitions`, plus `assumptions` / `path_condition` as `null` where the hole has none.) One lock file holds an **array** of reservations: two agents, two holes, one program. The fields that do the work are `pointer`, `source_hash`, `ttl`, and the `token` we carry across operations.
+
+<details><summary>The complete <code>CO_W</code> response (<code>jq . &lt;&lt;&lt;"$CO_W"</code>) — brief and lock bookkeeping in one object</summary>
+
+```json
+{
+  "assumptions": null,
+  "contract_pre": "(>= balance amount)",
+  "hole_kind": "hole-named",
+  "in_scope": [
+    { "name": "PositiveInt", "source": "let-binding", "type": "PositiveInt" },
+    { "name": "amount", "source": "param", "type": "PositiveInt" },
+    { "name": "balance", "source": "param", "type": "int" },
+    { "name": "double", "source": "let-binding", "type": "fn[1 args] -> ?" },
+    { "name": "maxi", "source": "let-binding", "type": "fn[2 args] -> ?" },
+    { "name": "withdraw", "source": "let-binding", "type": "fn[2 args] -> ?" }
+  ],
+  "obligation_id": null,
+  "path_condition": null,
+  "pointer": "/statements/1/body",
+  "postcondition_goal": "(= result (- balance amount))",
+  "source_hash": "0dcfc362556b3ef2df2c473ff7cea09bb380639d302937341a611e1ac927f7e0",
+  "timestamp": "2026-06-11T06:47:22.69762Z",
+  "token": "6087457baa8d6adf1c694e934b3e7c0b4a7041d6b3a685b46b1792d15c785e51",
+  "ttl": 3600,
+  "type_definitions": [
+    { "base_type": "int", "kind": "dependent", "name": "PositiveInt" }
+  ],
+  "verified_hash": null
+}
+```
+
+</details>
 
 ### The concurrency model: compare-and-swap, not a mutex
 

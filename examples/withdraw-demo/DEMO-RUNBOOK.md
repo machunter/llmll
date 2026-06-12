@@ -2,7 +2,7 @@
 
 > **Artifact:** "From a bad agent patch to verified trust closure."
 > **Fixture:** [`demo.ast.json`](demo.ast.json) — `PositiveInt`, `withdraw` (typed hole), `double` (pre-verified), `maxi` (typed hole). The JSON-AST is what the agent checkout/patch protocol operates on; [`demo.llmll`](demo.llmll) is the human-readable source it is generated from (`llmll build ./demo.llmll --emit -o .`).
-> **Verified against:** `llmll 0.11.1`, real `liquid-fixpoint` on PATH, `jq` on PATH. Every command and output block below was captured from that binary on 2026-06-07.
+> **Verified against:** `llmll 0.11.2`, real `liquid-fixpoint` on PATH, `jq` on PATH. Every command and output block below was captured from that binary on 2026-06-11.
 
 This is the canonical capture script for the public repair-loop demo. It supersedes the older single-function `withdraw.ast.json` flow, which could only ever show `verified: 0` in the summary (sound but visually self-undercutting — see [Why these functions](#why-these-functions)).
 
@@ -23,12 +23,12 @@ The climax dashboard shows all three: `double` and `maxi` reach `verified`; `wit
 ## Prerequisites
 
 ```bash
-llmll --version          # must report 0.11.1 (the VERIFY-RPT-1 fix; see note below)
+llmll --version          # must report 0.11.2 (VERIFY-RPT-1 fix + OBLIG-1 checkout brief; see note below)
 which fixpoint           # must resolve — refuted/verified verdicts require the real solver
 which jq                 # used to build patches and project JSON output to the values that matter
 ```
 
-> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. If `llmll --version` is not ≥ `0.11.1`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; the fix landed mid-`0.11.0` cycle.)
+> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. Step 2's inline checkout brief additionally requires the OBLIG-1 population that shipped in `0.11.2`; on `0.11.1` the same `checkout` call returns `contract_pre` / `postcondition_goal` / `in_scope` as `null`. If `llmll --version` is not ≥ `0.11.2`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; confirm the brief fields are populated.)
 
 Work from a scratch directory so every command is relative and `patch` can mutate files freely:
 
@@ -130,16 +130,79 @@ llmll verify ./demo.ast.json --obligation-report --json 2>/dev/null \
 
 That is the agent's contract: fill `/statements/1/body` with an expression over `balance` and `amount` that, *assuming* `balance ≥ amount`, *proves* `result = balance − amount`. The full object also carries the trust channel, the callable `available_functions`, and OBLIG-4 repair `suggestions`; `expected_type` reads `unknown` here because the hole's return type is left to inference rather than annotated.
 
-> `verify --obligation-report` is the **whole-program** view — every hole, unproven contract, call-site failure, and `refuted_fns` at once. As of v0.11.2, `checkout` (next step) returns this *same per-hole brief inline* for the hole you reserve, so a single-hole agent gets the spec and the lock in one call. Use the report when surveying the program; use the checkout brief when working one reserved hole.
+> `verify --obligation-report` is the **whole-program** view — every hole, unproven contract, call-site failure, and `refuted_fns` at once. As of `0.11.2`, `checkout` (next step) returns this *same per-hole brief inline* for the single hole you reserve, so an agent gets the spec and the lock in one call — you'll see it ride in with the token in step 2. Use the report when surveying the program; use the checkout brief when working one reserved hole.
 
 ### 2 — Reserve every hole up front (the swarm model)
 
 A swarm divides labor: one agent takes `withdraw`, another takes `maxi`. Reserve **both** holes before touching either — this is the move that hints at parallel agents.
 
+Capture the **full** response from each checkout, not just the token — as of `0.11.2` the response carries the hole's per-hole brief inline, so one call yields both the lock (the `token`, for patching) and the spec (for filling):
+
 ```bash
-TOKEN_W=$(llmll checkout ./demo.ast.json /statements/1/body --json | jq -r '.token')   # agent A
-TOKEN_M=$(llmll checkout ./demo.ast.json /statements/3/body --json | jq -r '.token')   # agent B
+CO_W=$(llmll checkout ./demo.ast.json /statements/1/body --json)   # agent A
+CO_M=$(llmll checkout ./demo.ast.json /statements/3/body --json)   # agent B
+TOKEN_W=$(jq -r '.token' <<<"$CO_W")
+TOKEN_M=$(jq -r '.token' <<<"$CO_M")
 ```
+
+**The spec rode in with the lock.** Project agent A's response down to the brief — it is the *same* three-channel contract `verify --obligation-report` emitted above, scoped to the one hole A reserved:
+
+```bash
+jq '{contract_pre, postcondition_goal,
+     in_scope: [.in_scope[] | {name, type}], type_definitions}' <<<"$CO_W"
+```
+
+```json
+{
+  "contract_pre": "(>= balance amount)",
+  "postcondition_goal": "(= result (- balance amount))",
+  "in_scope": [
+    { "name": "PositiveInt", "type": "PositiveInt" },
+    { "name": "amount", "type": "PositiveInt" },
+    { "name": "balance", "type": "int" },
+    { "name": "double", "type": "fn[1 args] -> ?" },
+    { "name": "maxi", "type": "fn[2 args] -> ?" },
+    { "name": "withdraw", "type": "fn[2 args] -> ?" }
+  ],
+  "type_definitions": [
+    { "base_type": "int", "kind": "dependent", "name": "PositiveInt" }
+  ]
+}
+```
+
+`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from step 1's report. The checkout `in_scope` is *wider*: where the report's `type_channel` projection listed only the contract's free variables (`balance`, `amount`), checkout hands the agent the full scope — the `PositiveInt` alias and the sibling top-level functions (`double`, `maxi`, `withdraw`, each `"source": "let-binding"`) as the callable vocabulary. `expected_return_type` and `available_functions` are reserved for a later OBLIG pass and omitted here; `assumptions`, `path_condition`, and `obligation_id` come back `null` for this hole.
+
+<details><summary>Full <code>CO_W</code> response (<code>jq . &lt;&lt;&lt;"$CO_W"</code>) — token, ttl, and staleness hashes alongside the brief</summary>
+
+```json
+{
+  "assumptions": null,
+  "contract_pre": "(>= balance amount)",
+  "hole_kind": "hole-named",
+  "in_scope": [
+    { "name": "PositiveInt", "source": "let-binding", "type": "PositiveInt" },
+    { "name": "amount", "source": "param", "type": "PositiveInt" },
+    { "name": "balance", "source": "param", "type": "int" },
+    { "name": "double", "source": "let-binding", "type": "fn[1 args] -> ?" },
+    { "name": "maxi", "source": "let-binding", "type": "fn[2 args] -> ?" },
+    { "name": "withdraw", "source": "let-binding", "type": "fn[2 args] -> ?" }
+  ],
+  "obligation_id": null,
+  "path_condition": null,
+  "pointer": "/statements/1/body",
+  "postcondition_goal": "(= result (- balance amount))",
+  "source_hash": "0dcfc362556b3ef2df2c473ff7cea09bb380639d302937341a611e1ac927f7e0",
+  "timestamp": "2026-06-11T06:47:22.69762Z",
+  "token": "6087457baa8d6adf1c694e934b3e7c0b4a7041d6b3a685b46b1792d15c785e51",
+  "ttl": 3600,
+  "type_definitions": [
+    { "base_type": "int", "kind": "dependent", "name": "PositiveInt" }
+  ],
+  "verified_hash": null
+}
+```
+
+</details>
 
 > **🔍 Check — two live reservations in one lock file.**
 > ```bash
