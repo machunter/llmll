@@ -6,7 +6,8 @@
 
 | Claim | Canonical location | Linked-only from |
 |---|---|---|
-| Current shipped version | `CHANGELOG.md` `## Latest` | README (1-line cite), LLMLL.md (no version stamp), roadmap (no version stamp) |
+| Current shipped version (release narrative) | `CHANGELOG.md` `## Latest` | README §current-version cite line, roadmap (cite by tag) |
+| Version banner (the `vX.Y.Z` number) | `compiler/package.yaml` `version:` (build source of truth) | **Must equal it — enforced by DRIFT-CI-1 C1, [`scripts/version_gate.sh`](../scripts/version_gate.sh):** `compiler/llmll.cabal` `version:`, `README.md` line 1, `LLMLL.md` line 1, `CHANGELOG.md` top `## vX.Y.Z` heading |
 | Design-doc status (draft / settled / dormant / superseded) | The design doc's own frontmatter | `docs/design/INDEX.md` (label only) |
 | Implementation routing (owner, ticket tag, status) | `compiler-team-roadmap.md` Active Items table | Design docs (cite by tag) |
 | Verification matrix (QF-LIA / nonlinear / Lean) | `LLMLL.md §5.3.3 / §5.3.5` | README, roadmap, design docs (cite by section) |
@@ -18,7 +19,7 @@
 
 | When this happens | Update | Do NOT update |
 |---|---|---|
-| Engineer ships a release | CHANGELOG `## Latest`; roadmap "Upcoming Releases" → "Shipped"; LLMLL.md §14 if user-visible | README version (cites CHANGELOG); design-doc frontmatter |
+| Engineer ships a release | **Version banner `vX.Y.Z` in all five DRIFT-CI-1 files: `compiler/package.yaml`, `compiler/llmll.cabal`, `README.md` line 1, `LLMLL.md` (line-1 banner **+** "Current version" paragraph **+** new release-history row), `CHANGELOG.md` top `## vX.Y.Z` heading**; CHANGELOG `## Latest` anchor; roadmap "Upcoming Releases" → "Shipped"; LLMLL.md §14 if user-visible. **Before push: run [`scripts/version_gate.sh`](../scripts/version_gate.sh) (DRIFT-CI-1 C1–C4) — it must pass.** | `README.md` §current-version cite line (points to CHANGELOG, not bumped); design-doc frontmatter |
 | Language-team settles a proposal | Proposal frontmatter `Status:`; INDEX label; hand-off summary | Roadmap (only changes when ticket completes, not when proposal settles) |
 | A role (or co-authoring pair, e.g. LT + EL) produces a settled prose amendment to a freeform roadmap section (milestone narrative, gate-criterion paragraph, empirical-gate pass-criteria text — not a table-row cell) and the user approves | `docs/compiler-team-roadmap.md` — doc-lead applies the settled text verbatim; no rewording without the originating role's re-authorization | `CHANGELOG.md` (not a release); `LLMLL.md`; `README.md`; table-row acceptance-criteria cells; design-doc frontmatter |
 | Professor reviews a proposal | New standalone `<proposal>-review.md`; nothing else | The proposal file itself (LT folds on revision) |
@@ -29,6 +30,8 @@
 | Doc gets superseded | Archive to `docs/archive/<category>/`; 2-line redirect stub at old path; delete stub after one release cycle | Other docs (redirect stub absorbs links during cycle) |
 
 When a change does not appear in the matrix, the actor pauses and asks `language-team` to extend the matrix before acting. The matrix is the working contract; gaps are bugs to surface, not gaps to improvise around.
+
+> **Banner-pin authority (reconciled 2026-06-12).** The "Version banner" row (P1) and the banner detail in the "Engineer ships a release" row (D1) were reconciled to the **DRIFT-CI-1** gate ([`scripts/version_gate.sh`](../scripts/version_gate.sh), C1–C4), which post-dates the DOC-CONSOLIDATE §3 verbatim lift and is executable ground truth. The gate enforces `vX.Y.Z` equality across `compiler/package.yaml`, `compiler/llmll.cabal`, `README.md` line 1, `LLMLL.md` line 1, and the `CHANGELOG.md` `## vX.Y.Z` top heading; a release that bumps any one without the others fails CI. (Origin: the v0.11.2 release `22c6aa8` bumped the README banner but not LLMLL.md's, tripping C1; `6bf3f89` reconciled LLMLL.md and this protocol now records the full pin set so the gap cannot recur.)
 
 ## Archive policy
 
