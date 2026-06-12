@@ -104,7 +104,7 @@ llmll verify ./demo.ast.json --obligation-report --json 2>/dev/null \
 
 That's the whole job, machine-readable: fill `withdraw`'s body with an expression over `balance` and `amount` that — *assuming* `balance ≥ amount` — *proves* `result = balance − amount`. An agent never has to guess the spec; it's handed the in-scope vocabulary, the assumption, and the goal. (The full report also lists the callable `available_functions` and, once a fill fails, concrete repair `suggestions`.)
 
-One shortcut worth knowing before we grab locks: as of `0.11.2`, `checkout` returns this same per-hole brief inline — an agent reserves the hole *and* gets its spec in one call. `verify --obligation-report` remains the **whole-program** view (every hole, unproven contract, and call-site failure at once), which is what you reach for when surveying rather than working a single hole; the checkout brief is the per-hole working view. *Where* and *what* (holes + obligation) come first; *who's working on it* (the lock) comes when an agent commits to a hole — and we'll watch the brief ride in with that lock next.
+`verify --obligation-report` is the **whole-program** view (every hole, unproven contract, and call-site failure at once) — what you reach for when surveying the program rather than working a single hole. *Where* and *what* (holes + obligation) come first; *who's working on it* (the lock) comes when an agent commits to a hole.
 
 ## Getting the locks
 
