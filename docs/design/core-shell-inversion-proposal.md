@@ -11,6 +11,42 @@
 
 ---
 
+## Background
+
+> **Provenance.** This section folds the upstream professor direction memo
+> `core-shell-inversion-direction.md` (Rev 2, 2026-05-23) under DOC-CONSOLIDATE
+> M2 case 3 — scaffolding for the v0.11 LT-proposal turn (LT-INV, LT-CDP,
+> LT-PPR) that ages out now all three have shipped. The full memo — including
+> the routing of LT-CDP (§2), LT-PPR (§3), Bundle B effect-rows (§4), the
+> Path-A-holds argument (§5), and the §8 empirical-validation-gate axes (§8.1)
+> and rollback paths (§8.3) — is archived at
+> [`docs/archive/shipped-design-specs/core-shell-inversion-direction.md`](../archive/shipped-design-specs/core-shell-inversion-direction.md);
+> cite that copy for the §8.1 axes and §8.3 rollback paths.
+
+**Thesis (memo §Thesis).** LLMLL should become a verified-core language
+embedded in an explicit coordination shell, not a coordination shell with an
+optional verified-core flag. The supporting mechanisms were already shipped;
+what was wrong was the architectural default — the source grammar treated the
+mixed regime as canonical and reached the verified core through a CLI flag
+(`--strict-verified-core`) and per-function trust-report inspection. A flag
+says "the mixed language is normal; strict core is a mode"; the inversion says
+"the core is normal; the shell is explicitly marked." The problem was which
+regime the grammar treats as canonical, not whether the verifier has the right
+mechanisms.
+
+**No-backward-compatibility rationale (memo §Background and self-correction).**
+Because LLMLL is pre-stable — no shipped consumer outside `examples/`,
+schema-version churn within patch releases, a feature-freeze policy justified
+on *narrowing the verification boundary* rather than consumer-API stability —
+backward compatibility did not govern the v0.11 design. If the grammar encoded
+the wrong default, v0.11 broke it deliberately. The legacy worth preserving was
+narrow: benchmark comparability, regression fixtures, historical examples as
+migration material, the design record. This is the freeze-exception argument
+cited in this proposal's frontmatter and recorded in the roadmap Feature Freeze
+Policy.
+
+---
+
 ## 1. Motivation
 
 The verification matrix at [`LLMLL.md §5.3.5:736-756`](../../LLMLL.md) partitions every syntactic construct into *body-faithful SMT*, *contract-only*, and *runtime assertion* verification regimes. The partition is correct. What is wrong is that **all three regimes are reachable from the same `def-logic` keyword** — a reader looking at one `def-logic` does not know, without inspecting the trust report or running `llmll verify`, which regime the function inhabits. The diamond lattice at [`LLMLL.md §4.4.1:325-344`](../../LLMLL.md) prevents silent coalescence in the *trust label*, but the *source surface* does not encode which lattice point a function reaches.

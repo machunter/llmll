@@ -54,7 +54,7 @@ The following docs are on a natural-archive trajectory. The trigger column state
 | `docs/design/contract-discriminative-power-proposal.md` | CDP-0 ships | `docs/archive/shipped-design-specs/` |
 | `docs/design/proof-required-predicate-carrier-proposal.md` | LT-PPR ships | `docs/archive/shipped-design-specs/` |
 | `docs/design/refinement-metatheory-of-record-proposal.md` | REF-META-1 ships | `docs/archive/shipped-design-specs/` |
-| `docs/design/core-shell-inversion-direction.md` | All of LT-INV + LT-CDP + LT-PPR ship | Fold into lead proposal's `## Background` (per M2 case 3), then archive |
+| `docs/design/core-shell-inversion-direction.md` | All of LT-INV + LT-CDP + LT-PPR ship | ~~Fold into lead proposal's `## Background` (per M2 case 3), then archive~~ **DONE (2026-06-12)** — folded into [`core-shell-inversion-proposal.md`](design/core-shell-inversion-proposal.md) `## Background`; archived to `shipped-design-specs/` |
 | `docs/design/int-3-machine-int-sketch.md` | INT-PRE escalates → promote; or INT-PRE no-regression → resolve | `shipped-design-specs/` (promotion path) or `dormant-explorations/` (resolution path; see §3.3 sub-categorization note) |
 | `docs/design/critique-2026-05-23-triage.md` | All 17 routing items closed | `docs/archive/triages/` (new subdir on first triage archive) |
 | `docs/design/doc-consolidation-2026-05-24-proposal.md` | Next release sweep (shipped at `1a8733f`; audit close-out at `e6eb4b6`; fully closed) | `docs/archive/shipped-design-specs/` |
