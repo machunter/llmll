@@ -534,3 +534,17 @@ In one tiny program we walked the entire LLMLL loop a developer actually cares a
 - **A trust report that's a lattice** — `proven` vs `assumed`, per clause, so you know precisely how much of "correct" is machine-checked.
 
 The full, copy-pasteable command script for this walkthrough lives in [`DEMO-RUNBOOK.md`](./DEMO-RUNBOOK.md), and the program itself in [`demo.llmll`](./demo.llmll).
+
+## Future work
+
+This demo stayed small on purpose — three functions, one file, plain integer math. A handful of things a richer demo would want aren't filled in yet. The good news for whoever writes that next demo: the `checkout` response already has slots for all of them; they just come back empty today. Nothing here has to change to use them — they'll simply start carrying more once they're wired up.
+
+- **Tell the agent the return type, not just the inputs.** Today `checkout` hands back the bindings in scope and the contract to satisfy, but the `expected_return_type` field is empty — the agent works out the return type from the contract. When a hole returns something less obvious than an `int` — a `Result`, a record, a list of something — stating the expected type up front saves a guess. A future demo could pick a hole where that actually bites and show the type arriving with the lock.
+
+- **Hand over the callable functions, with their signatures.** Right now the agent sees sibling function *names* in `in_scope` (`double`, `maxi`, `withdraw`), but not a structured list of what they take and return — the `available_functions` field is still empty. The moment a demo is about *composition* — where the right fill is "call this helper and adapt its result" rather than a one-line formula — you want that menu handed over directly, argument and return types included, instead of making the agent read them off the source. That's the natural next demo: real functions calling each other, not just arithmetic.
+
+- **Show what the body is allowed to lean on.** The precondition tells the body what's guaranteed on the way in. A fuller picture also spells out what the body may *trust* — for instance, a helper that's already been verified, so the agent doesn't re-prove it. That `assumptions` channel is reserved but empty here. A demo spanning a verified helper and the code that calls it could make that hand-off visible.
+
+- **Go multi-file.** Everything above is one program in one file. Real projects are many files with imports, and a swarm of agents editing *across* them is the genuinely interesting version of the locking story. Checkout currently only knows about the hole's own file; following a hole's context across a module boundary is the missing piece. The compare-and-swap locking already works the same way regardless of file count — the demo just needs scope information that crosses files.
+
+The throughline: this walkthrough proved the loop on a toy. The deferred pieces are exactly what you'd reach for to run the same loop on something that looks like a real project — more types, more functions calling each other, more files, more agents working at once.
