@@ -863,7 +863,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 
 | Fragment | Status | Prover | What it covers |
 |----------|--------|--------|----------------|
-| **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** | Z3 via liquid-fixpoint | `+`, `-`, `=`, `<`, `<=`, `>=`, `>` over `int`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
+| **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** | Z3 via liquid-fixpoint | `+`, `-`, `=`, `≠`, `<`, `<=`, `>=`, `>`, and the boolean connectives `and`/`or`/`not`, over `int`/`bool`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
 | **Termination** (`:decreases` measures) | **Shipped** | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7). Complex measures emit `?proof-required(complex-decreases)`. |
 | **Property-based testing** | **Shipped** | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Inductive properties** | **Designed, not shipped** | Lean 4 via Leanstral MCP | Translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`). Currently runs in **mock mode only** (`--leanstral-mock`). Real proof integration is blocked on `lean-lsp-mcp` availability. |
@@ -876,6 +876,21 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 4. Propagated through the **trust report** — downstream `verified` conclusions that depend on `asserted` assumptions are flagged as epistemic drift
 
 **Refinement-alias predicate routing.** Refinement-alias predicate obligations — generated at introduction sites by the checking-mode rule at §3.4.1 — route through the same channels as ordinary contract obligations; no separate channel is introduced. A predicate `p` in `(where [x: τ] p)` that is linear over the base-type binding is QF-LIA and auto-discharged by liquid-fixpoint (contract channel, `Contracts.hs` / `FixpointEmit.hs`); a predicate outside QF-LIA falls to items 1–4 above. See §5.3.5 for per-construct rows.
+
+**Solver-completeness statement (REF-META-2).** The auto-discharge boundary is the signature `Σ_auto`, the subset of the well-formedness signature `Σ_ref` (§3.4.4) for which liquid-fixpoint/Z3 is a complete decision procedure:
+
+```
+  Σ_auto  =  QF-LIA core  ∪  ( measure class  |  path-(a) emission )
+  Σ_auto  ⊊  Σ_ref          ( boolean-builtin class ∈ Σ_ref \ Σ_auto )
+```
+
+For an obligation whose predicate uses only `Σ_auto` symbols, liquid-fixpoint/Z3 is a sound-and-complete decision procedure: it returns SAFE or UNSAFE on the fixed VC, and "SAFE" is a decidable side-condition, not a quantifier over solver runs (the body-VC instance of this statement is §5.3.4). For an obligation using any symbol outside `Σ_auto`, no completeness guarantee holds; it routes to the runtime-assertion / `?proof-required` channels above (the four-item routing). The boundary rests on three facts:
+
+- **QF-LIA core — complete.** Quantifier-free linear integer arithmetic is decidable (NP-complete); Z3 is a complete decision procedure. The verifier operates under unbounded mathematical integers (LT-INT), so the fragment is genuine QF-LIA.
+- **Measure class — complete as a *local theory extension*, conditional on path-(a).** A measure (`string-length`, `list-length`) emitted as a single uninterpreted function symbol carrying the range axiom `∀s. m(s) ≥ 0` is a local theory extension of QF-LIA+EUF (Sofronie-Stokkermans, *Hierarchic Reasoning in Local Theory Extensions*, CADE 2005): the axiom is complete by finite, terminating, non-recursive instantiation at the obligation's ground measure-terms, after which the problem is quantifier-free QF-LIA+EUF — decidable and complete (no convexity required; LIA is non-convex, and the Nelson–Oppen combination is complete via its nondeterministic variant). **The measure class is not in `Σ_auto` today** — `exprToPred` returns `Nothing` for measure functions (runtime routing); it enters `Σ_auto` when the path-(a) measure-emission lands, under the emission discipline below.
+- **Outside — no completeness.** Nonlinear integer arithmetic (`* / mod rem ^ **`) is QF-NIA, undecidable (Matiyasevich 1970, Hilbert's 10th); the decidable real case (QF-NRA, Tarski) does not apply under LT-INT's mathematical `int`, so these route to `?proof-required`. The boolean-builtin class (`regex-match`) needs an SMT string/regex theory and is not auto-discharged in this release.
+
+**Emission side-condition (path-(a)).** The measure-class completeness is contingent on emitting the range bound as **ground facts `m(t) ≥ 0` per occurring measure-term `t`**, not as a quantified axiom `∀s. m(s) ≥ 0` left to E-matching — the quantified form forfeits completeness (the solver may return `unknown`). This extends the measure discipline of §3.4.4.
 
 > [!IMPORTANT]
 > **Leanstral is not a shipped verification path.** The one-pager, README, and this spec distinguish between shipped SMT verification (Z3/liquid-fixpoint) and the designed-but-mock Lean 4 path. No LLMLL claim of `verified` correctness rests on Leanstral. When `lean-lsp-mcp` becomes available, Leanstral integration will be scheduled; until then, inductive properties are tracked as `asserted` with explicit `?proof-required` holes.
