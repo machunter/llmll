@@ -399,7 +399,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
   let measureVars = Set.unions
         [ maybe Set.empty measureArgVars (contractPre contract)
         , maybe Set.empty measureArgVars (contractPost contract)
-        , maybe Set.empty measureArgVars mBody ]
+        , maybe Set.empty measureArgVars mBody
+        -- F-NIW-2: carrier vars passed as arguments to a measure-refined callee
+        -- param need binding too, so the emitted call-pre obligation references
+        -- an in-scope symbol (intro-side).
+        , maybe Set.empty (collectCallArgCarrierVars aliases cenv) mBody ]
       measureParams = [ (n, t) | (n, t) <- params
                       , n `Set.member` measureVars
                       , isMeasureSort aliases t
@@ -845,10 +849,19 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
   , lookupPredOp fname == Nothing    -- not a builtin operator
   , fname `notElem` ["not", "and", "or", "*", "/", "mod", "rem", "^", "**"]
   = do
-    -- Translate arguments
-    mArgVCs <- mapM (bodyToPredM env se cenv _sccSet) args
-    let mArgPreds = sequence [case mvc of Just (SimpleVC [] p) -> Just p; _ -> Nothing
-                             | mvc <- mArgVCs]
+    -- Translate arguments. F-NIW-2: a bare-variable argument translates to its
+    -- FQVar regardless of sort — the type checker guarantees its uses in the
+    -- callee contract are sort-consistent, and this lets a carrier (string/list)
+    -- argument reach the call-pre substitution so a measure-refined param's
+    -- obligation is emitted instead of forcing whole-call fallback. Non-variable
+    -- arguments still route through bodyToPredM (int/QF-LIA only).
+    let translateCallArg (EVar v) =
+          return (Just (FQVar (fromMaybe v (Map.lookup v env))))
+        translateCallArg a = do
+          mvc <- bodyToPredM env se cenv _sccSet a
+          return $ case mvc of Just (SimpleVC [] p) -> Just p; _ -> Nothing
+    mArgPredsList <- mapM translateCallArg args
+    let mArgPreds = sequence mArgPredsList
     case mArgPreds of
       Nothing -> return Nothing  -- argument translation failed
       Just argPreds -> do
@@ -1288,6 +1301,35 @@ augmentContractPre am params c =
     andPre Nothing  r = r
     andPre (Just p) r = EApp "and" [p, r]
 
+-- | F-NIW-2: bare-variable arguments passed to a measure-refined callee param,
+-- anywhere in an expression. These caller vars need carrier binders so the
+-- intro-side call-pre obligation (the callee's refinement, substituted) refers
+-- to an in-scope symbol. Gated on the callee param being refinement-typed AND
+-- carrier-sorted, so measure-free callees contribute nothing (byte-identity).
+collectCallArgCarrierVars :: AliasMap -> ContractEnv -> Expr -> Set.Set Name
+collectCallArgCarrierVars am cenv = go
+  where
+    go e = case e of
+      EApp f args ->
+        let here = case Map.lookup f cenv of
+              Just (ps, _, _) ->
+                Set.fromList
+                  [ v
+                  | (EVar v, (_, t)) <- zip args ps
+                  , not (null (resolveAllRefinements am t))
+                  , isMeasureSort am t ]
+              Nothing -> Set.empty
+        in Set.union here (Set.unions (map go args))
+      EOp _ args    -> Set.unions (map go args)
+      EIf a b c     -> Set.unions (map go [a, b, c])
+      ELet bs body  -> Set.unions (go body : [go r | (_, _, r) <- bs])
+      EMatch s arms -> Set.unions (go s : map (go . snd) arms)
+      EPair a b     -> Set.union (go a) (go b)
+      ELambda _ b   -> go b
+      EAwait a      -> go a
+      EDo steps     -> Set.unions [go x | DoStep _ x <- steps]
+      _             -> Set.empty
+
 -- | Prepend a let-binding to a BodyVC.
 prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
@@ -1358,6 +1400,7 @@ applySubst subst (FQBinArith op l r) = FQBinArith op (applySubst subst l) (apply
 applySubst subst (FQAnd ps) = FQAnd (map (applySubst subst) ps)
 applySubst subst (FQOr ps) = FQOr (map (applySubst subst) ps)
 applySubst subst (FQNot p) = FQNot (applySubst subst p)
+applySubst subst (FQApp f args) = FQApp f (map (applySubst subst) args)  -- NIW: substitute measure args
 applySubst _ p = p  -- FQLit, FQTrue, FQFalse unchanged
 
 -- | Does the postcondition use constructor-dependent reasoning?

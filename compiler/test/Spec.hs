@@ -4750,6 +4750,36 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         er <- emitSrc "(def-shell plain [x: int] (post (>= result 0)) x)"
         erFQText er `shouldNotSatisfy` T.isInfixOf "constant "
 
+    -- NIW (v0.12, F-NIW-2): the intro-side call-pre obligation fires for a
+    -- string/list-refined callee param — a caller passing a value to a `Word`
+    -- param must prove the refinement at the call site. Carrier call-arg vars are
+    -- bound and the measure-application substitution reaches into FQApp.
+    describe "NIW intro-side call-pre (F-NIW-2)" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          word = "(type Word (where [s: string] (> (string-length s) 0)))\n"
+          wlen = "(def wlen [w: Word] (post (> result 0)) (string-length w))\n"
+
+      it "NIW-D1: a caller passing a value to a Word param emits a call-pre obligation" $ do
+        er <- emitSrc (word <> wlen <> "(def-shell caller [s: string] (post (>= result 0)) (wlen s))")
+        erCallPreFns er `shouldSatisfy` elem "caller"           -- intro-side now fires
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "s : { v : Str | true }" -- carrier call-arg bound
+        fq `shouldSatisfy` T.isInfixOf "(strLen s)"             -- callee refinement substituted to s (applySubst into FQApp)
+
+      it "NIW-D2: int-refined param call-pre still fires (regression guard for arg translation)" $ do
+        let pos = "(type Pos (where [n: int] (> n 0)))\n(def pf [n: Pos] (post (> result 0)) n)\n"
+        er <- emitSrc (pos <> "(def-shell pc [m: int] (post (>= result 0)) (pf m))")
+        erCallPreFns er `shouldSatisfy` elem "pc"
+
+      it "NIW-D3: a measure-free contracted call binds no carrier and declares no constant" $ do
+        let g = "(def g [n: int] (post (> result 0)) (+ n 1))\n"
+        er <- emitSrc (g <> "(def-shell h [m: int] (post (>= result 0)) (g m))")
+        let fq = erFQText er
+        fq `shouldNotSatisfy` T.isInfixOf "constant "
+        fq `shouldNotSatisfy` T.isInfixOf " : { v : Str"
+
     describe "Negative (structural UNSAFE)" $ do
       -- These tests verify that incorrect implementations produce body VCs
       -- where the result predicate would NOT satisfy the postcondition.
