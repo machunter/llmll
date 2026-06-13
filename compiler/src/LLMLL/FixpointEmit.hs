@@ -577,18 +577,25 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     let callObligations = collectCallPreObligations bvc
                     unless (null callObligations) $ do
                       addCallPre name
-                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred, pathGuard)) -> do
-                        -- Emit binders for all int-typed params (same env as body-post)
-                        -- The call-pre constraint shares the function's parameter environment.
+                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred, pathGuard, ctxCalls)) -> do
+                        -- F-NIW-4: declare the prior-call result vars on this path so
+                        -- a precondition referencing one is not a free variable; their
+                        -- assumed posts join the LHS hypothesis (assume-guarantee).
+                        ctxBindIds <- mapM (\(rv, rs, _) -> do
+                          bid <- freshBid
+                          addBind (FQBind bid rv (FQReft "v" rs FQTrue))
+                          return bid) ctxCalls
                         cid <- freshCid
                         let cpTag = "call-pre:" <> callee
-                            -- LHS: path guard ∧ caller pre (context in which the call occurs)
+                            ctxPosts = [ post | (_, _, post) <- ctxCalls, post /= FQTrue ]
+                            -- LHS: path guard ∧ caller pre ∧ prior-call assumed posts
                             lhsPred = conjoinAll $ [pathGuard | pathGuard /= FQTrue]
                                                  ++ maybe [] (:[]) mPre
+                                                 ++ ctxPosts
                             lhs = FQReft "v" FQInt lhsPred
                             -- RHS: callee's precondition (PROVE polarity — caller must prove this)
                             rhs = FQReft "v" FQInt prePred
-                            c = FQConstraint cid envIds lhs rhs [name, cpTag]
+                            c = FQConstraint cid (envIds ++ ctxBindIds) lhs rhs [name, cpTag]
                         addConst c
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                         addOrigin cid (ConstraintOrigin name cpTag ptr srcFile)
@@ -994,11 +1001,15 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
         -- v0.9.0: SimpleVC RHS but body produces CallVC — prepend binding
         Just cvc@(CallVC {}) ->
           return (Just (prependLB lb cvc))
-    -- v0.9.0: RHS is a CallVC — thread the body as the continuation (Issue 3)
+    -- v0.9.0: RHS is a CallVC — thread the body as the continuation (Issue 3).
+    -- F-NIW-4: alias the let variable directly to the call's result var (rVar),
+    -- which the CallVC continuation binds with the callee's post. Minting a fresh
+    -- name here left the let var unbound (never equated to rVar) — a free variable
+    -- in every constraint that referenced it (the withdraw-twice / banking_ledger
+    -- crash, masked pre-F-NIW-3 by liquid-fixpoint's hyphen mis-lex).
     Just (CallVC cal callArgs mPre mPost rVar rSort _cont) -> do
-      renamed <- freshName v
-      let env' = Map.insert v renamed env
-          se'  = Map.insert renamed rSort se
+      let env' = Map.insert v rVar env
+          se'  = Map.insert rVar rSort se
       mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
         Nothing -> return Nothing
@@ -1152,17 +1163,26 @@ countPathsBounded limit = go
 -- Returns (calleeName, preconditionPred, pathGuard) for each CallVC
 -- that has a non-Nothing precondition obligation.
 -- Path guards are accumulated through BranchVC nodes.
-collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred)]
-collectCallPreObligations = go FQTrue
+-- F-NIW-4: each obligation carries its path's prior-call context — the result var,
+-- sort, and assumed post of every CallVC on the path before it. A later call whose
+-- precondition references an earlier call's result (e.g. withdraw-twice's
+-- `(withdraw after-first second)`) is then provable under the earlier call's
+-- assumed post (assume-guarantee; the trust meet over those callees is taken
+-- downstream by TrustReport over the syntactic call graph). Without this context
+-- the result var is a free variable in the param-scoped call-pre constraint.
+collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)])]
+collectCallPreObligations = go FQTrue []
   where
-    go _guard (SimpleVC _ _) = []
-    go guard (BranchVC g thenVC elseVC) =
-      go (conjoin guard g) thenVC ++ go (conjoin guard (FQNot g)) elseVC
-    go guard (CallVC callee _args mPre _mPost _rVar _rSort cont) =
+    go _guard _calls (SimpleVC _ _) = []
+    go guard calls (BranchVC g thenVC elseVC) =
+      go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
+    go guard calls (CallVC callee _args mPre mPost rVar rSort cont) =
       let preObligs = case mPre of
-            Just prePred -> [(callee, prePred, guard)]
+            Just prePred -> [(callee, prePred, guard, calls)]
             Nothing      -> []
-          contObligs = go guard cont
+          -- subsequent obligations may assume this call's post over its result var
+          calls' = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
+          contObligs = go guard calls' cont
       in preObligs ++ contObligs
 
 -- ---------------------------------------------------------------------------

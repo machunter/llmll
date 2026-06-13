@@ -5036,10 +5036,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (SimpleVC [] (FQVar "_r"))
             obligs = collectCallPreObligations bvc
         length obligs `shouldBe` 1
-        let (callee, prePred, guard) = head obligs
+        let (callee, prePred, guard, ctxCalls) = head obligs
         callee `shouldBe` "g"
         prePred `shouldBe` FQBinPred FQGe (FQLit 42) (FQLit 0)
         guard `shouldBe` FQTrue
+        ctxCalls `shouldBe` []   -- F-NIW-4: no prior calls on this single-call path
 
       it "no obligation from CallVC without pre" $ do
         let bvc = CallVC "g" [FQLit 42] Nothing
@@ -5047,6 +5048,42 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     "_r" FQInt
                     (SimpleVC [] (FQVar "_r"))
         collectCallPreObligations bvc `shouldBe` []
+
+      -- F-NIW-4: a later call's obligation carries the prior call's (rVar, sort,
+      -- assumed post) so a precondition referencing the earlier result is provable
+      -- (not a free var). This is the withdraw-twice / banking_ledger fix.
+      it "F4-1: a 2-call chain threads the prior call's result + post as context" $ do
+        let post1 = FQBinPred FQGe (FQVar "_r1") (FQLit 0)
+            inner = CallVC "g" [FQVar "_r1"]
+                      (Just (FQBinPred FQGe (FQVar "_r1") (FQLit 5)))  -- 2nd pre references _r1
+                      (Just (FQBinPred FQGe (FQVar "_r2") (FQLit 0)))
+                      "_r2" FQInt (SimpleVC [] (FQVar "_r2"))
+            outer = CallVC "f" [FQLit 9]
+                      (Just (FQBinPred FQGe (FQLit 9) (FQLit 0)))
+                      (Just post1) "_r1" FQInt inner
+            obligs = collectCallPreObligations outer
+        length obligs `shouldBe` 2
+        let (_, _, _, ctx0) = obligs !! 0
+            (_, pre1, _, ctx1) = obligs !! 1
+        ctx0 `shouldBe` []                              -- first call: no prior context
+        ctx1 `shouldBe` [("_r1", FQInt, post1)]         -- second call: assumes first call's post over _r1
+        pre1 `shouldBe` FQBinPred FQGe (FQVar "_r1") (FQLit 5)
+
+      it "F4-2: a let-bound call result used in a later call verifies body-faithfully (no free var)" $ do
+        let src = unlines
+              [ "(def-shell sub1 [x: int y: int]"
+              , "  (pre (>= x y)) (post (and (= result (- x y)) (>= result 0)))"
+              , "  (- x y))"
+              , "(def-shell sub2 [x: int a: int b: int]"
+              , "  (pre (and (>= x (+ a b)) (and (>= a 0) (>= b 0))))"
+              , "  (post (>= result 0))"
+              , "  (let [[t (sub1 x a)]] (sub1 t b)))" ]
+        er <- case parseStatements GrammarCoreInversion "test" (T.pack src) of
+                Left e      -> error ("parse failed: " <> show e)
+                Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+        erBodyFaithfulFns er `shouldSatisfy` elem "sub2"   -- the let-call-chain is body-faithful
+        erCallPreFns er      `shouldSatisfy` elem "sub2"   -- the 2nd call emits a call-pre obligation
+        erSkipped er         `shouldSatisfy` not . elem "sub2"
 
     describe "call-pre constraint emission (end-to-end)" $ do
       it "emitFixpointWith emits call-pre constraint for contracted call" $ do
