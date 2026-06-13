@@ -42,6 +42,7 @@ module LLMLL.FixpointIR
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Char (isAlphaNum)
 
 -- ---------------------------------------------------------------------------
 -- Sorts
@@ -196,14 +197,25 @@ emitSort (FQData n) = n
 -- | NIW: constant strLen : (func(0 , [Str; int]))
 emitConstant :: FQConstant -> Text
 emitConstant c =
-  "constant " <> fqcName c <> " : (func(0 , ["
+  "constant " <> sanitizeFQId (fqcName c) <> " : (func(0 , ["
   <> T.intercalate "; " (map emitSort (fqcArgs c ++ [fqcRet c]))
   <> "]))"
+
+-- | F-NIW-3: map an LLMLL identifier to a liquid-fixpoint-legal one. The LLMLL
+-- lexer admits '-', '.', '?' in names (Lexer.hs:314-315), but liquid-fixpoint's
+-- identifier lexer accepts only [A-Za-z0-9_] — a hyphenated function/param/var
+-- name otherwise crashes the solver at parse ("unexpected '-'"). Any non-legal
+-- char maps to '_'. Identity on already-legal names (the whole existing corpus
+-- plus internal _bv_/call_ names), so .fq output is byte-identical except where a
+-- name would otherwise be rejected. Applied at this single emission chokepoint so
+-- binders and references mangle identically and still resolve.
+sanitizeFQId :: Text -> Text
+sanitizeFQId = T.map (\c -> if isAlphaNum c || c == '_' then c else '_')
 
 emitPred :: FQPred -> Text
 emitPred FQTrue               = "true"
 emitPred FQFalse              = "false"
-emitPred (FQVar v)            = v
+emitPred (FQVar v)            = sanitizeFQId v
 emitPred (FQLit n)            = T.pack (show n)
 emitPred (FQBinPred op l r)   = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
 emitPred (FQBinArith op l r)  = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
@@ -212,8 +224,8 @@ emitPred (FQAnd ps)           = T.intercalate " && " (map emitPredParens ps)
 emitPred (FQOr  [])           = "false"
 emitPred (FQOr  ps)           = T.intercalate " || " (map emitPredParens ps)
 emitPred (FQNot p)            = "(not " <> emitPredParens p <> ")"
-emitPred (FQKVar k args)      = "$" <> k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
-emitPred (FQApp f args)       = "(" <> f <> " " <> T.unwords (map emitPredParens args) <> ")"
+emitPred (FQKVar k args)      = "$" <> sanitizeFQId k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
+emitPred (FQApp f args)       = "(" <> sanitizeFQId f <> " " <> T.unwords (map emitPredParens args) <> ")"
 
 -- | Wrap compound predicates in parentheses to prevent precedence ambiguity.
 -- FQAnd/FQOr/FQNot sub-expressions must be parenthesized when used as operands.
@@ -235,13 +247,13 @@ emitOp FQSub = "-"
 
 emitReft :: FQReft -> Text
 emitReft r =
-  "{ " <> reftVar r <> " : " <> emitSort (reftSort r)
+  "{ " <> sanitizeFQId (reftVar r) <> " : " <> emitSort (reftSort r)
   <> " | " <> emitPred (reftPred r) <> " }"
 
 emitBind :: FQBind -> Text
 emitBind b =
   "bind " <> T.pack (show (bindId b))
-  <> " " <> bindName b
+  <> " " <> sanitizeFQId (bindName b)
   <> " : " <> emitReft (bindReft b)
 
 emitConstraint :: FQConstraint -> Text
@@ -258,18 +270,18 @@ emitConstraint c = T.unlines
 
 emitQualifier :: FQQualifier -> Text
 emitQualifier q =
-  "qualif " <> qualName q
+  "qualif " <> sanitizeFQId (qualName q)
   <> "(" <> T.intercalate ", " (map emitParam (qualParams q)) <> ")"
   <> ": (" <> emitPred (qualBody q) <> ")"
   where
-    emitParam (nm, srt) = nm <> " : " <> emitSort srt
+    emitParam (nm, srt) = sanitizeFQId nm <> " : " <> emitSort srt
 
 emitDataDecl :: FQDataDecl -> Text
 emitDataDecl d =
-  "data " <> T.toLower (ddName d) <> " " <> T.pack (show (ddArity d))
+  "data " <> sanitizeFQId (T.toLower (ddName d)) <> " " <> T.pack (show (ddArity d))
   <> " = [" <> T.intercalate " | " (map emitCtor (ddCtors d)) <> "]"
   where
     -- liquid-fixpoint requires lowercase identifiers in constructor position.
     -- We lowercase both the type name and each constructor name to satisfy
     -- the .fq parser (bug B1 discovered in Phase 2b walkthrough).
-    emitCtor (nm, ar) = T.toLower nm <> " " <> T.pack (show ar)
+    emitCtor (nm, ar) = sanitizeFQId (T.toLower nm) <> " " <> T.pack (show ar)

@@ -4780,6 +4780,35 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldNotSatisfy` T.isInfixOf "constant "
         fq `shouldNotSatisfy` T.isInfixOf " : { v : Str"
 
+    -- F-NIW-3: LLMLL identifiers admit '-' / '.' / '?' (Lexer.hs:314-315) but
+    -- liquid-fixpoint's lexer accepts only [A-Za-z0-9_]; a hyphenated name
+    -- crashed the solver ("unexpected '-'"). Sanitized at the FixpointIR emission
+    -- chokepoint (identity on already-legal names → byte-identical .fq otherwise).
+    describe "F-NIW-3 qualifier/identifier sanitization" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "F3-1: emitPred maps illegal identifier chars to underscore" $ do
+        emitPred (FQVar "measure-word") `shouldBe` "measure_word"
+        emitPred (FQVar "mod.fn")       `shouldBe` "mod_fn"
+
+      it "F3-2: emitPred is identity on already-legal identifiers (byte-inert)" $ do
+        emitPred (FQVar "withdraw")     `shouldBe` "withdraw"
+        emitPred (FQVar "_bv_call_g_0") `shouldBe` "_bv_call_g_0"
+
+      it "F3-3: a hyphenated function name emits a hyphen-free qualifier" $ do
+        er <- emitSrc "(def measure-word [n: int] (post (> result 0)) n)"
+        let fq = erFQText er
+        fq `shouldNotSatisfy` T.isInfixOf "measure-word"
+        fq `shouldSatisfy`    T.isInfixOf "Q_measure_word_post"
+
+      it "F3-4: a hyphenated param name is sanitized consistently in bind and refs" $ do
+        er <- emitSrc "(def f [my-val: int] (post (> result my-val)) my-val)"
+        let fq = erFQText er
+        fq `shouldNotSatisfy` T.isInfixOf "my-val"   -- no raw hyphen reaches the solver
+        fq `shouldSatisfy`    T.isInfixOf "my_val"   -- bind and FQVar refs both mangled identically
+
     describe "Negative (structural UNSAFE)" $ do
       -- These tests verify that incorrect implementations produce body VCs
       -- where the result predicate would NOT satisfy the postcondition.
