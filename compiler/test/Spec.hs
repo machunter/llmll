@@ -4720,6 +4720,36 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "result = (strLen s)"
         fq `shouldSatisfy` T.isInfixOf "result >= (strLen s)"
 
+    -- NIW (v0.12, Commit C): refinement-aliased params get their carrier sort
+    -- (alias-aware emitParamBind) and their predicate folded into the effective
+    -- precondition (F-NIW-1, elim-side: assumed in the body VC). Stacked aliases
+    -- conjoin per §3.4.4. Validated end-to-end SAFE against fixpoint.
+    describe "NIW refinement-aliased params" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          word = "(type Word (where [s: string] (> (string-length s) 0)))\n"
+
+      it "NIW-C1: a refined-alias param gets a Str carrier binder, not int" $ do
+        er <- emitSrc (word <> "(def wlen [w: Word] (post (> result 0)) (string-length w))")
+        erFQText er `shouldSatisfy` T.isInfixOf "bind 0 w : { v : Str | true }"
+
+      it "NIW-C2: the alias refinement is assumed in the body VC (elim-side)" $ do
+        er <- emitSrc (word <> "(def wlen [w: Word] (post (> result 0)) (string-length w))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "wlen"
+        erFQText er `shouldSatisfy` T.isInfixOf "(strLen w) > 0"   -- Word predicate in the LHS
+
+      it "NIW-C3: stacked aliases conjoin both predicates at introduction (§3.4.4)" $ do
+        let nonEmpty = word <> "(type NonEmptyWord (where [s: Word] (> (string-length s) 1)))\n"
+        er <- emitSrc (nonEmpty <> "(def nwlen [w: NonEmptyWord] (post (> result 1)) (string-length w))")
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "(strLen w) > 1"   -- NonEmptyWord
+        fq `shouldSatisfy` T.isInfixOf "(strLen w) > 0"   -- inherited Word
+
+      it "NIW-C4: a measure-free, refinement-free function still emits no constant" $ do
+        er <- emitSrc "(def-shell plain [x: int] (post (>= result 0)) x)"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "constant "
+
     describe "Negative (structural UNSAFE)" $ do
       -- These tests verify that incorrect implementations produce body VCs
       -- where the result predicate would NOT satisfy the postcondition.

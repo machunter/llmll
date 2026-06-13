@@ -167,11 +167,16 @@ type ContractEnv = Map Name ([(Name, Type)], Contract, Maybe Type)
 buildContractEnv :: [Statement] -> ContractEnv
 buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
   where
-    go (SDefLogic name params mRet contract _) = Just (name, (params, contract, mRet))
-    go (SLetrec name params mRet contract _ _) = Just (name, (params, contract, mRet))
+    -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into each
+    -- contract's effective precondition, so call-pre obligations prove them at
+    -- call sites (intro-side). Uses the alias map from the same statement set.
+    am = buildAliasMap stmts
+    aug params c = augmentContractPre am params c
+    go (SDefLogic name params mRet contract _) = Just (name, (params, aug params contract, mRet))
+    go (SLetrec name params mRet contract _ _) = Just (name, (params, aug params contract, mRet))
     -- LT-INV (v0.11)
-    go (SDef      name params mRet contract _) = Just (name, (params, contract, mRet))
-    go (SDefShell name params mRet contract _) = Just (name, (params, contract, mRet))
+    go (SDef      name params mRet contract _) = Just (name, (params, aug params contract, mRet))
+    go (SDefShell name params mRet contract _) = Just (name, (params, aug params contract, mRet))
     go _ = Nothing
 
 -- | v0.10 MOD-1: Build a ContractEnv merging local contracts with imported
@@ -377,7 +382,13 @@ emitFnConstraints
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
     addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet
-    name params mRet contract mBody mDec stmtIdx = do
+    name params mRet contract0 mBody mDec stmtIdx = do
+
+  -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
+  -- function's own effective precondition, so the body VC assumes them
+  -- (elim-side). The intro-side (callers prove them) is handled via the
+  -- augmented cenv in buildContractEnv.
+  let contract = augmentContractPre aliases params contract0
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isIntLike aliases t ]
@@ -402,7 +413,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     else do
 
     -- Emit binders for int params plus any measure-argument carrier params (NIW)
-    paramBinds <- mapM (emitParamBind freshBid addBind) (intParams ++ measureParams)
+    paramBinds <- mapM (emitParamBind aliases freshBid addBind) (intParams ++ measureParams)
     let envIds = map bindId paramBinds
 
     -- Emit qualifiers extracted from pre/post
@@ -578,12 +589,21 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                         addOrigin cid (ConstraintOrigin name cpTag ptr srcFile)
 
-emitParamBind :: IO FQBindId -> (FQBind -> IO ()) -> (Name, Type) -> IO FQBind
-emitParamBind freshBid addBind (n, t) = do
+-- NIW (v0.12): alias-aware so a refinement-aliased param (e.g. `w : Word`)
+-- gets its carrier sort (Str/Lst) rather than the typeToSort default (int).
+emitParamBind :: AliasMap -> IO FQBindId -> (FQBind -> IO ()) -> (Name, Type) -> IO FQBind
+emitParamBind aliases freshBid addBind (n, t) = do
   bid <- freshBid
-  let b = FQBind bid n (FQReft "v" (typeToSort t) FQTrue)
+  let b = FQBind bid n (FQReft "v" (typeToSort (resolveAliasTy aliases t)) FQTrue)
   addBind b
   return b
+
+-- | Resolve TCustom aliases (and strip the refinement of a TDependent) down to
+-- the underlying carrier type, for sort selection.
+resolveAliasTy :: AliasMap -> Type -> Type
+resolveAliasTy am (TCustom n)        = maybe (TCustom n) (resolveAliasTy am) (Map.lookup n am)
+resolveAliasTy am (TDependent _ b _) = resolveAliasTy am b
+resolveAliasTy _  t                  = t
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -1218,6 +1238,55 @@ appNames p = case p of
 measureConstant :: Text -> FQConstant
 measureConstant "listLen" = FQConstant "listLen" [FQList] FQInt
 measureConstant n         = FQConstant n          [FQStr]  FQInt  -- strLen + default
+
+-- | F-NIW-1: collect every refinement predicate along a (possibly aliased) type's
+-- chain, with its binding variable. Stacked aliases (e.g. NonEmptyWord over Word,
+-- §3.4.4 conjunction-at-introduction) contribute all their predicates; each is
+-- α-identified to the single param witness by the caller (REF-META-3 review F3).
+resolveAllRefinements :: AliasMap -> Type -> [(Name, Expr)]
+resolveAllRefinements am t = case t of
+  TDependent x base p -> (x, p) : resolveAllRefinements am base
+  TCustom n           -> maybe [] (resolveAllRefinements am) (Map.lookup n am)
+  _                   -> []
+
+-- | Rename a free variable in an expression (the refinement binding var → the
+-- param name). Refinement predicates are first-order and closed over the single
+-- binding var (REF-META-3 W-FirstOrder / W-Closed), so naive capture-free
+-- substitution is sound — no inner binder shadows the binding var.
+renameVar :: Name -> Name -> Expr -> Expr
+renameVar from to = go
+  where
+    go (EVar v)        = EVar (if v == from then to else v)
+    go (EApp f as)     = EApp f (map go as)
+    go (EOp o as)      = EOp o (map go as)
+    go (EIf a b c)     = EIf (go a) (go b) (go c)
+    go (ELet bs bd)    = ELet [(bn, bt, go r) | (bn, bt, r) <- bs] (go bd)
+    go (EMatch s arms) = EMatch (go s) [(pat, go bdy) | (pat, bdy) <- arms]
+    go (EPair a b)     = EPair (go a) (go b)
+    go (ELambda ps bd) = ELambda ps (go bd)
+    go (EAwait a)      = EAwait (go a)
+    go e               = e
+
+-- | F-NIW-1: the conjoined refinement predicate contributed by refinement-aliased
+-- params, each instantiated at the param name (p[param/x]). Nothing if no param
+-- is refinement-typed. This becomes part of the function's effective precondition,
+-- so the existing pre machinery discharges it both ways: assumed in the body VC
+-- (elim) and proven at call sites via call-pre obligations (intro).
+paramRefinementPre :: AliasMap -> [(Name, Type)] -> Maybe Expr
+paramRefinementPre am params =
+  case [ renameVar x n p | (n, t) <- params, (x, p) <- resolveAllRefinements am t ] of
+    []    -> Nothing
+    preds -> Just (foldr1 (\a b -> EApp "and" [a, b]) preds)
+
+-- | Fold param refinements into a contract's precondition.
+augmentContractPre :: AliasMap -> [(Name, Type)] -> Contract -> Contract
+augmentContractPre am params c =
+  case paramRefinementPre am params of
+    Nothing   -> c
+    Just rpre -> c { contractPre = Just (andPre (contractPre c) rpre) }
+  where
+    andPre Nothing  r = r
+    andPre (Just p) r = EApp "and" [p, r]
 
 -- | Prepend a let-binding to a BodyVC.
 prependLB :: LetBinding -> BodyVC -> BodyVC
