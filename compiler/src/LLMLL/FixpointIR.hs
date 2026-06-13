@@ -24,6 +24,8 @@ module LLMLL.FixpointIR
     -- * Constraints
   , FQConstraint(..)
   , FQConstraintId
+    -- * Uninterpreted-function constants (NIW)
+  , FQConstant(..)
     -- * Qualifiers
   , FQQualifier(..)
     -- * Data declarations (ADT sorts)
@@ -46,10 +48,15 @@ import qualified Data.Text as T
 -- ---------------------------------------------------------------------------
 
 -- | Supported liquid-fixpoint base sorts (linear arithmetic fragment).
+-- NIW (v0.12): FQStr/FQList are opaque carrier sorts for the measure class
+-- (REF-META-3 §4.2) — values are uninterpreted; only their integer images
+-- under strLen/listLen participate in constraints.
 data FQSort
   = FQInt            -- ^ int
   | FQBool           -- ^ bool
   | FQUnit           -- ^ unit (for functions returning ())
+  | FQStr            -- ^ opaque string carrier (built-in Str sort)
+  | FQList           -- ^ opaque list carrier (uninterpreted Lst sort)
   | FQData Text      -- ^ named ADT sort, e.g. Color
   deriving (Show, Eq)
 
@@ -79,6 +86,7 @@ data FQPred
   | FQOr  [FQPred]
   | FQNot FQPred
   | FQKVar Text [FQPred]              -- ^ $k0(v) — wf constraint variable
+  | FQApp Text [FQPred]               -- ^ NIW: uninterpreted function application, e.g. (strLen s)
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -146,15 +154,24 @@ data FQDataDecl = FQDataDecl
 -- Top-level .fq file
 -- ---------------------------------------------------------------------------
 
+-- | NIW: an uninterpreted-function constant declaration.
+-- Rendered as: constant name : (func(0 , [argSort; retSort]))
+data FQConstant = FQConstant
+  { fqcName :: Text
+  , fqcArgs :: [FQSort]
+  , fqcRet  :: FQSort
+  } deriving (Show, Eq)
+
 data FQFile = FQFile
-  { fqDataDecls   :: [FQDataDecl]
+  { fqConstants   :: [FQConstant]
+  , fqDataDecls   :: [FQDataDecl]
   , fqQualifiers  :: [FQQualifier]
   , fqBinds       :: [FQBind]
   , fqConstraints :: [FQConstraint]
   } deriving (Show, Eq)
 
 emptyFQFile :: FQFile
-emptyFQFile = FQFile [] [] [] []
+emptyFQFile = FQFile [] [] [] [] []
 
 -- ---------------------------------------------------------------------------
 -- Emission to .fq text
@@ -162,7 +179,8 @@ emptyFQFile = FQFile [] [] [] []
 
 emitFQFile :: FQFile -> Text
 emitFQFile f = T.unlines $
-    map emitDataDecl  (fqDataDecls f)
+    map emitConstant  (fqConstants f)
+ ++ map emitDataDecl  (fqDataDecls f)
  ++ map emitQualifier (fqQualifiers f)
  ++ map emitBind      (fqBinds f)
  ++ map emitConstraint (fqConstraints f)
@@ -171,7 +189,16 @@ emitSort :: FQSort -> Text
 emitSort FQInt      = "int"
 emitSort FQBool     = "bool"
 emitSort FQUnit     = "unit"
+emitSort FQStr      = "Str"   -- liquid-fixpoint built-in string sort (opaque under path (a))
+emitSort FQList     = "Lst"   -- uninterpreted carrier sort (probe-verified accepted bare)
 emitSort (FQData n) = n
+
+-- | NIW: constant strLen : (func(0 , [Str; int]))
+emitConstant :: FQConstant -> Text
+emitConstant c =
+  "constant " <> fqcName c <> " : (func(0 , ["
+  <> T.intercalate "; " (map emitSort (fqcArgs c ++ [fqcRet c]))
+  <> "]))"
 
 emitPred :: FQPred -> Text
 emitPred FQTrue               = "true"
@@ -186,6 +213,7 @@ emitPred (FQOr  [])           = "false"
 emitPred (FQOr  ps)           = T.intercalate " || " (map emitPredParens ps)
 emitPred (FQNot p)            = "(not " <> emitPredParens p <> ")"
 emitPred (FQKVar k args)      = "$" <> k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
+emitPred (FQApp f args)       = "(" <> f <> " " <> T.unwords (map emitPredParens args) <> ")"
 
 -- | Wrap compound predicates in parentheses to prevent precedence ambiguity.
 -- FQAnd/FQOr/FQNot sub-expressions must be parenthesized when used as operands.

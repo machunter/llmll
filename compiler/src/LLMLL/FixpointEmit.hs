@@ -315,7 +315,10 @@ emitFixpointWith opts srcFile stmts = do
   emPost    <- readIORef emittedPostRef
   callPre   <- readIORef callPreRef
   ovTainted <- readIORef overflowTaintedRef
-  let fqFile = FQFile dataDecs quals binds consts
+  -- NIW (v0.12, Commit A): no measure UF constants are generated yet — exprToPred
+  -- does not emit FQApp until Commit B wires the measure cases + param binders.
+  -- The constants section stays empty here, preserving byte-identical .fq output.
+  let fqFile = FQFile [] dataDecs quals binds consts
   return EmitResult
     { erFQFile            = fqFile
     , erFQText            = emitFQFile fqFile
@@ -712,6 +715,7 @@ predVars (FQAnd ps)           = concatMap predVars ps
 predVars (FQOr  ps)           = concatMap predVars ps
 predVars (FQNot p)            = predVars p
 predVars (FQKVar _ args)      = concatMap predVars args
+predVars (FQApp _ args)       = concatMap predVars args  -- NIW: measure args carry the free vars
 
 nubT :: [Text] -> [Text]
 nubT [] = []
@@ -1146,6 +1150,7 @@ predSortOf (FQNot _)         = FQBool
 predSortOf (FQAnd _)         = FQBool
 predSortOf (FQOr _)          = FQBool
 predSortOf (FQKVar _ _)      = FQInt  -- fallback
+predSortOf (FQApp _ _)       = FQInt  -- NIW: measures are integer-valued
 
 -- | Build a SortEnv from function parameters (int-typed only for BODY-VC-0).
 -- v0.8.0: uses isIntLike with alias map to resolve type aliases.

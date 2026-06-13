@@ -22,7 +22,7 @@ import LLMLL.ObligationAssembly
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
@@ -4656,6 +4656,30 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let p = FQNot (FQOr [FQVar "a", FQVar "b"])
             t = emitPred p
         t `shouldSatisfy` T.isInfixOf "(not (a || b))"
+
+    -- NIW (v0.12, Commit A): the .fq IR can represent and render measure-class
+    -- uninterpreted-function applications (REF-META-3 §4.2 / REF-META-2 path-a).
+    -- These tests cover the inert IR + emission capability; exprToPred does not
+    -- yet construct FQApp (that is Commit B), so existing .fq output is unchanged.
+    describe "NIW measure UF emission" $ do
+      it "NIW-A1: FQApp renders as a prefix-applied uninterpreted symbol" $ do
+        emitPred (FQApp "strLen" [FQVar "s"]) `shouldBe` "(strLen s)"
+
+      it "NIW-A2: nested measure arg renders with parens" $ do
+        emitPred (FQBinPred FQGe (FQApp "strLen" [FQVar "s"]) (FQLit 0))
+          `shouldBe` "((strLen s) >= 0)"
+
+      it "NIW-A3: emitFQFile declares a function-sorted constant" $ do
+        let f = FQFile [FQConstant "strLen" [FQStr] FQInt] [] [] [] []
+        emitFQFile f `shouldSatisfy` T.isInfixOf "constant strLen : (func(0 , [Str; int]))"
+
+      it "NIW-A4: listLen constant uses the opaque Lst sort" $ do
+        let f = FQFile [FQConstant "listLen" [FQList] FQInt] [] [] [] []
+        emitFQFile f `shouldSatisfy` T.isInfixOf "constant listLen : (func(0 , [Lst; int]))"
+
+      it "NIW-A5: an FQFile with no constants emits no constant line (byte-inert)" $ do
+        let f = FQFile [] [] [] [] []
+        emitFQFile f `shouldNotSatisfy` T.isInfixOf "constant "
 
     describe "Negative (structural UNSAFE)" $ do
       -- These tests verify that incorrect implementations produce body VCs
