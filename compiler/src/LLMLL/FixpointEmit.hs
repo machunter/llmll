@@ -76,7 +76,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, catMaybes)
-import Data.List (nub)
+import Data.List (nub, partition)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put)
 import Data.Graph (stronglyConnComp, SCC(..))
@@ -577,7 +577,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     let callObligations = collectCallPreObligations bvc
                     unless (null callObligations) $ do
                       addCallPre name
-                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred, pathGuard, ctxCalls)) -> do
+                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred, pathGuard, ctxCalls, pathLbs)) -> do
                         -- F-NIW-4: declare the prior-call result vars on this path so
                         -- a precondition referencing one is not a free variable; their
                         -- assumed posts join the LHS hypothesis (assume-guarantee).
@@ -585,6 +585,18 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                           bid <- freshBid
                           addBind (FQBind bid rv (FQReft "v" rs FQTrue))
                           return bid) ctxCalls
+                        -- F-NIW-4b: declare the in-scope let-bound non-call values on
+                        -- this path with their defining equality, so a precondition
+                        -- referencing one is provable. Filtered to the subset whose RHS
+                        -- is in scope (params ∪ prior results ∪ earlier lbs).
+                        let priorRVars = [ rv | (rv, _, _) <- ctxCalls ]
+                            scope0     = Set.fromList (map bindName paramBinds ++ priorRVars)
+                            usableLbs  = inScopeLbs scope0 (nub pathLbs)
+                        lbCtxBindIds <- mapM (\lb -> do
+                          bid <- freshBid
+                          addBind (FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
+                                    (FQBinPred FQEq (FQVar "v") (lbRhs lb))))
+                          return bid) usableLbs
                         cid <- freshCid
                         let cpTag = "call-pre:" <> callee
                             ctxPosts = [ post | (_, _, post) <- ctxCalls, post /= FQTrue ]
@@ -595,7 +607,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                             lhs = FQReft "v" FQInt lhsPred
                             -- RHS: callee's precondition (PROVE polarity — caller must prove this)
                             rhs = FQReft "v" FQInt prePred
-                            c = FQConstraint cid (envIds ++ ctxBindIds) lhs rhs [name, cpTag]
+                            c = FQConstraint cid (envIds ++ ctxBindIds ++ lbCtxBindIds) lhs rhs [name, cpTag]
                         addConst c
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                         addOrigin cid (ConstraintOrigin name cpTag ptr srcFile)
@@ -1170,7 +1182,7 @@ countPathsBounded limit = go
 -- assumed post (assume-guarantee; the trust meet over those callees is taken
 -- downstream by TrustReport over the syntactic call graph). Without this context
 -- the result var is a free variable in the param-scoped call-pre constraint.
-collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)])]
+collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)], [LetBinding])]
 collectCallPreObligations = go FQTrue []
   where
     go _guard _calls (SimpleVC _ _) = []
@@ -1178,12 +1190,37 @@ collectCallPreObligations = go FQTrue []
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
     go guard calls (CallVC callee _args mPre mPost rVar rSort cont) =
       let preObligs = case mPre of
-            Just prePred -> [(callee, prePred, guard, calls)]
+            -- F-NIW-4b: attach the path's let-bindings (which prependLB has pushed
+            -- into the leaf of `cont`) so a precondition referencing a let-bound
+            -- non-call value (e.g. `(g y)` where `y = x+1`) can be proved under
+            -- that value's defining equality. The emission filters them to the
+            -- subset in scope at the call.
+            Just prePred -> [(callee, prePred, guard, calls, subtreeLbs cont)]
             Nothing      -> []
           -- subsequent obligations may assume this call's post over its result var
           calls' = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
           contObligs = go guard calls' cont
       in preObligs ++ contObligs
+
+-- | F-NIW-4b: all let-bindings reachable in a BodyVC. `prependLB` parks
+-- let-bindings at the leaf SimpleVC of a CallVC continuation, so a call-pre
+-- obligation's path lbs are gathered from its continuation subtree.
+subtreeLbs :: BodyVC -> [LetBinding]
+subtreeLbs (SimpleVC lbs _)          = lbs
+subtreeLbs (BranchVC _ t e)          = subtreeLbs t ++ subtreeLbs e
+subtreeLbs (CallVC _ _ _ _ _ _ cont) = subtreeLbs cont
+
+-- | F-NIW-4b: the subset of candidate let-bindings whose RHS free variables are
+-- all already in scope (params ∪ prior-call results ∪ already-included lbs),
+-- to a fixpoint and in dependency order. Out-of-scope lbs (e.g. branch-local, or
+-- bound after the call) are excluded — admitting them would re-introduce free
+-- variables. Sound: an lb is a let-definition equality, a tautology in context.
+inScopeLbs :: Set.Set Text -> [LetBinding] -> [LetBinding]
+inScopeLbs scope lbs0 =
+  let (ok, rest) = partition (\lb -> all (`Set.member` scope) (predVars (lbRhs lb))) lbs0
+  in if null ok
+       then []
+       else ok ++ inScopeLbs (foldr (Set.insert . lbName) scope ok) rest
 
 -- ---------------------------------------------------------------------------
 -- Predicate helpers (v0.8.0)

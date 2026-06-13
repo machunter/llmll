@@ -5036,7 +5036,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (SimpleVC [] (FQVar "_r"))
             obligs = collectCallPreObligations bvc
         length obligs `shouldBe` 1
-        let (callee, prePred, guard, ctxCalls) = head obligs
+        let (callee, prePred, guard, ctxCalls, _pathLbs) = head obligs
         callee `shouldBe` "g"
         prePred `shouldBe` FQBinPred FQGe (FQLit 42) (FQLit 0)
         guard `shouldBe` FQTrue
@@ -5063,8 +5063,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                       (Just post1) "_r1" FQInt inner
             obligs = collectCallPreObligations outer
         length obligs `shouldBe` 2
-        let (_, _, _, ctx0) = obligs !! 0
-            (_, pre1, _, ctx1) = obligs !! 1
+        let (_, _, _, ctx0, _) = obligs !! 0
+            (_, pre1, _, ctx1, _) = obligs !! 1
         ctx0 `shouldBe` []                              -- first call: no prior context
         ctx1 `shouldBe` [("_r1", FQInt, post1)]         -- second call: assumes first call's post over _r1
         pre1 `shouldBe` FQBinPred FQGe (FQVar "_r1") (FQLit 5)
@@ -5084,6 +5084,32 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "sub2"   -- the let-call-chain is body-faithful
         erCallPreFns er      `shouldSatisfy` elem "sub2"   -- the 2nd call emits a call-pre obligation
         erSkipped er         `shouldSatisfy` not . elem "sub2"
+
+    -- F-NIW-4b: a let-bound NON-call value used in a later call's precondition is
+    -- threaded into that call's call-pre obligation as its defining equality
+    -- (filtered to the in-scope subset), so the call's precondition is provable
+    -- rather than crashing on a free variable.
+    describe "F-NIW-4b let-value into call-pre" $ do
+      let emitN4b src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+            Left e      -> error ("parse failed: " <> show e)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          g = "(def-shell g [a: int] (pre (>= a 2)) (post (>= result 0)) a)\n"
+
+      it "F4b-1: a let-bound non-call value feeding a callee pre is body-faithful (no free var)" $ do
+        er <- emitN4b (g <> "(def-shell f [x: int] (pre (>= x 1)) (post (>= result 0)) (let [[y (+ x 1)]] (g y)))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        erCallPreFns er      `shouldSatisfy` elem "f"
+        erSkipped er         `shouldSatisfy` not . elem "f"
+
+      it "F4b-2: chained let-values (z depends on y) both reach the call-pre context" $ do
+        er <- emitN4b (g <> "(def-shell f [x: int] (pre (>= x 1)) (post (>= result 0)) (let [[y (+ x 1)]] (let [[z (+ y 1)]] (g z))))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        erSkipped er         `shouldSatisfy` not . elem "f"
+
+      it "F4b-3: a contracted call with a direct param arg (no let-value) is unaffected" $ do
+        er <- emitN4b (g <> "(def-shell h [x: int] (pre (>= x 2)) (post (>= result 0)) (g x))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "h"   -- direct-param call-pre still works (no lb threading triggered)
+        erCallPreFns er      `shouldSatisfy` elem "h"
 
     describe "call-pre constraint emission (end-to-end)" $ do
       it "emitFixpointWith emits call-pre constraint for contracted call" $ do
