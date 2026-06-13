@@ -76,6 +76,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, catMaybes)
+import Data.List (nub)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put)
 import Data.Graph (stronglyConnComp, SCC(..))
@@ -254,7 +255,10 @@ emitFixpointWith opts srcFile stmts = do
         return n
 
   let addBind b   = modifyIORef' bindsRef (++ [b])
-  let addConst c  = modifyIORef' constsRef (++ [c])
+  -- NIW (v0.12): inject ground measure range facts (m t >= 0) per occurring
+  -- measure-term at the single point all constraints flow through. No-op when a
+  -- constraint contains no FQApp, so measure-free .fq output is byte-identical.
+  let addConst c  = modifyIORef' constsRef (++ [injectRangeFacts c])
   let addQuals qs = modifyIORef' qualsRef (++ qs)
   let addData  d  = modifyIORef' dataRef  (++ [d])
   let addSkip  n  = modifyIORef' skippedRef (++ [n])
@@ -315,10 +319,14 @@ emitFixpointWith opts srcFile stmts = do
   emPost    <- readIORef emittedPostRef
   callPre   <- readIORef callPreRef
   ovTainted <- readIORef overflowTaintedRef
-  -- NIW (v0.12, Commit A): no measure UF constants are generated yet — exprToPred
-  -- does not emit FQApp until Commit B wires the measure cases + param binders.
-  -- The constants section stays empty here, preserving byte-identical .fq output.
-  let fqFile = FQFile [] dataDecs quals binds consts
+  -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
+  -- any constraint or binder. None used → empty section → byte-identical .fq.
+  let usedMeasures = Set.unions $
+           [ Set.union (appNames (reftPred (conLhs c))) (appNames (reftPred (conRhs c)))
+           | c <- consts ]
+        ++ [ appNames (reftPred (bindReft b)) | b <- binds ]
+      measureConsts = map measureConstant (Set.toList usedMeasures)
+  let fqFile = FQFile measureConsts dataDecs quals binds consts
   return EmitResult
     { erFQFile            = fqFile
     , erFQText            = emitFQFile fqFile
@@ -373,6 +381,18 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isIntLike aliases t ]
+  -- NIW (v0.12): non-int params used as measure arguments get an opaque carrier
+  -- binder so (strLen s) / (listLen xs) resolve to an in-scope symbol. Scoped to
+  -- genuinely-used measure args (scan of contract + body) so measure-free
+  -- functions emit byte-identical .fq.
+  let measureVars = Set.unions
+        [ maybe Set.empty measureArgVars (contractPre contract)
+        , maybe Set.empty measureArgVars (contractPost contract)
+        , maybe Set.empty measureArgVars mBody ]
+      measureParams = [ (n, t) | (n, t) <- params
+                      , n `Set.member` measureVars
+                      , isMeasureSort aliases t
+                      , not (isIntLike aliases t) ]
   -- v0.8.0: Fix dead early-exit — check condition and exit early if nothing to verify.
   let hasContract = isJust (contractPre contract) || isJust (contractPost contract)
       hasIntParams = not (null intParams)
@@ -381,8 +401,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     then pure ()
     else do
 
-    -- Emit binders for all int-typed params
-    paramBinds <- mapM (emitParamBind freshBid addBind) intParams
+    -- Emit binders for int params plus any measure-argument carrier params (NIW)
+    paramBinds <- mapM (emitParamBind freshBid addBind) (intParams ++ measureParams)
     let envIds = map bindId paramBinds
 
     -- Emit qualifiers extracted from pre/post
@@ -589,8 +609,10 @@ isIntLike am (TCustom n)           = case Map.lookup n am of
 isIntLike _  _                     = False
 
 typeToSort :: Type -> FQSort
-typeToSort TInt  = FQInt
-typeToSort TBool = FQBool
+typeToSort TInt    = FQInt
+typeToSort TBool   = FQBool
+typeToSort TString = FQStr            -- NIW: opaque carrier for string measures
+typeToSort (TList _) = FQList         -- NIW: opaque carrier for list measures
 typeToSort (TDependent _ base _) = typeToSort base
 typeToSort _     = FQInt  -- conservative default
 
@@ -680,6 +702,12 @@ exprToPred (EApp op [l, r])
 exprToPred (EApp "and" args) = FQAnd <$> mapM exprToPred args
 exprToPred (EApp "or"  args) = FQOr  <$> mapM exprToPred args
 exprToPred (EApp "not" [a])  = FQNot <$> exprToPred a
+-- NIW (v0.12): measure-class applications → uninterpreted-function terms.
+-- The argument is a WF base term (REF-META-3 M3); exprToPred (EVar v) = FQVar v
+-- carries it through unconditionally. Range facts (m t >= 0) are injected
+-- centrally at addConst, not here. Only string-length / list-length are admitted.
+exprToPred (EApp "string-length" [a]) = (\x -> FQApp "strLen"  [x]) <$> exprToPred a
+exprToPred (EApp "list-length"   [a]) = (\x -> FQApp "listLen" [x]) <$> exprToPred a
 -- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
 exprToPred (EOp op args)     = exprToPred (EApp op args)
 exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
@@ -882,6 +910,16 @@ bodyToPredM env se cenv sccSet (EApp "or" args) = do
   if length preds == length args
     then return . Just $ SimpleVC [] (FQOr preds)
     else return Nothing
+
+-- NIW (v0.12): measure-class application in a body → uninterpreted-function term.
+-- The argument is a bare base-typed binding (Phase 1, REF-META-3 M3); we translate
+-- it directly to an FQVar under the renaming env rather than recursing through
+-- bodyToPredM (whose EVar case admits only int-sorted vars). Nested/non-var args
+-- fall through to the catch-all (→ body fallback), which is sound.
+bodyToPredM env _ _ _ (EApp "string-length" [EVar v]) =
+  return . Just $ SimpleVC [] (FQApp "strLen"  [FQVar (fromMaybe v (Map.lookup v env))])
+bodyToPredM env _ _ _ (EApp "list-length"   [EVar v]) =
+  return . Just $ SimpleVC [] (FQApp "listLen" [FQVar (fromMaybe v (Map.lookup v env))])
 
 -- Normalize EOp to EApp
 bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet (EApp name args)
@@ -1107,6 +1145,79 @@ conjoin p      q      = FQAnd [p, q]
 -- | Conjoin a list of predicates.
 conjoinAll :: [FQPred] -> FQPred
 conjoinAll = foldr conjoin FQTrue
+
+-- ---------------------------------------------------------------------------
+-- NIW (v0.12): measure-class emission helpers (REF-META-2 §4 / REF-META-3 §4.2)
+-- ---------------------------------------------------------------------------
+
+-- | Variables appearing as the argument of a measure application
+-- (string-length / list-length) anywhere in an expression. Drives which non-int
+-- params need an opaque carrier binder, preserving byte-identical .fq output for
+-- measure-free functions.
+measureArgVars :: Expr -> Set.Set Name
+measureArgVars e = case e of
+  EApp "string-length" [EVar v] -> Set.singleton v
+  EApp "list-length"   [EVar v] -> Set.singleton v
+  EApp _ args   -> Set.unions (map measureArgVars args)
+  EOp _ args    -> Set.unions (map measureArgVars args)
+  EIf a b c     -> Set.unions (map measureArgVars [a, b, c])
+  ELet bs body  -> Set.unions (measureArgVars body : [measureArgVars r | (_, _, r) <- bs])
+  EMatch s arms -> Set.unions (measureArgVars s : map (measureArgVars . snd) arms)
+  EPair a b     -> Set.union (measureArgVars a) (measureArgVars b)
+  ELambda _ b   -> measureArgVars b
+  EAwait a      -> measureArgVars a
+  EDo steps     -> Set.unions [measureArgVars x | DoStep _ x <- steps]
+  _             -> Set.empty
+
+-- | True when a type resolves (through aliases / refinements) to a measure
+-- carrier sort (string or list).
+isMeasureSort :: AliasMap -> Type -> Bool
+isMeasureSort _  TString            = True
+isMeasureSort _  (TList _)          = True
+isMeasureSort am (TDependent _ b _) = isMeasureSort am b
+isMeasureSort am (TCustom n)        = maybe False (isMeasureSort am) (Map.lookup n am)
+isMeasureSort _  _                  = False
+
+-- | REF-META-2 §4 emission side-condition: for every measure-term m(t) in a
+-- constraint, conjoin the ground range fact (m t) >= 0 into the LHS as a
+-- hypothesis — the local-theory-extension instantiation, ground facts per
+-- occurring term (never a quantified axiom). Byte-inert when no FQApp is present.
+injectRangeFacts :: FQConstraint -> FQConstraint
+injectRangeFacts c =
+  let apps  = nub (collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c)))
+      facts = [ FQBinPred FQGe a (FQLit 0) | a <- apps ]
+  in if null facts
+       then c
+       else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
+
+-- | Measure-application subterms of a predicate.
+collectApps :: FQPred -> [FQPred]
+collectApps p = case p of
+  FQApp _ args     -> p : concatMap collectApps args
+  FQBinPred _ l r  -> collectApps l ++ collectApps r
+  FQBinArith _ l r -> collectApps l ++ collectApps r
+  FQAnd ps         -> concatMap collectApps ps
+  FQOr  ps         -> concatMap collectApps ps
+  FQNot q          -> collectApps q
+  FQKVar _ args    -> concatMap collectApps args
+  _                -> []
+
+-- | Head symbol names of the measure applications in a predicate.
+appNames :: FQPred -> Set.Set Text
+appNames p = case p of
+  FQApp f args     -> Set.insert f (Set.unions (map appNames args))
+  FQBinPred _ l r  -> Set.union (appNames l) (appNames r)
+  FQBinArith _ l r -> Set.union (appNames l) (appNames r)
+  FQAnd ps         -> Set.unions (map appNames ps)
+  FQOr  ps         -> Set.unions (map appNames ps)
+  FQNot q          -> appNames q
+  FQKVar _ args    -> Set.unions (map appNames args)
+  _                -> Set.empty
+
+-- | UF constant declaration for a measure symbol.
+measureConstant :: Text -> FQConstant
+measureConstant "listLen" = FQConstant "listLen" [FQList] FQInt
+measureConstant n         = FQConstant n          [FQStr]  FQInt  -- strLen + default
 
 -- | Prepend a let-binding to a BodyVC.
 prependLB :: LetBinding -> BodyVC -> BodyVC

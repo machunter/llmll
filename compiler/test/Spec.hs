@@ -4681,6 +4681,45 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f = FQFile [] [] [] [] []
         emitFQFile f `shouldNotSatisfy` T.isInfixOf "constant "
 
+    -- NIW (v0.12, Commit B): measure predicates in contracts/bodies translate to
+    -- UF terms, get an opaque carrier binder + ground range fact, and discharge
+    -- body-faithfully. Structural assertions on the emitted .fq (suite convention:
+    -- the solver is not invoked here; SAFE/UNSAFE discrimination is probe-verified).
+    describe "NIW measure verification (emission)" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "NIW-B1: string-length post is body-faithful with carrier binder, range fact, constant" $ do
+        er <- emitSrc "(def-shell f [s: string] (post (>= result 0)) (string-length s))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        erSkipped er         `shouldSatisfy` not . elem "f"
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "constant strLen : (func(0 , [Str; int]))"
+        fq `shouldSatisfy` T.isInfixOf "{ v : Str | true }"
+        fq `shouldSatisfy` T.isInfixOf "(strLen s) >= 0"          -- ground range fact
+        fq `shouldSatisfy` T.isInfixOf "result = (strLen s)"
+
+      it "NIW-B2: a measure-free function emits no constant / strLen (byte-inert)" $ do
+        er <- emitSrc "(def-shell g [x: int] (post (>= result 0)) x)"
+        let fq = erFQText er
+        fq `shouldNotSatisfy` T.isInfixOf "constant "
+        fq `shouldNotSatisfy` T.isInfixOf "strLen"
+
+      it "NIW-B3: list-length uses the opaque Lst carrier sort" $ do
+        er <- emitSrc "(def-shell h [xs: list[int]] (post (>= result 0)) (list-length xs))"
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "constant listLen : (func(0 , [Lst; int]))"
+        fq `shouldSatisfy` T.isInfixOf "(listLen xs)"
+
+      it "NIW-B4: congruence — two occurrences of the same measure-term share one constant" $ do
+        er <- emitSrc "(def-shell k [s: string] (post (>= result (string-length s))) (string-length s))"
+        let fq = erFQText er
+        -- one constant declaration for strLen, the term appears in both lhs (body) and rhs (post)
+        T.count "constant strLen" fq `shouldBe` 1
+        fq `shouldSatisfy` T.isInfixOf "result = (strLen s)"
+        fq `shouldSatisfy` T.isInfixOf "result >= (strLen s)"
+
     describe "Negative (structural UNSAFE)" $ do
       -- These tests verify that incorrect implementations produce body VCs
       -- where the result predicate would NOT satisfy the postcondition.
