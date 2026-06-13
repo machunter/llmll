@@ -291,7 +291,7 @@ The following features are **deliberately absent** from LLMLL's refinement surfa
 
 2. **No dependent pattern matching.** Pattern matching on a refinement-aliased value binds the underlying base type. A `match` arm on a `Letter` value (where `Letter ≜ (where [s: string] (= (string-length s) 1))`) binds `s : string`. The refinement hypothesis is available within the arm's lexical scope via the elimination rule (§3.4.1) but does not refine the bound variable's declared type.
 
-3. **No type-level computation.** Refinement predicates are first-order propositions in the QF-LIA fragment (or escape to `?proof-required`); they are not types. `(where [n: int] (> (factorial n) 0))` is not legal — the predicate must be a first-order proposition over base-typed bindings.
+3. **No type-level computation.** Refinement predicates are first-order propositions in the QF-LIA fragment (or escape to `?proof-required`); they are not types. `(where [n: int] (> (factorial n) 0))` is not legal — the predicate must be a first-order proposition over base-typed bindings. See §3.4.4 (W-Catalog): the exclusion is formally a `Σ_ref` membership failure.
 
 4. **No proof terms.** Users do not author proof terms in LLMLL surface. Proof obligations are discharged by the verifier (QF-LIA fragment via liquid-fixpoint, §5.3.3) or routed to `?proof-required` for offline discharge (Leanstral pipeline).
 
@@ -317,6 +317,45 @@ All four preconditions are load-bearing:
 **Out-of-process-agent carve-out.** Values introduced by `?delegate` / `?delegate-async` / `?scaffold` holes are not checked-introduction sites — they arrive from out-of-process agents and fall under the trust tier per §4.4. The soundness statement does not extend to them.
 
 **Path B declined.** A mechanized soundness theorem against an independently-defined operational semantics remains declined per [`docs/design/verification-debate.md`](docs/design/verification-debate.md). This statement is a precise *commitment*, not a mechanized *theorem*.
+
+#### 3.4.4 Predicate well-formedness rule (REF-META-3)
+
+A refinement alias `A ≜ (where [x: τ] p)` is **well-formed** under the admitted refinement-symbol signature `Σ_ref` when four conditions hold:
+
+```
+  x : τ ⊢ p : bool                                          (W-Sort)
+  FV(p) ⊆ {x}                                               (W-Closed)
+  symbols(p) ⊆ Σ_ref                                        (W-Catalog)
+  every application in p saturated; no λ, no partial         (W-FirstOrder)
+    application, no refinement variable
+  ──────────────────────────────────────────────
+  Σ_ref ⊢ (where [x: τ] p) wf
+```
+
+- **W-Sort.** `p` is `bool`-sorted under the single binding (the `p ∈ Bool` side condition; Vazou et al., *Refinement Types for Haskell*, POPL 2014). Enforced structurally by the type checker, as for the `?proof-required` predicate check.
+- **W-Closed.** `FV(p) ⊆ {x}`: no free term variable other than the bound `x`. After substitution at a checked-introduction site, `p[e/x]` mentions only symbols in the ambient context.
+- **W-Catalog.** Every applied function symbol is drawn from `Σ_ref` (below). User-defined functions — recursive ones especially — are excluded; this is the formalization of non-goal #3 (§3.4.2): `(where [n: int] (> (factorial n) 0))` is ill-formed because `factorial ∉ Σ_ref`, not because of a fragment failure.
+- **W-FirstOrder.** `p` is first-order: no refinement variables (closing refinement-polymorphism, *Abstract Refinement Types*, ESOP 2013 — the consequence non-goal #1 names).
+
+The judgment is **decidable** and runs at alias-definition time (the type channel); it is not an SMT obligation.
+
+**The admitted signature `Σ_ref`** partitions into three classes with divergent discharge trajectories:
+
+| Class | Symbols | v0.12 discharge |
+|---|---|---|
+| QF-LIA core | `+ - = ≠ < ≤ > ≥ and or not`, int/bool literals, `x` | QF-LIA auto |
+| Measure class | `string-length`, `list-length` (`τ → int`) | runtime today; QF-LIA auto once the path-(a) measure axiomatization lands |
+| Boolean-builtin class | `regex-match` (+ builtins with a declared `bool` refinement signature) | runtime / `?proof-required`; never auto in v0.12 (needs an SMT string/regex theory) |
+
+A `Word`/`Letter` refinement (measure class) reaches `verified` once the measure axiomatization lands; a `BlockID` refinement (`regex-match`) stays `asserted` until the deferred string theory. The v0.12 measure catalog is **closed** at `{string-length, list-length}`; extension requires team consensus with a totality+range argument.
+
+**Measure-axiomatization discipline.** A measure `m : τ → int` is admissible only if it is **(M1)** total; **(M2)** reflected as an *uninterpreted* integer-valued function carrying only its range axiom (`string-length s ≥ 0`), defining equations not unfolded; **(M3)** applied to a well-formed base term over `{x}`; **(M4)** emitted as a single function-sorted symbol per measure, so the solver's congruence closure relates repeated occurrences — not abstracted to an independent fresh integer per site. Under M2+M4 the range axiom plus EUF congruence suffices for the bounded-length predicate class the catalog admits; the excluded inter-term structural relations (e.g. `len(concat s t) = len s + len t`) are exactly the predicates `Σ_ref` excludes. Auto-discharge of the measure class depends on a verifier-side measure-emission extension; until it lands, measure predicates route to runtime.
+
+**Erasability.** Declining to unfold measure equations (M2) keeps every refinement on the erasable side of the reflection boundary (*Refinement Reflection*, POPL 2018): LLMLL reflects nothing, so all refinements are ghost and erase at codegen with no computational content. (W-Closed is the local half of the erasure precondition; full erasure additionally requires non-goals #2 and #4.)
+
+**Well-formedness versus discharge.** Well-formedness — legality, decidable, the type channel — is orthogonal to fragment classification (which well-formed predicates auto-discharge; see §5.3.3 / §5.3.5). A predicate may be well-formed yet route to a runtime assertion (`regex-match`). The rule partitions the predicates reaching the obligation channels; it introduces no new obligation.
+
+**Stacked aliases.** A refinement over a refinement-aliased binding — `(type NonEmptyWord (where [s: Word] (> (string-length s) 1)))` with `Word ≜ (where [s: string] (> (string-length s) 0))` — is well-formed: the base expands structurally to `string`, and both predicates' obligations are incurred at the introduction site over a single common witness (`p_Word[e/s] ∧ p_NonEmptyWord[e/s]`), per the checking-mode rule (§3.4.1). This is definitional unfolding, not subtyping entailment (non-goal #1).
 
 ---
 
