@@ -909,12 +909,22 @@ Body-faithfulness (VC emitted) is necessary but not sufficient: `DLVerified "liq
 
 **Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, `EApp` to contracted functions (v0.9.0, assume-guarantee), `EMatch` on `Result` with two-arm Success/Error pattern (v0.9.0), and all QF-LIA operators. General `EMatch`, `letrec` (own body), and non-linear expressions fall back conservatively to contract-only verification.
 
-**Compositional call-chain verification (v0.9.0):** When a body-faithful function calls a contracted callee, the verifier:
+**Compositional call-chain verification (v0.9.0; chained rule F-NIW-4):** When a body-faithful function calls a contracted callee, the verifier:
 1. **Proves** the callee's precondition is satisfied at the call site (PROVE polarity — caller obligation)
 2. **Assumes** the callee's postcondition holds for the call result (assume-guarantee)
 3. **Binds** a fresh symbolic variable for the call result
 
-Recursive functions (detected via `stronglyConnComp` SCC analysis) are excluded from body VC emission for their own body, but non-recursive callers may still use assume-guarantee against their contracts.
+**Sequential chains.** For a path with contracted calls `c₁ … cₙ` in evaluation order (chained via an `ELet` that binds a call result used by a later call, or by nested application), each call `cₖ`'s precondition is discharged under the accumulated context of the prior calls on its path:
+
+```
+guard_k  ∧  P_caller  ∧  ⋀_{i<k} Q_{c_i}[r_i]   ⟹   Pre_{c_k}[args_k]
+```
+
+where `Q_{c_i}[r_i]` is callee `cᵢ`'s contract postcondition over its fresh result variable `rᵢ` (ASSUME polarity), `rᵢ` is bound in the constraint environment, and `guard_k` is the path guard accumulated through enclosing `EIf`/`EMatch`. A `let`-bound call result is the call's result variable itself (no separate symbol), so a later call referencing an earlier result reasons about that result's assumed post. The single-call rule above is the `k = 1`, empty-prefix instance; the context is **per-path** — a call in one branch does not assume a post from a call in another. This is the standard modular procedure-call (sequential-composition) discipline.
+
+**Trust-tier side-condition.** Discharging `cₖ`'s precondition under a prior call's *assumed* post is sound relative to that callee's own `(pre ⟹ post)` at its trust tier. The chaining function's effective tier is therefore the **meet (§4.4) over its own evidence and every transitive callee's tier**: a body-faithful function whose chain traverses an `asserted`-tier call degrades to `asserted`, not `verified`, even when its own VC is SAFE. (This meet is taken by the transitive trust closure over the syntactic call graph, independent of which call-pre obligations are emitted.)
+
+Recursive functions (detected via `stronglyConnComp` SCC analysis) are excluded from body VC emission for their own body, but non-recursive callers may still use assume-guarantee against their contracts; the chained rule assumes callee contract posts, never callee bodies, so it introduces no circularity within an SCC. A `let`-bound *non-call* value used in a later call's precondition is not yet threaded into the chain context (tracked as roadmap F-NIW-4b).
 
 **Path limit:** Functions with >4096 execution paths (from deeply nested `EIf`) fall back to contract-only verification with a diagnostic warning. This prevents solver timeouts while maintaining soundness.
 
