@@ -381,6 +381,53 @@ This is the formal derivation the soundness statement (§3.4.3) names. Because T
 
 **Channel distinction.** The erasure theorem governs the refinement-alias channel (this section), distinct from the contract channel (`pre`/`post` clauses), which *does* emit runtime assertions and where `--contracts=unproven` strips `verified`-and-body-faithful postcondition assertions (§5.3.4) — the analogue of hybrid-type-checking cast-elimination. Alias predicates have no runtime residue; contract clauses do.
 
+#### 3.4.6 Type-assignment judgment with hole-directed checking (REF-META-5)
+
+LLMLL's type checker is **local type inference** (Pierce–Turner, *Local Type Inference*, TOPLAS 2000) over a Damas–Milner core (*Principal Type-Schemes*, POPL 1982): a single type-assignment (synthesis) judgment with per-call-site instantiation, no global unification, no subtyping (non-goal #1, §3.4.2). It carries a checking judgment, but type information enters from only two sources — **surface annotations** (parameter types, return types, annotated `let`) and **holes**. This judgment generalizes the checking-mode rule (§3.4.1) to the full surface; it is the type-assignment phase between predicate well-formedness (§3.4.4, upstream) and erasure (§3.4.5, downstream).
+
+**Two judgments.** `Γ ⊢ e ⇒ τ` (synthesis / type assignment — the primary judgment) and `Γ ⊢ e ⇐ τ` (checking).
+
+**Non-hole checking is definitional (Check-by-Synth).**
+
+> ```
+> Γ ⊢ e ⇒ τ'      τ ≡ τ'        (e not a hole)
+> ─────────────────────────────────────────────
+>                 Γ ⊢ e ⇐ τ
+> ```
+
+`τ ≡ τ'` is decidable definitional type equality: expand aliases, strip the refinement to its base, unify. This is *not* a subsumption rule: by Dunfield–Krishnaswami (*Bidirectional Typing*, CSUR 2021 §3.1), a checking judgment whose only non-hole rule is "synthesize then compare" recovers undirected type assignment. LLMLL has no subtyping and nothing for subsumption to do that `≡` does not; the type-level duality is **instantiation**, not subsumption.
+
+**The one genuine bidirectional rule (Check-Hole).**
+
+> ```
+> ───────────────────────────────────────
+> Γ ⊢ ?n ⇐ τ    ⇝ record goal τ for ?n
+> ```
+
+The sole rule where the expected `τ` flows into the term without synthesizing it — the goal-directed-construction mechanism of the sketch flow (§11.2). This is LLMLL's only bidirectional element.
+
+**Refinement-alias instances (the §3.4.1 embedding).** At a surface-annotated position (parameter / return / annotated `let`) whose annotation is a refinement alias `A ≜ (where [x: τ_b] p)`, introduction reduces to Check-by-Synth on the base plus the contract-channel obligation:
+
+> ```
+> ⊢ A wf (§3.4.4)    Γ ⊢ e ⇒ τ'    expandAlias(A) ≡ τ'
+> ─────────────────────────────────────────────────────  (⇐-Refine)
+>          Γ ⊢ e ⇐ A   ⇝   { p[e/x] }
+> ```
+
+Elimination synthesizes the base type and adds the refinement as a lexically-scoped hypothesis (non-goal #2 keeps the eliminand at the base type):
+
+> ```
+> Γ(x) = A ≜ (where [y: τ_b] p)
+> ─────────────────────────────────────────────
+> Γ ⊢ x ⇒ τ_b      [hypothesis p[x/y] added to Γ]
+> ```
+
+The type channel checks `≡` on the base; the contract channel emits `p[e/x]` (the §3.4.1 two-phase split).
+
+**Mode assignment.** All forms synthesize (⇒) — literals, variables, application/operator elimination, `match`, pairs, lambdas, `let` bodies. Expected types are supplied at parameter / return / annotated-`let` positions (checked via Check-by-Synth; `⇐-Refine` when the annotation is a refinement alias) and at holes (Check-Hole). The intro-checks/elim-synthesizes discipline of textbook bidirectional typing is *not* asserted — the checker is synthesis-primary; `if` reconciles its branches by checking one against the other's synthesized type (itself Check-by-Synth).
+
+**Verification.** The judgment introduces no new proof obligation and no new channel: the only refinement obligation it routes is the existing §3.4.1 `p[e/x]`, classified per §5.3.3 (QF-LIA core / measure-class auto / non-`Σ_auto` → `erBodyFallback`, §3.4.5).
+
 ---
 
 ## 4. Logic Structures & Design by Contract

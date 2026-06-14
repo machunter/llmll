@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Spec — REF-META-5: type-assignment judgment (LLMLL.md §3.4.6) (2026-06-14)
+
+- **Type-assignment judgment promoted** to [`LLMLL.md §3.4.6`](LLMLL.md) ([`docs/design/ref-meta-5-type-assignment-proposal.md`](docs/design/ref-meta-5-type-assignment-proposal.md), Settled Rev 2; pipeline: language-team → professor → language-team). Spec-track only — documents the existing checker (`TypeCheck.hs` `inferExpr` ⇒ / `checkExpr` ⇐) as **local type inference** (Pierce–Turner, TOPLAS 2000) over a Damas–Milner core, with REF-META-1's checking-mode rule embedding as the refinement-alias instances (`⇐-Refine` / `⇒-Var-Refine`).
+- **Not "complete bidirectional."** Per Dunfield–Krishnaswami (*Bidirectional Typing*, CSUR 2021 §3.1), a checking judgment whose only non-hole rule is synthesize-then-unify (`checkExpr`, `TypeCheck.hs:896`) *is* type assignment. LLMLL has exactly one genuine bidirectional rule — hole-goal recording (`TypeCheck.hs:892`) for the sketch flow. The mode-switch is decidable definitional type equality (`expandAlias` + `stripDep` + `unify`), not subsumption (non-goal #1, no subtyping).
+- **Completes the REF-META metatheory of record (1–5).** No compiler change, no schema change; `schemaVersion` stays `0.6.0`, `trust_report_version` stays `1.3.0`.
+
 ### Spec — REF-META-4: erasure theorem (LLMLL.md §3.4.5) (2026-06-13)
 
 - **Erasure theorem promoted** to [`LLMLL.md §3.4.5`](LLMLL.md) ([`docs/design/ref-meta-4-erasure-proposal.md`](docs/design/ref-meta-4-erasure-proposal.md), Settled Rev 3; pipeline: language-team → professor → compiler-engineer trace → language-team). Spec-track only — no compiler change; both the codegen erasure and the soundness firewall already exist. States when the predicate-blind erasure of refinement aliases is sound, in two faces: **Theorem A** (type-level erasure as a phase distinction — sound under the proof-irrelevance fragment, non-goals #2/#4/#5/#6) and **Theorem B** (construction-side discipline — the invariant holds at runtime because it was discharged at `verified` tier at construction and composes via `--strict-verified-core`).
