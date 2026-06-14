@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Compiler — Bundle B0: per-function effect/authority summary in the obligation report (2026-06-14)
+
+- **`verify --obligation-report` now emits a per-function `effect_summary`** (commit [`b2d9c1a`](compiler/src/LLMLL/ObligationAssembly.hs)) — a sound **may-over-approximation** of the coarse capabilities a function may reach through its call graph (object-capability "authority" sense). A union value: a sorted array of catalog labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `random`, `crypto`) **or** the string `"unbounded"` (⊤ — "may exercise any capability"), the latter at opaque boundaries: `?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, unrecognized `wasi.*`.
+- **Informational, orthogonal to trust.** The summary never enters the trust meet, the `EvidenceRecord`, or `verified`/`--strict-verified-core` admissibility — it changes no verification verdict (authority ⊥ trust). Computed as a monotone least-fixpoint over the call graph (`computeEffectSummary`, [`ObligationAssembly.hs`](compiler/src/LLMLL/ObligationAssembly.hs)); the effectful-builtin catalog is closed (`builtinEnv`).
+- **Schema:** obligation-report `orSchemaVersion` `0.11.0` → **`0.12.0`** (additive `effect_summary` field). `trust_report_version` stays `1.3.0`; JSON-AST `schemaVersion` stays `0.6.0` (no AST change). Settled proposal: [`docs/design/bundle-b0-effect-summary-proposal.md`](docs/design/bundle-b0-effect-summary-proposal.md) (Rev 2; language-team → professor → engineer). Stage B0 of the effect-rows track; the B0 experiment (`experiments/minimal-agent/001-two-agent-auth`) gates the B1 engineer build. **Tests: 838 → 846 Haskell + 62 Python.**
+
 ### Spec — REF-META-5: type-assignment judgment (LLMLL.md §3.4.6) (2026-06-14)
 
 - **Type-assignment judgment promoted** to [`LLMLL.md §3.4.6`](LLMLL.md) ([`docs/design/ref-meta-5-type-assignment-proposal.md`](docs/design/ref-meta-5-type-assignment-proposal.md), Settled Rev 2; pipeline: language-team → professor → language-team). Spec-track only — documents the existing checker (`TypeCheck.hs` `inferExpr` ⇒ / `checkExpr` ⇐) as **local type inference** (Pierce–Turner, TOPLAS 2000) over a Damas–Milner core, with REF-META-1's checking-mode rule embedding as the refinement-alias instances (`⇐-Refine` / `⇒-Var-Refine`).
