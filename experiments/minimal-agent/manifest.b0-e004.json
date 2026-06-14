@@ -1,0 +1,16 @@
+{
+  "_comment": "Bundle B0 capability-correctness A/B (experiment 004). Each model appears twice: an -A agent (context_effect_summary:true — the helpers' effect_summary is injected into initial problem.md) and a -B agent (false — withheld). Replace agents[].cmd with your real agent CLIs (same wrapper used by the e001/codex/gemini campaigns). The -A/-B delta in capability-adherence (scripts/score_capability.py) is the B0 verdict. Requires the prepare_run.py context_effect_summary hook (see experiments/004-capability-bounded-summarize.md, Harness wiring).",
+  "experiments": ["004"],
+  "run_count": 3,
+  "llmll_cmd": "llmll",
+  "timeout_seconds": 1800,
+  "skip_verify": false,
+  "agents": [
+    { "name": "claude-opus-4-8-A",  "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": true },
+    { "name": "claude-opus-4-8-B",  "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": false },
+    { "name": "gemini-pro-A",       "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": true },
+    { "name": "gemini-pro-B",       "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": false },
+    { "name": "codex-gpt-5.5-A",    "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": true },
+    { "name": "codex-gpt-5.5-B",    "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": false }
+  ]
+}
