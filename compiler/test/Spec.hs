@@ -4729,6 +4729,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Left err    -> error ("parse failed: " <> show err)
             Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
           word = "(type Word (where [s: string] (> (string-length s) 0)))\n"
+          blockid = "(type BlockID (where [s: string] (regex-match \"^[a-f0-9]+$\" s)))\n"
 
       it "NIW-C1: a refined-alias param gets a Str carrier binder, not int" $ do
         er <- emitSrc (word <> "(def wlen [w: Word] (post (> result 0)) (string-length w))")
@@ -4749,6 +4750,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "NIW-C4: a measure-free, refinement-free function still emits no constant" $ do
         er <- emitSrc "(def-shell plain [x: int] (post (>= result 0)) x)"
         erFQText er `shouldNotSatisfy` T.isInfixOf "constant "
+
+      -- REF-META-4 soundness firewall (LLMLL.md §3.4.5). Refinement aliases carry
+      -- NO runtime residue, so an undischarged refinement MUST force the carrying
+      -- function off the body-faithful (verified) tier — otherwise an unproven,
+      -- never-runtime-checked invariant would ship `verified`. A non-auto-discharge
+      -- predicate (regex-match: outside Σ_auto) is non-emittable (exprToPred → Nothing,
+      -- FixpointEmit.hs:756), forcing erBodyFallback. These pin that property against
+      -- a future bodyToPredM refactor silently reopening the hole.
+      it "NIW-C5: a regex-match (non-auto-discharge) refined param falls back, not body-faithful (REF-META-4 firewall)" $ do
+        er <- emitSrc (word <> blockid <>
+                "(def wlen [w: Word] (post (> result 0)) (string-length w))\n" <>
+                "(def bidlen [b: BlockID] (post (> result 0)) (string-length b))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "wlen"            -- auto-discharge (measure-class) refinement → body-faithful
+        erBodyFaithfulFns er `shouldSatisfy` not . elem "bidlen"    -- non-auto-discharge regex-match refinement → NOT
+        erBodyFallback     er `shouldSatisfy` elem "bidlen"         -- non-emittable pre forces fallback (def-site, FixpointEmit.hs:500)
+
+      it "NIW-C6: a caller of a regex-match-refined-param callee falls back (call-site firewall, FixpointEmit.hs:891-901)" $ do
+        er <- emitSrc (word <> blockid <>
+                "(def wlen [w: Word] (post (> result 0)) (string-length w))\n" <>
+                "(def bidlen [b: BlockID] (post (>= result 0)) (string-length b))\n" <>
+                "(def callok [s: string] (post (>= result 0)) (wlen s))\n" <>
+                "(def callbid [s: string] (post (>= result 0)) (bidlen s))")
+        erBodyFaithfulFns er `shouldSatisfy` elem "callok"          -- caller of auto-discharge-refined callee: call-pre emittable → body-faithful
+        erBodyFaithfulFns er `shouldSatisfy` not . elem "callbid"   -- caller of non-auto-discharge-refined callee: NOT
+        erBodyFallback     er `shouldSatisfy` elem "callbid"        -- three-way pre distinction returns Nothing → caller falls back
 
     -- NIW (v0.12, F-NIW-2): the intro-side call-pre obligation fires for a
     -- string/list-refined callee param — a caller passing a value to a `Word`
