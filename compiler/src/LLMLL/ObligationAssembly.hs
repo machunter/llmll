@@ -16,7 +16,11 @@ module LLMLL.ObligationAssembly
   , TrustChannel(..)
   , ObligationReport(..)
   , ReportSummary(..)
+  , EffectLabel(..)
+  , EffectSummary(..)
     -- * Helpers
+  , computeEffectSummary
+  , encodeEff
   , exprToSExpr
   , deriveBacking
   , classifyGuard
@@ -42,7 +46,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Maybe (fromMaybe, isJust, mapMaybe, catMaybes)
-import Data.List (foldl', sortOn, nub)
+import Data.List (foldl', sortOn, sort, nub)
 import Data.Aeson (Value(..), object, (.=), encode, ToJSON(..))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as BS
@@ -160,6 +164,7 @@ data ObligationReport = ObligationReport
   , orObligations   :: [ObligationObj]
   , orSummary       :: ReportSummary
   , orRefutedFns    :: [Name]   -- VERIFY-RPT-1 (Commit 4): top-level refuted_fns
+  , orEffectSummary :: [(Name, EffectSummary)]  -- Bundle B0: per-function authority summary (informational)
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -277,6 +282,116 @@ recursiveNames stmts =
   let cg = buildCallGraph stmts
       sccs = stronglyConnComp [(n, n, deps) | (n, deps) <- Map.toList cg]
   in Set.fromList [n | CyclicSCC ns <- sccs, n <- ns]
+
+-- ---------------------------------------------------------------------------
+-- Bundle B0: per-function effect / authority summary (4th informational channel)
+--
+-- A sound MAY-over-approximation of the coarse capabilities a function may
+-- exercise ("at most S"). 'Unbounded' is the lattice top ⊤ — "may exercise any
+-- capability, including outside the catalog" — distinct from the full 6-set;
+-- reached at opaque boundaries (?delegate/?scaffold holes, haskell.*/c.* FFI,
+-- unrecognized wasi.*). Informational ONLY: computed here and written solely to
+-- the report — never feeds the trust meet / EvidenceRecord / verified
+-- admissibility. See docs/design/bundle-b0-effect-summary-proposal.md.
+-- ---------------------------------------------------------------------------
+
+-- | Closed coarse capability catalog Σ_eff (v0.12).
+data EffectLabel = EStdout | EFsRead | EFsWrite | ENetHttp | ERandom | ECrypto
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+effectLabelText :: EffectLabel -> Text
+effectLabelText EStdout  = "stdout"
+effectLabelText EFsRead  = "fs.read"
+effectLabelText EFsWrite = "fs.write"
+effectLabelText ENetHttp = "net.http"
+effectLabelText ERandom  = "random"
+effectLabelText ECrypto  = "crypto"
+
+-- | Authority summary. 'Unbounded' (⊤) is distinct from the full 6-set.
+data EffectSummary = Caps (Set EffectLabel) | Unbounded
+  deriving (Eq, Show)
+
+bottomEff :: EffectSummary
+bottomEff = Caps Set.empty
+
+joinEff :: EffectSummary -> EffectSummary -> EffectSummary
+joinEff Unbounded _       = Unbounded
+joinEff _ Unbounded       = Unbounded
+joinEff (Caps a) (Caps b) = Caps (Set.union a b)
+
+joinEffs :: [EffectSummary] -> EffectSummary
+joinEffs = foldl' joinEff bottomEff
+
+-- | Own-effect contribution of a directly-applied name. 'Nothing' = no own
+-- effect (pure builtin, or a user function — the latter resolved transitively
+-- by the call-graph closure). The effectful-builtin surface is closed
+-- (builtinEnv, TypeCheck.hs:132-144,342); FFI / unrecognized wasi.* → ⊤.
+primEffect :: Name -> Maybe EffectSummary
+primEffect n
+  | n == "wasi.io.stdout"   || n == "wasi.io.stderr"   = one EStdout
+  | n == "wasi.http.response" || n == "wasi.http.post" = one ENetHttp
+  | n == "wasi.fs.read"                                = one EFsRead
+  | n == "wasi.fs.write"    || n == "wasi.fs.delete"   = one EFsWrite
+  | n == "hmac-sha1"        || n == "sha1"             = one ECrypto
+  | n == "random-int"                                  = one ERandom
+  | "haskell." `T.isPrefixOf` n                        = Just Unbounded
+  | "c." `T.isPrefixOf` n                              = Just Unbounded
+  | "wasi." `T.isPrefixOf` n                           = Just Unbounded
+  | otherwise                                          = Nothing
+  where one x = Just (Caps (Set.singleton x))
+
+-- | A function's OWN effects: a walk of its body collecting primitive-call
+-- labels, with ⊤ for opaque (delegate/scaffold) holes. Excludes transitive
+-- callee effects (added by 'computeEffectSummary' over the call graph).
+ownEffects :: Expr -> EffectSummary
+ownEffects = go
+  where
+    go e = case e of
+      EApp f args   -> joinEffs (fromMaybe bottomEff (primEffect f) : map go args)
+      EOp  o args   -> joinEffs (fromMaybe bottomEff (primEffect o) : map go args)
+      ELet bs body  -> joinEffs (go body : [go r | (_, _, r) <- bs])
+      EIf a b c     -> joinEffs [go a, go b, go c]
+      EMatch s arms -> joinEffs (go s : map (go . snd) arms)
+      EPair a b     -> joinEff (go a) (go b)
+      EAwait a      -> go a
+      ELambda _ b   -> go b
+      EDo steps     -> joinEffs [go se | DoStep _ se <- steps]
+      EHole hk      -> if opaque hk then Unbounded else bottomEff
+      _             -> bottomEff
+    opaque HDelegate{}        = True
+    opaque HDelegateAsync{}   = True
+    opaque HDelegatePending{} = True
+    opaque HScaffold{}        = True
+    opaque _                  = False
+
+-- | Per-function authority summary: own effects joined with the transitive
+-- closure over the call graph. Least fixpoint on the finite lattice
+-- 2^Σ_eff ∪ {⊤} (monotone; terminates). Name-sorted. Informational (header).
+computeEffectSummary :: [Statement] -> [(Name, EffectSummary)]
+computeEffectSummary stmts =
+  let cg     = buildCallGraph stmts
+      ownMap = Map.fromList [(n, ownEffects b) | (n, b) <- fnBodies stmts]
+      step m = Map.mapWithKey
+        (\n o -> joinEffs (o : [ Map.findWithDefault bottomEff c m
+                               | c <- Map.findWithDefault [] n cg ]))
+        ownMap
+      fixp m = let m' = step m in if m' == m then m else fixp m'
+  in sortOn fst (Map.toList (fixp ownMap))
+  where
+    fnBodies = mapMaybe $ \s -> case s of
+      SDef      n _ _ _ b   -> Just (n, b)
+      SDefShell n _ _ _ b   -> Just (n, b)
+      SDefLogic n _ _ _ b   -> Just (n, b)
+      SLetrec   n _ _ _ _ b -> Just (n, b)
+      _                     -> Nothing
+
+encodeEffectSummary :: [(Name, EffectSummary)] -> Value
+encodeEffectSummary xs =
+  toJSON [ object ["function" .= n, "effects" .= encodeEff e] | (n, e) <- xs ]
+
+encodeEff :: EffectSummary -> Value
+encodeEff Unbounded   = String "unbounded"
+encodeEff (Caps s) = toJSON (sort (map effectLabelText (Set.toList s)))
 
 -- | Obligation ID with alpha-normalization (spec §3).
 -- F7: Uses cryptohash-sha256.
@@ -591,12 +706,14 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
       report = ObligationReport
         -- VERIFY-RPT-1 (Commit 4): 0.10.0 -> 0.11.0 (additive: "refuted" status
         -- enum value, top-level refuted_fns, summary refuted count).
-        { orSchemaVersion = "0.11.0"
+        -- Bundle B0: 0.11.0 -> 0.12.0 (additive: per-function effect_summary).
+        { orSchemaVersion = "0.12.0"
         , orSourceFile    = T.pack fp
         , orCrossModule   = "unsupported"
         , orObligations   = allObls
         , orSummary       = summary
         , orRefutedFns    = Set.toList refutedSet
+        , orEffectSummary = computeEffectSummary stmts
         }
   in encodeReport report
 
@@ -806,6 +923,7 @@ encodeReport r = T.pack . map (toEnum . fromEnum) . BL.unpack . encode $ object
   , "obligations"    .= map encodeObligation (orObligations r)
   , "summary"        .= encodeSummary (orSummary r)
   , "refuted_fns"    .= orRefutedFns r
+  , "effect_summary" .= encodeEffectSummary (orEffectSummary r)
   ]
 
 encodeObligation :: ObligationObj -> Value

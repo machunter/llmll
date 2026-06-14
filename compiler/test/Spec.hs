@@ -18,7 +18,8 @@ import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyBodyFragment
   , recursiveNames, ObligationKind(..), patternBindings, isTypeCompatible
-  , trustLabel )
+  , trustLabel
+  , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
@@ -5483,6 +5484,53 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "OA-RN1: empty for non-recursive" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
       recursiveNames stmts `shouldBe` Set.empty
+
+  -- Bundle B0: per-function effect / authority summary (a sound MAY-over-
+  -- approximation with ⊤ at opaque boundaries; informational — never gates
+  -- trust). See docs/design/bundle-b0-effect-summary-proposal.md.
+  describe "B0 effect/authority summary (Bundle B0)" $ do
+    let noC = Contract Nothing Nothing Nothing Nothing Nothing
+        effOf stmts nm = lookup nm (computeEffectSummary stmts)
+        bnd ls = Just (Caps (Set.fromList ls))
+
+    it "B0-1: a pure function is capability-free (empty summary)" $ do
+      let stmts = [SDef "add" [("x", TInt), ("y", TInt)] Nothing noC (EOp "+" [EVar "x", EVar "y"])]
+      effOf stmts "add" `shouldBe` Just (Caps Set.empty)
+
+    it "B0-2: a direct wasi.io.stdout call yields {stdout}" $ do
+      let stmts = [SDefShell "emit" [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"])]
+      effOf stmts "emit" `shouldBe` bnd [EStdout]
+
+    it "B0-3: an effect reached only via a callee is surfaced transitively" $ do
+      let stmts = [ SDefShell "emit"   [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"])
+                  , SDefShell "caller" [("s", TString)] Nothing noC (EApp "emit" [EVar "s"]) ]
+      effOf stmts "caller" `shouldBe` bnd [EStdout]
+
+    it "B0-4: a function reaching a ?delegate hole is unbounded (top), not empty" $ do
+      let stmts = [SDefShell "d" [] Nothing noC (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))]
+      effOf stmts "d" `shouldBe` Just Unbounded
+
+    it "B0-5: a haskell.* FFI call is unbounded (top)" $ do
+      let stmts = [SDefShell "ffi" [("x", TInt)] Nothing noC (EApp "haskell.unsafeIO" [EVar "x"])]
+      effOf stmts "ffi" `shouldBe` Just Unbounded
+
+    it "B0-6: a mutually-recursive SCC terminates and shares the join" $ do
+      let stmts = [ SDefShell "p" [("n", TInt)] Nothing noC (EApp "q" [EVar "n"])
+                  , SDefShell "q" [("n", TInt)] Nothing noC
+                      (EPair (EApp "wasi.fs.write" [EVar "n", EVar "n"]) (EApp "p" [EVar "n"])) ]
+      effOf stmts "p" `shouldBe` bnd [EFsWrite]
+      effOf stmts "q" `shouldBe` bnd [EFsWrite]
+
+    it "B0-7: per-function and orthogonal — delegate is top, pure is empty (no bleed)" $ do
+      let stmts = [ SDefShell "deleg" [] Nothing noC (EHole (HDelegate (DelegateSpec "a" "t" TInt Nothing)))
+                  , SDef      "pure2" [("x", TInt)] Nothing noC (EOp "+" [EVar "x", EVar "x"]) ]
+      effOf stmts "deleg" `shouldBe` Just Unbounded
+      effOf stmts "pure2" `shouldBe` Just (Caps Set.empty)
+
+    it "B0-8: top encodes as the distinct \"unbounded\" sentinel, never the label array" $ do
+      encode (encodeEff Unbounded) `shouldBe` "\"unbounded\""
+      encode (encodeEff (Caps (Set.fromList [minBound .. maxBound])))
+        `shouldBe` "[\"crypto\",\"fs.read\",\"fs.write\",\"net.http\",\"random\",\"stdout\"]"
 
   -- -----------------------------------------------------------------------
   -- v0.10 Phase 3: Branch Obligations + Repair (OBLIG-3, OBLIG-4)
