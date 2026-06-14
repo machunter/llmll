@@ -77,7 +77,7 @@ B0 introduces **no proof obligation and no SMT obligation**. The summary is a **
 
 - **Report, not AST.** Per-function `effect_summary` in the `--obligation-report` JSON, a **union**: either a sorted JSON array of `Σ_eff` labels (the bounded may-set) **or** the string `"unbounded"` (⊤). The union forces consumers to handle ⊤; there is no separate advisory flag, and `"unbounded"` is never the 6-element array (the distinctness of Risk 4 / professor Q1).
 - *Optional (engineer/experiment choice, non-load-bearing):* when `"unbounded"`, additionally surface an `observed` array (statically-visible labels) clearly marked non-exhaustive — human/agent insight only; the **bound** remains ⊤.
-- **Version:** `trust_report_version` 1.3.0 → **1.4.0** (additive field; additive-bump precedent [`TrustReport.hs:819`](../../compiler/src/LLMLL/TrustReport.hs)). **No `schemaVersion` (JSON-AST) bump** — no AST change.
+- **Version:** the **obligation-report** schema version `orSchemaVersion` 0.11.0 → **0.12.0** (additive field; [`ObligationAssembly.hs:594`](../../compiler/src/LLMLL/ObligationAssembly.hs) / `:803` `"schema_version"`). **No `trust_report_version` change** — the summary lands in the `--obligation-report` artifact, not the `--trust-report`, so `trust_report_version` stays 1.3.0. **No JSON-AST `schemaVersion` bump** — no AST change. *(Engineer-corrected: Rev 1/2 named `trust_report_version` in error; the obligation report carries its own `orSchemaVersion`, distinct from the trust report's version.)*
 - **Required-field treatment:** additive/optional; byte-unaffected on the existing three channels for consumers that ignore it.
 
 ## 8. Affected surface
@@ -85,8 +85,8 @@ B0 introduces **no proof obligation and no SMT obligation**. The summary is a **
 Code-track (B0 implies a compiler-engineer build):
 
 - **`compiler/src/LLMLL/ObligationMining.hs`** — `own(f)` extraction (scan body for `wasi.*` / effectful-builtin applications; the `⊤`-on-opaque rule for delegate/scaffold holes, FFI, out-of-catalog namespaces); the namespace→label map (inversion of `importPath`, [`Syntax.hs:649`](../../compiler/src/LLMLL/Syntax.hs)).
-- **`compiler/src/LLMLL/ObligationAssembly.hs`** — the `L`-lattice join / least-fixpoint closure over the call graph; the `effect_summary` union field in `ObligationReport` and its encoder ([`:156`](../../compiler/src/LLMLL/ObligationAssembly.hs), [`:801-821`](../../compiler/src/LLMLL/ObligationAssembly.hs)).
-- **`compiler/src/LLMLL/TrustReport.hs`** — `trustReportEmitVersion` 1.3.0 → 1.4.0 ([`:168`](../../compiler/src/LLMLL/TrustReport.hs)); **engineer test must pin** that no `effect_summary` value (including ⊤) reaches `effectiveLevel` / the trust meet / the `EvidenceRecord`.
+- **`compiler/src/LLMLL/ObligationAssembly.hs`** — the `L`-lattice join / least-fixpoint closure over the call graph (reusing `buildCallGraph` / `stronglyConnComp`, [`:277`](../../compiler/src/LLMLL/ObligationAssembly.hs)); the `effect_summary` union field in `ObligationReport` and its encoder ([`:156`](../../compiler/src/LLMLL/ObligationAssembly.hs), [`:801-821`](../../compiler/src/LLMLL/ObligationAssembly.hs)); **`orSchemaVersion` 0.11.0 → 0.12.0** ([`:594`](../../compiler/src/LLMLL/ObligationAssembly.hs)).
+- **`compiler/src/LLMLL/TrustReport.hs`** — **not modified** (`trust_report_version` stays 1.3.0); it is the **read-only invariance target** of the soundness-wiring test, which pins that no `effect_summary` value (including ⊤) reaches `effectiveLevel` / the trust meet / the `EvidenceRecord`.
 - **`compiler/src/LLMLL/Module.hs` / `Syntax.hs`** — read-only: the capability-import surface (`importPath`, `Capability`, `isBuiltinImport`) the label map inverts.
 - **`docs/llmll-ast.schema.json`** — **no change** (report-versioned, not AST-versioned).
 - **`LLMLL.md §5`** (obligation-report docs; new effect-summary subsection) + **`docs/getting-started.md §4`** if a known-good pattern emerges — documentation-lead, post-ship.
