@@ -6,7 +6,7 @@
 > **Prerequisites:** None new — derives from the existing capability-import surface (`SImport` / `Capability`, [`Syntax.hs:649-673`](../../compiler/src/LLMLL/Syntax.hs)) and the obligation-report machinery ([`ObligationAssembly.hs`](../../compiler/src/LLMLL/ObligationAssembly.hs)). Orthogonal to the REF-META track.
 > **Origin:** v0.12 Bundle B stage 0 (memo §3). B0's empirical result (`experiments/minimal-agent/001-two-agent-auth`) is the authorization gate for the **B1 engineer build** (not the B1 LT proposal).
 > **Reviewed:** Professor review (2026-06-14, in-conversation) — recommendation `revise-and-resubmit` (one substantive semantic fix; the rest affirmed). Folded into this Rev 2 (see `## Appendix — Professor review log`). No standalone `-review.md`; folded directly per the REF-META-1/3/4/5 appendix pattern.
-> **Status:** Settled (Rev 2) — professor review folded; **code-track** (implies a compiler-engineer build: the ⊤-lattice closure, the union-encoded report field, the no-trust-wiring test). Pending compiler-engineer plan, then experiment-lead B0 experiment, then documentation-lead.
+> **Status:** Settled (Rev 2) — **SHIPPED** `b2d9c1a` (build, 838→846 tests) / `106db79` (docs); §7 version knob + §8 affected-surface reconciled to the shipped surface (engineer findings). Remaining: experiment-lead B0 experiment (`experiments/minimal-agent/001-two-agent-auth`) = the B1-engineer-build authorization gate.
 
 ---
 
@@ -82,14 +82,16 @@ B0 introduces **no proof obligation and no SMT obligation**. The summary is a **
 
 ## 8. Affected surface
 
-Code-track (B0 implies a compiler-engineer build):
+Code-track (B0 implies a compiler-engineer build).
 
-- **`compiler/src/LLMLL/ObligationMining.hs`** — `own(f)` extraction (scan body for `wasi.*` / effectful-builtin applications; the `⊤`-on-opaque rule for delegate/scaffold holes, FFI, out-of-catalog namespaces); the namespace→label map (inversion of `importPath`, [`Syntax.hs:649`](../../compiler/src/LLMLL/Syntax.hs)).
-- **`compiler/src/LLMLL/ObligationAssembly.hs`** — the `L`-lattice join / least-fixpoint closure over the call graph (reusing `buildCallGraph` / `stronglyConnComp`, [`:277`](../../compiler/src/LLMLL/ObligationAssembly.hs)); the `effect_summary` union field in `ObligationReport` and its encoder ([`:156`](../../compiler/src/LLMLL/ObligationAssembly.hs), [`:801-821`](../../compiler/src/LLMLL/ObligationAssembly.hs)); **`orSchemaVersion` 0.11.0 → 0.12.0** ([`:594`](../../compiler/src/LLMLL/ObligationAssembly.hs)).
-- **`compiler/src/LLMLL/TrustReport.hs`** — **not modified** (`trust_report_version` stays 1.3.0); it is the **read-only invariance target** of the soundness-wiring test, which pins that no `effect_summary` value (including ⊤) reaches `effectiveLevel` / the trust meet / the `EvidenceRecord`.
-- **`compiler/src/LLMLL/Module.hs` / `Syntax.hs`** — read-only: the capability-import surface (`importPath`, `Capability`, `isBuiltinImport`) the label map inverts.
-- **`docs/llmll-ast.schema.json`** — **no change** (report-versioned, not AST-versioned).
-- **`LLMLL.md §5`** (obligation-report docs; new effect-summary subsection) + **`docs/getting-started.md §4`** if a known-good pattern emerges — documentation-lead, post-ship.
+> **Engineer-finding reconciliation (shipped `b2d9c1a`).** The build came in tighter than this section originally planned: **only `ObligationAssembly.hs` (+ `Spec.hs` tests) was modified.** `ObligationMining.hs`, `TrustReport.hs`, and a `TypeCheck.hs` `extractWasiNamespace` export were *not* needed — the label map keys on full call names (no `importPath`/namespace inversion), and the version knob is `orSchemaVersion` in `ObligationAssembly.hs`. The list below is the actual shipped surface.
+
+- **`compiler/src/LLMLL/ObligationAssembly.hs` (the sole modified module)** — `EffectLabel` catalog + `EffectSummary = Caps (Set EffectLabel) | Unbounded` (`Caps`, not `Bounded`, to avoid the Prelude class clash) with the may-lattice join; `primEffect` (label map keyed on full call names over the closed `builtinEnv` effectful surface; `haskell.*`/`c.*` FFI and unrecognized `wasi.*` → ⊤); `ownEffects` (body walk, ⊤ on opaque holes); `computeEffectSummary` (monotone least-fixpoint over `buildCallGraph` / `stronglyConnComp`, [`:277`](../../compiler/src/LLMLL/ObligationAssembly.hs)); the `effect_summary` union field on `ObligationReport` + encoder ([`:156`](../../compiler/src/LLMLL/ObligationAssembly.hs), [`:801-821`](../../compiler/src/LLMLL/ObligationAssembly.hs)); **`orSchemaVersion` 0.11.0 → 0.12.0** ([`:594`](../../compiler/src/LLMLL/ObligationAssembly.hs)).
+- **`compiler/test/Spec.hs`** — 8 tests (B0-1..B0-8); 838 → 846 Haskell.
+- **`compiler/src/LLMLL/TrustReport.hs`** — **not modified** (`trust_report_version` stays 1.3.0); the **read-only invariance target** of the B0-7 soundness-wiring test (no `effect_summary` value, including ⊤, reaches `effectiveLevel` / the trust meet / the `EvidenceRecord`).
+- **`compiler/src/LLMLL/Syntax.hs`** — read-only (the `Expr` / `HoleKind` constructors the body walk matches); **not modified**.
+- **`docs/llmll-ast.schema.json`** — **no change** (report-versioned via `orSchemaVersion`, not AST-versioned).
+- **`LLMLL.md §11.2`** (reference note) + **`docs/design/oblig-0-spec.md §2.1`** (the authoritative `effect_summary` field spec) — documentation-lead, shipped `106db79`. (`docs/getting-started.md` — no new pattern.)
 - **Freeze:** report-surface inference, no new construct (analogous to the v0.10 obligation report). Freeze-compatible; v0.12 is post-freeze regardless. Not out-of-scope-under-freeze.
 - **Downstream:** experiment-lead B0 experiment (`experiments/minimal-agent/001-two-agent-auth`) — the authorization gate for the B1 *engineer build* (not the B1 LT proposal).
 

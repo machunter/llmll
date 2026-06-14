@@ -25,13 +25,17 @@ LLMLL's compiler already computes rich information about every `?hole`, contract
 
 ```json
 {
-  "schema_version": "0.10.0",
+  "schema_version": "0.12.0",
   "source_file": "withdraw.llmll",
   "cross_module": "unsupported",
   "obligations": [ ... ],
-  "summary": { "total": 5, "open": 3, "discharged": 1, "deferred": 1, "asserted": 0 }
+  "summary": { "total": 5, "open": 3, "discharged": 1, "deferred": 1, "asserted": 0, "refuted": 0 },
+  "refuted_fns": [ ],
+  "effect_summary": [ { "function": "withdraw", "effects": ["fs.write"] }, { "function": "fetch-rate", "effects": "unbounded" } ]
 }
 ```
+
+**`effect_summary` (Bundle B0, shipped `b2d9c1a`).** A top-level array, one entry per function (name-sorted): `{ "function": <name>, "effects": <X> }`, where `<X>` is either a sorted array of coarse capability labels — `stdout`, `fs.read`, `fs.write`, `net.http`, `random`, `crypto` — or the string `"unbounded"` (⊤: "may exercise any capability, including outside the catalog"). It is a sound **may-over-approximation** of the capabilities a function may reach through its call graph; ⊤ is reached at opaque boundaries (`?delegate` / `?delegate-async` / `?delegate-pending` / `?scaffold` holes, `haskell.*` / `c.*` FFI, unrecognized `wasi.*`). **Informational** — it never affects a function's trust tier, `EvidenceRecord`, or `verified` / `--strict-verified-core` admissibility (authority ⊥ trust). Added at `schema_version` `0.12.0` (`0.11.0` → `0.12.0`). See [`bundle-b0-effect-summary-proposal.md`](bundle-b0-effect-summary-proposal.md).
 
 ### 2.2 Single Obligation Object
 
