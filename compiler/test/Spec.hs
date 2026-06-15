@@ -5532,6 +5532,71 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       encode (encodeEff (Caps (Set.fromList [minBound .. maxBound])))
         `shouldBe` "[\"crypto\",\"fs.read\",\"fs.write\",\"net.http\",\"random\",\"stdout\"]"
 
+  -- F-B0-1 regression: a JSON-AST `module` form must flatten into its
+  -- imports ++ body (single-file model), mirroring the S-expression parser's
+  -- pModuleFlattened. The prior parseModuleDecl stub discarded the whole body
+  -- and returned `SExpr (ELit LitUnit)`, so a module-wrapped submission
+  -- verified vacuously with an empty effect_summary and bypassed capability
+  -- enforcement. See experiments/minimal-agent/findings/postmortem-007-b0-pilot.md.
+  describe "JSON-AST module flattening (F-B0-1)" $ do
+    let jsonAst ls = parseJSONAST GrammarCoreInversion "<test>" (BLC.pack (unlines ls))
+        readLogDef =
+          [ "    { \"kind\": \"def-shell\", \"name\": \"read-log\","
+          , "      \"params\": [ { \"name\": \"path\", \"param_type\": { \"kind\": \"primitive\", \"name\": \"string\" } } ],"
+          , "      \"body\": { \"kind\": \"qual-app\", \"qual_fn\": \"wasi.fs.read\","
+          , "                  \"args\": [ { \"kind\": \"var\", \"name\": \"path\" } ] } }" ]
+        fsImport =
+          [ "    { \"kind\": \"import\", \"path\": \"wasi.fs\","
+          , "      \"capability\": { \"name\": \"read\", \"path_or_port\": \"/\" } }" ]
+        moduleSrc =
+          [ "{ \"schemaVersion\": \"0.6.0\", \"statements\": ["
+          , "  { \"kind\": \"module\", \"name\": \"m\", \"imports\": [" ]
+          ++ fsImport ++ [ "  ], \"statements\": [" ] ++ readLogDef ++ [ "  ] } ] }" ]
+
+    it "JM-1: a module wrapper flattens its imports and body (not discarded)" $ do
+      case jsonAst moduleSrc of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          length [s | s@SImport{}   <- stmts] `shouldBe` 1
+          length [s | s@SDefShell{} <- stmts] `shouldBe` 1
+          -- the stub used to collapse the whole module to a single unit stmt
+          [() | SExpr (ELit LitUnit) <- stmts] `shouldBe` []
+
+    it "JM-2: the flattened def is tracked by effect_summary (no false empty)" $ do
+      case jsonAst moduleSrc of
+        Left err    -> expectationFailure (show err)
+        Right stmts ->
+          lookup "read-log" (computeEffectSummary stmts)
+            `shouldBe` Just (Caps (Set.singleton EFsRead))
+
+    it "JM-3: a nested module flattens recursively" $ do
+      let nested =
+            [ "{ \"schemaVersion\": \"0.6.0\", \"statements\": ["
+            , "  { \"kind\": \"module\", \"name\": \"outer\", \"imports\": [], \"statements\": ["
+            , "    { \"kind\": \"module\", \"name\": \"inner\", \"imports\": [" ]
+            ++ fsImport ++ [ "    ], \"statements\": [" ] ++ readLogDef
+            ++ [ "    ] } ] } ] }" ]
+      case jsonAst nested of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          length [s | s@SImport{}   <- stmts] `shouldBe` 1
+          length [s | s@SDefShell{} <- stmts] `shouldBe` 1
+
+    it "JM-4: a top-level (non-module) program is unaffected" $ do
+      let flat = [ "{ \"schemaVersion\": \"0.6.0\", \"statements\": [" ]
+                 ++ readLogDef ++ [ "] }" ]
+      case jsonAst flat of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> length [s | s@SDefShell{} <- stmts] `shouldBe` 1
+
+    it "JM-5: an empty module flattens to nothing (no spurious unit stmt)" $ do
+      let emptyMod =
+            [ "{ \"schemaVersion\": \"0.6.0\", \"statements\": ["
+            , "  { \"kind\": \"module\", \"name\": \"m\", \"imports\": [], \"statements\": [] } ] }" ]
+      case jsonAst emptyMod of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> stmts `shouldBe` []
+
   -- -----------------------------------------------------------------------
   -- v0.10 Phase 3: Branch Obligations + Repair (OBLIG-3, OBLIG-4)
   -- -----------------------------------------------------------------------

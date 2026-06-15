@@ -114,11 +114,30 @@ parseProgram mode _fp = withObject "Program" $ \o -> do
       ++ "' (see docs/json-ast-versioning.md)"
     else do
       stmtVals <- o .: "statements" :: Parser [Value]
-      mapM (parseStatement mode) stmtVals
+      concat <$> mapM (flattenStatement mode) stmtVals
 
 -- ---------------------------------------------------------------------------
 -- Statement decoder
 -- ---------------------------------------------------------------------------
+
+-- | Flatten a top-level JSON-AST value into a list of statements. A @module@
+-- form is spliced into its @imports@ ++ @statements@ (single-file model,
+-- matching the S-expression parser's 'LLMLL.Parser.pModuleFlattened'); nested
+-- modules flatten recursively. Every other kind yields exactly one statement.
+-- Replaces the prior 'parseModuleDecl' stub, which discarded the module body
+-- entirely (a JSON-AST / S-expression parser drift that let module-wrapped
+-- submissions verify vacuously with an empty effect summary).
+flattenStatement :: GrammarMode -> Value -> Parser [Statement]
+flattenStatement mode = withObject "Statement" $ \o -> do
+  kind <- o .: "kind" :: Parser Text
+  if kind == "module"
+    then do
+      impVals  <- o .:? "imports"    .!= ([] :: [Value])
+      stmtVals <- o .:? "statements" .!= ([] :: [Value])
+      imps <- concat <$> mapM (flattenStatement mode) impVals
+      body <- concat <$> mapM (flattenStatement mode) stmtVals
+      pure (imps ++ body)
+    else (: []) <$> parseStatement mode (Object o)
 
 parseStatement :: GrammarMode -> Value -> Parser Statement
 parseStatement mode = withObject "Statement" $ \o -> do
@@ -169,7 +188,9 @@ parseStatement mode = withObject "Statement" $ \o -> do
     "gen-decl"     -> parseGenDecl o
     "check"        -> parseCheckDecl o
     "import"       -> parseImportDecl o
-    "module"       -> parseModuleDecl o
+    "module"       -> fail
+      "'module' is flattened at program scope by flattenStatement and must \
+      \not reach parseStatement (nested modules flatten recursively)"
     "def-main"     -> parseDefMain o
     -- v0.2 module system
     "open"         -> parseOpenDecl o
@@ -351,13 +372,6 @@ parseCapKind "get"            = CapHttpGet
 parseCapKind "monotonic-read" = CapClockMonotonic
 parseCapKind "get-bytes"      = CapRandomGet
 parseCapKind other            = CapCustom other
-
-parseModuleDecl :: Object -> Parser Statement
-parseModuleDecl o = do
-  -- v0.1.2 single-file model: flatten module into its body.
-  _imports <- o .: "imports"    :: Parser [Value]
-  _stmts   <- o .: "statements" :: Parser [Value]
-  pure $ SExpr (ELit LitUnit)
 
 -- | Parse {"kind":"open","path":"foo.bar","names":["f","g"]}  -- v0.2
 parseopenDecl :: Object -> Parser Statement
