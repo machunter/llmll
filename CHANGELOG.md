@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Compiler — JSON-AST `module` forms now flatten instead of discarding the body (2026-06-14)
+
+- **Fixed:** the JSON-AST `module` form was parsed to a no-op (commit [`15cb8c6`](compiler/src/LLMLL/ParserJSON.hs)) — `parseModuleDecl` discarded the module's imports and body and returned a unit statement, so any module-wrapped JSON-AST submission compiled to an **empty program** and verified vacuously (false `effect_summary: []`, capability-import enforcement bypassed). The parser now **flattens** a `module` into its `imports` ++ body (recursively for nested modules), matching the S-expression parser's `pModuleFlattened`. Module-wrapped programs that previously passed may now legitimately fail type/capability checks — they were never actually checked before. No schema change (the `module` node shape already existed; `schemaVersion` stays `0.6.0`). **Tests: 846 → 851 Haskell + 62 Python.**
+
 ### Docs — filesystem import namespace reconciled to `wasi.fs` (LLMLL.md §7, §13.9) (2026-06-14)
 
 - **Corrected the documented filesystem capability-import namespace from `wasi.filesystem` to `wasi.fs`** in §7 (FFI & Capability System) and the §13.9 Standard Command Constructors table. The compiler (`llmll 0.11.2`) has always required `(import wasi.fs (capability ...))`; calls to `wasi.fs.read`/`wasi.fs.write`/`wasi.fs.delete` under `(import wasi.filesystem ...)` are rejected with *"wasi.fs.write requires (import wasi.fs (capability ...))"*. The call names and the §7 line-1443 example were already correct — only four import spellings had drifted. Spec-text reconciliation only; no behavioral change. Surfaced empirically (3/18 attempts of a minimal-agent B0 run followed the stale form).
