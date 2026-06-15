@@ -1103,7 +1103,7 @@ A `?scaffold` hole solves the **cold-start problem**: before a Lead AI can write
 
 ```lisp
 (module cloud-storage
-  (import wasi.filesystem (capability read-write "/data"))
+  (import wasi.fs (capability read-write "/data"))
   (import wasi.http       (capability post "https://api.logging.com")))
 ```
 
@@ -2299,9 +2299,9 @@ These functions produce `Command` values. Each requires the corresponding `impor
 | `wasi.io.stderr` | `string -> Command` | `(import wasi.io (capability stderr ...))` | Write text to standard error |
 | `wasi.http.response` | `int string -> Command` | `(import wasi.http (capability serve PORT))` | Return HTTP response (status, body) |
 | `wasi.http.post` | `string string -> Command` | `(import wasi.http (capability post URL))` | POST body to URL |
-| `wasi.fs.read` | `string -> Command` | `(import wasi.filesystem (capability read PATH))` | Read file at path |
-| `wasi.fs.write` | `string string -> Command` | `(import wasi.filesystem (capability write PATH))` | Write content to file at path |
-| `wasi.fs.delete` | `string -> Command` | `(import wasi.filesystem (capability delete PATH))` | Delete file at path (**sensitive** — triggers human review) |
+| `wasi.fs.read` | `string -> Command` | `(import wasi.fs (capability read PATH))` | Read file at path |
+| `wasi.fs.write` | `string string -> Command` | `(import wasi.fs (capability write PATH))` | Write content to file at path |
+| `wasi.fs.delete` | `string -> Command` | `(import wasi.fs (capability delete PATH))` | Delete file at path (**sensitive** — triggers human review) |
 | `seq-commands` | `Command Command -> Command` | _(none — built-in)_ | Execute two commands in order |
 
 **Example: Using multiple commands**

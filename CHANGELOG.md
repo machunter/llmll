@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Docs — filesystem import namespace reconciled to `wasi.fs` (LLMLL.md §7, §13.9) (2026-06-14)
+
+- **Corrected the documented filesystem capability-import namespace from `wasi.filesystem` to `wasi.fs`** in §7 (FFI & Capability System) and the §13.9 Standard Command Constructors table. The compiler (`llmll 0.11.2`) has always required `(import wasi.fs (capability ...))`; calls to `wasi.fs.read`/`wasi.fs.write`/`wasi.fs.delete` under `(import wasi.filesystem ...)` are rejected with *"wasi.fs.write requires (import wasi.fs (capability ...))"*. The call names and the §7 line-1443 example were already correct — only four import spellings had drifted. Spec-text reconciliation only; no behavioral change. Surfaced empirically (3/18 attempts of a minimal-agent B0 run followed the stale form).
+
 ### Compiler — Bundle B0: per-function effect/authority summary in the obligation report (2026-06-14)
 
 - **`verify --obligation-report` now emits a per-function `effect_summary`** (commit [`b2d9c1a`](compiler/src/LLMLL/ObligationAssembly.hs)) — a sound **may-over-approximation** of the coarse capabilities a function may reach through its call graph (object-capability "authority" sense). A union value: a sorted array of catalog labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `random`, `crypto`) **or** the string `"unbounded"` (⊤ — "may exercise any capability"), the latter at opaque boundaries: `?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, unrecognized `wasi.*`.
