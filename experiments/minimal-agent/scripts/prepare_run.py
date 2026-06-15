@@ -25,6 +25,22 @@ LLMLL_WRAPPER_TEMPLATE = EXPERIMENT_ROOT / "templates" / "llmll-wrapper.sh"
 LLMLL_WRAPPER_CORE_INVERSION_TEMPLATE = EXPERIMENT_ROOT / "templates" / "llmll-wrapper-core-inversion.sh"
 GRAMMAR_MODES = {"legacy", "core-inversion"}
 SCAFFOLD_TEMPLATES_ROOT = EXPERIMENT_ROOT / "scaffold-templates"
+
+# Bundle B0 experiment (004), condition A: the provided helpers' effect_summary,
+# appended to the initial problem.md when --context-effect-summary is set.
+# Keyed by experiment id; absent key → empty append (no-op).
+EFFECT_SUMMARY_BLOCKS = {
+    "004": (
+        "\n\n## Provided helper effect summaries (Bundle B0, condition A)\n\n"
+        "The `effect_summary` (reachable coarse capabilities, per "
+        "`llmll verify --obligation-report`) of the helpers available to you:\n\n"
+        "- `read-log` → `[\"fs.read\"]`\n"
+        "- `write-summary` → `[\"fs.write\"]`\n"
+        "- `enrich-via-api` → `[\"net.http\"]`  ← reaches a FORBIDDEN capability "
+        "(`net.http`); calling it, directly or transitively, makes the program "
+        "capability-incorrect.\n"
+    ),
+}
 EXPERIMENT_SCAFFOLD_TEMPLATES = {
     "003": ["ecommerce-order-handler"],
 }
@@ -107,6 +123,14 @@ def main() -> int:
         dest="json_output",
         help="Print machine-readable output.",
     )
+    parser.add_argument(
+        "--context-effect-summary",
+        action="store_true",
+        help="Bundle B0 (experiment 004) condition A: append the provided "
+        "helpers' effect_summary to the initial problem.md. Default-off — a "
+        "no-op for other experiments and for condition B.",
+    )
+
     args = parser.parse_args()
 
     selector_value = args.experiment if args.experiment is not None else args.problem
@@ -131,6 +155,7 @@ def main() -> int:
                 label=args.label,
                 run_id=args.run_id,
                 grammar_mode=args.grammar_mode,
+                context_effect_summary=args.context_effect_summary,
             )
         )
 
@@ -254,12 +279,18 @@ def prepare_one(
     label: str,
     run_id: str | None,
     grammar_mode: str = "legacy",
+    context_effect_summary: bool = False,
 ) -> dict[str, str]:
     experiment_id = experiment["experiment_id"]
     experiment_slug = experiment["slug"]
     problem_id = int(experiment["problem_id"])
     title = experiment["title"]
     body = experiment["body"]
+    # Bundle B0 (experiment 004) condition A: append the provided helpers'
+    # effect_summary to the initial context. Default-off keeps problem.md
+    # byte-identical for all other experiments and for condition B.
+    if context_effect_summary:
+        body = body + EFFECT_SUMMARY_BLOCKS.get(experiment_id, "")
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prefix = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

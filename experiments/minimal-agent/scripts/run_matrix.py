@@ -87,6 +87,7 @@ def main() -> int:
                     attempt,
                     agent_run_count,
                     grammar_mode=grammar_mode,
+                    context_effect_summary=bool(agent.get("context_effect_summary", False)),
                 )
                 run_dir = Path(prepared["run_dir"])
 
@@ -154,6 +155,7 @@ def prepare_run(
     attempt: int,
     attempt_count: int,
     grammar_mode: str = "legacy",
+    context_effect_summary: bool = False,
 ) -> dict[str, str]:
     label = f"{agent_name}-try{attempt:02d}-of-{attempt_count:02d}"
     cmd = [
@@ -171,6 +173,8 @@ def prepare_run(
         grammar_mode,
         "--json",
     ]
+    if context_effect_summary:
+        cmd.append("--context-effect-summary")
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise SystemExit(result.stderr or result.stdout)

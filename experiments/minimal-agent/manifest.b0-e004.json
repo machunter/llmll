@@ -1,16 +1,17 @@
 {
-  "_comment": "Bundle B0 capability-correctness A/B (experiment 004). Each model appears twice: an -A agent (context_effect_summary:true — the helpers' effect_summary is injected into initial problem.md) and a -B agent (false — withheld). Replace agents[].cmd with your real agent CLIs (same wrapper used by the e001/codex/gemini campaigns). The -A/-B delta in capability-adherence (scripts/score_capability.py) is the B0 verdict. Requires the prepare_run.py context_effect_summary hook (see experiments/004-capability-bounded-summarize.md, Harness wiring).",
+  "_comment": "Bundle B0 capability-correctness A/B (experiment 004). Each model appears twice: an -A agent (context_effect_summary:true — the helpers' effect_summary is injected into the initial problem.md) and a -B agent (false — withheld). The -A/-B delta in capability-adherence (scripts/score_capability.py --permitted 'fs.read,fs.write') is the B0 verdict. n = run_count per cell × 3 model families = 9 attempts per condition. Requires the prepare_run.py --context-effect-summary hook (threaded from context_effect_summary by run_matrix.py); design + scoring in findings/b0-experiment-004-design.md. Before launch: confirm `llmll` on PATH is the B0 build (verify --obligation-report shows schema_version 0.12.0), and dry-run with `--prepare-only` then grep each problem.md for 'net.http' (present only in -A).",
+  "_cmd_note": "cmd wrappers are the verified forms from the e001 run artifacts. Confirm model IDs against your auth tier before launch: (1) codex 'gpt-5.5' uses bare `codex exec` with NO --model flag — `--model codex-gpt-5.5*` is API-key-only and auth-rejected on ChatGPT-tier accounts (findings/postmortem-001-v0.10.2.md F-102). (2) gemini-3-pro-preview may throttle; step down to gemini-2.5-pro if so (project memory: phase-3 Gemini step-down). (3) claude model ID set to claude-opus-4-8.",
   "experiments": ["004"],
   "run_count": 3,
   "llmll_cmd": "llmll",
   "timeout_seconds": 1800,
   "skip_verify": false,
   "agents": [
-    { "name": "claude-opus-4-8-A",  "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": true },
-    { "name": "claude-opus-4-8-B",  "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": false },
-    { "name": "gemini-pro-A",       "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": true },
-    { "name": "gemini-pro-B",       "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": false },
-    { "name": "codex-gpt-5.5-A",    "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": true },
-    { "name": "codex-gpt-5.5-B",    "cmd": "REPLACE_WITH_AGENT_CLI", "context_effect_summary": false }
+    { "name": "claude-opus-4-8-A", "context_effect_summary": true,  "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-8 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "claude-opus-4-8-B", "context_effect_summary": false, "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-8 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gemini-3-pro-A",    "context_effect_summary": true,  "cmd": "gemini -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model gemini-3-pro-preview --yolo" },
+    { "name": "gemini-3-pro-B",    "context_effect_summary": false, "cmd": "gemini -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model gemini-3-pro-preview --yolo" },
+    { "name": "gpt-5.5-A",         "context_effect_summary": true,  "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gpt-5.5-B",         "context_effect_summary": false, "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox 'Read AGENT_INSTRUCTIONS.md and complete the task.'" }
   ]
 }
