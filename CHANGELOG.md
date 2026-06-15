@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+_Nothing yet — v0.12.1 (`def-logic` surface removal + `SDefInvariant` node) in planning._
+
+<a id="Latest"></a>
+
+## v0.12.0 — Refinement Metatheory of Record + Effect/Authority Summaries (2026-06-15)
+
 ### Compiler — Bundle B0: `effect_summary` composes across module imports (2026-06-15)
 
 - **`verify --obligation-report` now propagates imported functions' reachable capabilities** (commit [`85d2a7d`](compiler/src/LLMLL/ObligationAssembly.hs)) — `computeEffectSummary` folds the loaded `ModuleCache` into its call-graph fixpoint, so a function reaching `wasi.fs.write` only through an imported callee now reports `fs.write` (previously a cross-module callee contributed `∅`, silently under-reporting). The **`∅`-iff-fully-walked** rule: a callee contributes `∅` only if it is a resolved function (local or imported), a known builtin/constructor, or a recognized primitive; any other applied name — e.g. a call into a module not loaded — joins ⊤ (`"unbounded"`). The obligation report's `cross_module` field is now **computed** (`"single-file"` / `"supported"`), replacing a hardcoded `"unsupported"`. Informational only — preserves the B0 trust-orthogonality invariant; single-file `effect_summary` is byte-identical. **Tests: 851 → 855 Haskell + 62 Python.**
@@ -46,9 +52,9 @@
 - **Sound compositional call-pre over let-bound call results** (F-NIW-4, commit [`a801112`](compiler/src/LLMLL/FixpointEmit.hs)): a precondition referencing an earlier call's result — e.g. `withdraw-twice`'s `(let [[after-first (withdraw …)]] (withdraw after-first …))` — left the intermediate a free variable in the verifier emission, so `examples/banking_ledger/withdraw-twice` was *spuriously* `verified` for its whole history (masked pre-F-NIW-3 by liquid-fixpoint mis-lexing the hyphenated name; F-NIW-3 surfaced it as a crash). The later call's obligation now carries the prior call's assumed post (assume-guarantee), so the reference is provable; `banking_ledger` verifies genuinely SAFE and passes `--strict-verified-core`. Single-call programs byte-identical. Not NIW-caused — pre-existing, NIW-exposed.
 - **Let-bound non-call values into call-pre** (F-NIW-4b, commit [`3b74d24`](compiler/src/LLMLL/FixpointEmit.hs)): a `let`-bound *non-call* value feeding a later call's precondition — `(let [[y (+ x 1)]] (g y))` where `g`'s pre references `y` — previously left `y` a free variable, because `prependLB` parks such bindings at the leaf of the `CallVC` continuation, below the call-pre obligation. `collectCallPreObligations` now threads the continuation's let-bindings (`subtreeLbs`) into the call-pre constraint environment as their defining equalities (`v = rhs`), filtered by an `inScopeLbs` fixpoint to the subset whose free variables are all in scope at the call (param binders + prior call results) — branch-local and after-call bindings are excluded. Completes the compositional call-pre coverage that F-NIW-4 opened for call results. No JSON-AST schema change. **Tests: 836 Haskell + 62 Python** (inherited from engineer `stack test`).
 
----
+**v0.12.0 totals: 855 Haskell + 62 Python.** Highlights: REF-META 2–5 (metatheory of record complete — solver-completeness, predicate WF, erasure theorem, type-assignment judgment); Bundle B0 effect/authority summary + cross-module propagation; NIW Phase 1 (non-int refinement widening, intro+elim); JSON-AST `module`-flatten and `wasi.fs` reconciliation soundness fixes. `def-logic` surface removal deferred to v0.12.1.
 
-<a id="Latest"></a>
+---
 
 ## v0.11.2 — Checkout Context Population (OBLIG-1) (2026-06-11)
 
