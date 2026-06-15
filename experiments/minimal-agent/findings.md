@@ -857,6 +857,8 @@ Condition B avoided the `enrich-via-api → net.http` trap 9/9 (A 9/9 = B 9/9, n
 
 **Gated → compiler-engineer:** a powerful 004 needs **cross-module `effect_summary` propagation** (lift `"cross_module":"unsupported"` for the effect walk) so an opaque imported helper carries its callees' effects to the caller — the only construction of a non-telegraphing-yet-counted net temptation. The B0 injection's value concentrates at opaque boundaries (cross-module imports, delegate/scaffold, FFI), mirroring B0's own ⊤-at-opaque-boundaries design. **Acceptance (when unblocked):** a calibration run shows condition B takes the opaque net helper at rate > 0; score with `--require fs.read,fs.write`.
 
+**Compiler-prerequisite CLOSED (2026-06-15):** cross-module `effect_summary` propagation shipped — `85d2a7d` (851 → 855 tests; `∅`-iff-fully-walked invariant), docs `6215add`, settlement `docs/design/bundle-b0-cross-module-addendum.md` (`f78c1ca`); the disproved B0-experiment-gates-B1 condition was retired in `v0.12-direction.md` (`f78c1ca`). **The 004 experiment remains OPEN** — gated on the separate Hub-interface opacity layer (a Hub-fetched interface publishing signature + `effect_summary`, body absent; a local imported `.llmll` is agent-readable and telegraphs).
+
 ---
 
 ## Documentation-lead
