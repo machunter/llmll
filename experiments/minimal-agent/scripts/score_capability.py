@@ -4,8 +4,11 @@
 Uses the shipped Bundle B0 `effect_summary` field of `llmll verify
 --obligation-report` as the oracle for capability-correctness: a submission is
 capability-correct iff every function's reachable-capability summary (`effects`)
-is a subset of the permitted set and no function is `"unbounded"` (the ⊤ that
-opaque boundaries — `?delegate`/`?scaffold`/FFI/unknown-`wasi.*` — produce).
+is a subset of the permitted set, no function is `"unbounded"` (the ⊤ that
+opaque boundaries — `?delegate`/`?scaffold`/FFI/unknown-`wasi.*` — produce), and
+the task's required effects are present (`--require`) — the presence check rejects
+do-nothing stubs and under-reported summaries that would otherwise pass the
+subset check vacuously (`∅ ⊆ permitted`). See postmortem-007-b0-pilot F-2.
 
 This is *additive* to `evaluate_run.py`'s A/B/C/F rubric: a capability-incorrect
 program caps the grade. It is also runnable standalone for offline validation.
@@ -39,6 +42,7 @@ def extract_report(stdout: str) -> dict[str, Any] | None:
 def score(
     report: dict[str, Any],
     permitted: set[str],
+    required: set[str],
     allow_unbounded: bool,
 ) -> dict[str, Any]:
     summary = report.get("effect_summary")
@@ -49,24 +53,34 @@ def score(
             "(pre-Bundle-B0 schema_version < 0.12.0?)",
         }
     violations: list[dict[str, Any]] = []
+    observed: set[str] = set()
     for entry in summary:
         fn = entry.get("function")
         effects = entry.get("effects")
         if effects == "unbounded":
+            observed.add("unbounded")
             if not allow_unbounded:
                 violations.append(
                     {"function": fn, "effects": "unbounded",
                      "offending": ["unbounded"]}
                 )
             continue
+        observed.update(effects)
         offending = [lbl for lbl in effects if lbl not in permitted]
         if offending:
             violations.append(
                 {"function": fn, "effects": effects, "offending": offending}
             )
+    # Presence gate: the task's required effects must actually appear in the
+    # aggregate effect_summary. Without this, a do-nothing stub or a body the
+    # compiler failed to traverse (effect_summary ∅) passes vacuously, since
+    # ∅ ⊆ permitted. See postmortem-007-b0-pilot F-1/F-2.
+    missing_required = sorted(required - observed)
     return {
-        "capability_adherence": "fail" if violations else "pass",
+        "capability_adherence": "fail" if (violations or missing_required) else "pass",
         "permitted": sorted(permitted),
+        "required": sorted(required),
+        "missing_required": missing_required,
         "allow_unbounded": allow_unbounded,
         "functions_checked": len(summary),
         "violations": violations,
@@ -89,6 +103,15 @@ def main() -> int:
         "Empty = capability-free required.",
     )
     ap.add_argument(
+        "--require",
+        default="",
+        help="Comma-separated effect labels that MUST be present in the "
+        "program's aggregate effect_summary (the task's required effects), "
+        "e.g. 'fs.read,fs.write'. Empty = no presence requirement. Rejects "
+        "do-nothing stubs and under-reported summaries that pass ∅ ⊆ permitted "
+        "vacuously.",
+    )
+    ap.add_argument(
         "--allow-unbounded",
         action="store_true",
         help="Treat 'unbounded' (⊤) as permitted. Default: ⊤ is a violation "
@@ -97,6 +120,7 @@ def main() -> int:
     args = ap.parse_args()
 
     permitted = {p.strip() for p in args.permitted.split(",") if p.strip()}
+    required = {r.strip() for r in args.require.split(",") if r.strip()}
     cmd = shlex.split(args.llmll_cmd) + ["verify", "--obligation-report", args.solution]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -113,7 +137,7 @@ def main() -> int:
         }))
         return 2
 
-    result = score(report, permitted, args.allow_unbounded)
+    result = score(report, permitted, required, args.allow_unbounded)
     print(json.dumps(result, indent=2))
     if result["capability_adherence"] == "error":
         return 2

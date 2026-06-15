@@ -219,6 +219,20 @@ Bundle is engineer's call; suggest separate branches because the three modules a
 
 ---
 
+### F-B0-1. Non-canonical `def-shell` escapes capability enforcement and B0 effect tracking (SOUNDNESS)
+
+**Source:** `postmortem-007-b0-pilot.md`
+**Date:** 2026-06-14
+**Priority:** Blocker (for B0's "sound may-over-approximation" claim)
+
+A `def-shell` with a non-state-threading signature — single domain param, body returning a `Command` directly instead of `(pair state cmd)` — is accepted by `check` but its body is traversed by neither capability enforcement (`TypeCheck.hs`) nor the B0 effect-summary walk (`computeEffectSummary`/`ownEffects`, `ObligationAssembly.hs`). Result: a program that calls `wasi.fs.read`/`wasi.fs.write` reports `effect_summary: []` (an unsound under-report) and is accepted under the wrong `import wasi.filesystem`.
+
+**Evidence:** gemini-3-pro `A-try02`/`A-try03`/`B-try03` (`runs/20260615T005559Z/`), llmll 0.11.2. Minimal repro from the gemini AST (`/tmp/repro_*.ast.json`): non-canonical `def-shell read-log [path] → (wasi.fs.read path)` → `effect_summary: []` under both imports, `check` accepts both. Canonical `[state input] → (pair state (wasi.fs.read input))` → `effect_summary: [{"effects":["fs.read"],…}]`, wrong import rejected. Module-wrapping is not the trigger.
+
+**Adjudicate:** (i) should `check` reject the non-state-threading `def-shell` shape, and (ii) regardless, the effect walk + capability check must traverse the body. **Acceptance:** repro reports `[fs.read]` and rejects `import wasi.filesystem`; re-run 004 yields no `effect_summary: []` for a solution calling `wasi.fs.*`.
+
+---
+
 ## Language-team
 
 ---
@@ -821,6 +835,24 @@ For `def` kind (strict-core), `hole-delegate` body does not trigger the F-GATE-8
 
 ---
 
+### F-B0-2. `score_capability.py` passed under-reported/vacuous solutions — FIXED
+
+**Source:** `postmortem-007-b0-pilot.md`
+**Date:** 2026-06-14
+**Priority:** High (closed for the harness)
+
+The scorer checked only `effects ⊆ permitted`; `∅ ⊆ permitted` is vacuously true, so the 3 `effect_summary: []` cells of `runs/20260615T005559Z/` scored rc=0. **Fix (applied):** added `--require` (presence gate) — `score()` computes `observed = ⋃ entry.effects` and fails when `required ⊄ observed`, reporting `missing_required`. Validated: `--require fs.read,fs.write` flips the 3 `[]` cells to rc=1, the 15 real cells stay rc=0, and omitting `--require` reproduces the old 18/18 (backward-compatible). The gate catches both genuine non-implementations and F-B0-1 under-reports (does not disambiguate them). **Re-run requirement:** scoring is a manual post-step; the B0 re-run must pass `--require fs.read,fs.write`.
+
+### F-B0-3. 004 has zero discriminating power and an empty required-feature set
+
+**Source:** `postmortem-007-b0-pilot.md`
+**Date:** 2026-06-14
+**Priority:** High
+
+Condition B avoided the `enrich-via-api → net.http` trap 9/9 — the helper name telegraphs the network reach, so condition A's injected `effect_summary` could not raise a ceiling already at 100% (A 9/9 = B 9/9, null). Separately, `evaluation.json.feature_scan.required = []` for all 18 cells, so the evaluator graded the 3 under-reported gemini solutions **A** with no required-feature check. A null on 004-as-built means "the task cannot detect a B0 effect," not "B0 does not help." **Redesign:** the forbidden-capability temptation must be the natural tool for the task with a non-telegraphing name (condition B tempted; condition A sees `net.http` in the summary); populate the required-feature set. **Acceptance:** a calibration run shows condition B takes the trap at rate > 0; the feature scan fails a non-composing stub. Pursued as a separate 004-redesign pass.
+
+---
+
 ## Documentation-lead
 
 
@@ -962,3 +994,13 @@ Per the doc-lead skill:
 3. Run the reconciliation pass.
 4. Surface a one-paragraph review-ready summary (files touched, line counts, CHANGELOG entry verbatim, any reconciliation gaps that remain).
 5. On user authorization, commit with a `docs:` prefix referencing the version or roadmap tags closed. Do not commit autonomously, do not bundle with code changes.
+
+---
+
+### F-B0-4. LLMLL.md `wasi.filesystem` import-namespace drift — CLOSED
+
+**Source:** `postmortem-007-b0-pilot.md`
+**Date:** 2026-06-14
+**Priority:** Medium (closed)
+
+§7 (line 1106) and the §13.9 Standard Command Constructors table documented `(import wasi.filesystem …)`; the compiler (`llmll 0.11.2`) requires `(import wasi.fs …)`. The harness ships `LLMLL.md` into every run dir, and the drift leaked — the 3 under-reported gemini cells of `runs/20260615T005559Z/` used `import wasi.filesystem` (masked from rejection by F-B0-1). **Resolution:** reconciled to `wasi.fs` by documentation-lead, commit **fea1bc1** (CHANGELOG note under `## Unreleased`). No further doc-lead action.
