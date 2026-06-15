@@ -60,17 +60,17 @@ Added `--require` (presence gate): `score()` now computes `observed = ⋃ entry.
 #### Acceptance
 Closed for the harness. The B0 re-run must invoke `score_capability.py … --require fs.read,fs.write` (scoring is a manual post-step, not auto-invoked by `run_matrix.py`).
 
-### F-B0-3. 004 has zero discriminating power and an empty required-feature set
-**Priority:** High · **Consumer:** experiment-lead (experiment design)
+### F-B0-3. 004 cannot detect a B0 effect in single-file LLMLL — required-features wired; powerful redesign GATED on cross-module effect_summary
+**Priority:** High · **Consumer:** experiment-lead (partially actioned) + compiler-engineer (gated) · **Re-scoped:** 2026-06-15
 
 #### Evidence
-Condition B avoided the `enrich-via-api → net.http` trap 9/9 — the helper name telegraphs the network reach, so condition A's injected `effect_summary` could not raise an adherence ceiling already at 100% (A 9/9 = B 9/9). Separately, `evaluation.json.feature_scan.required = []` for 004 (all 18 cells), so the evaluator's feature scan is vacuous — it graded the 3 under-reported gemini solutions **A** with no required-feature check.
+Condition B avoided the `enrich-via-api → net.http` trap 9/9 (A 9/9 = B 9/9) because the helper name telegraphs its reach. Separately, `evaluation.json.feature_scan.required = []` for 004 (all 18 cells), so the evaluator graded the 3 vacuous gemini cells **A**. Investigating the redesign surfaced a **structural block**: the effect walk runs over the flattened single-file call graph (`computeEffectSummary`/`ownEffects`, `ObligationAssembly.hs:370-386`); an opaque imported callee is not in the graph → `primEffect` returns `Nothing` → `∅`, never propagated, and the report stamps `"cross_module":"unsupported"`.
 
-#### Implication
-Implication for experiment design: a null on 004-as-built means "the task cannot detect a B0 effect," not "B0 does not help." For the A/B contrast to have power, the forbidden-capability temptation must be the *natural* tool for the task and its net-reach must not be telegraphed by name/signature (so condition B is actually tempted while condition A sees `net.http` in the injected summary). The required-feature set must be populated so the evaluator rejects non-implementations.
+#### Why we saw what we saw
+A B0 effect is measurable only when a helper's reachable capability is *non-obvious*. In single-file LLMLL there are two cases and both fail: (1) direct `wasi.*` calls are namespaced → self-telegraphing (visible whether the agent writes them or reads them in a same-file helper body); (2) an opaque imported helper would hide the body, but its effect is then **not counted** in the caller's `effect_summary` (cross-module unsupported). Hide-the-effect and count-the-effect cannot both hold — so the injection is informationally redundant for any program 004 can express. The same logic kills the `stdout`/`crypto`/`random` variants: every catalog label maps to a syntactically-evident builtin.
 
-#### Acceptance
-A calibration run shows condition B takes the trap at rate > 0 (the task can detect the effect); the populated feature scan fails a stub/non-composing solution. Pursued as a separate 004-redesign pass.
+#### Resolution / status
+**Actioned:** `REQUIRED_FEATURES[4] = ["check","post"]` (`evaluate_run.py:53`) — stops the evaluator grading stubs **A**; independent of the B0-power question. **Gated → compiler-engineer:** a powerful 004 requires **cross-module `effect_summary` propagation** (lift `"cross_module":"unsupported"` for the effect walk), so an opaque imported helper carries its callees' effects to the caller — the only construction of a non-telegraphing-yet-counted temptation. B0's value concentrates at opaque boundaries, mirroring its own ⊤-at-opaque-boundaries design. **Acceptance (when unblocked):** a calibration run shows condition B takes the opaque net helper at rate > 0; score with `--require fs.read,fs.write`.
 
 ### F-B0-4. LLMLL.md `wasi.filesystem` import drift (CLOSED)
 **Priority:** Medium · **Consumer:** documentation-lead
@@ -95,7 +95,7 @@ Reconciled to `wasi.fs` by documentation-lead, commit **fea1bc1** (CHANGELOG not
 |---|---|---|---|---|
 | F-B0-1 | JSON-AST `module` parsed to a no-op → vacuous verify (soundness) | compiler-engineer | **Resolved** `15cb8c6` | Done (+5 tests) |
 | F-B0-2 | Scorer passed `∅` summaries (fixed) | experiment-lead | High | Done |
-| F-B0-3 | 004 zero power + empty required-feature set | experiment-lead | High | Medium (task redesign + calibration) |
+| F-B0-3 | 004 can't detect B0 in single-file (structural); required-features wired | experiment-lead + compiler-engineer | High — feature-scan done; rest **gated** on cross-module effects | Done (eval) + gated |
 | F-B0-4 | LLMLL.md `wasi.filesystem` drift (closed) | documentation-lead | Medium | Done (fea1bc1) |
 
 ---

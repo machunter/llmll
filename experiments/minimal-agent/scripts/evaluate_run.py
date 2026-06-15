@@ -81,6 +81,12 @@ REQUIRED_FEATURES = {
         "pre",
         "post",
     ],
+    # F-B0-3 (postmortem-007): 004 had no entry → feature_scan.required=[] →
+    # the evaluator graded vacuous solutions A. The `check` block and the
+    # count-lines `post` contract are mandated by the 004 task; this stops the
+    # evaluator passing stubs. Capability-correctness (fs effects present, no
+    # forbidden cap) stays the scorer's job (`score_capability.py --require`).
+    4: ["check", "post"],
 }
 
 

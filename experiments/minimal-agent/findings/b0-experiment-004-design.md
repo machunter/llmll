@@ -4,6 +4,22 @@ Run-host-facing design for experiment `004-capability-bounded-summarize`. This
 is **not** loaded as a task (it lives under `findings/`, not `experiments/`); the
 agent sees only the pure problem spec in `experiments/004-…​.md`.
 
+## Status — RE-SCOPED (F-B0-3, 2026-06-15)
+
+The pilot (`20260615T005559Z`) returned an uninformative null and the redesign hit a
+**structural block** (postmortem-007 F-B0-3): in single-file LLMLL every capability is
+syntactically evident — direct `wasi.*` calls self-telegraph, and an opaque imported
+helper's effect is **not** propagated into the caller's `effect_summary`
+(`computeEffectSummary` walks the flattened single-file call graph; cross-module is
+`"unsupported"`). So 004 cannot be made B0-powerful by rewording the task.
+
+- **Actioned:** `REQUIRED_FEATURES[4] = ["check","post"]` (`evaluate_run.py`) — stops the
+  evaluator grading vacuous stubs A (the pilot defect).
+- **Gated:** a powerful 004 needs **cross-module `effect_summary` propagation** (routed to
+  compiler-engineer). Until it lands, the **Trap** section below is *superseded* — do not
+  run 004 as a B0 verdict instrument. The Run + score procedure (scoring with
+  `--require fs.read,fs.write`) stands for the eventual re-run.
+
 ## Hypothesis
 
 Surfacing the per-function `effect_summary` (Bundle B0, shipped `b2d9c1a`) in the
@@ -11,7 +27,7 @@ agent's **initial** context raises capability-correctness on a task with a
 forbidden-capability constraint. Success = adherence-rate(A) > adherence-rate(B),
 n-backed. Null = no separation. Failure = B ≥ A.
 
-## The trap
+## The trap (SUPERSEDED — see Status above)
 
 `enrich-via-api` is described to the agent ambiguously ("queries an external
 enrichment service"). It transitively reaches `net.http` — **forbidden** by the

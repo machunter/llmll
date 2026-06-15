@@ -845,13 +845,17 @@ For `def` kind (strict-core), `hole-delegate` body does not trigger the F-GATE-8
 
 The scorer checked only `effects ⊆ permitted`; `∅ ⊆ permitted` is vacuously true, so the 3 `effect_summary: []` cells of `runs/20260615T005559Z/` scored rc=0. **Fix (applied):** added `--require` (presence gate) — `score()` computes `observed = ⋃ entry.effects` and fails when `required ⊄ observed`, reporting `missing_required`. Validated: `--require fs.read,fs.write` flips the 3 `[]` cells to rc=1, the 15 real cells stay rc=0, and omitting `--require` reproduces the old 18/18 (backward-compatible). The gate catches both genuine non-implementations and F-B0-1 under-reports (does not disambiguate them). **Re-run requirement:** scoring is a manual post-step; the B0 re-run must pass `--require fs.read,fs.write`.
 
-### F-B0-3. 004 has zero discriminating power and an empty required-feature set
+### F-B0-3. 004 cannot detect a B0 effect in single-file LLMLL — required-features wired; powerful redesign GATED on cross-module effect_summary
 
 **Source:** `postmortem-007-b0-pilot.md`
-**Date:** 2026-06-14
-**Priority:** High
+**Date:** 2026-06-14 (re-scoped 2026-06-15)
+**Priority:** High — partially actioned; remainder gated
 
-Condition B avoided the `enrich-via-api → net.http` trap 9/9 — the helper name telegraphs the network reach, so condition A's injected `effect_summary` could not raise a ceiling already at 100% (A 9/9 = B 9/9, null). Separately, `evaluation.json.feature_scan.required = []` for all 18 cells, so the evaluator graded the 3 under-reported gemini solutions **A** with no required-feature check. A null on 004-as-built means "the task cannot detect a B0 effect," not "B0 does not help." **Redesign:** the forbidden-capability temptation must be the natural tool for the task with a non-telegraphing name (condition B tempted; condition A sees `net.http` in the summary); populate the required-feature set. **Acceptance:** a calibration run shows condition B takes the trap at rate > 0; the feature scan fails a non-composing stub. Pursued as a separate 004-redesign pass.
+Condition B avoided the `enrich-via-api → net.http` trap 9/9 (A 9/9 = B 9/9, null) because the helper name telegraphs its reach. The redesign to give 004 power hit a **structural block**: a B0 effect is measurable only when a helper's effect is *non-obvious*, but single-file LLMLL makes every capability syntactically evident — direct `wasi.*` calls self-telegraph, and an opaque imported helper's effect is **not propagated** into the caller's `effect_summary` (`computeEffectSummary` walks the flattened single-file call graph, `ObligationAssembly.hs:370-386`; the report stamps `"cross_module":"unsupported"`). Hide-the-effect and count-the-effect cannot both hold, so 004 cannot be made B0-powerful by rewording.
+
+**Actioned (this pass):** `REQUIRED_FEATURES[4] = ["check","post"]` (`evaluate_run.py:53`) — the count-lines `post` contract + `check` block the task mandates; stops the evaluator grading stubs **A** (the separate vacuous-grade defect). Independent of the B0-power question.
+
+**Gated → compiler-engineer:** a powerful 004 needs **cross-module `effect_summary` propagation** (lift `"cross_module":"unsupported"` for the effect walk) so an opaque imported helper carries its callees' effects to the caller — the only construction of a non-telegraphing-yet-counted net temptation. The B0 injection's value concentrates at opaque boundaries (cross-module imports, delegate/scaffold, FFI), mirroring B0's own ⊤-at-opaque-boundaries design. **Acceptance (when unblocked):** a calibration run shows condition B takes the opaque net helper at rate > 0; score with `--require fs.read,fs.write`.
 
 ---
 
