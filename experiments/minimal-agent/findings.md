@@ -219,17 +219,19 @@ Bundle is engineer's call; suggest separate branches because the three modules a
 
 ---
 
-### F-B0-1. Non-canonical `def-shell` escapes capability enforcement and B0 effect tracking (SOUNDNESS)
+### F-B0-1. JSON-AST `module` forms parsed to a no-op — module-wrapped submissions verify vacuously (SOUNDNESS — RESOLVED `15cb8c6`)
 
 **Source:** `postmortem-007-b0-pilot.md`
 **Date:** 2026-06-14
-**Priority:** Blocker (for B0's "sound may-over-approximation" claim)
+**Status:** RESOLVED — `15cb8c6` (fix), `0677ef1` (changelog)
 
-A `def-shell` with a non-state-threading signature — single domain param, body returning a `Command` directly instead of `(pair state cmd)` — is accepted by `check` but its body is traversed by neither capability enforcement (`TypeCheck.hs`) nor the B0 effect-summary walk (`computeEffectSummary`/`ownEffects`, `ObligationAssembly.hs`). Result: a program that calls `wasi.fs.read`/`wasi.fs.write` reports `effect_summary: []` (an unsound under-report) and is accepted under the wrong `import wasi.filesystem`.
+`parseModuleDecl` (`ParserJSON.hs`) bound a JSON-AST `module`'s `imports` and `statements` then discarded both and returned `SExpr (ELit LitUnit)` — so any submission wrapped in `(module …)` compiled to an **empty program** and verified vacuously: `effect_summary: []`, capability-import enforcement bypassed, contract VC and trust all run against nothing. The S-expression parser was always correct (`pModuleFlattened`, `Parser.hs`); this was a JSON / S-expression parser drift.
 
-**Evidence:** gemini-3-pro `A-try02`/`A-try03`/`B-try03` (`runs/20260615T005559Z/`), llmll 0.11.2. Minimal repro from the gemini AST (`/tmp/repro_*.ast.json`): non-canonical `def-shell read-log [path] → (wasi.fs.read path)` → `effect_summary: []` under both imports, `check` accepts both. Canonical `[state input] → (pair state (wasi.fs.read input))` → `effect_summary: [{"effects":["fs.read"],…}]`, wrong import rejected. Module-wrapping is not the trigger.
+**Evidence:** gemini-3-pro `A-try02`/`A-try03`/`B-try03` (`runs/20260615T005559Z/`), llmll 0.11.2. The earlier "non-canonical `def-shell` shape" hypothesis was a **confound**, disconfirmed by the minimal repro: gemini's exact `read-log` def at **top level** reports `effect_summary: [{"effects":["fs.read"]}]`; the *same* def **inside a module** reported `[]`. Module-wrapping was the trigger, not the def shape.
 
-**Adjudicate:** (i) should `check` reject the non-state-threading `def-shell` shape, and (ii) regardless, the effect walk + capability check must traverse the body. **Acceptance:** repro reports `[fs.read]` and rejects `import wasi.filesystem`; re-run 004 yields no `effect_summary: []` for a solution calling `wasi.fs.*`.
+**Blast radius (corpus sweep):** of **65** `solution.ast.json` across all `runs/`, exactly **3** are module-wrapped (the gemini B0-pilot cells); no prior `001`/`002`/`003` run was contaminated — historical damage is bounded to these 3 cells. The hazard was forward-looking.
+
+**Resolution:** `ParserJSON` now flattens a `module` into its `imports` ++ body (recursively for nested modules); `parseModuleDecl` stub removed; +5 tests (`Spec.hs` JM-1..JM-5), 846 → 851 Haskell. Verified: module + `import wasi.fs` → `effect_summary: [fs.read]`; module + `import wasi.filesystem` → now rejected. The `score_capability.py --require` gate (F-B0-2) remains as defense-in-depth.
 
 ---
 

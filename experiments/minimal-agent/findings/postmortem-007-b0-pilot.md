@@ -12,7 +12,7 @@
 
 ## Headline finding
 
-The B0 pilot returned a **null** A/B result — capability-adherence 9/9 (condition A) vs 9/9 (condition B), delta 0 — but the null is **uninformative**, and the run's real output is a compiler soundness bug. Across n=18 (3 model families × {A,B} × 3 tries), all 18 scored capability-PASS under the as-shipped scorer, but 3 of 18 (gemini-3-pro A-try02, A-try03, B-try03) did so on a **false `effect_summary: []`**: they define `def-shell` functions that call `wasi.fs.read`/`wasi.fs.write` live, wired through `summarize` via `seq-commands`, yet the obligation report attributes zero effects to them and `check` accepts them under the wrong `import wasi.filesystem`. A minimal repro built from the gemini AST isolates the trigger: a `def-shell` with a **non-state-threading signature** (single domain param, body returns a `Command` directly instead of `(pair state cmd)`) is accepted by `check` but skipped by both capability enforcement and the B0 effect-summary walk. B0's "sound may-over-approximation" claim does not hold for that `def-shell` shape. The trap (`enrich-via-api → net.http`) was avoided 18/18 in both arms — it telegraphs its effect by name, so the injected `effect_summary` could not move a ceiling already at 100%. Treat `20260615T005559Z` as a methodological pilot that surfaced instrument defects, not a B0 verdict.
+The B0 pilot returned a **null** A/B result — capability-adherence 9/9 (condition A) vs 9/9 (condition B), delta 0 — but the null is **uninformative**, and the run's real output is a compiler soundness bug. Across n=18 (3 model families × {A,B} × 3 tries), all 18 scored capability-PASS under the as-shipped scorer, but 3 of 18 (gemini-3-pro A-try02, A-try03, B-try03) did so on a **false `effect_summary: []`** — they wrap their program in `(module …)`, and the JSON-AST parser discarded module bodies entirely (`parseModuleDecl` bound `imports`+`statements` then returned a unit statement), so the submission compiled to an **empty program**: zero effects, capability enforcement bypassed, all verification vacuous. The `def-shell` signature was a **confound** (disconfirmed by the minimal repro: the same defs at top level track `fs.read`; the S-expression parser always flattened modules). **Resolved** — the parser now flattens modules (commit `15cb8c6`); B0's may-over-approximation is sound — the under-report was a parser bug, not an effect-walk gap. The trap (`enrich-via-api → net.http`) was avoided 18/18 in both arms — it telegraphs its effect by name, so the injected `effect_summary` could not move a ceiling already at 100%. Treat `20260615T005559Z` as a methodological pilot that surfaced instrument defects, not a B0 verdict.
 
 ---
 
@@ -33,22 +33,20 @@ The B0 pilot returned a **null** A/B result — capability-adherence 9/9 (condit
 
 ## Verified findings
 
-### F-B0-1. Non-canonical `def-shell` escapes capability enforcement and B0 effect tracking
-**Priority:** Blocker (for B0's soundness claim) · **Consumer:** compiler-engineer
+### F-B0-1. JSON-AST `module` forms parsed to a no-op — module-wrapped submissions verified vacuously (RESOLVED)
+**Priority:** Blocker (was; for B0's soundness claim) · **Consumer:** compiler-engineer · **Status:** RESOLVED — `15cb8c6` (fix), `0677ef1` (changelog)
 
 #### Evidence
-gemini-3-pro `A-try02`/`A-try03`/`B-try03` (`runs/20260615T005559Z/…-gemini-3-pro-A-try02-of-03-e004/solution.ast.json` et al.) wrap their defs in `(module log-summarize …)` and define `def-shell read-log [path] → (wasi.fs.read path)` and `write-summary [path content] → (wasi.fs.write path content)`, composed live in `summarize` via `seq-commands` (not dead code — `summarize.body` is an `app` of `seq-commands` over `read-log`/`write-summary`). On `llmll 0.11.2`: `check` → OK; `verify --obligation-report` → `"effect_summary": []`.
-
-Minimal repro (built from the gemini AST, `/tmp/repro_ok.ast.json` / `/tmp/repro_bad.ast.json`): a module with one `def-shell read-log [path] → (wasi.fs.read path)` reports `effect_summary: []` under **both** `import wasi.fs` and `import wasi.filesystem`, and `check` accepts both. Contrast — the canonical state-threading shape `def-shell read-step [state input] → (pair state (wasi.fs.read input))` reports `effect_summary: [{"effects":["fs.read"],"function":"read-step"}]`, and the wrong import is **rejected** (`"wasi.fs.read requires (import wasi.fs (capability ...))"`). Module-wrapping is not the trigger (canonical def-shell inside a module is tracked correctly).
+gemini-3-pro `A-try02`/`A-try03`/`B-try03` (`runs/20260615T005559Z/…-gemini-3-pro-A-try02-of-03-e004/solution.ast.json` et al.) wrap their program in `(module log-summarize …)`. `parseModuleDecl` (`ParserJSON.hs`) bound the module's `imports` and `statements`, discarded both, and returned `SExpr (ELit LitUnit)` — so the whole module parsed to a single unit statement. On `llmll 0.11.2`: `check` → OK (`1 statements`); `verify --obligation-report` → `"effect_summary": []`; capability enforcement, contract VC, and trust all ran against the empty program (the wrong `import wasi.filesystem` was never enforced because the import was discarded too).
 
 #### Why we saw what we saw
-The effect-summary walk (`computeEffectSummary`/`ownEffects`, `ObligationAssembly.hs`) and capability enforcement (`TypeCheck.hs`) appear to key on the canonical shell-step structure (`[state input] → (pair state cmd)`). A `def-shell` whose body returns a `Command` directly is parsed and accepted but its body is not traversed by either pass — so `wasi.fs.*` calls inside it are invisible to both effect attribution (→ `effect_summary: []`, an unsound under-report of the may-over-approximation) and the `import wasi.fs` capability requirement (→ `import wasi.filesystem` is not rejected).
+The submission compiled to nothing. The S-expression parser was always correct — `pModuleFlattened` (`Parser.hs`) flattens a module into its imports ++ body — but the JSON-AST `parseModuleDecl` was a stub that threw the body away (a JSON / S-expression parser drift). The `def-shell` signature shape was a **confound**, disconfirmed by the minimal repro: gemini's exact `read-log` def at **top level** (no wrapper) reports `effect_summary: [{"effects":["fs.read"]}]`; the *same* def **inside a module** reported `[]`. Module-wrapping was the trigger, not the def shape — B0's effect walk and capability check were never at fault.
 
 #### Implication
-Implication for compiler-engineer: this is a soundness gap in the B0 effect summary (a program performing fs I/O claims `∅`) *and* a hole in capability enforcement for this `def-shell` shape. Two sub-questions to adjudicate: (i) should `check` reject a `def-shell` with a non-state-threading signature outright, and (ii) regardless, the effect walk and capability check must traverse the body. Whether the fix is a parser/typechecker rejection or a traversal extension is the engineer's call.
+This was **not B0-specific**: any JSON-AST submission wrapped in `(module …)` verified vacuously across the whole pipeline — `effect_summary`, capability imports, contract VC, and trust were all computed against an empty program. Corpus sweep (this pass): of **65** `solution.ast.json` across all `runs/`, exactly **3** are module-wrapped — the three gemini B0-pilot cells already identified; no prior `001`/`002`/`003` run produced a module-wrapped solution, so historical contamination is bounded to these 3 cells. The hazard was forward-looking (any future agent that module-wraps a JSON-AST solution would have hit it).
 
-#### Acceptance
-The minimal repro (`/tmp/repro_*.ast.json`, or a fixture derived from it) reports `effect_summary: [{"effects":["fs.read"],…}]` and `check` rejects the `import wasi.filesystem` variant. Re-running 004 produces no `effect_summary: []` cell for a solution that calls `wasi.fs.*`.
+#### Resolution
+**Resolved.** `compiler-engineer` shipped `15cb8c6` — `ParserJSON` now flattens a `module` into its `imports` ++ body (recursively for nested modules), matching `pModuleFlattened`; the `parseModuleDecl` stub is removed; +5 tests (`Spec.hs` JM-1..JM-5), 846 → 851 Haskell. CHANGELOG `0677ef1`. Verified end-to-end: module + correct `import wasi.fs` → `effect_summary: [fs.read]`; module + `import wasi.filesystem` → now correctly **rejected** (was a vacuous pass). The `score_capability.py --require` gate (F-B0-2) remains as defense-in-depth.
 
 ### F-B0-2. `score_capability.py` passed under-reported/vacuous solutions (FIXED this session)
 **Priority:** High · **Consumer:** experiment-lead (harness)
@@ -87,7 +85,7 @@ Reconciled to `wasi.fs` by documentation-lead, commit **fea1bc1** (CHANGELOG not
 
 ## Null results
 
-**Hypothesis (pre-run):** surfacing the helpers' `effect_summary` in initial context (condition A) raises capability-adherence on a forbidden-capability task. **Result:** A 9/9 = B 9/9, delta 0 — **null**. **Required to support:** a task where condition B's adherence is below ceiling (F-B0-3). The null is attributed to instrument power, not to a measured absence of effect; it is not evidence that B0 context does not help. Per experiment-lead discipline this null is recorded, not re-run-to-result; the informative re-run waits on F-B0-1 + F-B0-3.
+**Hypothesis (pre-run):** surfacing the helpers' `effect_summary` in initial context (condition A) raises capability-adherence on a forbidden-capability task. **Result:** A 9/9 = B 9/9, delta 0 — **null**. **Required to support:** a task where condition B's adherence is below ceiling (F-B0-3). The null is attributed to instrument power, not to a measured absence of effect; it is not evidence that B0 context does not help. Per experiment-lead discipline this null is recorded, not re-run-to-result; the informative re-run waits on F-B0-3 (F-B0-1 resolved, `15cb8c6`).
 
 ---
 
@@ -95,7 +93,7 @@ Reconciled to `wasi.fs` by documentation-lead, commit **fea1bc1** (CHANGELOG not
 
 | # | Finding | Consumer | Priority | Effort estimate |
 |---|---|---|---|---|
-| F-B0-1 | Non-canonical `def-shell` escapes effect/capability traversal (soundness) | compiler-engineer | Blocker | Medium (traversal or parser-reject + tests) |
+| F-B0-1 | JSON-AST `module` parsed to a no-op → vacuous verify (soundness) | compiler-engineer | **Resolved** `15cb8c6` | Done (+5 tests) |
 | F-B0-2 | Scorer passed `∅` summaries (fixed) | experiment-lead | High | Done |
 | F-B0-3 | 004 zero power + empty required-feature set | experiment-lead | High | Medium (task redesign + calibration) |
 | F-B0-4 | LLMLL.md `wasi.filesystem` drift (closed) | documentation-lead | Medium | Done (fea1bc1) |
