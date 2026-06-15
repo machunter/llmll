@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Compiler — Bundle B0: `effect_summary` composes across module imports (2026-06-15)
+
+- **`verify --obligation-report` now propagates imported functions' reachable capabilities** (commit [`85d2a7d`](compiler/src/LLMLL/ObligationAssembly.hs)) — `computeEffectSummary` folds the loaded `ModuleCache` into its call-graph fixpoint, so a function reaching `wasi.fs.write` only through an imported callee now reports `fs.write` (previously a cross-module callee contributed `∅`, silently under-reporting). The **`∅`-iff-fully-walked** rule: a callee contributes `∅` only if it is a resolved function (local or imported), a known builtin/constructor, or a recognized primitive; any other applied name — e.g. a call into a module not loaded — joins ⊤ (`"unbounded"`). The obligation report's `cross_module` field is now **computed** (`"single-file"` / `"supported"`), replacing a hardcoded `"unsupported"`. Informational only — preserves the B0 trust-orthogonality invariant; single-file `effect_summary` is byte-identical. **Tests: 851 → 855 Haskell + 62 Python.**
+
 ### Compiler — JSON-AST `module` forms now flatten instead of discarding the body (2026-06-14)
 
 - **Fixed:** the JSON-AST `module` form was parsed to a no-op (commit [`15cb8c6`](compiler/src/LLMLL/ParserJSON.hs)) — `parseModuleDecl` discarded the module's imports and body and returned a unit statement, so any module-wrapped JSON-AST submission compiled to an **empty program** and verified vacuously (false `effect_summary: []`, capability-import enforcement bypassed). The parser now **flattens** a `module` into its `imports` ++ body (recursively for nested modules), matching the S-expression parser's `pModuleFlattened`. Module-wrapped programs that previously passed may now legitimately fail type/capability checks — they were never actually checked before. No schema change (the `module` node shape already existed; `schemaVersion` stays `0.6.0`). **Tests: 846 → 851 Haskell + 62 Python.**
