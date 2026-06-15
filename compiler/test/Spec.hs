@@ -5490,7 +5490,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- trust). See docs/design/bundle-b0-effect-summary-proposal.md.
   describe "B0 effect/authority summary (Bundle B0)" $ do
     let noC = Contract Nothing Nothing Nothing Nothing Nothing
-        effOf stmts nm = lookup nm (computeEffectSummary stmts)
+        effOf stmts nm = lookup nm (computeEffectSummary Map.empty stmts)
         bnd ls = Just (Caps (Set.fromList ls))
 
     it "B0-1: a pure function is capability-free (empty summary)" $ do
@@ -5566,7 +5566,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case jsonAst moduleSrc of
         Left err    -> expectationFailure (show err)
         Right stmts ->
-          lookup "read-log" (computeEffectSummary stmts)
+          lookup "read-log" (computeEffectSummary Map.empty stmts)
             `shouldBe` Just (Caps (Set.singleton EFsRead))
 
     it "JM-3: a nested module flattens recursively" $ do
@@ -5596,6 +5596,45 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case jsonAst emptyMod of
         Left err    -> expectationFailure (show err)
         Right stmts -> stmts `shouldBe` []
+
+  -- B0 cross-module effect propagation (b0/cross-module-effects). An imported
+  -- function's reachable capabilities propagate into the importer's summary via
+  -- the loaded ModuleCache; unresolved/opaque callees join ⊤ (∅-iff-fully-walked).
+  -- Cyclic-import rejection (the post-order/memoization precondition) is pinned by
+  -- ModuleSpec M-06; the effect walk only runs after a successful load.
+  describe "B0 cross-module effect summary" $ do
+    let noC = Contract Nothing Nothing Nothing Nothing Nothing
+        mkEnv ss = ModuleEnv
+          { meExports = Map.empty, meStatements = ss, meInterfaces = Map.empty
+          , meAliasMap = Map.empty, mePath = ["lib"]
+          , meContractStatus = Map.empty, meContracts = Map.empty }
+        cacheWith ss = Map.fromList [(["lib"], mkEnv ss)]
+        effOfC cache stmts nm = lookup nm (computeEffectSummary cache stmts)
+
+    it "CM-1: an imported function's effect propagates to the importer" $ do
+      let lib   = [SDefShell "remote-write" [("p", TString), ("c", TString)] Nothing noC
+                     (EApp "wasi.fs.write" [EVar "p", EVar "c"])]
+          local = [SDefShell "use-remote" [("p", TString), ("c", TString)] Nothing noC
+                     (EApp "remote-write" [EVar "p", EVar "c"])]
+      effOfC (cacheWith lib) local "use-remote"
+        `shouldBe` Just (Caps (Set.singleton EFsWrite))
+
+    it "CM-2: a transitively-opaque imported callee tops the importer to ⊤" $ do
+      let lib   = [SDefShell "remote-ffi" [("x", TInt)] Nothing noC
+                     (EApp "haskell.unsafeIO" [EVar "x"])]
+          local = [SDefShell "caller" [("x", TInt)] Nothing noC
+                     (EApp "remote-ffi" [EVar "x"])]
+      effOfC (cacheWith lib) local "caller" `shouldBe` Just Unbounded
+
+    it "CM-3: empty cache (single-file) matches the local-only walk" $
+      computeEffectSummary Map.empty
+        [SDefShell "rd" [("p", TString)] Nothing noC (EApp "wasi.fs.read" [EVar "p"])]
+        `shouldBe` [("rd", Caps (Set.singleton EFsRead))]
+
+    it "CM-4: an unresolved callee (not local/imported/builtin/prim) joins ⊤" $ do
+      let local = [SDefShell "f" [("x", TInt)] Nothing noC
+                     (EApp "mystery-unresolved" [EVar "x"])]
+      effOfC Map.empty local "f" `shouldBe` Just Unbounded
 
   -- -----------------------------------------------------------------------
   -- v0.10 Phase 3: Branch Obligations + Repair (OBLIG-3, OBLIG-4)

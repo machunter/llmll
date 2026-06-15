@@ -367,16 +367,37 @@ ownEffects = go
 -- | Per-function authority summary: own effects joined with the transitive
 -- closure over the call graph. Least fixpoint on the finite lattice
 -- 2^Σ_eff ∪ {⊤} (monotone; terminates). Name-sorted. Informational (header).
-computeEffectSummary :: [Statement] -> [(Name, EffectSummary)]
-computeEffectSummary stmts =
-  let cg     = buildCallGraph stmts
-      ownMap = Map.fromList [(n, ownEffects b) | (n, b) <- fnBodies stmts]
+computeEffectSummary :: ModuleCache -> [Statement] -> [(Name, EffectSummary)]
+computeEffectSummary cache stmts =
+  let importedStmts = concatMap meStatements (Map.elems cache)
+      allStmts      = stmts ++ importedStmts
+      cg            = buildCallGraph allStmts
+      ownMap        = Map.fromList [(n, ownEffects b) | (n, b) <- fnBodies allStmts]
+      -- Names whose effect is known without further walking: known builtins
+      -- (their capability, if any, is already folded into the caller's
+      -- ownEffects via primEffect) and declared data constructors (effect-free).
+      knownPure = Map.keysSet builtinEnv `Set.union`
+        Set.fromList [ cn | STypeDef _ (TSumType ctors) <- allStmts, (cn, _) <- ctors ]
+      -- ∅-iff-fully-walked (professor Hazard 1, language-team-settled): a callee
+      -- contributes ∅ ONLY if it is a resolved function (local or imported, in
+      -- ownMap), a known builtin/constructor, or a recognized primitive (already
+      -- counted in ownEffects). Any OTHER applied name is opaque/unresolved — e.g.
+      -- a call into a module not in the cache — and joins ⊤, never silently ∅.
+      calleeEff m c
+        | Just e <- Map.lookup c m  = e
+        | c `Set.member` knownPure  = bottomEff
+        | Just _ <- primEffect c    = bottomEff
+        | otherwise                 = Unbounded
       step m = Map.mapWithKey
-        (\n o -> joinEffs (o : [ Map.findWithDefault bottomEff c m
+        (\n o -> joinEffs (o : [ calleeEff m c
                                | c <- Map.findWithDefault [] n cg ]))
         ownMap
       fixp m = let m' = step m in if m' == m then m else fixp m'
-  in sortOn fst (Map.toList (fixp ownMap))
+      -- Report only the local module's functions; the imported defs were folded
+      -- in solely to resolve cross-module callees during the fixpoint.
+      localNames = Set.fromList (map fst (fnBodies stmts))
+  in sortOn fst
+       [ (n, e) | (n, e) <- Map.toList (fixp ownMap), n `Set.member` localNames ]
   where
     fnBodies = mapMaybe $ \s -> case s of
       SDef      n _ _ _ b   -> Just (n, b)
@@ -665,7 +686,7 @@ encodeCand c = object
 -- | Top-level report assembly.
 assembleReport :: FilePath -> [Statement] -> ModuleCache -> EmitResult
                -> Maybe FQVerifyResult -> TrustReport -> Text
-assembleReport fp stmts _cache emitR mFqResult trustRpt =
+assembleReport fp stmts cache emitR mFqResult trustRpt =
   let table      = erConstraintTable emitR
       faithful   = erBodyFaithfulFns emitR
       fallback   = erBodyFallback emitR
@@ -709,11 +730,11 @@ assembleReport fp stmts _cache emitR mFqResult trustRpt =
         -- Bundle B0: 0.11.0 -> 0.12.0 (additive: per-function effect_summary).
         { orSchemaVersion = "0.12.0"
         , orSourceFile    = T.pack fp
-        , orCrossModule   = "unsupported"
+        , orCrossModule   = if Map.null cache then "single-file" else "supported"
         , orObligations   = allObls
         , orSummary       = summary
         , orRefutedFns    = Set.toList refutedSet
-        , orEffectSummary = computeEffectSummary stmts
+        , orEffectSummary = computeEffectSummary cache stmts
         }
   in encodeReport report
 
