@@ -4,7 +4,11 @@
 
 ## Unreleased
 
-_Nothing yet — v0.12.1 (`def-logic` surface removal + `SDefInvariant` node) in planning._
+### Compiler — `def-logic` removed from both grammar frontends (LT-INV Rev 4) (2026-06-16)
+
+- **`def-logic` is now a hard parse error under all grammar modes** (commit [`4362ebd`](compiler/src/LLMLL/Parser.hs)) — no auto-rewrite, no `--grammar=legacy` escape valve. The S-expression parser rejects it via `pDefLogicRemoved`; the JSON-AST parser `fail`s on `{"kind":"def-logic"}`. Both emit the new **`removed-construct`** diagnostic kind suggesting `def` (strict-core) or `def-shell` (permissive). `letrec` and `--grammar=legacy` are retained (legacy still parses `letrec`); only `def-logic` is withdrawn from the legacy arm.
+- **`def-invariant` promoted to its own `SDefInvariant` AST node** — AstEmit now round-trips `def-invariant` faithfully instead of re-emitting it as `def-logic` (fixes a latent lossy-emit bug). `SDefInvariant` is handled identically to its prior `SDefLogic` storage across the consumer fan-out; the residual `SDefLogic` AstEmit arm is an internal invariant guard (unreachable post-removal).
+- **Schema:** dead `DefLogic` `$def` removed from [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) (already absent from `Statement.oneOf` since v0.11.1 `d3de0da`); `schemaVersion` stays `0.6.0` (non-breaking — no valid document referenced it). **Tests: 855 → 860 Haskell + 62 Python** (+5: `DEFLOGIC-REMOVE-1/2`, `DEFINV-1/2/3`).
 
 <a id="Latest"></a>
 
