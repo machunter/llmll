@@ -531,6 +531,21 @@ data Statement
     , defShellContract :: Contract
     , defShellBody     :: Expr
     }
+  -- | v0.12.1: module-level invariant predicate, promoted out of 'SDefLogic'.
+  -- Carries identical verification semantics to 'SDefShell'/'SDefLogic' (a
+  -- def-invariant has no pre/post and verification is Phase 2b — see
+  -- @docs/llmll-ast.schema.json@ DefInvariant). The 5-field shape mirrors the
+  -- other def-forms so 'normalizeDefStmt' and every consumer arm stay uniform;
+  -- only AstEmit treats it specially, serialising the single param + body as a
+  -- @def-invariant@ node rather than the lossy @def-logic@ form (the v0.12.1
+  -- round-trip fix). Surface form is JSON-AST only (no S-expression keyword).
+  | SDefInvariant
+    { defInvariantName     :: Name
+    , defInvariantParams   :: [(Name, Type)]
+    , defInvariantReturn   :: Maybe Type
+    , defInvariantContract :: Contract
+    , defInvariantBody     :: Expr
+    }
   -- | Explicitly recursive function with a termination measure.
   -- D2: `:decreases expr` must be an integer-valued expression that strictly
   -- decreases in each recursive call (restricted to QF linear arithmetic for LH).
@@ -587,10 +602,11 @@ data Statement
 -- Use this in the 22-file fan-out wherever all three forms are treated
 -- identically (codegen, trust report, fixpoint emission, etc.).
 normalizeDefStmt :: Statement -> Maybe (Name, [(Name, Type)], Maybe Type, Contract, Expr)
-normalizeDefStmt (SDefLogic n p r c b) = Just (n, p, r, c, b)
-normalizeDefStmt (SDef      n p r c b) = Just (n, p, r, c, b)
-normalizeDefStmt (SDefShell n p r c b) = Just (n, p, r, c, b)
-normalizeDefStmt _                     = Nothing
+normalizeDefStmt (SDefLogic     n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt (SDef          n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt (SDefShell     n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt (SDefInvariant n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt _                         = Nothing
 
 -- | LT-INV (v0.11): return 'True' if an expression is admissible inside a
 -- strict-core ('SDef') body per the grammar production in the proposal §3.2.

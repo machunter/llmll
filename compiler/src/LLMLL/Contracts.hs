@@ -89,9 +89,10 @@ analyzeContracts stmts =
       hasPost = length [() | (_, c) <- contractDefs, contractPost c /= Nothing]
       hasBoth = length [() | (_, c) <- contractDefs,
                               contractPre c /= Nothing, contractPost c /= Nothing]
-      totalFns = length [() | SDefLogic{}  <- stmts]
-                + length [() | SDef{}      <- stmts]
-                + length [() | SDefShell{} <- stmts]
+      totalFns = length [() | SDefLogic{}     <- stmts]
+                + length [() | SDef{}          <- stmts]
+                + length [() | SDefShell{}     <- stmts]
+                + length [() | SDefInvariant{} <- stmts]
   in ContractReport
     { crFunctionsWithContracts    = length contractDefs
     , crFunctionsWithPre          = hasPre

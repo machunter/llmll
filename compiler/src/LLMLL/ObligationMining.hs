@@ -196,6 +196,8 @@ findContract name stmts =
              -- LT-INV (v0.11)
              ++ [ c | SDef      n _ _ c _   <- stmts, n == name ]
              ++ [ c | SDefShell n _ _ c _   <- stmts, n == name ]
+             -- v0.12.1
+             ++ [ c | SDefInvariant n _ _ c _ <- stmts, n == name ]
   in case matches of
     (c:_) -> Just c
     []    -> Nothing

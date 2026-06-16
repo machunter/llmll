@@ -404,6 +404,8 @@ computeEffectSummary cache stmts =
       SDefShell n _ _ _ b   -> Just (n, b)
       SDefLogic n _ _ _ b   -> Just (n, b)
       SLetrec   n _ _ _ _ b -> Just (n, b)
+      -- v0.12.1
+      SDefInvariant n _ _ _ b -> Just (n, b)
       _                     -> Nothing
 
 encodeEffectSummary :: [(Name, EffectSummary)] -> Value
@@ -887,6 +889,8 @@ findFunctionInfo name stmts = case filter (matchesName name) stmts of
   -- LT-INV (v0.11)
   (SDef      _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
   (SDefShell _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
+  -- v0.12.1
+  (SDefInvariant _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
   _ -> (Nothing, Nothing, Nothing)
   where
     matchesName n (SDefLogic nm _ _ _ _)    = nm == n
@@ -894,6 +898,8 @@ findFunctionInfo name stmts = case filter (matchesName name) stmts of
     -- LT-INV (v0.11)
     matchesName n (SDef      nm _ _ _ _)    = nm == n
     matchesName n (SDefShell nm _ _ _ _)    = nm == n
+    -- v0.12.1
+    matchesName n (SDefInvariant nm _ _ _ _) = nm == n
     matchesName _ _                         = False
 
 findTrustEntry :: Name -> TrustReport -> Maybe TrustEntry

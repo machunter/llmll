@@ -403,6 +403,10 @@ buildEntry prefix allCS stmt = case stmt of
   SDefShell name _ _ contract body ->
     let qname = prefix <> name
     in Just (mkEntry qname contract body allCS)
+  -- v0.12.1: def-invariant contributes to trust report identically to SDefLogic.
+  SDefInvariant name _ _ contract body ->
+    let qname = prefix <> name
+    in Just (mkEntry qname contract body allCS)
   _ -> Nothing
 
 mkEntry :: Name -> Contract -> Expr -> Map Name ContractStatus -> TrustEntry

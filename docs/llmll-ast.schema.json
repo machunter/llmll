@@ -52,24 +52,6 @@
       ]
     },
 
-    "DefLogic": {
-      "description": "DEPRECATED — v0.11 (LT-INV). kind:'def-logic' is rejected under GrammarCoreInversion (the default since v0.11). Use kind:'def' (DefCore) for strict-core functions or kind:'def-shell' (DefShell) for permissive functions. This entry is retained in $defs for --grammar=legacy users only and is no longer reachable from Statement.oneOf under the default grammar. Will be removed entirely in v0.12.",
-      "type": "object",
-      "required": ["kind", "name", "params", "body"],
-      "additionalProperties": false,
-      "properties": {
-        "kind":   { "type": "string", "const": "def-logic" },
-        "name":   { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
-        "params": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/TypedParam" }
-        },
-        "pre":    { "$ref": "#/$defs/Expr", "description": "Precondition. Must be bool-typed. Absence means 'true'." },
-        "post":   { "$ref": "#/$defs/Expr", "description": "Postcondition. Must be bool-typed. 'result' is in scope here only." },
-        "body":   { "$ref": "#/$defs/Expr" }
-      }
-    },
-
     "DefCore": {
       "description": "A strict-core function with optional pre/post contracts. Corresponds to EBNF 'def'. Kind must be exactly 'def'. Body is restricted to the core-body whitelist (ELit, EVar, QF-LIA EOp, ELet with PVar, EIf under path-limit, EApp to body-faithful or trusted-prelude callees, EMatch on Result 2-arm, ?hole/?name/?choose/?request-cap/?scaffold/?delegate/?delegate-async). Excluded: lambda, letrec, do-notation, ?proof-required, non-linear arithmetic, opaque crypto, untrusted FFI. Self-recursion is excluded — use def-shell for recursive functions. Return type is always inferred — omit it. Under GrammarCoreInversion (default since v0.11), this is the standard form for high-assurance functions eligible for body-faithful SMT verification. LT-INV v0.11.",
       "type": "object",
@@ -714,7 +696,7 @@
     },
 
     "ExprApp": {
-      "description": "A plain function call: (fn-name arg1 arg2 ...). Use for user-defined def-logic and built-in stdlib functions.",
+      "description": "A plain function call: (fn-name arg1 arg2 ...). Use for user-defined def/def-shell and built-in stdlib functions.",
       "type": "object",
       "required": ["kind", "fn", "args"],
       "additionalProperties": false,
@@ -977,7 +959,7 @@
           "type": "array",
           "items": { "type": "string" },
           "minItems": 1,
-          "description": "Names of def-logic, type, def-interface, or gen declarations to export. check and def-invariant are never exported."
+          "description": "Names of def, def-shell, type, def-interface, or gen declarations to export. check and def-invariant are never exported."
         }
       },
       "examples": [

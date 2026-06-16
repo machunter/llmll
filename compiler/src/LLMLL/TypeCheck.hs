@@ -604,6 +604,9 @@ collectTopLevel (SDefShell name params mRet _contract _body) =
   let argTypes = map snd params
       retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
+-- v0.12.1: def-invariant registers identically to its prior SDefLogic form.
+collectTopLevel (SDefInvariant name params mRet contract body) =
+  collectTopLevel (SDefLogic name params mRet contract body)
 collectTopLevel (SDefInterface name fns _laws) =
   Just (name, TCustom name)  -- interfaces register as custom types
 collectTopLevel (STypeDef name body) =
@@ -755,6 +758,9 @@ checkStatement (SDefShell name params mRet contract body) = do
           unless postOk $
             tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
 
+-- v0.12.1: def-invariant type-checks identically to its prior SDefLogic form.
+checkStatement (SDefInvariant name params mRet contract body) =
+  checkStatement (SDefLogic name params mRet contract body)
 checkStatement (SDefInterface name fns laws) = do
   -- Register interface function signatures
   forM_ fns $ \(fname, ftype) ->
@@ -1648,6 +1654,9 @@ runSketch gm env stmts patterns =
           retType    = fromMaybe (TCustom "_") mRetType
           fnType     = TFn paramTypes retType
       in matchPatterns name fnType patterns
+    -- v0.12.1: def-invariant matches identically to its prior SDefLogic form.
+    matchStmt e (SDefInvariant name params mRetType c b) =
+      matchStmt e (SDefLogic name params mRetType c b)
     matchStmt _ _ = []
 
 -- ---------------------------------------------------------------------------

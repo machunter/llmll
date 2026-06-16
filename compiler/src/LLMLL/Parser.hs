@@ -135,8 +135,9 @@ pStatement :: GrammarMode -> Parser Statement
 pStatement mode = choice $
   (case mode of
     GrammarCoreInversion -> [pDef, pDefShell]
-    GrammarLegacy        -> [pDefLogic, pLetrec]) ++
-  [ pDefMain
+    GrammarLegacy        -> [pLetrec]) ++
+  [ pDefLogicRemoved
+  , pDefMain
   , pDefInterface
   , pTypeDef
   , pCheckBlock
@@ -149,27 +150,17 @@ pStatement mode = choice $
   , SExpr <$> pExpr
   ]
 
--- | Parse (def-logic name [params] (pre ...) ... (post ...) body)
--- Multiple (pre ...) clauses are accepted and desugared to (pre (and ...)).
-pDefLogic :: Parser Statement
-pDefLogic = do
+-- | v0.12.1: 'def-logic' was removed under all grammar modes (no auto-rewrite,
+-- no escape valve — see @docs/design/core-shell-inversion-proposal.md@ Rev 4).
+-- The keyword is recognised here only to emit a clear diagnostic instead of a
+-- generic "unexpected token" parse error; it fires in both 'GrammarLegacy' and
+-- 'GrammarCoreInversion' because it lives in the shared tail of 'pStatement'.
+pDefLogicRemoved :: Parser Statement
+pDefLogicRemoved = do
   _ <- try (symbol "(" *> symbol "def-logic")
-  name <- pIdent
-  params <- brackets (many pDefParam)
-  preClauses <- many (try pPreClause)
-  postClause <- optional (try pPostClause)
-  mEntropy <- optional (try pSpecEntropyClause)
-  body <- pExpr
-  _ <- symbol ")"
-  let (mPre, mPreSrc) = case preClauses of
-               []       -> (Nothing, Nothing)
-               [(p, s)] -> (Just p, s)
-               ps       -> (Just (foldl1 (\a b -> EApp "and" [a, b]) (map fst ps)),
-                            Nothing)  -- multiple pre clauses: source is ambiguous
-      (mPost, mPostSrc) = case postClause of
-               Nothing     -> (Nothing, Nothing)
-               Just (p, s) -> (Just p, s)
-  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  fail $ "removed-construct: 'def-logic' was removed in v0.12.1 and is "
+      ++ "rejected under all grammar modes (no auto-rewrite); use 'def' for "
+      ++ "strict-core or 'def-shell' for permissive"
 
 -- | Parse (letrec name [params] :decreases measure body)
 -- Introduces an explicitly recursive function with a termination measure.

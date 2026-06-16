@@ -51,18 +51,28 @@ emitJsonAST stmts =
 -- ---------------------------------------------------------------------------
 
 stmtToJson :: Statement -> Value
-stmtToJson (SDefLogic name params _ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
+-- v0.12.1: def-invariant round-trips faithfully via its own node. Schema
+-- 'DefInvariant' carries a single 'param' (not a 'params' array) and no
+-- pre/post; parseDefInvariant always builds exactly one param.
+stmtToJson (SDefInvariant name params _ret _contract body) =
   object $
-    [ "kind"   .= ("def-logic" :: Text)
-    , "name"   .= name
-    , "params" .= map typedParamToJson params
-    , "body"   .= exprToJson body
-    ] ++
-    maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
-    maybe [] (\s -> ["pre_source" .= s]) _preSource ++
-    maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
-    maybe [] (\s -> ["post_source" .= s]) _postSource ++
-    maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
+    [ "kind"  .= ("def-invariant" :: Text)
+    , "name"  .= name
+    , "body"  .= exprToJson body
+    ] ++ case params of
+           (p:_) -> [ "param" .= typedParamToJson p ]
+           []    -> []
+
+-- v0.12.1: 'def-logic' surface removed (parse error under all modes) and
+-- def-invariant promoted to 'SDefInvariant', so no parse path now yields an
+-- 'SDefLogic'. The only remaining 'SDefLogic' values are the synthetic VC
+-- nodes built in WeaknessCheck, which feed emitFixpoint, never emitJsonAST.
+-- Serialising one would re-introduce the lossy 'def-logic' emission this
+-- release removes, so this is an internal invariant guard.
+stmtToJson (SDefLogic name _ _ _ _) =
+  error $ "AstEmit: SDefLogic '" ++ T.unpack name
+       ++ "' is not serialisable (def-logic removed in v0.12.1; "
+       ++ "def-invariant is SDefInvariant)"
 
 -- LT-INV (v0.11): SDef emits {"kind":"def",...} and SDefShell emits {"kind":"def-shell",...}.
 stmtToJson (SDef name params _ret (Contract mPre _preSource mPost _postSource mEntropy) body) =

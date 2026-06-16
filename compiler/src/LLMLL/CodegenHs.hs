@@ -403,6 +403,8 @@ emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
 -- LT-INV (v0.11): SDef and SDefShell emit identically to SDefLogic.
 emitStmt (SDef      name params mRet c b) = emitDefLogic name params mRet c b
 emitStmt (SDefShell name params mRet c b) = emitDefLogic name params mRet c b
+-- v0.12.1: def-invariant codegen unchanged from its prior SDefLogic form.
+emitStmt (SDefInvariant name params mRet c b) = emitDefLogic name params mRet c b
 -- D2: SLetrec emits as a regular Haskell function.
 -- The {- letrec :decreases ... -} marker is a breadcrumb for the D4 LH annotation pass.
 emitStmt (SLetrec name params mRet c dec b) =

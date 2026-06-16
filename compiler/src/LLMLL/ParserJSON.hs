@@ -75,6 +75,8 @@ parseJSONAST mode fp bs =
                              then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive); replace {\"kind\":\"letrec\",...} with {\"kind\":\"def-shell\",...}"
                            else if k == "legacy-grammar-violation"
                              then Just "Drop --grammar=legacy to parse v0.11 programs; or replace {\"kind\":\"def\",...} with {\"kind\":\"def-logic\",...} and {\"kind\":\"def-shell\",...} with {\"kind\":\"letrec\",...} to produce v0.10-compatible output"
+                           else if k == "removed-construct"
+                             then Just "def-logic was removed in v0.12.1; replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive)"
                            else Nothing
                        }
           in Left diag
@@ -84,6 +86,7 @@ parseJSONAST mode fp bs =
       | "schema-version-mismatch"  `T.isInfixOf` msg = "schema-version-mismatch"
       | "core-grammar-violation"   `T.isInfixOf` msg = "core-grammar-violation"
       | "legacy-grammar-violation" `T.isInfixOf` msg = "legacy-grammar-violation"
+      | "removed-construct"        `T.isInfixOf` msg = "removed-construct"
       | otherwise = "json-decode-error"
 
 -- | Parse a JSON Value (already decoded) into statements.
@@ -143,15 +146,15 @@ parseStatement :: GrammarMode -> Value -> Parser Statement
 parseStatement mode = withObject "Statement" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
-    "def-logic" ->
-      case mode of
-        GrammarCoreInversion -> do
-          name <- o .:? "name" .!= ("(unknown)" :: Text)
-          fail $ "core-grammar-violation: 'def-logic' (function '"
-                 ++ T.unpack name
-                 ++ "') is not admitted under --grammar=core-inversion; "
-                 ++ "use 'def' for strict-core or 'def-shell' for permissive"
-        GrammarLegacy -> parseDefLogic o
+    "def-logic" -> do
+      -- v0.12.1: 'def-logic' removed under all grammar modes (no auto-rewrite,
+      -- no escape valve). The GrammarLegacy arm that previously called
+      -- 'parseDefLogic' is gone; both modes now reject.
+      name <- o .:? "name" .!= ("(unknown)" :: Text)
+      fail $ "removed-construct: 'def-logic' (function '"
+             ++ T.unpack name
+             ++ "') was removed in v0.12.1 and is rejected under all grammar "
+             ++ "modes; use 'def' for strict-core or 'def-shell' for permissive"
     -- LT-INV (v0.11): strict-core and permissive-shell variants
     "def" ->
       case mode of
@@ -200,18 +203,6 @@ parseStatement mode = withObject "Statement" $ \o -> do
     -- v0.6 suppression governance
     "weakness-ok"  -> parseWeaknessOkDecl o
     _              -> fail $ "unknown Statement kind: " ++ T.unpack kind
-
-parseDefLogic :: Object -> Parser Statement
-parseDefLogic o = do
-  name   <- o .: "name"
-  params <- o .: "params" >>= mapM parseTypedParam
-  mPre   <- o .:? "pre"   >>= mapM parseExpr
-  mPreSrc <- o .:? "pre_source"
-  mPost  <- o .:? "post"  >>= mapM parseExpr
-  mPostSrc <- o .:? "post_source"
-  mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
-  body   <- o .: "body"   >>= parseExpr
-  pure $ SDefLogic name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | LT-INV (v0.11): parse {"kind":"def",...} into SDef (strict-core).
 parseDefCore :: Object -> Parser Statement
@@ -276,8 +267,9 @@ parseDefInvariant o = do
   name  <- o .: "name"
   param <- o .: "param" >>= parseTypedParam
   body  <- o .: "body"  >>= parseExpr
-  -- def-invariant stored as SDefLogic (full node deferred to v0.2)
-  pure $ SDefLogic name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing) body
+  -- v0.12.1: def-invariant now has its own node (SDefInvariant), so AstEmit
+  -- can round-trip it faithfully instead of re-emitting it as 'def-logic'.
+  pure $ SDefInvariant name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing) body
 
 parseTypeDecl :: Object -> Parser Statement
 parseTypeDecl o = do

@@ -154,6 +154,10 @@ collectHolesStmtIdx idx (SDefLogic name _params _ret contract body) =
                   else []) (contractPost contract)
   in bodyHoles ++ preHoles ++ postHoles ++ nlPreH ++ nlPostH
 
+-- v0.12.1: def-invariant collects holes identically to its prior SDefLogic form.
+collectHolesStmtIdx idx (SDefInvariant name params ret contract body) =
+  collectHolesStmtIdx idx (SDefLogic name params ret contract body)
+
 collectHolesStmtIdx _idx (SDefInterface _ _ _) = []
 
 -- LT-INV (v0.11): SDef and SDefShell collect holes identically to SDefLogic.
@@ -522,6 +526,9 @@ holeDensityWarnings = concatMap checkStmt
             "def-logic '" <> name <> "' body is entirely a single named hole (?" <> holeName_ <> "). "
             <> "Prefer targeted holes over wholesale stubs."]
         _ -> []
+    -- v0.12.1: def-invariant density-checks identically to its prior SDefLogic form.
+    checkStmt (SDefInvariant name params ret contract body) =
+      checkStmt (SDefLogic name params ret contract body)
     -- LT-INV (v0.11): same density check for SDef and SDefShell.
     checkStmt (SDef name _params _ret _contract body) =
       case body of
@@ -581,6 +588,8 @@ buildCallGraph stmts = Map.fromList $ mapMaybe go stmts
     -- LT-INV (v0.11)
     go (SDef      name _ _ _ body)  = Just (name, nub $ extractCalls body)
     go (SDefShell name _ _ _ body)  = Just (name, nub $ extractCalls body)
+    -- v0.12.1
+    go (SDefInvariant name _ _ _ body) = Just (name, nub $ extractCalls body)
     go _                            = Nothing
 
 -- | Build map: function name → list of body holes (only AgentTask/Blocking).
@@ -617,6 +626,8 @@ enclosingFunc pointer stmts =
     -- LT-INV (v0.11)
     stmtName (SDef      name _ _ _ _)    = Just name
     stmtName (SDefShell name _ _ _ _)    = Just name
+    -- v0.12.1
+    stmtName (SDefInvariant name _ _ _ _) = Just name
     stmtName _                           = Nothing
 
 -- | Compute dependency edges for all holes.

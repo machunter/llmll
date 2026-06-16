@@ -270,6 +270,11 @@ buildModuleEnv path stmts _env =
     toExport (SDefShell name params mRet _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
+    -- v0.12.1: def-invariant exports identically to its prior SDefLogic form.
+    -- NOTE (spec-drift): docs/llmll-ast.schema.json states def-invariant is
+    -- never exported; this preserves the prior (SDefLogic) behavior unchanged.
+    toExport (SDefInvariant name params mRet c b) =
+      toExport (SDefLogic name params mRet c b)
     toExport (SDefInterface name _ _) = Just (name, TCustom name)
     toExport (STypeDef name body)   = Just (name, body)
     toExport _                      = Nothing
@@ -300,6 +305,9 @@ buildModuleEnv path stmts _env =
     extractContracts (SDef      name params mRet contract _) =
       Just (name, (params, contract, mRet))
     extractContracts (SDefShell name params mRet contract _) =
+      Just (name, (params, contract, mRet))
+    -- v0.12.1
+    extractContracts (SDefInvariant name params mRet contract _) =
       Just (name, (params, contract, mRet))
     extractContracts _ = Nothing
 

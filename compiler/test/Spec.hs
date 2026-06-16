@@ -96,7 +96,7 @@ main = hspec $ do
         Right toks -> length toks `shouldBe` 1
 
     it "tokenizes def-logic keyword" $ do
-      let result = tokenize "<test>" "(def-logic withdraw)"
+      let result = tokenize "<test>" "(def-shell withdraw)"
       case result of
         Left err -> expectationFailure (show err)
         Right toks -> length toks `shouldBe` 4  -- ( def-logic withdraw )
@@ -110,21 +110,21 @@ main = hspec $ do
   describe "Parser" $ do
     it "parses a type definition" $ do
       let src = "(type PositiveInt (where [x: int] (> x 0)))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
 
     it "parses a def-logic with contracts" $ do
-      let src = "(def-logic withdraw [balance: int amount: int]\n\
+      let src = "(def-shell withdraw [balance: int amount: int]\n\
                 \  (pre (>= balance amount))\n\
                 \  (post (= result (- balance amount)))\n\
                 \  (- balance amount))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
           case head stmts of
-            SDefLogic name params _ contract _ -> do
+            SDefShell name params _ contract _ -> do
               name `shouldBe` "withdraw"
               length params `shouldBe` 2
               contractPre contract `shouldNotBe` Nothing
@@ -135,7 +135,7 @@ main = hspec $ do
       let src = "(check \"Addition is commutative\"\n\
                 \  (for-all [a: int b: int]\n\
                 \    (= (+ a b) (+ b a))))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -160,7 +160,7 @@ main = hspec $ do
       let src = "(def-interface AuthSystem\n\
                 \  [hash-password (fn [raw: string] -> bytes[64])]\n\
                 \  [verify-token  (fn [token: string] -> bool)])"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -231,7 +231,7 @@ main = hspec $ do
     it "def-interface with → parses same as with ->" $ do
       let ascii   = "(def-interface X [f (fn [string] -> bool)])"
           unicode = "(def-interface X [f (fn [string] → bool)])"
-      let parseOne src = parseStatements GrammarLegacy "<test>" src
+      let parseOne src = parseStatements GrammarCoreInversion "<test>" src
       case (parseOne ascii, parseOne unicode) of
         (Right a, Right b) -> a `shouldBe` b
         (Left err, _)      -> expectationFailure $ "ASCII parse failed: " ++ show err
@@ -239,14 +239,14 @@ main = hspec $ do
 
     it "∀ expression in check block parses correctly" $ do
       let src = "(check \"commutativity\" (∀ [a: int b: int] (= (+ a b) (+ b a))))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err   -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
 
   describe "TypeCheck (where binding scope)" $ do
     it "string where-type binding name preserved in AST" $ do
       let src = "(type Word (where [s: string] (> (string-length s) 0)))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right [STypeDef _name (TDependent bName _base _constraint)] ->
           bName `shouldBe` "s"
@@ -254,7 +254,7 @@ main = hspec $ do
 
     it "int where-type binding name preserved in AST" $ do
       let src = "(type NonNeg (where [n: int] (>= n 0)))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right [STypeDef _name (TDependent bName _base _constraint)] ->
           bName `shouldBe` "n"
@@ -267,9 +267,9 @@ main = hspec $ do
       --            compatibleWith (TDependent _ TInt _) TInt = True => no error.
       let src = T.pack $ unlines
             [ "(type NonNeg (where [n: int] (>= n 0)))"
-            , "(def-logic use-nonneg [x: NonNeg] x)"
+            , "(def-shell use-nonneg [x: NonNeg] x)"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -278,9 +278,9 @@ main = hspec $ do
     it "string literal matches a where-alias (Word) without error" $ do
       let src = T.pack $ unlines
             [ "(type Word (where [s: string] (> (string-length s) 0)))"
-            , "(def-logic use-word [w: Word] w)"
+            , "(def-shell use-word [w: Word] w)"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -295,14 +295,14 @@ main = hspec $ do
     it "#1 match on Result[Color,string] resolves inner TCustom to TSumType" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
-            , "(def-logic f [r: Result[Color, string]]"
+            , "(def-shell f [r: Result[Color, string]]"
             , "  (match r"
             , "    ((Success (Red)) \"red\")"
             , "    ((Success (Green)) \"green\")"
             , "    ((Success (Blue)) \"blue\")"
             , "    ((Error e) \"err\")))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -315,13 +315,13 @@ main = hspec $ do
     it "#2 match on (Color, int) resolves inner TCustom via checkPattern entry" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
-            , "(def-logic f [p: (Color, int)]"
+            , "(def-shell f [p: (Color, int)]"
             , "  (match p"
             , "    ((pair (Red) n) n)"
             , "    ((pair (Green) n) n)"
             , "    ((pair (Blue) n) n)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -335,10 +335,10 @@ main = hspec $ do
       let src = T.pack $ unlines
             [ "(type B (| Foo unit))"
             , "(type A B)"
-            , "(def-logic f [x: A]"
+            , "(def-shell f [x: A]"
             , "  (match x ((Foo) \"found\")))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -348,10 +348,10 @@ main = hspec $ do
     it "#4 TPair with both components aliased expands independently" $ do
       let src = T.pack $ unlines
             [ "(type A int)"
-            , "(def-logic f [x: A y: A]"
+            , "(def-shell f [x: A y: A]"
             , "  (+ x y))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -365,10 +365,10 @@ main = hspec $ do
       -- The mismatch is detected via compatibleExpanded at the if-branch site.
       let src = T.pack $ unlines
             [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
-            , "(def-logic f [b: bool c: Color]"
+            , "(def-shell f [b: bool c: Color]"
             , "  (if b c 42))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -387,10 +387,10 @@ main = hspec $ do
     it "#6 if branches: alias vs base type accepted when alias expands to base" $ do
       let src = T.pack $ unlines
             [ "(type MyInt int)"
-            , "(def-logic f [x: MyInt b: bool]"
+            , "(def-shell f [x: MyInt b: bool]"
             , "  (if b x 42))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -403,9 +403,9 @@ main = hspec $ do
     it "#7 pre condition with alias-to-bool accepted" $ do
       let src = T.pack $ unlines
             [ "(type Flag bool)"
-            , "(def-logic f [x: Flag] (pre x) x)"
+            , "(def-shell f [x: Flag] (pre x) x)"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -419,12 +419,12 @@ main = hspec $ do
       let src = T.pack $ unlines
             [ "(type MyInt int)"
             , "(type Color (| Red unit) (| Green unit))"
-            , "(def-logic f [x: MyInt c: Color]"
+            , "(def-shell f [x: MyInt c: Color]"
             , "  (match c"
             , "    ((Red) x)"
             , "    ((Green) 42)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -437,10 +437,10 @@ main = hspec $ do
     it "#9 pair destructor on alias-of-TPair succeeds via checkPattern entry" $ do
       let src = T.pack $ unlines
             [ "(type P (int, string))"
-            , "(def-logic f [p: P]"
+            , "(def-shell f [p: P]"
             , "  (match p ((pair a b) a)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -452,7 +452,7 @@ main = hspec $ do
             [ "(type A B)"
             , "(type B A)"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -467,7 +467,7 @@ main = hspec $ do
             [ "(type A list[B])"
             , "(type B list[A])"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -480,12 +480,12 @@ main = hspec $ do
     it "#12 recursive ADT (type Tree (| Leaf | Node Tree)) accepted without cycle error" $ do
       let src = T.pack $ unlines
             [ "(type Tree (| Leaf unit) (| Node Tree))"
-            , "(def-logic f [t: Tree]"
+            , "(def-shell f [t: Tree]"
             , "  (match t"
             , "    ((Leaf) 0)"
             , "    ((Node sub) 1)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -498,10 +498,10 @@ main = hspec $ do
     it "#13 list[Color] compatible after alias expansion (bridge removed)" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red unit) (| Green unit) (| Blue unit))"
-            , "(def-logic f [xs: list[Color]]"
+            , "(def-shell f [xs: list[Color]]"
             , "  (list-length xs))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -511,13 +511,13 @@ main = hspec $ do
     it "#14 delegate-async -> await -> match with ADT constructors type-checks" $ do
       let src = T.pack $ unlines
             [ "(type ColorADT (| Red unit) (| Green unit) (| Blue unit))"
-            , "(def-logic process-color [c: ColorADT]"
+            , "(def-shell process-color [c: ColorADT]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    ((Green) \"green\")"
             , "    ((Blue) \"blue\")))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -530,8 +530,8 @@ main = hspec $ do
     it "first accepts a pair-typed param (v0.4 U2-lite: requires TPair)" $ do
       -- v0.4 U2-lite: first :: TFn [TPair a b] a (was TFn [TVar p] (TVar a))
       let src = T.pack $ unlines
-            [ "(def-logic state-word [s: (string, int)] (first s))" ]
-      case parseStatements GrammarLegacy "<test>" src of
+            [ "(def-shell state-word [s: (string, int)] (first s))" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -539,8 +539,8 @@ main = hspec $ do
 
     it "second accepts a pair-typed param (v0.4 U2-lite: requires TPair)" $ do
       let src = T.pack $ unlines
-            [ "(def-logic state-rest [s: (int, string)] (second s))" ]
-      case parseStatements GrammarLegacy "<test>" src of
+            [ "(def-shell state-rest [s: (int, string)] (second s))" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -548,8 +548,8 @@ main = hspec $ do
 
     it "first on non-pair (string) now produces type error (U2-lite)" $ do
       let src = T.pack $ unlines
-            [ "(def-logic state-word [s: string] (first s))" ]
-      case parseStatements GrammarLegacy "<test>" src of
+            [ "(def-shell state-word [s: string] (first s))" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -678,7 +678,7 @@ main = hspec $ do
   describe "TSumType (structured sum type)" $ do
     it "S-expression: (type Color (| Red) (| Green) (| Blue)) parses to TSumType" $ do
       let src = "(type Color (| Red) (| Green) (| Blue))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -693,7 +693,7 @@ main = hspec $ do
 
     it "S-expression: sum type with payload parses payload type" $ do
       let src = "(type Shape (| Circle int) (| Rect))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case stmts of
@@ -719,13 +719,13 @@ main = hspec $ do
     it "exhaustive TSumType match (all ctors covered) passes type-check" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
-            , "(def-logic describe [c: Color]"
+            , "(def-shell describe [c: Color]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    ((Green) \"green\")"
             , "    ((Blue) \"blue\")))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -737,12 +737,12 @@ main = hspec $ do
     it "non-exhaustive TSumType match (missing ctor) emits non-exhaustive-match error" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
-            , "(def-logic describe [c: Color]"
+            , "(def-shell describe [c: Color]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    ((Green) \"green\")))"   -- Blue is missing
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -754,12 +754,12 @@ main = hspec $ do
     it "wildcard arm satisfies exhaustiveness for TSumType" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
-            , "(def-logic describe [c: Color]"
+            , "(def-shell describe [c: Color]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    (_ \"other\")))"   -- wildcard covers rest
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -769,11 +769,11 @@ main = hspec $ do
 
     it "non-exhaustive TResult match (missing Error) emits error" $ do
       let src = T.pack $ unlines
-            [ "(def-logic extract [r: Result[int, string]]"
+            [ "(def-shell extract [r: Result[int, string]]"
             , "  (match r"
             , "    ((Success v) v)))"   -- Error arm missing
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -801,10 +801,10 @@ main = hspec $ do
 
     it "self-recursive def-logic emits self-recursion warning under GrammarLegacy" $ do
       let src = T.pack $ unlines
-            [ "(def-logic count-down [n: int]"
+            [ "(def-shell count-down [n: int]"
             , "  (if (= n 0) 0 (count-down (- n 1))))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarLegacy emptyEnv stmts
@@ -848,12 +848,12 @@ main = hspec $ do
   -- -----------------------------------------------------------------------
   describe "D3 ?proof-required hole" $ do
     it "?proof-required parses as HProofRequired manual in S-expression" $ do
-      let src = "(def-logic dummy [] ?proof-required)"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell dummy [] ?proof-required)"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefLogic _ _ _ _ (EHole (HProofRequired r _)) ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r _)) ->
               r `shouldBe` "manual"
             _ -> expectationFailure "Expected EHole (HProofRequired \"manual\")"
 
@@ -893,35 +893,35 @@ main = hspec $ do
 
     -- PPR-P1: leaf form unchanged
     it "PPR-P1 leaf ?proof-required still parses as HProofRequired manual Nothing" $ do
-      let src = "(def-logic f [] ?proof-required)"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [] ?proof-required)"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefLogic _ _ _ _ (EHole (HProofRequired r mp)) -> do
+            SDefShell _ _ _ _ (EHole (HProofRequired r mp)) -> do
               r  `shouldBe` "manual"
               mp `shouldBe` Nothing
             _ -> expectationFailure "Expected SDefLogic with HProofRequired"
 
     -- PPR-P2: parens form with predicate, default reason
     it "PPR-P2 (?proof-required pred) parses as HProofRequired manual (Just pred)" $ do
-      let src = "(def-logic f [n: int] (?proof-required (> n 0)))"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [n: int] (?proof-required (> n 0)))"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefLogic _ _ _ _ (EHole (HProofRequired r (Just _))) ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) ->
               r `shouldBe` "manual"
             _ -> expectationFailure "Expected predicate-carrying HProofRequired"
 
     -- PPR-P3: parens form with :reason tag
     it "PPR-P3 (?proof-required :reason \"custom\" pred) uses supplied reason" $ do
-      let src = "(def-logic f [n: int] (?proof-required :reason \"custom\" (> n 0)))"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [n: int] (?proof-required :reason \"custom\" (> n 0)))"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefLogic _ _ _ _ (EHole (HProofRequired r (Just _))) ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) ->
               r `shouldBe` "custom"
             _ -> expectationFailure "Expected custom reason in HProofRequired"
 
@@ -929,21 +929,21 @@ main = hspec $ do
     it "PPR-P4 JSON hole-proof-required with predicate field parses correctly" $ do
       let src = BLC.pack $ unlines
             [ "{\"schemaVersion\":\"0.6.0\",\"statements\":["
-            , "{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[]"
+            , "{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[]"
             , ",\"body\":{\"kind\":\"hole-proof-required\",\"reason\":\"manual\""
             , ",\"predicate\":{\"kind\":\"lit-bool\",\"value\":true}}}]}"
             ]
-      case parseJSONAST GrammarLegacy "<test>" src of
+      case parseJSONAST GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefLogic _ _ _ _ (EHole (HProofRequired _ (Just _))) -> pure ()
+            SDefShell _ _ _ _ (EHole (HProofRequired _ (Just _))) -> pure ()
             _ -> expectationFailure "Expected predicate-carrying HProofRequired from JSON"
 
     -- PPR-T1: valid bool predicate passes typecheck
     it "PPR-T1 bool predicate in PPR contract clause passes typecheck" $ do
-      let src = "(def-logic f [n: int] (pre (?proof-required (> n 0))) n)"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [n: int] (pre (?proof-required (> n 0))) n)"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -982,8 +982,8 @@ main = hspec $ do
 
     -- PPR-T5: predicate in post position with result variable passes typecheck
     it "PPR-T5 bool predicate in post-position PPR clause with result passes typecheck" $ do
-      let src = "(def-logic f [n: int] (post (?proof-required (> result 0))) n)"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [n: int] (post (?proof-required (> result 0))) n)"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -992,7 +992,7 @@ main = hspec $ do
 
     -- PPR-A1: leaf form holeToJson emits no predicate field
     it "PPR-A1 leaf HProofRequired holeToJson has no predicate key" $ do
-      let stmt = SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+      let stmt = SDefShell "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                             (EHole (HProofRequired "manual" Nothing))
           json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
       T.isInfixOf "predicate" json `shouldBe` False
@@ -1000,7 +1000,7 @@ main = hspec $ do
     -- PPR-A2: predicate form holeToJson includes predicate field
     it "PPR-A2 predicate-carrying HProofRequired holeToJson includes predicate key" $ do
       let pred = EApp ">" [EVar "n", ELit (LitInt 0)]
-          stmt = SDefLogic "f" [("n", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+          stmt = SDefShell "f" [("n", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
                             (EHole (HProofRequired "manual" (Just pred)))
           json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
       T.isInfixOf "predicate" json `shouldBe` True
@@ -1098,23 +1098,23 @@ main = hspec $ do
   -- -----------------------------------------------------------------------
   describe "Phase 2c pair-type in typed-param" $ do
     it "S-expression: (int, string) in def-logic param parses without error" $ do
-      let src = "(def-logic f [acc: (int, string)] (first acc))"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [acc: (int, string)] (first acc))"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> length stmts `shouldBe` 1
 
     it "S-expression: pair-type parameter parsed as TPair TInt TString" $ do
-      let src = "(def-logic f [acc: (int, string)] (first acc))"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [acc: (int, string)] (first acc))"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right [SDefLogic _ params _ _ _] ->
+        Right [SDefShell _ params _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
     it "S-expression: (int, string) typed param passes type-check" $ do
       let src = T.pack $ unlines
-            [ "(def-logic f [acc: (int, string)] (first acc))" ]
-      case parseStatements GrammarLegacy "<test>" src of
+            [ "(def-shell f [acc: (int, string)] (first acc))" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -1128,7 +1128,7 @@ main = hspec $ do
             , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
-            , "      \"kind\": \"def-logic\","
+            , "      \"kind\": \"def-shell\","
             , "      \"name\": \"f\","
             , "      \"params\": [{"
             , "        \"name\": \"acc\","
@@ -1143,9 +1143,9 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST GrammarLegacy "<test>" src of
+      case parseJSONAST GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right [SDefLogic _ params _ _ _] ->
+        Right [SDefShell _ params _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
@@ -1155,10 +1155,10 @@ main = hspec $ do
   describe "N2 string-concat arity hint" $ do
     it "string-concat with 3 args desugars to string-concat-many (no error)" $ do
       let src = T.pack $ unlines
-            [ "(def-logic f [a: string b: string c: string]"
+            [ "(def-shell f [a: string b: string c: string]"
             , "  (string-concat a b c))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -1166,8 +1166,8 @@ main = hspec $ do
           errs `shouldBe` []
 
     it "string-concat with correct 2 args has no arity error" $ do
-      let src = "(def-logic f [a: string b: string] (string-concat a b))"
-      case parseStatements GrammarLegacy "<test>" src of
+      let src = "(def-shell f [a: string b: string] (string-concat a b))"
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -1186,7 +1186,7 @@ main = hspec $ do
             , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
-            , "      \"kind\": \"def-logic\","
+            , "      \"kind\": \"def-shell\","
             , "      \"name\": \"f\","
             , "      \"params\": [],"
             , "      \"body\": {"
@@ -1202,7 +1202,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST GrammarLegacy "<test>" src of
+      case parseJSONAST GrammarCoreInversion "<test>" src of
         Left diag ->
           -- The error message should mention unexpected keys
           diagMessage diag `shouldSatisfy` T.isInfixOf "unexpected keys"
@@ -1215,7 +1215,7 @@ main = hspec $ do
             , "  \"schemaVersion\": \"0.6.0\","
             , "  \"statements\": ["
             , "    {"
-            , "      \"kind\": \"def-logic\","
+            , "      \"kind\": \"def-shell\","
             , "      \"name\": \"f\","
             , "      \"params\": [],"
             , "      \"body\": {"
@@ -1230,7 +1230,7 @@ main = hspec $ do
             , "  ]"
             , "}"
             ]
-      case parseJSONAST GrammarLegacy "<test>" src of
+      case parseJSONAST GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right _  -> pure ()
 
@@ -1245,10 +1245,10 @@ main = hspec $ do
 
     it "EIf: hole in else gets HoleTyped TString from concrete then" $ do
       let src = T.pack $ unlines
-            [ "(def-logic greet [formal: bool]"
+            [ "(def-shell greet [formal: bool]"
             , "  (if formal \"Good day.\" ?informal))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1260,10 +1260,10 @@ main = hspec $ do
 
     it "EIf: hole in then gets HoleTyped TInt from concrete else" $ do
       let src = T.pack $ unlines
-            [ "(def-logic safe-div [n: int]"
+            [ "(def-shell safe-div [n: int]"
             , "  (if (= n 0) ?zero_case 42))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1274,13 +1274,13 @@ main = hspec $ do
     it "EMatch: hole arm gets HoleTyped TString from concrete sibling arms" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
-            , "(def-logic describe [c: Color]"
+            , "(def-shell describe [c: Color]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    ((Green) \"green\")"
             , "    ((Blue) ?blue_label)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1291,13 +1291,13 @@ main = hspec $ do
     it "EMatch: hole arm gets HoleAmbiguous when concrete arms disagree" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
-            , "(def-logic bad-describe [c: Color]"
+            , "(def-shell bad-describe [c: Color]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    ((Green) 42)"
             , "    ((Blue) ?conflict_arm)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1310,13 +1310,13 @@ main = hspec $ do
     it "EMatch: conflicting arms emit an ambiguous-hole error" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
-            , "(def-logic bad-describe [c: Color]"
+            , "(def-shell bad-describe [c: Color]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    ((Green) 42)"
             , "    ((Blue) ?conflict_arm)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1325,10 +1325,10 @@ main = hspec $ do
 
     it "EApp: hole argument gets HoleTyped TInt from function parameter position" $ do
       let src = T.pack $ unlines
-            [ "(def-logic f [x: int] x)"
-            , "(def-logic caller [] (f ?arg))"
+            [ "(def-shell f [x: int] x)"
+            , "(def-shell caller [] (f ?arg))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1338,8 +1338,8 @@ main = hspec $ do
 
     it "isolated hole with no context gets HoleUnknown" $ do
       let src = T.pack $ unlines
-            [ "(def-logic mystery [] ?isolated)" ]
-      case parseStatements GrammarLegacy "<test>" src of
+            [ "(def-shell mystery [] ?isolated)" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1349,10 +1349,10 @@ main = hspec $ do
 
     it "non-sketch check path unaffected: no holes recorded for concrete program" $ do
       let src = T.pack $ unlines
-            [ "(def-logic id-str [s: string]"
+            [ "(def-shell id-str [s: string]"
             , "  (if (= (string-length s) 0) \"empty\" s))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -1365,10 +1365,10 @@ main = hspec $ do
   -- -----------------------------------------------------------------------
   describe "Phase 2c D3 holeSensitive error annotation" $ do
     it "type mismatch between concrete types emits holeSensitive = False" $ do
-      -- (def-logic f [] (if true 42 "hello")) — branches differ, no holes
+      -- (def-shell f [] (if true 42 "hello")) — branches differ, no holes
       let src = T.pack $ unlines
-            [ "(def-logic f [] (if true 42 \"hello\"))" ]
-      case parseStatements GrammarLegacy "<test>" src of
+            [ "(def-shell f [] (if true 42 \"hello\"))" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let diags = reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
@@ -1378,12 +1378,12 @@ main = hspec $ do
           allCertain `shouldBe` True
 
     it "return-type mismatch vs hole var emits holeSensitive = True" $ do
-      -- (def-logic f [x: int] : int ?impl) — hole body vs int return type
+      -- (def-shell f [x: int] : int ?impl) — hole body vs int return type
       -- unify int (expected) vs TVar "?impl" (actual) → holeSensitive
       let src = T.pack $ unlines
-            [ "(def-logic f [x: int] ?impl)"
+            [ "(def-shell f [x: int] ?impl)"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           -- In sketch mode: ?impl synthesises to TVar "?impl".
@@ -1399,8 +1399,8 @@ main = hspec $ do
     it "inferHole HNamed synthesises TVar with ? prefix (D3 invariant)" $ do
       -- A hole in synthesis position must return TVar "?name", not TVar "?"
       let src = T.pack $ unlines
-            [ "(def-logic f [x: int] ?impl)" ]
-      case parseStatements GrammarLegacy "<test>" src of
+            [ "(def-shell f [x: int] ?impl)" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1416,10 +1416,10 @@ main = hspec $ do
 
     it "hole at else branch has pointer /statements/0/body/else" $ do
       let src = T.pack $ unlines
-            [ "(def-logic greet [formal: bool]"
+            [ "(def-shell greet [formal: bool]"
             , "  (if formal \"Good day.\" ?informal))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1430,13 +1430,13 @@ main = hspec $ do
     it "hole at match arm 2 has pointer /statements/1/body/arms/2/body" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"      -- stmt 0
-            , "(def-logic describe [c: Color]"               -- stmt 1
+            , "(def-shell describe [c: Color]"               -- stmt 1
             , "  (match c"
             , "    ((Red) \"red\")"       -- arm 0
             , "    ((Green) \"green\")"   -- arm 1
             , "    ((Blue) ?blue_label)))" -- arm 2
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -1446,10 +1446,10 @@ main = hspec $ do
 
     it "concrete program produces no holes and non-sketch check is unaffected" $ do
       let src = T.pack $ unlines
-            [ "(def-logic f [x: int] x)"
-            , "(def-logic g [s: string] s)"
+            [ "(def-shell f [x: int] x)"
+            , "(def-shell g [s: string] s)"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -1466,7 +1466,7 @@ main = hspec $ do
     let testAst = object
           [ "schemaVersion" .= ("0.6.0" :: T.Text)
           , "statements" .= [ object
-              [ "kind" .= ("def-logic" :: T.Text)
+              [ "kind" .= ("def-shell" :: T.Text)
               , "name" .= ("foo" :: T.Text)
               , "body" .= object
                   [ "kind" .= ("pair" :: T.Text)
@@ -1475,7 +1475,7 @@ main = hspec $ do
                   ]
               ]
             , object
-              [ "kind" .= ("def-logic" :: T.Text)
+              [ "kind" .= ("def-shell" :: T.Text)
               , "name" .= ("bar" :: T.Text)
               , "body" .= object
                   [ "kind" .= ("hole-delegate" :: T.Text)
@@ -2233,62 +2233,62 @@ main = hspec $ do
 
   describe "parseTrustDecl (S-expression)" $ do
     it "parses (trust foo.bar :level tested)" $ do
-      case parseStatements GrammarLegacy "<test>" "(trust foo.bar :level tested)" of
+      case parseStatements GrammarCoreInversion "<test>" "(trust foo.bar :level tested)" of
         Right [STrust target (DLTested _)] -> do
           target `shouldBe` "foo.bar"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (trust crypto.hash.pbkdf2 :level asserted)" $ do
-      case parseStatements GrammarLegacy "<test>" "(trust crypto.hash.pbkdf2 :level asserted)" of
+      case parseStatements GrammarCoreInversion "<test>" "(trust crypto.hash.pbkdf2 :level asserted)" of
         Right [STrust target level] -> do
           target `shouldBe` "crypto.hash.pbkdf2"
           level `shouldBe` DLAsserted
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (trust z3.verify :level contract-checked)" $ do
-      case parseStatements GrammarLegacy "<test>" "(trust z3.verify :level contract-checked)" of
+      case parseStatements GrammarCoreInversion "<test>" "(trust z3.verify :level contract-checked)" of
         Right [STrust target (DLContractChecked _)] -> do
           target `shouldBe` "z3.verify"
         other -> expectationFailure $ "unexpected: " ++ show other
 
   describe "parseWeaknessOk (S-expression)" $ do
     it "parses (weakness-ok f \"known identity\")" $ do
-      case parseStatements GrammarLegacy "<test>" "(weakness-ok f \"known identity\")" of
+      case parseStatements GrammarCoreInversion "<test>" "(weakness-ok f \"known identity\")" of
         Right [SWeaknessOk name reason] -> do
           name `shouldBe` "f"
           reason `shouldBe` "known identity"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "WO-5: rejects (weakness-ok f \"\") — empty reason" $ do
-      case parseStatements GrammarLegacy "<test>" "(weakness-ok f \"\")" of
+      case parseStatements GrammarCoreInversion "<test>" "(weakness-ok f \"\")" of
         Left _err -> pure ()  -- expected: parse error
         Right r   -> expectationFailure $ "should reject empty reason, got: " ++ show r
 
   describe "contract :source annotation (v0.6)" $ do
     it "parses (pre expr :source \"...\") with source" $ do
-      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (pre (>= x 0) :source \"ERC-20 §6.1\") x)" of
-        Right [SDefLogic _ _ _ contract _] -> do
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (>= x 0) :source \"ERC-20 §6.1\") x)" of
+        Right [SDefShell _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Just "ERC-20 §6.1"
           contractPostSource contract `shouldBe` Nothing
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (post expr :source \"...\") with source" $ do
-      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (post (>= result 0) :source \"safety invariant\") x)" of
-        Right [SDefLogic _ _ _ contract _] -> do
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (post (>= result 0) :source \"safety invariant\") x)" of
+        Right [SDefShell _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Just "safety invariant"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses both pre and post with :source" $ do
-      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (pre (> x 0) :source \"precond\") (post (>= result 0) :source \"postcond\") x)" of
-        Right [SDefLogic _ _ _ contract _] -> do
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (> x 0) :source \"precond\") (post (>= result 0) :source \"postcond\") x)" of
+        Right [SDefShell _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Just "precond"
           contractPostSource contract `shouldBe` Just "postcond"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "backward compat: pre/post without :source still parse" $ do
-      case parseStatements GrammarLegacy "<test>" "(def-logic f [x: int] (pre (>= x 0)) (post (>= result 0)) x)" of
-        Right [SDefLogic _ _ _ contract _] -> do
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (>= x 0)) (post (>= result 0)) x)" of
+        Right [SDefShell _ _ _ contract _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Nothing
         other -> expectationFailure $ "unexpected: " ++ show other
@@ -2800,8 +2800,8 @@ main = hspec $ do
 
     -- Parser roundtrip (1)
     it "(await expr) parses to EAwait" $ do
-      case parseStatements GrammarLegacy "<test>" "(def-logic f [] (await (+ 1 2)))" of
-        Right [SDefLogic _ _ _ _ (EAwait _)] -> pure ()
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (await (+ 1 2)))" of
+        Right [SDefShell _ _ _ _ (EAwait _)] -> pure ()
         other -> expectationFailure $ "unexpected: " ++ show other
 
   -- =========================================================================
@@ -2830,8 +2830,8 @@ main = hspec $ do
 
     -- Parser (2)
     it "(?scaffold todo-app) parses to EHole (HScaffold ...)" $ do
-      case parseStatements GrammarLegacy "<test>" "(def-logic f [] (?scaffold todo-app))" of
-        Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (?scaffold todo-app))" of
+        Right [SDefShell _ _ _ _ (EHole (HScaffold spec))] ->
           scaffoldTemplate spec `shouldBe` "todo-app"
         other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -2839,13 +2839,13 @@ main = hspec $ do
       let jsonSrc = BLC.pack $ unlines
             [ "{ \"schemaVersion\": \"0.6.0\""
             , ", \"statements\": ["
-            , "    { \"kind\": \"def-logic\", \"name\": \"f\", \"params\": []"
+            , "    { \"kind\": \"def-shell\", \"name\": \"f\", \"params\": []"
             , "    , \"body\": { \"kind\": \"hole-scaffold\", \"template\": \"rest-api\" } }"
             , "  ]"
             , "}"
             ]
-      case parseJSONAST GrammarLegacy "<test>" jsonSrc of
-        Right [SDefLogic _ _ _ _ (EHole (HScaffold spec))] ->
+      case parseJSONAST GrammarCoreInversion "<test>" jsonSrc of
+        Right [SDefShell _ _ _ _ (EHole (HScaffold spec))] ->
           scaffoldTemplate spec `shouldBe` "rest-api"
         other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -2883,7 +2883,7 @@ main = hspec $ do
     -- Codegen integration (1)
     it "Generated Main.hs for console mode contains event-log.jsonl" $ do
       let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Right stmts -> do
           let result = generateHaskell "testmod" stmts
           case cgMainHs result of
@@ -3333,7 +3333,7 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
     it "Generated Main.hs with :done? has loop s' logHandle seqRef" $ do
       -- Use a console program with :done? that stops when input is "quit"
       let src = "(def-main :mode console :init \"\" :step (fn [s: string input: string] (pair input (wasi.io.stdout input))) :done? (fn [s: string] (= s \"quit\")))"
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Right stmts -> do
           let result = generateHaskell "testdone" stmts
           case cgMainHs result of
@@ -3564,12 +3564,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- EC-1: if-branch env isolation
     it "EC-1: hole in let inside then-branch does not leak env to else-branch" $ do
       let src = T.pack $ unlines
-            [ "(def-logic test-isolation [flag: bool]"
+            [ "(def-shell test-isolation [flag: bool]"
             , "  (if flag"
             , "    (let [(x 42)] x)"
             , "    ?else_hole))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -3583,10 +3583,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- Scope provenance: param binding tagged correctly
     it "hole sees param bindings with SrcParam source" $ do
       let src = T.pack $ unlines
-            [ "(def-logic greet [name: string]"
+            [ "(def-shell greet [name: string]"
             , "  ?greeting)"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -3600,11 +3600,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- Scope: let-binding tagged correctly
     it "let-binding in scope has SrcLetBinding source" $ do
       let src = T.pack $ unlines
-            [ "(def-logic f [x: int]"
+            [ "(def-shell f [x: int]"
             , "  (let [(y (+ x 1))]"
             , "    ?body))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -3619,13 +3619,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "match-arm binding has SrcMatchArm source" $ do
       let src = T.pack $ unlines
             [ "(type Color (| Red) (| Green) (| Blue))"
-            , "(def-logic describe [c: Color]"
+            , "(def-shell describe [c: Color]"
             , "  (match c"
             , "    ((Red) \"red\")"
             , "    ((Green) \"green\")"
             , "    ((Blue) ?blue)))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           let result = runSketch GrammarCoreInversion emptyEnv stmts []
@@ -3769,10 +3769,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- CAP-1c: wasi.io.stdout with no import → compile error
     it "CAP-1c: wasi.io.stdout with no import produces missing-capability error" $ do
       let src = T.pack $ unlines
-            [ "(def-logic greet [name: string]"
+            [ "(def-shell greet [name: string]"
             , "  (wasi.io.stdout name))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -3785,11 +3785,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- CAP-1d: wasi.io.stdout inside a let binding with no import → error
     it "CAP-1d: wasi.io.stdout nested in let binding still caught" $ do
       let src = T.pack $ unlines
-            [ "(def-logic greet [name: string]"
+            [ "(def-shell greet [name: string]"
             , "  (let [(msg (wasi.io.stdout name))]"
             , "    msg))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -3913,9 +3913,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "U6: first on pair with where-type alias passes" $ do
       let src = T.pack $ unlines
             [ "(type Word (where [s: string] (> (string-length s) 0)))"
-            , "(def-logic get-word [p: (Word, int)] (first p))"
+            , "(def-shell get-word [p: (Word, int)] (first p))"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -4318,7 +4318,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  [(for-all [x: string]"
             , "    (= (normalize (normalize x)) (normalize x)))])"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           length stmts `shouldBe` 1
@@ -4340,7 +4340,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  [serialize (fn [x: int] -> string)]"
             , "  [deserialize (fn [x: string] -> int)])"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           case head stmts of
@@ -4361,7 +4361,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "   (for-all [x: int]"
             , "    (= (encode x) (encode x)))])"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err    -> expectationFailure (show err)
         Right stmts -> do
           case head stmts of
@@ -4377,7 +4377,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "  [(for-all [x: string]"
             , "    (= (normalize (normalize x)) (normalize x)))])"
             ]
-      case parseStatements GrammarLegacy "<test>" src of
+      case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts -> do
           let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -4521,7 +4521,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   describe "BODY-VC" $ do
     -- Helper: parse a def-logic and extract the body expression
     let parseBody :: T.Text -> Expr
-        parseBody src = case parseStatements GrammarLegacy "<test>" src of
+        parseBody src = case parseStatements GrammarCoreInversion "<test>" src of
           Left e -> error $ "parse failed: " <> show e
           Right stmts -> case head stmts of
             SDefLogic _ _ _ _ body -> body
@@ -4842,7 +4842,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- We verify the constraint structure, not solver output.
 
       it "N01: wrong body (post says result = x+1, body returns x)" $ do
-        -- (def-logic inc [x: int] (post (= result (+ x 1))) x)
+        -- (def-shell inc [x: int] (post (= result (+ x 1))) x)
         -- Body returns x, but post requires result = x+1
         let body = EVar "x"
             se = Map.fromList [("x", FQInt)]
@@ -4856,7 +4856,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           _ -> expectationFailure $ "expected SimpleVC, got: " <> show result
 
       it "N02: off-by-one (post says result = x, body returns x+1)" $ do
-        -- (def-logic id [x: int] (post (= result x)) (+ x 1))
+        -- (def-shell id [x: int] (post (= result x)) (+ x 1))
         let body = EApp "+" [EVar "x", ELit (LitInt 1)]
             se = Map.fromList [("x", FQInt)]
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
@@ -4869,7 +4869,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           _ -> expectationFailure $ "expected SimpleVC, got: " <> show result
 
       it "N03: wrong branch (if swapped — body returns 0 when n>0)" $ do
-        -- (def-logic abs [n: int] (post (>= result 0))
+        -- (def-shell abs [n: int] (post (>= result 0))
         --   (if (> n 0) 0 n))
         -- This is wrong: returns 0 for positive n (fine), but returns n for
         -- negative n (UNSAFE since n < 0 violates post >= 0)
@@ -4893,7 +4893,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           _ -> expectationFailure $ "expected BranchVC, got: " <> show result
 
       it "N04: let shadowing encodes correctly (wrong if renaming broken)" $ do
-        -- (def-logic f [x: int] (post (= result (+ x 2)))
+        -- (def-shell f [x: int] (post (= result (+ x 2)))
         --   (let [[x (+ x 1)]]   ;; x_0 = x + 1
         --     (let [[x (+ x 1)]]  ;; x_1 = x_0 + 1 (= x + 2 ✓)
         --       x)))
@@ -4925,10 +4925,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "Parsed-source (EOp)" $ do
       it "P01: EOp (= result x) parses and translates via exprToPred" $ do
         -- The parser emits EOp for operators, not EApp
-        let src = "(def-logic identity [x: int] (post (= result x)) x)"
-        case parseStatements GrammarLegacy "test" src of
+        let src = "(def-shell identity [x: int] (post (= result x)) x)"
+        case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
-          Right [SDefLogic _ _ _ contract _] -> do
+          Right [SDefShell _ _ _ contract _] -> do
             let Just postExpr = contractPost contract
             -- The critical check: exprToPred must handle this
             let result = exprToPred postExpr
@@ -4936,18 +4936,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Right stmts -> expectationFailure $ "unexpected parse: " <> show stmts
 
       it "P02: EOp (!= result 0) translates via exprToPred" $ do
-        let src = "(def-logic nonzero [x: int] (post (!= result 0)) x)"
-        case parseStatements GrammarLegacy "test" src of
+        let src = "(def-shell nonzero [x: int] (post (!= result 0)) x)"
+        case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
-          Right [SDefLogic _ _ _ contract _] -> do
+          Right [SDefShell _ _ _ contract _] -> do
             let Just postExpr = contractPost contract
             let result = exprToPred postExpr
             result `shouldBe` Just (FQBinPred FQNeq (FQVar "result") (FQLit 0))
           Right stmts -> expectationFailure $ "unexpected parse: " <> show stmts
 
       it "P03: parsed EOp contracts emit body-faithful VCs (not standalone post)" $ do
-        let src = "(def-logic add1 [x: int] (post (= result (+ x 1))) (+ x 1))"
-        case parseStatements GrammarLegacy "test" src of
+        let src = "(def-shell add1 [x: int] (post (= result (+ x 1))) (+ x 1))"
+        case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right stmts -> do
             emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
@@ -5141,17 +5141,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     describe "call-pre constraint emission (end-to-end)" $ do
       it "emitFixpointWith emits call-pre constraint for contracted call" $ do
         let src = T.pack $ unlines
-              [ "(def-logic safe-sub [balance: int amount: int]"
+              [ "(def-shell safe-sub [balance: int amount: int]"
               , "  (pre (>= balance amount))"
               , "  (post (= result (- balance amount)))"
               , "  (- balance amount))"
               , ""
-              , "(def-logic withdraw [bal: int amt: int]"
+              , "(def-shell withdraw [bal: int amt: int]"
               , "  (pre (>= bal amt))"
               , "  (post (= result (- bal amt)))"
               , "  (safe-sub bal amt))"
               ]
-        case parseStatements GrammarLegacy "test.llmll" src of
+        case parseStatements GrammarCoreInversion "test.llmll" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
           Right stmts -> do
             emitR <- emitFixpointWith (EmitOptions True) "test.llmll" stmts
@@ -5835,7 +5835,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  \"schemaVersion\": \"0.6.0\","
               , "  \"statements\": ["
               , "    {"
-              , "      \"kind\": \"def-logic\","
+              , "      \"kind\": \"def-shell\","
               , "      \"name\": \"f\","
               , "      \"params\": [],"
               , "      \"return_type\": {\"kind\": \"primitive\", \"name\": \"int\"},"
@@ -6521,19 +6521,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "sexp: (check :subject f (for-all …)) parses with propSubjects = [f]" $ do
         let src = T.pack
                   "(check \"d\" :subject foo (for-all [x: int] (= x x)))"
-        case parseStatements GrammarLegacy "<test>" src of
+        case parseStatements GrammarCoreInversion "<test>" src of
           Right [SCheck p] -> propSubjects p `shouldBe` ["foo"]
           other -> expectationFailure $ "unexpected: " ++ show other
       it "sexp: (check :subjects [f g] (for-all …)) parses both names" $ do
         let src = T.pack
                   "(check \"d\" :subjects [foo bar] (for-all [x: int] (= x x)))"
-        case parseStatements GrammarLegacy "<test>" src of
+        case parseStatements GrammarCoreInversion "<test>" src of
           Right [SCheck p] -> propSubjects p `shouldBe` ["foo", "bar"]
           other -> expectationFailure $ "unexpected: " ++ show other
       it "sexp: (check :subjects [] …) is rejected with S6 diag" $ do
         let src = T.pack
                   "(check \"d\" :subjects [] (for-all [x: int] (= x x)))"
-        case parseStatements GrammarLegacy "<test>" src of
+        case parseStatements GrammarCoreInversion "<test>" src of
           Left _  -> pure ()
           Right _ -> expectationFailure "expected parse failure on empty :subjects"
       it "JSON: CheckDecl with subjects array decodes to propSubjects" $ do
@@ -6695,9 +6695,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- S4: typecheck warns on dotted fn name in app position (TypeCheck.hs:919-924)
     describe "S4 dotted-fn typecheck warning" $ do
-      it "(def-logic f [] (Result.Error 0)) produces a dotted-name warning" $ do
-        let src = T.pack "(def-logic f [] (Result.Error 0))"
-        case parseStatements GrammarLegacy "<test>" src of
+      it "(def-shell f [] (Result.Error 0)) produces a dotted-name warning" $ do
+        let src = T.pack "(def-shell f [] (Result.Error 0))"
+        case parseStatements GrammarCoreInversion "<test>" src of
           Left err    -> expectationFailure (show err)
           Right stmts -> do
             let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -6715,7 +6715,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- pass to confirm both frontends route through the same typecheck path.
     describe "TC-EOP-1 EOp arity and arg-type checking" $ do
       let checkSrc src =
-            case parseStatements GrammarLegacy "<test>" src of
+            case parseStatements GrammarCoreInversion "<test>" src of
               Left err -> Left (T.pack (show err))
               Right stmts -> Right (typeCheck GrammarCoreInversion emptyEnv stmts)
           errorsOf rep =
@@ -6723,27 +6723,27 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           anyMsg sub rep = any (\d -> sub `T.isInfixOf` diagMessage d) (errorsOf rep)
 
       it "(+ 1 2) typechecks (positive baseline)" $ do
-        case checkSrc (T.pack "(def-logic f [] (+ 1 2))") of
+        case checkSrc (T.pack "(def-shell f [] (+ 1 2))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> reportSuccess rep `shouldBe` True
 
       it "(+ 1) raises arity error" $ do
-        case checkSrc (T.pack "(def-logic f [] (+ 1))") of
+        case checkSrc (T.pack "(def-shell f [] (+ 1))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> anyMsg "expects 2 args, got 1" rep `shouldBe` True
 
       it "(+ 1 2 3) raises arity error" $ do
-        case checkSrc (T.pack "(def-logic f [] (+ 1 2 3))") of
+        case checkSrc (T.pack "(def-shell f [] (+ 1 2 3))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> anyMsg "expects 2 args, got 3" rep `shouldBe` True
 
       it "(+ \"x\" 1) raises type error at arg 0" $ do
-        case checkSrc (T.pack "(def-logic f [] (+ \"x\" 1))") of
+        case checkSrc (T.pack "(def-shell f [] (+ \"x\" 1))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> anyMsg "type mismatch in '+'" rep `shouldBe` True
 
       it "(not 1) raises type error" $ do
-        case checkSrc (T.pack "(def-logic f [] (not 1))") of
+        case checkSrc (T.pack "(def-shell f [] (not 1))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> anyMsg "type mismatch in 'not'" rep `shouldBe` True
 
@@ -6751,17 +6751,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- to int from arg 0, then fails when arg 1 is string. Pre-fix this
       -- silently typechecked because `_args` was discarded.
       it "(= 1 \"1\") raises type error at arg 1 (polymorphic op unified at arg 0)" $ do
-        case checkSrc (T.pack "(def-logic f [] (= 1 \"1\"))") of
+        case checkSrc (T.pack "(def-shell f [] (= 1 \"1\"))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> anyMsg "type mismatch in '='" rep `shouldBe` True
 
       it "(= true true) typechecks (positive polymorphic baseline)" $ do
-        case checkSrc (T.pack "(def-logic f [] (= true true))") of
+        case checkSrc (T.pack "(def-shell f [] (= true true))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> reportSuccess rep `shouldBe` True
 
       it "(and true 0) raises type error" $ do
-        case checkSrc (T.pack "(def-logic f [] (and true 0))") of
+        case checkSrc (T.pack "(def-shell f [] (and true 0))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> anyMsg "type mismatch in 'and'" rep `shouldBe` True
 
@@ -6771,7 +6771,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               [ "{"
               , "  \"schemaVersion\": \"0.6.0\","
               , "  \"statements\": ["
-              , "    { \"kind\": \"def-logic\""
+              , "    { \"kind\": \"def-shell\""
               , "    , \"name\": \"f\""
               , "    , \"params\": []"
               , "    , \"body\": { \"kind\": \"op\", \"op\": \"+\""
@@ -6781,7 +6781,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  ]"
               , "}"
               ]
-        case parseJSONAST GrammarLegacy "<test>" src of
+        case parseJSONAST GrammarCoreInversion "<test>" src of
           Left err -> expectationFailure (show err)
           Right stmts -> do
             let report = typeCheck GrammarCoreInversion emptyEnv stmts
@@ -6792,7 +6792,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- EHole bypass: a hole in an EOp arg position should typecheck (the
       -- hole is recorded with the expected type, not unified against it).
       it "(+ ?x 1) typechecks with the hole recorded at int" $ do
-        case checkSrc (T.pack "(def-logic f [] (+ ?x 1))") of
+        case checkSrc (T.pack "(def-shell f [] (+ ?x 1))") of
           Left err  -> expectationFailure (T.unpack err)
           Right rep -> errorsOf rep `shouldBe` []
 
@@ -6857,12 +6857,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- INT-3 (machine-int) will re-arm with type-awareness at the same site.
     it "T10 (LT-INT v0.11): trigger set empty on int — (+ x 1) does NOT taint" $ do
       let src = T.pack $ unlines
-            [ "(def-logic add-one [x: int]"
+            [ "(def-shell add-one [x: int]"
             , "  (pre (>= x 0))"
             , "  (post (= result (+ x 1)))"
             , "  (+ x 1))"
             ]
-      case parseStatements GrammarLegacy "<int1-test>" src of
+      case parseStatements GrammarCoreInversion "<int1-test>" src of
         Left err    -> expectationFailure ("parse: " ++ show err)
         Right stmts -> do
           emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T10.llmll" stmts
@@ -6874,12 +6874,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- that body-faithful VCs target); the assertion is only on the taint set.
     it "T11 end-to-end: pure-predicate body is not overflow-tainted" $ do
       let src = T.pack $ unlines
-            [ "(def-logic non-negative [x: int]"
+            [ "(def-shell non-negative [x: int]"
             , "  (pre (>= x 0))"
             , "  (post (>= result 0))"
             , "  x)"
             ]
-      case parseStatements GrammarLegacy "<int1-test>" src of
+      case parseStatements GrammarCoreInversion "<int1-test>" src of
         Left err    -> expectationFailure ("parse: " ++ show err)
         Right stmts -> do
           emitR <- emitFixpointWith (EmitOptions { emitBodyVCs = True }) "T11.llmll" stmts
@@ -6935,14 +6935,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , ("is-pos",  ContractStatus Nothing (Just cleanEr)   [])
             ]
           src = T.pack $ unlines
-            [ "(def-logic add-one [x: int]"
+            [ "(def-shell add-one [x: int]"
             , "  (post (= result (+ x 1)))"
             , "  (+ x 1))"
-            , "(def-logic is-pos [x: int]"
+            , "(def-shell is-pos [x: int]"
             , "  (post (>= result 0))"
             , "  x)"
             ]
-          stmts = case parseStatements GrammarLegacy "<int1-test>" src of
+          stmts = case parseStatements GrammarCoreInversion "<int1-test>" src of
                     Right ss -> ss
                     Left err -> error (show err)
           report = buildTrustReport Map.empty stmts cs
@@ -7488,7 +7488,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Right [SDefShell {}] -> pure ()
           other                -> expectationFailure (show other)
 
-      it "INV-P6 (def-logic ...) fails to parse in GrammarCoreInversion" $ do
+      it "INV-P6 (def-logic ...) is rejected in GrammarCoreInversion (removed v0.12.1)" $ do
         let src = "(def-logic f [n: int] n)"
         case parseStatements GrammarCoreInversion "<test>" src of
           Left  _  -> pure ()
@@ -7506,11 +7506,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Left  _  -> pure ()
           Right ss -> expectationFailure ("expected parse failure, got: " ++ show ss)
 
-      it "INV-P9 JSON-AST def-logic rejected under GrammarCoreInversion with core-grammar-violation" $ do
+      it "INV-P9 JSON-AST def-logic rejected under GrammarCoreInversion (removed v0.12.1)" $ do
         let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
                     "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
         case parseJSONAST GrammarCoreInversion "<test>" src of
-          Left diag -> diagKind diag `shouldBe` Just "core-grammar-violation"
+          Left diag -> diagKind diag `shouldBe` Just "removed-construct"
           Right ss  -> expectationFailure ("expected rejection, got: " ++ show ss)
 
       it "INV-P10 JSON-AST def accepted under GrammarCoreInversion" $ do
@@ -7520,12 +7520,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Right [SDef {}] -> pure ()
           other           -> expectationFailure (show other)
 
-      it "INV-P11 JSON-AST def-logic still accepted under GrammarLegacy" $ do
+      it "INV-P11 JSON-AST def-logic rejected under GrammarLegacy too (removed v0.12.1)" $ do
         let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack $
                     "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
         case parseJSONAST GrammarLegacy "<test>" src of
-          Right [SDefLogic {}] -> pure ()
-          other                -> expectationFailure (show other)
+          Left diag -> diagKind diag `shouldBe` Just "removed-construct"
+          Right ss  -> expectationFailure ("expected rejection (def-logic removed under all modes), got: " ++ show ss)
 
       it "INV-P12 (letrec ...) fails to parse in GrammarCoreInversion" $ do
         let src = "(letrec f [n: int] :decreases n n)"
@@ -7597,7 +7597,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"old\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}"
         case parseJSONAST GrammarCoreInversion "<test>" src of
           Left diag -> do
-            diagKind diag `shouldBe` Just "core-grammar-violation"
+            diagKind diag `shouldBe` Just "removed-construct"
             case diagSuggestion diag of
               Just s  -> s `shouldSatisfy` (T.isInfixOf "def")
               Nothing -> expectationFailure "expected a suggestion in the diagnostic"
@@ -7826,11 +7826,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Left  _ -> pure ()
         Right _ -> expectationFailure "expected parse error for def-logic under GrammarCoreInversion"
 
-    it "INV-DEFAULT-2 GrammarLegacy (explicit opt-out) accepts def-logic" $ do
+    it "INV-DEFAULT-2 GrammarLegacy rejects def-logic too (removed v0.12.1)" $ do
       let src = "(def-logic f [] 0)"
       case parseStatements GrammarLegacy "<test>" src of
-        Right _ -> pure ()
-        Left  e -> expectationFailure $ "expected successful parse under GrammarLegacy, got: " ++ show e
+        Left  _ -> pure ()
+        Right _ -> expectationFailure "expected parse error for def-logic under GrammarLegacy (removed under all modes)"
 
     it "INV-MODULE-THREAD-1 GrammarCoreInversion rejects (def ...) under GrammarLegacy S-expr parser" $ do
       -- Validates that the S-expression parser mode asymmetry is real:
@@ -7842,6 +7842,58 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case parseStatements GrammarLegacy "<test>" src of
         Left  _ -> pure ()
         Right _ -> expectationFailure "GrammarLegacy should NOT recognise (def ...) keyword"
+
+  -- -----------------------------------------------------------------------
+  -- v0.12.1: def-logic removal (all modes) + def-invariant promotion
+  -- -----------------------------------------------------------------------
+  describe "v0.12.1 def-logic removal + def-invariant (SDefInvariant)" $ do
+
+    it "DEFLOGIC-REMOVE-1 S-expr def-logic rejected under both grammar modes" $ do
+      let src = "(def-logic f [x: int] x)"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left _  -> pure ()
+        Right s -> expectationFailure ("CoreInversion should reject def-logic, got: " ++ show s)
+      case parseStatements GrammarLegacy "<test>" src of
+        Left _  -> pure ()
+        Right s -> expectationFailure ("GrammarLegacy should reject def-logic, got: " ++ show s)
+
+    it "DEFLOGIC-REMOVE-2 JSON def-logic rejected under both grammar modes" $ do
+      let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack
+                  "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-logic\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+      case parseJSONAST GrammarCoreInversion "<test>" src of
+        Left diag -> diagKind diag `shouldBe` Just "removed-construct"
+        Right s   -> expectationFailure ("CoreInversion should reject, got: " ++ show s)
+      case parseJSONAST GrammarLegacy "<test>" src of
+        Left diag -> diagKind diag `shouldBe` Just "removed-construct"
+        Right s   -> expectationFailure ("GrammarLegacy should reject, got: " ++ show s)
+
+    it "DEFINV-1 JSON def-invariant parses to SDefInvariant" $ do
+      let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack
+                  "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-invariant\",\"name\":\"inv\",\"param\":{\"name\":\"x\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}},\"body\":{\"kind\":\"lit-bool\",\"value\":true}}]}"
+      case parseJSONAST GrammarCoreInversion "<test>" src of
+        Right [SDefInvariant name params _ _ body] -> do
+          name `shouldBe` "inv"
+          length params `shouldBe` 1
+          body `shouldBe` ELit (LitBool True)
+        other -> expectationFailure ("expected SDefInvariant, got: " ++ show other)
+
+    it "DEFINV-2 def-invariant round-trips faithfully (def-invariant, not def-logic)" $ do
+      let stmt = SDefInvariant "inv" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing Nothing Nothing Nothing)
+                   (ELit (LitBool True))
+          json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
+      T.isInfixOf "def-invariant" json `shouldBe` True
+      T.isInfixOf "def-logic" json `shouldBe` False
+      case parseJSONAST GrammarCoreInversion "<test>" (BL.fromStrict (TE.encodeUtf8 json)) of
+        Right [SDefInvariant n _ _ _ _] -> n `shouldBe` "inv"
+        other -> expectationFailure ("round-trip expected SDefInvariant, got: " ++ show other)
+
+    it "DEFINV-3 def-invariant program type-checks without non-exhaustive crash" $ do
+      let stmts = [ SDefInvariant "inv" [("x", TInt)] Nothing
+                      (Contract Nothing Nothing Nothing Nothing Nothing)
+                      (EApp ">" [EVar "x", ELit (LitInt 0)]) ]
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
+      length (reportDiagnostics report) `shouldSatisfy` (>= 0)
 
   -- -----------------------------------------------------------------------
   -- F-GATE-8: def-shell hole-delegate PBT trust guard

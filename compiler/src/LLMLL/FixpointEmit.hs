@@ -177,6 +177,8 @@ buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
     -- LT-INV (v0.11)
     go (SDef      name params mRet contract _) = Just (name, (params, aug params contract, mRet))
     go (SDefShell name params mRet contract _) = Just (name, (params, aug params contract, mRet))
+    -- v0.12.1: def-invariant registers in the VC env identically to SDefLogic.
+    go (SDefInvariant name params mRet contract _) = Just (name, (params, aug params contract, mRet))
     go _ = Nothing
 
 -- | v0.10 MOD-1: Build a ContractEnv merging local contracts with imported
@@ -303,6 +305,13 @@ emitFixpointWith opts srcFile stmts = do
           name params mRet contract (Just body) Nothing idx
 
       SDefShell name params mRet contract body ->
+        emitFnConstraints opts srcFile freshCid freshBid addBind addConst
+          addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
+          name params mRet contract (Just body) Nothing idx
+
+      -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
+      SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames

@@ -178,6 +178,8 @@ overAnnotationRatio stmts =
     -- LT-INV (v0.11)
     go (SDef      _ _ _ c _)   = [resolveEntropy c]
     go (SDefShell _ _ _ c _)   = [resolveEntropy c]
+    -- v0.12.1
+    go (SDefInvariant _ _ _ c _) = [resolveEntropy c]
     go _ = []
     resolveEntropy c = case contractSpecEntropy c of
       Just se -> se

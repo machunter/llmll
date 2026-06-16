@@ -651,7 +651,9 @@ pbtTrustWriteback localStmts cache result =
          [n | SLetrec{letrecName=n} <- localStmts] ++
          -- LT-INV (v0.11)
          [n | SDef{defName=n} <- localStmts] ++
-         [n | SDefShell{defShellName=n} <- localStmts])
+         [n | SDefShell{defShellName=n} <- localStmts] ++
+         -- v0.12.1
+         [n | SDefInvariant{defInvariantName=n} <- localStmts])
       qualMap     = buildQualMap localStmts cache localNames
       mergedStmts = assembleTestStatements localStmts cache
       -- Subject resolution happens against the merged list so imported
@@ -668,6 +670,9 @@ pbtTrustWriteback localStmts cache result =
         [ (n, c) | SDef{defName=n, defContract=c} <- mergedStmts ]
         ++
         [ (n, c) | SDefShell{defShellName=n, defShellContract=c} <- mergedStmts ]
+        -- v0.12.1
+        ++
+        [ (n, c) | SDefInvariant{defInvariantName=n, defInvariantContract=c} <- mergedStmts ]
       -- SCheck blocks stay with the owning module (assembleTestStatements
       -- comment line 124-126); property descriptions are local-only.
       propsByDesc = Map.fromList $

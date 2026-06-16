@@ -171,6 +171,12 @@ extractFunctions = mapMaybe go
           funcType  = TFn (map snd params) retType
           hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing
       in Just (name, funcType, hasCon)
+    -- v0.12.1: def-invariant is signature-queryable identically to SDefLogic.
+    go (SDefInvariant name params mRet contract _) =
+      let retType   = maybe (TVar "?") id mRet
+          funcType  = TFn (map snd params) retType
+          hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing
+      in Just (name, funcType, hasCon)
     go _ = Nothing
 
 -- | Compute a dotted module path from the hub root and file path.
