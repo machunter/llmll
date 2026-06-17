@@ -726,11 +726,11 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `"isDone"` instead of `"done?"` | Silently ignored | `"done?"` |
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
 | `[...]` list literal as direct argument inside S-expression `if` branch | Parse error: `unexpected ]` | Hoist into a `let` binding before the `if` (see §4.7) |
-| `import` after a function definition inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def`, `def-shell`, or `def-logic` (legacy) |
+| `import` after a function definition inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def`, `def-shell`, or `letrec` (legacy) |
 | Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` before any `wasi.io.*` call |
 
 > [!IMPORTANT]
-> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def`, `def-shell`, `type`, or `def-interface` statements (or `def-logic` under `--grammar=legacy`). The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
+> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def`, `def-shell`, `type`, or `def-interface` statements (or `letrec` under `--grammar=legacy`). The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
 >
 > ```lisp
 > ;; CORRECT — imports first:
@@ -920,7 +920,7 @@ JSON-AST:
 > A **simple variable** measure (`:decreases n`) is verified by `llmll verify`. A **complex expression** (`:decreases (- n 1)`) emits a `?proof-required(complex-decreases)` hole — non-blocking, but the solver skips that function.
 
 > [!WARNING]
-> Under `--grammar=legacy`: using `def-logic` for a self-recursive function emits a self-recursion warning; `letrec` is the correct legacy form. Under the default `GrammarCoreInversion`: use `def-shell` for any self-recursive function; `letrec` is not available.
+> Under the default `GrammarCoreInversion`: use `def-shell` for any self-recursive function; `letrec` is not available. Under `--grammar=legacy`: use `letrec` (the v0.10 explicit-recursion form). `def-logic` was removed in v0.12.1 and is rejected under all modes.
 
 ---
 
@@ -1223,7 +1223,7 @@ The `occursIn` helper is structurally total over the `Type` ADT, including `TSum
 
 #### Let-generalization
 
-Top-level `def`, `def-shell`, `def-logic` (legacy), and `letrec` (legacy) functions are let-generalized: each call site gets its own fresh type variable instantiation. TVar-TVar wildcard closure ensures type variable bindings propagate through chains, and bound-TVar consistency uses recursive `structuralUnify` instead of `compatibleWith`.
+Top-level `def`, `def-shell`, and `letrec` (legacy) functions are let-generalized: each call site gets its own fresh type variable instantiation. TVar-TVar wildcard closure ensures type variable bindings propagate through chains, and bound-TVar consistency uses recursive `structuralUnify` instead of `compatibleWith`.
 
 ```lisp
 ;; ✅ Polymorphic function works at independent call sites:
@@ -1235,7 +1235,7 @@ Top-level `def`, `def-shell`, `def-logic` (legacy), and `letrec` (legacy) functi
 ```
 
 > [!NOTE]
-> **Known limitation:** Let-generalization applies to top-level `def`, `def-shell`, `def-logic` (legacy), and `letrec` (legacy) functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for a future release.
+> **Known limitation:** Let-generalization applies to top-level `def`, `def-shell`, and `letrec` (legacy) functions only. Inner `let`-bound lambdas (e.g., `(let [(id (fn [x: a] x))] (pair (id 1) (id "hello")))`) are not generalized — the `TVar` is shared across call sites within the same `EApp` scope. An explicit generalize/instantiate pass for inner `let` is planned for a future release.
 
 > [!NOTE]
 > **L1055 asymmetric wildcard:** The asymmetric wildcard at line 1055 of `TypeCheck.hs` is documented as safe under per-call-site scoping (Language Team Issue 3). Each `EApp` gets fresh type variables, so the asymmetry does not leak across call boundaries.
@@ -1390,7 +1390,7 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 
 ### §4.14 Core/Shell Grammar (default from v0.11; `--grammar=legacy` for v0.10)
 
-Active by default from v0.11 (LT-INV). Pass `--grammar=legacy` to parse v0.10 `def-logic` / `letrec` programs. Two definition keywords are available under this mode:
+Active by default from v0.11 (LT-INV). Pass `--grammar=legacy` to parse v0.10 `letrec` programs (`def-logic` was removed in v0.12.1 and no longer parses under any mode). Two definition keywords are available under the default mode:
 
 | Keyword | AST node | Body restriction | When to use |
 |---------|----------|-----------------|-------------|
@@ -1417,11 +1417,11 @@ Active by default from v0.11 (LT-INV). Pass `--grammar=legacy` to parse v0.10 `d
 
 ```bash
 llmll check myfile.llmll                          # core-inversion by default
-llmll --grammar=legacy check myfile.llmll         # v0.10 def-logic programs
+llmll --grammar=legacy check myfile.llmll         # v0.10 letrec programs (legacy)
 llmll verify myfile.llmll --trust-report          # core-inversion by default
 ```
 
-`def-logic` and `letrec` are **not accepted** under the default `GrammarCoreInversion` mode; the compiler emits `core-grammar-violation` and exits non-zero. Use `def` for strict-core functions and `def-shell` for permissive functions. Pass `--grammar=legacy` to parse v0.10 `def-logic` / `letrec` programs; under legacy, `def` and `def-shell` are not available.
+`letrec` is **not accepted** under the default `GrammarCoreInversion` mode; the compiler emits `core-grammar-violation` and exits non-zero. `def-logic` is rejected under **all** modes with a `removed-construct` diagnostic (removed in v0.12.1, no auto-rewrite). Use `def` for strict-core functions and `def-shell` for permissive functions. Pass `--grammar=legacy` to parse v0.10 `letrec` programs; under legacy, `def` and `def-shell` are not available.
 
 **Known restrictions:**
 - `def` does not parse a return-type annotation (`: type` after the parameter list). The return type is always inferred.

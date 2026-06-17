@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.12.0)
+# LLMLL: Large Language Model Logical Language (v0.12.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.12.0 (shipped).** Minor release on the v0.12 line. Completes the **REF-META metatheory of record (1–5)** — the auto-discharge solver-completeness boundary Σ_auto ⊊ Σ_ref (§5.3.3), predicate well-formedness (§3.4.4), the erasure theorem (§3.4.5), and the type-assignment judgment documented as local type inference (§3.4.6). **Bundle B0:** `verify --obligation-report` emits a per-function `effect_summary` — a sound may-over-approximation of the object-capability authority a function may reach through its call graph (`"unbounded"`/⊤ at `?delegate`/FFI boundaries; informational, orthogonal to trust) — composing across module imports under the ∅-iff-fully-walked rule (obligation-report `orSchemaVersion` `0.12.0`). **NIW Phase 1:** refinement-aliased non-int measures (`string-length`/`list-length`) discharge in QF-LIA+EUF (caller-side complete). Plus JSON-AST `module`-form flattening (previously a no-op that compiled module-wrapped programs to an empty body) and the `wasi.fs` capability-import namespace reconciliation. JSON-AST `schemaVersion` `0.6.0`; `trust_report_version` `1.3.0`. 855 Haskell + 62 Python tests. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.12.1 (shipped).** Patch on the v0.12 line. Removes `def-logic` from both grammar frontends: it is now a hard parse error under **all** grammar modes (`removed-construct` diagnostic; no auto-rewrite, no `--grammar=legacy` escape valve), with `def` (strict-core) and `def-shell` (permissive) the canonical definition forms and `letrec` retained as the only non-`def` form under `--grammar=legacy`. `def-invariant` is promoted to its own AST node (`SDefInvariant`) so JSON-AST round-trips it faithfully instead of re-emitting it as `def-logic`. The v0.12.0 line is otherwise unchanged: the **REF-META metatheory of record (1–5)** — solver-completeness boundary Σ_auto ⊊ Σ_ref (§5.3.3), predicate well-formedness (§3.4.4), erasure theorem (§3.4.5), type-assignment judgment (§3.4.6); **Bundle B0** per-function `effect_summary` in `verify --obligation-report` (sound may-over-approximation of object-capability authority, cross-module under the ∅-iff-fully-walked rule, `orSchemaVersion` `0.12.0`); **NIW Phase 1** refinement-aliased non-int measures in QF-LIA+EUF. JSON-AST `schemaVersion` `0.6.0`; `trust_report_version` `1.3.0`. 862 Haskell + 62 Python tests. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.12.1** | def-logic Removal + def-invariant Node: `def-logic` is a hard parse error under all grammar modes (`removed-construct` diagnostic; no auto-rewrite, no `--grammar=legacy` escape valve); `def`/`def-shell` are the canonical forms, `letrec` retained under `--grammar=legacy`. `def-invariant` promoted to its own `SDefInvariant` AST node for faithful JSON-AST round-trips. Parse-error diagnostics no longer recommend the removed construct. `schemaVersion` unchanged `0.6.0`. 862 Haskell + 62 Python tests (+7 Haskell from v0.12.0). |
 | **v0.12.0** | Refinement Metatheory of Record + Effect/Authority Summaries: completes the REF-META metatheory of record (1–5; §3.4.4–3.4.6, §5.3.3); Bundle B0 per-function `effect_summary` in `verify --obligation-report` with cross-module composition (∅-iff-fully-walked; obligation-report `orSchemaVersion` `0.12.0`); NIW Phase 1 refinement-aliased non-int measures (QF-LIA+EUF); JSON-AST `module`-form flattening; `wasi.fs` namespace reconciliation. `schemaVersion` `0.6.0`; `trust_report_version` `1.3.0`. 855 Haskell + 62 Python tests (+44 Haskell from v0.11.2). |
 | **v0.11.2** | Checkout Context Population (OBLIG-1): `llmll checkout` returns the per-hole brief inline — `contract_pre` / `postcondition_goal` / `path_condition` (emitted, `null` when absent) plus `in_scope` / `type_definitions`, assembled from a parse + sketch type-check (no solver). Previously delivered only by `verify --obligation-report`; `expected_return_type` / `available_functions` / `assumptions` reserved. `schemaVersion` unchanged `0.6.0`. 811 Haskell + 62 Python tests (+4 Haskell from v0.11.1). |
 | **v0.11.1** | Verify Fail-Open Closure + Schema-Gap Catch-Up: verify-path reporting fail-open closed (UNSAFE no longer projects `success:true`/exit 0); `refuted` trust status; `--strict-verified-core` solver-verdict conjunct; `trust_report_version` `1.2.0 → 1.3.0` (VERIFY-RPT-1). JSON-AST schema catch-up — `DefCore`/`DefShell` (LT-INV subtask) and `WeaknessOkDecl` added to `$defs`/`Statement.oneOf`; JSON-path empty-reason guard. `schemaVersion` unchanged `0.6.0`. 807 Haskell + 62 Python tests (+18 Haskell from v0.11.0). |
@@ -74,7 +75,7 @@ LLMLL's operational semantics are defined by the generated Haskell program. The 
 
 ### 2.1 Basic Tokens
 
-- **Keywords:** `module`, `import`, `def`, `def-shell`, `def-interface`, `type`, `let`, `if`, `match`, `check`, `pre`, `post`, `for-all`, `gen`, `pair`, `fn`, `where`, `await`, `do`. Under `--grammar=legacy` only: `def-logic`, `letrec`.
+- **Keywords:** `module`, `import`, `def`, `def-shell`, `def-interface`, `type`, `let`, `if`, `match`, `check`, `pre`, `post`, `for-all`, `gen`, `pair`, `fn`, `where`, `await`, `do`. Under `--grammar=legacy` only: `letrec`.
 - **Reserved identifiers:** `result` (see §4.2), `unit`, `true`, `false`.
 - **Primitive types:** `int`, `float`, `string`, `bool`, `unit`.
 - **Holes:** Always start with `?` (e.g., `?logic_name`, `?choose(option1, option2)`).
@@ -480,7 +481,7 @@ Two declaration forms are available under the default grammar (`GrammarCoreInver
   (string-concat "Hello " (string-concat name (string-concat " x" (int-to-string count)))))
 ```
 
-> **Legacy grammar.** Under `--grammar=legacy`, the keyword `def-logic` is accepted in place of `def` or `def-shell` and is parsed as `SDefLogic` (semantically equivalent to `def-shell`; no body restriction enforced). `def-logic` is rejected under the default `GrammarCoreInversion` with a `core-grammar-violation` diagnostic. `def` and `def-shell` are not available under `--grammar=legacy`. See [`docs/getting-started.md §4.14`](docs/getting-started.md) for a worked example and `LLMLL.md §12` for the EBNF.
+> **Legacy grammar.** As of v0.12.1, `def-logic` is **removed** — it is rejected under **all** grammar modes (including `--grammar=legacy`) with a `removed-construct` diagnostic and no auto-rewrite. Use `def` for strict-core functions and `def-shell` for permissive functions. `--grammar=legacy` is retained only for `letrec` (the v0.10 explicit-recursion form); `def` and `def-shell` are not available under `--grammar=legacy`. See [`docs/getting-started.md §4.14`](docs/getting-started.md) for the grammar-mode table and `LLMLL.md §12` for the EBNF.
 
 ### 4.2 Recursive Functions (`def-shell`)
 
@@ -647,7 +648,7 @@ where `contractedNames(Σ)` is the set of names bound by any contracted statemen
 2. **Multi-subject suppression (default path).** Properties whose head-position set contains two or more contracted callees, *without* explicit `:subject` / `:subjects` metadata, do not lift any of them; the property is reported as an informational diagnostic from `llmll test` ("property covers multiple contracted callees; no trust evidence recorded"). The explicit-attribution route is `:subject` / `:subjects` metadata, shipped in v0.10.6; see the **Annotated-subject branch** below.
 3. **Skip and fail suppress the lift.** `PBTSkipped` (static-evaluator bottoms, QuickCheck-discard saturation) contributes zero evidence per §5.1's outcome table. `PBTFailed` runs are surfaced as user-facing diagnostics but record no `pbt_witnesses` and do not retract any prior `DLTested` evidence.
 4. **`PBTError` is treated as `PBTSkipped` for write-back.** Exceptions during QuickCheck propagate as user-facing diagnostics; the trust-report channel ignores them.
-5. **Interface laws do not lift contracted-callee posts.** Properties extracted from `def-interface :laws` are parametric over implementations, not concrete evidence for contracted callees (`def-logic`, `def`, or `def-shell` form) invoked in the law body; they live on a distinct trust channel.
+5. **Interface laws do not lift contracted-callee posts.** Properties extracted from `def-interface :laws` are parametric over implementations, not concrete evidence for contracted callees (`def` or `def-shell` form) invoked in the law body; they live on a distinct trust channel.
 6. **Lift targets `csPost` only.** Preconditions are caller-side obligations whose evidence channel is the call-site VC at §5.3.4. Lifting `csPre` from PBT would conflate two evidence channels and produce false trust; the lift rule above is therefore strictly asymmetric.
 7. **Delegation-body suppression (F-EL5-3, extending F-GATE-8).** When `body(f) ∈ { EHole(HDelegate _), EHole(HDelegateAsync _) }`, the lift is suppressed unconditionally regardless of whether the pre clause is evaluable by the static evaluator. `processRun` at [`compiler/src/LLMLL/PBT.hs:736–744`](compiler/src/LLMLL/PBT.hs#L736-L744) returns `(Map.empty, [d])` with an informational diagnostic; `csPost(f)` remains at its current display level (typically `DLAsserted`). The rationale: `evalExprStaticWith` on `EHole(HDelegate _)` cannot execute the function body — it observes only the `on-failure` fallback path if present, or bottoms otherwise. Any `PBTPassed` result on an evaluable pre clause reflects the property's pre-condition exercise only; it carries no evidence about the actual postcondition. The grammar distinction (`def` vs. `def-shell`) is irrelevant pre-resolution. In PBT-Lift-Annotated, suppression is per-subject: `fᵢ` with a delegation body is excluded from the conclusion range; other subjects in the `:subjects` list still lift. See `compiler/src/LLMLL/PBT.hs:681–694` (`delegateBodies`); §5.3.5 rows 882–883.
 
@@ -699,7 +700,7 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
 
 **Observational, not semantic.** The score is meaningful relative to `Ω` only — two implementations that disagree semantically but agree on every input in `Ω` collapse to one observed behavior. Cross-function and cross-version score comparison requires same-`Ω` discipline; the `basis` field in the trust-report `discriminative_axis` block records `Ω`'s identity for auditability. Consumers setting CI gates on CDP scores must respect this distinction or risk gating on the wrong reading. See [`docs/design/contract-discriminative-power-proposal.md`](docs/design/contract-discriminative-power-proposal.md) §1 Rev 2.
 
-**`(spec-entropy …)` annotation.** Three values per contracted `def` / `def-shell` function (under `--grammar=core-inversion`; also accepted on `def-logic` under `--grammar=legacy` but `def-logic` functions receive `WarnDefShellOutOfScope` under `--cdp` and are not scored):
+**`(spec-entropy …)` annotation.** Three values per contracted `def` / `def-shell` function (under `--grammar=core-inversion`); `def-shell` functions receive `WarnDefShellOutOfScope` under `--cdp` and are not scored:
 
 ```lisp
 ;; Requires --grammar=core-inversion. Under --grammar=legacy, use def-logic (out of CDP scope under --cdp).
@@ -722,7 +723,7 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
 
 **CLI.** `llmll verify <file> --cdp` runs the closed v0.11 candidate-set sweep per §4.3.1 of the proposal after the SAFE result and emits one `discriminative_axis` block per contracted function. Combined with `--trust-report --json`, the score is paired with the diamond-lattice evidence level in the trust-report JSON (`trust_report_version 1.2.0`, additive over v1.1.0 — existing consumers ignore `discriminative_axis`).
 
-**Scope (CDPScopeCoreOnly, v0.11).** `--cdp` scores only `def`-form (`SDef`) functions regardless of grammar mode. `def-shell` and legacy `def-logic` functions appear in the trust-report `discriminative_axis` block with `"score": null` and `"warnings": ["def-shell-out-of-scope"]`; the result map is uniform — every contracted function has an entry. `CDPScopeAllDefLogic` is available in the compiler for testing contexts but is not exposed via a CLI flag in v0.11. See [`docs/design/contract-discriminative-power-proposal.md §2`](docs/design/contract-discriminative-power-proposal.md) for the scope-selection rationale under LT-INV gate Outcome 0.
+**Scope (CDPScopeCoreOnly, v0.11).** `--cdp` scores only `def`-form (`SDef`) functions regardless of grammar mode. `def-shell` functions appear in the trust-report `discriminative_axis` block with `"score": null` and `"warnings": ["def-shell-out-of-scope"]`; the result map is uniform — every contracted function has an entry. `CDPScopeAllDefLogic` is available in the compiler for testing contexts but is not exposed via a CLI flag in v0.11. See [`docs/design/contract-discriminative-power-proposal.md §2`](docs/design/contract-discriminative-power-proposal.md) for the scope-selection rationale under LT-INV gate Outcome 0.
 
 ### 4.5 Suppression Governance (`weakness-ok`)
 
@@ -1203,23 +1204,24 @@ If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precede
 > (`~/.llmll/modules/`) — are parsed under the **same `GrammarMode` as the invoking
 > command**. In v0.11+, the default grammar mode is `GrammarCoreInversion`.
 >
-> Under `GrammarCoreInversion`, any imported `.ast.json` file containing
-> `{"kind": "def-logic"}` or `{"kind": "letrec"}` nodes produces a
-> `core-grammar-violation` diagnostic (exit 1). Hub publishers must ship
-> `schemaVersion 0.6.0` modules using `def`/`def-shell` node kinds.
+> Any imported `.ast.json` file containing `{"kind": "def-logic"}` is rejected
+> with a `removed-construct` diagnostic (exit 1) under **all** grammar modes —
+> def-logic was removed in v0.12.1. `{"kind": "letrec"}` produces a
+> `core-grammar-violation` (exit 1) under `GrammarCoreInversion`. Hub publishers
+> must ship `schemaVersion 0.6.0` modules using `def`/`def-shell` node kinds.
 >
 > `wasi.*`, `haskell.*`, and `c.*` builtin-namespace imports carry no parseable
 > file and are exempt from grammar-mode checking.
 
 ### 8.3 Declaration Ordering
 
-All `import`, `open`, and `export` declarations should appear **before** any `def-logic`, `type`, or `def-interface` statements — both inside a `(module ...)` block and at file scope. The parser accepts declarations in any position, but **ordering has semantic impact**: the type-checker processes statements sequentially, so an `(open A)` placed after a `(def-logic f ...)` will not inject A's names into `f`'s body scope.
+All `import`, `open`, and `export` declarations should appear **before** any `def`, `def-shell`, `type`, or `def-interface` statements — both inside a `(module ...)` block and at file scope. The parser accepts declarations in any position, but **ordering has semantic impact**: the type-checker processes statements sequentially, so an `(open A)` placed after a `(def f ...)` will not inject A's names into `f`'s body scope.
 
 Recommended order:
 1. `import` declarations (trigger module loading)
 2. `open` declarations (inject bare names into scope)
 3. `export` declaration (restrict visibility to importers)
-4. `type`, `def-interface`, `def-logic`, `letrec`, `check` declarations
+4. `type`, `def-interface`, `def`, `def-shell`, `letrec`, `check` declarations
 
 ### 8.4 Cycle Detection
 
@@ -1292,9 +1294,9 @@ This will become operational when codegen emits per-module Haskell files with pr
 (export hash-password verify-token)   ;; only these two names visible externally
 ```
 
-If no `export` declaration is present, **all** top-level `def-logic`, `type`, `def-interface`, and `gen` declarations are exported (open default). `check` and `def-invariant` blocks are **never exported**.
+If no `export` declaration is present, **all** top-level `def`, `def-shell`, `type`, `def-interface`, and `gen` declarations are exported (open default). `check` and `def-invariant` blocks are **never exported**.
 
-The `export` declaration must appear before the first `def-logic`.
+The `export` declaration must appear before the first `def` or `def-shell`.
 
 > [!NOTE]
 > **Export enforcement scope.** Export control is enforced at compile time during
@@ -1585,8 +1587,8 @@ For complex sequences of actions that thread a state and accumulate commands, LL
 
 - **State threading enforced:** Every step inside a `do`-block must evaluate to exactly `(S, Command)`. The type `S` must be strictly identical across all steps in the block.
 - **Named vs. Anonymous steps:** A named step `[s1 <- (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
-- **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def-logic` pure contexts. Each step's `(State, Command)` pair is destructured via `let`; the final result is `(lastState, lastCommand)`.
-- **Intermediate commands are silently discarded by default.** Non-final steps' `Command` components are bound but not executed unless explicitly wrapped in `seq-commands` (see §9.3) or the future `(discard cmd)` marker (post-v0.11). This is a known surprise relative to monadic `do`-notation in other languages where the point of sequencing is to execute effects in order. **In LLMLL `def-logic`, effects are values, not statements; sequencing them is the agent's explicit responsibility.** Generated code that looks effectful can silently drop effects unless the agent uses `seq-commands` or returns the intermediate `Command` value in the final tuple. This will tighten in v0.11+ to a warn-or-error on non-final `Command`-typed binds without explicit-discard wrapping; the syntactic surface is preserved during the warning phase.
+- **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def`/`def-shell` pure contexts. Each step's `(State, Command)` pair is destructured via `let`; the final result is `(lastState, lastCommand)`.
+- **Intermediate commands are silently discarded by default.** Non-final steps' `Command` components are bound but not executed unless explicitly wrapped in `seq-commands` (see §9.3) or the future `(discard cmd)` marker (post-v0.11). This is a known surprise relative to monadic `do`-notation in other languages where the point of sequencing is to execute effects in order. **In LLMLL `def`/`def-shell`, effects are values, not statements; sequencing them is the agent's explicit responsibility.** Generated code that looks effectful can silently drop effects unless the agent uses `seq-commands` or returns the intermediate `Command` value in the final tuple. This will tighten in v0.11+ to a warn-or-error on non-final `Command`-typed binds without explicit-discard wrapping; the syntactic surface is preserved during the warning phase.
 
 > [!WARNING]
 > Using an anonymous step `(expr)` when `expr` returns a new state will result in **state-loss**. The bound state from prior steps is retained, but the updated state from `(expr)` is discarded. Always use named steps `[s <- (expr)]` to thread modified states properly.
@@ -1878,14 +1880,16 @@ The grammar is given in EBNF. `{ x }` means zero or more `x`. `[ x ]` means opti
 (* Top-level structure                                           *)
 (* ============================================================ *)
 program     = { statement } ;
-statement   = type-decl | gen-decl | weakness-ok | def-logic | def | def-shell
+statement   = type-decl | gen-decl | weakness-ok | def | def-shell
             | def-interface | def-invariant | def-main | module-decl | import
             | open-decl | export-decl              (* NEW in v0.2 *)
             | trust-decl                            (* NEW in v0.3 *)
             | check | expr ;
-              (* def / def-shell available only under --grammar=core-inversion;
-                 def-logic / letrec unavailable under --grammar=core-inversion
-                 (core-grammar-violation diagnostic + exit non-zero)             *)
+              (* def / def-shell are the definition forms (GrammarCoreInversion,
+                 the default). def-logic was REMOVED in v0.12.1 — rejected under
+                 all grammar modes (removed-construct diagnostic + exit non-zero,
+                 no auto-rewrite). letrec is available only under --grammar=legacy
+                 (core-grammar-violation under --grammar=core-inversion).        *)
 
 (* ============================================================ *)
 (* Module                                                        *)
@@ -1907,12 +1911,12 @@ kv          = ":" IDENT ( STRING | INT | "true" | "false" | IDENT ) ;
 open-decl   = "(" "open" qual-ident [ "(" { IDENT } ")" ] ")" ;
               (* (open foo.bar)           — all exports into scope without prefix *)
               (* (open foo.bar (f g))     — only f and g are unprefixed           *)
-              (* Must appear before any def-logic in the same scope.              *)
+              (* Must appear before any def / def-shell in the same scope.        *)
 
 export-decl = "(" "export" { IDENT } ")" ;
               (* Listed names become the module's public interface.               *)
               (* Absent: all top-level defs exported (open default).             *)
-              (* Must appear before the first def-logic in the file.             *)
+              (* Must appear before the first def / def-shell in the file.       *)
 
 (* ============================================================ *)
 (* Trust declarations — NEW in v0.3 (§4.4.3)                    *)
@@ -1921,7 +1925,7 @@ trust-decl  = "(" "trust" qual-ident ":level" TRUST_LEVEL ")" ;
 TRUST_LEVEL = "verified" | "contract-checked" | "tested" | "asserted" ;
               (* Acknowledges an unproven contract from an imported function.    *)
               (* Per-function, multiple per module. Idempotent (duplicates OK).  *)
-              (* Must appear before any def-logic (same ordering as import).     *)
+              (* Must appear before any def / def-shell (same ordering as import).*)
 
 (* ============================================================ *)
 (* Types                                                         *)
@@ -1953,16 +1957,10 @@ ARROW       = "->" | "→" ;  (* both produce TokArrow; canonical output is "->"
               (* → = U+2192. All other non-ASCII codepoints are lexer errors. *)
 
 (* ============================================================ *)
-(* Logic functions                                              *)
+(* Shared definition sub-productions (used by def / def-shell)   *)
+(* def-logic was REMOVED in v0.12.1; see the def / def-shell     *)
+(* productions below for the current definition forms.           *)
 (* ============================================================ *)
-def-logic   = "(" "def-logic" IDENT
-                "[" { typed-param } "]"
-                [ pre-clause ]
-                [ post-clause ]
-                [ entropy-clause ]                  (* NEW in v0.11 LT-CDP *)
-                expr
-              ")" ;
-
 typed-param    = IDENT ":" type ;
 pre-clause     = "(" "pre"  expr [ ":source" STRING ] ")" ;
 post-clause    = "(" "post" expr [ ":source" STRING ] ")" ;
@@ -1975,7 +1973,7 @@ SPEC_ENTROPY   = ":strict" | ":intentional" | ":unknown" ;
 
 (* ============================================================ *)
 (* Core/shell grammar — GrammarCoreInversion is the default (v0.11 LT-INV; CE-3, EL-5 gate confirmed 2026-05-30) *)
-(* Pass --grammar=legacy to parse v0.10 def-logic / letrec programs. *)
+(* Pass --grammar=legacy to parse v0.10 letrec programs (def-logic removed in v0.12.1). *)
 (* ============================================================ *)
 def          = "(" "def"       IDENT "[" { typed-param } "]"
                  [ pre-clause ] [ post-clause ] [ entropy-clause ]
@@ -2096,7 +2094,7 @@ OP = "+" | "-" | "*" | "/" | "=" | "!=" | "<" | ">" | "<=" | ">="
 
 ### Grammar Key Rules
 
-1. **No return-type annotation.** There is no `: ReturnType` after `[params]` in `def-logic`. Return types are always inferred.
+1. **No return-type annotation.** There is no `: ReturnType` after `[params]` in `def` / `def-shell`. Return types are always inferred.
 2. **`check` requires exactly one `for-all`.** A bare boolean expression is not valid inside `check`.
 3. **`check` block labels must be valid identifiers.** Labels become Haskell `prop_*` function names. Any character outside `[a-zA-Z0-9]` is automatically replaced with `_` by the compiler. Write labels like `"game-over-false-at-start"` rather than `"game over (initial state)"` — both are accepted but special chars are silently normalized.
 4. **List literals** (`[]`, `[a b c]`) are valid in both S-expression and JSON-AST. In S-expression, `[expr ...]` in expression position desugars to `foldr list-prepend (list-empty)` — **not** a parameter list. In JSON-AST use `{ "kind": "lit-list", "items": [...] }`.
