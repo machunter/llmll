@@ -422,7 +422,7 @@ megaparsecToDiagnostic fp bundle =
       -- Strip the "<file>:line:col:\n" prefix that errorBundlePretty adds,
       -- so downstream formatters can append their own location info.
       cleanMsg    = stripLocationPrefix prettyMsg
-      suggestion  = Just "use def-logic, type, import, or check at the top level (v0.1.1 single-file model)"
+      suggestion  = Just "use def, def-shell, type, import, or check at the top level"
   in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False Nothing Nothing Nothing)
   where
     stripLocationPrefix t =

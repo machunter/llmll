@@ -74,7 +74,7 @@ parseJSONAST mode fp bs =
                            if k == "core-grammar-violation"
                              then Just "Replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive); replace {\"kind\":\"letrec\",...} with {\"kind\":\"def-shell\",...}"
                            else if k == "legacy-grammar-violation"
-                             then Just "Drop --grammar=legacy to parse v0.11 programs; or replace {\"kind\":\"def\",...} with {\"kind\":\"def-logic\",...} and {\"kind\":\"def-shell\",...} with {\"kind\":\"letrec\",...} to produce v0.10-compatible output"
+                             then Just "Drop --grammar=legacy to parse v0.11 programs ({\"kind\":\"def\",...} / {\"kind\":\"def-shell\",...} are the current forms); def-logic was removed in v0.12.1, so under --grammar=legacy only {\"kind\":\"letrec\",...} remains available"
                            else if k == "removed-construct"
                              then Just "def-logic was removed in v0.12.1; replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive)"
                            else Nothing
@@ -164,8 +164,8 @@ parseStatement mode = withObject "Statement" $ \o -> do
           fail $ "legacy-grammar-violation: 'def' (function '"
                  ++ T.unpack name
                  ++ "') is not admitted under --grammar=legacy; "
-                 ++ "drop --grammar=legacy to parse v0.11 programs, "
-                 ++ "or use 'def-logic' for the v0.10 strict-core equivalent"
+                 ++ "drop --grammar=legacy to parse v0.11 programs "
+                 ++ "(def-logic, the v0.10 strict-core form, was removed in v0.12.1)"
     "def-shell" ->
       case mode of
         GrammarCoreInversion -> parseDefShellJSON o

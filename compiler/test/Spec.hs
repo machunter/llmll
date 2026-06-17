@@ -24,7 +24,7 @@ import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligat
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
-import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
@@ -7894,6 +7894,32 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                       (EApp ">" [EVar "x", ELit (LitInt 0)]) ]
           report = typeCheck GrammarCoreInversion emptyEnv stmts
       length (reportDiagnostics report) `shouldSatisfy` (>= 0)
+
+    -- HINT-1: the generic S-expression top-level parse-error hint must not
+    -- recommend the removed `def-logic` construct (it should point at def/def-shell).
+    it "HINT-1 S-expr def-logic rejection hint recommends def/def-shell, not def-logic" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def-logic f [] 0)" of
+        Right ss  -> expectationFailure ("expected parse failure, got: " ++ show ss)
+        Left bundle -> do
+          let diag = megaparsecToDiagnostic "<test>" bundle
+          case diagSuggestion diag of
+            Just s -> do
+              T.isInfixOf "def-shell" s `shouldBe` True
+              T.isInfixOf "use def-logic" s `shouldBe` False
+            Nothing -> expectationFailure "expected a suggestion in the diagnostic"
+
+    -- HINT-2: the JSON legacy-grammar-violation suggestion must not recommend
+    -- rewriting to `def-logic` (which is itself rejected under all modes).
+    it "HINT-2 JSON legacy-grammar-violation suggestion does not recommend def-logic" $ do
+      let src = BL.fromStrict $ TE.encodeUtf8 $ T.pack
+                  "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}]}"
+      case parseJSONAST GrammarLegacy "<test>" src of
+        Left diag -> do
+          diagKind diag `shouldBe` Just "legacy-grammar-violation"
+          case diagSuggestion diag of
+            Just s  -> T.isInfixOf "def-logic\",..." s `shouldBe` False
+            Nothing -> pure ()
+        Right ss -> expectationFailure ("expected legacy-grammar-violation, got: " ++ show ss)
 
   -- -----------------------------------------------------------------------
   -- F-GATE-8: def-shell hole-delegate PBT trust guard
