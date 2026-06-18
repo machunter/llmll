@@ -1,0 +1,27 @@
+;; LLMLL Repair-Loop Demo — the authority axis (effect_summary, v0.12.0 Bundle B0).
+;; A *shell* module over the verified core in demo.llmll. It imports the core's
+;; `withdraw` and wraps it with the one thing the core does not do: touch the world
+;; (an audit line to stdout). This is LLMLL's core/shell split made concrete —
+;; the verified core stays pure; the shell holds the capability.
+;;
+;; JSON-AST twin: audit.ast.json.  Regenerate after editing:
+;;   llmll build ./audit.llmll --emit -o .
+;;
+;; What it demonstrates:
+;;   verify ./audit.ast.json --obligation-report  →
+;;     effect_summary: audit-withdraw exercises exactly ["stdout"]; the imported
+;;     `withdraw` it calls contributes ∅ (pure). Authority is visible and minimal.
+;;   cross_module: "supported"  →  the summary composed across the (import demo) edge
+;;     (B0 cross-module propagation; the ∅-iff-fully-walked rule held — the import resolved).
+;;   Authority ⊥ trust: this axis is orthogonal to the verified/asserted lattice the
+;;   core climax (demo.ast.json) reports. A verified function may still reach ⊤ authority;
+;;   this asserted shell reaches exactly one capability.
+
+(module audit
+  (import wasi.io (capability stdout :deterministic false))
+  (import demo)
+  (open demo)
+
+  (def-shell audit-withdraw [balance: int amount: PositiveInt]
+    (pair (withdraw balance amount)
+          (wasi.io.stdout (int-to-string (withdraw balance amount))))))

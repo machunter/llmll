@@ -1,0 +1,86 @@
+{
+  "llmll_version": "0.12.1",
+  "schemaVersion": "0.6.0",
+  "statements": [
+    {
+      "capability": {
+        "deterministic": false,
+        "name": "stdout",
+        "path_or_port": ""
+      },
+      "kind": "import",
+      "path": "wasi.io"
+    },
+    {
+      "kind": "import",
+      "path": "demo"
+    },
+    {
+      "kind": "open",
+      "path": "demo"
+    },
+    {
+      "body": {
+        "fst": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "balance"
+            },
+            {
+              "kind": "var",
+              "name": "amount"
+            }
+          ],
+          "fn": "withdraw",
+          "kind": "app"
+        },
+        "kind": "pair",
+        "snd": {
+          "args": [
+            {
+              "args": [
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "balance"
+                    },
+                    {
+                      "kind": "var",
+                      "name": "amount"
+                    }
+                  ],
+                  "fn": "withdraw",
+                  "kind": "app"
+                }
+              ],
+              "fn": "int-to-string",
+              "kind": "app"
+            }
+          ],
+          "kind": "qual-app",
+          "qual_fn": "wasi.io.stdout"
+        }
+      },
+      "kind": "def-shell",
+      "name": "audit-withdraw",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "named",
+            "name": "PositiveInt"
+          }
+        }
+      ]
+    }
+  ]
+}
