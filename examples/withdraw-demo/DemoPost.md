@@ -10,7 +10,7 @@ This post walks the whole loop on a tiny three-function program: surveying holes
 
 A note on formats: LLMLL source comes in two shapes — a human-readable **s-expression** form, and a machine-processable (and mildly human-readable) **JSON-AST**. We'll read the program in s-expression form; the checkout/patch protocol operates on the JSON-AST.
 
-> **Versions.** This walkthrough was captured with **`llmll 0.11.2`** against **JSON-AST schema `0.6.0`**. The schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.6.0"` (and `"llmll_version": "0.11.1"`, the release the fixture was authored under) — so any tool or agent downstream can refuse an input it doesn't understand instead of misreading it. The compiler version moves with releases; the schema version moves only when the AST shape changes (it's currently `0.6.0`), so a patch written today keeps parsing across compiler patch releases — which is exactly why `0.11.2` reads the `0.11.1`-stamped fixture byte-for-byte unchanged (its `source_hash` is identical). If your `llmll --version` differs, expect minor cosmetic drift in the output blocks below.
+> **Versions.** `llmll 0.12.1`, JSON-AST schema `0.6.0`. The schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.6.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
 
 ## The program we're building
 
@@ -108,7 +108,7 @@ That's the whole job, machine-readable: fill `withdraw`'s body with an expressio
 
 ## Getting the locks
 
-Picture a swarm of agents told to fill these holes. The first thing each one does is grab a token-lock — essentially *"I'm working on this node."* You call `llmll checkout` with the pointer; it hands back a token. Capture the **full** response, not just the token — as of `0.11.2` it carries the hole's brief inline, so one call gives both the lock and the spec. Let's take both holes now:
+Picture a swarm of agents told to fill these holes. The first thing each one does is grab a token-lock — essentially *"I'm working on this node."* You call `llmll checkout` with the pointer; it hands back a token. Capture the **full** response, not just the token — it carries the hole's brief inline, so one call gives both the lock and the spec. Let's take both holes now:
 
 ```bash
 CO_W=$(llmll checkout ./demo.ast.json /statements/1/body --json)
@@ -491,6 +491,33 @@ This is a **lattice, not a checkmark**, and the JSON makes the two readings expl
 
 That distinction — proven vs. assumed, per clause — is the thing LLMLL gives you that a green CI check doesn't.
 
+## The authority axis: what can it touch?
+
+The trust report answers *"is it correct?"*. A second, orthogonal question is *"what is it even allowed to touch?"* — the object-capability **authority** a function may exercise. `verify --obligation-report` answers it with a per-function `effect_summary`.
+
+Our three core functions are pure, so their authority is uniformly empty (`∅`) — true, but it doesn't show the machinery doing anything. So [`audit.llmll`](./audit.llmll) is a thin **shell** over the core: it imports the verified `withdraw` and adds the one thing the core deliberately does *not* do — an audit line to `stdout`.
+
+```bash
+llmll verify ./audit.ast.json --obligation-report --json 2>/dev/null \
+  | jq '{cross_module, effect_summary}'
+```
+
+```json
+{
+  "cross_module": "supported",
+  "effect_summary": [
+    { "effects": ["stdout"], "function": "audit-withdraw" }
+  ]
+}
+```
+
+Two readings:
+
+- **`effect_summary`** — `audit-withdraw` exercises exactly `["stdout"]`, nothing more. The `withdraw` it imports contributes `∅` to the union; the authority is the shell's, named and minimal. A function that reached a delegate hole, opaque FFI, or an unresolved import would read `"unbounded"` instead — the analysis over-approximates, so it never *under*-reports what code can touch.
+- **`cross_module: "supported"`** — the summary composed *across* the `(import demo)` edge: the core module resolved and was walked in full, so its `∅` contribution is sound rather than assumed. An import the analysis couldn't follow would force `"unbounded"`.
+
+Authority is orthogonal to trust: a `verified` function can still reach every capability, and this `asserted` shell reaches exactly one. *Is it correct?* and *what can it touch?* are two questions, and LLMLL answers them separately instead of folding one into the other.
+
 ## (Optional) Discriminative power
 
 One more axis, for the curious. `--cdp` measures how *tight* a contract is — what fraction of candidate bodies satisfy it. A loose contract that anything satisfies isn't pinning down much.
@@ -502,7 +529,6 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
 ```
 
 ```text
-   Running CDP measurement (LT-CDP v0.11) ...
    CDP measured 3 function(s):
    double: score=1.000 (1/6 candidates satisfy) [const-satisfies-post]
    maxi: score=1.000 (1/7 candidates satisfy) [const-satisfies-post]
@@ -532,12 +558,13 @@ In one tiny program we walked the entire LLMLL loop a developer actually cares a
 - **Checkout/patch with locks** — multiple agents reserve and edit one program, with a compare-and-swap model that refuses lost updates instead of silently clobbering.
 - **A gate that fails closed on two channels** — type errors (`PatchTypeError`) and contract violations (`PatchVerifyError`) are both rejected *before* anything lands, with the offending branch named.
 - **A trust report that's a lattice** — `proven` vs `assumed`, per clause, so you know precisely how much of "correct" is machine-checked.
+- **An authority axis orthogonal to trust** — `effect_summary` reports the object-capabilities each function may reach, composing across module imports, so *"is it correct?"* and *"what can it touch?"* stay separate questions.
 
 The full, copy-pasteable command script for this walkthrough lives in [`DEMO-RUNBOOK.md`](./DEMO-RUNBOOK.md), and the program itself in [`demo.llmll`](./demo.llmll).
 
 ## Future work
 
-This demo stayed small on purpose — three functions, one file, plain integer math. A handful of things a richer demo would want aren't filled in yet. The good news for whoever writes that next demo: the `checkout` response already has slots for all of them; they just come back empty today. Nothing here has to change to use them — they'll simply start carrying more once they're wired up.
+This demo stayed small on purpose — a few small functions and plain integer math. A handful of things a richer demo would want aren't filled in yet. The good news for whoever writes that next demo: the `checkout` response already has slots for all of them; they just come back empty today. Nothing here has to change to use them — they'll simply start carrying more once they're wired up.
 
 - **Tell the agent the return type, not just the inputs.** Today `checkout` hands back the bindings in scope and the contract to satisfy, but the `expected_return_type` field is empty — the agent works out the return type from the contract. When a hole returns something less obvious than an `int` — a `Result`, a record, a list of something — stating the expected type up front saves a guess. A future demo could pick a hole where that actually bites and show the type arriving with the lock.
 
@@ -545,6 +572,6 @@ This demo stayed small on purpose — three functions, one file, plain integer m
 
 - **Show what the body is allowed to lean on.** The precondition tells the body what's guaranteed on the way in. A fuller picture also spells out what the body may *trust* — for instance, a helper that's already been verified, so the agent doesn't re-prove it. That `assumptions` channel is reserved but empty here. A demo spanning a verified helper and the code that calls it could make that hand-off visible.
 
-- **Go multi-file.** Everything above is one program in one file. Real projects are many files with imports, and a swarm of agents editing *across* them is the genuinely interesting version of the locking story. Checkout currently only knows about the hole's own file; following a hole's context across a module boundary is the missing piece. The compare-and-swap locking already works the same way regardless of file count — the demo just needs scope information that crosses files.
+- **Carry the locking story across files.** The authority axis already crosses a module boundary — `audit.llmll` imports the core and `effect_summary` composes across the edge (`cross_module: "supported"`). The *checkout/patch* protocol hasn't caught up: `checkout` knows only the hole's own file, so following a hole's context across a module boundary is the missing piece. The compare-and-swap locking works the same regardless of file count — it just needs scope information that crosses files for a swarm editing *across* modules.
 
 The throughline: this walkthrough proved the loop on a toy. The deferred pieces are exactly what you'd reach for to run the same loop on something that looks like a real project — more types, more functions calling each other, more files, more agents working at once.
