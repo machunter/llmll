@@ -194,6 +194,7 @@ def main() -> int:
         "verify_summary": None,
         "verify_details": None,
         "contract_assessment": None,
+        "effect_summary": None,
         "problems_md": analyze_problems_md(run_dir),
         "agent_duration_seconds": harness.get("duration_seconds"),
         "total_eval_duration_seconds": 0.0,
@@ -273,6 +274,21 @@ def main() -> int:
             report["total_eval_duration_seconds"] = round(time.monotonic() - eval_started, 3)
             write_outputs(run_dir, report)
             return 1
+
+    # v0.12.0 Bundle B0 authority channel (capture-only). `--obligation-report`
+    # does NOT compose with `--trust-report` (they are mutually-exclusive output
+    # modes), so the effect_summary is read from a separate verify invocation.
+    # This is descriptive only: it runs after the graded command loop, is gated on
+    # the success path, and never enters first_error, effective_success, or the
+    # quality grade. A failed probe leaves report["effect_summary"] = None.
+    if not args.skip_verify:
+        oblig = run_command(
+            "obligation-report",
+            llmll + ["verify", solution_name, "--obligation-report"],
+            cwd=run_dir,
+            timeout=args.timeout_seconds,
+        )
+        report["effect_summary"] = parse_effect_summary(oblig["stdout"])
 
     report["status"] = "passed"
     report["quality_grade"] = quality_grade(report)
@@ -887,6 +903,45 @@ def parse_verify_summary(stdout: str) -> dict[str, int] | None:
     return summary if summary else None
 
 
+def parse_effect_summary(stdout: str) -> dict[str, Any] | None:
+    """Capture the v0.12.0 Bundle B0 per-function effect/authority summary from
+    `verify --obligation-report` JSON.
+
+    Capture-only / descriptive: this never affects the quality grade or the
+    first-error stop policy. Returns the per-function effects plus a
+    bounded/unbounded roll-up, or None if no obligation-report JSON was emitted.
+
+    Each effect_summary entry is {"function": name, "effects": <list | "unbounded">};
+    a function whose authority is ``⊤`` ("may exercise any capability", e.g. at a
+    ``?delegate``/FFI boundary) carries ``"unbounded"``. See
+    docs/design/bundle-b0-effect-summary-proposal.md.
+    """
+    def is_unbounded(eff: Any) -> bool:
+        return eff == "unbounded" or (isinstance(eff, list) and "unbounded" in eff)
+
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("{") or "effect_summary" not in stripped:
+            continue
+        try:
+            obj = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        entries = obj.get("effect_summary")
+        if not isinstance(entries, list):
+            continue
+        any_unbounded = any(is_unbounded(e.get("effects")) for e in entries)
+        return {
+            "per_function": entries,
+            "functions": len(entries),
+            "any_unbounded": any_unbounded,
+            "all_bounded": len(entries) > 0 and not any_unbounded,
+            "cross_module": obj.get("cross_module"),
+            "obligation_report_schema_version": obj.get("schema_version"),
+        }
+    return None
+
+
 def quality_grade(report: dict[str, Any]) -> str:
     if report.get("status") != "passed" and report.get("first_error"):
         return "F"
@@ -978,6 +1033,31 @@ def render_summary(report: dict[str, Any]) -> str:
             lines.append("Missing required markers: " + ", ".join(f"`{m}`" for m in missing))
         else:
             lines.append("All required feature markers were found.")
+        lines.append("")
+
+    effect_summary = report.get("effect_summary")
+    if effect_summary:
+        lines.extend(["## Effect / Authority Summary (Bundle B0, v0.12.0)", ""])
+        if effect_summary.get("all_bounded"):
+            rollup = "all functions bounded (∅ or declared capabilities)"
+        elif effect_summary.get("any_unbounded"):
+            rollup = "contains unbounded (⊤) authority"
+        else:
+            rollup = "no contracted functions"
+        lines.append(
+            f"Roll-up: {rollup} — {effect_summary.get('functions', 0)} function(s), "
+            f"cross_module=`{effect_summary.get('cross_module')}`, "
+            f"obligation-report schema `{effect_summary.get('obligation_report_schema_version')}`."
+        )
+        for entry in effect_summary.get("per_function", []):
+            eff = entry.get("effects")
+            if eff == "unbounded":
+                eff_str = "unbounded (⊤)"
+            elif isinstance(eff, list):
+                eff_str = "∅" if not eff else ", ".join(str(x) for x in eff)
+            else:
+                eff_str = str(eff)
+            lines.append(f"- `{entry.get('function')}`: {eff_str}")
         lines.append("")
 
     test_summary = report.get("test_summary")

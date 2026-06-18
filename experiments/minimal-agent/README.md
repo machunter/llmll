@@ -137,6 +137,13 @@ runs these checks in order and stops at the first effective error:
 An effective error includes a nonzero exit code and compiler diagnostics printed
 with exit code 0, such as parse errors emitted by `llmll check`.
 
+After the graded sequence succeeds, the evaluator runs one additional, ungraded
+`llmll verify --obligation-report` to capture the v0.12.0 Bundle B0 effect/authority
+summary (see `effect_summary` below). It is a separate run because `--obligation-report`
+does not compose with `--trust-report` (mutually-exclusive output modes). This probe is
+capture-only: it sits outside the first-error stop policy, runs only on the success path,
+and never changes the grade.
+
 The evaluator writes:
 
 - `evaluation.json`
@@ -159,6 +166,12 @@ run metadata; older runs without the template do not require it.
 - `verify_details`: per-function trust-report pre/post status
 - `contract_assessment`: expected-contract scoring for only the contracts
   explicitly requested by the problem
+- `effect_summary`: v0.12.0 Bundle B0 per-function effect/authority summary — the
+  object-capability authority each function may reach (`∅`, declared capabilities such
+  as `fs.read` / `fs.write` / `stdout`, or `unbounded` ⊤ at `?delegate`/FFI boundaries),
+  plus `all_bounded` / `any_unbounded` roll-up, `cross_module`, and the obligation-report
+  schema version. **Descriptive only** — does not affect `quality_grade` or the stop
+  policy; `null` if the probe emitted no obligation-report JSON
 - `problems_md`: entry count and stale marker checks
 - `agent_duration_seconds`
 - `total_eval_duration_seconds`
