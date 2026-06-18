@@ -703,7 +703,7 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
 **`(spec-entropy …)` annotation.** Three values per contracted `def` / `def-shell` function (under `--grammar=core-inversion`); `def-shell` functions receive `WarnDefShellOutOfScope` under `--cdp` and are not scored:
 
 ```lisp
-;; Requires --grammar=core-inversion. Under --grammar=legacy, use def-logic (out of CDP scope under --cdp).
+;; Requires --grammar=core-inversion. def-shell functions are out of CDP scope under --cdp (only def is scored).
 (def transfer [from: AccountId to: AccountId amount: PositiveInt]
   (pre  (>= (balance-of from) amount))
   (post (and (= (balance-of from) (- (old (balance-of from)) amount))
@@ -753,7 +753,7 @@ JSON-AST equivalent: `{"kind": "weakness-ok", "name": "render-board", "reason": 
 In LLMLL's target domains (financial compliance, protocol implementation, cryptographic standards), auditors require per-clause traceability to the originating standard. The `:source` annotation provides free-form provenance metadata on `pre` and `post` clauses:
 
 ```lisp
-(def-logic transfer [from: string to: string amount: int]
+(def-shell transfer [from: string to: string amount: int]
   (pre (>= amount 0)
     :source "ERC-20 §transfer — amount must be non-negative")
   (post (= (total-supply result) (total-supply state))
@@ -851,7 +851,7 @@ stack exec llmll -- verify ../examples/withdraw.llmll
 ```
 ⚠ Spec weakness detected for `sort-list`:
   Your contract: (post (= (list-length result) (list-length input)))
-  Trivial valid implementation: (def-logic sort-list [input: list[int]] input)
+  Trivial valid implementation: (def-shell sort-list [input: list[int]] input)
   Consider strengthening the postcondition.
 ```
 
@@ -1078,7 +1078,7 @@ A program with holes can be **parsed, type-checked, and analyzed** but **not exe
 **Usage in expressions:** A hole can appear anywhere an expression is expected:
 
 ```lisp
-(def-logic display-word [word: Word guessed: list[Letter]]
+(def-shell display-word [word: Word guessed: list[Letter]]
   (post (= (string-length result) (string-length word)))
   ?display_word_impl)            ;; hole: compiler knows return type is string
 ```
@@ -1426,7 +1426,7 @@ Every logic function that interacts with the world follows this signature:
 The AI's logic is pure. The runtime is the only actor that touches the OS.
 
 ```lisp
-(def-logic handle-request [state: AppState request: string]
+(def-shell handle-request [state: AppState request: string]
   (if (string-contains request "/valid")
       (pair (update-state state) (wasi.http.response 200 "OK"))
       (pair state                (wasi.http.response 400 "Bad Request"))))
@@ -1454,7 +1454,7 @@ Commands can be stored in `let` bindings and passed as values. They are opaque �
 If a single logic step must emit multiple side effects, use `seq-commands` to compose them into a single `Command`:
 
 ```lisp
-(def-logic log-and-respond [state: AppState req: HttpRequest]
+(def-shell log-and-respond [state: AppState req: HttpRequest]
   (let [(log-cmd  (wasi.io.stderr "Request received"))
         (resp-cmd (wasi.http.response 200 "OK"))]
     (pair state (seq-commands log-cmd resp-cmd))))
@@ -1576,7 +1576,7 @@ In JSON-AST:
 For complex sequences of actions that thread a state and accumulate commands, LLMLL provides a monadic `do`-notation block as a cleaner alternative to deeply nested `let` and `seq-commands`.
 
 ```lisp
-(def-logic process-turn [state: GameState]
+(def-shell process-turn [state: GameState]
   (do
     [s1 <- (action1 state)]
     [s2 <- (action2 s1)]
@@ -1703,7 +1703,7 @@ A `?hole` does not always require human intervention. An AI can delegate a sub-t
 `?delegate` requires an explicit `-> ReturnType` annotation. An optional `(on-failure ...)` clause provides a fallback:
 
 ```lisp
-(def-logic login-route [req: HttpRequest]
+(def-shell login-route [req: HttpRequest]
   (let [[password  (get req :pass)]
         [hashed-pw (?delegate @crypto-agent
                      "Implement secure PBKDF2 hashing"
@@ -1743,7 +1743,7 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
 **JSON-AST `agent` field convention.** In JSON-AST, the `agent` field of `hole-delegate` / `hole-delegate-async` stores the **bare agent identifier without the `@` sigil**. The `@` is surface S-expression syntax (and `llmll holes` display-time rendering); it is not part of the stored identifier in the typed AST or the JSON. Example: surface `?delegate @crypto-agent ...` corresponds to JSON-AST `"agent": "crypto-agent"`.
 
 ```lisp
-(def-logic build-report [state: AppState data: ReportData]
+(def-shell build-report [state: AppState data: ReportData]
   (let [[chart-future (?delegate-async @viz-agent
                          "Render a bar chart from data"
                          -> ImageBytes)]]
@@ -2166,12 +2166,12 @@ The `=` operator is **polymorphic structural equality** defined over all LLMLL t
 > **Pattern for records:** LLMLL has no native record syntax. Use nested `pair` values and named accessor functions. A 4-field record uses 3 levels of nesting:
 > ```lisp
 > ;; State = (word, (guessed, (wrong-count, max-wrong)))
-> (def-logic make-state [w: Word g: list[Letter] wc: GuessCount mx: GuessCount]
+> (def-shell make-state [w: Word g: list[Letter] wc: GuessCount mx: GuessCount]
 >   (pair w (pair g (pair wc mx))))
-> (def-logic state-word    [s] (first s))
-> (def-logic state-guessed [s] (first (second s)))
-> (def-logic state-wrong   [s] (first (second (second s))))
-> (def-logic state-max     [s] (second (second (second s))))
+> (def-shell state-word    [s] (first s))
+> (def-shell state-guessed [s] (first (second s)))
+> (def-shell state-wrong   [s] (first (second (second s))))
+> (def-shell state-max     [s] (second (second (second s))))
 > ```
 
 ### 13.5 List Operations
@@ -2258,7 +2258,7 @@ LLMLL distinguishes three syntactic surfaces for `Result[t, e]` values, each wit
 
 ```lisp
 ;; Construct
-(def-logic safe-divide [a: int b: int]
+(def-shell safe-divide [a: int b: int]
   (if (= b 0) (err "division by zero") (ok (/ a b))))
 
 ;; Match
@@ -2275,7 +2275,7 @@ LLMLL distinguishes three syntactic surfaces for `Result[t, e]` values, each wit
 When a contract on a Result-returning function asserts a property the verifier cannot discharge — typically because the postcondition involves a delegated call, nonlinear arithmetic, or map invariants — mark the contract clause `?proof-required` rather than weakening the spec or relying on `(weakness-ok ...)`. The marker promotes the obligation to the trust channel as `asserted` (per §5.3.5 verification matrix), records the gap in the trust report, and surfaces a structured hole to the obligation report. Agents receive credit for declaring the obligation; weakening the spec to silence the verifier is an anti-pattern.
 
 ```lisp
-(def-logic verify-token [token: string]
+(def-shell verify-token [token: string]
   ;; Postcondition intent: result is Success or `err "invalid"`.
   ;; The predicate is non-linear (depends on the delegated body),
   ;; so the verifier cannot discharge it. Marker emitted; trust=asserted.
@@ -2309,7 +2309,7 @@ These functions produce `Command` values. Each requires the corresponding `impor
 (module game
   (import wasi.io (capability stdout :deterministic false))
 
-  (def-logic initialize-game [word: Word]
+  (def-shell initialize-game [word: Word]
     (pre (> (string-length word) 0))
     (let [[initial-state (make-state word (list-empty) 0 6)]]
       (pair initial-state (wasi.io.stdout "Game initialized.\n")))))
@@ -2324,7 +2324,7 @@ The identifier `result` is a **reserved pseudo-binding** available only inside `
 | `result` | Inside `post` only | The return value of the function body |
 
 ```lisp
-(def-logic add [x: int y: int]
+(def-shell add [x: int y: int]
   (post (= result (+ x y)))  ;; result = x + y, as returned by the body
   (+ x y))
 ```
@@ -2397,7 +2397,7 @@ Cryptographic builtins are **opaque primitives** — the compiler does not attem
 **Usage in TOTP benchmark:**
 
 ```lisp
-(def-logic hmac-sha1-wrap [key: bytes[20] msg: bytes[20]]
+(def-shell hmac-sha1-wrap [key: bytes[20] msg: bytes[20]]
   :source "RFC 2104"
   (hmac-sha1 key msg))
 

@@ -4,7 +4,13 @@
 
 ## Unreleased
 
-_Nothing yet._
+### Docs — `LLMLL.md` `def-logic` examples migrated to `def-shell` (v0.12.1 follow-up) (2026-06-17)
+
+- **19 `def-logic` occurrences in `LLMLL.md` prose examples migrated to `def-shell`** — 18 `(def-logic …)` definition forms (`transfer`, `display-word`, `handle-request`, `log-and-respond`, `process-turn`, `login-route`, `build-report`, the 5-form `make-state` record-pattern block, `safe-divide`, `verify-token`, `initialize-game`, `add`, `hmac-sha1-wrap`, and the `sort-list` weakness-demo) plus one CDP-scope comment line. Completes the "Known follow-up" flagged in the v0.12.1 roadmap entry: `def-logic` became a hard parse error under all grammar modes in v0.12.1, so these illustrative snippets no longer parsed. Conservative `def-shell` target (the permissive superset; most of these bodies — `do`-notation, `?delegate`/`?delegate-async`, `seq-commands`, `pair`-records — are strict-core-excluded and require `def-shell` regardless). No behavioral or schema change; `schemaVersion` stays `0.6.0`. Prose/example reconciliation only; no test-count change (862 Haskell + 62 Python).
+
+### Docs — roadmap shipped-history tidy (2026-06-17)
+
+- **v0.11 planning block relocated** into the `Shipped Releases` collapsed `<details>` (consistent with the existing v0.1.1–v0.10 collapsed history); the historical v0.8–v0.10 critical-path ASCII diagram wrapped in `<details>`. v0.12.1 Shipped-Releases follow-up note updated from "await engineer migration" to reflect completion. Roadmap structural tidy; no row-status or acceptance-criteria changes.
 
 <a id="Latest"></a>
 
