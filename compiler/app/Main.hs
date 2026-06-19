@@ -38,8 +38,8 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..))
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrict, emptyEnv, builtinEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
@@ -49,7 +49,7 @@ import LLMLL.HoleAnalysis
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings)
-import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, canonicalDefEvidenceHash, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..))
 import LLMLL.Diagnostic
@@ -62,7 +62,7 @@ import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, F
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult)
 import LLMLL.InvariantRegistry (defaultPatterns)
-import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), buildScopeEntries, collectTypeDefinitions, normalizePointer)
+import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, collectTypeDefinitions, normalizePointer)
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (saveVerified, loadVerified, verifiedPath)
@@ -70,7 +70,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), markRefuted, refutedClosure)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.CDP
   ( CDPResult(..), CDPScope(..)
   , computeCDPFor
@@ -80,7 +80,9 @@ import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
-import LLMLL.ObligationAssembly (assembleReport, holeContractBrief)
+import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, exprToSExpr)
+import LLMLL.FixpointEmit (buildContractEnv)
+import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
 import System.IO (hGetLine)
 
@@ -1094,8 +1096,18 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
   case mResult of
     Left () -> exitFailure
     Right (stmts, _cache, _) -> do
+      -- ADMIT-VERIFIED (Option 2, seam 6): load the entry file's OWN
+      -- '.verified.json' BEFORE the strict-core type-check gate and validate it
+      -- against the live def bodies+contracts ('downgradeStaleVerifiedSidecar'),
+      -- so a same-file 'def'→'def' callee verified in a prior pass is admitted.
+      -- Validation (the staleness guard) runs here so an absent/stale hash is
+      -- demoted before the admission leg sees it (soundness (iii)+(iv)). The
+      -- COLD first-ever-verify case still rejects (no prior sidecar) — the
+      -- accepted LT-INV §3.5 "verify-then-build" cost; not fixed here.
+      entrySidecarRaw <- loadVerified fp
+      let (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecar stmts entrySidecarRaw
       -- v0.6.3: typecheck gate (BUG-4)
-      let tcReport = typeCheckStrictWithCache gm _cache emptyEnv stmts
+      let tcReport = typeCheckStrictWithCacheAndStatus gm _cache entrySidecar emptyEnv stmts
       unless (reportSuccess tcReport) $ do
         mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics tcReport)
         exitFailure
@@ -1302,20 +1314,28 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                   -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False Nothing Nothing False))
+                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False Nothing Nothing False Nothing))
                                        (contractPre c)
                             -- Pre remains asserted: no call-site VCs in v0.8.1b
                         , csPost = if Set.member n bodyFaithfulSet
                                    then let tainted = Set.member n overflowTaintedSet
-                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False))
+                                            -- ADMIT-VERIFIED (Option 2, §6, soundness (iii)):
+                                            -- stamp a hash over canonical (body, pre, post) +
+                                            -- semantics tag on body-faithful SAFE post evidence.
+                                            -- Untainted only — a tainted verdict is never
+                                            -- admissible, so it carries no admission hash.
+                                            hash = if tainted
+                                                   then Nothing
+                                                   else Just (canonicalDefEvidenceHash body (contractPre c) (contractPost c))
+                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash))
                                                 (contractPost c)
-                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False))
+                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing))
                                              (contractPost c)
                             -- Post verified only when body-faithful VC succeeded
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9
                         })
                     | s <- stmts
-                    , Just (n, c) <- [extractContract s]
+                    , Just (n, _, _, c, body) <- [normalizeDefStmt s]
                     , contractPre c /= Nothing || contractPost c /= Nothing
                     ]
               saveVerified fp provenCS
@@ -1634,10 +1654,10 @@ doCheckout json gm fp pointer = do
       -- typecheck cost. On parse/load failure we proceed with an empty brief;
       -- checkout still acquires the lock.
       let normPtr = normalizePointer pointer
-      (mScope, mTypeDefs, mPre, mPost, mPath) <- do
+      (mScope, mTypeDefs, mPre, mPost, mPath, mFuncs, mConsumed) <- do
         mStmts <- loadStatementsMulti json gm fp
         case mStmts of
-          Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing)
+          Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
           Right (stmts, _cache, _) -> do
             let sketch = runSketch gm builtinEnv stmts defaultPatterns
                 mHole  = case [ h | h <- sketchHoles sketch
@@ -1654,16 +1674,46 @@ doCheckout json gm fp pointer = do
                         defs = collectTypeDefinitions scopeTypes Nothing
                                  (buildAliasMap stmts)
                     in if null defs then Nothing else Just defs
+                -- DEMO-COMP (seam 5): wire the two previously-deferred Nothings.
+                -- Checkout stays at typecheck cost (no solver): the trust report
+                -- here carries default tiers, sourced honestly via trustLabel.
+                trustRpt = buildTrustReport _cache stmts Map.empty
+                trustMap = Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+                cenv     = buildContractEnv stmts
+                recNames = recursiveNames stmts
+                -- ccFunctions: contracted user vocabulary with pre/post/tier (§3.2).
+                funcs = [ FuncEntry
+                            { feName   = fname
+                            , feParams = map (\(n,t) -> (n, typeLabel t)) ps
+                            , feReturn = maybe "?" typeLabel mRet
+                            , feStatus = "filled"
+                            , fePre    = fmap exprToSExpr (contractPre c)
+                            , fePost   = fmap exprToSExpr (contractPost c)
+                            , feTier   = Just (trustLabel trustMap fname)
+                            }
+                        | stmt <- stmts
+                        , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
+                        , contractPre c /= Nothing || contractPost c /= Nothing
+                        ]
+                -- ccConsumedGuarantees: discharged callee posts the hole's
+                -- enclosing function consumes (§3.1, §5 edge 3 sourcing).
+                mEnclosing = enclosingFunc normPtr stmts
+                consumed = case mEnclosing of
+                  Just fn -> assembleConsumedGuarantees stmts cenv trustMap recNames fn
+                  Nothing -> []
             pure ( scope
                  , tdefs
                  , pre
                  , post
                  , if null path then Nothing else Just path
+                 , if null funcs then Nothing else Just funcs
+                 , if null consumed then Nothing else Just consumed
                  )
       let ctx = CheckoutContext
             { ccScope          = mScope
             , ccExpectedReturn = Nothing  -- best-effort: SketchHole carries no inferred type
-            , ccFunctions      = Nothing  -- deferred (follow-on: assembleFunctionLists)
+            -- DEMO-COMP (seam 5): contracted-user vocabulary with pre/post/tier.
+            , ccFunctions      = mFuncs
             , ccTypeDefs       = mTypeDefs
             -- OBLIG-1 (population): contract context now filled (was deferred to OBLIG-2)
             , ccContractPre    = mPre
@@ -1674,6 +1724,8 @@ doCheckout json gm fp pointer = do
             -- v0.10: staleness hashes
             , ccSourceHash     = Just sourceHash
             , ccVerifiedHash   = mVerifiedHash
+            -- DEMO-COMP (seam 5): consumed callee guarantees.
+            , ccConsumedGuarantees = mConsumed
             }
       result <- checkoutHoleWithContext fp astVal pointer ctx
       case result of

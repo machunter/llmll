@@ -87,24 +87,46 @@ instance FromJSON ScopeEntry where
     ScopeEntry <$> o .: "name" <*> o .: "type" <*> o .: "source"
 
 -- | v0.3.5: A function signature available at the hole site.
+-- DEMO-COMP (§3.2): additive pre/post/tier so the contracted-user vocabulary
+-- carries the contract an agent must discharge and may assume. All three are
+-- 'Maybe Text': 'fePre'/'fePost' are 'Nothing' for an absent clause (a pre-free
+-- callee → 'pre: null'); 'feTier' is 'Nothing' for builtins (no trust tier).
 data FuncEntry = FuncEntry
   { feName   :: Text           -- ^ function name
   , feParams :: [(Text, Text)] -- ^ [(paramName, typeName)]
   , feReturn :: Text           -- ^ return type label
   , feStatus :: Text           -- ^ "filled" | "hole" | "builtin"
+  , fePre    :: Maybe Text     -- ^ DEMO-COMP: precondition (rendered), null if pre-free
+  , fePost   :: Maybe Text     -- ^ DEMO-COMP: postcondition (rendered), null if absent
+  , feTier   :: Maybe Text     -- ^ DEMO-COMP: effective trust tier, null for builtins
   } deriving (Show, Eq, Generic)
 
 instance ToJSON FuncEntry where
-  toJSON fe = object
-    [ "name"    .= feName fe
-    , "params"  .= map (\(n, t) -> object ["name" .= n, "type" .= t]) (feParams fe)
-    , "returns" .= feReturn fe
-    , "status"  .= feStatus fe
+  toJSON fe = object $
+    [ "name"        .= feName fe
+    , "params"      .= map (\(n, t) -> object ["name" .= n, "type" .= t]) (feParams fe)
+    , "returns"     .= feReturn fe
+    , "return_type" .= feReturn fe   -- DEMO-COMP §3.2: alias of returns
+    , "status"      .= feStatus fe
+    -- DEMO-COMP: emitted unconditionally as null when absent (additive; agents
+    -- read pre/post/tier directly off the contracted-vocabulary entry).
+    , "pre"         .= fePre fe
+    , "post"        .= fePost fe
+    , "tier"        .= feTier fe
     ]
 
 instance FromJSON FuncEntry where
   parseJSON = withObject "FuncEntry" $ \o ->
-    FuncEntry <$> o .: "name" <*> o .: "params" <*> o .: "returns" <*> o .: "status"
+    FuncEntry <$> o .: "name"
+              <*> (o .: "params" >>= mapM parseParam)
+              <*> o .: "returns" <*> o .: "status"
+              <*> o .:? "pre" <*> o .:? "post" <*> o .:? "tier"
+    where
+      -- ToJSON renders each param as {"name":..,"type":..}; decode that shape
+      -- (the default [(Text,Text)] decoder expects a 2-element array and would
+      -- fail the additive round-trip, e.g. DEMO-COMP DC-4).
+      parseParam = withObject "FuncEntry.param" $ \p ->
+        (,) <$> p .: "name" <*> p .: "type"
 
 -- | v0.3.5: A type definition relevant to the hole's context.
 data TypeDefEntry = TypeDefEntry
@@ -160,6 +182,10 @@ data CheckoutToken = CheckoutToken
   , ctObligationId      :: Maybe Text             -- ^ obligation ID (fingerprint, spec §3)
   , ctSourceHash        :: Maybe Text             -- ^ SHA-256 of source file at checkout
   , ctVerifiedHash      :: Maybe Text             -- ^ SHA-256 of .verified.json sidecar
+  -- DEMO-COMP (§3.1, §3): discharged callee postconditions consumed as available
+  -- hypotheses — a SEPARATE channel from 'ctAssumptions' (TCB escape hatches).
+  -- 'ctAssumptions' is left unchanged (engineer F3: no breaking type change).
+  , ctConsumedGuarantees :: Maybe [Value]         -- ^ DEMO-COMP: consumed callee guarantees
   } deriving (Show, Eq, Generic)
 
 -- | v0.10 OBLIG-1: Bundled context parameter for checkoutHoleWithContext.
@@ -177,6 +203,8 @@ data CheckoutContext = CheckoutContext
   , ccObligationId    :: Maybe Text
   , ccSourceHash      :: Maybe Text
   , ccVerifiedHash    :: Maybe Text
+  -- DEMO-COMP (§3): consumed callee guarantees (separate channel from ccAssumptions)
+  , ccConsumedGuarantees :: Maybe [Value]
   } deriving (Show, Eq)
 
 instance ToJSON CheckoutToken where
@@ -201,7 +229,17 @@ instance ToJSON CheckoutToken where
     , "obligation_id"       .= ctObligationId ct
     , "source_hash"         .= ctSourceHash ct
     , "verified_hash"       .= ctVerifiedHash ct
+    -- DEMO-COMP (§3): consumed_guarantees channel (separate from assumptions),
+    -- and brief_version (the brief was previously unversioned — engineer F4).
+    , "consumed_guarantees" .= ctConsumedGuarantees ct
+    , "brief_version"       .= briefVersion
     ]
+
+-- | DEMO-COMP (§3, engineer F4): schema version for the checkout brief
+-- (CheckoutToken JSON). Previously unversioned. Bumped additively whenever the
+-- brief surface gains fields.
+briefVersion :: Text
+briefVersion = "0.12.1"
 
 hubSugToJson :: QueryResult -> Value
 hubSugToJson qr = object
@@ -232,6 +270,7 @@ instance FromJSON CheckoutToken where
     obligId_ <- o .:? "obligation_id"
     srcHash_ <- o .:? "source_hash"
     verHash_ <- o .:? "verified_hash"
+    consumed_ <- o .:? "consumed_guarantees"  -- DEMO-COMP (additive, backward-compat)
     pure CheckoutToken
       { ctPointer   = p
       , ctHoleKind  = hk
@@ -252,6 +291,7 @@ instance FromJSON CheckoutToken where
       , ctObligationId      = obligId_
       , ctSourceHash        = srcHash_
       , ctVerifiedHash      = verHash_
+      , ctConsumedGuarantees = consumed_
       }
 
 data CheckoutLock = CheckoutLock
@@ -340,6 +380,7 @@ emptyCheckoutContext = CheckoutContext
   , ccPathCondition = Nothing, ccAssumptions = Nothing
   , ccObligationId = Nothing, ccSourceHash = Nothing
   , ccVerifiedHash = Nothing
+  , ccConsumedGuarantees = Nothing
   }
 
 -- | v0.3.5 (Phase C) / v0.10 (OBLIG-1): Context-aware checkout.
@@ -410,6 +451,7 @@ checkoutHoleWithContext fp astVal rawPointer ctx = do
                     , ctObligationId      = ccObligationId ctx
                     , ctSourceHash        = ccSourceHash ctx
                     , ctVerifiedHash      = ccVerifiedHash ctx
+                    , ctConsumedGuarantees = ccConsumedGuarantees ctx
                     }
                   newLock = cleanLock { lockTokens = lockTokens cleanLock ++ [ct] }
               saveLock fp newLock
@@ -651,12 +693,13 @@ buildScopeEntries env =
 -- | Build FuncEntry list from a function signature map.
 buildFuncEntries :: Map.Map Name Type -> [FuncEntry]
 buildFuncEntries sigs =
+  -- Builtins carry no contract and no trust tier: pre/post/tier = Nothing.
   [ case ty of
       TFn params ret -> FuncEntry name
         (zipWith (\i t -> ("p" <> T.pack (show (i :: Int)), typeLabel t)) [0..] params)
         (typeLabel ret)
-        "builtin"
-      _ -> FuncEntry name [] (typeLabel ty) "builtin"
+        "builtin" Nothing Nothing Nothing
+      _ -> FuncEntry name [] (typeLabel ty) "builtin" Nothing Nothing Nothing
   | (name, ty) <- Map.toAscList sigs
   , not ("wasi." `T.isPrefixOf` name)  -- Q1: exclude wasi.* builtins
   ]

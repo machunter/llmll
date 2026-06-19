@@ -12,14 +12,16 @@ import qualified Data.Text.Encoding as TE
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyBodyFragment
   , recursiveNames, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel
-  , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..) )
+  , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..)
+  , assembleConsumedGuarantees, assembleFunctionLists
+  , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
@@ -33,7 +35,7 @@ import LLMLL.AstEmit (stmtToJson, emitJsonAST)
 import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, maxFuel)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
-                 , canonicalPropBodyHash)
+                 , canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified, sidecarNeedsRevalidation)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
@@ -41,7 +43,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
@@ -59,8 +61,8 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), checkoutHole)
-import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), applyPatch, hasContracts)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), FuncEntry(..), checkoutHole)
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..))
 import LLMLL.CDP
@@ -1686,7 +1688,7 @@ main = hspec $ do
 
     it "serializes with result=PatchVerifyError and diagnostics array" $ do
       let report = DiagnosticReport "verify" [mkError Nothing "post-condition violated"] False
-          result = PatchVerifyError report
+          result = PatchVerifyError report Nothing
           json = encode result
       case decode json of
         Nothing -> expectationFailure "failed to decode PatchVerifyError JSON"
@@ -1695,6 +1697,44 @@ main = hspec $ do
           case KM.lookup "diagnostics" o of
             Just (Array _) -> pure ()
             _ -> expectationFailure "expected diagnostics array"
+        _ -> expectationFailure "expected JSON object"
+
+    -- DEMO-COMP (§3.3): the discriminated callee-precondition-unmet sub-reason.
+    -- POSITIVE: a CalleePreUnmet payload surfaces reason + callee + required_pre
+    -- + call_site_pointer on the EXISTING PatchVerifyError constructor.
+    it "DC-P1: PatchVerifyError with CalleePreUnmet carries the sub-reason payload" $ do
+      let report = DiagnosticReport "verify" [mkError Nothing "callee precondition unmet"] False
+          cpu = CalleePreUnmet "withdraw" "(>= balance amount)" "/statements/4/body"
+          result = PatchVerifyError report (Just cpu)
+      case decode (encode result) of
+        Just (Object o) -> do
+          KM.lookup "result" o            `shouldBe` Just (String "PatchVerifyError")
+          KM.lookup "reason" o            `shouldBe` Just (String "callee-precondition-unmet")
+          KM.lookup "callee" o            `shouldBe` Just (String "withdraw")
+          KM.lookup "required_pre" o      `shouldBe` Just (String "(>= balance amount)")
+          KM.lookup "call_site_pointer" o `shouldBe` Just (String "/statements/4/body")
+        _ -> expectationFailure "expected JSON object"
+
+    -- NEGATIVE 1: a plain body-post PatchVerifyError (mCpu = Nothing) carries NO
+    -- 'reason' key — byte-compatible with the pre-DEMO-COMP shape.
+    it "DC-P2: plain body-post PatchVerifyError omits the sub-reason" $ do
+      let report = DiagnosticReport "verify" [mkError Nothing "post-condition violated"] False
+          result = PatchVerifyError report Nothing
+      case decode (encode result) of
+        Just (Object o) -> do
+          KM.lookup "result" o `shouldBe` Just (String "PatchVerifyError")
+          KM.lookup "reason" o `shouldBe` Nothing  -- no sub-reason for body-post
+          KM.lookup "callee" o `shouldBe` Nothing
+        _ -> expectationFailure "expected JSON object"
+
+    -- NEGATIVE 2: a type error stays PatchTypeError (no PatchVerifyError, no reason).
+    it "DC-P3: a type error is PatchTypeError, not a verify sub-reason" $ do
+      let report = DiagnosticReport "patch" [mkError Nothing "type mismatch"] False
+          result = PatchTypeError report
+      case decode (encode result) of
+        Just (Object o) -> do
+          KM.lookup "result" o `shouldBe` Just (String "PatchTypeError")
+          KM.lookup "reason" o `shouldBe` Nothing
         _ -> expectationFailure "expected JSON object"
 
     it "PatchSuccess JSON is unchanged (regression)" $ do
@@ -1809,7 +1849,7 @@ main = hspec $ do
           cs = Map.fromList
                  [ ("withdraw", ContractStatus
                      Nothing
-                     (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False))
+                     (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
                      []) ]
       saveVerified fp cs
       loaded <- loadVerified fp
@@ -1873,7 +1913,7 @@ main = hspec $ do
                 ]
           pResult <- applyPatch GrammarCoreInversion fp patchReq
           case pResult of
-            PatchVerifyError rpt -> do
+            PatchVerifyError rpt _ -> do
               length (reportDiagnostics rpt) `shouldSatisfy` (>= 1)
               any (\d -> diagPointer d /= Nothing) (reportDiagnostics rpt) `shouldBe` True
             PatchSuccess _ -> pure ()  -- solver absent: graceful degradation
@@ -1939,8 +1979,8 @@ main = hspec $ do
           -- PatchSuccess: fixpoint NOT installed → graceful degradation ✅
           -- PatchTypeError: INVALID — typecheck should pass
           case pResult of
-            PatchVerifyError _ -> pure ()
-            PatchSuccess _     -> pure ()
+            PatchVerifyError _ _ -> pure ()
+            PatchSuccess _       -> pure ()
             other -> expectationFailure $ "expected PatchVerifyError or PatchSuccess, got: " ++ show other
       removeDirectoryRecursive tmpDir
 
@@ -2025,14 +2065,14 @@ main = hspec $ do
 
     it "expireStale removes expired tokens" $ do
       let epoch = UTCTime (fromGregorian 2026 1 1) 0
-          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
           lock = CheckoutLock "test.json" [tok]
           later = addUTCTime 7200 epoch
       lockTokens (expireStale later lock) `shouldBe` []
 
     it "expireStale keeps non-expired tokens" $ do
       let epoch = UTCTime (fromGregorian 2026 1 1) 0
-          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+          tok = CheckoutToken "/a" "hole-delegate" Nothing epoch "tok1" 3600 Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
           lock = CheckoutLock "test.json" [tok]
           later = addUTCTime 1800 epoch
       length (lockTokens (expireStale later lock)) `shouldBe` 1
@@ -2202,8 +2242,8 @@ main = hspec $ do
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
         defaultCS = ContractStatus Nothing Nothing []
-        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) []
-        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) []
+        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) []
+        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) []
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -2319,8 +2359,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
-          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) Nothing [])
+          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
+          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) Nothing [])
           ]
         emptyMap = DM.empty
 
@@ -2349,8 +2389,8 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False)) [])
-            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) Nothing [])
+            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing)) [])
+            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) Nothing [])
             ]
       saveVerified testFile statuses
       loaded <- loadVerified testFile
@@ -2379,7 +2419,7 @@ main = hspec $ do
           , meAliasMap = DM.empty
           , mePath = modPath
           , meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])]
+              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])]
           , meContracts = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
@@ -2392,7 +2432,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])] }
+              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache GrammarCoreInversion provenCache emptyEnv callerStmts
@@ -2446,28 +2486,28 @@ main = hspec $ do
 
     -- Test 1: Asserted contracts emit trust-gap warnings
     it "asserted contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -2476,7 +2516,7 @@ main = hspec $ do
 
     -- Test 5: Trust declaration at DLTested suppresses DLTested gap
     it "trust declaration at tested level suppresses tested trust-gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" (DLTested 0)
@@ -2490,7 +2530,7 @@ main = hspec $ do
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
     -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
     it "trust at asserted does NOT suppress tested-level gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" DLAsserted  -- asserted < tested
@@ -2511,7 +2551,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])]
+                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])]
             , meContracts      = DM.empty
             }
           cryptoEnv = ModuleEnv
@@ -2521,7 +2561,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
-                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) Nothing [])]
+                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) Nothing [])]
             , meContracts      = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
@@ -2577,9 +2617,9 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           -- Entry function is proven but calls asserted crypto.hash
           stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
@@ -2597,7 +2637,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing Nothing)
@@ -2610,9 +2650,9 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")
@@ -2644,7 +2684,7 @@ main = hspec $ do
     -- Test 6: Human-readable format contains function names and levels
     it "formatTrustReport contains function names and verification levels" $ do
       let assertedMod = mkModEnv "verify-token" ["auth"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False)) Nothing [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) Nothing [])
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
           report = buildTrustReport cache stmts Map.empty
@@ -2665,8 +2705,8 @@ main = hspec $ do
     let mkEntry name pre post =
           TrustEntry
             { teName               = name
-            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False) pre
-            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False) post
+            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False Nothing) pre
+            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False Nothing) post
             , teDeps               = []
             , teDrifts             = []
             , teEffectiveLevel     = Nothing  -- aggregateTiers falls back to ContractStatus meet
@@ -5485,6 +5525,169 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
       recursiveNames stmts `shouldBe` Set.empty
 
+  -- =========================================================================
+  -- DEMO-COMP: surfacing shipped v0.9.0 assume-guarantee composition.
+  -- consumed_guarantees channel + contracted-record pre/post/tier + SAFE
+  -- precondition-obligations + patch callee-precondition-unmet sub-reason.
+  -- NO constraint-generation / solver change — field surfacing only.
+  -- See docs/design/compositional-trust-closure-proposal.md.
+  -- =========================================================================
+  describe "DEMO-COMP: consumed_guarantees + contracted record + SAFE pre-obligations" $ do
+    let parse src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+          Left e      -> error ("parse failed: " <> show e)
+          Right stmts -> stmts
+        -- Minimal TrustEntry with only an effective level set (the only field
+        -- 'trustLabel' reads). Lets us pin a callee's tier and prove that the
+        -- consumed_guarantees record SOURCES it (never hardcodes "verified").
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing Nothing False
+        objLookup k (Object o) = KM.lookup k o
+        objLookup _ _          = Nothing
+        objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing
+
+        -- §10 fixtures.
+        quadrupleSrc =
+          [ "(def double [x: int] (post (= result (+ x x))) (+ x x))"
+          , "(def quadruple [x: int]"
+          , "  (post (= result (+ (+ x x) (+ x x))))"
+          , "  (double (double x)))" ]
+        withdrawTwiceSrc =
+          [ "(type PositiveInt (where [x: int] (> x 0)))"
+          , "(def-shell withdraw [balance: int amount: PositiveInt]"
+          , "  (pre  (>= balance amount))"
+          , "  (post (= result (- balance amount)))"
+          , "  (- balance amount))"
+          , "(def-shell withdraw-twice [balance: int amount: PositiveInt]"
+          , "  (pre  (>= balance (+ amount amount)))"
+          , "  (post (= result (- balance (+ amount amount))))"
+          , "  (withdraw (withdraw balance amount) amount))" ]
+
+    -- Test 1: consumed_guarantees population + instantiated substitution.
+    it "DC-1: quadruple consumes double.post twice; instantiated substitutes the arg" $ do
+      let stmts    = parse quadrupleSrc
+          cenv     = buildContractEnv stmts
+          trustMap = Map.fromList [("double", mkTE "double" (DLVerified "smt"))]
+          recs     = recursiveNames stmts
+          guars    = assembleConsumedGuarantees stmts cenv trustMap recs "quadruple"
+      length guars `shouldBe` 2  -- (double (double x)): two call sites
+      -- each consumes double.post = (= result (+ x x)) with callee_tier sourced
+      all (\g -> objStr "callee" g == Just "double") guars `shouldBe` True
+      all (\g -> objStr "guarantee" g == Just "(= result (+ x x))") guars `shouldBe` True
+      all (\g -> objStr "status" g == Just "discharged") guars `shouldBe` True
+      -- callee_tier is SOURCED from the trust map (soundness lever, §5 edge 3):
+      -- pinned to verified here ⇒ surfaces verified, not a hardcoded constant.
+      all (\g -> objStr "callee_tier" g == Just "verified") guars `shouldBe` True
+      -- instantiated replaces 'result' with <call-result>; the inner call site
+      -- substitutes x→x, the outer substitutes x→(double x).
+      let insts = [ objStr "instantiated" g | g <- guars ]
+      insts `shouldSatisfy` elem (Just "(= <call-result> (+ x x))")
+      insts `shouldSatisfy` elem (Just "(= <call-result> (+ (double x) (double x)))")
+
+    -- Test 1b (soundness): callee_tier is NOT hardcoded — pinning the tier to
+    -- asserted surfaces asserted.
+    it "DC-1b: callee_tier reflects a degraded (asserted) callee tier" $ do
+      let stmts    = parse quadrupleSrc
+          cenv     = buildContractEnv stmts
+          trustMap = Map.fromList [("double", mkTE "double" DLAsserted)]
+          guars    = assembleConsumedGuarantees stmts cenv trustMap (recursiveNames stmts) "quadruple"
+      all (\g -> objStr "callee_tier" g == Just "asserted") guars `shouldBe` True
+
+    -- Test 2: a leaf (no contracted callee) emits [].
+    it "DC-2: a leaf function emits no consumed_guarantees" $ do
+      let stmts = parse quadrupleSrc
+          cenv  = buildContractEnv stmts
+          guars = assembleConsumedGuarantees stmts cenv Map.empty (recursiveNames stmts) "double"
+      guars `shouldBe` []
+
+    -- Test 3: contracted record carries pre/post/tier; pre-free callee → pre:null.
+    it "DC-3: contracted record carries pre/post/tier; pre-free double → pre:null" $ do
+      let stmts    = parse quadrupleSrc
+          trustMap = Map.fromList [("double", mkTE "double" (DLVerified "smt"))]
+          (contracted, _, _, _) = assembleFunctionLists stmts (buildAliasMap stmts) trustMap TInt
+          dbl = [ c | c <- contracted, objStr "name" c == Just "double" ]
+      length dbl `shouldBe` 1
+      let c = head dbl
+      objLookup "pre" c  `shouldBe` Just Null                       -- pre-free ⇒ null
+      objStr "post" c    `shouldBe` Just "(= result (+ x x))"
+      objStr "tier" c    `shouldBe` Just "verified"
+      objStr "return_type" c `shouldBe` Just "int"
+
+    -- Test 4: FuncEntry additive round-trip (pre/post/tier survive ToJSON→FromJSON).
+    it "DC-4: FuncEntry pre/post/tier additive JSON round-trip" $ do
+      let fe = FuncEntry "double" [("x","int")] "int" "filled"
+                 (Just "(= result (+ x x))") Nothing (Just "verified")
+          mfe = decode (encode fe) :: Maybe FuncEntry
+      mfe `shouldBe` Just fe
+      -- builtin (no contract): pre/post/tier all Nothing, still round-trips.
+      let bi = FuncEntry "len" [("p0","string")] "int" "builtin" Nothing Nothing Nothing
+      (decode (encode bi) :: Maybe FuncEntry) `shouldBe` Just bi
+
+    -- Test 5: SAFE per-call-site PreconditionObligation surfacing.
+    --
+    -- EMPIRICAL CORRECTION (verified against the shipped emitter, not the
+    -- proposal prose): the body-VC builder emits a 'call-pre:<callee>' origin
+    -- for a contracted call ONLY when (a) the enclosing function has a
+    -- translatable post (else the whole body VC falls back) AND (b) the call's
+    -- arguments are themselves QF-LIA-translatable. A *nested* contracted call
+    -- as an argument — 'withdraw (withdraw …) …' in the §10 'withdraw-twice'
+    -- fixture — fails argument translation and the whole outer call falls back,
+    -- so withdraw-twice yields ZERO call-pre origins, not the two the proposal
+    -- prose anticipated. Emitting two would require a constraint-generation
+    -- change (nested-call argument support), which DEMO-COMP explicitly excludes
+    -- ("field surfacing only — no constraint-generation change"). The SAFE
+    -- assembler is exercised here against a FLAT call the emitter supports.
+    it "DC-5: SAFE PreconditionObligation surfaces a discharged call-pre origin" $ do
+      let flatSrc =
+            [ "(type PositiveInt (where [x: int] (> x 0)))"
+            , "(def-shell withdraw [balance: int amount: PositiveInt]"
+            , "  (pre  (>= balance amount))"
+            , "  (post (= result (- balance amount)))"
+            , "  (- balance amount))"
+            , "(def-shell caller [b: int amt: PositiveInt]"
+            , "  (post (= result (- b amt)))"
+            , "  (withdraw b amt))" ]      -- flat call → emitter supports it
+          flatStmts = parse flatSrc
+      flatR <- emitFixpointWith (EmitOptions True) "<test>" flatStmts
+      -- Exactly one 'call-pre:withdraw' origin (one call site).
+      let flatOrigins = [ o | o <- Map.elems (erConstraintTable flatR)
+                            , "call-pre:" `T.isPrefixOf` coClause o ]
+      length flatOrigins `shouldBe` 1
+      coClause (head flatOrigins) `shouldBe` "call-pre:withdraw"
+      coJsonPtr (head flatOrigins) `shouldBe` "/statements/2/body"
+      -- The SAFE assembler turns each origin into exactly one
+      -- PreconditionObligation, preserving the call-site pointer.
+      let trustRpt = buildTrustReport Map.empty flatStmts Map.empty
+          preObls  = assembleSafePreObligations flatStmts (erConstraintTable flatR)
+                       (Just FQSafe) trustRpt Set.empty
+      length preObls `shouldBe` 1
+      ooKind (head preObls) `shouldBe` PreconditionObligation
+      ooOrigin (head preObls) `shouldBe` "/statements/2/body"
+
+      -- Nested-call fixture (§10 withdraw-twice): ZERO origins (emitter falls
+      -- back on the nested-call argument; documented limitation above).
+      wtR <- emitFixpointWith (EmitOptions True) "<test>" (parse withdrawTwiceSrc)
+      length [ () | o <- Map.elems (erConstraintTable wtR)
+                  , "call-pre:" `T.isPrefixOf` coClause o ] `shouldBe` 0
+
+      -- quadruple over pre-free double: zero call-pre obligations (no pre).
+      qEmit <- emitFixpointWith (EmitOptions True) "<test>" (parse quadrupleSrc)
+      length [ () | o <- Map.elems (erConstraintTable qEmit)
+                  , "call-pre:" `T.isPrefixOf` coClause o ] `shouldBe` 0
+
+    -- Test 6 (REQUIRED soundness guard, §5 edge 3): a recursiveNames-member
+    -- function emits NO self-edge consumed_guarantee.
+    it "DC-6: a recursive function emits no self-edge consumed_guarantee" $ do
+      let stmts = parse
+            [ "(def-shell countdown [n: int]"
+            , "  (post (>= result 0))"
+            , "  (if (<= n 0) 0 (countdown (- n 1))))" ]
+          cenv     = buildContractEnv stmts
+          recs     = recursiveNames stmts
+          trustMap = Map.fromList [("countdown", mkTE "countdown" DLAsserted)]
+          guars    = assembleConsumedGuarantees stmts cenv trustMap recs "countdown"
+      -- countdown is in recursiveNames and its only contracted callee is itself.
+      recs `shouldSatisfy` Set.member "countdown"
+      guars `shouldBe` []  -- self-edge filtered: no function lists its own post
+
   -- Bundle B0: per-function effect / authority summary (a sound MAY-over-
   -- approximation with ⊤ at opaque boundaries; informational — never gates
   -- trust). See docs/design/bundle-b0-effect-summary-proposal.md.
@@ -6240,8 +6443,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- Prior sidecar entry at DLVerified — replicates the verifier write
             -- shape at Main.hs:1196-1206.
             priorCS    = Map.singleton "f" $ ContractStatus
-                           (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False))
-                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False))
+                           (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
                            []
             -- Replicate Main.hs:doTest order: pbtCS on the sidecar side, prior
             -- sidecar on the base side, merged via Module.mergeCS.
@@ -6321,9 +6524,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "0"  -- never matches a live body
             staleW    = PbtWitness staleHash "f-id"
-            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False Nothing Nothing False
+            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False Nothing Nothing False Nothing
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
                          (Just staleEr)
                          []
             -- Live property covers f but with a body whose hash ≠ staleHash.
@@ -6345,9 +6548,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "a"
             staleEr   = EvidenceRecord (DLTested 100) False Nothing
-                          [PbtWitness staleHash "f-id"] False Nothing Nothing False
+                          [PbtWitness staleHash "f-id"] False Nothing Nothing False Nothing
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
                          (Just staleEr)
                          []
             stmts     = [f]  -- no SCheck — property deleted
@@ -6633,7 +6836,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             sidecar = Map.fromList
               [ ("f", ContractStatus
                   { csPre  = Nothing
-                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False)
+                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)
                   , csAssumptions = []
                   })
               ]
@@ -6888,7 +7091,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T12: VerifiedCache round-trip: erOverflowTainted=True survives JSON encode/decode.
     it "T12 .verified.json round-trip preserves overflow_tainted: true" $ do
       let path = "/tmp/llmll-int1-roundtrip.llmll"
-          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False
+          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False Nothing
           cs   = ContractStatus Nothing (Just er) []
           cs0  = Map.singleton "f" cs
       saveVerified path cs0
@@ -6928,8 +7131,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T15: TrustReport JSON aggregation surfaces both top-level fns array and
     -- per-entry flag when a verified+tainted entry is present.
     it "T15 trust-report JSON surfaces overflow_tainted at top-level and per-entry" $ do
-      let taintedEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False
-          cleanEr   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False
+      let taintedEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False Nothing
+          cleanEr   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing
           cs   = Map.fromList
             [ ("add-one", ContractStatus Nothing (Just taintedEr) [])
             , ("is-pos",  ContractStatus Nothing (Just cleanEr)   [])
@@ -7803,6 +8006,143 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-membership-violation"]
+
+    -- =====================================================================
+    -- ADMIT-VERIFIED (Option 2): strict-core admission of independently-
+    -- verified callees. The 4th admission leg + the four soundness corrections.
+    -- =====================================================================
+    describe "ADMIT-VERIFIED (Option 2): persisted-evidence admission" $ do
+      let -- 'double': (def double [x:int] (post (= result (+ x x))) (+ x x))
+          dblBody     = EOp "+" [EVar "x", EVar "x"]
+          dblPost     = Just (EApp "=" [EVar "result", EOp "+" [EVar "x", EVar "x"]])
+          dblContract = Contract Nothing Nothing dblPost Nothing Nothing
+          dblHash     = canonicalDefEvidenceHash dblBody Nothing dblPost
+          -- A fully-verified, hash-valid post EvidenceRecord for 'double'.
+          dblVerifiedER = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing []
+                            False Nothing Nothing False (Just dblHash)
+          dblVerifiedCS = ContractStatus Nothing (Just dblVerifiedER) []
+          -- The leaf def statement (so the staleness guard can recompute).
+          dblStmt = SDef { defName = "double", defParams = [("x", TInt)]
+                         , defReturn = Just TInt, defContract = dblContract
+                         , defBody = dblBody }
+          -- A strict-core caller of bare 'double': add-double.
+          adStmt = SDef { defName = "add-double", defParams = [("x", TInt)]
+                        , defReturn = Just TInt
+                        , defContract = Contract Nothing Nothing
+                            (Just (EApp "=" [EVar "result", EOp "+" [EOp "+" [EVar "x", EVar "x"], ELit (LitInt 1)]])) Nothing Nothing
+                        , defBody = EOp "+" [EApp "double" [EVar "x"], ELit (LitInt 1)] }
+          emptyCache = DM.empty :: ModuleCache
+          kindsOf r = mapMaybe diagKind (reportDiagnostics r)
+
+      -- ---- same-file FLAT composition (3) ----
+      it "AV-SF1 same-file caller of verified callee is ADMITTED (no core-membership-violation)" $ do
+        let entryCS = DM.fromList [("double", dblVerifiedCS)]
+            report  = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache entryCS emptyEnv [dblStmt, adStmt]
+        kindsOf report `shouldNotContain` ["core-membership-violation"]
+
+      it "AV-SF2 stale-hash entry is rejected (callee body changed since verify)" $ do
+        -- Persisted evidence keyed to the OLD body hash; live body is dblStmt.
+        let staleHash = canonicalDefEvidenceHash (EOp "+" [EVar "x", ELit (LitInt 99)]) Nothing dblPost
+            staleER   = dblVerifiedER { erVerifiedHash = Just staleHash }
+            rawCS     = DM.fromList [("double", ContractStatus Nothing (Just staleER) [])]
+            (validatedCS, _) = downgradeStaleVerifiedSidecar [dblStmt, adStmt] rawCS
+            report    = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache validatedCS emptyEnv [dblStmt, adStmt]
+        kindsOf report `shouldContain` ["core-membership-violation"]
+
+      it "AV-SF3 cold (no prior sidecar) call is conservatively rejected" $ do
+        -- No entry evidence at all: the first-ever-verify case still rejects
+        -- (accepted LT-INV §3.5 verify-then-build cost).
+        let report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache DM.empty emptyEnv [dblStmt, adStmt]
+        kindsOf report `shouldContain` ["core-membership-violation"]
+
+      -- ---- cross-module FLAT admission (3) ----
+      let mkCoreModule cs = ModuleEnv
+            { meExports        = DM.fromList [("double", TFn [TInt] TInt)]
+            , meStatements     = [dblStmt, SExport ["double"]]
+            , meInterfaces     = DM.empty
+            , meAliasMap       = DM.empty
+            , mePath           = ["core"]
+            , meContractStatus = DM.fromList [("double", cs)]
+            , meContracts      = DM.empty
+            }
+          importerStmts =
+            [ SOpen ["core"] Nothing
+            , adStmt ]
+
+      it "AV-XM1 verified imported callee is ADMITTED across (open ...)" $ do
+        let cache  = DM.fromList [(["core"], mkCoreModule dblVerifiedCS)]
+            report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion cache DM.empty emptyEnv importerStmts
+        kindsOf report `shouldNotContain` ["core-membership-violation"]
+
+      it "AV-XM2 asserted-only imported callee is REJECTED" $ do
+        let assertedCS = ContractStatus Nothing
+              (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) []
+            cache  = DM.fromList [(["core"], mkCoreModule assertedCS)]
+            report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion cache DM.empty emptyEnv importerStmts
+        kindsOf report `shouldContain` ["core-membership-violation"]
+
+      it "AV-XM3 import staleness (hash mismatch) is REJECTED after validation" $ do
+        -- The imported module's persisted evidence is hash-stale relative to
+        -- its own live body; validating it before seeding demotes it.
+        let staleHash = canonicalDefEvidenceHash (EOp "+" [EVar "x", ELit (LitInt 7)]) Nothing dblPost
+            staleCS   = ContractStatus Nothing (Just (dblVerifiedER { erVerifiedHash = Just staleHash })) []
+            modEnv    = mkCoreModule staleCS
+            (validatedModCS, _) = downgradeStaleVerifiedSidecar (meStatements modEnv) (meContractStatus modEnv)
+            cache  = DM.fromList [(["core"], modEnv { meContractStatus = validatedModCS })]
+            report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion cache DM.empty emptyEnv importerStmts
+        kindsOf report `shouldContain` ["core-membership-violation"]
+
+      -- ---- staleness guard direct (2) ----
+      it "AV-SG1 hash mismatch downgrades body-faithful evidence to asserted" $ do
+        let staleHash = canonicalDefEvidenceHash (EOp "+" [EVar "x", ELit (LitInt 1)]) Nothing dblPost
+            rawCS     = DM.fromList [("double", ContractStatus Nothing (Just (dblVerifiedER { erVerifiedHash = Just staleHash })) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+            postER    = csPost (out DM.! "double")
+        fmap erDisplayLevel postER `shouldBe` Just DLAsserted
+        fmap erBodyFaithful postER `shouldBe` Just False
+        length diags `shouldSatisfy` (> 0)
+
+      it "AV-SG2 absent verified_hash fails closed (downgraded, never admitted)" $ do
+        -- soundness (iv): a pre-ADMIT-VERIFIED body-faithful record with NO hash.
+        let noHashER = dblVerifiedER { erVerifiedHash = Nothing }
+            rawCS    = DM.fromList [("double", ContractStatus Nothing (Just noHashER) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+            postER   = csPost (out DM.! "double")
+        fmap erDisplayLevel postER `shouldBe` Just DLAsserted
+        fmap erBodyFaithful postER `shouldBe` Just False
+        length diags `shouldSatisfy` (> 0)
+
+      it "AV-SG3 absent-hash record is NOT admitted by the leg (admission fail-closed)" $ do
+        -- Even WITHOUT running the guard, the admission conjunction itself
+        -- rejects a body-faithful record carrying no hash.
+        let noHashCS = DM.fromList [("double", ContractStatus Nothing
+              (Just (dblVerifiedER { erVerifiedHash = Nothing })) [])]
+            report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache noHashCS emptyEnv [dblStmt, adStmt]
+        kindsOf report `shouldContain` ["core-membership-violation"]
+
+      it "AV-SG4 overflow-tainted verified record is NOT admitted (conjunction)" $ do
+        -- soundness (ii): a hash-valid, body-faithful, verified-LEVEL record that
+        -- is overflow-tainted must still be refused.
+        let taintedER = dblVerifiedER { erOverflowTainted = True }
+            taintedCS = DM.fromList [("double", ContractStatus Nothing (Just taintedER) [])]
+            report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache taintedCS emptyEnv [dblStmt, adStmt]
+        kindsOf report `shouldContain` ["core-membership-violation"]
+
+      -- ---- schema back-compat (2) ----
+      it "AV-BC1 verified_hash-absent sidecar reads (round-trips without the field)" $ do
+        let er  = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing
+            cs  = ContractStatus Nothing (Just er) []
+            tmp = "/tmp/admit_verified_bc1.llmll"
+        saveVerified tmp (DM.fromList [("double", cs)])
+        loaded <- loadVerified tmp
+        fmap (fmap erVerifiedHash . csPost) (DM.lookup "double" loaded) `shouldBe` Just (Just Nothing)
+
+      it "AV-BC2 present verified_hash round-trips" $ do
+        let cs  = ContractStatus Nothing (Just dblVerifiedER) []
+            tmp = "/tmp/admit_verified_bc2.llmll"
+        saveVerified tmp (DM.fromList [("double", cs)])
+        loaded <- loadVerified tmp
+        fmap (fmap erVerifiedHash . csPost) (DM.lookup "double" loaded) `shouldBe` Just (Just (Just dblHash))
 
     describe "INV-G: isCoreBodySyntactic" $ do
 

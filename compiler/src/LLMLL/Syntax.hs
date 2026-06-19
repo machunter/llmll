@@ -385,6 +385,14 @@ data EvidenceRecord = EvidenceRecord
   , erPredicateForm        :: Maybe Text     -- ^ "symbolic" | "runtime" | Nothing when absent
   , erPredicateText        :: Maybe Text     -- ^ pretty-printed predicate expression, when present
   , erRuntimeCheckEmitted  :: Bool           -- ^ True when codegen emitted a runtime assertion
+  -- ADMIT-VERIFIED (Option 2): hash over canonical (body, pre, post) + a
+  -- semantics/toolchain-version tag, stamped by the verifier on body-faithful
+  -- SAFE entries (Main.saveVerified). Read adjacent to 'downgradeStaleSidecar'
+  -- to downgrade any 'erBodyFaithful' record whose recomputed hash mismatches,
+  -- and consulted by 'TypeCheck.checkCalleeAdmissibility' as the persisted-
+  -- evidence admission leg. 'Nothing' on pre-ADMIT-VERIFIED sidecars; that
+  -- absence MUST fail closed (not admissible) — never unguarded admission.
+  , erVerifiedHash         :: Maybe Text     -- ^ "sha256:" hash of canonical (body,pre,post)+version tag
   } deriving (Show, Eq, Generic)
 
 -- | OBLIG-PBT-3: SHA-256 hash + description of a property body whose

@@ -83,7 +83,12 @@ erToJSON er = object $
   -- LT-PPR (v0.11): predicate fields emitted only when present/true (additive).
   maybe [] (\f -> ["predicate_form" .= f]) (erPredicateForm er) ++
   maybe [] (\t -> ["predicate_text" .= t]) (erPredicateText er) ++
-  ["runtime_check_emitted" .= True | erRuntimeCheckEmitted er]
+  ["runtime_check_emitted" .= True | erRuntimeCheckEmitted er] ++
+  -- ADMIT-VERIFIED (Option 2): emit verified_hash only when present (additive,
+  -- omitted on records the verifier did not stamp). A reader that does not find
+  -- the field defaults to Nothing — which the admission leg treats as
+  -- fail-closed (not admissible).
+  maybe [] (\h -> ["verified_hash" .= h]) (erVerifiedHash er)
 
 erFromJSON :: Value -> Maybe EvidenceRecord
 erFromJSON (Object o) = do
@@ -116,7 +121,13 @@ erFromJSON (Object o) = do
       rc  = case KM.lookup "runtime_check_emitted" o of
               Just (Bool b) -> b
               _             -> False
-  Just $ EvidenceRecord dl bf src ws ot pf pt rc
+      -- ADMIT-VERIFIED (Option 2): optional field; pre-ADMIT-VERIFIED sidecars
+      -- default to Nothing. Absence is preserved (not defaulted to a value):
+      -- 'checkCalleeAdmissibility' fails closed on Nothing.
+      vh  = case KM.lookup "verified_hash" o of
+              Just (String s) -> Just s
+              _               -> Nothing
+  Just $ EvidenceRecord dl bf src ws ot pf pt rc vh
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — PbtWitness (OBLIG-PBT-3)

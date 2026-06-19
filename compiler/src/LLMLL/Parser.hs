@@ -755,9 +755,12 @@ pAwaitExpr = parens $ do
   EAwait <$> pExpr
 
 -- | Parse (do [name <- expr] ... final-expr)
+-- The "do" head must be a whole token: require a word boundary so a call to a
+-- user function whose name merely starts with "do" (e.g. 'double', 'done') is
+-- NOT mis-lexed as a do-block with the remainder as an identifier.
 pDoExpr :: Parser Expr
 pDoExpr = parens $ do
-  _ <- symbol "do"
+  _ <- lexeme' (try (string "do" <* notFollowedBy (alphaNumChar <|> char '-' <|> char '_')))
   steps <- some pDoStep
   pure $ EDo steps
 

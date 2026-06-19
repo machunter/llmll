@@ -17,6 +17,7 @@ module LLMLL.PatchApply
   ( PatchRequest(..)
   , PatchOp(..)
   , PatchResult(..)
+  , CalleePreUnmet(..)   -- DEMO-COMP (§3.3)
   , applyPatch
   , applyOp
   , applyOps
@@ -45,9 +46,12 @@ import LLMLL.Checkout (loadLock, saveLock, expireStale, CheckoutToken(..), Check
 import LLMLL.ParserJSON (parseJSONASTValue)
 import LLMLL.TypeCheck (typeCheck, emptyEnv)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
-import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..))
+import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), normalizeDefStmt)
+import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
-import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..))
+import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
+import qualified Data.Map.Strict as Map
+import Data.List (find)
 
 import Data.Time.Clock (getCurrentTime)
 import System.Directory (doesFileExist, findExecutable)
@@ -75,10 +79,33 @@ data PatchOp
   | PatchTest    Text Value   -- "test"    path expected-value
   deriving (Show, Eq, Generic)
 
+-- | DEMO-COMP (§3.3): optional sub-reason payload on 'PatchVerifyError' when the
+-- verify failure is a caller failing to discharge a callee precondition (the
+-- 'call-pre:<callee>' constraint), as opposed to a body-post failure. This
+-- discriminates the demo's two-channel rejection (type → body-post) into a
+-- three-shape rejection (type → body-post → call-site-pre). Carried as an
+-- OPTIONAL field on the EXISTING constructor — no new constructor — so existing
+-- consumers continue to match 'PatchVerifyError'.
+data CalleePreUnmet = CalleePreUnmet
+  { cpuCallee          :: Text   -- ^ the callee whose precondition was not met
+  , cpuRequiredPre     :: Text   -- ^ the callee precondition (the 'call-pre:' clause tag callee)
+  , cpuCallSitePointer :: Text   -- ^ JSON pointer to the failing call site
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON CalleePreUnmet where
+  toJSON c = object
+    [ "callee"            .= cpuCallee c
+    , "required_pre"      .= cpuRequiredPre c
+    , "call_site_pointer" .= cpuCallSitePointer c
+    ]
+
 data PatchResult
   = PatchSuccess Int               -- number of statements in result
   | PatchTypeError DiagnosticReport -- type errors from re-typecheck
-  | PatchVerifyError DiagnosticReport -- SMT verification failed (contracts violated)
+  | PatchVerifyError DiagnosticReport (Maybe CalleePreUnmet)
+    -- ^ SMT verification failed (contracts violated). DEMO-COMP: the optional
+    -- 'CalleePreUnmet' payload is 'Just' when the failure is a callee
+    -- precondition not discharged, 'Nothing' for a plain body-post violation.
   | PatchApplyError Text           -- structural error, test failure, move/copy rejection
   | PatchAuthError Text            -- invalid/expired/scope-violation
   deriving (Show)
@@ -92,10 +119,21 @@ instance ToJSON PatchResult where
     [ "result"      .= ("PatchTypeError" :: Text)
     , "diagnostics" .= reportDiagnostics report
     ]
-  toJSON (PatchVerifyError report) = object
+  toJSON (PatchVerifyError report mCpu) = object $
     [ "result"      .= ("PatchVerifyError" :: Text)
     , "diagnostics" .= reportDiagnostics report
     ]
+    -- DEMO-COMP (§3.3): discriminated sub-reason when a callee precondition is
+    -- unmet. Emitted only when present, so a plain body-post PatchVerifyError is
+    -- byte-identical to its pre-DEMO-COMP shape.
+    ++ case mCpu of
+         Just cpu ->
+           [ "reason"            .= ("callee-precondition-unmet" :: Text)
+           , "callee"            .= cpuCallee cpu
+           , "required_pre"      .= cpuRequiredPre cpu
+           , "call_site_pointer" .= cpuCallSitePointer cpu
+           ]
+         Nothing -> []
   toJSON (PatchApplyError msg) = object
     [ "result"  .= ("PatchApplyError" :: Text)
     , "message" .= msg
@@ -264,10 +302,13 @@ applyPatch mode fp pr = do
                               -- 6.5 Re-verify via SMT (if contracts present)
                               verifyResult <- reVerify fp stmts
                               case verifyResult of
-                                Just unsafeReport -> do
+                                Just (unsafeReport, mCpu) -> do
                                   -- Verification failed: rebase diagnostics, don't write, preserve lock
                                   let rebased = unsafeReport { reportDiagnostics = map (rebaseToPatch opInfos) (reportDiagnostics unsafeReport) }
-                                  pure $ PatchVerifyError rebased
+                                  -- DEMO-COMP (§3.3): 'mCpu' is Just when the failure is a
+                                  -- callee precondition unmet (a 'call-pre:' origin among the
+                                  -- failed constraints), Nothing for a plain body-post failure.
+                                  pure $ PatchVerifyError rebased mCpu
                                 Nothing -> do
                                   -- 7. Write patched JSON and clear lock entry
                                   BL.writeFile fp (A.encode patchedVal)
@@ -357,11 +398,17 @@ hasContracts = any stmtHasContract
 
 -- | Re-verify patched statements via emitFixpoint + liquid-fixpoint.
 -- Returns Nothing on success (SAFE, solver missing, no contracts, solver error).
--- Returns Just report on UNSAFE (contract violation detected).
+-- Returns Just (report, mCpu) on UNSAFE (contract violation detected).
+--
+-- DEMO-COMP (§3.3): the second element of the tuple is 'Just CalleePreUnmet'
+-- when one of the failed constraints carries a 'call-pre:<callee>' origin (a
+-- caller failing to discharge a callee precondition), 'Nothing' for a plain
+-- body-post violation. No new constraint generation — this inspects the origins
+-- of constraints already emitted and solved.
 --
 -- Graceful degradation: if liquid-fixpoint is not installed, returns Nothing
 -- (patch proceeds on typecheck success alone). This matches doVerify behavior.
-reVerify :: FilePath -> [Statement] -> IO (Maybe DiagnosticReport)
+reVerify :: FilePath -> [Statement] -> IO (Maybe (DiagnosticReport, Maybe CalleePreUnmet))
 reVerify fp stmts
   | not (hasContracts stmts) = pure Nothing  -- no contracts → skip
   | otherwise = do
@@ -394,6 +441,36 @@ reVerify fp stmts
               fqResult = fromMaybe (parseFQResult merged) (parseFQResultJSON merged)
               fqReport = fqResultToReport fp table fqResult
           case fqResult of
-            FQSafe     -> pure Nothing       -- SAFE → proceed with write
-            FQUnsafe _ -> pure (Just fqReport)  -- UNSAFE → reject patch
-            FQError _  -> pure Nothing       -- solver error → graceful: proceed
+            FQSafe          -> pure Nothing       -- SAFE → proceed with write
+            FQUnsafe failed -> pure (Just (fqReport, calleePreUnmet stmts table failed))
+            FQError _       -> pure Nothing       -- solver error → graceful: proceed
+
+-- | DEMO-COMP (§3.3): inspect the failed constraint origins for a 'call-pre:'
+-- tag. Returns the first such origin as a 'CalleePreUnmet' payload (callee name
+-- from the 'call-pre:<callee>' clause tag, call-site pointer from 'coJsonPtr',
+-- required_pre rendered from the callee's own contract pre in 'stmts').
+-- Returns Nothing when no failed constraint is a call-precondition (a plain
+-- body-post / pre / post failure), keeping those as a bare 'PatchVerifyError'.
+calleePreUnmet :: [Statement] -> ConstraintTable -> [Int] -> Maybe CalleePreUnmet
+calleePreUnmet stmts table failedIds =
+  case find isCallPre failedOrigins of
+    Just o  ->
+      let callee = T.drop (T.length "call-pre:") (coClause o)
+      in Just CalleePreUnmet
+           { cpuCallee          = callee
+           , cpuRequiredPre     = fromMaybe callee (calleePreText callee)
+           , cpuCallSitePointer = coJsonPtr o
+           }
+    Nothing -> Nothing
+  where
+    failedOrigins = [ o | cid <- failedIds, Just o <- [Map.lookup cid table] ]
+    isCallPre o = "call-pre:" `T.isPrefixOf` coClause o
+    -- Render the callee's own precondition (the predicate the caller failed to
+    -- discharge). The predicate text is NOT in the failed-id table, so it is
+    -- re-derived from the callee's contract — re-derived, not solver-witnessed.
+    calleePreText callee =
+      case [ contractPre c | stmt <- stmts
+                           , Just (nm, _, _, c, _) <- [normalizeDefStmt stmt]
+                           , nm == callee ] of
+        (Just pre : _) -> Just (exprToSExpr pre)
+        _              -> Nothing

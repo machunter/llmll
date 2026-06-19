@@ -37,6 +37,11 @@ module LLMLL.ObligationAssembly
     -- * Assembly
   , assembleReport
   , encodeReport
+    -- * DEMO-COMP: compositional trust closure surfacing
+  , assembleConsumedGuarantees
+  , assembleFunctionLists
+  , assembleSafePreObligations
+  , ObligationObj(..)
   ) where
 
 import Data.Text (Text)
@@ -69,7 +74,7 @@ import LLMLL.HoleAnalysis
   , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc )
 import LLMLL.ObligationMining (isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.TypeCheck (builtinEnv)
-import LLMLL.GuardClassifier (classifyGuardM)
+import LLMLL.GuardClassifier (classifyGuardM, lookupArithOp, lookupPredOp)
 
 -- ---------------------------------------------------------------------------
 -- Data types (spec §2.2–§2.5)
@@ -628,6 +633,111 @@ trustLabel trustMap name = case Map.lookup name trustMap of
     _                         -> "asserted"
   Nothing -> "builtin"
 
+-- ---------------------------------------------------------------------------
+-- DEMO-COMP (§3.1, §5 edge 3): consumed_guarantees channel
+--
+-- Surfaces the shipped v0.9.0 assume-guarantee accounting: for each contracted
+-- callee a function calls, the callee's discharged postcondition is consumed as
+-- an available hypothesis. This is NOT a TCB assumption (that channel is
+-- 'trAssumptions' / 'ctAssumptions') — it is a *consumed guarantee*, sound iff
+-- the callee was itself verified. No new verification logic; the discharge
+-- already happened in 'CallVC' (FixpointEmit). This is field-surfacing only.
+--
+-- SOUNDNESS (§5 edge 3, engineer F1): 'callee_tier' is sourced from the
+-- callee's actual 'teEffectiveLevel' (never hardcoded "verified"). A recursive
+-- callee's tier is already degraded (its own body VC is excluded by design,
+-- FixpointEmit), so reading the real tier keeps the channel honest.
+-- Additionally, self / SCC self-edges are filtered via 'recursiveNames' — a
+-- function must never list its own post as a consumed guarantee.
+-- ---------------------------------------------------------------------------
+
+-- | Assemble the 'consumed_guarantees' channel for a single function.
+-- Returns one record per contracted-callee call site in the function body.
+--
+-- For each call '(callee a1 .. an)' where 'callee' is in the ContractEnv and
+-- carries a post, the record carries:
+--   * the raw 'guarantee' (callee.post, rendered)
+--   * the 'instantiated' up-hypothesis post[ai/xi, result/<call-result>]
+--     re-derived by pure Expr-level substitution (engineer F5: re-derived, not
+--     solver-witnessed — the discharge claim rests on 'callee_tier', not this
+--     string)
+--   * 'callee_tier' from teEffectiveLevel (soundness lever)
+--   * 'status' = "discharged"
+assembleConsumedGuarantees
+  :: [Statement] -> ContractEnv -> Map Name TrustEntry -> Set Name -> Name -> [Value]
+assembleConsumedGuarantees stmts cenv trustMap recNames fnName =
+  case [ body | stmt <- stmts
+              , Just (nm, _params, _ret, _c, body) <- [normalizeDefStmt stmt]
+              , nm == fnName ] of
+    []        -> []
+    (body:_)  ->
+      [ guaranteeRecord callee args post cparams
+      | (callee, args) <- collectContractedCalls cenv body
+        -- §5 edge 3: a function must never list its OWN post as a consumed
+        -- guarantee. Drop direct self-calls, and any self-edge within an SCC.
+      , callee /= fnName
+      , not (callee `Set.member` recNames && fnName `Set.member` recNames
+             && callee == fnName)
+      , Just (cparams, ccontract, _cret) <- [Map.lookup callee cenv]
+      , Just post <- [contractPost ccontract]
+      ]
+  where
+    guaranteeRecord callee args post cparams =
+      let cparamNames = map fst cparams
+          -- Re-derive the instantiated up-hypothesis by pure substitution:
+          -- callee params → actual arg Exprs, result → <call-result>.
+          subst       = Map.fromList (zip cparamNames args)
+          instExpr    = substExpr (Map.insert "result" (EVar "<call-result>") subst) post
+          -- callee_tier from the callee's actual effective level (§5 edge 3).
+          calleeTier  = trustLabel trustMap callee
+      in object
+           [ "callee"       .= callee
+           , "guarantee"    .= exprToSExpr post
+           , "instantiated" .= exprToSExpr instExpr
+           , "callee_tier"  .= calleeTier
+           , "status"       .= ("discharged" :: Text)
+           ]
+
+-- | Pure Expr-level capture-free substitution over the QF-LIA / refinement
+-- predicate fragment (vars → Exprs). Mirrors 'applySubst' (FixpointEmit) but at
+-- the surface-Expr level so the rendered s-expression matches the demo shape
+-- '(= <call-result> (+ x x))' rather than the .fq infix form. Only the predicate
+-- fragment occurring in contracts is traversed.
+substExpr :: Map Name Expr -> Expr -> Expr
+substExpr s (EVar v)          = Map.findWithDefault (EVar v) v s
+substExpr s (EApp op args)    = EApp op (map (substExpr s) args)
+substExpr s (EOp op args)     = EOp op (map (substExpr s) args)
+substExpr _ e@(ELit _)        = e
+substExpr _ e@(EHole _)       = e
+substExpr s (EIf c t e)       = EIf (substExpr s c) (substExpr s t) (substExpr s e)
+substExpr _ e                 = e
+
+-- | Collect '(callee a1 .. an)' calls to contracted user functions in a body,
+-- using the same callee-admissibility predicate as the emitter (in ContractEnv,
+-- not a builtin operator). Returns (callee, argExprs) per call site, in
+-- left-to-right textual order (so nested 'double (double x)' yields the outer
+-- call first, then the inner — matching call-site obligation ordering).
+collectContractedCalls :: ContractEnv -> Expr -> [(Name, [Expr])]
+collectContractedCalls cenv = go
+  where
+    isContractedCall fname =
+      fname `Map.member` cenv
+        && lookupArithOp fname == Nothing
+        && lookupPredOp fname == Nothing
+        && fname `notElem` ["not", "and", "or", "*", "/", "mod", "rem", "^", "**"]
+    go (EApp fname args)
+      | isContractedCall fname = (fname, args) : concatMap go args
+      | otherwise              = concatMap go args
+    go (EOp _ args)            = concatMap go args
+    go (EIf c t e)             = go c ++ go t ++ go e
+    go (ELet binds body)      = concatMap (\(_, _, e) -> go e) binds ++ go body
+    go (EMatch scrut arms)    = go scrut ++ concatMap (go . snd) arms
+    go (EPair a b)            = go a ++ go b
+    go (EAwait e)             = go e
+    go (ELambda _ body)       = go body
+    go (EDo steps)            = concatMap (\(DoStep _ e) -> go e) steps
+    go _                       = []
+
 -- | Assemble function lists with cap-8 and truncation signals (spec §8.2).
 -- Ordering: alphabetical (v0.10). Spec §8.2 zonking priority deferred to v0.11 (F8).
 assembleFunctionLists :: [Statement] -> AliasMap -> Map Name TrustEntry -> Type
@@ -636,13 +746,30 @@ assembleFunctionLists stmts aliases trustMap expectedTy =
   let cap = 8
       -- Contracted: user functions with contracts and compatible return types (C3: + SLetrec)
       allContracted =
-        [ object [ "name"    .= fname
-                 , "params"  .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
-                 , "returns" .= typeLabel ret
-                 , "status"  .= trustLabel trustMap fname ]
+        -- DEMO-COMP (§3.2, engineer F2): the contracted-user vocabulary now
+        -- carries pre/post/tier/return_type so an agent sees the contract it
+        -- must discharge and may assume. pre is null for a pre-free callee
+        -- (e.g. double), so a pre-free callee → zero call-site obligations is
+        -- legible from the record alone. tier is the function's own
+        -- effective-level trust label (verified / contract-checked / asserted).
+        [ object [ "name"        .= fname
+                 , "params"      .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
+                 , "returns"     .= typeLabel ret
+                 , "return_type" .= typeLabel ret   -- alias of returns (§3.2)
+                 , "status"      .= trustLabel trustMap fname
+                 , "pre"         .= fmap exprToSExpr (contractPre c)
+                 , "post"        .= fmap exprToSExpr (contractPost c)
+                 , "tier"        .= trustLabel trustMap fname ]
         | stmt <- stmts
-        , Just (fname, ps, Just ret, c, _) <- [normalizeDefStmt stmt]
+        , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
         , contractPre c /= Nothing || contractPost c /= Nothing
+          -- DEMO-COMP: the surface 'def'/'def-shell' forms never carry a return
+          -- annotation (both the S-expr and JSON parsers fix defReturn = Nothing),
+          -- so requiring 'Just ret' silently excluded EVERY contracted user
+          -- function (double, withdraw, quadruple …) from this list. Fall back to
+          -- the hole's expected return type when the declaration is unannotated,
+          -- which is also the type the compatibility gate compares against.
+        , let ret = fromMaybe expectedTy mRet
         , isTypeCompatible aliases expectedTy ret
         ]
       contracted = take cap allContracted
@@ -717,7 +844,17 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
             faithful suppressed failedIds
         _ -> []
 
-      allObls = holeObls ++ branchObls ++ unsafeObls
+      -- DEMO-COMP (§3.3): surface per-call-site precondition obligations on SAFE
+      -- too. These are a report-level read of 'call-pre:' constraints already
+      -- solved (status "discharged"); the count rises by the contracted-call-site
+      -- count (withdraw-twice → 2, quadruple → 0). Suppressed on UNSAFE because
+      -- the failing call-pre obligations are already surfaced by 'unsafeObls'
+      -- (assembleConstraintObligations classifies "call-pre:" → PreconditionObligation).
+      safePreObls = case mFqResult of
+        Just FQSafe -> assembleSafePreObligations stmts table mFqResult trustRpt suppressed
+        _           -> []
+
+      allObls = holeObls ++ branchObls ++ unsafeObls ++ safePreObls
       summary = ReportSummary
         { rsTotal      = length allObls
         , rsOpen       = length [o | o <- allObls, ooStatus o == "open"]
@@ -730,7 +867,9 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
         -- VERIFY-RPT-1 (Commit 4): 0.10.0 -> 0.11.0 (additive: "refuted" status
         -- enum value, top-level refuted_fns, summary refuted count).
         -- Bundle B0: 0.11.0 -> 0.12.0 (additive: per-function effect_summary).
-        { orSchemaVersion = "0.12.0"
+        -- DEMO-COMP: 0.12.0 -> 0.12.1 (additive: contracted_functions.{pre,post,
+        -- tier,return_type}, SAFE precondition-obligation entries, consumed_guarantees).
+        { orSchemaVersion = "0.12.1"
         , orSourceFile    = T.pack fp
         , orCrossModule   = if Map.null cache then "single-file" else "supported"
         , orObligations   = allObls
@@ -877,6 +1016,51 @@ assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed
       | "call-pre:" `T.isPrefixOf` c = "call-pre"
       | c == "decreases"             = "termination"
       | otherwise                    = "contract"
+
+-- | DEMO-COMP (§3.3): assemble per-call-site PreconditionObligation entries on
+-- SAFE. A report-level read of the 'call-pre:<callee>' constraints the solver
+-- already discharged: one obligation per origin, carrying the call-site
+-- 'coJsonPtr' pointer and the callee name. Status is "discharged" (the solver
+-- returned SAFE). No new constraint generation — this re-exports existing
+-- solved constraints.
+assembleSafePreObligations :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
+                           -> TrustReport -> Set Name -> [ObligationObj]
+assembleSafePreObligations stmts table mFqResult trustRpt suppressed =
+  [ mkPreObl origin
+  | origin <- Map.elems table
+  , "call-pre:" `T.isPrefixOf` coClause origin
+  ]
+  where
+    mkPreObl origin =
+      let fnName  = coFunction origin
+          callee  = T.drop (T.length "call-pre:") (coClause origin)
+          status  = obligationStatus mFqResult fnName PreconditionObligation
+                      table suppressed (trRefutedFns trustRpt)
+          backing = deriveBacking table fnName PreconditionObligation
+          (mContract, mParams, _) = findFunctionInfo fnName stmts
+          params  = fromMaybe [] mParams
+          oblId   = normalizeForFingerprint fnName params
+                      (mContract >>= contractPost) ("call-pre-" <> callee)
+      in ObligationObj
+           { ooId              = oblId
+           , ooOrigin          = coJsonPtr origin
+           , ooKind            = PreconditionObligation
+           , ooBacking         = backing
+           , ooStatus          = status
+           , ooFunction        = fnName
+           , ooTypeChannel     = Nothing
+           , ooContractChannel = Nothing
+           , ooTrustChannel    = Nothing
+           , ooContractedFns       = []
+           , ooAvailableFns        = []
+           , ooSuggestions         = []
+           , ooContractedTruncated = False
+           , ooAvailableTruncated  = False
+           , ooParentId        = Nothing
+           , ooBranchIndex     = Nothing
+           , ooConstructor     = Nothing
+           , ooBindings        = []
+           }
 
 -- ---------------------------------------------------------------------------
 -- Lookup helpers

@@ -22,6 +22,10 @@ module LLMLL.PBT
   , HeadResolution(..)
   , headContractedSubject
   , canonicalPropBodyHash
+  , canonicalExpr
+    -- * ADMIT-VERIFIED (Option 2): def-evidence staleness hash
+  , admitVerifiedSemanticsTag
+  , canonicalDefEvidenceHash
   , pbtTrustWriteback
 
     -- * Results
@@ -570,6 +574,38 @@ canonicalPropBodyHash e =
                                  (BS.unpack bytes)
   in "sha256:" <> hex
 
+-- | ADMIT-VERIFIED (Option 2, §4.4): a semantics/toolchain-version tag folded
+-- into the def-evidence hash so that a contract-stable, body-stable function
+-- whose *verification semantics* changed (e.g. INT-3 bounded codegen) does not
+-- silently re-admit stale persisted evidence. Bump on any change to the VC
+-- semantics that a persisted 'erBodyFaithful' verdict depends on.
+admitVerifiedSemanticsTag :: Text
+admitVerifiedSemanticsTag = "av1;qf-lia;int=unbounded"
+
+-- | ADMIT-VERIFIED (Option 2): SHA-256 over the canonical serialization of a
+-- def's @(body, pre, post)@ together with 'admitVerifiedSemanticsTag'. This is
+-- the staleness primitive for the persisted-evidence admission leg: the
+-- verifier stamps it on body-faithful SAFE entries ('Main.saveVerified') and
+-- 'TrustReport.downgradeStaleVerifiedSidecar' recomputes it on read against the
+-- live def bodies + contracts. Hashing the contract clauses (not the body
+-- alone) closes the §4.4 "contract drift with stable body" soundness hole; the
+-- version tag closes the cross-semantics hole. Absent contract clauses
+-- serialize to the literal @(none)@ so a pre→nothing edit changes the hash.
+--
+-- Output shape matches 'canonicalPropBodyHash': @\"sha256:\" <> 64 hex@.
+canonicalDefEvidenceHash :: Expr -> Maybe Expr -> Maybe Expr -> Text
+canonicalDefEvidenceHash body mPre mPost =
+  let clause = maybe "(none)" canonicalExpr
+      payload = "(def-evidence "
+             <> admitVerifiedSemanticsTag <> " "
+             <> "(body " <> canonicalExpr body <> ") "
+             <> "(pre " <> clause mPre <> ") "
+             <> "(post " <> clause mPost <> "))"
+      bytes = SHA256.hash (TE.encodeUtf8 payload)
+      hex   = T.pack $ concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
+                                 (BS.unpack bytes)
+  in "sha256:" <> hex
+
 -- | Exhaustive canonical serialization. Total over 'Expr'. Structurally
 -- stable: alpha-equivalent variations in 'ELambda' bindings are NOT
 -- normalized (the user-visible binding names are part of the hash), so
@@ -730,7 +766,7 @@ processRun contractByName qualMap propsByDesc delegateBodies run =
               h      = canonicalPropBodyHash body
               w      = PbtWitness h desc
               mkEntry f =
-                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False
+                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
                     key = Map.findWithDefault f f qualMap
                 in (key, cs)
@@ -826,6 +862,9 @@ mergePbtWriteback a b = ContractStatus
            , erPredicateForm       = Nothing
            , erPredicateText       = Nothing
            , erRuntimeCheckEmitted = False
+           -- ADMIT-VERIFIED: PBT join never produces body-faithful verified
+           -- evidence; the hash is verifier-stamped only, so drop it here.
+           , erVerifiedHash        = Nothing
            }
 
     dedupWitnesses ws =

@@ -22,6 +22,7 @@ module LLMLL.TrustReport
   , aggregateTiersPre  -- OBLIG-PBT-3: per-pre-clause tier-count profile
   , aggregateTiersPost -- OBLIG-PBT-3: per-post-clause tier-count profile
   , liveCheckHashes    -- OBLIG-PBT-3: live property-body SHA set
+  , downgradeStaleVerifiedSidecar -- ADMIT-VERIFIED: drop body-faithful evidence on hash drift / absence
   , computeJointHashes -- OBLIG-PBT-5a: joint witness hash detection
   , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
@@ -42,7 +43,7 @@ import qualified Data.ByteString.Lazy.Char8 as BLC
 
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
-import LLMLL.PBT (canonicalPropBodyHash)
+import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel)
 import LLMLL.AstEmit (exprToJson)
 
@@ -336,6 +337,73 @@ downgradeStaleSidecar liveSet =
                           <> "Evidence downgraded to asserted."
                 in (Just (er { erDisplayLevel = DLAsserted, erPbtWitnesses = [], erOverflowTainted = False }), [diag])
 
+-- | ADMIT-VERIFIED (Option 2, §3 seam 3): downgrade any persisted body-faithful
+-- 'EvidenceRecord' whose 'erVerifiedHash' does not match the hash recomputed
+-- from the *live* def @(body, pre, post)@ + semantics tag. Mirrors the PBT
+-- 'downgradeStaleSidecar' precedent: 'DLVerified'/'erBodyFaithful' → 'DLAsserted'
+-- with the flag cleared.
+--
+-- The live hash is keyed by bare def name from the supplied statement list.
+-- A record is downgraded when EITHER:
+--   (a) 'erVerifiedHash' is 'Nothing' — soundness (iv) fail-closed: a
+--       pre-ADMIT-VERIFIED sidecar (no hash) is NOT admissible; OR
+--   (b) the live def is present and its recomputed hash differs (body or
+--       contract drift, or a semantics-tag bump); OR
+--   (c) the def name is absent from the live statements (the function the
+--       evidence describes no longer exists / was renamed) — fail closed.
+--
+-- Records that are not 'erBodyFaithful' are passed through untouched (they make
+-- no body-faithful admission claim). The downgrade is keyed off the bare name;
+-- callers that hold qualified-keyed sidecars should run this over the live
+-- module's own statements where the keys are bare (the entry-file warm-path),
+-- which is exactly the same-file admission seam.
+downgradeStaleVerifiedSidecar
+  :: [Statement]                 -- ^ live statements (source of truth for body+contract)
+  -> Map Name ContractStatus     -- ^ persisted sidecar evidence (bare-keyed)
+  -> (Map Name ContractStatus, [Text])
+downgradeStaleVerifiedSidecar stmts =
+  Map.foldlWithKey' step (Map.empty, [])
+  where
+    -- Live (body, pre, post) hash per bare def name.
+    liveHashes :: Map Name Text
+    liveHashes = Map.fromList
+      [ (n, canonicalDefEvidenceHash body (contractPre c) (contractPost c))
+      | s <- stmts
+      , Just (n, _, _, c, body) <- [normalizeDefStmt s]
+      ]
+
+    step (mAcc, dAcc) name cs =
+      let (cs', ds) = downgradeCS name cs
+      in (Map.insert name cs' mAcc, dAcc ++ ds)
+
+    downgradeCS name cs =
+      let (mPre,  dPre)  = downgradeER name "pre"  (csPre cs)
+          (mPost, dPost) = downgradeER name "post" (csPost cs)
+      in (cs { csPre = mPre, csPost = mPost }, dPre ++ dPost)
+
+    downgradeER _    _      Nothing   = (Nothing, [])
+    downgradeER name clause (Just er)
+      | not (erBodyFaithful er) = (Just er, [])   -- no body-faithful claim
+      | otherwise =
+          let live = Map.lookup name liveHashes
+              stale = case (erVerifiedHash er, live) of
+                        (Nothing, _)          -> True   -- (a) fail closed on absent hash
+                        (_, Nothing)          -> True   -- (c) live def gone
+                        (Just h, Just lh)     -> h /= lh -- (b) drift
+              reason = case (erVerifiedHash er, live) of
+                        (Nothing, _) -> "no persisted verified_hash (pre-ADMIT-VERIFIED sidecar)"
+                        (_, Nothing) -> "no live definition for this name"
+                        _            -> "body or contract drift since verification"
+          in if not stale
+               then (Just er, [])
+               else let diag = name <> "." <> clause
+                          <> " carried body-faithful verified evidence but it is stale ("
+                          <> reason <> "). Evidence downgraded to asserted."
+                    in ( Just (er { erDisplayLevel = DLAsserted
+                                  , erBodyFaithful = False
+                                  , erVerifiedHash = Nothing })
+                       , [diag] )
+
 -- | v0.6: Extract weakness-ok suppressions from statements.
 -- Deduplicates by name (WO-3 idempotence).
 extractSuppressions :: [Statement] -> [(Name, Text)]
@@ -374,7 +442,8 @@ collectAllContractStatus cache entryStmts =
         (Just "runtime")
         (Just (T.pack (BLC.unpack (encode (exprToJson pred)))))
         True
-    mkER _ = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False
+        Nothing
+    mkER _ = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing
 
 -- | Collect all exports from cached modules.
 collectAllExports :: ModuleCache -> Map Name Type

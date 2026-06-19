@@ -18,6 +18,7 @@ module LLMLL.TypeCheck
   , typeCheckWithCache
   , typeCheckStrict
   , typeCheckStrictWithCache
+  , typeCheckStrictWithCacheAndStatus  -- ADMIT-VERIFIED (Option 2, seam 6)
   , runSketch
     -- * Environment
   , TypeEnv
@@ -344,21 +345,63 @@ trustedPrelude = Set.fromList
 
 -- | LT-INV (v0.11): under core mode, verify a callee is body-faithful or trusted-prelude.
 -- Emits a CoreMembershipViolation error when neither condition holds.
+--
+-- ADMIT-VERIFIED (Option 2): a 4th admission leg — a callee carrying a
+-- persisted, hash-valid, fully-verified 'EvidenceRecord' in 'tcContractStatus'.
+-- The record is admissible only on the FULL conjunction (soundness (ii)):
+--   isVerifiedLevel(erDisplayLevel) ∧ erBodyFaithful ∧ ¬erOverflowTainted
+--   ∧ erVerifiedHash present (≡ hash-valid, see below) ∧ fragment-pure.
+-- This is the same conjunction '--strict-verified-core' enforces; a bare
+-- 'erBodyFaithful' would let overflow-tainted / escape-discharged / runtime-
+-- fallback verdicts through.
+--
+-- HASH-VALIDITY (soundness (iii)+(iv)): 'tcContractStatus' is seeded from
+-- persisted sidecars (seams 5/6) only AFTER 'downgradeStaleVerifiedSidecar'
+-- has run, which clears 'erVerifiedHash' to 'Nothing' (and drops
+-- 'erBodyFaithful') on any record whose hash is absent or drifted. So a record
+-- here that still carries 'erVerifiedHash = Just _' is hash-valid by
+-- construction, and a 'Nothing' hash fails the conjunction below — fail-closed
+-- on an unguarded / pre-ADMIT-VERIFIED sidecar.
+--
+-- FRAGMENT-PURITY: a 'DLVerified True' verdict is stamped only on a
+-- body-faithful QF-LIA SAFE result (FixpointEmit body VC); the '¬tainted'
+-- conjunct excludes the one unbounded-Int escape. No record reaches this leg
+-- with a non-QF-LIA body-faithful claim.
 checkCalleeAdmissibility :: Name -> TC ()
 checkCalleeAdmissibility func = do
   inCore <- gets tcCoreMode
   when inCore $ do
     csMap <- gets tcContractStatus
-    let bodyFaithful = case Map.lookup func csMap of
-          Just cs -> maybe False erBodyFaithful (csPre cs)
-                     || maybe False erBodyFaithful (csPost cs)
+    -- ADMIT-VERIFIED (soundness (ii)): the persisted-evidence leg REPLACES the
+    -- prior bare-'erBodyFaithful' leg. During the strict-core type-check gate,
+    -- everything in 'tcContractStatus' is persisted/validated evidence (imported
+    -- modules + the entry-file warm seed); there is no in-pass "fresh" evidence
+    -- channel here (verification runs after type-check). A bare 'erBodyFaithful'
+    -- test would admit overflow-tainted / escape-discharged / runtime-fallback /
+    -- hash-absent verdicts. So we admit ONLY on the full conjunction.
+    let persistedVerified = case Map.lookup func csMap of
+          Just cs -> erFullyVerifiedAdmissible (csPre cs)
+                     || erFullyVerifiedAdmissible (csPost cs)
           Nothing -> False
         trusted = func `Set.member` trustedPrelude
                   || Map.member func builtinEnv
-    unless (bodyFaithful || trusted) $ do
+    unless (persistedVerified || trusted) $ do
       enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
       modify $ \s -> s
         { tcErrors = tcErrors s ++ [mkCoreMembershipViolation enclosing func] }
+
+-- | ADMIT-VERIFIED (Option 2): the full-conjunction admissibility predicate for
+-- a single clause's evidence. Admit ONLY when the record is verified-level,
+-- body-faithful, NOT overflow-tainted, and carries a (hash-valid) persisted
+-- 'erVerifiedHash'. 'Nothing' (no clause, or no/absent hash) ⇒ not admissible
+-- (fail closed). Never keys off a bare 'erBodyFaithful'.
+erFullyVerifiedAdmissible :: Maybe EvidenceRecord -> Bool
+erFullyVerifiedAdmissible Nothing   = False
+erFullyVerifiedAdmissible (Just er) =
+     isVerifiedLevel (erDisplayLevel er)
+  && erBodyFaithful er
+  && not (erOverflowTainted er)
+  && maybe False (const True) (erVerifiedHash er)  -- fail closed on absent hash
 
 -- | Emit a structured non-exhaustive-match error using the registered diagnostic.
 tcEmitNonExhaustive :: Name -> [Name] -> [Name] -> TC ()
@@ -485,15 +528,36 @@ runTCStrict gm env action =
 
 -- | v0.6.3: Strict typecheck with module cache.
 typeCheckStrictWithCache :: GrammarMode -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
-typeCheckStrictWithCache gm = typeCheckWithCacheMode gm True
+typeCheckStrictWithCache gm cache = typeCheckWithCacheMode' gm True cache Map.empty
+
+-- | ADMIT-VERIFIED (Option 2, seam 6): strict typecheck variant that also seeds
+-- 'tcContractStatus' with the entry file's OWN persisted (bare-keyed)
+-- ContractStatus, so the same-file warm path can admit a strict-core
+-- 'def'→'def' call whose callee was verified in a prior pass. The caller MUST
+-- pass evidence already validated by 'downgradeStaleVerifiedSidecar' (so an
+-- absent/stale hash has been demoted before it reaches the admission leg).
+-- The entry seed unions OVER the cache-qualified seed (it is the local file's
+-- own bare names; there is no key collision with qualified import keys).
+typeCheckStrictWithCacheAndStatus
+  :: GrammarMode -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckStrictWithCacheAndStatus gm = typeCheckWithCacheMode' gm True
 
 -- | Internal: shared implementation for typeCheckWith(Strict)Cache(WithMode).
 typeCheckWithCacheMode :: GrammarMode -> Bool -> ModuleCache -> TypeEnv -> [Statement] -> DiagnosticReport
-typeCheckWithCacheMode gm strict cache baseEnv stmts =
+typeCheckWithCacheMode gm strict cache = typeCheckWithCacheMode' gm strict cache Map.empty
+
+-- | Internal: as 'typeCheckWithCacheMode', plus an entry-file ContractStatus
+-- seed (bare-keyed) unioned into 'tcContractStatus' (ADMIT-VERIFIED seam 6).
+typeCheckWithCacheMode'
+  :: GrammarMode -> Bool -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement] -> DiagnosticReport
+typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
   let -- Inject qualified names from all cached modules
       seededEnv = Map.foldlWithKey' seedModule baseEnv cache
       -- v0.3: merge contract status from all cached modules (qualified names)
-      seededCS  = Map.foldlWithKey' seedStatus Map.empty cache
+      seededCSImports = Map.foldlWithKey' seedStatus Map.empty cache
+      -- ADMIT-VERIFIED: the entry file's own bare-keyed evidence wins on a key
+      -- clash (it is the live file's verdict).
+      seededCS  = Map.union entryCS seededCSImports
       (_, st) = runState (checkStatements stmts)
         (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False)
       diags = tcErrors st
@@ -830,6 +894,24 @@ checkStatement (SOpen openPath_ mNames) = do
     tcInsert bareName ty
     -- v0.3.5 (Phase C): tag open-imported bindings for checkout context
     modify $ \s -> s { tcProvenance = Map.insert bareName SrcOpenImport (tcProvenance s) }
+  -- ADMIT-VERIFIED (Option 2, seam 5): the qualified-seeded ContractStatus
+  -- (typeCheckWithCacheMode seeds 'tcContractStatus' under '<path>.<name>'
+  -- keys) is invisible to the bare-name admissibility lookup in
+  -- 'checkCalleeAdmissibility'. Mirror the 'tcEnv' bare-alias injection above:
+  -- inject the bare-keyed ContractStatus for exactly the same selectively-
+  -- filtered names, so a strict-core caller of the bare callee can find the
+  -- imported verified evidence. We do NOT overwrite an existing bare entry
+  -- (the local file's own evidence wins; same shadow direction as 'tcEnv').
+  csMap <- gets tcContractStatus
+  let qualifyingCS = Map.filterWithKey (\k _ -> prefix `T.isPrefixOf` k) csMap
+      bareCS       = Map.mapKeys (T.drop (T.length prefix)) qualifyingCS
+      filteredCS   = case mNames of
+        Nothing -> bareCS
+        Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) bareCS
+  forM_ (Map.toList filteredCS) $ \(bareName, cs) ->
+    modify $ \s -> s
+      { tcContractStatus =
+          Map.insertWith (\_new old -> old) bareName cs (tcContractStatus s) }
 
 -- | SExport is a compile-time annotation only; no type-checking action needed.
 checkStatement (SExport _) = pure ()

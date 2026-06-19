@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llmll.dev/schemas/v0.6/ast.schema.json",
-  "title": "LLMLL v0.6 JSON-AST Schema",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline.",
+  "title": "LLMLL v0.6 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.6.0'; the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
 
   "$defs": {
 
@@ -1067,19 +1067,39 @@
         },
         "expected_return_type": { "type": "string", "description": "v0.3.5: Inferred return type at the hole site (τ as LLMLL type label)." },
         "available_functions": {
-          "description": "v0.3.5: Non-wasi.* function signatures (Σ), monomorphized against concrete scope types.",
+          "description": "v0.3.5: Non-wasi.* function signatures (Σ), monomorphized against concrete scope types. DEMO-COMP (0.12.1): contracted-user entries additionally carry pre/post/tier/return_type — the contract an agent must discharge (pre) and may assume (post). pre/post/tier are null when absent (a pre-free callee → pre:null → no call-site obligation; builtins → tier:null).",
           "type": "array",
           "items": {
             "type": "object",
             "required": ["name", "params", "returns", "status"],
             "properties": {
-              "name":    { "type": "string" },
-              "params":  { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "type": { "type": "string" } } } },
-              "returns": { "type": "string" },
-              "status":  { "type": "string", "enum": ["filled", "hole", "builtin"] }
+              "name":        { "type": "string" },
+              "params":      { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "type": { "type": "string" } } } },
+              "returns":     { "type": "string" },
+              "return_type": { "type": "string", "description": "DEMO-COMP (0.12.1): alias of 'returns'." },
+              "status":      { "type": "string", "enum": ["filled", "hole", "builtin"] },
+              "pre":         { "type": ["string", "null"], "description": "DEMO-COMP (0.12.1): rendered precondition; null if pre-free." },
+              "post":        { "type": ["string", "null"], "description": "DEMO-COMP (0.12.1): rendered postcondition; null if absent." },
+              "tier":        { "type": ["string", "null"], "description": "DEMO-COMP (0.12.1): effective trust tier (verified/contract-checked/asserted); null for builtins." }
             }
           }
         },
+        "consumed_guarantees": {
+          "description": "DEMO-COMP (0.12.1): discharged callee postconditions the enclosing function consumes as available hypotheses. SEPARATE channel from 'assumptions' (which carries TCB escape hatches): a consumed guarantee is a proven fact, NOT an assumption. Surfaces shipped v0.9.0 assume-guarantee composition. 'callee_tier' is the callee's actual effective trust tier (never hardcoded 'verified'); a function never lists its own post (self/SCC self-edges filtered). 'instantiated' is re-derived by substitution, not solver-witnessed — the 'discharged' status rests on 'callee_tier'.",
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["callee", "guarantee", "instantiated", "callee_tier", "status"],
+            "properties": {
+              "callee":       { "type": "string", "description": "The contracted callee whose post is consumed." },
+              "guarantee":    { "type": "string", "description": "The callee's raw postcondition (rendered)." },
+              "instantiated": { "type": "string", "description": "post[ai/xi, result/<call-result>] — actuals substituted into the callee post." },
+              "callee_tier":  { "type": "string", "description": "The callee's effective trust tier (soundness lever — never hardcoded)." },
+              "status":       { "type": "string", "enum": ["discharged"], "description": "Always 'discharged' (the callee's own verification carries the guarantee)." }
+            }
+          }
+        },
+        "brief_version": { "type": "string", "description": "DEMO-COMP (0.12.1): schema version of the checkout brief (previously unversioned)." },
         "type_definitions": {
           "description": "v0.3.5: User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection.",
           "type": "array",
@@ -1127,6 +1147,26 @@
       },
       "examples": [
         { "kind": "weakness-ok", "name": "render-board", "reason": "pure string rendering — no meaningful postcondition" }
+      ]
+    },
+
+    "PatchResult": {
+      "description": "Result of 'llmll patch' / POST /patch. Companion definition for agent tooling. The 'result' tag discriminates the outcome. DEMO-COMP (0.12.1): a PatchVerifyError that is specifically a caller failing to discharge a callee precondition carries an additional discriminated sub-reason 'callee-precondition-unmet' plus {callee, required_pre, call_site_pointer} — distinct from a plain body-post violation (which omits 'reason'). This is an additive, optional payload on the existing PatchVerifyError shape; existing consumers that key only on 'result' are unaffected.",
+      "type": "object",
+      "required": ["result"],
+      "additionalProperties": true,
+      "properties": {
+        "result":            { "type": "string", "enum": ["PatchSuccess", "PatchTypeError", "PatchVerifyError", "PatchApplyError", "PatchAuthError"] },
+        "statements":        { "type": "integer", "description": "PatchSuccess: number of statements in the result." },
+        "diagnostics":       { "type": "array", "description": "PatchTypeError / PatchVerifyError: rebased diagnostics." },
+        "message":           { "type": "string", "description": "PatchApplyError / PatchAuthError: human-readable error." },
+        "reason":            { "type": "string", "enum": ["callee-precondition-unmet"], "description": "DEMO-COMP (0.12.1): present on PatchVerifyError only when the failure is a callee precondition unmet (a 'call-pre:' constraint), not a body-post violation." },
+        "callee":            { "type": "string", "description": "DEMO-COMP: the callee whose precondition was not discharged." },
+        "required_pre":      { "type": "string", "description": "DEMO-COMP: the callee precondition the caller failed to prove (rendered)." },
+        "call_site_pointer": { "type": "string", "description": "DEMO-COMP: JSON pointer to the failing call site." }
+      },
+      "examples": [
+        { "result": "PatchVerifyError", "reason": "callee-precondition-unmet", "callee": "withdraw", "required_pre": "(>= balance amount)", "call_site_pointer": "/statements/4/body" }
       ]
     }
 
