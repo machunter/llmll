@@ -37,6 +37,9 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [positioning-constraint-decay-proposal.md](positioning-constraint-decay-proposal.md) | Dente et al. (2026) external anchor; spec-source primary, mechanisms secondary; bounded-iteration framing | **Settled (Rev 1)** — promoted into 3 design docs; paper verified 2026-05-25 with two minor corrections applied |
 | [verify-reporting-defects-2026-06-04-bug.md](verify-reporting-defects-2026-06-04-bug.md) | Three verify-path reporting defects: fail-open on UNSAFE; `--trust-report` cannot show `verified` | **Resolved** — VERIFY-RPT-1 shipped (`b914587`) |
 | [verified-contract-refuted-status-proposal.md](verified-contract-refuted-status-proposal.md) | Solver-SAFE conjunct on `verified`/strict-core; `refuted` as orthogonal trust status | **Settled (Rev 2) → Shipped** (`b914587`); promoted to LLMLL.md §3.4.3/§5.3.4/§4.4/§5.3.5 |
+| [compositional-trust-closure-proposal.md](compositional-trust-closure-proposal.md) | DEMO-COMP: surfaces shipped v0.9.0 assume-guarantee as verified call edges; `consumed_guarantees` channel; call-site obligation | **Rev 4 — VIABLE (§0)** — composition reaches `verified` (CLI-confirmed); infra green; §10 fixture needs Rev-5 reshape onto working shapes; DEFECT-1/2/3 open |
+| [admit-verified-callee-proposal.md](admit-verified-callee-proposal.md) | ADMIT-VERIFIED: strict-core `def` admission of independently-verified callees; wiring gap, not soundness | **Rev 2 — Option 2 BUILT, green (884)** — admissibility wall FIXED; composition reaches `verified`; see §0 |
+| [precondition-tier-proposal.md](precondition-tier-proposal.md) | TRUST-PRE (DEFECT-1): does a precondition floor a function's trust tier? `meet(csPre,csPost)` floors every pre-bearing fn to `asserted` | **Settled (Rev 3)** — Position B (don't floor) + first-class persisted `caller_obligations` axis; external-consumer question closed; ready for engineer; demo re-script deferred |
 
 ---
 
