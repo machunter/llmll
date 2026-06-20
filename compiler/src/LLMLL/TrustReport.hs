@@ -13,6 +13,9 @@ module LLMLL.TrustReport
   , TrustDependency(..)
   , TrustSummary(..)
   , TierProfile(..)
+  , CallerObligation(..)        -- TRUST-PRE (Part 2): per-function caller-obligation axis
+  , callerObligationJson        -- TRUST-PRE: shared JSON shape (report + sidecar persistence)
+  , renderRequiresPredicate     -- TRUST-PRE: s-expr rendering of a 'requires' predicate
   , buildTrustReport
   , buildTrustReportWithCDP   -- LT-CDP (v0.11): variant carrying the CDP map
   , formatTrustReport
@@ -58,7 +61,14 @@ data TrustEntry = TrustEntry
   , tePost           :: Maybe EvidenceRecord
   , teDeps           :: [TrustDependency]     -- ^ Cross-module calls with their trust levels
   , teDrifts         :: [Text]                -- ^ Epistemic drift warnings
-  , teEffectiveLevel :: Maybe DisplayLevel    -- ^ v0.8.1b: meet(self, transitive deps)
+  -- v0.8.1b originally: meet(self pre⊓post, transitive deps). TRUST-PRE
+  -- (transitive-callee Position B): now the POST-side effective level —
+  -- identical to 'teEffectivePostLevel'. The own pre and the transitive callees'
+  -- pres are excluded (they live on the 'caller_obligations' axis); a weak callee
+  -- POST is still inherited. Consumed by ObligationAssembly's 'callee_tier' lever
+  -- and the 'TrustChannel' tier, both of which want the post-side notion.
+  , teEffectiveLevel :: Maybe DisplayLevel
+
   -- OBLIG-PBT-3: per-clause effective levels — each clause meets its own ER
   -- with the transitive-callee effective level. Nothing iff the clause is
   -- absent in the source contract.
@@ -73,6 +83,28 @@ data TrustEntry = TrustEntry
   -- The underlying ER is left intact for JSON emit; only the scalar
   -- classification changes.
   , teJointPostWitness   :: Bool
+  -- TRUST-PRE (Part 2): the per-function caller-obligation axis. Carries the
+  -- 'requires' predicate(s) a caller must establish to invoke this function
+  -- soundly. An obligation is present iff THIS function declares the pre, OR it
+  -- calls a callee whose pre it neither discharges (SAFE call-pre VC) nor lifts
+  -- to its own 'requires' (the second disjunct is non-strict-core-only — see
+  -- 'computeCallerObligations'). Sourced from the function's own 'csPre'
+  -- contract, NOT the caller-side 'erCallPreFns' dual. Always populated when a
+  -- 'requires' exists, on every report path; persisted to '.verified.json' (a
+  -- static contract property — it cannot go stale like a solver verdict, the
+  -- deliberate inverse of the non-persisted 'refuted' axis).
+  , teCallerObligations  :: [CallerObligation]
+  } deriving (Show, Eq)
+
+-- | TRUST-PRE (Part 2): one caller-precondition obligation carried on a
+-- function's 'teCallerObligations' axis. 'coObFn' is the function whose
+-- precondition must be established (the function itself for a declared pre, or a
+-- callee for an escaped transitive obligation); 'coObRequires' is the rendered
+-- 'requires' predicate (an s-expr, e.g. @(>= balance amount)@), not a count or
+-- a bare name — the caller needs the predicate to discharge it.
+data CallerObligation = CallerObligation
+  { coObFn       :: Name   -- ^ Function whose precondition must be established
+  , coObRequires :: Text   -- ^ Rendered 'requires' predicate (s-expr surface form)
   } deriving (Show, Eq)
 
 -- | A dependency on another function with its trust level.
@@ -165,8 +197,17 @@ data TierProfile = TierProfile
 -- 'refuted_fns', and the 'depends-on-refuted' drift kind. No 'DisplayLevel'
 -- change, no 'evidenceMeet'/'evidenceCovers' change; existing consumers ignore
 -- the new keys (verified-contract-refuted-status-proposal §6).
+--
+-- TRUST-PRE (1.4.0): additive per-entry 'caller_obligations' axis (the
+-- 'requires' predicate a caller must establish) + the co-located
+-- 'carries_caller_obligations' boolean. The tier classifier also stops meeting
+-- in 'csPre' (Position B, summary-only) so a precondition no longer floors a
+-- function's verified tier — but that is a classification fix, not a JSON-shape
+-- change. The new keys are additive; existing 1.3.0 consumers ignore them.
+-- Unlike 'refuted', the obligation axis is PERSISTED to '.verified.json' (a
+-- static contract property, the safety-polarity inverse of the solver verdict).
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.3.0"
+trustReportEmitVersion = "1.4.0"
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -203,7 +244,12 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- v0.9.0: merge sidecar evidence (verified, contract-checked, etc.)
       -- into the base contract status map. Sidecar upgrades; base defaults remain
       -- if the sidecar is missing a clause.
-      allCS       = Map.unionWith mergeCS sidecar' baseCS
+      mergedCS    = Map.unionWith mergeCS sidecar' baseCS
+      -- XMOD-TIER: resolve the entry module's bare calls to opened imports so a
+      -- cross-module caller's callee-meet sees the imported verified evidence
+      -- (which is keyed qualified in 'mergedCS'). Entry-module-only; never
+      -- overwrites a local bare entry. See 'injectOpenedAliases'.
+      allCS       = injectOpenedAliases entryStmts mergedCS
       -- Collect all exports from cache for type-checking call resolution
       allExports  = collectAllExports cache
       -- Build entries for every function that has contracts
@@ -227,7 +273,13 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- one property body do not contribute N to the 'tested' count.
       jointHashes  = computeJointHashes allCS
       jointGroups  = buildJointWitnessGroups allCS jointHashes
-      markedEntries = map (markJointPostWitness jointHashes) enrichedEntries
+      -- TRUST-PRE (Part 2): rendered 'requires' per (qualified) function name,
+      -- from the LIVE source contracts (so the predicate is available on every
+      -- report path, independent of the sidecar). Keyed identically to the
+      -- entry names ('buildModuleEntries' prefixing).
+      declaredReqs = collectDeclaredRequires cache entryStmts
+      jointMarked  = map (markJointPostWitness jointHashes) enrichedEntries
+      markedEntries = markCallerObligations declaredReqs jointMarked
       -- Compute summary
       summary = computeSummary markedEntries
       -- v0.10.4 (R6d): tier-count profile over the same enriched entries
@@ -411,11 +463,29 @@ extractSuppressions stmts = nubBy' [(n, r) | SWeaknessOk n r <- stmts]
   where nubBy' = nub
 
 -- | Collect contract statuses from all cached modules + entry statements.
+--
+-- XMOD-TIER (soundness): each cached module's persisted 'meContractStatus' (the
+-- module's own '.verified.json', merged at load time in 'Module.loadFromFile')
+-- carries body-faithful verified evidence that — for an IMPORTED module —
+-- upgrades a cross-module caller's callee-meet tier. That evidence is admitted
+-- here ONLY if it is hash-valid against the cached module's LIVE def
+-- (body,pre,post)+semantics tag: we run 'downgradeStaleVerifiedSidecar' over each
+-- cached module's own bare-keyed status against its own statements before
+-- qualifying the keys. This applies the SAME staleness discipline the
+-- same-file ADMIT-VERIFIED admission uses (Main.hs seam 6): a stale/absent
+-- 'erVerifiedHash' on an imported sidecar is demoted to 'asserted' and cannot
+-- upgrade a tier. The entry module's own statuses are NOT revalidated here — the
+-- entry sidecar's staleness gate already ran upstream (Main.hs:1108) and is
+-- passed in via the 'sidecar' argument to 'buildTrustReport'.
 collectAllContractStatus :: ModuleCache -> [Statement] -> Map Name ContractStatus
 collectAllContractStatus cache entryStmts =
   let cacheCS = Map.foldlWithKey' (\acc path menv ->
         let prefix = T.intercalate "." path <> "."
-            qualified = Map.mapKeys (prefix <>) (meContractStatus menv)
+            -- XMOD-TIER: hash-validate this cached module's verified evidence
+            -- against its OWN live statements before it can upgrade a tier.
+            (validated, _diags) = downgradeStaleVerifiedSidecar
+                                    (meStatements menv) (meContractStatus menv)
+            qualified = Map.mapKeys (prefix <>) validated
         in Map.union qualified acc) Map.empty cache
       entryCS = Map.fromList $ mapMaybe extractCS entryStmts
   in Map.union entryCS cacheCS
@@ -444,6 +514,65 @@ collectAllContractStatus cache entryStmts =
         True
         Nothing
     mkER _ = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing
+
+-- | XMOD-TIER: inject bare-name aliases into the contract-status map for every
+-- name brought into scope by an @(open M)@ in the entry module, mirroring the
+-- type-checker's SOpen handling (TypeCheck.hs:893-931, ADMIT-VERIFIED seam 5).
+--
+-- The entry module calls an opened import by its BARE name (e.g. @(withdraw …)@),
+-- but 'collectAllContractStatus' keys the imported function's verified evidence
+-- under its QUALIFIED name (@core.withdraw@). 'extractCalls' yields the bare
+-- name, so 'mkEntry'/'enrichEntry' look it up bare and miss the qualified
+-- verified record — the imported callee dependency is silently dropped, and the
+-- caller's post-side callee meet never inherits the verified post. We resolve
+-- this here ONLY for the entry module (the sole place bare calls to opened
+-- imports occur), keyed off the entry module's own @(open …)@ declarations, with
+-- the SAME discipline as the type-checker:
+--   * a bare alias is added only when a matching qualified key exists in 'allCS';
+--   * the selective @(open M (f g))@ name filter is honored;
+--   * an existing BARE entry (the entry module's own local def of the same name)
+--     is never overwritten — local evidence shadows the import, matching SOpen.
+-- Cache modules are unaffected (they resolve their own deps by their own keys),
+-- so the same-module / single-file / no-open paths are byte-identical.
+injectOpenedAliases :: [Statement] -> Map Name ContractStatus -> Map Name ContractStatus
+injectOpenedAliases entryStmts allCS =
+  foldl' addOpen allCS [ (openPath, mNames) | SOpen openPath mNames <- entryStmts ]
+  where
+    addOpen acc (openPath, mNames) =
+      let prefix     = T.intercalate "." openPath <> "."
+          qualifying = Map.filterWithKey (\k _ -> prefix `T.isPrefixOf` k) acc
+          bareCS     = Map.mapKeys (T.drop (T.length prefix)) qualifying
+          filtered   = case mNames of
+            Nothing -> bareCS
+            Just ns -> Map.filterWithKey (\k _ -> k `elem` ns) bareCS
+      -- 'insertWith (\_new old -> old)' keeps an existing bare (local) entry —
+      -- the local def shadows the import, identical to the SOpen shadow direction.
+      in Map.foldlWithKey' (\m k cs -> Map.insertWith (\_new old -> old) k cs m)
+                           acc filtered
+
+-- | TRUST-PRE (Part 2): rendered 'requires' predicate per (qualified) function
+-- name, from the live source contracts. Same key convention as
+-- 'collectAllContractStatus' / 'buildModuleEntries' so it joins against the
+-- entry names. A function contributes iff it declares a pre clause.
+collectDeclaredRequires :: ModuleCache -> [Statement] -> Map Name Text
+collectDeclaredRequires cache entryStmts =
+  let cacheReqs = Map.foldlWithKey' (\acc path menv ->
+        let prefix = T.intercalate "." path <> "."
+        in Map.union (Map.mapKeys (prefix <>) (fromStmts (meStatements menv))) acc)
+        Map.empty cache
+      entryReqs = fromStmts entryStmts
+  in Map.union entryReqs cacheReqs
+  where
+    fromStmts stmts = Map.fromList (mapMaybe declaredReq stmts)
+    declaredReq s = case contractOf s of
+      Just (name, c) -> fmap (\pre -> (name, renderRequiresPredicate pre)) (contractPre c)
+      Nothing        -> Nothing
+    contractOf (SDefLogic     name _ _ c _) = Just (name, c)
+    contractOf (SLetrec       name _ _ c _ _) = Just (name, c)
+    contractOf (SDef          name _ _ c _) = Just (name, c)
+    contractOf (SDefShell     name _ _ c _) = Just (name, c)
+    contractOf (SDefInvariant name _ _ c _) = Just (name, c)
+    contractOf _                            = Nothing
 
 -- | Collect all exports from cached modules.
 collectAllExports :: ModuleCache -> Map Name Type
@@ -503,6 +632,7 @@ mkEntry qname contract body allCS =
        , teEffectivePreLevel  = Nothing  -- OBLIG-PBT-3: computed by enrichEntry
        , teEffectivePostLevel = Nothing  -- OBLIG-PBT-3: computed by enrichEntry
        , teJointPostWitness   = False    -- OBLIG-PBT-5a: marked by markJointEntries
+       , teCallerObligations  = []       -- TRUST-PRE: filled by markCallerObligations
        }
 
 -- | Extract all function call names from an expression (recursive walk).
@@ -573,22 +703,43 @@ enrichEntry allCS reachable entry =
         ) (Set.toList transitiveCallees)
       -- Recompute drifts using transitive set
       drifts = computeDrifts qname ownCS transitiveDeps
-      -- Compute effective level = meet(self, all transitive callees)
-      selfLevel = effectiveLevel ownCS
+      -- TRUST-PRE (Position B, transitive-callee fix): the transitive-callee
+      -- contribution to a caller's tier is the callee's POST-side level
+      -- ('csPost'), NOT its pre-inclusive 'effectiveLevel cs'. A callee's
+      -- precondition is the CALLER's call-site obligation, discharged by the
+      -- SAFE 'call-pre:' VC (FixpointEmit.hs:617-619) — it is NOT a floor the
+      -- caller inherits. Folding 'effectiveLevel cs' (which includes the always-
+      -- 'asserted' 'csPre') dragged every caller of a pre-bearing callee down to
+      -- 'asserted' even after the caller correctly discharged the pre. We fold
+      -- 'csPost' instead so the caller's effective post-tier excludes BOTH its
+      -- own pre and its transitive callees' pres (all on the caller_obligations
+      -- axis), while STILL inheriting any genuinely weak callee POST (the
+      -- invariant: never ignore a weak callee post — refuted/asserted/
+      -- contract-checked posts still propagate). Because 'transitiveClose'
+      -- flattens the call graph (every transitive callee is in the set) and
+      -- 'evidenceMeet' is associative/commutative/idempotent, this fold over the
+      -- flattened set equals the recursive post-side meet and is well-defined over
+      -- SCCs (a self-edge meets a level with itself: idempotent).
       calleeMinLevel = foldl' minLevel Nothing
-        [ effectiveLevel cs
+        [ fmap erDisplayLevel (csPost cs)
         | callee <- Set.toList transitiveCallees
         , Just cs <- [Map.lookup callee allCS]
         ]
-      eff = case (selfLevel, calleeMinLevel) of
-              (Nothing, _) -> Nothing
-              (_, Nothing) -> selfLevel
-              (Just s, Just c) -> Just (evidenceMeet s c)
       -- OBLIG-PBT-3: per-clause effective level (proposal §9).
       preLevel  = fmap erDisplayLevel (csPre ownCS)
       postLevel = fmap erDisplayLevel (csPost ownCS)
       effPre  = clauseEff preLevel  calleeMinLevel
       effPost = clauseEff postLevel calleeMinLevel
+      -- TRUST-PRE convergence (soundness check 4): 'teEffectiveLevel' is now the
+      -- POST-side effective level ('effPost'), identical to 'teEffectivePostLevel'.
+      -- Its only two consumers — ObligationAssembly's 'callee_tier' soundness lever
+      -- and the 'TrustChannel' tier — both want the callee's post-side tier (a
+      -- consumer leans on the callee's POST, not its pre, which is the consumer's
+      -- own obligation). Keeping the old pre-inclusive meet here would re-create the
+      -- exact inconsistency this fix removes (a verified-post pre-bearing callee
+      -- reading 'asserted' to its consumers). There is no remaining consumer of the
+      -- pre-inclusive meet, so the two notions converge rather than contradict.
+      eff = effPost
   in entry
        { teDrifts             = drifts
        , teEffectiveLevel     = eff
@@ -692,16 +843,130 @@ demoteJointTested e (Just (DLTested _)) | teJointPostWitness e = Just DLAsserted
 demoteJointTested _ lvl                                        = lvl
 
 -- ---------------------------------------------------------------------------
+-- TRUST-PRE (Part 2): caller-obligation axis
+-- ---------------------------------------------------------------------------
+--
+-- The 'requires' predicate a caller must establish to invoke a function
+-- soundly. Sourced from the function's OWN 'csPre' contract (the same 'FQPred'
+-- the per-call-site obligation reads in 'FixpointEmit.collectCallPreObligations'
+-- — this is the per-FUNCTION-contract dual), NOT the caller-side 'erCallPreFns'.
+--
+-- An obligation is on F's axis iff:
+--   (declares)   F declares the pre as 'requires'; OR
+--   (transitive) F calls a callee C whose pre F neither discharges (a SAFE
+--                call-pre VC) nor lifts to its own 'requires'.
+--
+-- SOUNDNESS (TRUST-PRE Rev 3, rule 5): the (transitive) disjunct is reachable
+-- ONLY for non-strict-core F. Inside the strict-verified core a body-faithful F
+-- emits a PROVE-polarity call-pre VC for every callee pre ('FixpointEmit.hs:617')
+-- gated SAFE/UNSAFE by the solver; an undischarged callee pre makes that VC
+-- UNSAFE, so F is refuted and never reaches 'verified'. We approximate "F
+-- discharged C's pre" by "F is itself verified (body-faithful post)": a verified
+-- F necessarily discharged (or assume-guarantee-lifted) every callee pre on its
+-- proven paths, so it carries no escaped transitive obligation. A non-verified F
+-- (body fell back → no call-pre VC emitted) may carry one — which is exactly the
+-- non-strict-core case. If a verified F were ever observed carrying a transitive
+-- obligation, that would be a call-pre-VC soundness gap, not a reporting bug.
+
+-- | TRUST-PRE: render a contract predicate to its s-expr surface form
+-- (e.g. @(>= balance amount)@). Mirrors the LLMLL surface syntax so the
+-- 'requires' a consumer reads matches what the author wrote.
+renderRequiresPredicate :: Expr -> Text
+renderRequiresPredicate = go
+  where
+    go (ELit l)            = renderLit l
+    go (EVar n)            = n
+    go (EOp op args)       = sexpr op args
+    go (EApp f args)       = sexpr f args
+    go (EPair a b)         = "(pair " <> go a <> " " <> go b <> ")"
+    go (EIf c t e)         = "(if " <> go c <> " " <> go t <> " " <> go e <> ")"
+    go (EAwait e)          = "(await " <> go e <> ")"
+    -- Predicates rarely contain the remaining shapes; fall back to a compact
+    -- show so the field is never silently empty for an exotic pre.
+    go other               = T.pack (show other)
+    sexpr h []   = "(" <> h <> ")"
+    sexpr h as   = "(" <> h <> " " <> T.intercalate " " (map go as) <> ")"
+    renderLit (LitInt n)    = T.pack (show n)
+    renderLit (LitFloat f)  = T.pack (show f)
+    renderLit (LitString s) = "\"" <> s <> "\""
+    renderLit (LitBool b)   = if b then "true" else "false"
+    renderLit LitUnit       = "()"
+
+-- | TRUST-PRE: shared JSON object for one obligation — used by BOTH the
+-- trust-report emit and the '.verified.json' persistence so the two surfaces
+-- never drift. Carries the predicate, not a count/name.
+callerObligationJson :: CallerObligation -> Value
+callerObligationJson o = object
+  [ "fn"       .= coObFn o
+  , "requires" .= coObRequires o
+  ]
+
+-- | TRUST-PRE: populate every entry's 'teCallerObligations'.
+--
+-- 'declaredReqs' maps each (qualified) function name to the rendered 'requires'
+-- of its own pre clause (from the live source contract). 'isVerified' is True
+-- for a function whose own post is body-faithful 'verified' — the gate for the
+-- (transitive) disjunct: a verified F discharged its callee pres, so it carries
+-- no escaped obligation (the strict-core backstop, see the note above).
+markCallerObligations :: Map Name Text -> [TrustEntry] -> [TrustEntry]
+markCallerObligations declaredReqs entries = map mark entries
+  where
+    -- The gate is F's OWN body-faithful verified post — NOT 'teEffectivePostLevel'
+    -- (which meets in transitive callees and would drag a verified F down to
+    -- 'asserted' merely because a callee is asserted, a call-graph concern, not a
+    -- statement about whether F discharged its own call-pre VCs). A body-faithful
+    -- verified F necessarily emitted a PROVE-polarity call-pre VC for every callee
+    -- pre and the solver returned SAFE; so it carries no escaped obligation.
+    isVerified e = case tePost e of
+                     Just er -> isVerifiedLevel (erDisplayLevel er) && erBodyFaithful er
+                     Nothing -> False
+    mark e =
+      let -- (declares): F's own pre, if any.
+          own = case Map.lookup (teName e) declaredReqs of
+                  Just req -> [CallerObligation (teName e) req]
+                  Nothing  -> []
+          -- (transitive): callee pres F neither discharges nor lifts. Gated to
+          -- the non-strict-core case: only a NON-verified F can carry one (a
+          -- verified F's call-pre VCs were all SAFE). 'F lifts C's pre to its
+          -- own requires' is folded out here — when F declares any pre we treat
+          -- its own clause as the lift surface, so we do not also re-list a
+          -- callee whose pre F republishes; the conservative inclusion is sound
+          -- (an extra honest obligation never under-warns).
+          transitive
+            | isVerified e = []          -- strict-core / verified: no escaped obligation
+            | otherwise =
+                [ CallerObligation (tdName d) req
+                | d <- teDeps e
+                , Just req <- [Map.lookup (tdName d) declaredReqs]
+                , tdName d /= teName e
+                ]
+          combined = own ++ [ o | o <- transitive, coObFn o `notElem` map coObFn own ]
+      in e { teCallerObligations = combined }
+
+-- ---------------------------------------------------------------------------
 -- Summary
 -- ---------------------------------------------------------------------------
 
 computeSummary :: [TrustEntry] -> TrustSummary
 computeSummary entries =
-  -- v0.8.1b: use teEffectiveLevel for classification when available
+  -- TRUST-PRE (Part 1, Position B summary-only): classify on the POST-side
+  -- effective level ('teEffectivePostLevel'), which already excludes 'csPre'
+  -- and meets the post against transitive callees. A precondition no longer
+  -- floors a function's tier — but a WEAK post is never ignored: when the body
+  -- fell back (post 'asserted'/'contract_checked'), 'teEffectivePostLevel' is
+  -- that weak level and the function classifies there. The change is strictly
+  -- "stop meeting in 'csPre'," never "promote a weak post." TRUST-PRE
+  -- (transitive-callee fix) extended this to the CALL GRAPH: 'teEffectivePostLevel'
+  -- now meets the post against the transitive callees' POSTS (not their pre-
+  -- inclusive 'effectiveLevel'), so a caller that discharged a pre-bearing
+  -- callee's pre no longer floors via that callee's pre. 'teEffectiveLevel'
+  -- converged onto the same post-side value (its 'callee_tier' / 'TrustChannel'
+  -- consumers want the post-side notion); there is no longer a pre-inclusive
+  -- whole-function meet anywhere.
   -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted at classify time.
-  let classify e = demoteJointTested e $ case teEffectiveLevel e of
+  let classify e = demoteJointTested e $ case teEffectivePostLevel e of
                      Just lvl -> Just lvl
-                     Nothing  -> effectiveLevel (ContractStatus (tePre e) (tePost e) [])
+                     Nothing  -> fmap erDisplayLevel (tePost e)
       verified = length [e | e <- entries, isVer (classify e)]
       contractChecked = length [e | e <- entries, isCC (classify e)]
       tested   = length [e | e <- entries, isTst (classify e)]
@@ -721,9 +986,10 @@ computeSummary entries =
 
 -- | v0.10.4 (R6d): Aggregate per-function effective tiers into a six-Int profile.
 --
--- Classification uses the same path as 'computeSummary' — 'teEffectiveLevel'
--- (meet of self pre/post and transitive callees), falling back to the local
--- ContractStatus meet when enrichment did not populate the field.
+-- Classification uses the same path as 'computeSummary' — the POST-side
+-- effective level ('teEffectivePostLevel', the post met against the transitive
+-- callees' posts), falling back to the local 'csPost' level when enrichment did
+-- not populate the field.
 --
 -- Diamond meet (LLMLL.md:344) is honored: an entry whose effective level is
 -- DLAsserted because pre and post sit in incomparable diamond branches
@@ -734,10 +1000,14 @@ computeSummary entries =
 -- Lean-discharged tier.
 aggregateTiers :: [TrustEntry] -> TierProfile
 aggregateTiers entries =
+  -- TRUST-PRE (Position B): classify on the POST-side effective level, identical
+  -- to 'computeSummary'. Neither the function's own 'csPre' nor its transitive
+  -- callees' pres floor its tier (all on the caller_obligations axis); a weak
+  -- post — own or inherited from a callee — is still respected.
   -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted before classify.
-  let classify e = demoteJointTested e $ case teEffectiveLevel e of
+  let classify e = demoteJointTested e $ case teEffectivePostLevel e of
                      Just lvl -> Just lvl
-                     Nothing  -> effectiveLevel (ContractStatus (tePre e) (tePost e) [])
+                     Nothing  -> fmap erDisplayLevel (tePost e)
   in classifyToProfile classify entries
 
 -- | OBLIG-PBT-3: per-pre-clause tier profile. Each entry contributes by
@@ -907,6 +1177,11 @@ formatTrustReportJson report =
     -- call-site VC) compose naturally.
     taintedFns e = any erOverflowTainted (maybeERs e)
     maybeERs e   = maybeToList (tePre e) ++ maybeToList (tePost e)
+    -- TRUST-PRE: the headline tier = the Position-B post-side level, with the
+    -- OBLIG-PBT-5a joint-only demotion applied, identical to 'computeSummary'.
+    headlineLevel e = demoteJointTested e $ case teEffectivePostLevel e of
+                        Just lvl -> Just lvl
+                        Nothing  -> fmap erDisplayLevel (tePost e)
     entryJson e = object $
       [ "name"       .= teName e
       , "pre_level"  .= fmap (dlLabel . erDisplayLevel) (tePre e)
@@ -916,7 +1191,15 @@ formatTrustReportJson report =
       ] ++
       maybe [] (\s -> ["pre_source" .= s]) (tePre e >>= erSource) ++
       maybe [] (\s -> ["post_source" .= s]) (tePost e >>= erSource) ++
-      maybe [] (\l -> ["effective_level" .= dlLabel l]) (teEffectiveLevel e) ++
+      -- TRUST-PRE (Position B): the consumer-facing 'effective_level' HEADLINE is
+      -- the post-side tier (same classification the summary counts), so a
+      -- pre-bearing post-verified function reads 'verified' here — and so does a
+      -- caller that discharged that callee's pre, since the transitive-callee meet
+      -- now folds the callee's POST, not its pre-inclusive level. Neither the own
+      -- pre nor a transitive callee's pre floors this. (Refutation propagation is
+      -- independent: 'refutedClosure' keys on the call graph 'teDeps', not on this
+      -- tier, so 'depends-on-refuted' is unaffected by the pre exclusion.)
+      maybe [] (\l -> ["effective_level" .= dlLabel l]) (headlineLevel e) ++
       -- OBLIG-PBT-5a: per-entry joint-post flag, emitted only when true.
       [ "joint_pbt_witness" .= True | teJointPostWitness e ] ++
       -- INT-1 (v0.10.8): per-entry overflow-taint flag, emitted only when
@@ -926,6 +1209,16 @@ formatTrustReportJson report =
       -- VERIFY-RPT-1 (1.3.0): per-entry refuted flag, emitted only when true,
       -- mirroring the only-on-true shape so non-refuted JSON stays byte-identical.
       [ "refuted" .= True | Set.member (teName e) (trRefutedFns report) ] ++
+      -- TRUST-PRE (1.4.0): per-entry caller-obligation axis. Emission discipline
+      -- is the OPPOSITE of 'refuted': present whenever a 'requires' exists, on
+      -- EVERY path (solver-less, sidecar-reload), and persisted. The co-located
+      -- 'carries_caller_obligations' boolean is the cheapest single-field
+      -- self-scoping read — it exposes the conditionality without touching the
+      -- 'effective_level' tier (which stays 'verified'). The predicate list sits
+      -- one field deeper for the consumer that needs to discharge it.
+      [ "carries_caller_obligations" .= not (null (teCallerObligations e)) ] ++
+      [ "caller_obligations" .= map callerObligationJson (teCallerObligations e)
+      | not (null (teCallerObligations e)) ] ++
       -- LT-CDP (v0.11): per-entry discriminative_axis. Emitted only on
       -- contracted entries; populated from 'trCDP report' when present,
       -- otherwise a single 'not-requested' warning so consumers see a uniform

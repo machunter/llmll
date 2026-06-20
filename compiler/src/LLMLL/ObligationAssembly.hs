@@ -68,7 +68,7 @@ import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap )
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
-import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), effectiveLevel)
+import LLMLL.TrustReport (TrustReport(..), TrustEntry(..))
 import LLMLL.HoleAnalysis
   ( HoleReport(..), HoleEntry(..), HoleStatus(..)
   , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc )
@@ -624,9 +624,20 @@ isTypeCompatible aliases (TDependent _ base _) actual =      -- R1
 isTypeCompatible _ expected actual = typeLabel expected == typeLabel actual
 
 -- | Trust label for function lists (F9, R3).
+--
+-- TRUST-PRE (Position B, transitive-callee fix): reads the POST-side effective
+-- level ('teEffectivePostLevel'), not the historically pre-inclusive
+-- 'teEffectiveLevel'. The 'callee_tier' soundness lever (§5 edge 3) leans on the
+-- callee's POST — what the consumer actually depends on — not the callee's own
+-- precondition (the consumer's call-site obligation, discharged by a SAFE
+-- call-pre VC). So a verified-post pre-bearing callee surfaces 'verified' here,
+-- which is correct: the consumer inherits the proven post, and the callee's pre
+-- is the consumer's own obligation, tracked on the orthogonal caller_obligations
+-- axis. The two fields are equal after the convergence in 'enrichEntry', but we
+-- key on the post-side one explicitly to name the intended source.
 trustLabel :: Map Name TrustEntry -> Name -> Text
 trustLabel trustMap name = case Map.lookup name trustMap of
-  Just te -> case teEffectiveLevel te of
+  Just te -> case teEffectivePostLevel te of
     Just (DLVerified _)       -> "verified"
     Just (DLContractChecked _) -> "contract-checked"
     Just DLAsserted           -> "asserted"
@@ -930,7 +941,9 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames supp
       mTrust = findTrustEntry fnName trustRpt
       trustCh = TrustChannel
         { trAssumptions     = []
-        , trEffectiveLevel  = maybe "asserted" (dlLabel . fromMaybe DLAsserted . teEffectiveLevel) mTrust
+        -- TRUST-PRE (Position B): the channel's effective tier is the POST-side
+        -- level — a precondition is the caller's obligation, off this axis.
+        , trEffectiveLevel  = maybe "asserted" (dlLabel . fromMaybe DLAsserted . teEffectivePostLevel) mTrust
         , trBodyFaithful    = fnName `elem` faithful
         , trOverflowTainted = fnName `elem` tainted
         }

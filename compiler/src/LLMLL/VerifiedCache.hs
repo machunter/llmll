@@ -9,6 +9,7 @@ module LLMLL.VerifiedCache
   ( verifiedPath
   , loadVerified
   , saveVerified
+  , saveVerifiedWith   -- TRUST-PRE: variant persisting a top-level caller_obligations array
   , sidecarNeedsRevalidation
   ) where
 
@@ -215,6 +216,11 @@ loadVerified fp = do
               pure $ Map.fromList
                 [ (AK.toText key, cs)
                 | (key, val) <- KM.toList top
+                -- TRUST-PRE: skip the reserved top-level obligation key; it is a
+                -- persisted contract property for the '.verified.json' reader,
+                -- not a per-function ContractStatus. LLMLL itself re-derives the
+                -- axis from the live source on every trust-report build.
+                , AK.toText key /= reservedCallerObligationsKey
                 , Just cs <- [csFromJSON val]
                 ]
         _ -> pure Map.empty
@@ -249,7 +255,24 @@ sidecarNeedsRevalidation _top = False
 
 -- | Save verified status to sidecar file.
 saveVerified :: FilePath -> Map Name ContractStatus -> IO ()
-saveVerified fp statuses = do
+saveVerified fp statuses = saveVerifiedWith fp statuses []
+
+-- | TRUST-PRE: reserved top-level key carrying the persisted caller-obligation
+-- axis. Skipped by 'loadVerified' (it is a contract property, not a
+-- ContractStatus); written by 'saveVerifiedWith'.
+reservedCallerObligationsKey :: Text
+reservedCallerObligationsKey = "caller_obligations"
+
+-- | TRUST-PRE: save verified status PLUS a persisted top-level
+-- 'caller_obligations' array. The obligation objects are pre-rendered 'Value's
+-- (built with 'TrustReport.callerObligationJson') so this module keeps its lean
+-- 'Syntax'-only dependency and the two surfaces share one shape. The array is
+-- emitted unconditionally (even when empty) — a 'requires' is a static contract
+-- property, so its ABSENCE for a given function is itself information, the
+-- deliberate inverse of the non-persisted 'refuted' verdict.
+saveVerifiedWith :: FilePath -> Map Name ContractStatus -> [Value] -> IO ()
+saveVerifiedWith fp statuses obligations = do
   let path = verifiedPath fp
       pairs = [ AK.fromText k .= csToJSON cs | (k, cs) <- Map.toList statuses ]
-  BL.writeFile path (A.encode (object pairs))
+      obKey = [ AK.fromText reservedCallerObligationsKey .= obligations ]
+  BL.writeFile path (A.encode (object (pairs ++ obKey)))

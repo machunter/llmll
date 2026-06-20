@@ -36,7 +36,7 @@ import qualified Data.ByteString.Lazy as BL
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
-import LLMLL.TypeCheck (typeCheck, emptyEnv, TypeEnv)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, emptyEnv, TypeEnv)
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
 import LLMLL.VerifiedCache (loadVerified)
@@ -179,7 +179,14 @@ loadFromFile gm _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
           let importedEnvs = mapMaybe
                 (\imp -> Map.lookup (splitDotted (importPath imp)) cache1) imports
               baseEnv = mergeModuleEnvs importedEnvs emptyEnv
-              report  = typeCheck gm baseEnv stmts
+              -- XMOD-ALIAS: type-check this module through the cache-aware path so
+              -- imported type aliases (and qualified value names / contract status)
+              -- are seeded. This matters when THIS module is a dependency that
+              -- itself imports a refinement alias and does arithmetic/comparison
+              -- on a value of that type; the plain 'typeCheck gm baseEnv' path
+              -- (entry-only before) would reject it. 'typeCheckWithCache' seeds
+              -- the same qualified value names as 'baseEnv' plus the alias map.
+              report  = typeCheckWithCache gm cache1 emptyEnv stmts
               env0    = buildModuleEnv modPath stmts baseEnv
           -- v0.3: merge sidecar .verified.json to upgrade contract statuses
           sidecar <- loadVerified fp

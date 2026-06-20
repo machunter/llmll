@@ -37,13 +37,13 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.Module (mergeCS)
-import LLMLL.VerifiedCache (verifiedPath, saveVerified, loadVerified, sidecarNeedsRevalidation)
+import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
@@ -2694,6 +2694,240 @@ main = hspec $ do
       humanText `shouldSatisfy` T.isInfixOf "asserted"
 
   -- =========================================================================
+  -- TRUST-PRE (precondition-tier-proposal, Rev 3): Position B (summary-only
+  -- tier) + the first-class persisted caller_obligations axis.
+  --   Part 1 — a precondition no longer floors a function's verified tier.
+  --   Part 2 — the caller_obligations axis carries the 'requires' predicate,
+  --            self-scopes via 'carries_caller_obligations', and persists.
+  -- =========================================================================
+  describe "TRUST-PRE precondition tier + caller-obligation axis" $ do
+    -- A pre-bearing, body-faithful post-verified function (the withdraw shape):
+    -- pre asserted (caller obligation), post DLVerified (proven implication).
+    let preVerifiedCS =
+          ContractStatus
+            (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+            (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+            []
+        -- The live source for 'withdraw' carrying a real 'requires' predicate.
+        withdrawStmt =
+          SDefLogic "withdraw" [("balance", TInt), ("amount", TInt)] (Just TInt)
+            (Contract (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
+                      (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+            (EOp "-" [EVar "balance", EVar "amount"])
+
+    -- TP-PRE-1 (Part 1): a pre-bearing post-verified function classifies
+    -- 'verified' in the summary (was 'asserted' under the pre⊓post floor).
+    it "TP-PRE-1 pre-bearing post-verified function classifies verified (no floor)" $ do
+      let sidecar = Map.fromList [("withdraw", preVerifiedCS)]
+          report  = buildTrustReport Map.empty [withdrawStmt] sidecar
+      tsVerified (trSummary report) `shouldBe` 1
+      tsAsserted (trSummary report) `shouldBe` 0
+
+    -- TP-PRE-2 (Part 1): the JSON 'effective_level' headline reads 'verified'
+    -- for the same function — the self-scoping headline is post-based.
+    it "TP-PRE-2 JSON effective_level headline is verified for pre-bearing post-verified fn" $ do
+      let sidecar  = Map.fromList [("withdraw", preVerifiedCS)]
+          report   = buildTrustReport Map.empty [withdrawStmt] sidecar
+          jsonText = formatTrustReportJson report
+          jsonV    = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
+      -- trust_report_version bumped to 1.4.0
+      jsonText `shouldSatisfy` T.isInfixOf "\"1.4.0\""
+      case jsonV of
+        Just (Object o) -> case KM.lookup "entries" o of
+          Just (Array es) -> case [ ent | Object ent <- foldr (:) [] es
+                                        , KM.lookup "name" ent == Just (String "withdraw") ] of
+            (ent:_) -> do
+              -- dlLabel renders DLVerified as "verified (<prover>)".
+              case KM.lookup "effective_level" ent of
+                Just (String lvl) -> lvl `shouldSatisfy` T.isPrefixOf "verified"
+                other             -> expectationFailure ("effective_level: " <> show other)
+              KM.lookup "carries_caller_obligations" ent `shouldBe` Just (Bool True)
+            _ -> expectationFailure "no withdraw entry"
+          _ -> expectationFailure "no entries array"
+        _ -> expectationFailure "invalid JSON"
+
+    -- TP-PRE-3 (invariant): a WEAK post is never promoted. A pre-bearing
+    -- function whose post fell back to asserted is still 'asserted' — the
+    -- change drops csPre from the classifier, it never lifts a weak csPost.
+    it "TP-PRE-3 weak post is never promoted (pre dropped, post respected)" $ do
+      let weakCS = ContractStatus
+                     (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                     (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                     []
+          sidecar = Map.fromList [("withdraw", weakCS)]
+          report  = buildTrustReport Map.empty [withdrawStmt] sidecar
+      tsVerified (trSummary report) `shouldBe` 0
+      tsAsserted (trSummary report) `shouldBe` 1
+
+    -- TP-PRE-4 (Part 2): the caller_obligations axis carries the PREDICATE
+    -- (not a count/name), sourced from the function's own csPre contract.
+    it "TP-PRE-4 caller_obligations carries the requires predicate" $ do
+      let sidecar = Map.fromList [("withdraw", preVerifiedCS)]
+          report  = buildTrustReport Map.empty [withdrawStmt] sidecar
+      case filter (\e -> teName e == "withdraw") (trEntries report) of
+        [e] -> do
+          map coObFn (teCallerObligations e) `shouldBe` ["withdraw"]
+          map coObRequires (teCallerObligations e) `shouldBe` ["(>= balance amount)"]
+        _ -> expectationFailure "expected exactly one withdraw entry"
+
+    -- TP-PRE-5 (Part 2): the axis persists across a saveVerifiedWith /
+    -- loadVerified sidecar round-trip and is re-derived on report rebuild.
+    it "TP-PRE-5 caller_obligations persist and survive a sidecar reload" $ do
+      let tmpDir = "test/_tmp_trustpre"
+      createDirectoryIfMissing True tmpDir
+      let fp       = tmpDir </> "withdraw.llmll"
+          sidecar  = Map.fromList [("withdraw", preVerifiedCS)]
+          report0  = buildTrustReport Map.empty [withdrawStmt] sidecar
+          obJson   = concatMap (map callerObligationJson . teCallerObligations)
+                               (trEntries report0)
+      -- Persist evidence + the obligation axis.
+      saveVerifiedWith fp sidecar obJson
+      -- The persisted .verified.json carries the predicate (static property).
+      raw <- TIO.readFile (verifiedPath fp)
+      raw `shouldSatisfy` T.isInfixOf "caller_obligations"
+      raw `shouldSatisfy` T.isInfixOf "(>= balance amount)"
+      -- loadVerified skips the reserved key and recovers the ContractStatus.
+      reloaded <- loadVerified fp
+      Map.member "withdraw" reloaded `shouldBe` True
+      -- A rebuild over the reloaded sidecar re-derives the axis (every path).
+      let report1 = buildTrustReport Map.empty [withdrawStmt] reloaded
+      case filter (\e -> teName e == "withdraw") (trEntries report1) of
+        [e] -> map coObRequires (teCallerObligations e) `shouldBe` ["(>= balance amount)"]
+        _   -> expectationFailure "expected withdraw entry after reload"
+      removeDirectoryRecursive tmpDir
+
+    -- TP-PRE-6 (Part 2, soundness): a verified caller that DISCHARGES a callee's
+    -- pre reaches verified and carries NO escaped transitive obligation; a
+    -- NON-verified caller of the same callee DOES carry it (the second disjunct
+    -- is non-strict-core-only — verified F's call-pre VC was SAFE, so it cannot
+    -- escape). This is the report-side of the soundness-preservation property;
+    -- the undischarged-call → FQUnsafe path is the solver's, not a summary floor.
+    it "TP-PRE-6 transitive obligation escapes only for a non-verified caller" $ do
+      let calleeStmt =
+            SDefLogic "withdraw" [("balance", TInt), ("amount", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
+                        Nothing Nothing Nothing)
+              (EOp "-" [EVar "balance", EVar "amount"])
+          callerStmt =
+            SDefLogic "pay" [("b", TInt), ("a", TInt)] (Just TInt)
+              (Contract Nothing Nothing Nothing Nothing Nothing)
+              (EApp "withdraw" [EVar "b", EVar "a"])
+          stmts = [calleeStmt, callerStmt]
+          -- 'pay' verified (body-faithful) → discharged withdraw's pre.
+          verifiedSidecar = Map.fromList
+            [ ("pay", ContractStatus Nothing
+                        (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                        []) ]
+          verReport = buildTrustReport Map.empty stmts verifiedSidecar
+          -- 'pay' NOT verified (no post evidence) → callee pre escaped to it.
+          unverReport = buildTrustReport Map.empty stmts Map.empty
+          payOb r = case filter (\e -> teName e == "pay") (trEntries r) of
+                      [e] -> map coObFn (teCallerObligations e)
+                      _   -> []
+      -- Verified caller: NO escaped obligation for withdraw.
+      payOb verReport `shouldBe` []
+      -- Non-verified caller: carries withdraw's pre as an escaped obligation.
+      payOb unverReport `shouldBe` ["withdraw"]
+
+    -- TP-PRE-7 (transitive-callee fix, the CORE bug): a caller that calls a
+    -- pre-bearing callee and is itself body-faithful post-verified reaches
+    -- 'verified' — it no longer floors to 'asserted' via the CALLEE's pre. Under
+    -- the old 'effectiveLevel cs' transitive meet, the callee's pre-inclusive
+    -- 'asserted' level dragged the caller's post-side tier down. The callee's pre
+    -- is the CALLER's call-site obligation (discharged by the SAFE call-pre VC),
+    -- not a floor the caller inherits.
+    it "TP-PRE-7 caller of a pre-bearing callee, own post verified, reaches verified (was asserted)" $ do
+      let -- 'withdraw' carries a pre and a verified post (the pre-bearing leaf).
+          calleeStmt =
+            SDefLogic "withdraw" [("balance", TInt), ("amount", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+              (EOp "-" [EVar "balance", EVar "amount"])
+          -- 'safe-withdraw' calls 'withdraw' (discharging its pre at the call
+          -- site) and proves its OWN post verified. It has no pre of its own.
+          callerStmt =
+            SDefLogic "safe-withdraw" [("b", TInt), ("a", TInt)] (Just TInt)
+              (Contract Nothing Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+              (EApp "withdraw" [EVar "b", EVar "a"])
+          stmts = [calleeStmt, callerStmt]
+          -- Both verified post in the sidecar (callee pre stays asserted).
+          sidecar = Map.fromList
+            [ ("withdraw", ContractStatus
+                  (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                  [])
+            , ("safe-withdraw", ContractStatus Nothing
+                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                  []) ]
+          report = buildTrustReport Map.empty stmts sidecar
+          effOf nm = case filter (\e -> teName e == nm) (trEntries report) of
+                       [e] -> teEffectivePostLevel e
+                       _   -> Nothing
+      -- The caller's post-side effective tier is now 'verified', not floored.
+      effOf "safe-withdraw" `shouldSatisfy` maybe False isVerifiedLevel
+      -- The leaf callee is also 'verified' (its own pre does not floor it).
+      effOf "withdraw" `shouldSatisfy` maybe False isVerifiedLevel
+      -- Both land in the summary 'verified' count; none in 'asserted'.
+      tsVerified (trSummary report) `shouldBe` 2
+      tsAsserted (trSummary report) `shouldBe` 0
+
+    -- TP-PRE-8 (invariant: never ignore a weak callee POST): a caller of a callee
+    -- whose POST is 'asserted' still floors to 'asserted'. The fix removes only
+    -- the callee-PRE contribution; a genuinely weak callee POST still propagates.
+    it "TP-PRE-8 caller of an asserted-POST callee still floors (post-propagation preserved)" $ do
+      let calleeStmt =
+            SDefLogic "weak" [("n", TInt)] (Just TInt)
+              (Contract Nothing Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+              (EVar "n")
+          callerStmt =
+            SDefLogic "uses-weak" [("n", TInt)] (Just TInt)
+              (Contract Nothing Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+              (EApp "weak" [EVar "n"])
+          stmts = [calleeStmt, callerStmt]
+          sidecar = Map.fromList
+            [ ("weak", ContractStatus Nothing
+                  (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                  [])
+            , ("uses-weak", ContractStatus Nothing
+                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                  []) ]
+          report = buildTrustReport Map.empty stmts sidecar
+          effOf nm = case filter (\e -> teName e == nm) (trEntries report) of
+                       [e] -> teEffectivePostLevel e
+                       _   -> Nothing
+      -- The caller inherits the callee's weak POST: floored to asserted.
+      effOf "uses-weak" `shouldBe` Just DLAsserted
+      effOf "weak"      `shouldBe` Just DLAsserted
+
+    -- TP-PRE-9 (soundness check 1): a caller of a REFUTED callee is still flagged
+    -- 'depends-on-refuted'. Refutation is post-side and rides the call graph
+    -- ('refutedClosure'/'teDeps'), so the transitive-callee POST-side meet (which
+    -- only dropped the callee PRE) leaves it untouched. Complements VR-8 from
+    -- inside the TRUST-PRE fixture family.
+    it "TP-PRE-9 caller of a refuted callee still depends-on-refuted (post-side preserved)" $ do
+      let calleeStmt =
+            SDefLogic "withdraw" [("balance", TInt), ("amount", TInt)] (Just TInt)
+              (Contract (Just (EApp ">=" [EVar "balance", EVar "amount"])) Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+              (EOp "-" [EVar "balance", EVar "amount"])
+          callerStmt =
+            SDefLogic "safe-withdraw" [("b", TInt), ("a", TInt)] (Just TInt)
+              (Contract Nothing Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+              (EApp "withdraw" [EVar "b", EVar "a"])
+          stmts   = [calleeStmt, callerStmt]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          closure = refutedClosure (Set.fromList ["withdraw"]) report
+          marked  = markRefuted (Set.fromList ["withdraw"]) report
+          callerDrifts = concat [ teDrifts e | e <- trEntries marked, teName e == "safe-withdraw" ]
+      Set.member "safe-withdraw" closure `shouldBe` True
+      Set.member "withdraw" closure `shouldBe` True
+      any (T.isInfixOf "depends-on-refuted") callerDrifts `shouldBe` True
+
+  -- =========================================================================
   -- v0.10.4 (R6d): Tier-count profile aggregate
   --
   -- Six-Int profile over the trust report's per-function effective tier
@@ -2713,6 +2947,7 @@ main = hspec $ do
             , teEffectivePreLevel  = Nothing  -- OBLIG-PBT-3: not exercised in TP-* tests
             , teEffectivePostLevel = Nothing
             , teJointPostWitness   = False    -- OBLIG-PBT-5a: not exercised here
+            , teCallerObligations  = []       -- TRUST-PRE: not exercised in TP-* tests
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -2729,7 +2964,7 @@ main = hspec $ do
 
     -- TP-3: Diamond-asymmetry — contract-checked ⊥ tested, with mixed-meet edge case
     -- Locks in LLMLL.md:344 incomparability against future regression.
-    it "diamond asymmetry: contract-checked, tested, and incomparable meet → asserted" $ do
+    it "diamond asymmetry: contract-checked/tested tiers; pre⊓post no longer floors the tier (TRUST-PRE)" $ do
       let ccEntries = [ mkEntry ("cc" <> T.pack (show i))
                                 (Just (DLContractChecked "z3"))
                                 (Just (DLContractChecked "z3"))
@@ -2738,15 +2973,19 @@ main = hspec $ do
                                 (Just (DLTested 100))
                                 (Just (DLTested 100))
                       | i <- [1..3 :: Int] ]
-          -- One entry with incomparable diamond branches:
-          -- meet(DLContractChecked, DLTested) = DLAsserted (Syntax.hs:356-357)
+          -- One entry with a contract-checked PRE and a tested POST. The diamond
+          -- meet(DLContractChecked, DLTested) = DLAsserted still governs the
+          -- per-entry DISPLAY and the call-graph propagation (teEffectiveLevel /
+          -- enrichEntry are untouched), but TRUST-PRE (Part 1) classifies the
+          -- TIER on the post side — so the pre no longer floors this to asserted.
           mixedEntry = [ mkEntry "mixed"
                                  (Just (DLContractChecked "z3"))
                                  (Just (DLTested 100)) ]
       aggregateTiers ccEntries  `shouldBe` TierProfile 0 0 3 0 0 0
       aggregateTiers tsEntries  `shouldBe` TierProfile 0 0 0 3 0 0
-      -- Mixed-meet must NOT double-count: increments asserted, not cc/tested
-      aggregateTiers mixedEntry `shouldBe` TierProfile 0 0 0 0 1 0
+      -- TRUST-PRE: classifies on the post (DLTested), not the pre⊓post meet.
+      -- (Was: TierProfile 0 0 0 0 1 0 — the pre-bearing floor to asserted.)
+      aggregateTiers mixedEntry `shouldBe` TierProfile 0 0 0 1 0 0
 
     -- TP-4: Mixed-tier report → component-correct counts
     -- proved is zero by construction (no DLProved constructor exists)
@@ -2771,7 +3010,8 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.3.0")
+          -- TRUST-PRE: trust_report_version bumped 1.3.0 → 1.4.0.
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.4.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All six required fields present
@@ -5536,10 +5776,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     let parse src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
           Left e      -> error ("parse failed: " <> show e)
           Right stmts -> stmts
-        -- Minimal TrustEntry with only an effective level set (the only field
-        -- 'trustLabel' reads). Lets us pin a callee's tier and prove that the
-        -- consumed_guarantees record SOURCES it (never hardcodes "verified").
-        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing Nothing False
+        -- Minimal TrustEntry with the post-side effective level set (the field
+        -- 'trustLabel'/'callee_tier' reads after the TRUST-PRE transitive-callee
+        -- fix; 'teEffectiveLevel' is pinned to the same value for symmetry). Lets
+        -- us pin a callee's tier and prove that the consumed_guarantees record
+        -- SOURCES it (never hardcodes "verified").
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False []
         objLookup k (Object o) = KM.lookup k o
         objLookup _ _          = Nothing
         objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing
@@ -5838,6 +6080,87 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let local = [SDefShell "f" [("x", TInt)] Nothing noC
                      (EApp "mystery-unresolved" [EVar "x"])]
       effOfC Map.empty local "f" `shouldBe` Just Unbounded
+
+  -- XMOD-ALIAS regression: a module that imports a refinement-type alias and
+  -- then does arithmetic/comparison on a value of that type must type-check,
+  -- exactly as the identical code does in-module. Before the fix, the importing
+  -- module's alias map was built from current-module STypeDefs only, so an
+  -- imported 'PositiveInt' stayed an opaque TCustom and '>='/'-' rejected it
+  -- ("type mismatch in '>=': expected int, got PositiveInt").
+  describe "XMOD-ALIAS: imported refinement alias is int-compatible for arith/comparison" $ do
+    let positiveIntBody = TDependent "x" TInt (EApp ">" [EVar "x", ELit (LitInt 0)])
+        -- core module: exports PositiveInt + withdraw, alias map carries PositiveInt.
+        coreEnv = ModuleEnv
+          { meExports        = Map.fromList
+              [ ("PositiveInt", positiveIntBody)
+              , ("withdraw", TFn [TInt, TCustom "PositiveInt"] TInt) ]
+          , meStatements     = []
+          , meInterfaces     = Map.empty
+          , meAliasMap       = Map.fromList [("PositiveInt", positiveIntBody)]
+          , mePath           = ["core"]
+          , meContractStatus = Map.empty
+          , meContracts      = Map.empty
+          }
+        coreCache = Map.fromList [(["core"], coreEnv)]
+        -- The importer body, parsed so '>='/'-' are exercised against the imported
+        -- PositiveInt-typed param exactly as in the CLI reproduction.
+        importerSrc = T.unlines
+          [ "(import core)"
+          , "(open core)"
+          , "(def-shell safe-withdraw [balance: int amount: PositiveInt]"
+          , "  (pre (>= balance amount)) (post (= result (- balance amount)))"
+          , "  (withdraw balance amount))" ]
+        importerStmts = case parseStatements GrammarCoreInversion "<test>" importerSrc of
+          Left e      -> error ("parse failed: " <> show e)
+          Right ss    -> ss
+        hardErrors r = [ d | d <- reportDiagnostics r, diagSeverity d == SevError ]
+
+    it "XA-1: importer doing >=/- on imported PositiveInt type-checks (no mismatch)" $ do
+      let report = typeCheckWithCache GrammarCoreInversion coreCache emptyEnv importerStmts
+      -- No 'type mismatch' hard errors; the imported alias unfolds to int.
+      hardErrors report `shouldBe` []
+      reportSuccess report `shouldBe` True
+
+    it "XA-2: the IDENTICAL code in-module still type-checks (no regression)" $ do
+      -- Same def-shell, but PositiveInt is defined locally (single-file path).
+      let inModuleSrc = T.unlines
+            [ "(type PositiveInt (where [x: int] (> x 0)))"
+            , "(def-shell withdraw [balance: int amount: PositiveInt]"
+            , "  (pre (>= balance amount)) (post (= result (- balance amount)))"
+            , "  (- balance amount))"
+            , "(def-shell safe-withdraw [balance: int amount: PositiveInt]"
+            , "  (pre (>= balance amount)) (post (= result (- balance amount)))"
+            , "  (withdraw balance amount))" ]
+          inModuleStmts = case parseStatements GrammarCoreInversion "<test>" inModuleSrc of
+            Left e   -> error ("parse failed: " <> show e)
+            Right ss -> ss
+          report = typeCheck GrammarCoreInversion emptyEnv inModuleStmts
+      hardErrors report `shouldBe` []
+      reportSuccess report `shouldBe` True
+
+    it "XA-3: a genuinely ill-typed arith on a non-int imported value still fails" $ do
+      -- Soundness guard: the fix must not make EVERY imported alias int-like.
+      -- 'StringName' aliases string; '(- balance name)' must still be rejected.
+      let strEnv = ModuleEnv
+            { meExports        = Map.fromList [("StringName", TString)]
+            , meStatements     = []
+            , meInterfaces     = Map.empty
+            , meAliasMap       = Map.fromList [("StringName", TString)]
+            , mePath           = ["core"]
+            , meContractStatus = Map.empty
+            , meContracts      = Map.empty
+            }
+          strCache = Map.fromList [(["core"], strEnv)]
+          badSrc = T.unlines
+            [ "(import core)"
+            , "(open core)"
+            , "(def-shell bad [balance: int name: StringName]"
+            , "  (- balance name))" ]
+          badStmts = case parseStatements GrammarCoreInversion "<test>" badSrc of
+            Left e   -> error ("parse failed: " <> show e)
+            Right ss -> ss
+          report = typeCheckWithCache GrammarCoreInversion strCache emptyEnv badStmts
+      hardErrors report `shouldNotBe` []
 
   -- -----------------------------------------------------------------------
   -- v0.10 Phase 3: Branch Obligations + Repair (OBLIG-3, OBLIG-4)
@@ -6412,8 +6735,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         length ds  `shouldBe` 1
         any (T.isInfixOf "multiple contracted callees") ds `shouldBe` True
 
-      -- E5: per-clause vs per-function asymmetry — pre asserted, post lifted.
-      it "E5 per-clause split exposes post-tested under asserted-pre meet" $ do
+      -- E5: TRUST-PRE (Part 1) — a DLAsserted pre no longer floors the
+      -- per-function tier; aggregateTiers classifies on the post-side level.
+      it "E5 pre-bearing post-tested function classifies tested (TRUST-PRE: no floor)" $ do
         let f       = mkContractedFn "f"
             body    = EOp "=" [EApp "f" [ELit (LitInt 1)], ELit (LitInt 1)]
             prop    = Property "f-id" [] body []
@@ -6424,10 +6748,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             tpFull  = trTierProfile     report
             tpPre   = trTierProfilePre  report
             tpPost  = trTierProfilePost report
-        -- per-function meet pins to asserted (pre = DLAsserted ⊓ post = DLTested → DLAsserted)
-        tpAsserted tpFull `shouldBe` 1
-        tpTested   tpFull `shouldBe` 0
-        -- per-clause split surfaces the asymmetry
+        -- TRUST-PRE (Part 1): the per-function tier no longer FLOORS to asserted
+        -- on the DLAsserted pre. 'aggregateTiers' now classifies on the post-side
+        -- effective level (Position B, summary-only), so the DLTested post is
+        -- counted directly — the precondition is off the function's evidence axis.
+        -- (Was: tpAsserted tpFull == 1, tpTested tpFull == 0 — the pre-bearing floor.)
+        tpAsserted tpFull `shouldBe` 0
+        tpTested   tpFull `shouldBe` 1
+        -- per-clause split is unchanged (aggregateTiersPre/Post are untouched).
         tpAsserted tpPre  `shouldBe` 1
         tpTested   tpPost `shouldBe` 1
         tpAsserted tpPost `shouldBe` 0
@@ -6574,7 +6902,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.3.0")
+            -- TRUST-PRE: trust_report_version bumped 1.3.0 → 1.4.0.
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.4.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -6880,8 +7209,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        -- LT-CDP (v0.11): trust_report_version bumped 1.1.0 → 1.2.0
-        T.isInfixOf "\"trust_report_version\":\"1.3.0\"" jsonTxt `shouldBe` True
+        -- TRUST-PRE: trust_report_version bumped 1.3.0 → 1.4.0 (additive axis).
+        T.isInfixOf "\"trust_report_version\":\"1.4.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
     -- evalContract isolation regression: empty-FuncEnv invariant
@@ -7392,10 +7721,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"warnings\":[\"not-requested\"]" jsonTxt `shouldBe` True
         T.isInfixOf "\"basis\":\"not-measured\"" jsonTxt `shouldBe` True
 
-      it "C18 trust_report_version is 1.3.0" $ do
+      it "C18 trust_report_version is 1.4.0 (TRUST-PRE bump)" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.3.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.4.0\"" jsonTxt `shouldBe` True
 
       it "C19 all nine warning labels round-trip" $ do
         let labels = map cdpWarningLabel

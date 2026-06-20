@@ -1,0 +1,8 @@
+;; XMOD-TIER fixture: an independently-verifiable core. 'withdraw' carries a
+;; pre + post and a body that proves its post (result = balance - amount). A
+;; .verified.json sidecar recording withdraw=verified is written by the test
+;; harness (with a body-faithful verified_hash). Consumed by xmod-tier/compose.llmll
+;; + xmod-tier/stale.llmll via (import core)(open core).
+(type PositiveInt (where [x: int] (> x 0)))
+(def withdraw [balance: int amount: PositiveInt]
+  (pre (>= balance amount)) (post (= result (- balance amount))) (- balance amount))

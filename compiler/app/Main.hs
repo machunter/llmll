@@ -65,12 +65,12 @@ import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, collectTypeDefinitions, normalizePointer)
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
-import LLMLL.VerifiedCache (saveVerified, loadVerified, verifiedPath)
+import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, loadVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson)
 import LLMLL.CDP
   ( CDPResult(..), CDPScope(..)
   , computeCDPFor
@@ -1338,7 +1338,16 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                     , Just (n, _, _, c, body) <- [normalizeDefStmt s]
                     , contractPre c /= Nothing || contractPost c /= Nothing
                     ]
-              saveVerified fp provenCS
+              -- TRUST-PRE (Part 2): persist the caller-obligation axis alongside
+              -- the verified evidence. A 'requires' is a static contract
+              -- property (it cannot go stale like the solver verdict), so unlike
+              -- 'refuted' it IS persisted. The axis is computed by the trust
+              -- report over the live source + the just-proven sidecar, then
+              -- flattened to the shared '{fn, requires}' JSON shape.
+              let obReport      = buildTrustReport _cache stmts provenCS
+                  obligationJson = concatMap (map callerObligationJson . teCallerObligations)
+                                             (trEntries obReport)
+              saveVerifiedWith fp provenCS obligationJson
               unless json $ TIO.putStrLn $ "   .verified.json written to " <> T.pack (verifiedPath fp)
               pure provenCS
             _ -> pure Map.empty

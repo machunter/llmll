@@ -1,0 +1,9 @@
+;; XMOD-ALIAS fixture: use imports the PositiveInt refinement alias and does
+;; arithmetic/comparison (>= and -) on a value of that type. Before the fix this
+;; failed type-checking ("type mismatch in '>=': expected int, got PositiveInt");
+;; the identical code in-module type-checks. Driven by ModuleSpec.hs XA-DISK-1.
+(import core)
+(open core)
+(def-shell safe-withdraw [balance: int amount: PositiveInt]
+  (pre (>= balance amount)) (post (= result (- balance amount)))
+  (withdraw balance amount))

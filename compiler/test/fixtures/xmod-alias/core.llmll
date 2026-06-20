@@ -1,0 +1,5 @@
+;; XMOD-ALIAS fixture: core exports a refinement-type alias PositiveInt and a
+;; def consuming it. Consumed by test/fixtures/xmod-alias/use.llmll + ModuleSpec.hs.
+(type PositiveInt (where [x: int] (> x 0)))
+(def withdraw [balance: int amount: PositiveInt]
+  (pre (>= balance amount)) (post (= result (- balance amount))) (- balance amount))

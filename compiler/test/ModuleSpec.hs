@@ -25,7 +25,13 @@ import LLMLL.PBT
   ( runPropertyTests, assembleTestStatements
   , PBTResult(..), PBTRun(..), PBTStatus(..)
   , pbtTrustWriteback
+  , canonicalDefEvidenceHash
   )
+import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..))
+import LLMLL.VerifiedCache (verifiedPath, saveVerified)
+import Control.Exception (finally)
+import Data.List (find)
+import System.Directory (removeFile)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -381,3 +387,167 @@ moduleSpec = describe "Module System" $ do
               pbtPassed pbtResult  `shouldBe` 1
               pbtSkipped pbtResult `shouldBe` 0
               pbtFailed pbtResult  `shouldBe` 0
+
+  -- -----------------------------------------------------------------------
+  -- XMOD-ALIAS: cross-module refinement-alias resolution (on-disk, end-to-end).
+  -- 'use' imports the PositiveInt refinement alias from 'core' and does
+  -- arithmetic/comparison (>=, -) on a value of that type. This exercises the
+  -- SAME real file-loading path the CLI 'check'/'verify'/'build' use:
+  -- loadModule -> buildModuleEnv -> ModuleCache -> typeCheckStrictWithCache.
+  -- Before the fix, loadModule returned Left with two "type mismatch" errors
+  -- ("expected int, got PositiveInt"); the identical code in-module type-checks.
+  -- Files: test/fixtures/xmod-alias/{core,use}.llmll
+  -- -----------------------------------------------------------------------
+  describe "XMOD-ALIAS: imported refinement alias is int-compatible (on-disk)" $ do
+    it "XA-DISK-1: loadModule of an importer doing >=/- on imported PositiveInt succeeds" $ do
+      let srcRoot = "test/fixtures/xmod-alias"
+      result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["use"]
+      case result of
+        Left diags -> expectationFailure $
+          "Cross-module refinement-alias load failed (XMOD-ALIAS regression): "
+          ++ show (length diags) ++ " diagnostics: "
+          ++ show (map diagMessage diags)
+        Right (cache, _loadOrder, _path) ->
+          case Map.lookup ["use"] cache of
+            Nothing -> expectationFailure "use module missing from cache"
+            Just useEnv -> do
+              -- Re-run the entry type-check through the CLI's strict path; the
+              -- imported PositiveInt must unfold to int for '>=' and '-'.
+              let report = typeCheckStrictWithCache GrammarCoreInversion cache emptyEnv
+                             (meStatements useEnv)
+                  errs   = filter ((== SevError) . diagSeverity) (reportDiagnostics report)
+              errs `shouldBe` []
+              reportSuccess report `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- XMOD-TIER: a module importing an independently-VERIFIED function and
+  -- composing with it must surface the imported function at 'verified' in the
+  -- importing module's trust report, and the cross-module caller's post-side
+  -- callee meet must inherit that verified tier (rather than dropping the bare
+  -- callee edge, which both hides the dependency and — for a weaker callee —
+  -- silently over-credits the caller). Runs the SAME real CLI path:
+  -- loadModule -> buildModuleEnv -> ModuleCache -> buildTrustReport.
+  --
+  -- Files: test/fixtures/xmod-tier/{core,compose}.llmll. 'core.withdraw' carries
+  -- a pre+post; the test seeds core.llmll.verified.json with a body-faithful
+  -- verified_hash (recovered from the live parsed def so the hash matches
+  -- exactly) and then varies the imported evidence per case.
+  -- -----------------------------------------------------------------------
+  describe "XMOD-TIER: imported verified evidence reaches the importer's trust report" $ do
+    let srcRoot   = "test/fixtures/xmod-tier"
+        coreFp    = srcRoot ++ "/core.llmll"
+        coreSidecarFp = verifiedPath coreFp
+        -- Recover the live parsed (body,pre,post) of core.withdraw so a seeded
+        -- verified_hash matches the live def exactly (and a deliberately wrong
+        -- hash is provably stale).
+        recoverWithdraw coreEnv =
+          case find (\s -> case s of SDef "withdraw" _ _ _ _ -> True; _ -> False)
+                    (meStatements coreEnv) of
+            Just (SDef _ _ _ c b) -> (canonicalDefEvidenceHash b (contractPre c) (contractPost c))
+            _                     -> error "core.withdraw def not found in fixture"
+        mkER dl bf vh =
+          EvidenceRecord dl bf Nothing [] False Nothing Nothing False vh
+        -- Build a compose sidecar making safe-withdraw's OWN post verified (the
+        -- realistic verify-time state once it has discharged withdraw's pre and
+        -- proved its own post). The hash is recovered from the live def-shell.
+        composeOwnSidecar composeEnv =
+          case find (\s -> case s of SDefShell "safe-withdraw" _ _ _ _ -> True; _ -> False)
+                    (meStatements composeEnv) of
+            Just (SDefShell _ _ _ c b) ->
+              let h = canonicalDefEvidenceHash b (contractPre c) (contractPost c)
+                  v = mkER (DLVerified "liquid-fixpoint") True (Just h)
+              in Map.fromList [("safe-withdraw", ContractStatus (Just v) (Just v) [])]
+            _ -> Map.empty
+        -- Entry of a trust report by (qualified) name.
+        entryByName nm rpt = find (\e -> teName e == nm) (trEntries rpt)
+
+    it "XMOD-TIER-POS: imported withdraw reads verified; composer reaches verified via callee meet" $ do
+      coreOnly <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["core"]
+      let Right (coreCache, _, _) = coreOnly
+          Just coreEnv = Map.lookup ["core"] coreCache
+          vh = recoverWithdraw coreEnv
+          ver = mkER (DLVerified "liquid-fixpoint") True (Just vh)
+      saveVerified coreFp (Map.fromList [("withdraw", ContractStatus (Just ver) (Just ver) [])])
+      flip finally (removeFile coreSidecarFp) $ do
+        result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["compose"]
+        case result of
+          Left diags -> expectationFailure $ "load failed: " ++ show (map diagMessage diags)
+          Right (cache, _ord, composeEnv) -> do
+            let report = buildTrustReport cache (meStatements composeEnv)
+                           (composeOwnSidecar composeEnv)
+            -- (a) imported core.withdraw reads verified in compose's report.
+            case entryByName "core.withdraw" report >>= teEffectivePostLevel of
+              Just (DLVerified _) -> pure ()
+              other -> expectationFailure $
+                "imported core.withdraw should read verified, got " ++ show other
+            -- (b) the cross-module callee dependency is captured (not dropped):
+            -- the bare 'withdraw' call resolves to the opened import.
+            case entryByName "safe-withdraw" report of
+              Nothing -> expectationFailure "safe-withdraw entry missing"
+              Just sw -> do
+                map tdName (teDeps sw) `shouldContain` ["withdraw"]
+                -- (c) safe-withdraw (own post verified) reaches verified — the
+                -- meet against the (verified) imported callee does NOT floor it.
+                case teEffectivePostLevel sw of
+                  Just (DLVerified _) -> pure ()
+                  other -> expectationFailure $
+                    "safe-withdraw should reach verified, got " ++ show other
+
+    it "XMOD-TIER-NEG: an ASSERTED imported callee floors the verified-own-post caller (no over-credit)" $ do
+      -- Soundness direction: now that the dep is captured, a WEAK imported callee
+      -- must drag the caller's effective post down. (Before the fix the bare edge
+      -- was dropped and the caller silently kept its own verified post.)
+      coreOnly <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["core"]
+      let Right (coreCache, _, _) = coreOnly
+          Just coreEnv = Map.lookup ["core"] coreCache
+          _vh = recoverWithdraw coreEnv  -- unused: asserted evidence carries no hash
+          asserted = mkER DLAsserted False Nothing
+      saveVerified coreFp (Map.fromList [("withdraw", ContractStatus (Just asserted) (Just asserted) [])])
+      flip finally (removeFile coreSidecarFp) $ do
+        result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["compose"]
+        case result of
+          Left diags -> expectationFailure $ "load failed: " ++ show (map diagMessage diags)
+          Right (cache, _ord, composeEnv) -> do
+            let report = buildTrustReport cache (meStatements composeEnv)
+                           (composeOwnSidecar composeEnv)
+            case entryByName "core.withdraw" report >>= teEffectivePostLevel of
+              Just DLAsserted -> pure ()
+              other -> expectationFailure $
+                "asserted imported withdraw should read asserted, got " ++ show other
+            case entryByName "safe-withdraw" report of
+              Nothing -> expectationFailure "safe-withdraw entry missing"
+              Just sw -> do
+                map tdName (teDeps sw) `shouldContain` ["withdraw"]
+                teEffectivePostLevel sw `shouldBe` Just DLAsserted
+
+    it "XMOD-TIER-STALE: a stale imported verified_hash does NOT upgrade the tier" $ do
+      -- The imported sidecar claims verified but carries a verified_hash that
+      -- does not match the live core.withdraw body+contract. The cross-module
+      -- staleness guard ('downgradeStaleVerifiedSidecar' over the cached module's
+      -- own statements) must demote it to asserted, so it cannot upgrade a tier.
+      coreOnly <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["core"]
+      let Right (coreCache, _, _) = coreOnly
+          Just coreEnv = Map.lookup ["core"] coreCache
+          _liveHash = recoverWithdraw coreEnv
+          -- A deliberately wrong hash (any value distinct from the live one).
+          staleHash = "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+          staleVer  = mkER (DLVerified "liquid-fixpoint") True (Just staleHash)
+      _liveHash `shouldNotBe` staleHash
+      saveVerified coreFp (Map.fromList [("withdraw", ContractStatus (Just staleVer) (Just staleVer) [])])
+      flip finally (removeFile coreSidecarFp) $ do
+        result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["compose"]
+        case result of
+          Left diags -> expectationFailure $ "load failed: " ++ show (map diagMessage diags)
+          Right (cache, _ord, composeEnv) -> do
+            let report = buildTrustReport cache (meStatements composeEnv)
+                           (composeOwnSidecar composeEnv)
+            -- Stale verified evidence demoted: imported withdraw reads asserted.
+            case entryByName "core.withdraw" report >>= teEffectivePostLevel of
+              Just DLAsserted -> pure ()
+              other -> expectationFailure $
+                "stale imported withdraw should be downgraded to asserted, got " ++ show other
+            -- And it does not upgrade the caller: safe-withdraw floors to asserted.
+            case entryByName "safe-withdraw" report >>= teEffectivePostLevel of
+              Just DLAsserted -> pure ()
+              other -> expectationFailure $
+                "stale callee must not upgrade caller; expected asserted, got " ++ show other

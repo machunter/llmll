@@ -558,8 +558,17 @@ typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
       -- ADMIT-VERIFIED: the entry file's own bare-keyed evidence wins on a key
       -- clash (it is the live file's verdict).
       seededCS  = Map.union entryCS seededCSImports
+      -- XMOD-ALIAS: seed the alias map with imported type aliases (bare-keyed),
+      -- so that an imported refinement/dependent alias (e.g. PositiveInt) can be
+      -- unfolded to its base type by 'expandAlias' when the importing module does
+      -- arithmetic/comparison on a value of that type. Without this, the imported
+      -- alias stays an opaque TCustom and '>='/'-' reject it, whereas the same
+      -- code in-module type-checks. Type annotations on params are written bare
+      -- (regardless of 'open'), so bare keys are the correct form. Local STypeDefs
+      -- shadow these in 'checkStatements' (local wins; same direction as 'open').
+      seededAliases = Map.foldl seedAliases Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] Map.empty Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False)
+        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -576,6 +585,10 @@ typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
       let prefix = T.intercalate "." path <> "."
           qualified = Map.mapKeys (prefix <>) (meContractStatus menv)
       in Map.union qualified acc
+    -- XMOD-ALIAS: imported aliases keyed by their bare name. Left-biased union
+    -- over the cache fold makes the first module a colliding name appears in win
+    -- (deterministic; same bias as the qualified-name/status seeds above).
+    seedAliases acc menv = Map.union (meAliasMap menv) acc
 
 -- ---------------------------------------------------------------------------
 -- Statement Checking
@@ -589,9 +602,13 @@ checkStatements stmts = do
       aliasMap  = Map.fromList [(n, body) | STypeDef n body <- stmts]
       -- v0.3: collect trust declarations into tcTrusts
       trustMap  = Map.fromList [(trustTarget s, trustLevel s) | s@STrust{} <- stmts]
-  -- Populate alias map so expandAlias can resolve TCustom aliases in unify
+  -- Populate alias map so expandAlias can resolve TCustom aliases in unify.
+  -- XMOD-ALIAS: union the current-module aliases OVER any imported aliases that
+  -- 'typeCheckWithCacheMode'' pre-seeded into 'tcAliasMap' (local STypeDefs
+  -- shadow imports; same direction as 'open'). The single-file path seeds an
+  -- empty 'tcAliasMap', so this is a no-op union there.
   -- v0.4 CAP-1: store top-level statements for capability checks in inferExpr
-  modify $ \s -> s { tcAliasMap = aliasMap, tcTrusts = Map.union trustMap (tcTrusts s), tcModuleStmts = stmts }
+  modify $ \s -> s { tcAliasMap = Map.union aliasMap (tcAliasMap s), tcTrusts = Map.union trustMap (tcTrusts s), tcModuleStmts = stmts }
   -- Fix 3: detect type alias cycles and emit diagnostics.
   -- Self-reference inside TSumType payloads is legitimate recursive-ADT structure,
   -- not an alias cycle (e.g. (type Tree (| Leaf unit | Node Tree)) is valid).

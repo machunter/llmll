@@ -1,0 +1,11 @@
+;; XMOD-TIER fixture: 'compose' imports the independently-verified 'withdraw'
+;; from 'core' and composes with it. safe-withdraw discharges withdraw's pre
+;; (>= balance amount) and republishes withdraw's post as its own. After the
+;; XMOD-TIER fix, the imported 'core.withdraw' must read 'verified' in compose's
+;; trust report (inheriting core.llmll.verified.json's persisted evidence), and
+;; the post-side callee meet lets safe-withdraw inherit the verified post.
+(import core)
+(open core)
+(def-shell safe-withdraw [balance: int amount: PositiveInt]
+  (pre (>= balance amount)) (post (= result (- balance amount)))
+  (withdraw balance amount))
