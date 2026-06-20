@@ -6,6 +6,15 @@
 
 ---
 
+## See it in action — the repair-loop demo
+
+[`examples/withdraw-demo/`](examples/withdraw-demo/) walks the whole loop on a three-function program. An agent surveys typed `?hole`s, checks one out (the contract rides in with the lock), and submits patches that are **rejected on two channels** — first a type error, then a *type-correct but contract-violating* fill the SMT solver disproves. The finished program's trust report is **two axes**: every function `verified` (it proved its spec), with any precondition surfaced on a separate `caller_obligations` axis — and **composition enforces it**: a function that calls a verified one must discharge that precondition at the call site, or the verifier refuses the code. A fourth, orthogonal axis reports object-capability **authority** (`effect_summary`).
+
+- **Copy-pasteable runbook:** [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) — every command verified against `llmll 0.13.0`.
+- **Narrated walkthrough:** [`DemoPost.md`](examples/withdraw-demo/DemoPost.md).
+
+---
+
 ## Compiler
 
 The active compiler is a **Haskell stack project** in `compiler/`. It is the only supported backend as of v0.2.
@@ -173,7 +182,7 @@ examples/
   erc20_token/              ← v0.6.0 ERC-20 benchmark (frozen ground truth)
   totp_rfc6238/             ← v0.6.1 TOTP RFC 6238 benchmark
   benchmarks/               ← v0.10.0 OBLIG-B benchmark suite (B1/B3/B5)
-  withdraw-demo/            ← v0.10.0 withdraw demo with patch examples
+  withdraw-demo/            ← flagship repair-loop demo: holes → checkout/patch → two-axis trust + composition (see "See it in action")
   pair_type_test/           ← TPair + do-notation test fixtures
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
