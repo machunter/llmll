@@ -450,6 +450,12 @@ Research-track items are tracked separately in [research-track.md](research-trac
 
 ## Shipped Releases
 
+## v0.13.0 — Caller-Obligation Axis + Verified Composition ✅ SHIPPED
+
+**Theme:** A precondition no longer floors a function's trust tier; strict-core composition admission; assume-guarantee surfaced to agents.
+
+> Shipped 2026-06-19 (commits `62bc65f`..`9ffdda2`). **TRUST-PRE** — the effective trust tier reads postcondition evidence, not `meet(csPre, csPost)` (a `requires`-bearing function that proves its post is `verified`); new persisted first-class `caller_obligations` axis + `carries_caller_obligations` boolean (`trust_report_version` `1.3.0` → `1.4.0`). **ADMIT-VERIFIED** — strict-core `def`→`def` admission against a callee's persisted verified evidence (`erVerifiedHash` staleness guard), making v0.9.0 assume-guarantee composition reachable in strict core. **DEMO-COMP** — `consumed_guarantees` (checkout brief), SAFE per-call-site precondition obligations, and a `PatchVerifyError / callee-precondition-unmet` patch reason (obligation-report `orSchemaVersion` `0.12.0` → `0.12.1`). **XMOD-ALIAS** (pre-existing cross-module refinement-type-import bug, ~`9931a77a`) + 3 defects fixed (incl. a serious `do`-prefix lexer miscompile). withdraw-demo re-scripted to two axes + a composition "obligation flows down" beat. `schemaVersion` unchanged `0.6.0`. 900 Haskell + 62 Python tests. See `CHANGELOG.md` §v0.13.0. **Known gap (XMOD-COMP — tracked, NOT shipped):** cross-module *verified composition* is a five-layer gap — layers 1–3 fixed (admission/type-alias/tier-edge), layers 4–5 open (the caller's body-VC emission `ContractEnv` lacks the imported callee's contract; `consumed_guarantees.callee_tier` shares the bare/qualified miss). Recommended as one dedicated effort gated by a binary-level end-to-end test; see [`docs/design/cross-module-composition-finding.md`](design/cross-module-composition-finding.md).
+
 ## v0.12.1 — def-logic Removal + def-invariant Node ✅ SHIPPED
 
 **Theme:** Remove the `def-logic` surface entirely; promote `def-invariant` to its own AST node.

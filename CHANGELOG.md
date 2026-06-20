@@ -2,7 +2,38 @@
 
 ---
 
-## Unreleased
+<a id="Latest"></a>
+
+## v0.13.0 — Caller-Obligation Axis + Verified Composition (2026-06-19)
+
+### Compiler — a precondition no longer floors a function's trust tier (TRUST-PRE)
+
+- **A function's effective trust tier now reflects its postcondition evidence, not `meet(csPre, csPost)`** (commit [`4d827b1`](compiler/src/LLMLL/TrustReport.hs)). A precondition is always `asserted` (a caller-side obligation the function never proves), so `evidenceMeet(asserted, _) = asserted` floored every `requires`-bearing function — conflating its *verification status* with its *caller's obligation*, a category error with no precedent in Dafny/F\*/Liquid Haskell (all of which report a `requires`-bearing function `verified`). The summary classifiers (`computeSummary`, `aggregateTiers`), the JSON `effective_level`, and the transitive callee meet (`calleeMinLevel`) now read the post-side level; `teEffectiveLevel` converges onto `teEffectivePostLevel`. A pre-bearing function that proves its post reads `verified`; a composer that discharges a callee's precondition and proves its own post reaches `verified` too. (Design: [`precondition-tier-proposal.md`](docs/design/precondition-tier-proposal.md).)
+- **New first-class `caller_obligations` axis** — per function, carrying the predicate (`{"fn":"withdraw","requires":"(>= balance amount)"}`) on an axis separate from the trust tier, with a co-located `carries_caller_obligations` boolean so the cheapest single-field report read still exposes the conditionality. The axis is **persisted** to `.verified.json` and present on every report path (a `requires` is a static contract property; unlike `refuted` it cannot go stale). `trust_report_version` **1.3.0 → 1.4.0** (additive). The escaped-obligation propagation case is non-strict-core-only — a body-faithful `verified` caller necessarily discharged every callee precondition via a SAFE `call-pre:` VC — so no new `--strict-verified-core` conjunct is required.
+
+### Compiler — strict-core `def`→`def` composition admission (ADMIT-VERIFIED)
+
+- **A strict-core `def` may now call a contracted callee carrying persisted verified evidence** (commit [`62bc65f`](compiler/src/LLMLL/TypeCheck.hs)). The v0.11 LT-INV core-membership check rejected a `def` calling a contracted user function until it was independently verified, but the admissibility seed never loaded persisted evidence — making the v0.9.0 assume-guarantee composition the spec promised unreachable in strict core. `checkCalleeAdmissibility` gains a persisted-evidence leg gated on the full `--strict-verified-core` conjunction (`isVerifiedLevel ∧ erBodyFaithful ∧ ¬erOverflowTainted ∧ hash-valid`), fail-closed on absent hash; `EvidenceRecord` gains `erVerifiedHash` (a canonical `(body, pre, post)` + version-tag hash) with a `downgradeStaleVerifiedSidecar` guard demoting stale imported evidence. (Design: [`admit-verified-callee-proposal.md`](docs/design/admit-verified-callee-proposal.md).)
+
+### Compiler — assume-guarantee surfaced to agents (DEMO-COMP)
+
+- **`checkout` now returns a `consumed_guarantees` axis** — for a hole's enclosing function, the contracted-callee posts it may assume without re-proving (`{"callee":"withdraw","guarantee":"…","status":"discharged"}`). **`verify --obligation-report` emits per-call-site precondition obligations on SAFE**, and contracted-function records now carry `pre`/`post`/`tier`. **`patch` rejects a fill that calls a callee without discharging its precondition** with a discriminated `PatchVerifyError / callee-precondition-unmet` payload. Obligation-report `orSchemaVersion` **0.12.0 → 0.12.1** (additive). (Design: [`compositional-trust-closure-proposal.md`](docs/design/compositional-trust-closure-proposal.md).)
+
+### Compiler — cross-module fixes + three bug fixes
+
+- **XMOD-ALIAS** (pre-existing, ~commit `9931a77a`, ~3 months): an imported refinement-type alias (`(type PositiveInt (where [x: int] …))`) now unfolds to its base `int` for arithmetic/comparison in the importing module; previously `(>= balance amount)` / `(- balance amount)` on an imported-typed value failed with `expected int, got PositiveInt`. The importer's `tcAliasMap` is seeded with imported aliases.
+- **XMOD-TIER:** an imported `verified` function's tier now reaches the importer's trust report — a bare-vs-qualified name mismatch silently dropped the cross-module dependency edge (`injectOpenedAliases` + a cross-module staleness guard).
+- **Parser (serious):** the `do` keyword matched without a word boundary, so any function named `double`/`done`/`dot…` was silently mis-lexed as a `do`-block and miscompiled. Fixed with a `notFollowedBy` guard.
+- **ObligationAssembly:** the contracted-function list excluded every `def`/`def-shell` (a `Just ret` filter against parsers that hardcode `defReturn = Nothing`).
+- **Checkout:** a `FuncEntry` param JSON round-trip asymmetry (object-shape encode vs. array-shape decode).
+
+### Docs — withdraw-demo re-scripted to two axes + composition
+
+- **The repair-loop demo's trust-closure climax is now two-axis** ([`examples/withdraw-demo/`](examples/withdraw-demo/)): all three functions `verified` (summary `verified: 3`), with `withdraw` carrying a visible `caller_obligations` axis — replacing the prior "`withdraw` floors to `asserted`" beat (removed by TRUST-PRE). A new **§6.5 composition** step (`compose.llmll`, `compose-bad.llmll`) shows "obligation flows down": a composer that discharges `withdraw`'s precondition reaches `verified` (with `consumed_guarantees`); one that drops it is refused at the call-site precondition VC.
+
+### Docs — known gap tracked (XMOD-COMP)
+
+- **Cross-module *verified composition* is a five-layer gap** ([`cross-module-composition-finding.md`](docs/design/cross-module-composition-finding.md)): layers 1–3 shipped (admission, type-alias, tier-edge); layers 4–5 open (the caller's body-VC emission `ContractEnv` does not carry the imported callee's contract; `consumed_guarantees.callee_tier` shares the bare/qualified miss). Recommended as one dedicated effort gated by a binary-level end-to-end test. A latent same-file sidecar staleness gap is noted there.
 
 ### Docs — `LLMLL.md` `def-logic` examples migrated to `def-shell` (v0.12.1 follow-up) (2026-06-17)
 
@@ -12,7 +43,7 @@
 
 - **v0.11 planning block relocated** into the `Shipped Releases` collapsed `<details>` (consistent with the existing v0.1.1–v0.10 collapsed history); the historical v0.8–v0.10 critical-path ASCII diagram wrapped in `<details>`. v0.12.1 Shipped-Releases follow-up note updated from "await engineer migration" to reflect completion. Roadmap structural tidy; no row-status or acceptance-criteria changes.
 
-<a id="Latest"></a>
+**Tests: 862 → 900 Haskell + 62 Python** (+38).
 
 ## v0.12.1 — def-logic Removal + def-invariant Node (2026-06-17)
 
