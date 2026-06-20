@@ -462,34 +462,51 @@ Both holes are filled and every patch was proven on the way in — so what does 
 
 ```bash
 llmll verify ./demo.ast.json --strict-verified-core --trust-report --json 2>/dev/null \
-  | jq -s '.[1] | {summary, tier_profile_post,
-                   functions: [.entries[] | {name, pre: .pre_level, post: .post_level, effective: .effective_level}]}'
+  | jq -s '.[1] | {summary,
+                   functions: [.entries[] | {name, post: .post_level, effective: .effective_level,
+                                             requires: (.caller_obligations // [] | map(.requires))}]}'
 ```
 
 ```json
 {
   "summary": {
-    "asserted": 1, "contract_checked": 0, "drifts": 0,
-    "no_contract": 0, "tested": 0, "verified": 2
-  },
-  "tier_profile_post": {
-    "asserted": 0, "contract_checked": 0, "no_contract": 0,
-    "proved": 0, "tested": 0, "verified": 3
+    "asserted": 0, "contract_checked": 0, "drifts": 0,
+    "no_contract": 0, "tested": 0, "verified": 3
   },
   "functions": [
-    { "name": "withdraw", "pre": "asserted", "post": "verified (liquid-fixpoint)", "effective": "asserted" },
-    { "name": "double",   "pre": null,       "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)" },
-    { "name": "maxi",     "pre": null,       "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)" }
+    { "name": "withdraw", "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)", "requires": ["(>= balance amount)"] },
+    { "name": "double",   "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)", "requires": [] },
+    { "name": "maxi",     "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)", "requires": [] }
   ]
 }
 ```
 
-This is a **lattice, not a checkmark**, and the JSON makes the two readings explicit:
+The report carries **two orthogonal axes**:
 
-- **`functions[].effective`** is the per-function meet. `double` and `maxi` are `verified`. `withdraw`'s *post* is proven, but the function floors to `asserted` — because its *precondition* (`balance ≥ amount`) is an assumption the caller must honor, not something this function proves.
-- **`tier_profile_post.verified: 3`** vs **`summary.verified: 2`** is the whole story in two numbers: all three postconditions are machine-proven, but only two functions are `verified` *overall* — `withdraw` carries an assumed precondition the meet honestly refuses to discard.
+- **The trust axis (`effective`)** — all three are `verified`, `withdraw` included. It proved its Hoare triple `{balance ≥ amount} body {result = balance − amount}`, so it is verified; a function whose body the solver *couldn't* prove would read `asserted` here instead.
+- **The obligation axis (`requires`)** — `withdraw` carries a visible caller-obligation, `balance ≥ amount`: the part a *caller* must establish, surfaced explicitly rather than folded into the tier. `double` and `maxi` carry none.
 
-That distinction — proven vs. assumed, per clause — is the thing LLMLL gives you that a green CI check doesn't.
+*Is it correct?* and *what must a caller guarantee?* are two questions, answered on two axes — neither collapsed into the other. (Deliberately so: an earlier version of this report *floored* `withdraw` to `asserted` for merely having a precondition, conflating its verification status with its caller's obligation. That was a category error; the precondition now lives on its own axis — see [`precondition-tier-proposal.md`](../../docs/design/precondition-tier-proposal.md).)
+
+## Composition: the obligation flows down
+
+The obligation axis is not a label — it is **enforced** when something *composes* with `withdraw`. [`compose.llmll`](./compose.llmll) adds a `guarded-withdraw` that calls it:
+
+```lisp
+(def-shell guarded-withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (= result (- balance amount)))
+  (withdraw balance amount))
+```
+
+It *discharges* `withdraw`'s precondition (its own `pre` guarantees `balance ≥ amount` at the call site) and proves its post by leaning on `withdraw`'s — so it reaches `verified` too. And when an agent checks out a hole in a composer, the brief hands back what it may *assume* without re-proving — `consumed_guarantees: [{ "callee": "withdraw", "guarantee": "(= result (- balance amount))", "status": "discharged" }]`. Trust flows **up** from the callee.
+
+Drop the precondition ([`compose-bad.llmll`](./compose-bad.llmll)) and the verifier refuses the code:
+```
+error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw' — caller does not prove callee's precondition
+```
+
+One fact, **three views**: the report surfaces the obligation (`caller_obligations`), the verifier enforces it (the call-site VC), and the patch protocol rejects violations (`callee-precondition-unmet`). That — verified *and* what a caller owes, with the obligation enforced on composition — is the thing LLMLL gives you that a green CI check doesn't.
 
 ## The authority axis: what can it touch?
 
@@ -540,10 +557,10 @@ Trust Report
   withdraw:  pre:  asserted  |  post: verified (liquid-fixpoint)
 ────────────────────────────────────────────────────────────
 Summary:
-  verified:         2
+  verified:         3
   contract-checked: 0
   tested:           0
-  asserted:         1
+  asserted:         0
   no contract:      0
 ```
 
@@ -557,7 +574,8 @@ In one tiny program we walked the entire LLMLL loop a developer actually cares a
 - **The spec rides in with the lock** — `checkout` returns the hole's full per-hole brief inline: the contract `pre`/`post` to prove, the in-scope vocabulary, and the relevant type definitions. An agent reserves a hole *and* receives what to build in one call, no separate obligation query — the same three-channel contract `verify --obligation-report` emits program-wide, scoped to the one hole you hold.
 - **Checkout/patch with locks** — multiple agents reserve and edit one program, with a compare-and-swap model that refuses lost updates instead of silently clobbering.
 - **A gate that fails closed on two channels** — type errors (`PatchTypeError`) and contract violations (`PatchVerifyError`) are both rejected *before* anything lands, with the offending branch named.
-- **A trust report that's a lattice** — `proven` vs `assumed`, per clause, so you know precisely how much of "correct" is machine-checked.
+- **A trust report with two axes** — the *trust* axis (`verified`: did the body prove its spec?) and the *obligation* axis (`caller_obligations`: what a caller must guarantee to call it), kept separate rather than collapsed into one floored number.
+- **Composition that enforces obligations** — a function that calls a verified one reaches `verified` only by discharging its precondition at the call site (leaning on its discharged post via `consumed_guarantees`); drop the guarantee and the verifier refuses the code. The report's obligation, the verifier's VC, and the protocol's rejection are one fact, three views.
 - **An authority axis orthogonal to trust** — `effect_summary` reports the object-capabilities each function may reach, composing across module imports, so *"is it correct?"* and *"what can it touch?"* stay separate questions.
 
 The full, copy-pasteable command script for this walkthrough lives in [`DEMO-RUNBOOK.md`](./DEMO-RUNBOOK.md), and the program itself in [`demo.llmll`](./demo.llmll).

@@ -1,0 +1,24 @@
+;; LLMLL Repair-Loop Demo — composition: the obligation flows down (step 6.5).
+;; Self-contained (same-module) so it stands alone; the core's `withdraw` is
+;; reproduced here. `guarded-withdraw` composes with `withdraw`: it DISCHARGES
+;; withdraw's precondition (its own `pre` guarantees `balance >= amount` at the
+;; call site) and proves its own post by leaning on withdraw's. So it reaches
+;; `verified` too — verified composition, not a static floor.
+;;
+;;   llmll verify ./compose.llmll --trust-report  ->  withdraw, guarded-withdraw both verified
+;;
+;; The bad twin (compose-bad.llmll) drops the precondition and is refused at the
+;; call site. Same-module is used deliberately: cross-module verified composition
+;; is a tracked gap (docs/design/cross-module-composition-finding.md).
+
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (= result (- balance amount)))
+  (- balance amount))
+
+(def-shell guarded-withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (= result (- balance amount)))
+  (withdraw balance amount))

@@ -16,7 +16,7 @@ LLMLL turns *"did the AI write correct code?"* from a judgment call into a machi
 - `double` — proven, **no precondition**: a fully-closed function that earns top-tier `verified`.
 - `maxi` — a postcondition that is a complete **property** (`result ≥ a` ∧ `result ≥ b` ∧ `result ∈ {a, b}`), *not* a copy of the body. A plausible wrong fill (returns the *min*) type-checks and passes most tests, but the verifier refutes it for all inputs and localizes the defect to each branch. This is the evidential case — verification doing work types and tests cannot.
 
-The climax dashboard shows all three: `double` and `maxi` reach `verified`; `withdraw`'s postcondition is proven but the function stays `asserted` because its safety rests on a precondition the **caller** must honor. No other AI tool can draw that distinction — that contrast *is* the product.
+The climax dashboard shows all three `verified` — `withdraw` included: it proved its job. But `withdraw` carries a **visible caller-obligation** (`balance ≥ amount`) on a second, orthogonal axis — what a *caller* must guarantee — surfaced explicitly rather than folded into the tier. *Is it correct?* and *what must a caller honor?* are answered separately, and step 6.5 shows that obligation **enforced** the moment something composes with `withdraw`. No other AI tool draws that distinction — that two-axis honesty *is* the product.
 
 A fourth artifact, [`audit.llmll`](audit.llmll), adds a second, **orthogonal** reading the trust lattice does not give: *authority*. As of v0.12.0 (Bundle B0), `verify --obligation-report` reports a per-function `effect_summary` — the object-capability authority a function may exercise — answering *"what can it touch?"* alongside *"is it correct?"*. Step 7 surfaces it.
 
@@ -377,46 +377,82 @@ llmll patch ./demo.ast.json ./patch-maxi-correct.json | jq '{result}'      # -> 
 > ```
 > The lock file remains on disk with an empty `tokens` array; `0` means no hole is reserved. (To abandon a reservation without patching, `llmll checkout ./demo.ast.json --release <token>` — the same call used in the resync.)
 
-### 6 — Verify the trust closure (the climax)
+### 6 — Verify the trust closure (the climax) — two axes
 
-`verify --trust-report --json` emits **two** JSON documents on stdout — the verify result, then the trust report — so `jq -s '.[1]'` slurps both and selects the report. We project the fields that matter (the full object also carries per-function `discriminative_axis`, `drifts`, `dependencies`):
+`verify --trust-report --json` emits **two** JSON documents on stdout — the verify result, then the trust report — so `jq -s '.[1]'` slurps both and selects the report. We project the two axes that matter (the full object also carries per-function `dependencies`, `drifts`, `discriminative_axis`):
 
 ```bash
 llmll verify ./demo.ast.json --strict-verified-core --trust-report --json 2>/dev/null \
-  | jq -s '.[1] | {summary, tier_profile_post,
-                   functions: [.entries[] | {name, pre: .pre_level, post: .post_level, effective: .effective_level}]}'
+  | jq -s '.[1] | {summary,
+                   functions: [.entries[] | {name, post: .post_level, effective: .effective_level,
+                                             requires: (.caller_obligations // [] | map(.requires))}]}'
 ```
 
 ```json
 {
   "summary": {
-    "asserted": 1,
+    "asserted": 0,
     "contract_checked": 0,
     "drifts": 0,
     "no_contract": 0,
     "tested": 0,
-    "verified": 2
-  },
-  "tier_profile_post": {
-    "asserted": 0,
-    "contract_checked": 0,
-    "no_contract": 0,
-    "proved": 0,
-    "tested": 0,
     "verified": 3
   },
   "functions": [
-    { "name": "withdraw", "pre": "asserted", "post": "verified (liquid-fixpoint)", "effective": "asserted" },
-    { "name": "double",   "pre": null,       "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)" },
-    { "name": "maxi",     "pre": null,       "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)" }
+    { "name": "withdraw", "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)", "requires": ["(>= balance amount)"] },
+    { "name": "double",   "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)", "requires": [] },
+    { "name": "maxi",     "post": "verified (liquid-fixpoint)", "effective": "verified (liquid-fixpoint)", "requires": [] }
   ]
 }
 ```
 
-Exit `0` (`jq` reads the same stream that sets it). The report is a **lattice, not a checkmark**, and the JSON makes the two readings explicit:
+Exit `0` (`jq` reads the same stream that sets it). The report carries **two orthogonal axes**, and the JSON shows both:
 
-- **`functions[].effective`** is the per-function meet: `double` and `maxi` are `verified`; `withdraw`'s post is proven but it floors to `asserted` because its precondition is a caller-side obligation.
-- **`tier_profile_post.verified: 3`** vs **`summary.verified: 2`** is the whole story in two numbers: *all three* postconditions are machine-proven, but only two functions are `verified` *overall* — `withdraw` carries an assumed precondition the meet honestly refuses to discard.
+- **The trust axis (`effective`)** — all three functions are `verified`. `withdraw` is *not* demoted for having a precondition: it proved its Hoare triple `{balance ≥ amount} body {result = balance − amount}`, so it is `verified`, full stop. (A function whose body the solver could *not* prove would read `asserted`/`contract_checked` here — that is what the trust axis is for.)
+- **The obligation axis (`requires` / `caller_obligations`)** — `withdraw` carries a *visible caller-obligation*: `balance ≥ amount`. That is the part a **caller** must honor — surfaced explicitly, not folded into the tier. `double` and `maxi`, precondition-free, carry none.
+
+*Two questions, answered separately:* **is it correct?** (`verified`) and **what must a caller guarantee?** (the obligation axis). The precondition's "assumed-ness" is real — but it lives where it belongs, on the caller. Step 6.5 shows it *enforced*.
+
+### 6.5 — Composition: the obligation flows down
+
+The obligation axis is not a label — it is **enforced** the moment something *composes* with `withdraw`. [`compose.llmll`](compose.llmll) is a same-module composer that calls the verified `withdraw`:
+
+```lisp
+(def-shell guarded-withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (= result (- balance amount)))
+  (withdraw balance amount))
+```
+
+`guarded-withdraw` *discharges* `withdraw`'s precondition (its own `pre` guarantees `balance ≥ amount` at the call site) and proves its own post by leaning on `withdraw`'s — so it reaches `verified` too:
+
+```bash
+llmll verify ./compose.llmll --strict-verified-core --trust-report --json 2>/dev/null \
+  | jq -s '.[1] | {summary, functions: [.entries[] | {name, effective: .effective_level}]}'
+```
+```json
+{ "summary": { "asserted": 0, "contract_checked": 0, "drifts": 0, "no_contract": 0, "tested": 0, "verified": 2 },
+  "functions": [ { "name": "withdraw", "effective": "verified (liquid-fixpoint)" },
+                 { "name": "guarded-withdraw", "effective": "verified (liquid-fixpoint)" } ] }
+```
+
+**What a composer may lean on — the checkout brief.** Check out a hole inside a composer and the brief hands back the `consumed_guarantees` axis — what it may *assume* without re-proving:
+```json
+"consumed_guarantees": [
+  { "callee": "withdraw", "guarantee": "(= result (- balance amount))",
+    "instantiated": "(= <call-result> (- balance amount))", "status": "discharged" } ]
+```
+`status: discharged` means "`withdraw` already proved this — assume it, don't re-derive it." Trust flows **up** from the callee.
+
+**Drop the precondition, and the system refuses the code.** Remove `guarded-withdraw`'s `pre` ([`compose-bad.llmll`](compose-bad.llmll)) — now nothing guarantees `balance ≥ amount` at the call site:
+```bash
+llmll verify ./compose-bad.llmll
+```
+```
+error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw' — caller does not prove callee's precondition (constraint #2)
+```
+
+One fact, **three views**: the *report* surfaces it (`caller_obligations`), the *verifier* enforces it (the call-site VC), and the *protocol* rejects a patch that violates it (`PatchVerifyError / callee-precondition-unmet`). The caller-obligation is load-bearing — compose with `withdraw` and you **must** discharge `balance ≥ amount`, or your code does not land.
 
 ### 7 — The authority axis (`effect_summary`)
 
@@ -468,16 +504,17 @@ CDP measures how *tight* a contract is — the **score** is the discriminative m
 - **Step 3a → 3b:** "Types catch the obvious — wrong type, rejected. But this next fill *type-checks*, and every other tool would merge it. LLMLL proves it wrong anyway." The two distinct result codes (`PatchTypeError` then `PatchVerifyError`) are the type → contract escalation made concrete; the 🔍 checks prove nothing was committed either time.
 - **Step 4 → 5a:** "Agent A commits. Agent B's reservation is now stale — and the system says so (`PatchAuthError`) rather than letting B clobber A's work. B re-reads and proceeds. That's the swarm's safety property in one move."
 - **Step 5b:** "`maxi` is where it earns its keep. The spec says the answer is ≥ both inputs and is one of them — it doesn't say *how*. A fill that returns the min type-checks and passes most tests. The solver refutes it for every input and names *which branch* is wrong."
-- **Step 6, the key line:** read the per-function lines, not the summary header. *"LLMLL proved three postconditions. It awarded top-tier `verified` only to `double` and `maxi`, which stand on nothing. `withdraw`'s safety still rests on a precondition the caller must honor — and the dashboard tells you exactly that, instead of a green check it can't justify."*
+- **Step 6, the key line:** *"All three are verified — `withdraw` included. It proved its job. What it carries is a separate thing: a caller-obligation, `balance ≥ amount`, on its own axis. We don't demote a function for having a precondition — we name the precondition as the caller's to honor. Two questions, two axes."*
+- **Step 6.5 (composition), the payoff:** *"Now watch the obligation become real. A function that calls `withdraw` and discharges `balance ≥ amount` is verified too. Drop that guarantee and the verifier refuses the code — the call-site precondition is exactly the obligation the report showed. The report names it, the verifier enforces it, the protocol rejects violations of it. One fact, three views."*
 - **Step 7 (authority):** *"Correctness is one axis; authority is the other — what the code is even allowed to touch. The core proves correct **and** reaches nothing. The shell that logs an audit line reaches exactly `stdout`, and the report names it — composed across the import edge. Trust and authority are separate questions, and LLMLL answers both without conflating them."* Drop this step too for a purely correctness-focused pitch; lead with it for a security/capability audience.
 
-> **Known visual landmine.** The summary header counts each function at its *weakest* clause (`evidenceMeet`, sound and documented at `LLMLL.md` §4.4.1). So `withdraw` contributes to `asserted: 1`, not `verified`. With `double` and `maxi` present the summary lands a real `verified: 2`, which is why the multi-function fixture matters: it gives the headline a true top-tier count while keeping `withdraw` honest. Do not "fix" this in the compiler — it is the trust model working as specified (`LLMLL.md:498-501` is this exact shape).
+> **Reading the report — two axes, don't scalarize.** The summary `verified` count is the *trust* axis (did the body prove its spec?); it no longer demotes a function for *having* a precondition. The *obligation* axis (`caller_obligations`) reports separately what a caller must guarantee. An agent that greps `effective_level == "verified"` and stops gets a true answer to *"is it correct?"* but misses *"what must I guarantee to call it?"* — read both. (Historical note: before TRUST-PRE this demo showed `withdraw` floored to `asserted: 1`. That floor conflated a function's *verification status* with its *caller's obligation* — a category error — and was removed; the precondition is now surfaced on its own axis. See [`docs/design/precondition-tier-proposal.md`](../../docs/design/precondition-tier-proposal.md).)
 
 ---
 
 ## Why these functions
 
-A single-function `withdraw` demo can **never** show `verified` in the summary: `withdraw`'s precondition is a caller-side obligation, `asserted` at its own boundary by design (`LLMLL.md` §4.4.5 side-condition 6), so `meet(asserted, verified) = asserted` caps it. `double` and `maxi` — both precondition-free — are the in-surface way to demonstrate that the lattice *does* award top-tier trust when nothing is assumed, beside the honesty about what is.
+`withdraw` carries a precondition **and** reaches `verified` — it proved its Hoare triple `{balance ≥ amount} body {result = balance − amount}`; its precondition is surfaced on the *obligation* axis (`caller_obligations`), not folded into the tier. `double` and `maxi`, precondition-free, carry no obligation — so the obligation axis itself tells a story: one function a caller must guarantee something to call, two it can call freely. `guarded-withdraw` (in [`compose.llmll`](compose.llmll), step 6.5) then makes that obligation *operational*: composing with `withdraw` forces you to discharge it, or the verifier refuses your code.
 
 `maxi` is the evidential function, and it was chosen deliberately over a `clamp` example. `clamp`'s natural spec (`lo ≤ result ≤ hi`) is a *range*, which a constant body (`return lo`) satisfies — an under-specified contract (CDP scores it `0.472`, flags `const-satisfies-post`), and it cannot be completed cleanly because LLMLL has no implication operator. `maxi`'s property (`result ≥ a` ∧ `result ≥ b` ∧ `result ∈ {a, b}`) is **complete** with only conjunction and disjunction: it pins `result` to `max(a, b)` uniquely, no trivial body satisfies it (CDP `1.000`), and it stays inside the QF-LIA fragment liquid-fixpoint discharges. It is a sharp, honest instance of what the verifier genuinely does — relational/bounds properties over linear integer arithmetic, localized to the branch — not a stretch toward correctness it cannot prove.
 

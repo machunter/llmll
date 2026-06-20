@@ -1,0 +1,19 @@
+;; LLMLL Repair-Loop Demo — composition, the bad twin (step 6.5).
+;; Identical to compose.llmll EXCEPT `guarded-withdraw` drops its precondition.
+;; Now nothing guarantees `balance >= amount` at the call site, so the verifier
+;; refuses it — the caller-obligation withdraw carries is enforced:
+;;
+;;   llmll verify ./compose-bad.llmll
+;;   error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw'
+;;          — caller does not prove callee's precondition
+
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (= result (- balance amount)))
+  (- balance amount))
+
+(def-shell guarded-withdraw [balance: int amount: PositiveInt]
+  (post (= result (- balance amount)))
+  (withdraw balance amount))
