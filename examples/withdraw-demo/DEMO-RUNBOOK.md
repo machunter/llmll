@@ -2,7 +2,7 @@
 
 > **Artifact:** "From a bad agent patch to verified trust closure."
 > **Fixture:** [`demo.ast.json`](demo.ast.json) — `PositiveInt`, `withdraw` (typed hole), `double` (pre-verified), `maxi` (typed hole). The JSON-AST is what the agent checkout/patch protocol operates on; [`demo.llmll`](demo.llmll) is the human-readable source it is generated from (`llmll build ./demo.llmll --emit -o .`). [`audit.llmll`](audit.llmll) / [`audit.ast.json`](audit.ast.json) is a thin **shell** module over the core, used only by the authority-axis step (7).
-> **Verified against:** `llmll 0.12.1`, real `liquid-fixpoint` on PATH, `jq` on PATH. Steps 1–6 were captured on `0.11.2` (2026-06-11) and re-confirmed byte-for-byte on `0.12.1`; the authority axis (step 7) was captured on `0.12.1` (2026-06-17).
+> **Verified against:** `llmll 0.13.0`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP) and were captured byte-for-byte on `0.13.0` (2026-06-19); steps 1–5 and the authority axis (§7) are unchanged from the v0.12.x capture.
 
 This is the canonical capture script for the public repair-loop demo. It supersedes the older single-function `withdraw.ast.json` flow, which could only ever show `verified: 0` in the summary (sound but visually self-undercutting — see [Why these functions](#why-these-functions)).
 
@@ -25,12 +25,12 @@ A fourth artifact, [`audit.llmll`](audit.llmll), adds a second, **orthogonal** r
 ## Prerequisites
 
 ```bash
-llmll --version          # must report 0.12.1 (VERIFY-RPT-1 fix + OBLIG-1 checkout brief + B0 effect_summary; see note below)
+llmll --version          # must report 0.13.0 (TRUST-PRE caller_obligations + DEMO-COMP consumed_guarantees, on top of the v0.12.x features; see note below)
 which fixpoint           # must resolve — refuted/verified verdicts require the real solver
 which jq                 # used to build patches and project JSON output to the values that matter
 ```
 
-> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. Step 2's inline checkout brief additionally requires the OBLIG-1 population that shipped in `0.11.2`; on `0.11.1` the same `checkout` call returns `contract_pre` / `postcondition_goal` / `in_scope` as `null`. Step 7's `effect_summary` / `cross_module` fields require `0.12.0` (Bundle B0) or later. If `llmll --version` is not ≥ `0.12.1`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; confirm the brief fields are populated.)
+> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. Step 2's inline checkout brief additionally requires the OBLIG-1 population that shipped in `0.11.2`; on `0.11.1` the same `checkout` call returns `contract_pre` / `postcondition_goal` / `in_scope` as `null`. Step 7's `effect_summary` / `cross_module` fields require `0.12.0` (Bundle B0) or later. **The two-axis trust closure (§6, `caller_obligations`) and the composition step (§6.5) require `0.13.0`** (TRUST-PRE + DEMO-COMP). If `llmll --version` is not ≥ `0.13.0`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; confirm the brief fields are populated.)
 
 Work from a scratch directory so every command is relative and `patch` can mutate files freely:
 

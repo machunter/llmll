@@ -10,7 +10,7 @@ This post walks the whole loop on a tiny three-function program: surveying holes
 
 A note on formats: LLMLL source comes in two shapes — a human-readable **s-expression** form, and a machine-processable (and mildly human-readable) **JSON-AST**. We'll read the program in s-expression form; the checkout/patch protocol operates on the JSON-AST.
 
-> **Versions.** `llmll 0.12.1`, JSON-AST schema `0.6.0`. The schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.6.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
+> **Versions.** `llmll 0.13.0`, JSON-AST schema `0.6.0`, `trust_report_version 1.4.0`. The two-axis trust closure and the composition step require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP). The AST schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.6.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
 
 ## The program we're building
 
