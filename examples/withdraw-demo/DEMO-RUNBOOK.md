@@ -2,7 +2,7 @@
 
 > **Artifact:** "From a bad agent patch to verified trust closure."
 > **Fixture:** [`demo.ast.json`](demo.ast.json) — `PositiveInt`, `withdraw` (typed hole), `double` (pre-verified), `maxi` (typed hole). The JSON-AST is what the agent checkout/patch protocol operates on; [`demo.llmll`](demo.llmll) is the human-readable source it is generated from (`llmll build ./demo.llmll --emit -o .`). [`audit.llmll`](audit.llmll) / [`audit.ast.json`](audit.ast.json) is a thin **shell** module over the core, used only by the authority-axis step (7).
-> **Verified against:** `llmll 0.13.1`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the step-2 checkout brief's `expected_return_type` requires v0.13.1 (DEF-RET — `withdraw`/`double`/`maxi` declare `-> int`). The step-2 brief was re-captured on `0.13.1` (2026-06-21); the other steps carry their prior `0.13.0` / v0.12.x captures (a full byte-for-byte re-capture across DEMO-COMP + DEF-RET is pending).
+> **Verified against:** `llmll 0.13.1`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the step-2 checkout brief's `expected_return_type` requires v0.13.1 (DEF-RET — `withdraw`/`double`/`maxi` declare `-> int`). The step-2 checkout brief was re-captured on `0.13.1` (2026-06-21) with the DEMO-COMP fields (`available_functions` / `consumed_guarantees` / `brief_version`) and the DEF-RET `expected_return_type`; steps 1 and 3–7 carry their prior captures unchanged — DEF-RET adds no verification obligation for a base-type (`int`) return, so the `verify` / trust-report / authority verdicts are byte-identical.
 
 This is the canonical capture script for the public repair-loop demo. It supersedes the older single-function `withdraw.ast.json` flow, which could only ever show `verified: 0` in the summary (sound but visually self-undercutting — see [Why these functions](#why-these-functions)).
 
@@ -180,7 +180,15 @@ jq '{contract_pre, postcondition_goal,
 ```json
 {
   "assumptions": null,
+  "available_functions": [
+    { "name": "withdraw", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }], "pre": "(>= balance amount)", "post": "(= result (- balance amount))", "returns": "int", "return_type": "int", "tier": "asserted", "status": "filled" },
+    { "name": "double", "params": [{ "name": "x", "type": "int" }], "pre": null, "post": "(= result (+ x x))", "returns": "int", "return_type": "int", "tier": "asserted", "status": "filled" },
+    { "name": "maxi", "params": [{ "name": "a", "type": "int" }, { "name": "b", "type": "int" }], "pre": null, "post": "(and (and (>= result a) (>= result b)) (or (= result a) (= result b)))", "returns": "int", "return_type": "int", "tier": "asserted", "status": "filled" }
+  ],
+  "brief_version": "0.12.1",
+  "consumed_guarantees": null,
   "contract_pre": "(>= balance amount)",
+  "expected_return_type": "int",
   "hole_kind": "hole-named",
   "in_scope": [
     { "name": "PositiveInt", "source": "let-binding", "type": "PositiveInt" },
@@ -194,9 +202,8 @@ jq '{contract_pre, postcondition_goal,
   "path_condition": null,
   "pointer": "/statements/1/body",
   "postcondition_goal": "(= result (- balance amount))",
-  "expected_return_type": "int",
   "source_hash": "e2edf9dd21e58339a16caf6d2c7fe48d9da3d71f6ac86adb8db283f3aa9784d4",
-  "timestamp": "2026-06-11T06:47:22.69762Z",
+  "timestamp": "2026-06-21T00:00:00Z",
   "token": "6087457baa8d6adf1c694e934b3e7c0b4a7041d6b3a685b46b1792d15c785e51",
   "ttl": 3600,
   "type_definitions": [
