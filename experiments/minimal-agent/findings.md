@@ -861,6 +861,24 @@ Condition B avoided the `enrich-via-api → net.http` trap 9/9 (A 9/9 = B 9/9, n
 
 ---
 
+### F-009.1. Fill-the-hole A/B with raw-AST agents forces the seed to omit `return_type` — DEF-RET 005 measures the field's information content, not the checkout workflow
+
+**Source:** `postmortem-009-def-ret-ab-built-gated.md`
+**Date:** 2026-06-21
+**Priority:** Medium — scope caveat on any 005 result
+
+The minimal-agent harness's first **fill-the-hole** experiment (`005-seeded-return-holes`) closes the postmortem-008 instrument gap: a pre-authored scaffold (`scaffold-templates/seeded-return-holes/scaffold.ast.json`) with 2 seeded body holes whose return types are non-obvious from params (`clamp-to-word : int -> Word` refinement-alias; `find-account : string -> Result[Account, LookupError]` sum). Hook `--context-expected-return-type` (`prepare_run.py` `RETURN_TYPE_BRIEF_BLOCKS`, threaded by `run_matrix.py`, parallel to `context_effect_summary`) injects the holes' `expected_return_type` brief in condition A only; verified byte-identical-except-brief by `--prepare-only` dry run. Because harness agents consume raw `solution.ast.json` (not `llmll checkout`), the seed **omits** `return_type` on the 2 defs — the only way to withhold the type from arm B (declaring it would put it in both arms → postmortem-007 ceiling). Condition A's brief is therefore a faithful hand-rendering of the `checkout` field, not a compiler-emitted value. **Consequence:** 005 cleanly isolates *does telling an agent the exact return type raise fill correctness* (the postmortem-008 hypothesis), but is **not** an end-to-end `checkout`→`patch` workflow test. Successor: a checkout-native fill-the-hole harness (agent calls `llmll checkout`, gets the compiler-emitted `expected_return_type`, submits via `llmll patch`) — sibling harness, not a patch to this one.
+
+### F-009.2 / F-009.3. Stale `llmll` (0.12.1 on PATH vs 0.13.2 source) gates the 005 run; harness does not assert binary-vs-source version match
+
+**Source:** `postmortem-009-def-ret-ab-built-gated.md`
+**Date:** 2026-06-21
+**Priority:** Blocker (for launching 005) / Defence-in-depth (the missing preflight)
+
+`llmll version` → `0.12.1`; DEF-RET is `0.13.2` on `main` (tags `v0.13.1`/`v0.13.2`, commits `a948deb`+`0b27be5`). A 0.12.1 binary rejects schema `0.7.0` and does not parse `return_type` on def/def-shell, so `check`/`holes`/`verify` would fail on BOTH arms — a false-null. **Launch prerequisite (user):** install `llmll` ≥ 0.13.2 and probe that a checkout/holes call on the seeded fixture (with `return_type` re-declared) surfaces `expected_return_type`. **Harness gap (experiment-lead follow-on):** `prepare_run.py`/`run_matrix.py` pin the *source* version in metadata but never assert the *PATH binary* matches; add a `min_llmll_version` manifest field + a `run_matrix.py` preflight that parses `llmll version` and aborts before dispatching agents when the binary is too old. Low effort; would convert F-009.2 from a silent false-null into a launch-time stop.
+
+---
+
 ## Documentation-lead
 
 

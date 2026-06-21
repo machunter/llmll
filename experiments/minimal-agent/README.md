@@ -117,6 +117,32 @@ Manifest shape:
 The older `"problems": [1, 2, 3]` manifest field is still accepted as a
 compatibility alias.
 
+### Context-injection A/B fields (per-agent)
+
+Two per-agent boolean manifest fields drive default-off context-injection A/B
+arms. Each appends an experiment-specific block to the initial `problem.md`,
+keeping `problem.md` byte-identical across arms except the injected block:
+
+- `context_effect_summary` (Bundle B0, experiment `004`): appends the provided
+  helpers' `effect_summary`.
+- `context_expected_return_type` (DEF-RET, experiment `005`): appends the seeded
+  holes' `expected_return_type` brief (the `llmll checkout` field under test).
+
+Both thread `run_matrix.py` → `prepare_run.py` (`--context-effect-summary` /
+`--context-expected-return-type`). Convention: an `-A` agent sets the flag
+`true`, a `-B` agent `false`; the A−B delta in first-round pass-rate is the
+verdict. See `manifest.b0-e004.json` and `manifest.defret-e005.json`.
+
+### Fill-the-hole regime (experiment 005)
+
+Experiments `001`–`004` are **blank-slate authoring** (the agent writes the whole
+program). Experiment `005-seeded-return-holes` is the first **fill-the-hole**
+experiment: a pre-authored scaffold ships with seeded `hole-named` bodies, and
+the agent fills only those holes. It exercises the DEF-RET `expected_return_type`
+brief surface, which blank-slate authoring never reaches (postmortem-008). The
+seed lives in `scaffold-templates/seeded-return-holes/` and is provided
+automatically for experiment `005` (like `003`'s ecommerce scaffold).
+
 The matrix runner writes both:
 
 - `matrix_report.json`: all attempts with harness/evaluation summaries, first

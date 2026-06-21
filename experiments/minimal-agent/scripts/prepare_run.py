@@ -41,8 +41,35 @@ EFFECT_SUMMARY_BLOCKS = {
         "capability-incorrect.\n"
     ),
 }
+# DEF-RET experiment (005), condition A: the hole brief's `expected_return_type`
+# for each seeded body hole, appended to the initial problem.md when
+# --context-expected-return-type is set. This faithfully renders the field
+# `llmll checkout` would emit for a def carrying `-> Word` /
+# `-> Result[Account, LookupError]` (see CheckoutToken.expected_return_type in
+# docs/llmll-ast.schema.json). Keyed by experiment id; absent key → empty append
+# (no-op). The seeded fixture's defs omit `return_type` (the harness agents read
+# raw AST, not the checkout brief, so the type can only be withheld from condition
+# B by keeping it out of the AST); this block is the on/off injection that
+# isolates the field's payoff.
+RETURN_TYPE_BRIEF_BLOCKS = {
+    "005": (
+        "\n\n## Hole brief — expected return types (DEF-RET, condition A)\n\n"
+        "The `expected_return_type` (per `llmll checkout` / the CheckoutToken "
+        "brief) at each seeded hole site, as an LLMLL type label:\n\n"
+        "- hole `clamp-to-word-body` (body of `clamp-to-word`) → "
+        "`expected_return_type`: `Word`  "
+        "(`Word = (where [w: int] (and (>= w 0) (<= w 65535)))` — a "
+        "refinement-aliased `int`; the body must produce a value provably in "
+        "`[0, 65535]` and carries the §3.4.1 return obligation).\n"
+        "- hole `find-account-body` (body of `find-account`) → "
+        "`expected_return_type`: `Result[Account, LookupError]`  "
+        "(success channel `Account`, error channel `LookupError` with "
+        "constructors `NotFound` / `Malformed`; construct both channels).\n"
+    ),
+}
 EXPERIMENT_SCAFFOLD_TEMPLATES = {
     "003": ["ecommerce-order-handler"],
+    "005": ["seeded-return-holes"],
 }
 
 LEGACY_PROBLEM_IDS = {
@@ -130,6 +157,13 @@ def main() -> int:
         "helpers' effect_summary to the initial problem.md. Default-off — a "
         "no-op for other experiments and for condition B.",
     )
+    parser.add_argument(
+        "--context-expected-return-type",
+        action="store_true",
+        help="DEF-RET (experiment 005) condition A: append the seeded holes' "
+        "expected_return_type brief to the initial problem.md. Default-off — a "
+        "no-op for other experiments and for condition B.",
+    )
 
     args = parser.parse_args()
 
@@ -156,6 +190,7 @@ def main() -> int:
                 run_id=args.run_id,
                 grammar_mode=args.grammar_mode,
                 context_effect_summary=args.context_effect_summary,
+                context_expected_return_type=args.context_expected_return_type,
             )
         )
 
@@ -280,6 +315,7 @@ def prepare_one(
     run_id: str | None,
     grammar_mode: str = "legacy",
     context_effect_summary: bool = False,
+    context_expected_return_type: bool = False,
 ) -> dict[str, str]:
     experiment_id = experiment["experiment_id"]
     experiment_slug = experiment["slug"]
@@ -291,6 +327,11 @@ def prepare_one(
     # byte-identical for all other experiments and for condition B.
     if context_effect_summary:
         body = body + EFFECT_SUMMARY_BLOCKS.get(experiment_id, "")
+    # DEF-RET (experiment 005) condition A: append the seeded holes'
+    # expected_return_type brief. Default-off keeps problem.md byte-identical
+    # across arms except for this injected block (the field under test).
+    if context_expected_return_type:
+        body = body + RETURN_TYPE_BRIEF_BLOCKS.get(experiment_id, "")
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prefix = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

@@ -87,6 +87,12 @@ REQUIRED_FEATURES = {
     # evaluator passing stubs. Capability-correctness (fs effects present, no
     # forbidden cap) stays the scorer's job (`score_capability.py --require`).
     4: ["check", "post"],
+    # DEF-RET (experiment 005, postmortem-009): the fill-the-hole task mandates a
+    # `check` and a `post` on clamp-to-word; a correct find-account fill produces
+    # a Result return (type annotation or a match on Success/Error). `type` is
+    # satisfied by the seeded Word/Account/LookupError aliases. The non-vacuity
+    # bar mirrors F-B0-3 — without an entry the evaluator grades stub bodies A.
+    5: ["type", "check", "post", ["Result-type", "Result-pattern"]],
 }
 
 
@@ -367,7 +373,9 @@ def scan_features(solution: Path, metadata: dict[str, Any], run_dir: Path) -> di
 
 def required_features_for(problem_id: int, metadata: dict[str, Any]) -> list[str]:
     required = list(REQUIRED_FEATURES.get(problem_id, []))
-    if problem_id == 3 and metadata.get("scaffold_templates_provided"):
+    # Experiments that ship a scaffold template (003, 005) require the agent to
+    # use it. Conditional on the template actually being provided in run metadata.
+    if problem_id in {3, 5} and metadata.get("scaffold_templates_provided"):
         required.append("scaffold")
     return required
 

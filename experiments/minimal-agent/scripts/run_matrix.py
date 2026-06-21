@@ -88,6 +88,9 @@ def main() -> int:
                     agent_run_count,
                     grammar_mode=grammar_mode,
                     context_effect_summary=bool(agent.get("context_effect_summary", False)),
+                    context_expected_return_type=bool(
+                        agent.get("context_expected_return_type", False)
+                    ),
                 )
                 run_dir = Path(prepared["run_dir"])
 
@@ -156,6 +159,7 @@ def prepare_run(
     attempt_count: int,
     grammar_mode: str = "legacy",
     context_effect_summary: bool = False,
+    context_expected_return_type: bool = False,
 ) -> dict[str, str]:
     label = f"{agent_name}-try{attempt:02d}-of-{attempt_count:02d}"
     cmd = [
@@ -175,6 +179,8 @@ def prepare_run(
     ]
     if context_effect_summary:
         cmd.append("--context-effect-summary")
+    if context_expected_return_type:
+        cmd.append("--context-expected-return-type")
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise SystemExit(result.stderr or result.stdout)

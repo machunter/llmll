@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "0.7.0",
+  "llmll_version": "0.13.2",
+  "source_file": "seeded-return-holes.scaffold.llmll",
+  "_fixture_note": "DEF-RET A/B seed (experiment 005). Pre-authored fill-the-hole program: all types, the def-interface, and the two function signatures are written; the agent fills ONLY the two named body holes (clamp-to-word-body, find-account-body). The two target defs DELIBERATELY OMIT the optional DEF-RET `return_type` field on the def node: the harness agents consume this raw AST directly (they do not call `llmll checkout`), so the only way to withhold the return type from condition B is to keep it out of the AST. Condition A re-supplies it via the injected `expected_return_type` brief in problem.md (RETURN_TYPE_BRIEF_BLOCKS['005'] in prepare_run.py), faithfully rendering what `llmll checkout` would emit for a def carrying `-> Word` / `-> Result[Account, LookupError]`. A correct fill RE-ADDS `return_type` on each def (or otherwise produces a body whose result type matches the intended refinement/sum return) and discharges the §3.4.1 refinement-aliased-return obligation on clamp-to-word. The intended return types are non-obvious from the param list alone: clamp-to-word takes a plain `int` but must return the 16-bit-bounded refinement `Word`; find-account takes a `string` but must return `Result[Account, LookupError]`, not a bare `Account` or `string`.",
+  "statements": [
+    {
+      "kind": "type-decl",
+      "name": "Word",
+      "body": {
+        "kind": "where",
+        "binding": "w",
+        "base_type": { "kind": "primitive", "name": "int" },
+        "predicate": {
+          "kind": "op",
+          "op": "and",
+          "args": [
+            {
+              "kind": "op",
+              "op": ">=",
+              "args": [
+                { "kind": "var", "name": "w" },
+                { "kind": "lit-int", "value": 0 }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "<=",
+              "args": [
+                { "kind": "var", "name": "w" },
+                { "kind": "lit-int", "value": 65535 }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "type-decl",
+      "name": "Account",
+      "body": {
+        "kind": "where",
+        "binding": "acct",
+        "base_type": {
+          "kind": "pair-type",
+          "fst": { "kind": "primitive", "name": "string" },
+          "snd": { "kind": "primitive", "name": "int" }
+        },
+        "predicate": { "kind": "lit-bool", "value": true }
+      }
+    },
+    {
+      "kind": "type-decl",
+      "name": "LookupError",
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "NotFound",
+            "payload": { "kind": "primitive", "name": "string" }
+          },
+          {
+            "constructor": "Malformed",
+            "payload": { "kind": "primitive", "name": "string" }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "def-interface",
+      "name": "AccountStore",
+      "methods": [
+        {
+          "name": "raw-lookup",
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [
+              {
+                "name": "account-id",
+                "param_type": { "kind": "primitive", "name": "string" }
+              }
+            ],
+            "return_type": {
+              "kind": "result",
+              "ok_type": {
+                "kind": "pair-type",
+                "fst": { "kind": "primitive", "name": "string" },
+                "snd": { "kind": "primitive", "name": "int" }
+              },
+              "err_type": { "kind": "primitive", "name": "string" }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "def",
+      "name": "clamp-to-word",
+      "params": [
+        {
+          "name": "n",
+          "param_type": { "kind": "primitive", "name": "int" }
+        }
+      ],
+      "body": { "kind": "hole-named", "name": "clamp-to-word-body" }
+    },
+    {
+      "kind": "def-shell",
+      "name": "find-account",
+      "params": [
+        {
+          "name": "account-id",
+          "param_type": { "kind": "primitive", "name": "string" }
+        }
+      ],
+      "body": { "kind": "hole-named", "name": "find-account-body" }
+    }
+  ]
+}
