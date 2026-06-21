@@ -1,6 +1,6 @@
 {
   "llmll_version": "0.11.1",
-  "schemaVersion": "0.6.0",
+  "schemaVersion": "0.7.0",
   "statements": [
     {
       "body": {
@@ -88,6 +88,10 @@
         ],
         "kind": "op",
         "op": ">="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
       }
     },
     {
@@ -139,6 +143,10 @@
         ],
         "kind": "op",
         "op": "="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
       }
     },
     {
@@ -237,6 +245,10 @@
         ],
         "kind": "op",
         "op": "and"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
       }
     }
   ]

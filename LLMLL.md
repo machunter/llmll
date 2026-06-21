@@ -1,13 +1,14 @@
-# LLMLL: Large Language Model Logical Language (v0.13.0)
+# LLMLL: Large Language Model Logical Language (v0.13.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.13.0 (shipped).** Minor on the v0.13 line. **A precondition no longer floors a function's trust tier** (TRUST-PRE): the effective tier reads postcondition evidence, not `meet(csPre, csPost)` — a `requires`-bearing function that proves its post is `verified`, with its precondition surfaced on a new first-class, **persisted `caller_obligations` axis** (`trust_report_version` `1.3.0` → `1.4.0`). **Strict-core `def`→`def` composition** is now admissible against a callee's persisted verified evidence (ADMIT-VERIFIED; `erVerifiedHash` staleness guard), making the v0.9.0 assume-guarantee composition reachable in strict core. **`verify --obligation-report` and `checkout` surface assume-guarantee to agents** (DEMO-COMP): `consumed_guarantees`, SAFE-path per-call-site precondition obligations, and a `PatchVerifyError / callee-precondition-unmet` patch reason (obligation-report `orSchemaVersion` `0.12.0` → `0.12.1`). A pre-existing cross-module refinement-type-import bug (XMOD-ALIAS) and three other defects (a `do`-prefix lexer miscompile, the contracted-function-list filter, a `FuncEntry` round-trip) are fixed; the withdraw-demo is re-scripted to the two-axis trust report plus a composition "obligation flows down" beat. Cross-module *verified composition* remains a tracked five-layer gap (3 fixed, 2 open; `docs/design/cross-module-composition-finding.md`). JSON-AST `schemaVersion` `0.6.0` (unchanged); `trust_report_version` `1.4.0`. 900 Haskell + 62 Python tests. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
+> **Current version: v0.13.1 (shipped).** Patch on the v0.13 line. **`def`/`def-shell` accept an optional `-> RetType` return annotation** (DEF-RET): `(def f [params] -> RetType (pre…)(post…) body)` in the S-expression form, and an optional `return_type` field on `DefCore`/`DefShell` in the JSON-AST. Absent, parsing and semantics are byte-identical to before (`mRet = Nothing`, full inference). When declared, the body is **checked against** the return type — a bare named-hole body records `HoleTyped T` (Check-Hole), so **`expected_return_type` is now populated for a function-body hole** in the checkout brief / sketch / obligation report (the OBLIG-1-FOLLOWON value path; `assumptions` remains reserved — `available_functions` is populated separately via DEMO-COMP, see §11.2). This closes a §3.4.6-vs-§12 spec-vs-surface drift: REF-META-5 (§3.4.6), the `SDef.mRet` AST slot, `collectTopLevel`, and `checkStatement` already consumed a declared return, but neither frontend nor the schema could *produce* one. A refinement-aliased return (`-> PositiveInt`) joins the §3.4.1 introduction obligation `p[body/result]`; a non-`Σ_auto` predicate forces `erBodyFallback` (the §3.4.5 firewall — the function is not claimed `verified` on an undischarged return refinement; Unit 1, the `augmentContractPost` discharge join deferred to Unit 2). JSON-AST `schemaVersion` `0.6.0` → `0.7.0` (additive-optional `return_type`; the reader accepts both `0.7.0` and `0.6.0`); `trust_report_version` `1.4.0` (unchanged). 905 Haskell + 62 Python tests. See [`CHANGELOG.md`](CHANGELOG.md) for full release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the implementation schedule.
 
 <details><summary><strong>Release history</strong></summary>
 
 | Version | Headline |
 |---------|----------|
+| **v0.13.1** | Optional Return-Type Annotation (DEF-RET / OBLIG-1-FOLLOWON): `def`/`def-shell` accept an optional `-> RetType` (S-expr) / `return_type` (JSON-AST). When declared, the body is checked against it and a bare named-hole body records `HoleTyped T`, populating `expected_return_type` for function-body holes (the value path; `assumptions` stays reserved). Closes a §3.4.6-vs-§12 spec-vs-surface drift. A refinement-aliased return joins the §3.4.1 introduction obligation, conservatively falling back off `verified` when non-`Σ_auto` (Unit 1; discharge join deferred to Unit 2). JSON-AST `schemaVersion` `0.6.0` → `0.7.0` (reader accepts both). 905 Haskell + 62 Python tests (+5 Haskell from v0.13.0). |
 | **v0.13.0** | Caller-Obligation Axis + Verified Composition: a precondition no longer floors a function's trust tier (TRUST-PRE) — the effective tier reads post-side evidence; new persisted `caller_obligations` axis (`trust_report_version` `1.3.0` → `1.4.0`). Strict-core `def`→`def` composition admission against persisted verified evidence (ADMIT-VERIFIED). `consumed_guarantees` + SAFE call-pre obligations + `callee-precondition-unmet` patch reason surfaced to agents (DEMO-COMP; obligation-report `orSchemaVersion` `0.12.1`). Fixed XMOD-ALIAS (pre-existing cross-module import bug) + 3 defects (a `do`-prefix lexer miscompile among them). `schemaVersion` unchanged `0.6.0`. 900 Haskell + 62 Python tests (+38 from v0.12.1). |
 | **v0.12.1** | def-logic Removal + def-invariant Node: `def-logic` is a hard parse error under all grammar modes (`removed-construct` diagnostic; no auto-rewrite, no `--grammar=legacy` escape valve); `def`/`def-shell` are the canonical forms, `letrec` retained under `--grammar=legacy`. `def-invariant` promoted to its own `SDefInvariant` AST node for faithful JSON-AST round-trips. Parse-error diagnostics no longer recommend the removed construct. `schemaVersion` unchanged `0.6.0`. 862 Haskell + 62 Python tests (+7 Haskell from v0.12.0). |
 | **v0.12.0** | Refinement Metatheory of Record + Effect/Authority Summaries: completes the REF-META metatheory of record (1–5; §3.4.4–3.4.6, §5.3.3); Bundle B0 per-function `effect_summary` in `verify --obligation-report` with cross-module composition (∅-iff-fully-walked; obligation-report `orSchemaVersion` `0.12.0`); NIW Phase 1 refinement-aliased non-int measures (QF-LIA+EUF); JSON-AST `module`-form flattening; `wasi.fs` namespace reconciliation. `schemaVersion` `0.6.0`; `trust_report_version` `1.3.0`. 855 Haskell + 62 Python tests (+44 Haskell from v0.11.2). |
@@ -431,6 +432,8 @@ The type channel checks `≡` on the base; the contract channel emits `p[e/x]` (
 
 **Verification.** The judgment introduces no new proof obligation and no new channel: the only refinement obligation it routes is the existing §3.4.1 `p[e/x]`, classified per §5.3.3 (QF-LIA core / measure-class auto / non-`Σ_auto` → `erBodyFallback`, §3.4.5).
 
+**Return position is now surface-expressible (DEF-RET, v0.13.1).** This judgment supplies an expected type at the **return** position, but until DEF-RET no grammar production could declare one on `def`/`def-shell` — the metatheory and the checker (`mRet`, `collectTopLevel`, `checkStatement`) presupposed a return-position annotation the §12 grammar could not produce. The optional `-> RetType` annotation (§4.1, §12) closes that drift: a declared return makes the def-body return position an instance of this judgment. A bare-hole body under a declared return is the Check-Hole rule above — it records `HoleTyped RetType` (the `expected_return_type` value path, §11.2); a concrete body is Check-by-Synth against `RetType`; a refinement-aliased return is the `⇐-Refine` instance, joining the §3.4.1 introduction obligation.
+
 ---
 
 ## 4. Logic Structures & Design by Contract
@@ -462,7 +465,16 @@ Two declaration forms are available under the default grammar (`GrammarCoreInver
   body-expression)
 ```
 
-**Return type is always inferred.** Neither `def` nor `def-shell` accepts a return-type annotation.
+**Optional return-type annotation (DEF-RET, v0.13.1).** Both forms accept an optional `-> RetType` immediately after the parameter brackets, before the contract clauses:
+
+```lisp
+(def withdraw [balance: int amount: PositiveInt] -> int
+  (pre  (>= balance amount))
+  (post (= result (- balance amount)))
+  ?body_impl)
+```
+
+The annotation is **optional and checking-mode**, consistent with the synthesis-primary checker (§3.4.6): omit it and the return type is fully inferred (`mRet = Nothing`, byte-identical to prior behavior); declare it and the body is checked against `RetType`. A bare-hole body under a declared return records `HoleTyped RetType`, so a function-body hole reports its type in the checkout brief / obligation report (the `expected_return_type` field, §11.2) — previously absent on this canonical case because `def`/`def-shell` had no return surface. A concrete (non-hole) body is synthesized and unified against `RetType`, with a mismatch attributed to the function. A refinement-aliased return (`-> PositiveInt`) additionally joins the §3.4.1 introduction obligation `p[body/result]` to the body-VC set; see §3.4.6 and §5.3.5. See [`docs/design/def-return-annotation-proposal.md`](docs/design/def-return-annotation-proposal.md) (Settled Rev 2).
 
 **When to use `def` vs `def-shell`.** Use `def` when the function body is composed exclusively of linear arithmetic, `let` bindings, conditionals, pair operations, `Result` 2-arm matching, and calls to builtins or body-faithfully verified functions. The typechecker enforces this at compile time and emits `core-grammar-violation` or `core-membership-violation` on non-admitted constructs. Use `def-shell` for everything else: functions that use lambdas (`fn`), call user-defined functions from the same module, perform IO via `wasi.*`, contain `?proof-required` holes, or are self-recursive.
 
@@ -1035,6 +1047,7 @@ The following matrix documents the verification status of each syntax construct 
 | **Int overflow** | ✅ | ✅ | ✅ on `int` (Z3 `Int` = Haskell `Integer`, both unbounded — v0.11 LT-INT) | n/a on `int` | ✅ | gap closed on `int`; re-arms on `machine-int` (INT-3) |
 | `TCustom` alias predicate obligation at intro site (QF-LIA `p`) | ✅ | ✅ (host pre/post; alias predicate solver-only, never runtime-asserted — §3.4.5) | ✅ (contract channel) | ✅ | ✅ | no separate channel; routes via `Contracts.hs` / `FixpointEmit.hs`; §3.4.1 checking-mode rule |
 | `TCustom` alias predicate obligation at intro site (non-QF-LIA `p`) | ✅ | ✅ (host pre/post; alias predicate solver-only, never runtime-asserted — §3.4.5) | ❌ | ❌ | ✅ | `erBodyFallback` → contract-only / `asserted` tier; **no** runtime assertion for a refinement-typed binding (`augmentContractPre` verifier-local — unlike a non-QF-LIA *contract* obligation, which does assert; §3.4.5) |
+| Refinement-aliased return `-> A` introduction obligation `p[body/result]` (DEF-RET, v0.13.1) | ✅ | ✅ (host pre/post; return-alias predicate solver-only — §3.4.5) | ✅ (QF-LIA `p`, contract channel) | ✅ (QF-LIA `p`) | ✅ | the §3.4.1 introduction at the return position (§3.4.6, §4.1); classified per §5.3.3 — QF-LIA core / measure-class auto-discharged / non-`Σ_auto` → `erBodyFallback` (Unit-1 conservative fallback; the function is not claimed `verified` on an undischarged return refinement — the §3.4.5 firewall). Unit 2 — the `augmentContractPost` discharge join letting a concrete return reach `verified` — is deferred |
 | `?delegate` / `?delegate-async` body (`def-shell`) | ✅ | ❌ (`on-failure` clause executes at runtime if present; unresolved → `?delegate-pending`) | ❌ (`asserted` tier; host-function contracts verified contract-only) | ❌ | skip | `asserted`; F-GATE-8 (`guardDelegate` in `PBT.hs:641–755`) blocks `DLTested` PBT write-back on delegate-body functions regardless of `on-failure` fallback path; `on-failure` enables runtime execution but does not promote trust; see §11.2 |
 | `?delegate` / `?delegate-async` body (`def`, pre-resolution) | ✅ | ❌ | ❌ | ❌ | skip | authoring intermediate (LT-INV §3.5 Rev 2); admitted in `def` pending resolution; post-resolution, agent loop re-typechecks resolving value's admissibility before merging into `def`-form host; pre-resolution trust is `asserted` unconditionally regardless of pre-clause evaluability — two mechanisms converge: (a) `guardDelegate` in `PBT.hs:pbtTrustWriteback` (F-EL5-3, extending F-GATE-8) blocks `DLTested` write-back when body is `EHole(HDelegate _)` / `EHole(HDelegateAsync _)` for `SDef` forms — evaluable-pre path; (b) pre-clause unevaluability propagation (`QC.discard` saturation → `PBTSkipped` → no lift) — unevaluable-pre path (EL-5 grade-A path B, PM-006). Mechanisms are independent and non-interfering. Post-resolution, the merging agent re-runs `checkCalleeAdmissibility` and re-verifies the resolved body; see §11.2. F-EL5-3 adjudicated language-team 2026-05-30 |
 
@@ -1209,7 +1222,7 @@ If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precede
 > with a `removed-construct` diagnostic (exit 1) under **all** grammar modes —
 > def-logic was removed in v0.12.1. `{"kind": "letrec"}` produces a
 > `core-grammar-violation` (exit 1) under `GrammarCoreInversion`. Hub publishers
-> must ship `schemaVersion 0.6.0` modules using `def`/`def-shell` node kinds.
+> must ship `schemaVersion 0.7.0` modules using `def`/`def-shell` node kinds (`0.6.0` is still accepted by the reader).
 >
 > `wasi.*`, `haskell.*`, and `c.*` builtin-namespace imports carry no parseable
 > file and are exempt from grammar-mode checking.
@@ -1820,8 +1833,8 @@ The checkout response includes four optional fields (present when the compiler h
 | Field | Type | Content |
 |-------|------|---------|
 | `in_scope` | `[ScopeEntry]` | Bindings visible at the hole site (Γ delta: `tcEnv \ builtinEnv`). Each entry has `name`, `type` (LLMLL notation), and `source` (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by source priority; truncated at 50 entries with `scope_truncated: true`. |
-| `expected_return_type` | `string` | The inferred return type at the hole site (τ as a type label). **Reserved — not yet populated (returns absent); requires sketch-mode hole-type capture in `SketchHole`. See OBLIG-1 follow-on.** |
-| `available_functions` | `[FuncEntry]` | Non-`wasi.*` function signatures (Σ), monomorphized against concrete scope types. E.g., when `xs : list[int]` is in scope, `list-head` appears as `list[int] → Result[int, string]` rather than `list[a] → Result[a, string]`. Each entry has `name`, `params` (with types), `returns`, and `status` (`filled`, `hole`, `builtin`). **Reserved — not yet populated (returns absent); depends on `expected_return_type`. See OBLIG-1 follow-on.** |
+| `expected_return_type` | `string` | The expected type at the hole site (τ as a type label). **Populated (DEF-RET, v0.13.1)** for a function-body hole when the enclosing function declares a return type (`-> RetType`, §4.1) — the body hole records `HoleTyped RetType` — and for a sub-expression hole whose type is fixed by local inference (siblings / surrounding context). Absent when neither applies (e.g. a body hole with no declared return and no inferable context). See OBLIG-1 follow-on. |
+| `available_functions` | `[FuncEntry]` | **Populated (DEMO-COMP, v0.13.0)** with the contracted-user vocabulary — every same-module `def`/`def-shell` carrying a `pre` or `post`, as `name`, `params` (with types), `returns` / `return_type`, `pre` / `post` / `tier`, and `status`. (The broader vision — the full non-`wasi.*` Σ including builtins, monomorphized against concrete scope types so e.g. `list-head` reads `list[int] → Result[int, string]` when `xs : list[int]` is in scope — is only partly realized: builtins are not yet included.) See OBLIG-1 follow-on. |
 | `type_definitions` | `[TypeDefEntry]` | User-defined types referenced by in-scope bindings. Sum types include constructors; aliases include the base type. Depth-bounded expansion (max 5 levels) with cycle detection (`recursive: true`). |
 | `scope_truncated` | `bool` | `true` if the scope was truncated to the 50-entry limit; absent or `false` otherwise. |
 
@@ -1977,18 +1990,25 @@ SPEC_ENTROPY   = ":strict" | ":intentional" | ":unknown" ;
 (* Pass --grammar=legacy to parse v0.10 letrec programs (def-logic removed in v0.12.1). *)
 (* ============================================================ *)
 def          = "(" "def"       IDENT "[" { typed-param } "]"
+                 [ ARROW type ]
                  [ pre-clause ] [ post-clause ] [ entropy-clause ]
                  core-expr
                ")" ;
                  (* Strict-core: body must satisfy isCoreBodySyntactic.         *)
                  (* Callee admission at EApp: body-faithful evidence, OR        *)
                  (* trustedPrelude membership, OR builtinEnv membership.        *)
+                 (* Optional return-type annotation (DEF-RET, v0.13.1): when    *)
+                 (* present, the body is checked against `type` (Check-Hole at  *)
+                 (* a bare-hole body records HoleTyped; Check-by-Synth else).   *)
 
 def-shell    = "(" "def-shell" IDENT "[" { typed-param } "]"
+                 [ ARROW type ]
                  [ pre-clause ] [ post-clause ] [ entropy-clause ]
                  expr
                ")" ;
                  (* Permissive form: no body restriction; no callee check.      *)
+                 (* Optional return-type annotation (DEF-RET, v0.13.1); same    *)
+                 (* checking semantics as on def.                               *)
 
 core-expr    = literal | var | let | if | match | app | linear-op-expr | hole ;
                  (* Excluded: lambda, do, pair, await, non-linear ops.         *)

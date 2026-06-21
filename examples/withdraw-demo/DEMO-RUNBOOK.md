@@ -2,7 +2,7 @@
 
 > **Artifact:** "From a bad agent patch to verified trust closure."
 > **Fixture:** [`demo.ast.json`](demo.ast.json) — `PositiveInt`, `withdraw` (typed hole), `double` (pre-verified), `maxi` (typed hole). The JSON-AST is what the agent checkout/patch protocol operates on; [`demo.llmll`](demo.llmll) is the human-readable source it is generated from (`llmll build ./demo.llmll --emit -o .`). [`audit.llmll`](audit.llmll) / [`audit.ast.json`](audit.ast.json) is a thin **shell** module over the core, used only by the authority-axis step (7).
-> **Verified against:** `llmll 0.13.0`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP) and were captured byte-for-byte on `0.13.0` (2026-06-19); steps 1–5 and the authority axis (§7) are unchanged from the v0.12.x capture.
+> **Verified against:** `llmll 0.13.1`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the step-2 checkout brief's `expected_return_type` requires v0.13.1 (DEF-RET — `withdraw`/`double`/`maxi` declare `-> int`). The step-2 brief was re-captured on `0.13.1` (2026-06-21); the other steps carry their prior `0.13.0` / v0.12.x captures (a full byte-for-byte re-capture across DEMO-COMP + DEF-RET is pending).
 
 This is the canonical capture script for the public repair-loop demo. It supersedes the older single-function `withdraw.ast.json` flow, which could only ever show `verified: 0` in the summary (sound but visually self-undercutting — see [Why these functions](#why-these-functions)).
 
@@ -25,12 +25,12 @@ A fourth artifact, [`audit.llmll`](audit.llmll), adds a second, **orthogonal** r
 ## Prerequisites
 
 ```bash
-llmll --version          # must report 0.13.0 (TRUST-PRE caller_obligations + DEMO-COMP consumed_guarantees, on top of the v0.12.x features; see note below)
+llmll --version          # must report 0.13.1 (DEF-RET expected_return_type; TRUST-PRE caller_obligations + DEMO-COMP consumed_guarantees from 0.13.0, on top of the v0.12.x features; see note below)
 which fixpoint           # must resolve — refuted/verified verdicts require the real solver
 which jq                 # used to build patches and project JSON output to the values that matter
 ```
 
-> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. Step 2's inline checkout brief additionally requires the OBLIG-1 population that shipped in `0.11.2`; on `0.11.1` the same `checkout` call returns `contract_pre` / `postcondition_goal` / `in_scope` as `null`. Step 7's `effect_summary` / `cross_module` fields require `0.12.0` (Bundle B0) or later. **The two-axis trust closure (§6, `caller_obligations`) and the composition step (§6.5) require `0.13.0`** (TRUST-PRE + DEMO-COMP). If `llmll --version` is not ≥ `0.13.0`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; confirm the brief fields are populated.)
+> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. Step 2's inline checkout brief additionally requires the OBLIG-1 population that shipped in `0.11.2`; on `0.11.1` the same `checkout` call returns `contract_pre` / `postcondition_goal` / `in_scope` as `null`. Step 7's `effect_summary` / `cross_module` fields require `0.12.0` (Bundle B0) or later. **The two-axis trust closure (§6, `caller_obligations`) and the composition step (§6.5) require `0.13.0`** (TRUST-PRE + DEMO-COMP), and the step-2 brief's `expected_return_type` requires `0.13.1` (DEF-RET). If `llmll --version` is not ≥ `0.13.1`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; confirm the brief fields are populated.)
 
 Work from a scratch directory so every command is relative and `patch` can mutate files freely:
 
@@ -131,7 +131,7 @@ llmll verify ./demo.ast.json --obligation-report --json 2>/dev/null \
 }
 ```
 
-That is the agent's contract: fill `/statements/1/body` with an expression over `balance` and `amount` that, *assuming* `balance ≥ amount`, *proves* `result = balance − amount`. The full object also carries the trust channel, the callable `available_functions`, and OBLIG-4 repair `suggestions`; `expected_type` reads `unknown` here because the hole's return type is left to inference rather than annotated.
+That is the agent's contract: fill `/statements/1/body` with an expression over `balance` and `amount` that, *assuming* `balance ≥ amount`, *proves* `result = balance − amount`. The full object also carries the trust channel, the callable `available_functions`, and OBLIG-4 repair `suggestions`; `expected_type` reads `int` — `withdraw` declares `-> int` (DEF-RET, v0.13.1), so the body hole carries its type.
 
 > `verify --obligation-report` is the **whole-program** view — every hole, unproven contract, call-site failure, and `refuted_fns` at once. As of `0.11.2`, `checkout` (next step) returns this *same per-hole brief inline* for the single hole you reserve, so an agent gets the spec and the lock in one call — you'll see it ride in with the token in step 2. Use the report when surveying the program; use the checkout brief when working one reserved hole.
 
@@ -163,9 +163,9 @@ jq '{contract_pre, postcondition_goal,
     { "name": "PositiveInt", "type": "PositiveInt" },
     { "name": "amount", "type": "PositiveInt" },
     { "name": "balance", "type": "int" },
-    { "name": "double", "type": "fn[1 args] -> ?" },
-    { "name": "maxi", "type": "fn[2 args] -> ?" },
-    { "name": "withdraw", "type": "fn[2 args] -> ?" }
+    { "name": "double", "type": "fn[1 args] -> int" },
+    { "name": "maxi", "type": "fn[2 args] -> int" },
+    { "name": "withdraw", "type": "fn[2 args] -> int" }
   ],
   "type_definitions": [
     { "base_type": "int", "kind": "dependent", "name": "PositiveInt" }
@@ -173,7 +173,7 @@ jq '{contract_pre, postcondition_goal,
 }
 ```
 
-`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from step 1's report. The checkout `in_scope` is *wider*: where the report's `type_channel` projection listed only the contract's free variables (`balance`, `amount`), checkout hands the agent the full scope — the `PositiveInt` alias and the sibling top-level functions (`double`, `maxi`, `withdraw`, each `"source": "let-binding"`) as the callable vocabulary. `expected_return_type` and `available_functions` are reserved for a later OBLIG pass and omitted here; `assumptions`, `path_condition`, and `obligation_id` come back `null` for this hole.
+`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from step 1's report. The checkout `in_scope` is *wider*: where the report's `type_channel` projection listed only the contract's free variables (`balance`, `amount`), checkout hands the agent the full scope — the `PositiveInt` alias and the sibling top-level functions (`double`, `maxi`, `withdraw`, each `"source": "let-binding"`) as the callable vocabulary. `expected_return_type` now reads `"int"` — `withdraw` declares `-> int` (DEF-RET, v0.13.1), so the body hole carries its type; `available_functions` carries the contracted-user vocabulary (`double` / `maxi` / `withdraw` with `pre` / `post` / `tier` / `return_type`, DEMO-COMP). `assumptions`, `path_condition`, and `obligation_id` come back `null` for this hole.
 
 <details><summary>Full <code>CO_W</code> response (<code>jq . &lt;&lt;&lt;"$CO_W"</code>) — token, ttl, and staleness hashes alongside the brief</summary>
 
@@ -186,15 +186,16 @@ jq '{contract_pre, postcondition_goal,
     { "name": "PositiveInt", "source": "let-binding", "type": "PositiveInt" },
     { "name": "amount", "source": "param", "type": "PositiveInt" },
     { "name": "balance", "source": "param", "type": "int" },
-    { "name": "double", "source": "let-binding", "type": "fn[1 args] -> ?" },
-    { "name": "maxi", "source": "let-binding", "type": "fn[2 args] -> ?" },
-    { "name": "withdraw", "source": "let-binding", "type": "fn[2 args] -> ?" }
+    { "name": "double", "source": "let-binding", "type": "fn[1 args] -> int" },
+    { "name": "maxi", "source": "let-binding", "type": "fn[2 args] -> int" },
+    { "name": "withdraw", "source": "let-binding", "type": "fn[2 args] -> int" }
   ],
   "obligation_id": null,
   "path_condition": null,
   "pointer": "/statements/1/body",
   "postcondition_goal": "(= result (- balance amount))",
-  "source_hash": "0dcfc362556b3ef2df2c473ff7cea09bb380639d302937341a611e1ac927f7e0",
+  "expected_return_type": "int",
+  "source_hash": "e2edf9dd21e58339a16caf6d2c7fe48d9da3d71f6ac86adb8db283f3aa9784d4",
   "timestamp": "2026-06-11T06:47:22.69762Z",
   "token": "6087457baa8d6adf1c694e934b3e7c0b4a7041d6b3a685b46b1792d15c785e51",
   "ttl": 3600,

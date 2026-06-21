@@ -13,16 +13,16 @@
 
 (type PositiveInt (where [x: int] (> x 0)))
 
-(def withdraw [balance: int amount: PositiveInt]
+(def withdraw [balance: int amount: PositiveInt] -> int
   (pre  (>= balance amount))
   (post (= result (- balance amount)))
   ?body_impl)
 
-(def double [x: int]
+(def double [x: int] -> int
   (post (= result (+ x x)))
   (+ x x))
 
-(def maxi [a: int b: int]
+(def maxi [a: int b: int] -> int
   (post (and (and (>= result a) (>= result b))
              (or (= result a) (= result b))))
   ?maxi_body)

@@ -4,6 +4,17 @@
 
 <a id="Latest"></a>
 
+## v0.13.1 — Optional Return-Type Annotation (DEF-RET / OBLIG-1-FOLLOWON) (2026-06-21)
+
+### Compiler — `def` / `def-shell` accept an optional `-> RetType` (DEF-RET)
+
+- **`def` and `def-shell` now accept an optional return-type annotation** (commit [`a948deb`](compiler/src/LLMLL/Parser.hs)) — `-> RetType` immediately after the parameter brackets in the S-expression form (`(def f [params] -> RetType (pre…)(post…) body)`), and an optional `return_type` `Type` field on `DefCore`/`DefShell` in the JSON-AST. Absent the annotation, parsing and semantics are byte-identical to today (`mRet = Nothing`, full inference). This closes a §3.4.6-vs-§12 spec-vs-surface drift: REF-META-5 ([`LLMLL.md §3.4.6`](LLMLL.md), shipped v0.12.0), the AST slot (`SDef.mRet`), `collectTopLevel`, and `checkStatement` already consumed a declared `Just retTy`, but neither frontend nor the schema could *produce* one. (Design: [`def-return-annotation-proposal.md`](docs/design/def-return-annotation-proposal.md), Settled Rev 2; language-team → professor → compiler-engineer.)
+- **When declared, the body is checked against the return type** (`TypeCheck.hs`): a bare named-hole body records `HoleTyped T` (Check-Hole); otherwise the body is synthesized and unified against `T` with a mismatch attributed to the function name (Check-by-Synth). This is §3.4.6 specialized to the def-body return position — no new proof obligation and no new channel.
+- **`expected_return_type` is now populated for a function-body hole** when the enclosing function declares a return type (and continues to be populated for sub-expression holes via local inference). Previously it was always absent on the canonical case because `def`/`def-shell` had no return surface to record (`mRet` was structurally `Nothing`). This is the OBLIG-1-FOLLOWON value path; `available_functions` and `assumptions` remain reserved.
+- **A refinement-aliased return (`-> PositiveInt`) is handled conservatively (Unit 1).** Checking the body against `A ≜ (where [x:τ] p)` joins the §3.4.1 introduction obligation `p[body/result]` to the body-VC set; a non-`Σ_auto` predicate is non-emittable and forces `erBodyFallback`, so the function is not claimed `verified` on an undischarged return refinement — the §3.4.5 firewall. **Unit 2 — the `augmentContractPost` discharge join that would let a refinement-aliased *concrete* return reach `verified` — is deferred.**
+- **Schema:** JSON-AST `schemaVersion` **`0.6.0` → `0.7.0`** (additive-optional `return_type`; `$id` URL bumped to `/schemas/v0.7/`). The reader accepts **both** `0.7.0` and `0.6.0` for backward-compatible reads. `trust_report_version` stays `1.4.0`; obligation-report `orSchemaVersion` stays `0.12.1`.
+- **Demo:** [`examples/withdraw-demo/`](examples/withdraw-demo/) — `withdraw`, `double`, and `maxi` now declare `-> int` so the checkout brief surfaces a populated `expected_return_type`. **Tests: 900 → 905 Haskell (+5 DEF-RET); 62 Python unchanged.**
+
 ## v0.13.0 — Caller-Obligation Axis + Verified Composition (2026-06-19)
 
 ### Compiler — a precondition no longer floors a function's trust tier (TRUST-PRE)
