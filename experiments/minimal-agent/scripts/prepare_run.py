@@ -47,10 +47,17 @@ EFFECT_SUMMARY_BLOCKS = {
 # `llmll checkout` would emit for a def carrying `-> Word` /
 # `-> Result[Account, LookupError]` (see CheckoutToken.expected_return_type in
 # docs/llmll-ast.schema.json). Keyed by experiment id; absent key → empty append
-# (no-op). The seeded fixture's defs omit `return_type` (the harness agents read
-# raw AST, not the checkout brief, so the type can only be withheld from condition
-# B by keeping it out of the AST); this block is the on/off injection that
-# isolates the field's payoff.
+# (no-op). BLINDNESS INVARIANT (postmortem-010 fix for the postmortem-009 F-009.1
+# validity bug): the seeded fixture must NOT name either hole's return type
+# anywhere both arms read it. The two target defs omit `return_type`, the clamp
+# return's refinement alias is NOT pre-declared as a `type` in the seed, and the
+# shared experiment markdown (005-seeded-return-holes.md) does not name `Word` /
+# `Result[t, E]` — the harness agents read raw AST + problem.md (not the checkout
+# brief), so the type can only be withheld from condition B by keeping it out of
+# BOTH the seed AST and the shared header. This block is the ONLY source of the
+# type names; it is the on/off injection (condition A) that isolates the field's
+# information content. Condition B must infer the return from the behavioral spec
+# plus the seeded value-type vocabulary (Account / LookupError / AccountStore).
 RETURN_TYPE_BRIEF_BLOCKS = {
     "005": (
         "\n\n## Hole brief — expected return types (DEF-RET, condition A)\n\n"

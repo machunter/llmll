@@ -2,14 +2,16 @@
 
 **Difficulty:** ★★☆
 **Regime:** fill-the-hole (NOT blank-slate authoring)
-**v0.13 features exercised:** DEF-RET `expected_return_type` brief surface, refinement-aliased return (`Word`), `Result[t, E]` return, hole-filling against a pre-authored scaffold
+**v0.13 features exercised:** DEF-RET `expected_return_type` brief surface, a refinement-aliased return, a two-channel (success / error) return, hole-filling against a pre-authored scaffold
 
 ## What is provided
 
 `.llmll/templates/seeded-return-holes/scaffold.ast.json` is a **pre-authored
-program** with everything written except two function bodies. The types (`Word`,
-`Account`, `LookupError`), the `def-interface AccountStore`, and the two function
-signatures are already in place. Two body holes remain:
+program** with everything written except two function bodies. The supporting
+value types (`Account`, `LookupError`) and the `def-interface AccountStore` are
+already in place, along with the two function signatures (parameter types only —
+the seed leaves each function's **return type undeclared**, and it is your job to
+determine and declare it). Two body holes remain:
 
 - `clamp-to-word-body` — the body of `clamp-to-word`, a `def` taking one `int`
   parameter `n`.
@@ -20,7 +22,10 @@ signatures are already in place. Two body holes remain:
 the scaffold: run `llmll hub scaffold seeded-return-holes --output scaffold`
 (the template exists), copy the scaffolded program to `solution.ast.json`, and
 replace the two `hole-named` bodies with correct expressions. Do not redefine the
-types or the interface; do not add or remove functions.
+seeded value types or the interface, and do not add or remove functions. You
+**must** declare each function's return type (omitted in the seed) and, where the
+correct return type is a refinement alias the seed does not provide, you may add
+that `type` declaration.
 
 ## What each body must do
 

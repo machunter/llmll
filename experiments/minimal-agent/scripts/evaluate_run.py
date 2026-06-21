@@ -87,11 +87,15 @@ REQUIRED_FEATURES = {
     # evaluator passing stubs. Capability-correctness (fs effects present, no
     # forbidden cap) stays the scorer's job (`score_capability.py --require`).
     4: ["check", "post"],
-    # DEF-RET (experiment 005, postmortem-009): the fill-the-hole task mandates a
-    # `check` and a `post` on clamp-to-word; a correct find-account fill produces
-    # a Result return (type annotation or a match on Success/Error). `type` is
-    # satisfied by the seeded Word/Account/LookupError aliases. The non-vacuity
-    # bar mirrors F-B0-3 — without an entry the evaluator grades stub bodies A.
+    # DEF-RET (experiment 005, postmortem-009/-010): the fill-the-hole task
+    # mandates a `check` and a `post` on clamp-to-word; a correct find-account fill
+    # produces a Result return (type annotation or a match on Success/Error).
+    # `type` is satisfied by the seeded Account/LookupError aliases carried into
+    # the solution (and, in a correct fill, the refinement alias the agent ADDS for
+    # the clamp return — the seed no longer pre-declares it, per the postmortem-010
+    # blindness fix). The scan reads the SOLUTION (scan_features), not the seed, so
+    # the agent must supply these features itself. The non-vacuity bar mirrors
+    # F-B0-3 — without an entry the evaluator grades stub bodies A.
     5: ["type", "check", "post", ["Result-type", "Result-pattern"]],
 }
 

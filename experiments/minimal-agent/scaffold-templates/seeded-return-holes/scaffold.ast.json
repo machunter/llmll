@@ -2,39 +2,8 @@
   "schemaVersion": "0.7.0",
   "llmll_version": "0.13.2",
   "source_file": "seeded-return-holes.scaffold.llmll",
-  "_fixture_note": "DEF-RET A/B seed (experiment 005). Pre-authored fill-the-hole program: all types, the def-interface, and the two function signatures are written; the agent fills ONLY the two named body holes (clamp-to-word-body, find-account-body). The two target defs DELIBERATELY OMIT the optional DEF-RET `return_type` field on the def node: the harness agents consume this raw AST directly (they do not call `llmll checkout`), so the only way to withhold the return type from condition B is to keep it out of the AST. Condition A re-supplies it via the injected `expected_return_type` brief in problem.md (RETURN_TYPE_BRIEF_BLOCKS['005'] in prepare_run.py), faithfully rendering what `llmll checkout` would emit for a def carrying `-> Word` / `-> Result[Account, LookupError]`. A correct fill RE-ADDS `return_type` on each def (or otherwise produces a body whose result type matches the intended refinement/sum return) and discharges the §3.4.1 refinement-aliased-return obligation on clamp-to-word. The intended return types are non-obvious from the param list alone: clamp-to-word takes a plain `int` but must return the 16-bit-bounded refinement `Word`; find-account takes a `string` but must return `Result[Account, LookupError]`, not a bare `Account` or `string`.",
+  "_fixture_note": "DEF-RET A/B seed (experiment 005). Pre-authored fill-the-hole program: the supporting value types, the def-interface, and the two function signatures (parameter types only) are written; the agent fills ONLY the two named body holes (clamp-to-word-body, find-account-body). BLINDNESS INVARIANT (postmortem-010, fixing the validity bug postmortem-009 F-009.1 named but the shipped fixture violated): this seed MUST NOT name either hole's return type, because the harness agents consume this raw AST directly (they do not call `llmll checkout`) and both arms read it. Concretely: the two target defs omit the optional DEF-RET `return_type` field on the def node; the clamp hole's refinement-aliased return type is NOT pre-declared as a `type` in the seed; and no comment names the answer. Condition A (and ONLY condition A) supplies each hole's return type via the injected `expected_return_type` brief in problem.md (RETURN_TYPE_BRIEF_BLOCKS['005'] in prepare_run.py), faithfully rendering what `llmll checkout` would emit; condition B must infer the return type from the behavioral spec in problem.md plus the seeded value-type vocabulary. A correct fill DECLARES `return_type` on each def, ADDS the refinement-alias `type` the clamp return needs, and discharges the §3.4.1 refinement-aliased-return obligation. Scoring reads the SOLUTION's features, not the seed's (evaluate_run.py scan_features). CAVEAT: because the seed no longer declares the return, this A/B is a PROXY for the checkout brief (information-content of the field), not the ecologically-valid checkout-native loop — see postmortem-009 F-009.1.",
   "statements": [
-    {
-      "kind": "type-decl",
-      "name": "Word",
-      "body": {
-        "kind": "where",
-        "binding": "w",
-        "base_type": { "kind": "primitive", "name": "int" },
-        "predicate": {
-          "kind": "op",
-          "op": "and",
-          "args": [
-            {
-              "kind": "op",
-              "op": ">=",
-              "args": [
-                { "kind": "var", "name": "w" },
-                { "kind": "lit-int", "value": 0 }
-              ]
-            },
-            {
-              "kind": "op",
-              "op": "<=",
-              "args": [
-                { "kind": "var", "name": "w" },
-                { "kind": "lit-int", "value": 65535 }
-              ]
-            }
-          ]
-        }
-      }
-    },
     {
       "kind": "type-decl",
       "name": "Account",
