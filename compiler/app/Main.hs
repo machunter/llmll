@@ -57,7 +57,7 @@ import LLMLL.Diagnostic
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness)
 -- D4: liquid-fixpoint verification backend
-import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap)
+import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
@@ -1121,9 +1121,12 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
       -- render shows 'asserted' (no refuted info) by design — see the refuted
       -- proposal edge case 3.
       when (trustReport && not cdpFlag && not strictCore) $ do
-        -- v0.9.0: load .verified.json sidecar so trust report reflects solver results
-        sidecar <- loadVerified fp
-        let report = buildTrustReport _cache stmts sidecar
+        -- v0.9.0: the .verified.json sidecar makes the trust report reflect solver
+        -- results. Use the staleness-GATED 'entrySidecar' (line ~1108), not a fresh
+        -- raw reload — otherwise a stale verdict (e.g. a return-annotation or post
+        -- edit leaving body/pre identical) renders as live 'verified'. DEF-RET Unit 2
+        -- surfaced this pre-existing solver-less-display staleness bypass.
+        let report = buildTrustReport _cache stmts entrySidecar
         if json
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)
@@ -1326,17 +1329,21 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                                             -- admissible, so it carries no admission hash.
                                             hash = if tainted
                                                    then Nothing
-                                                   else Just (canonicalDefEvidenceHash body (contractPre c) (contractPost c))
+                                                   else Just (canonicalDefEvidenceHash body (contractPre c) (contractPost cAug))
                                         in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash))
-                                                (contractPost c)
+                                                (contractPost cAug)
                                    else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing))
-                                             (contractPost c)
+                                             (contractPost cAug)
                             -- Post verified only when body-faithful VC succeeded
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9
                         })
                     | s <- stmts
-                    , Just (n, _, _, c, body) <- [normalizeDefStmt s]
-                    , contractPre c /= Nothing || contractPost c /= Nothing
+                    , Just (n, _, mRet, c, body) <- [normalizeDefStmt s]
+                    -- DEF-RET Unit 2: fold the return refinement into the effective
+                    -- post so it is credited (csPost) and covered by the staleness
+                    -- hash. Post-only (the pre-side NIW hole is a separate ticket).
+                    , let cAug = augmentContractPost (buildAliasMap stmts) mRet c
+                    , contractPre c /= Nothing || contractPost cAug /= Nothing
                     ]
               -- TRUST-PRE (Part 2): persist the caller-obligation axis alongside
               -- the verified evidence. A 'requires' is a static contract

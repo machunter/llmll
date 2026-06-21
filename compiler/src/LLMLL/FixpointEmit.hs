@@ -55,6 +55,7 @@ module LLMLL.FixpointEmit
   , ContractEnv
   , buildContractEnv
   , buildContractEnvWithImports  -- v0.10 MOD-1
+  , augmentContractPost          -- DEF-RET Unit 2: return-refinement → effective post
   , buildSortEnv                 -- v0.10 (Language Team Correction 1)
   , applySubst
   , isConstructorDependent
@@ -171,14 +172,18 @@ buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
     -- contract's effective precondition, so call-pre obligations prove them at
     -- call sites (intro-side). Uses the alias map from the same statement set.
     am = buildAliasMap stmts
-    aug params c = augmentContractPre am params c
-    go (SDefLogic name params mRet contract _) = Just (name, (params, aug params contract, mRet))
-    go (SLetrec name params mRet contract _ _) = Just (name, (params, aug params contract, mRet))
+    -- DEF-RET Unit 2: fold the return refinement into the EXPORTED post (the
+    -- caller-assumable guarantee, consumed via assume-guarantee), the dual of
+    -- the param-refinement pre fold. Unconditional/syntactic; verdict-gating is
+    -- the downstream trust closure (refutedClosure / asserted-floor meet).
+    aug params mRet c = augmentContractPost am mRet (augmentContractPre am params c)
+    go (SDefLogic name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
+    go (SLetrec name params mRet contract _ _) = Just (name, (params, aug params mRet contract, mRet))
     -- LT-INV (v0.11)
-    go (SDef      name params mRet contract _) = Just (name, (params, aug params contract, mRet))
-    go (SDefShell name params mRet contract _) = Just (name, (params, aug params contract, mRet))
+    go (SDef      name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
+    go (SDefShell name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
     -- v0.12.1: def-invariant registers in the VC env identically to SDefLogic.
-    go (SDefInvariant name params mRet contract _) = Just (name, (params, aug params contract, mRet))
+    go (SDefInvariant name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
     go _ = Nothing
 
 -- | v0.10 MOD-1: Build a ContractEnv merging local contracts with imported
@@ -397,7 +402,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
   -- function's own effective precondition, so the body VC assumes them
   -- (elim-side). The intro-side (callers prove them) is handled via the
   -- augmented cenv in buildContractEnv.
-  let contract = augmentContractPre aliases params contract0
+  -- DEF-RET Unit 2: dually, fold a refinement-aliased RETURN into the effective
+  -- postcondition, so the body VC PROVES it (introduction, §3.4.1). A non-Σ_auto
+  -- return refinement makes the augmented post untranslatable → existing
+  -- mPostPred=Nothing fallback (the §3.4.5 firewall) — no special guard needed.
+  let contract = augmentContractPost aliases mRet (augmentContractPre aliases params contract0)
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isIntLike aliases t ]
@@ -498,22 +507,21 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
       Just body -> do
         -- Fallback policy (§0.7): require translatable post. If pre exists, it must
         -- also be translatable, otherwise fallback conservatively.
+        -- DEF-RET Unit 2: `contract` here already has the return refinement folded
+        -- into its post (augmentContractPost above), so a refinement-aliased return
+        -- is proven as part of the post goal. A non-Σ_auto return refinement makes
+        -- this post untranslatable → mPostPred=Nothing → fallback (§3.4.5 firewall),
+        -- exactly the Unit-1 conservative behavior, now via the existing path.
         let mPostPred = contractPost contract >>= exprToPred
             mPrePred  = case contractPre contract of
                           Nothing  -> Just Nothing       -- no pre is fine
                           Just pre -> case exprToPred pre of
                                         Nothing -> Nothing    -- pre exists but untranslatable → fallback
                                         Just p  -> Just (Just p)
-            -- DEF-RET Unit 1 (conservative): a refinement-aliased declared return is not
-            -- yet discharged as a body-VC obligation; fall back so the function is never
-            -- claimed `verified` on an unchecked return refinement (§3.4.5 firewall).
-            -- Unit 2 replaces this with an augmentContractPost-style introduction join.
-            retRefined = maybe False (not . null . resolveAllRefinements aliases) mRet
-        case (retRefined, mPostPred, mPrePred) of
-          (True, _, _) -> addBodyFallback name  -- refinement-aliased return → conservative fallback
-          (_, Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
-          (_, _, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
-          (_, Just postPred, Just mPre) -> do
+        case (mPostPred, mPrePred) of
+          (Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
+          (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
+          (Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
             let sortEnv = buildSortEnv aliases params
             -- Translate body
@@ -1372,6 +1380,32 @@ augmentContractPre am params c =
   where
     andPre Nothing  r = r
     andPre (Just p) r = EApp "and" [p, r]
+
+-- | DEF-RET Unit 2: the conjoined refinement predicate contributed by a
+-- refinement-aliased RETURN type, instantiated at @result@ (p[result/x]).
+-- Nothing if the return is unannotated or base-typed. The guarantee-side dual
+-- of 'paramRefinementPre': folded into the function's effective POSTcondition,
+-- so the existing post machinery discharges it both ways — proven in the body
+-- VC (introduction, §3.4.1) and assumed at call sites via assume-guarantee
+-- (elimination). Folds UNCONDITIONALLY (syntactic, pre-verdict, like a hand-
+-- written @post@ clause); verdict-gating (asserted floor / refuted exclusion)
+-- is the existing trust-closure machinery, not this fold.
+returnRefinementPost :: AliasMap -> Maybe Type -> Maybe Expr
+returnRefinementPost am mRet = case mRet of
+  Nothing -> Nothing
+  Just t  -> case [ renameVar x "result" p | (x, p) <- resolveAllRefinements am t ] of
+               []    -> Nothing
+               preds -> Just (foldr1 (\a b -> EApp "and" [a, b]) preds)
+
+-- | Fold the return refinement into a contract's postcondition (DEF-RET Unit 2).
+augmentContractPost :: AliasMap -> Maybe Type -> Contract -> Contract
+augmentContractPost am mRet c =
+  case returnRefinementPost am mRet of
+    Nothing    -> c
+    Just rpost -> c { contractPost = Just (andPost (contractPost c) rpost) }
+  where
+    andPost Nothing  r = r
+    andPost (Just p) r = EApp "and" [p, r]
 
 -- | F-NIW-2: bare-variable arguments passed to a measure-refined callee param,
 -- anywhere in an expression. These caller vars need carrier binders so the

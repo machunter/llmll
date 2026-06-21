@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -1388,6 +1388,39 @@ main = hspec $ do
               diags  = reportDiagnostics report
           any (\d -> T.isInfixOf "string" (diagMessage d) && T.isInfixOf "'h'" (diagMessage d)) diags
             `shouldBe` True
+
+    -- DEF-RET Unit 2: return-refinement discharge (augmentContractPost) + staleness coverage
+    it "DEF-RET Unit 2: augmentContractPost folds a refinement-aliased return into the post" $ do
+      let src = T.pack "(type PositiveInt (where [x: int] (> x 0)))\n(def f [x: int] -> PositiveInt (+ x 1))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let am = buildAliasMap stmts
+          case [ (mRet, c) | SDef _ _ mRet c _ <- stmts ] of
+            [(mRet, c)] -> contractPost (augmentContractPost am mRet c) `shouldNotBe` Nothing
+            _           -> expectationFailure "expected exactly one SDef"
+
+    it "DEF-RET Unit 2: augmentContractPost is a no-op for a base-type return" $ do
+      let src = T.pack "(def f [x: int] -> int (+ x 1))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let am = buildAliasMap stmts
+          case [ (mRet, c) | SDef _ _ mRet c _ <- stmts ] of
+            [(mRet, c)] -> contractPost (augmentContractPost am mRet c) `shouldBe` contractPost c
+            _           -> expectationFailure "expected exactly one SDef"
+
+    it "DEF-RET Unit 2: staleness hash covers the return refinement (-> PositiveInt /= -> int)" $ do
+      let parse s = parseStatements GrammarCoreInversion "<test>" (T.pack s)
+          hashOf stmts =
+            let am = buildAliasMap stmts
+            in [ canonicalDefEvidenceHash body (contractPre c)
+                   (contractPost (augmentContractPost am mRet c))
+               | SDef _ _ mRet c body <- stmts ]
+      case ( parse "(type PositiveInt (where [x: int] (> x 0)))\n(def f [x: int] -> PositiveInt (pre (>= x 0)) (+ x 1))"
+           , parse "(type PositiveInt (where [x: int] (> x 0)))\n(def f [x: int] -> int (pre (>= x 0)) (+ x 1))" ) of
+        (Right s1, Right s2) -> hashOf s1 `shouldNotBe` hashOf s2
+        _                    -> expectationFailure "parse failed"
 
     it "non-sketch check path unaffected: no holes recorded for concrete program" $ do
       let src = T.pack $ unlines

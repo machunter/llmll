@@ -47,6 +47,7 @@ import qualified Data.ByteString.Lazy.Char8 as BLC
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
 import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
+import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap)  -- DEF-RET Unit 2
 import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel)
 import LLMLL.AstEmit (exprToJson)
 
@@ -416,12 +417,18 @@ downgradeStaleVerifiedSidecar
 downgradeStaleVerifiedSidecar stmts =
   Map.foldlWithKey' step (Map.empty, [])
   where
-    -- Live (body, pre, post) hash per bare def name.
+    -- DEF-RET Unit 2: the staleness hash covers the return refinement folded into
+    -- the effective post (augmentContractPost), so editing a `-> RetType`
+    -- annotation (or redefining the alias predicate) invalidates a stale verified
+    -- sidecar. Must match the write-side basis (Main provenCS). Recompute is
+    -- same-module (alias map in scope), so the augmented hash is reproducible.
+    am = buildAliasMap stmts
+    -- Live (body, pre, augmented-post) hash per bare def name.
     liveHashes :: Map Name Text
     liveHashes = Map.fromList
-      [ (n, canonicalDefEvidenceHash body (contractPre c) (contractPost c))
+      [ (n, canonicalDefEvidenceHash body (contractPre c) (contractPost (augmentContractPost am mRet c)))
       | s <- stmts
-      , Just (n, _, _, c, body) <- [normalizeDefStmt s]
+      , Just (n, _, mRet, c, body) <- [normalizeDefStmt s]
       ]
 
     step (mAcc, dAcc) name cs =
@@ -490,20 +497,25 @@ collectAllContractStatus cache entryStmts =
       entryCS = Map.fromList $ mapMaybe extractCS entryStmts
   in Map.union entryCS cacheCS
   where
-    extractCS (SDefLogic name _ _ c _)  = mkCS name c
-    extractCS (SLetrec name _ _ c _ _)  = mkCS name c
+    extractCS (SDefLogic name _ mRet c _)  = mkCS name mRet c
+    extractCS (SLetrec name _ mRet c _ _)  = mkCS name mRet c
     -- LT-INV (v0.11)
-    extractCS (SDef      name _ _ c _)  = mkCS name c
-    extractCS (SDefShell name _ _ c _)  = mkCS name c
-    extractCS _                         = Nothing
-    mkCS name c
-      | contractPre c /= Nothing || contractPost c /= Nothing =
-          Just (name, ContractStatus
-            { csPre  = fmap mkER (contractPre c)
-            , csPost = fmap mkER (contractPost c)
-            , csAssumptions = []
-            })
-      | otherwise = Nothing
+    extractCS (SDef      name _ mRet c _)  = mkCS name mRet c
+    extractCS (SDefShell name _ mRet c _)  = mkCS name mRet c
+    extractCS _                            = Nothing
+    -- DEF-RET Unit 2: fold the return refinement into the effective post so a
+    -- bare `-> RetType` function (no explicit `post`) gets a csPost slot for the
+    -- sidecar's verified evidence to surface. Matches the write-side basis.
+    am = buildAliasMap entryStmts
+    mkCS name mRet c =
+      let cAug = augmentContractPost am mRet c
+      in if contractPre c /= Nothing || contractPost cAug /= Nothing
+           then Just (name, ContractStatus
+                  { csPre  = fmap mkER (contractPre c)
+                  , csPost = fmap mkER (contractPost cAug)
+                  , csAssumptions = []
+                  })
+           else Nothing
     -- LT-PPR (v0.11): populate predicate fields when clause is a
     -- predicate-carrying ?proof-required hole; otherwise use defaults.
     mkER :: Expr -> EvidenceRecord
