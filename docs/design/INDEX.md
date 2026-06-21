@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-06-06  
+> **Last updated:** 2026-06-20  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -38,6 +38,8 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [verify-reporting-defects-2026-06-04-bug.md](verify-reporting-defects-2026-06-04-bug.md) | Three verify-path reporting defects: fail-open on UNSAFE; `--trust-report` cannot show `verified` | **Resolved** — VERIFY-RPT-1 shipped (`b914587`) |
 | [verified-contract-refuted-status-proposal.md](verified-contract-refuted-status-proposal.md) | Solver-SAFE conjunct on `verified`/strict-core; `refuted` as orthogonal trust status | **Settled (Rev 2) → Shipped** (`b914587`); promoted to LLMLL.md §3.4.3/§5.3.4/§4.4/§5.3.5 |
 | [compositional-trust-closure-proposal.md](compositional-trust-closure-proposal.md) | DEMO-COMP: surfaces shipped v0.9.0 assume-guarantee as verified call edges; `consumed_guarantees` channel; call-site obligation | **Rev 4 — VIABLE (§0)** — composition reaches `verified` (CLI-confirmed); infra green; §10 fixture needs Rev-5 reshape onto working shapes; DEFECT-1/2/3 open |
+| [proof-artifact-proposal.md](proof-artifact-proposal.md) | PROOF-ARTIFACT: unified reproducible verification artifact consolidating trust/obligation/`.fq`/sidecar surface | **Proposed (Rev 2)** — professor review folded ([proof-artifact-review.md](proof-artifact-review.md)); awaiting settlement |
+| [def-return-annotation-proposal.md](def-return-annotation-proposal.md) | DEF-RET: optional return-type annotation on def/def-shell; closes §3.4.6-vs-grammar drift | **Settled (Rev 2)** — professor review folded; awaiting engineer (unblocks OBLIG-1-FOLLOWON) |
 | [admit-verified-callee-proposal.md](admit-verified-callee-proposal.md) | ADMIT-VERIFIED: strict-core `def` admission of independently-verified callees; wiring gap, not soundness | **Rev 2 — Option 2 BUILT, green (884)** — admissibility wall FIXED; composition reaches `verified`; see §0 |
 | [precondition-tier-proposal.md](precondition-tier-proposal.md) | TRUST-PRE (DEFECT-1): does a precondition floor a function's trust tier? `meet(csPre,csPost)` floors every pre-bearing fn to `asserted` | **BUILT & COMPLETE** — Position B (incl. callee meet) + persisted `caller_obligations` axis; 893 green; demo re-script in progress |
 | [cross-module-composition-finding.md](cross-module-composition-finding.md) | XMOD-COMP: cross-module verified composition is a 5-layer gap; admission/type-alias/tier-edge fixed, body-VC-emission + callee_tier open | **Finding — partially fixed, deliberately stopped** — same-module works; tracked as a scoped project (not a demo blocker) |
