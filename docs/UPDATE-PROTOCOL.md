@@ -38,7 +38,7 @@ When a change does not appear in the matrix, the actor pauses and asks `language
 - `docs/archive/shipped-design-specs/` — proposals whose feature has shipped and is not actively referenced
 - `docs/archive/professor-reviews/` *(new — M2)* — standalone review files after fold
 - `docs/archive/wasm-investigations/` *(new — M4)* — `wasm-poc-report.md`, `effectful-wasm-spike.md`
-- `docs/archive/roadmap-history/` *(new — only if M5 large-cut)* — shipped-version narrative
+- `docs/archive/roadmap-shipped-history.md` *(M5 large-cut — DONE 2026-06-21)* — detailed per-version shipped history split out of `compiler-team-roadmap.md`; the live roadmap keeps a compact one-line-per-version `## Shipped Releases` summary that links into this file
 
 When `docs/archive/shipped-design-specs/` crosses ~20 entries (currently 11; threshold forward-looking after the v0.11-cluster archive sweep), sub-categorize by version-shipped (`v0.6/`, `v0.8/`, `v0.9/`, `v0.10/`, `v0.11/`) and add `docs/archive/dormant-explorations/` for docs judged stale-but-not-shipped (distinguishes "shipped-and-archived" from "explored-and-dropped" semantics). Defer until threshold; flagged here so the move is ready when the count justifies it.
 

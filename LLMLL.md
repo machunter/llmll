@@ -259,7 +259,7 @@ Any base type can be constrained by a predicate using `(where [binding: base] pr
 Refinement type alias constraints are **checked at compile time**: the constraint expression is type-checked with the binding variable in scope. The type checker expands type aliases structurally at call sites — passing a `string` literal where a `Word` (defined as `where [s: string] ...`) is expected works correctly. Compile-time SMT verification of constraint *values* is performed by `llmll verify`. See §5.3.5 for a precise matrix of which constructs are verified at each level.
 
 > [!NOTE]
-> **Obligation-guided agent coding (v0.10, shipped).** LLMLL v0.10.0 provides the Idris workflow *feel* — goal-directed construction from rich obligations — through structured obligation reports that expose type, contract, and trust obligations to agents. `llmll verify --obligation-report` emits a JSON report with three channels per obligation, repair suggestions, and function lists. See [compiler-team-roadmap.md](docs/compiler-team-roadmap.md) § v0.10.
+> **Obligation-guided agent coding (v0.10, shipped).** LLMLL v0.10.0 provides the Idris workflow *feel* — goal-directed construction from rich obligations — through structured obligation reports that expose type, contract, and trust obligations to agents. `llmll verify --obligation-report` emits a JSON report with three channels per obligation, repair suggestions, and function lists. See the [Shipped Releases](docs/compiler-team-roadmap.md#shipped-releases) summary (v0.10) and the [detailed v0.10 history](docs/archive/roadmap-shipped-history.md#v010--obligation-guided-agent-coding--shipped).
 
 #### 3.4.1 Checking-mode inference rule (REF-META-1)
 
@@ -290,7 +290,7 @@ Introduction emits an obligation; elimination introduces a hypothesis. The pair 
 
 #### 3.4.2 Non-goals (exhaustive for v0.11)
 
-The following features are **deliberately absent** from LLMLL's refinement surface for v0.11. The list is closed; any addition requires explicit team consensus with a written soundness argument per [`docs/compiler-team-roadmap.md:33-36`](docs/compiler-team-roadmap.md).
+The following features are **deliberately absent** from LLMLL's refinement surface for v0.11. The list is closed; any addition requires explicit team consensus with a written soundness argument per the [What's NOT on this Roadmap](docs/compiler-team-roadmap.md#whats-not-on-this-roadmap-and-why) and [Feature Freeze Policy](docs/compiler-team-roadmap.md#feature-freeze-policy) sections.
 
 1. **No general refinement subtyping (`<:`).** LLMLL has no user-visible subtyping relation between refinement-aliased types. Refinement aliases interact only via the checking-mode rule (§3.4.1), which generates obligations at concrete introduction sites. This is operationally equivalent to Liquid Haskell's subtyping formulation at introduction sites (both produce the same obligation `p[e/x]`) — see Vazou et al. *Refinement Types for Haskell*, POPL 2014 — but the narrower surface pre-empts the closure of abstract, parametric, and bounded refinements that the broader subtyping framing invites.
 

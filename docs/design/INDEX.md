@@ -88,3 +88,4 @@ Historical design documents from shipped or superseded sources are in [`../archi
 | `v0.3-plan/` | Delegate lifecycle, stratified verification briefs | v0.3 (shipped) |
 | `v0.3.1-plan/` | Compiler + professor implementation plans | v0.3.1 (shipped) |
 | `research-track.md` (file) | Original research-track doc; R1–R7 migrated into roadmap research-track section | Post-DOC-CONSOLIDATE M4 |
+| `roadmap-shipped-history.md` (file) | Detailed per-version shipped history (v0.1.2 → v0.12) split out of `compiler-team-roadmap.md`; live roadmap keeps a compact `## Shipped Releases` summary | Post-DOC-CONSOLIDATE M5 (large-cut, 2026-06-21) |
