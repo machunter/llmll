@@ -196,6 +196,9 @@ pDef = do
             lexeme' (string "def" <* notFollowedBy (char '-' <|> alphaNumChar <|> char '_')))
   name <- pIdent
   params <- brackets (many pDefParam)
+  -- DEF-RET (v0.13.x): optional return-type annotation after the param brackets,
+  -- before contract clauses. Absent → Nothing (inferred), byte-identical to pre-DEF-RET.
+  mRet <- optional (try (pArrowSym *> pType))
   preClauses <- many (try pPreClause)
   postClause <- optional (try pPostClause)
   mEntropy <- optional (try pSpecEntropyClause)
@@ -209,7 +212,7 @@ pDef = do
       (mPost, mPostSrc) = case postClause of
                Nothing     -> (Nothing, Nothing)
                Just (p, s) -> (Just p, s)
-  pure $ SDef name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  pure $ SDef name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | LT-INV (v0.11): Parse (def-shell name [params] (pre ...) (post ...) body) — permissive.
 pDefShell :: Parser Statement
@@ -217,6 +220,8 @@ pDefShell = do
   _ <- try (symbol "(" *> symbol "def-shell")
   name <- pIdent
   params <- brackets (many pDefParam)
+  -- DEF-RET (v0.13.x): optional return-type annotation (see pDef).
+  mRet <- optional (try (pArrowSym *> pType))
   preClauses <- many (try pPreClause)
   postClause <- optional (try pPostClause)
   mEntropy <- optional (try pSpecEntropyClause)
@@ -230,7 +235,7 @@ pDefShell = do
       (mPost, mPostSrc) = case postClause of
                Nothing     -> (Nothing, Nothing)
                Just (p, s) -> (Just p, s)
-  pure $ SDefShell name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.

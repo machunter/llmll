@@ -790,10 +790,16 @@ checkStatement (SDef name params mRet contract body) = do
           [mkCoreGrammarViolation name "lambda, do, await, non-linear arithmetic, or unrestricted match"] }
   withFunctionContext name False $ withCoreMode $ do
     withTaggedEnv SrcParam params $ do
-      bodyType <- withSegment "body" (inferExpr body)
-      case mRet of
-        Nothing -> pure ()
-        Just retTy -> unify name retTy bodyType
+      -- REF-META-5 Check-Hole at the return position (§3.4.6): a bare named-hole
+      -- body records HoleTyped retTy instead of HoleUnknown. Every other body
+      -- keeps infer-then-unify, preserving the name-attributed return mismatch.
+      bodyType <- case (mRet, body) of
+        (Just retTy, EHole (HNamed _)) -> retTy <$ withSegment "body" (checkExpr body retTy)
+        (Just retTy, _)                -> do
+          t <- withSegment "body" (inferExpr body)
+          unify name retTy t
+          pure t
+        (Nothing, _)                   -> withSegment "body" (inferExpr body)
       case contractPre contract of
         Nothing -> pure ()
         Just pre -> do
@@ -817,10 +823,13 @@ checkStatement (SDef name params mRet contract body) = do
 checkStatement (SDefShell name params mRet contract body) = do
   withFunctionContext name False $ do
     withTaggedEnv SrcParam params $ do
-      bodyType <- withSegment "body" (inferExpr body)
-      case mRet of
-        Nothing -> pure ()
-        Just retTy -> unify name retTy bodyType
+      bodyType <- case (mRet, body) of
+        (Just retTy, EHole (HNamed _)) -> retTy <$ withSegment "body" (checkExpr body retTy)
+        (Just retTy, _)                -> do
+          t <- withSegment "body" (inferExpr body)
+          unify name retTy t
+          pure t
+        (Nothing, _)                   -> withSegment "body" (inferExpr body)
       case contractPre contract of
         Nothing -> pure ()
         Just pre -> do

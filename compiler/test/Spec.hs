@@ -1349,6 +1349,46 @@ main = hspec $ do
             Nothing -> expectationFailure "?isolated hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleUnknown
 
+    -- DEF-RET: optional return-type annotation on def/def-shell (v0.7.0 schema)
+    it "DEF-RET: S-expr parses optional '-> T' into mRet" $ do
+      case parseStatements GrammarCoreInversion "<test>" (T.pack "(def f [x: int] -> int x)") of
+        Left err                  -> expectationFailure (show err)
+        Right [SDef _ _ mRet _ _] -> mRet `shouldBe` Just TInt
+        Right _                   -> expectationFailure "expected a single SDef"
+
+    it "DEF-RET: no annotation parses to Nothing (backward-compat)" $ do
+      case parseStatements GrammarCoreInversion "<test>" (T.pack "(def g [x: int] x)") of
+        Left err                  -> expectationFailure (show err)
+        Right [SDef _ _ mRet _ _] -> mRet `shouldBe` Nothing
+        Right _                   -> expectationFailure "expected a single SDef"
+
+    it "DEF-RET: bare-hole body under declared return is HoleTyped" $ do
+      case parseStatements GrammarCoreInversion "<test>" (T.pack "(def f [x: int] -> int ?body)") of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
+          case findHole "?body" result of
+            Nothing -> expectationFailure "?body hole not recorded"
+            Just h  -> shStatus h `shouldBe` HoleTyped TInt
+
+    it "DEF-RET: bare-hole body without annotation stays HoleUnknown" $ do
+      case parseStatements GrammarCoreInversion "<test>" (T.pack "(def g [x: int] ?body)") of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
+          case findHole "?body" result of
+            Nothing -> expectationFailure "?body hole not recorded"
+            Just h  -> shStatus h `shouldBe` HoleUnknown
+
+    it "DEF-RET: declared return mismatch errors, attributed to the function name" $ do
+      case parseStatements GrammarCoreInversion "<test>" (T.pack "(def-shell h [x: int] -> string (+ x 1))") of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
+              diags  = reportDiagnostics report
+          any (\d -> T.isInfixOf "string" (diagMessage d) && T.isInfixOf "'h'" (diagMessage d)) diags
+            `shouldBe` True
+
     it "non-sketch check path unaffected: no holes recorded for concrete program" $ do
       let src = T.pack $ unlines
             [ "(def-shell id-str [s: string]"

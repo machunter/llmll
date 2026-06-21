@@ -23,6 +23,7 @@ module LLMLL.Sketch
   , runSketch
     -- Encoding
   , encodeSketchResult
+  , inferredTypeLabel
   ) where
 
 import Data.Aeson (encode, object, (.=))
@@ -90,6 +91,14 @@ inferredTypeJson :: HoleStatus -> A.Value
 inferredTypeJson (HoleTyped t)       = A.String (typeLabel t)
 inferredTypeJson (HoleAmbiguous _ _) = A.Null
 inferredTypeJson HoleUnknown         = A.Null
+
+-- | DEF-RET / OBLIG-1-FOLLOWON: text counterpart of 'inferredTypeJson' — the hole's
+-- inferred type as a type label, or Nothing when indeterminate. Consumed by the
+-- checkout brief's expected_return_type (Main.hs checkout assembly).
+inferredTypeLabel :: HoleStatus -> Maybe T.Text
+inferredTypeLabel (HoleTyped t)       = Just (typeLabel t)
+inferredTypeLabel (HoleAmbiguous _ _) = Nothing
+inferredTypeLabel HoleUnknown         = Nothing
 
 errToJson :: Diagnostic -> A.Value
 errToJson d = object $

@@ -60,7 +60,7 @@ import LLMLL.Diagnostic
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
-import LLMLL.Sketch (encodeSketchResult)
+import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, collectTypeDefinitions, normalizePointer)
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
@@ -1663,10 +1663,10 @@ doCheckout json gm fp pointer = do
       -- typecheck cost. On parse/load failure we proceed with an empty brief;
       -- checkout still acquires the lock.
       let normPtr = normalizePointer pointer
-      (mScope, mTypeDefs, mPre, mPost, mPath, mFuncs, mConsumed) <- do
+      (mScope, mTypeDefs, mPre, mPost, mPath, mFuncs, mConsumed, mExpRet) <- do
         mStmts <- loadStatementsMulti json gm fp
         case mStmts of
-          Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
+          Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
           Right (stmts, _cache, _) -> do
             let sketch = runSketch gm builtinEnv stmts defaultPatterns
                 mHole  = case [ h | h <- sketchHoles sketch
@@ -1674,6 +1674,9 @@ doCheckout json gm fp pointer = do
                            (h:_) -> Just h
                            []    -> Nothing
                 scope  = fmap (buildScopeEntries . shEnv) mHole
+                -- DEF-RET / OBLIG-1-FOLLOWON: the hole's inferred type (now carrying
+                -- the declared return for a bare body hole) → expected_return_type.
+                expRet = mHole >>= (inferredTypeLabel . shStatus)
                 holeNm = maybe "" shName mHole
                 (pre, post, path) = holeContractBrief stmts normPtr holeNm
                 tdefs  = case mHole of
@@ -1717,10 +1720,11 @@ doCheckout json gm fp pointer = do
                  , if null path then Nothing else Just path
                  , if null funcs then Nothing else Just funcs
                  , if null consumed then Nothing else Just consumed
+                 , expRet
                  )
       let ctx = CheckoutContext
             { ccScope          = mScope
-            , ccExpectedReturn = Nothing  -- best-effort: SketchHole carries no inferred type
+            , ccExpectedReturn = mExpRet  -- DEF-RET: hole's inferred/declared return type
             -- DEMO-COMP (seam 5): contracted-user vocabulary with pre/post/tier.
             , ccFunctions      = mFuncs
             , ccTypeDefs       = mTypeDefs

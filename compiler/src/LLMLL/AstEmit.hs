@@ -75,26 +75,28 @@ stmtToJson (SDefLogic name _ _ _ _) =
        ++ "def-invariant is SDefInvariant)"
 
 -- LT-INV (v0.11): SDef emits {"kind":"def",...} and SDefShell emits {"kind":"def-shell",...}.
-stmtToJson (SDef name params _ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
+stmtToJson (SDef name params ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
   object $
     [ "kind"   .= ("def" :: Text)
     , "name"   .= name
     , "params" .= map typedParamToJson params
     , "body"   .= exprToJson body
     ] ++
+    maybe [] (\t -> ["return_type" .= typeToJson t]) ret ++  -- DEF-RET: emit only when present
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
     maybe [] (\s -> ["pre_source" .= s]) _preSource ++
     maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
     maybe [] (\s -> ["post_source" .= s]) _postSource ++
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
-stmtToJson (SDefShell name params _ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
+stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
   object $
     [ "kind"   .= ("def-shell" :: Text)
     , "name"   .= name
     , "params" .= map typedParamToJson params
     , "body"   .= exprToJson body
     ] ++
+    maybe [] (\t -> ["return_type" .= typeToJson t]) ret ++  -- DEF-RET: emit only when present
     maybe [] (\e -> ["pre"  .= exprToJson e]) mPre  ++
     maybe [] (\s -> ["pre_source" .= s]) _preSource ++
     maybe [] (\e -> ["post" .= exprToJson e]) mPost ++

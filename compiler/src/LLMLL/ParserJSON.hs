@@ -39,8 +39,16 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- v0.10.2: bumped from 0.3.0 to 0.4.0 to signal identifier-shape regex
 -- constraints on ExprApp.fn and ExprQualApp.qual_fn.
 -- v0.11 LT-INV: bumped from 0.5.0 to 0.6.0; gate confirmed EL-5 2026-05-30.
+-- DEF-RET (v0.13.x): bumped 0.6.0 → 0.7.0 for the optional return_type field on def/def-shell.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.6.0"
+expectedSchemaVersion = "0.7.0"
+
+-- | Versions the reader accepts. DEF-RET's return_type is additive-optional, so a 0.6.0
+-- document (return_type absent) is a valid 0.7.0 one — accept both for backward-compatible
+-- reads. Emission stamps 'expectedSchemaVersion'. Grammar discipline (e.g. def-logic
+-- rejection) is enforced separately by GrammarMode, independent of this set.
+acceptedSchemaVersions :: [Text]
+acceptedSchemaVersions = ["0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -108,11 +116,11 @@ parseJSONASTValue mode val =
 parseProgram :: GrammarMode -> FilePath -> Value -> Parser [Statement]
 parseProgram mode _fp = withObject "Program" $ \o -> do
   sv <- o .: "schemaVersion" :: Parser Text
-  if sv /= expectedSchemaVersion
+  if sv `notElem` acceptedSchemaVersions
     then fail $
-      "schema-version-mismatch: expected '"
-      ++ T.unpack expectedSchemaVersion
-      ++ "', got '"
+      "schema-version-mismatch: expected one of "
+      ++ show acceptedSchemaVersions
+      ++ ", got '"
       ++ T.unpack sv
       ++ "' (see docs/json-ast-versioning.md)"
     else do
@@ -214,8 +222,9 @@ parseDefCore o = do
   mPost    <- o .:? "post"        >>= mapM parseExpr
   mPostSrc <- o .:? "post_source"
   mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
+  mRet     <- o .:? "return_type" >>= mapM parseType
   body     <- o .: "body"         >>= parseExpr
-  pure $ SDef name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  pure $ SDef name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | LT-INV (v0.11): parse {"kind":"def-shell",...} into SDefShell (permissive).
 parseDefShellJSON :: Object -> Parser Statement
@@ -227,8 +236,9 @@ parseDefShellJSON o = do
   mPost    <- o .:? "post"        >>= mapM parseExpr
   mPostSrc <- o .:? "post_source"
   mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
+  mRet     <- o .:? "return_type" >>= mapM parseType
   body     <- o .: "body"         >>= parseExpr
-  pure $ SDefShell name params Nothing (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
 
 -- | LT-CDP (v0.11): decode the optional `spec_entropy` field on a JSON-AST
 -- contract object. Strict — unknown labels are a parse error rather than a

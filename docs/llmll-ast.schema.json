@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.6/ast.schema.json",
+  "$id": "https://llmll.dev/schemas/v0.7/ast.schema.json",
   "title": "LLMLL v0.6 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.6.0'; the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.7.0'; the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.6.0'. The compiler rejects files with an unrecognised version. v0.6.0 is the canonical version for v0.11 .ast.json files; kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default). LT-INV §8 gate confirmed EL-5 2026-05-30; grammar default flipped to GrammarCoreInversion.",
+          "description": "Must be '0.7.0'. The compiler rejects files with an unrecognised version. v0.7.0 is the canonical version (DEF-RET: optional return_type on def/def-shell; was 0.6.0 in v0.11); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default). LT-INV §8 gate confirmed EL-5 2026-05-30; grammar default flipped to GrammarCoreInversion.",
           "type": "string",
-          "const": "0.6.0"
+          "const": "0.7.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -53,12 +53,13 @@
     },
 
     "DefCore": {
-      "description": "A strict-core function with optional pre/post contracts. Corresponds to EBNF 'def'. Kind must be exactly 'def'. Body is restricted to the core-body whitelist (ELit, EVar, QF-LIA EOp, ELet with PVar, EIf under path-limit, EApp to body-faithful or trusted-prelude callees, EMatch on Result 2-arm, ?hole/?name/?choose/?request-cap/?scaffold/?delegate/?delegate-async). Excluded: lambda, letrec, do-notation, ?proof-required, non-linear arithmetic, opaque crypto, untrusted FFI. Self-recursion is excluded — use def-shell for recursive functions. Return type is always inferred — omit it. Under GrammarCoreInversion (default since v0.11), this is the standard form for high-assurance functions eligible for body-faithful SMT verification. LT-INV v0.11.",
+      "description": "A strict-core function with optional pre/post contracts. Corresponds to EBNF 'def'. Kind must be exactly 'def'. Body is restricted to the core-body whitelist (ELit, EVar, QF-LIA EOp, ELet with PVar, EIf under path-limit, EApp to body-faithful or trusted-prelude callees, EMatch on Result 2-arm, ?hole/?name/?choose/?request-cap/?scaffold/?delegate/?delegate-async). Excluded: lambda, letrec, do-notation, ?proof-required, non-linear arithmetic, opaque crypto, untrusted FFI. Self-recursion is excluded — use def-shell for recursive functions. Return type is optional (DEF-RET): declare return_type to type a body hole and check the body against it; omit to infer. Under GrammarCoreInversion (default since v0.11), this is the standard form for high-assurance functions eligible for body-faithful SMT verification. LT-INV v0.11.",
       "type": "object",
       "required": ["kind", "name", "params", "body"],
       "additionalProperties": false,
       "properties": {
         "kind":         { "type": "string", "const": "def" },
+        "return_type":  { "$ref": "#/$defs/Type", "description": "DEF-RET (v0.7.0): optional declared return type. When present, a body hole is typed against it and the body is checked against it; a refinement-aliased return adds the §3.4.1 obligation. Omit to infer." },
         "name":         { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
         "params": {
           "type": "array",
@@ -110,12 +111,13 @@
     },
 
     "DefShell": {
-      "description": "A permissive-shell function with optional pre/post contracts. Corresponds to EBNF 'def-shell'. Kind must be exactly 'def-shell'. Admits the full body language: lambda, self-recursive calls, wasi.* capability calls, do-notation, ?proof-required, and arbitrary user-function calls. Verified at the contract tier (pre/post contract-only proof) rather than body-faithful SMT. Use for recursive algorithms, effectful computations, and any body form excluded from the strict-core whitelist. Return type is always inferred — omit it. LT-INV v0.11.",
+      "description": "A permissive-shell function with optional pre/post contracts. Corresponds to EBNF 'def-shell'. Kind must be exactly 'def-shell'. Admits the full body language: lambda, self-recursive calls, wasi.* capability calls, do-notation, ?proof-required, and arbitrary user-function calls. Verified at the contract tier (pre/post contract-only proof) rather than body-faithful SMT. Use for recursive algorithms, effectful computations, and any body form excluded from the strict-core whitelist. Return type is optional (DEF-RET): declare return_type to type a body hole and check the body against it; omit to infer. LT-INV v0.11.",
       "type": "object",
       "required": ["kind", "name", "params", "body"],
       "additionalProperties": false,
       "properties": {
         "kind":         { "type": "string", "const": "def-shell" },
+        "return_type":  { "$ref": "#/$defs/Type", "description": "DEF-RET (v0.7.0): optional declared return type. Same semantics as on DefCore." },
         "name":         { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
         "params": {
           "type": "array",

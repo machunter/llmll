@@ -504,10 +504,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                           Just pre -> case exprToPred pre of
                                         Nothing -> Nothing    -- pre exists but untranslatable → fallback
                                         Just p  -> Just (Just p)
-        case (mPostPred, mPrePred) of
-          (Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
-          (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
-          (Just postPred, Just mPre) -> do
+            -- DEF-RET Unit 1 (conservative): a refinement-aliased declared return is not
+            -- yet discharged as a body-VC obligation; fall back so the function is never
+            -- claimed `verified` on an unchecked return refinement (§3.4.5 firewall).
+            -- Unit 2 replaces this with an augmentContractPost-style introduction join.
+            retRefined = maybe False (not . null . resolveAllRefinements aliases) mRet
+        case (retRefined, mPostPred, mPrePred) of
+          (True, _, _) -> addBodyFallback name  -- refinement-aliased return → conservative fallback
+          (_, Nothing, _) -> addBodyFallback name  -- no translatable post → fallback
+          (_, _, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
+          (_, Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
             let sortEnv = buildSortEnv aliases params
             -- Translate body

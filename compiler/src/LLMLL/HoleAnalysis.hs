@@ -161,18 +161,25 @@ collectHolesStmtIdx idx (SDefInvariant name params ret contract body) =
 collectHolesStmtIdx _idx (SDefInterface _ _ _) = []
 
 -- LT-INV (v0.11): SDef and SDefShell collect holes identically to SDefLogic.
-collectHolesStmtIdx idx (SDef name _params _ret contract body) =
+collectHolesStmtIdx idx (SDef name _params ret contract body) =
   let base = "statements/" <> tshow idx
       ctx  = "def " <> name
-      bodyHoles = collectHolesExprPath (base <> "/body") ctx body
+      -- DEF-RET: a bare named-hole body under a declared return type carries that
+      -- type (mirrors the checker's Check-Hole-at-return); else local context.
+      bodyHoles = case (body, ret) of
+                    (EHole hk@(HNamed _), Just t) -> [classifyHoleP (base <> "/body") ctx (Just t) hk]
+                    _ -> collectHolesExprPath (base <> "/body") ctx body
       preHoles  = maybe [] (collectHolesExprPath (base <> "/pre") (ctx <> " [pre]"))  (contractPre contract)
       postHoles = maybe [] (collectHolesExprPath (base <> "/post") (ctx <> " [post]")) (contractPost contract)
   in bodyHoles ++ preHoles ++ postHoles
 
-collectHolesStmtIdx idx (SDefShell name _params _ret contract body) =
+collectHolesStmtIdx idx (SDefShell name _params ret contract body) =
   let base = "statements/" <> tshow idx
       ctx  = "def-shell " <> name
-      bodyHoles = collectHolesExprPath (base <> "/body") ctx body
+      -- DEF-RET: bare named-hole body under a declared return carries that type.
+      bodyHoles = case (body, ret) of
+                    (EHole hk@(HNamed _), Just t) -> [classifyHoleP (base <> "/body") ctx (Just t) hk]
+                    _ -> collectHolesExprPath (base <> "/body") ctx body
       preHoles  = maybe [] (collectHolesExprPath (base <> "/pre") (ctx <> " [pre]"))  (contractPre contract)
       postHoles = maybe [] (collectHolesExprPath (base <> "/post") (ctx <> " [post]")) (contractPost contract)
   in bodyHoles ++ preHoles ++ postHoles
