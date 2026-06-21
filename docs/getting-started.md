@@ -1423,7 +1423,7 @@ llmll verify myfile.llmll --trust-report          # core-inversion by default
 
 `letrec` is **not accepted** under the default `GrammarCoreInversion` mode; the compiler emits `core-grammar-violation` and exits non-zero. `def-logic` is rejected under **all** modes with a `removed-construct` diagnostic (removed in v0.12.1, no auto-rewrite). Use `def` for strict-core functions and `def-shell` for permissive functions. Pass `--grammar=legacy` to parse v0.10 `letrec` programs; under legacy, `def` and `def-shell` are not available.
 
-**Optional return-type annotation (DEF-RET, v0.13.1):**
+**Optional return-type annotation (DEF-RET, v0.13.1; discharge v0.13.2):**
 Both `def` and `def-shell` accept an optional `-> RetType` immediately after the parameter brackets, before the contract clauses. Omit it and the return type is inferred (byte-identical to prior behavior); declare it and the body is checked against `RetType` — and a function-body hole then reports `RetType` as its `expected_return_type` in the checkout brief (otherwise that field is absent on a body hole):
 
 ```lisp
@@ -1432,6 +1432,8 @@ Both `def` and `def-shell` accept an optional `-> RetType` immediately after the
   (post (= result (- balance amount)))
   ?body_impl)
 ```
+
+A **refinement-aliased return** (`-> PositiveInt`) now **discharges** (DEF-RET Unit 2, v0.13.2): the body-VC proves the refinement, so the function reaches `verified` when the predicate is solver-supported (`Σ_auto`) — instead of the prior conservative fallback off `verified` — and is `refuted` if the body violates it. The proven refinement is also **exported to callers**: a caller of `f : -> PositiveInt` may assume `result > 0` without re-proving it (assume-guarantee). A bare `-> RetType` function with no explicit `post` is now credited `verified` in the trust report.
 
 **Known restrictions:**
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.

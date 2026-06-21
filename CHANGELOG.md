@@ -4,6 +4,26 @@
 
 <a id="Latest"></a>
 
+## v0.13.2 — Return-Refinement Discharge (DEF-RET Unit 2) (2026-06-21)
+
+### Compiler — a refinement-aliased return now discharges (DEF-RET Unit 2)
+
+- **A refinement-aliased return (`-> PositiveInt`) folds into the function's effective postcondition** (commit [`0b27be5`](compiler/src/LLMLL/FixpointEmit.hs)) via a new `augmentContractPost` — the guarantee-side dual of the existing `augmentContractPre`. The body-VC now **proves** the return refinement: the function reads `verified` when the predicate is `Σ_auto` and the body-VC is SAFE, `refuted` when the body violates it, and `erBodyFallback` (asserted) when the predicate is non-`Σ_auto` (the §3.4.5 firewall, now reached via the existing untranslatable-post fallback rather than a special guard). This replaces the Unit-1 conservative "always fall back on a refinement-aliased return" behavior.
+- **The return refinement is exported as a caller-assumable guarantee.** It is folded into the effective post in `buildContractEnv`, so a caller of `f : -> PositiveInt` may assume `result > 0` via assume-guarantee (the §3.4.1 elimination at the call site). The composed tier rides the existing §5.3.4 meet: a `verified` callee composes to a `verified` caller, an `asserted` callee floors the caller, and a `refuted` callee is not assumable.
+- **A bare `-> RetType` function (no explicit `post`) is now credited `verified`** in the trust report (previously `asserted`) — the return refinement gives such a function a `csPost` slot for the sidecar's verified evidence to surface.
+
+### Compiler — soundness: staleness hash covers the augmented contract
+
+- **The staleness hash (`canonicalDefEvidenceHash`) now covers the *augmented* contract** on write (`Main` `provenCS`) and on same-module revalidate (`TrustReport` `liveHashes` / `collectAllContractStatus`). Editing a `-> RetType` annotation, or redefining an alias's predicate, now invalidates a stale `verified` sidecar — closing a cache-poisoning hole. The same change closes the pre-existing **param-side NIW** staleness hole. Recompute is same-module (alias map in scope), so the augmented hash is reproducible; there is no cross-module recompute site (professor-confirmed, [`def-ret-staleness-hash-review.md`](docs/design/def-ret-staleness-hash-review.md)).
+- **One-time consequence:** every existing v0.13.1 `.verified.json` sidecar is one-time stale on upgrade and regenerates on the next verify (fail-closed demote-to-reverify, benign).
+- **Fixed a pre-existing staleness bypass:** the solver-less `--trust-report` reloaded a raw sidecar (`loadVerified`) instead of the staleness-gated one (`entrySidecar`), so it would have rendered a stale `verified` for a `post`-clause (or return-annotation) edit too. Now staleness-gated.
+
+### Notes
+
+- **No schema change.** JSON-AST `schemaVersion` stays `0.7.0`; `trust_report_version` stays `1.4.0`; obligation-report `orSchemaVersion` stays `0.12.1`. (Design: [`def-return-annotation-proposal.md`](docs/design/def-return-annotation-proposal.md), Rev 3.)
+
+**Tests: 905 → 908 Haskell (+3 DEF-RET Unit 2); 62 Python unchanged.**
+
 ## v0.13.1 — Optional Return-Type Annotation (DEF-RET / OBLIG-1-FOLLOWON) (2026-06-21)
 
 ### Compiler — `def` / `def-shell` accept an optional `-> RetType` (DEF-RET)
