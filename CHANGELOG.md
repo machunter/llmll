@@ -2,6 +2,14 @@
 
 ---
 
+## Unreleased
+
+### Compiler — fix: liquid-fixpoint ADT declarations no longer crash on user sum types
+
+- **`.fq` ADT (`data`) declarations now emit with source-case type names and `| ctor { }` constructor syntax** ([`FixpointIR.hs`](compiler/src/LLMLL/FixpointIR.hs)). `emitDataDecl` previously produced `data <lowercase> = [ctor 0 | …]`, which liquid-fixpoint rejects on two counts — the type-name position requires an uppercase identifier, and constructors require `| ctor { }` form — so any program containing a user sum type (`(type T (| A) (| B) …)`) crashed the solver with a `.fq` parse error instead of verifying body-faithfully. **No schema change.**
+
+**Tests: 908 → 910 Haskell (+2 FQDATA regression); 62 Python unchanged.**
+
 <a id="Latest"></a>
 
 ## v0.13.2 — Return-Refinement Discharge (DEF-RET Unit 2) (2026-06-21)
