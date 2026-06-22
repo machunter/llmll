@@ -2,6 +2,13 @@
 
 ---
 
+## Unreleased
+
+### Docs — withdraw-demo: complex-return beat (the type is the contract)
+
+- **New [`examples/withdraw-demo/return-refine.llmll`](examples/withdraw-demo/return-refine.llmll) and `return-refine-bad.llmll`** demonstrate a complex (refinement-aliased) return where the return type *is* the contract: a saturating add declared `-> Word` discharges `0 ≤ result ≤ 65535` per-branch via the DEF-RET Unit 2 effective-post fold (no hand-written `post`). The wrong twin (no cap) type-checks and passes in-range tests but is `refuted` body-faithfully — the `maxi` shape lifted to a complex return. Mirrors the `compose` / `compose-bad` repair pair.
+- **`verify` reporting caveat documented** ([`docs/getting-started.md`](docs/getting-started.md), [`README.md`](README.md)): `--trust-report` reloads persisted evidence *instead of running fixpoint*, so a solver-refutable function renders as `asserted`, not `refuted`. Use the default `verify` (which runs fixpoint) or `verify --strict-verified-core` to surface `refuted`.
+
 <a id="Latest"></a>
 
 ## v0.13.2 — Return-Refinement Discharge (DEF-RET Unit 2) (2026-06-21)

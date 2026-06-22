@@ -251,6 +251,11 @@ stack exec llmll -- verify file.llmll --trust-report
 # JSON trust report (for tooling consumption):
 stack exec llmll -- verify file.llmll --trust-report --json
 
+# NOTE: --trust-report reloads persisted evidence *instead of running fixpoint*.
+# A function the solver would refute therefore renders as `asserted` under
+# --trust-report, not `refuted`. To surface `refuted`, run the default `verify`
+# (which runs fixpoint) or `verify --strict-verified-core`.
+
 # Weakness check — detect specs that admit trivial implementations:
 stack exec llmll -- verify file.llmll --weakness-check
 # ✅ hangman.llmll — SAFE (liquid-fixpoint)
