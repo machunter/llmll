@@ -278,10 +278,21 @@ emitQualifier q =
 
 emitDataDecl :: FQDataDecl -> Text
 emitDataDecl d =
-  "data " <> sanitizeFQId (T.toLower (ddName d)) <> " " <> T.pack (show (ddArity d))
-  <> " = [" <> T.intercalate " | " (map emitCtor (ddCtors d)) <> "]"
+  "data " <> sanitizeFQId (ddName d) <> " " <> T.pack (show (ddArity d))
+  <> " = [" <> T.concat (map emitCtor (ddCtors d)) <> "]"
   where
-    -- liquid-fixpoint requires lowercase identifiers in constructor position.
-    -- We lowercase both the type name and each constructor name to satisfy
-    -- the .fq parser (bug B1 discovered in Phase 2b walkthrough).
-    emitCtor (nm, ar) = sanitizeFQId (T.toLower nm) <> " " <> T.pack (show ar)
+    -- liquid-fixpoint's .fq grammar parses the data *type* name with an
+    -- uppercase identifier parser (fTyConP), so lowercasing it (the prior
+    -- "bug B1" fix) made the declaration line unparseable for every user sum
+    -- type AND desynced it from the sort reference site, which preserves case
+    -- (emitSort (FQData n) = n, this module). The type name now preserves
+    -- source case so declaration and reference agree.
+    --
+    -- Each constructor must be emitted in fixpoint's ADT syntax
+    -- `| ctor { fields }`; the prior `name arity` form was rejected right
+    -- after the opening `[`. typeSorts drops payloads (all ctor arities 0; the
+    -- sum sort is unreferenced — sum binders lower to FQInt), so every
+    -- constructor is nullary `{ }`. That is the minimum that parses, and it is
+    -- sufficient because no predicate references the constructors. Constructor
+    -- symbols stay sanitized lowercase.
+    emitCtor (nm, _ar) = " | " <> sanitizeFQId (T.toLower nm) <> " { }"

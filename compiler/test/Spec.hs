@@ -5074,6 +5074,34 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "result = (strLen s)"
         fq `shouldSatisfy` T.isInfixOf "result >= (strLen s)"
 
+    -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
+    -- ADT declaration whose type name preserves source case (.fq fTyConP requires
+    -- an uppercase identifier) and whose constructors use `| ctor { }` syntax.
+    -- Regression guard for the two-part .fq data-decl bug: the prior emitter wrote
+    -- `data lookuperror 0 = [red 0 | ...]`, which liquid-fixpoint rejected on BOTH
+    -- the lowercase type name AND the `name arity` constructor form, crashing
+    -- fixpoint on every program containing a user sum type. No .fq-level test
+    -- covered sum types before (Spec only checked `data Color` in the Hs codegen),
+    -- which is why the bug shipped. Probe-verified end-to-end SAFE against fixpoint.
+    describe "Fixpoint sum-type data declaration emission" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          sumSrc = T.concat
+            [ "(type Color (| Red unit) (| Green unit) (| Blue unit))\n"
+            , "(def f [x: int] -> int (post (>= result 0)) (if (> x 0) x 0))"
+            ]
+
+      it "FQDATA-1: a user sum type emits a parseable ADT decl (uppercase type name, | ctor { } form)" $ do
+        er <- emitSrc sumSrc
+        let fq = erFQText er
+        fq `shouldSatisfy`    T.isInfixOf "data Color 0 = [ | red { } | green { } | blue { }]"
+        fq `shouldNotSatisfy` T.isInfixOf "data color"   -- prior lowercased type name
+
+      it "FQDATA-2: the int companion fn reaches a body-faithful VC alongside the sum decl" $ do
+        er <- emitSrc sumSrc
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+
     -- NIW (v0.12, Commit C): refinement-aliased params get their carrier sort
     -- (alias-aware emitParamBind) and their predicate folded into the effective
     -- precondition (F-NIW-1, elim-side: assumed in the body VC). Stacked aliases
