@@ -1,0 +1,21 @@
+;; LLMLL Repair-Loop Demo — complex return types, the wrong twin (DEF-RET Unit 2).
+;; Identical to return-refine.llmll's `saturate` EXCEPT the body drops the cap.
+;; It still TYPE-CHECKS (`llmll check` is clean) and passes any test whose inputs
+;; keep tokens + added <= 65535. But the return type `-> Word` requires the result
+;; to be in [0, 65535] on ALL inputs, and the solver disproves it:
+;;
+;;   llmll verify ./return-refine-bad.llmll --strict-verified-core
+;;   error: body verification of 'saturate' failed — implementation does not
+;;          satisfy postcondition            (refuted: the -> Word refinement is
+;;          violated whenever tokens + added > 65535)
+;;
+;; This is the `maxi` beat lifted to a complex, refinement-aliased return: the bug
+;; is invisible to types and to sampled tests; only the solver, reasoning over all
+;; inputs, catches it — and `--strict-verified-core` reports it as `refuted`, not a
+;; couldn't-verify fallback.
+
+(type Word (where [x: int] (and (>= x 0) (<= x 65535))))
+
+(def saturate [tokens: Word added: int] -> Word
+  (pre (>= added 0))
+  (+ tokens added))

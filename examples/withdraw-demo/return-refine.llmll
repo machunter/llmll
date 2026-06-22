@@ -1,0 +1,36 @@
+;; LLMLL Repair-Loop Demo — complex return types (DEF-RET Unit 2, v0.13.2).
+;; Companion to demo.llmll's `maxi`. There the contract was a hand-written `post`.
+;; Here the contract IS the return type: a refinement-aliased return `-> Word`
+;; folds its predicate into the function's effective postcondition
+;; (augmentContractPost, §3.4.1 / §3.4.6). The body-VC must PROVE the result lands
+;; in [0, 65535] — with NO `post` written by hand. Two functions, the two halves
+;; of the feature:
+;;
+;;   saturate — INTRODUCTION: the body proves the return refinement. A 16-bit
+;;              saturating add; the verifier checks that every path returns a Word.
+;;              The wrong twin (return-refine-bad.llmll) drops the cap — it type-checks,
+;;              passes small-input tests, and is REFUTED by the solver for every input
+;;              that overflows.
+;;   top-up   — COMPOSITION: proves its OWN `-> Word` purely by leaning on saturate's
+;;              EXPORTED guarantee (assume-guarantee; it re-does no cap check of its
+;;              own). The refinement flows across the call boundary — the return-side
+;;              dual of compose.llmll's precondition flow.
+;;
+;;   llmll verify ./return-refine.llmll --trust-report   ->  saturate, top-up both verified
+;;
+;; JSON-AST twin: return-refine.ast.json.  Regenerate after editing:
+;;   llmll build ./return-refine.llmll --emit -o .
+;; All bodies are additive (Σ_auto / QF-LIA), so the wrong twin's refutation is
+;; body-faithful, not an erBodyFallback.
+
+(type Word (where [x: int] (and (>= x 0) (<= x 65535))))
+
+(def saturate [tokens: Word added: int] -> Word
+  (pre (>= added 0))
+  (if (> (+ tokens added) 65535)
+      65535
+      (+ tokens added)))
+
+(def-shell top-up [bucket: Word amount: int] -> Word
+  (pre (>= amount 0))
+  (saturate bucket amount))
