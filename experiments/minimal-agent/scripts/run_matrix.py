@@ -281,6 +281,8 @@ def summarize_evaluation(evaluation: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "status": evaluation.get("status"),
         "quality_grade": evaluation.get("quality_grade"),
+        "grading_mode": evaluation.get("grading_mode"),
+        "solver_catch": evaluation.get("solver_catch"),
         "solution": evaluation.get("solution"),
         "first_error": {
             "phase": first_error.get("phase"),
@@ -321,6 +323,20 @@ def write_batch_report(
     for item in results:
         status = item["status"]
         by_status[status] = by_status.get(status, 0) + 1
+    # Grader-gap rollup: per-cell solver_caught = tests blind (passed) AND the
+    # solver refuted the planted bug. Only counts cells graded in solver-catches
+    # mode; capability-mode cells contribute 0 to both numerator and denominator.
+    solver_catch_cells = []
+    for item in results:
+        sc = (item.get("evaluation") or {}).get("solver_catch")
+        if sc:
+            solver_catch_cells.append(sc)
+    solver_catch_measured = sum(
+        1 for sc in solver_catch_cells if sc.get("available")
+    )
+    solver_caught = sum(
+        1 for sc in solver_catch_cells if sc.get("solver_caught")
+    )
     report = {
         "batch_id": batch_id,
         "passed": passed,
@@ -328,6 +344,8 @@ def write_batch_report(
         "prepared": prepared,
         "attempts": len(results),
         "by_status": by_status,
+        "solver_catch_measured": solver_catch_measured,
+        "solver_caught": solver_caught,
         "results": results,
     }
     (batch_dir / "matrix_report.json").write_text(
@@ -350,6 +368,7 @@ def render_batch_summary(report: dict[str, Any]) -> str:
         f"Failed: `{report['failed']}`",
         f"Prepared only: `{report['prepared']}`",
         f"By status: `{json.dumps(report['by_status'], sort_keys=True)}`",
+        f"Solver caught (grader-gap): `{report.get('solver_caught', 0)}/{report.get('solver_catch_measured', 0)}` measured cells",
         "",
         "| Agent | Experiment | Try | Status | Grade | First Error | Run |",
         "| --- | --- | --- | --- | --- | --- | --- |",

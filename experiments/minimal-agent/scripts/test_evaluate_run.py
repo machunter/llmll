@@ -566,5 +566,157 @@ class QualityGradeTests(unittest.TestCase):
         self.assertEqual(grade, "A")
 
 
+class SolverCatchParseTests(unittest.TestCase):
+    """Grader-gap fixpoint-outcome parsing. Signal strings are pinned to observed
+    llmll 0.13.2 + liquid-fixpoint output (see findings DEF-RET grader-gap)."""
+
+    def test_refuted_via_strict_core_line(self):
+        text = (
+            "   Running liquid-fixpoint ...\n"
+            "error: body verification of 'clamp-to-word' failed — implementation "
+            "does not satisfy postcondition (constraint #0)\n"
+            "ERROR: --strict-verified-core: refuted: clamp-to-word\n"
+        )
+        self.assertEqual(
+            evaluate_run.parse_fixpoint_outcome(text, ["clamp-to-word"]),
+            {"clamp-to-word": "refuted"},
+        )
+
+    def test_verified_via_safe(self):
+        text = "   body-faithful: clamp-to-word\n✅ x — SAFE (liquid-fixpoint)\n"
+        self.assertEqual(
+            evaluate_run.parse_fixpoint_outcome(text, ["clamp-to-word"]),
+            {"clamp-to-word": "verified"},
+        )
+
+    def test_vacuous_when_fixpoint_cannot_run(self):
+        # The lowercased `data lookuperror` .fq codegen crash: neither SAFE nor a
+        # refutation for the target → vacuous (non-catch).
+        text = "ERROR: liquid-fixpoint: unexpected \"lookupe\"\n"
+        self.assertEqual(
+            evaluate_run.parse_fixpoint_outcome(text, ["clamp-to-word"]),
+            {"clamp-to-word": "vacuous"},
+        )
+
+
+class InjectHiddenPostTests(unittest.TestCase):
+    def _spec(self):
+        return {
+            "hidden_posts": [
+                {"function": "f", "side": "post", "post": {"kind": "lit-bool", "value": True}}
+            ],
+            "targets": [{"function": "f", "side": "post"}],
+        }
+
+    def test_injects_and_replaces_on_named_def(self):
+        sol = program(def_logic("f", body=var("x")))
+        sol["statements"][0]["post"] = {"kind": "lit-bool", "value": False}  # agent's weaker post
+        graded, injected = evaluate_run.inject_hidden_posts(sol, self._spec())
+        self.assertEqual(injected, [{"function": "f", "side": "post"}])
+        self.assertEqual(
+            graded["statements"][0]["post"], {"kind": "lit-bool", "value": True}
+        )
+
+    def test_does_not_mutate_original(self):
+        sol = program(def_logic("f", body=var("x")))
+        evaluate_run.inject_hidden_posts(sol, self._spec())
+        self.assertNotIn("post", sol["statements"][0])
+
+
+class SolverCatchGradeTests(unittest.TestCase):
+    def _grade(self, solver_catch, **kwargs):
+        report = {
+            "status": "passed",
+            "first_error": None,
+            "grading_mode": evaluate_run.GRADING_MODE_SOLVER_CATCHES,
+            "feature_scan": {"missing_required": []},
+            "solver_catch": solver_catch,
+            **kwargs,
+        }
+        return evaluate_run.quality_grade(report)
+
+    def test_solver_caught_is_a(self):
+        grade = self._grade(
+            {"available": True, "all_targets_body_faithful": True, "solver_caught": True}
+        )
+        self.assertEqual(grade, "A")
+
+    def test_verified_clean_is_b(self):
+        grade = self._grade(
+            {
+                "available": True,
+                "all_targets_body_faithful": True,
+                "solver_caught": False,
+                "any_refuted": False,
+            }
+        )
+        self.assertEqual(grade, "B")
+
+    def test_vacuous_is_c(self):
+        # Refuted-but-vacuous-elsewhere or pure fallback: not a measured catch.
+        grade = self._grade(
+            {"available": True, "all_targets_body_faithful": False, "solver_caught": False}
+        )
+        self.assertEqual(grade, "C")
+
+    def test_unavailable_is_c(self):
+        grade = self._grade({"available": False, "reason": "no hidden-spec"})
+        self.assertEqual(grade, "C")
+
+    def test_missing_features_is_f(self):
+        grade = self._grade(
+            {"available": True, "all_targets_body_faithful": True, "solver_caught": True},
+            feature_scan={"missing_required": ["post"]},
+        )
+        self.assertEqual(grade, "F")
+
+
+class SolverCatchAssessTests(unittest.TestCase):
+    SPEC = {"targets": [{"function": "f", "side": "post"}]}
+
+    def test_caught_requires_refuted_and_blind_tests(self):
+        ta = {"all_applicable_passed": True, "effective_total": 1}
+        out = evaluate_run.assess_solver_catch(self.SPEC, {"f": "refuted"}, ta)
+        self.assertTrue(out["solver_caught"])
+        self.assertTrue(out["all_targets_body_faithful"])
+
+    def test_refuted_but_tests_failed_is_not_caught(self):
+        ta = {"all_applicable_passed": False, "effective_total": 1}
+        out = evaluate_run.assess_solver_catch(self.SPEC, {"f": "refuted"}, ta)
+        self.assertFalse(out["solver_caught"])  # bug leaked into tests → not solver-only
+
+    def test_vacuous_target_flags_not_body_faithful(self):
+        ta = {"all_applicable_passed": True, "effective_total": 1}
+        out = evaluate_run.assess_solver_catch(self.SPEC, {"f": "vacuous"}, ta)
+        self.assertFalse(out["all_targets_body_faithful"])
+        self.assertFalse(out["solver_caught"])
+
+
+class CapabilityModeRegressionTests(unittest.TestCase):
+    """Guard: with no grading_mode (or capability), the legacy grade path is
+    reached unchanged — the dispatch must not capture capability-mode runs."""
+
+    def test_no_grading_mode_uses_capability_path(self):
+        # asserted_without_proof drives B in capability mode; the solver-catch
+        # path has no such concept, so reaching B proves the legacy path ran.
+        report = {
+            "status": "passed",
+            "first_error": None,
+            "feature_scan": {"missing_required": []},
+            "test_assessment": {
+                "effective_total": 2,
+                "effective_passed": 2,
+                "all_applicable_passed": True,
+                "excluded_delegation_dependent": 0,
+            },
+            "contract_assessment": {
+                "all_required_contracts_met": True,
+                "asserted_without_proof": 1,
+                "proof_required_ceiling_accepted": 0,
+            },
+        }
+        self.assertEqual(evaluate_run.quality_grade(report), "B")
+
+
 if __name__ == "__main__":
     unittest.main()
