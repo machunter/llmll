@@ -526,7 +526,37 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
             let sortEnv = buildSortEnv aliases params
             -- Translate body
             seed <- readIORef bodyCounterRef
-            let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv cenv sccSet body
+            -- COMP-3b: a flat two-arm match on a Result-typed *variable* scrutinee
+            -- (parameter/binder) is not reached by the generic COMP-3 path: a Result
+            -- var is absent from the int-only SortEnv, so the scrutinee fails to
+            -- translate (the EVar gate) and the whole match falls back. Synthesize
+            -- the BranchVC here, where the scrutinee's static Result[ok,err] type is
+            -- in scope, binding each arm's payload at its real sort (not the
+            -- (FQInt,FQInt) default). The synthetic free guard discharges the
+            -- (constructor-uniform) folded return refinement on BOTH arms — the maxi
+            -- per-arm localization across a Result elimination. Constructor-dependent
+            -- posts are unaffected (the generic path / fallback still owns them).
+            let mFlatResult = case body of
+                  EMatch (EVar v) arms
+                    | Just (sV, sB, eV, eB) <- classifyResultArms arms
+                    , Just vTy <- lookup v params
+                    , TResult okT errT <- resolveAliasTy aliases vTy
+                    -> Just (sV, sB, eV, eB, typeToSort okT, typeToSort errT)
+                  _ -> Nothing
+            let (newSeed, mBodyVC, extraResultBinds) = case mFlatResult of
+                  Just (sV, sB, eV, eB, okS, errS) ->
+                    let (s1, mSvc) = bodyToPredFrom seed (Map.insert sV okS sortEnv) cenv sccSet sB
+                        (s2, mEvc) = bodyToPredFrom s1   (Map.insert eV errS sortEnv) cenv sccSet eB
+                        guardName  = "_bv__match_success_flat_" <> T.pack (show s2)
+                    in case (mSvc, mEvc) of
+                         (Just svc, Just evc) ->
+                           ( s2 + 1
+                           , Just (BranchVC (FQVar guardName) svc evc)
+                           , [(sV, okS), (eV, errS), (guardName, FQBool)] )
+                         _ -> (s2, Nothing, [])
+                  Nothing ->
+                    let (ns, vc) = bodyToPredFrom seed sortEnv cenv sccSet body
+                    in (ns, vc, [])
             writeIORef bodyCounterRef newSeed
             case mBodyVC of
               Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
@@ -549,6 +579,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     -- Flatten and emit constraints
                     let paths = flattenBodyVC bvc
                         retSort = maybe FQInt typeToSort mRet
+                    -- COMP-3b: declare match-introduced payload vars (at their real
+                    -- ok/err sort) and the synthetic match guard (bool) as binders, so
+                    -- the per-arm body-VC constraints are not "free vars" to fixpoint.
+                    -- Trivial refinement = an arbitrary value of the sort = the
+                    -- universal per-arm hypothesis. Empty list for non-match bodies.
+                    extraBindIds <- mapM (\(vn, vs) -> do
+                      ebid <- freshBid
+                      addBind (FQBind ebid vn (FQReft "v" vs FQTrue))
+                      return ebid) extraResultBinds
                     forM_ (zip [0::Int ..] paths) $ \(pathIdx, (guard, lbs, resultPred)) -> do
                       -- Emit binders for each let-binding in this path
                       lbBindIds <- mapM (\lb -> do
@@ -575,7 +614,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                                              then "body-post-then"
                                              else "body-post-else"
                       cid <- freshCid
-                      let allEnvIds = envIds ++ lbBindIds ++ [rbid]
+                      let allEnvIds = envIds ++ extraBindIds ++ lbBindIds ++ [rbid]
                           c = FQConstraint cid allEnvIds lhs rhs [name, tag]
                       addConst c
                       let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
