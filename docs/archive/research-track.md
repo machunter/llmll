@@ -1,8 +1,10 @@
 # LLMLL Research Track
 
+> **FROZEN — historical.** Superseded by the live research track (R1–R7) in [`../compiler-team-roadmap.md`](../compiler-team-roadmap.md); retained for detail only, not current state.
+
 > **Last updated:** 2026-05-01  
 > **Purpose:** Track unversioned research items that may feed into future compiler releases.  
-> **Relationship to compiler roadmap:** Items here are *not* part of the compiler engineering backlog ([compiler-team-roadmap.md](compiler-team-roadmap.md)). Each item is promoted to a versioned release only when its **promotion criterion** is met and the compiler team accepts the work.
+> **Relationship to compiler roadmap:** Items here are *not* part of the compiler engineering backlog ([compiler-team-roadmap.md](../compiler-team-roadmap.md)). Each item is promoted to a versioned release only when its **promotion criterion** is met and the compiler team accepts the work.
 
 ---
 
@@ -19,7 +21,7 @@ Until all three conditions are met, the item stays here.
 ## Impact Analysis
 
 > **Assessment date:** 2026-05-01  
-> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (452 tests, liquid-fixpoint). Body-faithful VCs shipped (v0.8.0). Evidence model shipped (v0.8.1b). Compositional verification shipped (v0.9.0). Research items are ranked by how much they advance the strategic bet.
+> **Context:** The project's strategic bet is that specifications matter more than implementations ([strategic-positioning.md](../design/strategic-positioning.md)). The spec-adequacy infrastructure is shipped (weakness-check, spec-coverage, invariant registry). The verification pipeline is operational (452 tests, liquid-fixpoint). Body-faithful VCs shipped (v0.8.0). Evidence model shipped (v0.8.1b). Compositional verification shipped (v0.9.0). Research items are ranked by how much they advance the strategic bet.
 
 | Rank | Item | Impact | Rationale |
 |------|------|--------|-----------|
@@ -37,10 +39,10 @@ Until all three conditions are met, the item stays here.
 
 ### 1. Indexed / Dependent Types
 
-> **Source:** [type-driven-development.md](design/type-driven-development.md)
+> **Source:** [type-driven-development.md](../design/type-driven-development.md)
 
 > [!IMPORTANT]
-> **The obligation-guided agent coding part of this idea has been promoted to v0.10** on the compiler roadmap ([compiler-team-roadmap.md](compiler-team-roadmap.md) § v0.10). What remains here is the indexed-type extension only: `Vect n a`, GADTs, dependent pattern matching, type-level arithmetic, and bidirectional typechecking.
+> **The obligation-guided agent coding part of this idea has been promoted to v0.10** on the compiler roadmap ([compiler-team-roadmap.md](../compiler-team-roadmap.md) § v0.10). What remains here is the indexed-type extension only: `Vect n a`, GADTs, dependent pattern matching, type-level arithmetic, and bidirectional typechecking.
 
 **Original hypothesis:** Step-by-step type-guided deduction (Idris-style case-splitting) improves LLM agent accuracy for hole-filling compared to one-shot contract-based generation.
 
@@ -69,7 +71,7 @@ Each is a multi-week project with deep interactions with the existing type infer
 
 ### 2. Self-Hosted Orchestrator
 
-> **Source:** [agent-orchestration.md §Option B](design/agent-orchestration.md)
+> **Source:** [agent-orchestration.md §Option B](../design/agent-orchestration.md)
 
 **Goal:** Rewrite the Python `llmll-orchestra` as an LLMLL program with `def-main :mode cli`. The orchestrator becomes a verified program with contracts on coordination correctness.
 
@@ -94,7 +96,7 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 ### 3. Spec-from-RFC Pipeline
 
-> **Source:** [specification-sources.md §1](design/specification-sources.md)
+> **Source:** [specification-sources.md §1](../design/specification-sources.md)
 
 **Goal:** For LLMLL's target domains (financial, protocol, encryption), external specs already exist as RFCs. Build a pipeline that translates structured external specs into LLMLL contracts.
 
@@ -106,7 +108,7 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 ### 4. Synthetic Training Corpus (Hackage Back-Translation)
 
-> **Source:** [specification-sources.md §5](design/specification-sources.md)
+> **Source:** [specification-sources.md §5](../design/specification-sources.md)
 
 **Goal:** Generate training data for fine-tuning LLMs on LLMLL by back-translating Haskell packages from Hackage.
 
@@ -124,7 +126,7 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 ### 5. Differential Implementation Pressure
 
-> **Source:** [invariant-discovery-proposal.md §3](design/invariant-discovery-proposal.md) + [invariant-discovery-review.md §3](design/invariant-discovery-review.md)  
+> **Source:** [invariant-discovery-proposal.md §3](../design/invariant-discovery-proposal.md) + [invariant-discovery-review.md §3](../professor-reviews/invariant-discovery-review.md)  
 > **Professor's assessment:** "Highest-value, most architecturally aligned idea"
 
 **Goal:** `llmll checkout --multi` allows N agents to independently fill the same `?delegate` hole. After all fills arrive, divergence analysis generates distinguishing inputs and flags underspecification.
@@ -137,9 +139,9 @@ The only gap identified in the original design doc (JSON parsing) was closed in 
 
 ### 6. Contract Discriminative Power — PROMOTED to v0.11 CDP-0 (2026-05-23)
 
-> **Status:** Retired from research-track on 2026-05-23. Promoted to v0.11 implementation as **CDP-0** under language-team proposal **LT-CDP**. See [`docs/compiler-team-roadmap.md`](compiler-team-roadmap.md) v0.11 milestone for current routing and acceptance criteria; [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) §3.2 for the lattice-valuation framing adopted; [`docs/design/core-shell-inversion-direction.md`](design/core-shell-inversion-direction.md) §2 for the professor-channel argument.
+> **Status:** Retired from research-track on 2026-05-23. Promoted to v0.11 implementation as **CDP-0** under language-team proposal **LT-CDP**. See [`docs/compiler-team-roadmap.md`](../compiler-team-roadmap.md) v0.11 milestone for current routing and acceptance criteria; [`docs/design/critique-2026-05-23-triage.md`](../design/critique-2026-05-23-triage.md) §3.2 for the lattice-valuation framing adopted; [`docs/design/core-shell-inversion-direction.md`](shipped-design-specs/core-shell-inversion-direction.md) §2 for the professor-channel argument.
 >
-> **Source:** [invariant-discovery-review.md §6](design/invariant-discovery-review.md)
+> **Source:** [invariant-discovery-review.md §6](../professor-reviews/invariant-discovery-review.md)
 > **Originally proposed by:** Professor (Lead Consultant for Formal Language Design)
 > **Promotion driver:** External critique (2026-05-23) consolidated through professor channel; CDP fills a measurable v0.10 blind spot the evidence-lattice cannot — `verified` weak-spec vs `verified` strong-spec receive the same label without it.
 
@@ -155,15 +157,15 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 
 **Lattice-theoretic interpretation:** contracts form a preorder under implication; denotation maps contracts to subobjects of a finite behavior space; DP is a valuation on the subobject lattice (smaller denotation ⇒ higher DP). Patch-merge invariant remains stipulated, not derived from this apparatus (the original critique's larger fibration-based unification was declined per professor adjudication; the amended critic's narrower lattice-valuation unification is what was adopted).
 
-**Operational predecessors** (shipped): `--spec-coverage` (v0.6.0) provides function-level coverage. `--weakness-check` (v0.3.5) detects trivially-satisfiable contracts via the `TrivialBody` enumeration at [`compiler/src/LLMLL/WeaknessCheck.hs:40-90`](../compiler/src/LLMLL/WeaknessCheck.hs). LT-CDP extends the enumeration from binary-flag to counted divergence metric.
+**Operational predecessors** (shipped): `--spec-coverage` (v0.6.0) provides function-level coverage. `--weakness-check` (v0.3.5) detects trivially-satisfiable contracts via the `TrivialBody` enumeration at [`compiler/src/LLMLL/WeaknessCheck.hs:40-90`](../../compiler/src/LLMLL/WeaknessCheck.hs). LT-CDP extends the enumeration from binary-flag to counted divergence metric.
 
-**v0.11 implementation surface** (per LT-CDP): two-axis assurance report — paired `(evidence, DP)` per function rather than collapsed scalar; optional `(spec-entropy :strict | :intentional | :unknown)` annotation honors the healthy-diversity-vs-underspecification tension at [`docs/design/invariant-discovery-review.md §4.1`](design/invariant-discovery-review.md); `trust_report_version` bump 1.1.0 → 1.2.0 (additive). The pair disambiguates the four spec-quality cells the project has been heuristically reaching for since `--weakness-check` shipped: *verified-strong* (ideal), *verified-weak* (high evidence, low DP), *tested-strong* (lower evidence, high DP), *asserted-strong* (promising spec, poor evidence).
+**v0.11 implementation surface** (per LT-CDP): two-axis assurance report — paired `(evidence, DP)` per function rather than collapsed scalar; optional `(spec-entropy :strict | :intentional | :unknown)` annotation honors the healthy-diversity-vs-underspecification tension at [`docs/design/invariant-discovery-review.md §4.1`](../professor-reviews/invariant-discovery-review.md); `trust_report_version` bump 1.1.0 → 1.2.0 (additive). The pair disambiguates the four spec-quality cells the project has been heuristically reaching for since `--weakness-check` shipped: *verified-strong* (ideal), *verified-weak* (high evidence, low DP), *tested-strong* (lower evidence, high DP), *asserted-strong* (promising spec, poor evidence).
 
 ---
 
 ### 7. Call-Site Strict Descent
 
-> **Source:** [LLMLL.md §5.3.3](../LLMLL.md)
+> **Source:** [LLMLL.md §5.3.3](../../LLMLL.md)
 
 **Goal:** Encode `measure(args') < measure(args)` at each recursive call site for `letrec :decreases` measures. Currently, the verifier checks `n >= 0` (well-foundedness domain membership) but not that the measure strictly decreases at each recursive call.
 
@@ -208,9 +210,9 @@ High discriminative power = strong contract. Low discriminative power = weak or 
 
 | Document | Relationship |
 |----------|-------------|
-| [compiler-team-roadmap.md](compiler-team-roadmap.md) | Engineering backlog. Research items are promoted there when accepted. |
-| [design/INDEX.md](design/INDEX.md) | Reading guide for all design documents, including source docs for research items. |
-| [design/invariant-discovery-review.md](design/invariant-discovery-review.md) | Professor's review of invariant discovery mechanisms — source for items 5 and 6. |
-| [design/invariant-discovery-proposal.md](design/invariant-discovery-proposal.md) | External team's full proposal with 9 mechanisms. |
-| [design/spec-adequacy-closure.md](design/spec-adequacy-closure.md) | Implementation plan for spec gap closure (Tracks 1–3, all shipped). |
-| [design/strategic-positioning.md](design/strategic-positioning.md) | What to overclaim and what not to. Item 4 (synthetic corpus) directly addresses the "agents can write good specs" overclaim. |
+| [compiler-team-roadmap.md](../compiler-team-roadmap.md) | Engineering backlog. Research items are promoted there when accepted. |
+| [design/INDEX.md](../design/INDEX.md) | Reading guide for all design documents, including source docs for research items. |
+| [design/invariant-discovery-review.md](../professor-reviews/invariant-discovery-review.md) | Professor's review of invariant discovery mechanisms — source for items 5 and 6. |
+| [design/invariant-discovery-proposal.md](../design/invariant-discovery-proposal.md) | External team's full proposal with 9 mechanisms. |
+| [design/spec-adequacy-closure.md](shipped-design-specs/spec-adequacy-closure.md) | Implementation plan for spec gap closure (Tracks 1–3, all shipped). |
+| [design/strategic-positioning.md](../design/strategic-positioning.md) | What to overclaim and what not to. Item 4 (synthetic corpus) directly addresses the "agents can write good specs" overclaim. |
