@@ -31,7 +31,7 @@ The gate **fails closed**: a patch that doesn't verify never lands. That is the 
 <!-- TODO: refutation GIF — 60–90s asciinema of this loop (type-correct fill → verify REFUTES → fix → accepted) -->
 *(A 60–90s screen capture of this loop will live here.)*
 
-Full copy-pasteable walkthrough: [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (commands verified against `llmll 0.13.1`; re-verification against the 0.13.3 release is pending) · narrated version: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md). A richer **payments-core** demo — conservation across a verified call chain ("money can't be created on the overdraft branch") — becomes the flagship once it lands.
+Full copy-pasteable walkthrough: [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (commands verified against `llmll 0.13.3`) · narrated version: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md). A richer **payments-core** demo — conservation across a verified call chain ("money can't be created on the overdraft branch") — becomes the flagship once it lands.
 
 ---
 
@@ -46,9 +46,7 @@ stack exec llmll -- --help
 
 Requires GHC ≥ 9.4 + Stack ≥ 2.9. The proof step also needs `z3` + `liquid-fixpoint`.
 
-> **`verify` degrades without the solver.** With `z3`/`liquid-fixpoint` absent it emits the `.fq` constraint file instead of running the proof — install both to see the refutation. See [`docs/getting-started.md`](docs/getting-started.md).
-
-> **Zero-install (in progress):** a prebuilt binary and a Docker image bundling `z3`/`liquid-fixpoint` are being prepared so the refutation above runs in one command (`docker run --rm <image> llmll verify <demo>`). Image/command name pending; not yet published.
+> **`verify` is loud without the solver.** With `z3`/`liquid-fixpoint` absent it prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and exits `3` (not a silent pass) — install both to see the refutation. See [`docs/getting-started.md`](docs/getting-started.md).
 
 ---
 

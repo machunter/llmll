@@ -9,6 +9,14 @@
 - **New [`examples/withdraw-demo/return-refine.llmll`](examples/withdraw-demo/return-refine.llmll) and `return-refine-bad.llmll`** demonstrate a complex (refinement-aliased) return where the return type *is* the contract: a saturating add declared `-> Word` discharges `0 ≤ result ≤ 65535` per-branch via the DEF-RET Unit 2 effective-post fold (no hand-written `post`). The wrong twin (no cap) type-checks and passes in-range tests but is `refuted` body-faithfully — the `maxi` shape lifted to a complex return. Mirrors the `compose` / `compose-bad` repair pair.
 - **`verify` reporting caveat documented** ([`docs/getting-started.md`](docs/getting-started.md), [`README.md`](README.md)): `--trust-report` reloads persisted evidence *instead of running fixpoint*, so a solver-refutable function renders as `asserted`, not `refuted`. Use the default `verify` (which runs fixpoint) or `verify --strict-verified-core` to surface `refuted`.
 
+### CLI — `verify` is loud when no solver is present
+
+- **`verify` no longer silently no-ops without a solver.** When neither `liquid-fixpoint`/`z3` is on `PATH`, `verify` prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and exits `3` (distinct from `1` = refuted), instead of writing a `.fq` stub and exiting `0`. A missing solver can no longer be mistaken for a pass.
+
+### Examples — verified protocol & payments demos
+
+- **New [`examples/payments-core/`](examples/payments-core/)** — a verified `transfer` over a `debit` call edge (no-overdraw + all-or-nothing failure-stasis); `transfer-bad` is `refuted`, `transfer-unsafe` is refused at the call site; `settle` exercises the COMP-3b `Result`-match refinement return. **New [`examples/tcp_rfc793/`](examples/tcp_rfc793/)** — an RFC 793 connection state machine reaching `verified` on the legal-successor invariant; `step-bad` is `refuted` on an illegal transition, `step-weak` shows an under-specified contract letting the bug through. Both stay in the QF-LIA verified core.
+
 <a id="Latest"></a>
 
 ## v0.13.3 — Sum-Type Verification Fixes (ADT emission + COMP-3b) (2026-06-23)

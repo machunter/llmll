@@ -135,7 +135,7 @@ Unit 2 lands the deferred `augmentContractPost` discharge join (§4.2). A refine
 **No schema change in Unit 2** (`schemaVersion` stays `0.7.0`; `trust_report_version` `1.4.0`). The cross-module digest-to-digest contingency (Risk-1) was reviewed and found unnecessary — the only cross-module recompute site already carries the callee's alias map; the residual **XMOD-STALE** cache-coherence invariant is recorded on the roadmap as a build-driver obligation for persistent `ModuleCache` holders (LSP/Serve/watch). See [`def-ret-staleness-hash-review.md`](def-ret-staleness-hash-review.md). 908 Haskell + 62 Python tests.
 
 
-## Appendix — Professor review log
+## Appendix — Professor review log (DEF-RET staleness-hash)
 
 _Folded from `def-ret-staleness-hash-review.md` (DEF-RET shipped; standalone review archived to `../archive/professor-reviews/def-ret-staleness-hash-review.md`)._
 

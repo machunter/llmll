@@ -161,7 +161,7 @@ Both questions are dormant. If INT-PRE clears the gate, neither needs an answer.
 - INT-PRE row at [`docs/compiler-team-roadmap.md:158, 314`](../compiler-team-roadmap.md) — the empirical gate that triggers this sketch's promotion
 - INT-2 row at [`docs/compiler-team-roadmap.md:157, 313`](../compiler-team-roadmap.md) — the design move INT-3 supplements with bounded opt-in
 - INT-1 row at [`docs/compiler-team-roadmap.md:303`](../compiler-team-roadmap.md) — the `overflow_tainted` machinery this sketch armaments-on-`machine-int`
-- INT-2 catalog at [`int-2-boundary-shims.md`](int-2-boundary-shims.md) — companion document; §3.3 entry on `random_int` is the lowest-noise candidate trigger for a future INT-3 revisit absent INT-PRE escalation
-- LT-INV proposal at [`core-shell-inversion-proposal.md`](core-shell-inversion-proposal.md) — schemaVersion bump coordination noted in §2.2
+- INT-2 catalog at [`int-2-boundary-shims.md`](../archive/shipped-design-specs/int-2-boundary-shims.md) — companion document; §3.3 entry on `random_int` is the lowest-noise candidate trigger for a future INT-3 revisit absent INT-PRE escalation
+- LT-INV proposal at [`core-shell-inversion-proposal.md`](../archive/shipped-design-specs/core-shell-inversion-proposal.md) — schemaVersion bump coordination noted in §2.2
 - Verification matrix at [`LLMLL.md §5.3.5:740-770`](../../LLMLL.md) — current QF-LIA fragment definition; INT-3 adds QF-BV as sibling
 - Liquid Haskell `Data.Refined` (external) — refinement-aliased-bounded-int idiom comparison point for §3 and §7

@@ -1214,22 +1214,44 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           Nothing -> findExecutable "fixpoint"
       case mLF of
         Nothing -> do
-          -- Graceful degradation: emit the .fq and report it's available
-          let msg = "liquid-fixpoint not found in PATH. "
-                 <> ".fq file written to " <> T.pack fqPath <> ". "
-                 <> "Install with: stack install liquid-fixpoint"
+          -- No SMT backend on PATH: the proof did NOT run. Make this
+          -- unmistakable -- a first-timer must not read silence as success
+          -- -- and exit with a distinct non-zero code (3 = solver unavailable,
+          -- distinct from 1 = refuted / strict-core). The .fq stub is still
+          -- written so an expert can run fixpoint by hand.
+          let reason = "liquid-fixpoint / z3 not found on PATH -- the proof did NOT run"
           if json
             then TIO.putStrLn . T.pack . BLC.unpack . encode $
                    object [ "file" .= fp, "fq_file" .= fqPath
-                           , "verified" .= False, "reason" .= msg ]
-            else TIO.putStrLn $ "⚠️  " <> msg
+                           , "verified" .= False
+                           , "solver_available" .= False
+                           , "reason" .= (reason <> "; .fq written to " <> T.pack fqPath) ]
+            else mapM_ TIO.putStrLn
+                   [ ""
+                   , "  ============================================================"
+                   , "  !!  SOLVER NOT FOUND -- NOTHING WAS PROVEN"
+                   , "  ============================================================"
+                   , "  'llmll verify' needs liquid-fixpoint + z3 to discharge proofs."
+                   , "  Neither was found on PATH, so the contract was NOT checked."
+                   , "  (This is not a pass -- no proof ran.)"
+                   , ""
+                   , "  Zero-install path (bundles the solver) -- run the Docker image:"
+                   , "    docker run --rm -v \"$PWD\":/work ghcr.io/machunter/llmll verify <file>"
+                   , ""
+                   , "  Or install the backend locally:"
+                   , "    stack install liquid-fixpoint   # provides the 'fixpoint' binary"
+                   , "    brew install z3                 # (or apt-get install z3)"
+                   , ""
+                   , "  (.fq constraints written to " <> T.pack fqPath <> " for manual runs.)"
+                   , "  ============================================================"
+                   ]
           -- v0.10 F8: obligation-report degradation (no solver → all status="open")
           when obligationReport $ do
             sidecar <- loadVerified fp
             let trustRpt = buildTrustReport _cache stmts sidecar
                 reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
             TIO.putStrLn reportText
-          exitSuccess   -- non-fatal: user can run manually
+          exitWith (ExitFailure 3)   -- distinct: solver unavailable (proof did not run)
 
         Just lfBin -> do
           -- 5. Run liquid-fixpoint

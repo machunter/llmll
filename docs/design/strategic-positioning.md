@@ -99,7 +99,7 @@ If specifications become the bottleneck and the system makes specification quali
 
 ## External Empirical Anchor — Constraint Decay (Dente et al., 2026)
 
-> **Source:** Language-team revision, May 2026 — [`positioning-constraint-decay-proposal.md`](positioning-constraint-decay-proposal.md) Rev 1 (settled 2026-05-25, professor review folded). This section was added on the spec-track promotion pass that followed the proposal's settlement; the rest of this document carries its original April 2026 external-review provenance unchanged.
+> **Source:** Language-team revision, May 2026 — [`positioning-constraint-decay-proposal.md`](../archive/shipped-design-specs/positioning-constraint-decay-proposal.md) Rev 1 (settled 2026-05-25, professor review folded). This section was added on the spec-track promotion pass that followed the proposal's settlement; the rest of this document carries its original April 2026 external-review provenance unchanged.
 
 ### What the empirical anchor says (and doesn't say)
 

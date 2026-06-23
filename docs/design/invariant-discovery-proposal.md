@@ -425,8 +425,8 @@ Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review f
 
 ### Caveats and gaps (§4 of review)
 
-- **4.1 Healthy-diversity problem is harder than acknowledged.** Recorded under [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) `(spec-entropy :strict | :intentional | :unknown)` annotation as the healthy-diversity-vs-underspecification honoring mechanism.
-- **4.2 Contract entropy metric conflates semantic and observational equivalence.** Resolved in [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) via subobject-lattice valuation framing (post-amended-critic; see [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.2).
+- **4.1 Healthy-diversity problem is harder than acknowledged.** Recorded under [`contract-discriminative-power-proposal.md`](../archive/shipped-design-specs/contract-discriminative-power-proposal.md) `(spec-entropy :strict | :intentional | :unknown)` annotation as the healthy-diversity-vs-underspecification honoring mechanism.
+- **4.2 Contract entropy metric conflates semantic and observational equivalence.** Resolved in [`contract-discriminative-power-proposal.md`](../archive/shipped-design-specs/contract-discriminative-power-proposal.md) via subobject-lattice valuation framing (post-amended-critic; see [`critique-2026-05-23-triage.md`](critique-2026-05-23-triage.md) §3.2).
 - **4.3 No discussion of incremental strengthening convergence.** Deferred to research-track CEGIS work.
 - **4.4 Computational cost is unaddressed.** Tracked at research-track level; per-mechanism cost analyses produced as each mechanism is promoted.
 
@@ -438,8 +438,8 @@ Per DOC-CONSOLIDATE §M2 (settled 2026-05-24), the standalone professor review f
 
 ### Key concept formalized (§6 of review)
 
-The review's §6 introduces **"contract discriminative power"** as the load-bearing metric. Promoted to v0.11 first-class evidence axis in [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md) (LT-CDP, settled 2026-05-23); supersedes the earlier research-track formalization at `docs/research-track.md §6`.
+The review's §6 introduces **"contract discriminative power"** as the load-bearing metric. Promoted to v0.11 first-class evidence axis in [`contract-discriminative-power-proposal.md`](../archive/shipped-design-specs/contract-discriminative-power-proposal.md) (LT-CDP, settled 2026-05-23); supersedes the earlier research-track formalization at `docs/research-track.md §6`.
 
 ### Overall assessment (recorded)
 
-The review's overall assessment endorses the proposal's central reframing ("can we arrange the system so that underspecification produces visible friction?") and recommends a phased implementation. Phase A is shipped; Phase B is in-flight via the v0.11 CDP-0 evidence-axis work; Phase C remains research-track. The proposal and the review together have served their research-direction role; further mechanism work is tracked under [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) Research Track and [`contract-discriminative-power-proposal.md`](contract-discriminative-power-proposal.md).
+The review's overall assessment endorses the proposal's central reframing ("can we arrange the system so that underspecification produces visible friction?") and recommends a phased implementation. Phase A is shipped; Phase B is in-flight via the v0.11 CDP-0 evidence-axis work; Phase C remains research-track. The proposal and the review together have served their research-direction role; further mechanism work is tracked under [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) Research Track and [`contract-discriminative-power-proposal.md`](../archive/shipped-design-specs/contract-discriminative-power-proposal.md).

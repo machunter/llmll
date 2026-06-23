@@ -413,7 +413,7 @@ v0.10 (obligation-guided coding) does not require indexed types and does not cha
 
 **Resolved (2026-05-01).** Types and contracts are permanent separate layers in LLMLL through v0.10. Types check structural shape under Algorithm W. Refinement predicates and contracts express behavioral obligations checked by the verifier, runtime assertions, tests, or evidence reports. LLMLL does not attempt to make contracts obsolete by moving all specifications into the type system.
 
-Algorithm W operates on stripped structural types. Refinement predicates are preserved for obligation generation but erased for unification. This was formalized in the [Algorithm W × TDependent Resolution](algorithm_w_tdependent_resolution.md) (Strip-then-Unify, Option A).
+Algorithm W operates on stripped structural types. Refinement predicates are preserved for obligation generation but erased for unification. This was formalized in the [Algorithm W × TDependent Resolution](../archive/shipped-design-specs/algorithm_w_tdependent_resolution.md) (Strip-then-Unify, Option A).
 
 ### Q5: Obligation completeness benchmark (NEW — open)
 
