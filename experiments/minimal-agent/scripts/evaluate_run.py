@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import shlex
@@ -97,6 +98,18 @@ REQUIRED_FEATURES = {
     # the agent must supply these features itself. The non-vacuity bar mirrors
     # F-B0-3 — without an entry the evaluator grades stub bodies A.
     5: ["type", "check", "post", ["Result-type", "Result-pattern"]],
+    # P3 grader-gap (experiment 006, solver-catches mode): the discriminating
+    # postcondition is WITHHELD (hidden-specs/006.json) and injected at grade
+    # time, so the agent must NOT be required to author a `post` — requiring one
+    # would defeat the grader-gap. The only feature gate is the provided `check`
+    # (the non-adversarial "tests blind" arm): if the agent strips it,
+    # solver_caught can never be established (effective_total=0 → test_passed
+    # False), so its presence is the non-vacuity bar. Stub bodies are caught
+    # separately by the vacuous→C gate in solver_catch_grade (fixpoint cannot
+    # reach a body-faithful VC). `scaffold` is intentionally NOT required:
+    # detect_scaffold_usage keys on a stray scaffold.ast.json, which a hole-fill
+    # solution need not produce.
+    6: ["check"],
 }
 
 
@@ -152,6 +165,21 @@ CONTRACT_EXPECTATIONS = {
 
 TRUST_STATUS_PRESENT = {"verified", "contract-checked", "tested", "asserted"}
 
+# Grading modes. "capability" is the legacy A/B/C/F path (experiments 001–004,
+# feature-presence + tests + trust-tier ceiling, asserted accepted / refuted
+# rejected). "solver_catches" is the grader-gap path for the non-trivial
+# benchmark portfolio: a discriminating post is WITHHELD from the agent and
+# injected only at grade time, then run through fixpoint with INVERTED polarity —
+# `refuted` (body-faithful UNSAFE) is the success signal, `asserted`/fallback is
+# a vacuous non-catch (the F-B0-2 non-vacuity gate). See findings (DEF-RET
+# grader-gap) and hidden-specs/<id>.json.
+GRADING_MODE_CAPABILITY = "capability"
+GRADING_MODE_SOLVER_CATCHES = "solver_catches"
+
+# Hidden-spec dir, resolved relative to this script (mirrors prepare_run.py's
+# HIDDEN_SPECS_ROOT). The spec content stays here and never enters a run dir.
+HIDDEN_SPECS_ROOT = Path(__file__).resolve().parent.parent / "hidden-specs"
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -196,9 +224,11 @@ def main() -> int:
         "problem_id": metadata.get("problem_id"),
         "status": "failed",
         "stop_policy": "first_error",
+        "grading_mode": GRADING_MODE_CAPABILITY,
         "solution": str(solution) if solution else None,
         "feature_scan": None,
         "quality_grade": "F",
+        "solver_catch": None,
         "test_summary": None,
         "test_assessment": None,
         "verify_summary": None,
@@ -225,6 +255,9 @@ def main() -> int:
 
     report["feature_scan"] = scan_features(solution, metadata, run_dir)
 
+    grading_mode = resolve_grading_mode_eval(metadata)
+    report["grading_mode"] = grading_mode
+
     llmll = shlex.split(args.llmll_cmd)
     try:
         solution_name = str(solution.relative_to(run_dir))
@@ -236,7 +269,10 @@ def main() -> int:
         ("holes", llmll + ["--json", "holes", "--deps", solution_name]),
         ("test", llmll + ["test", solution_name]),
     ]
-    if not args.skip_verify:
+    # Capability mode keeps the legacy trust-report verify (descriptive tiers).
+    # Solver-catches mode replaces it with a fixpoint run on a graded copy (below)
+    # — `--trust-report` SKIPS fixpoint, so it can never surface `refuted`.
+    if not args.skip_verify and grading_mode == GRADING_MODE_CAPABILITY:
         commands.append(
             (
                 "verify",
@@ -250,6 +286,11 @@ def main() -> int:
                 ],
             )
         )
+
+    # In solver-catches mode `test` is graded, not gating: a failed property suite
+    # means the bug leaked into the tests (not a solver-ONLY catch), which the
+    # grade records — it must not short-circuit the run before the fixpoint verify.
+    non_stopping = {"test"} if grading_mode == GRADING_MODE_SOLVER_CATCHES else set()
 
     for name, argv in commands:
         result = run_command(name, argv, cwd=run_dir, timeout=args.timeout_seconds)
@@ -271,7 +312,7 @@ def main() -> int:
                 report["verify_details"],
             )
 
-        if not result["effective_success"]:
+        if not result["effective_success"] and name not in non_stopping:
             report["first_error"] = {
                 "phase": name,
                 "argv": argv,
@@ -285,13 +326,26 @@ def main() -> int:
             write_outputs(run_dir, report)
             return 1
 
-    # v0.12.0 Bundle B0 authority channel (capture-only). `--obligation-report`
-    # does NOT compose with `--trust-report` (they are mutually-exclusive output
-    # modes), so the effect_summary is read from a separate verify invocation.
-    # This is descriptive only: it runs after the graded command loop, is gated on
-    # the success path, and never enters first_error, effective_success, or the
-    # quality grade. A failed probe leaves report["effect_summary"] = None.
-    if not args.skip_verify:
+    if grading_mode == GRADING_MODE_SOLVER_CATCHES and not args.skip_verify:
+        # Grader-gap: inject the WITHHELD discriminating post(s) onto a graded copy
+        # and run fixpoint with INVERTED polarity. A `refuted` here is the success
+        # signal, not a stop-error; it never enters first_error.
+        report["solver_catch"] = run_solver_catch_verify(
+            llmll,
+            solution_ast,
+            metadata,
+            run_dir,
+            timeout=args.timeout_seconds,
+            commands_log=report["commands"],
+            test_assessment=report.get("test_assessment"),
+        )
+    elif not args.skip_verify:
+        # v0.12.0 Bundle B0 authority channel (capture-only). `--obligation-report`
+        # does NOT compose with `--trust-report` (they are mutually-exclusive output
+        # modes), so the effect_summary is read from a separate verify invocation.
+        # This is descriptive only: it runs after the graded command loop, is gated on
+        # the success path, and never enters first_error, effective_success, or the
+        # quality grade. A failed probe leaves report["effect_summary"] = None.
         oblig = run_command(
             "obligation-report",
             llmll + ["verify", solution_name, "--obligation-report"],
@@ -362,7 +416,7 @@ def scan_features(solution: Path, metadata: dict[str, Any], run_dir: Path) -> di
     found["scaffold"] = found.get("scaffold", False) or detect_scaffold_usage(run_dir)
 
     try:
-        pid = int(metadata.get("problem_id"))
+        pid = int(metadata.get("problem_id") or 0)
     except (TypeError, ValueError):
         pid = 0
     required = required_features_for(pid, metadata)
@@ -954,7 +1008,194 @@ def parse_effect_summary(stdout: str) -> dict[str, Any] | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Solver-catches grading (grader-gap). Inverted polarity vs capability mode:
+# refuted = the solver caught the planted bug (success); verified = clean impl
+# (no bug); vacuous (fixpoint could not reach a body-faithful VC) = non-catch.
+# ---------------------------------------------------------------------------
+
+
+def resolve_grading_mode_eval(metadata: dict[str, Any]) -> str:
+    """Read grading_mode from run metadata; fall back to inferring it from the
+    presence of a hidden-spec (for runs prepared before the field existed)."""
+    mode = metadata.get("grading_mode")
+    if mode in (GRADING_MODE_CAPABILITY, GRADING_MODE_SOLVER_CATCHES):
+        return mode
+    experiment_id = str(metadata.get("experiment_id") or "")
+    if experiment_id and (HIDDEN_SPECS_ROOT / f"{experiment_id}.json").exists():
+        return GRADING_MODE_SOLVER_CATCHES
+    return GRADING_MODE_CAPABILITY
+
+
+def load_hidden_spec(experiment_id: str) -> dict[str, Any] | None:
+    path = HIDDEN_SPECS_ROOT / f"{experiment_id}.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def inject_hidden_posts(
+    solution_ast: dict[str, Any],
+    spec: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Return a deep copy of the agent solution with each hidden post written onto
+    the named def's `side` field, replacing any agent-authored contract there (so
+    the agent cannot pre-satisfy or weaken the discriminator). Returns
+    (graded_ast, injected) where injected lists the (function, side) actually hit."""
+    graded = copy.deepcopy(solution_ast)
+    injected: list[dict[str, Any]] = []
+    DEF_KINDS = {"def-logic", "def", "def-shell"}
+    statements = graded.get("statements", []) if isinstance(graded, dict) else []
+    for hidden in spec.get("hidden_posts", []):
+        function = hidden.get("function")
+        side = hidden.get("side", "post")
+        post = hidden.get("post")
+        for statement in statements:
+            if (
+                isinstance(statement, dict)
+                and statement.get("kind") in DEF_KINDS
+                and statement.get("name") == function
+            ):
+                statement[side] = post
+                injected.append({"function": function, "side": side})
+                break
+    return graded, injected
+
+
+def parse_fixpoint_outcome(text: str, target_fns: list[str]) -> dict[str, str]:
+    """Classify each target function's fixpoint outcome from the combined
+    stdout+stderr of `llmll verify <file> --strict-verified-core`. Empirically
+    pinned signal contract (llmll 0.13.2 + liquid-fixpoint):
+      refuted  : `refuted: <fn>` (strict-verified-core) OR
+                 `body verification of '<fn>' failed`.
+      verified : `SAFE (liquid-fixpoint)` present and no refutation for <fn>.
+      vacuous  : neither — fixpoint could not reach a body-faithful VC (fallback,
+                 codegen error, missing function). Never counts as a catch.
+    """
+    safe = "SAFE (liquid-fixpoint)" in text
+    outcomes: dict[str, str] = {}
+    for fn in target_fns:
+        refuted = (f"refuted: {fn}" in text) or (
+            f"body verification of '{fn}' failed" in text
+        )
+        if refuted:
+            outcomes[fn] = "refuted"
+        elif safe:
+            outcomes[fn] = "verified"
+        else:
+            outcomes[fn] = "vacuous"
+    return outcomes
+
+
+def assess_solver_catch(
+    spec: dict[str, Any],
+    outcomes: dict[str, str],
+    test_assessment: dict[str, Any] | None,
+) -> dict[str, Any]:
+    targets = [
+        {"function": t.get("function"), "side": t.get("side", "post")}
+        for t in spec.get("targets", [])
+    ]
+    # Tests must have RUN and all-applicable passed, with a non-empty effective
+    # surface — the grader-gap thesis is "tests are blind, the solver is not."
+    test_passed = bool(
+        test_assessment
+        and test_assessment.get("all_applicable_passed")
+        and test_assessment.get("effective_total", 0) > 0
+    )
+    per_target = []
+    any_refuted = False
+    all_body_faithful = True
+    for target in targets:
+        outcome = outcomes.get(target["function"], "vacuous")
+        per_target.append({**target, "outcome": outcome})
+        if outcome == "refuted":
+            any_refuted = True
+        if outcome == "vacuous":
+            all_body_faithful = False
+    return {
+        "available": True,
+        "targets": per_target,
+        "outcomes": outcomes,
+        "test_passed": test_passed,
+        "any_refuted": any_refuted,
+        "all_targets_body_faithful": all_body_faithful,
+        # The headline per-cell metric: tests blind (pass) AND solver refuted.
+        "solver_caught": bool(any_refuted and test_passed),
+    }
+
+
+def run_solver_catch_verify(
+    llmll: list[str],
+    solution_ast: dict[str, Any] | None,
+    metadata: dict[str, Any],
+    run_dir: Path,
+    *,
+    timeout: int,
+    commands_log: list[dict[str, Any]],
+    test_assessment: dict[str, Any] | None,
+) -> dict[str, Any]:
+    experiment_id = str(metadata.get("experiment_id") or "")
+    spec = load_hidden_spec(experiment_id)
+    if spec is None:
+        return {"available": False, "reason": "no hidden-spec for experiment"}
+    if not isinstance(solution_ast, dict):
+        return {"available": False, "reason": "solution is not JSON-AST"}
+
+    graded_ast, injected = inject_hidden_posts(solution_ast, spec)
+    graded_path = run_dir / "solution.graded.ast.json"
+    graded_path.write_text(json.dumps(graded_ast, indent=2) + "\n", encoding="utf-8")
+    graded_name = str(graded_path.relative_to(run_dir))
+
+    result = run_command(
+        "solver-catch-verify",
+        llmll + ["verify", graded_name, "--strict-verified-core"],
+        cwd=run_dir,
+        timeout=timeout,
+    )
+    commands_log.append(result)
+
+    target_fns = [
+        t.get("function") for t in spec.get("targets", []) if t.get("function")
+    ]
+    text = (result.get("stdout") or "") + "\n" + (result.get("stderr") or "")
+    outcomes = parse_fixpoint_outcome(text, target_fns)
+    assessment = assess_solver_catch(spec, outcomes, test_assessment)
+    assessment["injected"] = injected
+    assessment["graded_solution"] = graded_name
+    assessment["verify_returncode"] = result.get("returncode")
+    return assessment
+
+
+def solver_catch_grade(report: dict[str, Any]) -> str:
+    """Inverted-polarity grade for solver-catches mode.
+    A = solver_caught (tests blind + refuted); B = verified-clean or refuted-but-
+    tests-also-caught (informative, not the target signal); C = vacuous non-catch
+    (fixpoint could not reach a body-faithful VC — the F-B0-2 gate); F = the agent
+    solution did not compile / missing required features."""
+    if report.get("status") != "passed" and report.get("first_error"):
+        return "F"
+    feature_scan = report.get("feature_scan") or {}
+    if feature_scan.get("missing_required"):
+        return "F"
+    sc = report.get("solver_catch") or {}
+    if not sc.get("available"):
+        return "C"
+    if not sc.get("all_targets_body_faithful"):
+        return "C"
+    if sc.get("solver_caught"):
+        return "A"
+    return "B"
+
+
 def quality_grade(report: dict[str, Any]) -> str:
+    if report.get("grading_mode") == GRADING_MODE_SOLVER_CATCHES:
+        return solver_catch_grade(report)
+
     if report.get("status") != "passed" and report.get("first_error"):
         return "F"
 
@@ -1045,6 +1286,27 @@ def render_summary(report: dict[str, Any]) -> str:
             lines.append("Missing required markers: " + ", ".join(f"`{m}`" for m in missing))
         else:
             lines.append("All required feature markers were found.")
+        lines.append("")
+
+    solver_catch = report.get("solver_catch")
+    if solver_catch:
+        lines.extend(["## Solver-Catch Assessment (grader-gap)", ""])
+        if not solver_catch.get("available"):
+            lines.append(
+                f"Not available: {solver_catch.get('reason', 'unknown')}."
+            )
+        else:
+            lines.append(
+                f"Solver caught planted bug: `{solver_catch.get('solver_caught', False)}` "
+                f"(tests blind/passed: `{solver_catch.get('test_passed', False)}`, "
+                f"any target refuted: `{solver_catch.get('any_refuted', False)}`, "
+                f"all targets body-faithful: `{solver_catch.get('all_targets_body_faithful', False)}`)."
+            )
+            for target in solver_catch.get("targets", []):
+                lines.append(
+                    f"- `{target.get('function')}`.{target.get('side')}: "
+                    f"**{target.get('outcome')}**"
+                )
         lines.append("")
 
     effect_summary = report.get("effect_summary")

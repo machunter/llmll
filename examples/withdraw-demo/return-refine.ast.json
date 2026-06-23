@@ -1,0 +1,187 @@
+{
+  "llmll_version": "0.13.2",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "x",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "x"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                }
+              ],
+              "kind": "op",
+              "op": ">="
+            },
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "x"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 65535
+                }
+              ],
+              "kind": "op",
+              "op": "<="
+            }
+          ],
+          "kind": "op",
+          "op": "and"
+        }
+      },
+      "kind": "type-decl",
+      "name": "Word"
+    },
+    {
+      "body": {
+        "cond": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "tokens"
+                },
+                {
+                  "kind": "var",
+                  "name": "added"
+                }
+              ],
+              "kind": "op",
+              "op": "+"
+            },
+            {
+              "kind": "lit-int",
+              "value": 65535
+            }
+          ],
+          "kind": "op",
+          "op": ">"
+        },
+        "else_branch": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "tokens"
+            },
+            {
+              "kind": "var",
+              "name": "added"
+            }
+          ],
+          "kind": "op",
+          "op": "+"
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "lit-int",
+          "value": 65535
+        }
+      },
+      "kind": "def",
+      "name": "saturate",
+      "params": [
+        {
+          "name": "tokens",
+          "param_type": {
+            "kind": "named",
+            "name": "Word"
+          }
+        },
+        {
+          "name": "added",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "added"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "named",
+        "name": "Word"
+      }
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "bucket"
+          },
+          {
+            "kind": "var",
+            "name": "amount"
+          }
+        ],
+        "fn": "saturate",
+        "kind": "app"
+      },
+      "kind": "def-shell",
+      "name": "top-up",
+      "params": [
+        {
+          "name": "bucket",
+          "param_type": {
+            "kind": "named",
+            "name": "Word"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "amount"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "named",
+        "name": "Word"
+      }
+    }
+  ]
+}

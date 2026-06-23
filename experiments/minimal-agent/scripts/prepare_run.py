@@ -25,6 +25,13 @@ LLMLL_WRAPPER_TEMPLATE = EXPERIMENT_ROOT / "templates" / "llmll-wrapper.sh"
 LLMLL_WRAPPER_CORE_INVERSION_TEMPLATE = EXPERIMENT_ROOT / "templates" / "llmll-wrapper-core-inversion.sh"
 GRAMMAR_MODES = {"legacy", "core-inversion"}
 SCAFFOLD_TEMPLATES_ROOT = EXPERIMENT_ROOT / "scaffold-templates"
+# Grader-gap (solver-catches mode): per-experiment hidden-spec files. Their mere
+# presence flips the experiment's grading_mode to "solver_catches" in run
+# metadata; the spec CONTENT (the withheld discriminating post) stays in the
+# harness tree and is NEVER copied into a run dir — evaluate_run.py loads it by
+# experiment_id at grade time. See hidden-specs/005.json and
+# experiments/minimal-agent/findings (DEF-RET grader-gap).
+HIDDEN_SPECS_ROOT = EXPERIMENT_ROOT / "hidden-specs"
 
 # Bundle B0 experiment (004), condition A: the provided helpers' effect_summary,
 # appended to the initial problem.md when --context-effect-summary is set.
@@ -77,6 +84,7 @@ RETURN_TYPE_BRIEF_BLOCKS = {
 EXPERIMENT_SCAFFOLD_TEMPLATES = {
     "003": ["ecommerce-order-handler"],
     "005": ["seeded-return-holes"],
+    "006": ["reservoir-inflow"],
 }
 
 LEGACY_PROBLEM_IDS = {
@@ -398,6 +406,7 @@ def prepare_one(
         "experiment_source": experiment["source"],
         "problem_id": problem_id,
         "stop_policy": "first_error",
+        "grading_mode": resolve_grading_mode(experiment_id),
         "solution_format": "json_ast",
         "ast_schema": "llmll-ast.schema.json",
         "grammar_mode": grammar_mode,
@@ -431,8 +440,52 @@ def provide_scaffold_templates(experiment_id: str, run_dir: Path) -> list[str]:
             raise SystemExit(f"Scaffold template is missing: {src_dir}")
         dst_dir = run_dir / ".llmll" / "templates" / template_name
         shutil.copytree(src_dir, dst_dir)
+        # LEAK STRIP (postmortem-010 residual): the raw copytree shipped fixture
+        # metadata into the agent-visible scaffold — most damagingly `_fixture_note`,
+        # which describes the A/B design (and its blindness invariant) itself. Drop
+        # every underscore-prefixed key from each copied .ast.json so harness/fixture
+        # metadata can never reach the agent. No valid JSON-AST schema field starts
+        # with `_`, so this is safe; it is the on-disk enforcement of the blindness
+        # invariant the note merely asserted.
+        for ast_path in dst_dir.rglob("*.ast.json"):
+            _strip_fixture_metadata(ast_path)
         copied.append(template_name)
     return copied
+
+
+def _strip_fixture_metadata(ast_path: Path) -> None:
+    try:
+        document = json.loads(ast_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return
+    if not _drop_underscore_keys(document):
+        return
+    ast_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+def _drop_underscore_keys(value: object) -> bool:
+    """Recursively delete dict keys beginning with '_'. Returns True if anything
+    was removed (so the caller only rewrites changed files)."""
+    changed = False
+    if isinstance(value, dict):
+        for key in [k for k in value if isinstance(k, str) and k.startswith("_")]:
+            del value[key]
+            changed = True
+        for child in value.values():
+            changed = _drop_underscore_keys(child) or changed
+    elif isinstance(value, list):
+        for child in value:
+            changed = _drop_underscore_keys(child) or changed
+    return changed
+
+
+def resolve_grading_mode(experiment_id: str) -> str:
+    """solver-catches mode is activated by the presence of a hidden-spec for the
+    experiment (hidden-specs/<id>.json). Default-off → "capability" (the legacy
+    grade path, unchanged for experiments 001–004)."""
+    if (HIDDEN_SPECS_ROOT / f"{experiment_id}.json").exists():
+        return "solver_catches"
+    return "capability"
 
 
 def slug(value: str) -> str:
