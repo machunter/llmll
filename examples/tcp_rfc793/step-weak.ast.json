@@ -1,0 +1,850 @@
+{
+  "llmll_version": "0.13.3",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "s",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "s"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                }
+              ],
+              "kind": "op",
+              "op": ">="
+            },
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "s"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 4
+                }
+              ],
+              "kind": "op",
+              "op": "<="
+            }
+          ],
+          "kind": "op",
+          "op": "and"
+        }
+      },
+      "kind": "type-decl",
+      "name": "ConnState"
+    },
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "e",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "e"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                }
+              ],
+              "kind": "op",
+              "op": ">="
+            },
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "e"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 5
+                }
+              ],
+              "kind": "op",
+              "op": "<="
+            }
+          ],
+          "kind": "op",
+          "op": "and"
+        }
+      },
+      "kind": "type-decl",
+      "name": "Event"
+    },
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "r",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "r"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                }
+              ],
+              "kind": "op",
+              "op": ">="
+            },
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "r"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 5
+                }
+              ],
+              "kind": "op",
+              "op": "<="
+            }
+          ],
+          "kind": "op",
+          "op": "and"
+        }
+      },
+      "kind": "type-decl",
+      "name": "StepResult"
+    },
+    {
+      "body": {
+        "cond": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "state"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                }
+              ],
+              "kind": "op",
+              "op": "="
+            },
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "event"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                }
+              ],
+              "kind": "op",
+              "op": "="
+            }
+          ],
+          "kind": "op",
+          "op": "and"
+        },
+        "else_branch": {
+          "cond": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "state"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "event"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 1
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          "else_branch": {
+            "cond": {
+              "args": [
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "state"
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 1
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "="
+                },
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "event"
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 2
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "="
+                }
+              ],
+              "kind": "op",
+              "op": "and"
+            },
+            "else_branch": {
+              "cond": {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "state"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 2
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "event"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 3
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "and"
+              },
+              "else_branch": {
+                "cond": {
+                  "args": [
+                    {
+                      "args": [
+                        {
+                          "kind": "var",
+                          "name": "state"
+                        },
+                        {
+                          "kind": "lit-int",
+                          "value": 3
+                        }
+                      ],
+                      "kind": "op",
+                      "op": "="
+                    },
+                    {
+                      "args": [
+                        {
+                          "kind": "var",
+                          "name": "event"
+                        },
+                        {
+                          "kind": "lit-int",
+                          "value": 4
+                        }
+                      ],
+                      "kind": "op",
+                      "op": "="
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "and"
+                },
+                "else_branch": {
+                  "cond": {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "state"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 4
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "="
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "event"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 5
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "="
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  },
+                  "else_branch": {
+                    "cond": {
+                      "args": [
+                        {
+                          "args": [
+                            {
+                              "kind": "var",
+                              "name": "state"
+                            },
+                            {
+                              "kind": "lit-int",
+                              "value": 2
+                            }
+                          ],
+                          "kind": "op",
+                          "op": "="
+                        },
+                        {
+                          "args": [
+                            {
+                              "kind": "var",
+                              "name": "event"
+                            },
+                            {
+                              "kind": "lit-int",
+                              "value": 5
+                            }
+                          ],
+                          "kind": "op",
+                          "op": "="
+                        }
+                      ],
+                      "kind": "op",
+                      "op": "and"
+                    },
+                    "else_branch": {
+                      "kind": "lit-int",
+                      "value": 5
+                    },
+                    "kind": "if",
+                    "then_branch": {
+                      "kind": "lit-int",
+                      "value": 4
+                    }
+                  },
+                  "kind": "if",
+                  "then_branch": {
+                    "kind": "lit-int",
+                    "value": 4
+                  }
+                },
+                "kind": "if",
+                "then_branch": {
+                  "kind": "lit-int",
+                  "value": 4
+                }
+              },
+              "kind": "if",
+              "then_branch": {
+                "kind": "lit-int",
+                "value": 4
+              }
+            },
+            "kind": "if",
+            "then_branch": {
+              "kind": "lit-int",
+              "value": 3
+            }
+          },
+          "kind": "if",
+          "then_branch": {
+            "kind": "lit-int",
+            "value": 2
+          }
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "lit-int",
+          "value": 1
+        }
+      },
+      "kind": "def",
+      "name": "step",
+      "params": [
+        {
+          "name": "state",
+          "param_type": {
+            "kind": "named",
+            "name": "ConnState"
+          }
+        },
+        {
+          "name": "event",
+          "param_type": {
+            "kind": "named",
+            "name": "Event"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "state"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 0
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "="
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "event"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 0
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "="
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  }
+                ],
+                "kind": "op",
+                "op": "not"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 1
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "or"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "state"
+                              },
+                              {
+                                "kind": "lit-int",
+                                "value": 0
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "="
+                          },
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "event"
+                              },
+                              {
+                                "kind": "lit-int",
+                                "value": 1
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "="
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "and"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "not"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 2
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "or"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "state"
+                                  },
+                                  {
+                                    "kind": "lit-int",
+                                    "value": 1
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              },
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "event"
+                                  },
+                                  {
+                                    "kind": "lit-int",
+                                    "value": 2
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "and"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "not"
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "result"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 3
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "="
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "or"
+                  },
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "args": [
+                                  {
+                                    "args": [
+                                      {
+                                        "kind": "var",
+                                        "name": "state"
+                                      },
+                                      {
+                                        "kind": "lit-int",
+                                        "value": 2
+                                      }
+                                    ],
+                                    "kind": "op",
+                                    "op": "="
+                                  },
+                                  {
+                                    "args": [
+                                      {
+                                        "kind": "var",
+                                        "name": "event"
+                                      },
+                                      {
+                                        "kind": "lit-int",
+                                        "value": 3
+                                      }
+                                    ],
+                                    "kind": "op",
+                                    "op": "="
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "and"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "not"
+                          },
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "result"
+                              },
+                              {
+                                "kind": "lit-int",
+                                "value": 4
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "="
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "or"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "args": [
+                                  {
+                                    "args": [
+                                      {
+                                        "args": [
+                                          {
+                                            "kind": "var",
+                                            "name": "state"
+                                          },
+                                          {
+                                            "kind": "lit-int",
+                                            "value": 3
+                                          }
+                                        ],
+                                        "kind": "op",
+                                        "op": "="
+                                      },
+                                      {
+                                        "args": [
+                                          {
+                                            "kind": "var",
+                                            "name": "event"
+                                          },
+                                          {
+                                            "kind": "lit-int",
+                                            "value": 4
+                                          }
+                                        ],
+                                        "kind": "op",
+                                        "op": "="
+                                      }
+                                    ],
+                                    "kind": "op",
+                                    "op": "and"
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "not"
+                              },
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "result"
+                                  },
+                                  {
+                                    "kind": "lit-int",
+                                    "value": 4
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "or"
+                          },
+                          {
+                            "args": [
+                              {
+                                "args": [
+                                  {
+                                    "args": [
+                                      {
+                                        "args": [
+                                          {
+                                            "kind": "var",
+                                            "name": "state"
+                                          },
+                                          {
+                                            "kind": "lit-int",
+                                            "value": 4
+                                          }
+                                        ],
+                                        "kind": "op",
+                                        "op": "="
+                                      },
+                                      {
+                                        "args": [
+                                          {
+                                            "kind": "var",
+                                            "name": "event"
+                                          },
+                                          {
+                                            "kind": "lit-int",
+                                            "value": 5
+                                          }
+                                        ],
+                                        "kind": "op",
+                                        "op": "="
+                                      }
+                                    ],
+                                    "kind": "op",
+                                    "op": "and"
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "not"
+                              },
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "result"
+                                  },
+                                  {
+                                    "kind": "lit-int",
+                                    "value": 4
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "or"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "and"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  }
+                ],
+                "kind": "op",
+                "op": "and"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "post_source": "RFC 793 §3.2 — legal transitions only (INCOMPLETE: no rejection clause)",
+      "return_type": {
+        "kind": "named",
+        "name": "StepResult"
+      }
+    }
+  ]
+}

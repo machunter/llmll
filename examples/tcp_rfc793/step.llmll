@@ -1,0 +1,53 @@
+;; TCP RFC 793 — connection state machine (state-safety, VERIFIED).
+;;
+;; "Implement a protocol and let the compiler PROVE the implementation cannot
+;;  violate the protocol's state-safety rules."  Unlike the TOTP RFC demo (whose
+;;  crypto core is an opaque `asserted` builtin), every obligation here lands in
+;;  the QF-LIA fragment, so `step` reaches `verified` — see VERIFICATION_SCOPE.md.
+;;
+;; States  (int-encoded):  0 CLOSED  1 LISTEN  2 SYN_SENT  3 SYN_RCVD  4 ESTABLISHED
+;; Events  (int-encoded):  0 PASSIVE_OPEN  1 ACTIVE_OPEN  2 RCV_SYN
+;;                         3 RCV_SYN_ACK   4 RCV_ACK       5 SEND_DATA
+;; Result: the next state (0..4), or 5 = REJECTED for an illegal (state,event).
+;;
+;; The `post` is the RFC 793 §3.2 legal-successor relation, authored FROM the RFC
+;; (not a copy of the body): each legal pair maps to its successor, and every
+;; other pair MUST be REJECTED. A wrong impl that allows an illegal transition is
+;; refuted by the solver and localized to the offending branch.
+;;   Regenerate twin: llmll build ./step.llmll --emit -o .
+
+(type ConnState  (where [s: int] (and (>= s 0) (<= s 4))))
+(type Event      (where [e: int] (and (>= e 0) (<= e 5))))
+(type StepResult (where [r: int] (and (>= r 0) (<= r 5))))
+
+(def step [state: ConnState event: Event] -> StepResult
+  (post
+    (and (or (not (and (= state 0) (= event 0))) (= result 1))
+    (and (or (not (and (= state 0) (= event 1))) (= result 2))
+    (and (or (not (and (= state 1) (= event 2))) (= result 3))
+    (and (or (not (and (= state 2) (= event 3))) (= result 4))
+    (and (or (not (and (= state 3) (= event 4))) (= result 4))
+    (and (or (not (and (= state 4) (= event 5))) (= result 4))
+         (or (and (= state 0) (= event 0))
+         (or (and (= state 0) (= event 1))
+         (or (and (= state 1) (= event 2))
+         (or (and (= state 2) (= event 3))
+         (or (and (= state 3) (= event 4))
+         (or (and (= state 4) (= event 5))
+             (= result 5)
+         ))))))))))))
+    :source "RFC 793 §3.2 — connection state transition table")
+  (if (and (= state 0) (= event 0)) 1
+  (if (and (= state 0) (= event 1)) 2
+  (if (and (= state 1) (= event 2)) 3
+  (if (and (= state 2) (= event 3)) 4
+  (if (and (= state 3) (= event 4)) 4
+  (if (and (= state 4) (= event 5)) 4
+    5)))))))
+
+(check "RFC 793 §3.2 — legal handshake transitions"
+  (for-all [dummy: int]
+    (and (= (step 0 0) 1)
+    (and (= (step 1 2) 3)
+    (and (= (step 3 4) 4)
+         (= (step 4 5) 4))))))
