@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased
+<a id="Latest"></a>
+
+## v0.13.3 — Sum-Type Verification Fixes (ADT emission + COMP-3b) (2026-06-23)
 
 ### Compiler — fix: liquid-fixpoint ADT declarations no longer crash on user sum types
 
@@ -13,8 +15,6 @@
 - **A function returning a refinement-aliased type whose body is a two-arm `match` on a `Result`-typed parameter now produces a body-faithful VC** ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs)). COMP-3's `EMatch` encoding previously bailed because the `Result`-variable scrutinee could not translate (the SortEnv is int-only), so the function fell back to `asserted` and a refinement-violating arm was never `refuted`. The body-VC driver now intercepts a flat `match` on a `Result`-typed scrutinee, binds each arm's payload at its declared ok/err sort, and declares the synthetic discriminator and payloads as binders so liquid-fixpoint sees no free variables. A clean fill reaches `verified`; a refinement-violating arm reads `refuted` (per-arm localization). Constructor-dependent postconditions still fall back (unchanged); the encoding stays `Result`-specific and remains in QF-LIA. **Scope:** applies when the function body *is* the match; a match nested under `let`/`if` still falls back (COMP-3b-general, future). **No schema change.**
 
 **Tests: 908 → 914 Haskell (+2 FQDATA, +4 COMP-3b); 62 Python unchanged.**
-
-<a id="Latest"></a>
 
 ## v0.13.2 — Return-Refinement Discharge (DEF-RET Unit 2) (2026-06-21)
 
