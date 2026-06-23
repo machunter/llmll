@@ -1,3 +1,0 @@
-# Moved
-
-This direction memo has been archived to [`../archive/shipped-design-specs/core-shell-inversion-direction.md`](../archive/shipped-design-specs/core-shell-inversion-direction.md) under UPDATE-PROTOCOL §3.4 / DOC-CONSOLIDATE M2 case 3 — all spawned v0.11 LT-proposals (LT-INV, LT-CDP, LT-PPR) have shipped. Its architectural direction is folded into [`core-shell-inversion-proposal.md`](core-shell-inversion-proposal.md) `## Background`; the full multi-topic record (including §2 CDP, §3 PPR, §4 Bundle B, §8.1 gate axes, §8.3 rollback paths) lives in the archived copy. This stub will be deleted after one release cycle.

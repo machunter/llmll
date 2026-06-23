@@ -1,11 +1,11 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-06-20  
+> **Last updated:** 2026-06-23  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
 
-Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries below are one-liners: title, 8–12-word hook, status label. Full descriptions live in each proposal's own frontmatter and body. See [`../UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) for the canonical-sources contract.
+Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries below are one-liners: title, 8–12-word hook, status label. Full descriptions live in each proposal's own frontmatter and body. See [`../UPDATE-PROTOCOL.md`](../UPDATE-PROTOCOL.md) for the canonical-sources contract. Settled-and-shipped proposals are folded and moved to [`../archive/`](../archive/) — see **Archived Material** below.
 
 ---
 
@@ -13,36 +13,15 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 | Document | Summary | Status |
 |---|---|---|
-| [oblig-0-spec.md](oblig-0-spec.md) | Obligation report schema; three channels; EMatch branch obligations; benchmark suite | **Approved (Rev 8)** — OBLIG-1/MOD-1 unblocked |
-| [verification-debate.md](verification-debate.md) | Formal-methods critique; "sound modulo trust" framing established | Active reference |
+| [oblig-0-spec.md](oblig-0-spec.md) | Obligation report schema; three channels; EMatch branch obligations; benchmark suite | **Approved (Rev 8)** — residual obligation work open |
+| [verification-debate.md](verification-debate.md) | Formal-methods critique; "sound modulo trust" framing | Active reference |
 | [specification-sources.md](specification-sources.md) | Five sources of good specs: standards, back-translation, refinement, hub, synthesis | Active reference |
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel vs borrowed; positioning guardrails | Active reference |
-| [oblig-pbt-3-proposal.md](oblig-pbt-3-proposal.md) | PBT-to-trust-report write-back; singleton-head linkage; per-clause tier profiles | **Settled (Rev 2)** — awaiting engineer (professor review folded as Appendix) |
-| [core-shell-inversion-direction.md](../archive/shipped-design-specs/core-shell-inversion-direction.md) | v0.11 direction memo: grammar inversion, CDP-0, predicate-carrying `?proof-required` | **Folded & archived (v0.11)** — direction folded into LT-INV proposal `## Background`; memo archived to `shipped-design-specs/` |
-| [v0.12-direction.md](v0.12-direction.md) | v0.12 direction memo: REF-META-2..5, Bundle B, refinement-aliased non-int widening | **Direction memo (Rev 1)** — v0.12 planning |
+| [oblig-pbt-3-proposal.md](oblig-pbt-3-proposal.md) | PBT-to-trust-report write-back; per-clause tier profiles | **Settled (Rev 2)** — awaiting engineer (review folded) |
+| [proof-artifact-proposal.md](proof-artifact-proposal.md) | PROOF-ARTIFACT: unified reproducible verification artifact (trust/obligation/`.fq`/sidecar) | **Proposed (Rev 2)** — review folded ([proof-artifact-review.md](proof-artifact-review.md)); awaiting settlement |
+| [cross-module-composition-finding.md](cross-module-composition-finding.md) | XMOD-COMP: cross-module verified composition is a 5-layer gap; same-module works | **Finding — partially fixed** — body-VC-emission + callee_tier open |
 | [critique-2026-05-23-triage.md](critique-2026-05-23-triage.md) | 2026-05-23 external-critique triage; four-turn convergence; 17 routing items | **Settled** — routing in progress |
-| [core-shell-inversion-proposal.md](core-shell-inversion-proposal.md) | LT-INV: invert source grammar; `def` strict-core; `def-shell` permissive marked | **Settled (Rev 4)** — def-logic removed in v0.12 (no auto-rewrite); Rev 3: §8 gate PASS definitive (EL-5, PM-006, 2026-05-30) |
-| [contract-discriminative-power-proposal.md](contract-discriminative-power-proposal.md) | LT-CDP: contract DP as v0.11 first-class evidence axis; two-axis assurance | **Settled (Rev 5)** — CE follow-up complete (commit `3af3c06`); §8 Outcome 0 recorded; LLMLL.md §4.4.6 updated (CDPScopeCoreOnly, 2026-05-29) |
-| [proof-required-predicate-carrier-proposal.md](../archive/shipped-design-specs/proof-required-predicate-carrier-proposal.md) | LT-PPR: predicate-carrying `?proof-required`; def-shell only; runtime-assertion fallback | **Shipped & archived (v0.11)** — engineer build `3391713`; archived to `shipped-design-specs/` |
-| [refinement-metatheory-of-record-proposal.md](refinement-metatheory-of-record-proposal.md) | REF-META-1: checking-mode-only metatheory; explicit non-goals; tier-aware soundness | **Settled (Rev 2)** — promoted to `LLMLL.md §3.4/§5` (doc-lead pass, 2026-05-27) |
-| [ref-meta-2-solver-completeness-proposal.md](ref-meta-2-solver-completeness-proposal.md) | REF-META-2: auto-discharge boundary Σ_auto ⊊ Σ_ref; solver-completeness statement | **Settled (Rev 2)** — promoted to `LLMLL.md §5.3.3` (doc-lead pass, 2026-06-12) |
-| [ref-meta-3-predicate-wf-proposal.md](ref-meta-3-predicate-wf-proposal.md) | REF-META-3: predicate well-formedness rule; Σ_ref catalog; measure discipline M1–M4 | **Settled (Rev 2)** — promoted to `LLMLL.md §3.4.4` (doc-lead pass, 2026-06-12) |
-| [ref-meta-4-erasure-proposal.md](ref-meta-4-erasure-proposal.md) | REF-META-4: erasure theorem; phase-distinction + construction-side discipline; Σ_auto scope | **Settled (Rev 3)** — promoted to `LLMLL.md §3.4.5` (doc-lead pass, 2026-06-13) |
-| [ref-meta-5-type-assignment-proposal.md](ref-meta-5-type-assignment-proposal.md) | REF-META-5: type-assignment judgment (local type inference) + hole-directed checking; completes 1–5 | **Settled (Rev 2)** — promoted to `LLMLL.md §3.4.6` (doc-lead pass, 2026-06-14) |
-| [bundle-b0-effect-summary-proposal.md](bundle-b0-effect-summary-proposal.md) | Bundle B0: per-function effect/authority summary; 4th informational obligation-report channel | **Settled (Rev 2)** — shipped to main (commit b2d9c1a, 2026-06-14) |
-| [bundle-b0-cross-module-addendum.md](bundle-b0-cross-module-addendum.md) | Bundle B0 cross-module: effect_summary composes across imports (∅-iff-fully-walked); retires B0-experiment-gates-B1 (F-B0-3) | **Settled (Rev 1)** — shipped to main (85d2a7d / 6215add / f78c1ca, 2026-06-15) |
-| [v0.11-cross-proposal-rollback-discipline.md](v0.11-cross-proposal-rollback-discipline.md) | v0.11 cross-proposal rollback discipline: three outcomes; LT-CDP/LT-PPR shipping conditions | **Settled (Rev 1)** — coordination artifact |
-| [int-2-boundary-shims.md](int-2-boundary-shims.md) | LT-INT/INT-2: fifteen `Int`-touching preamble entries classified A/B/C | **Settled (Rev 4)** — §8/§4 reconciliation confirmed; `range-idx` deferred rationale recorded |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
-| [positioning-constraint-decay-proposal.md](positioning-constraint-decay-proposal.md) | Dente et al. (2026) external anchor; spec-source primary, mechanisms secondary; bounded-iteration framing | **Settled (Rev 1)** — promoted into 3 design docs; paper verified 2026-05-25 with two minor corrections applied |
-| [verify-reporting-defects-2026-06-04-bug.md](verify-reporting-defects-2026-06-04-bug.md) | Three verify-path reporting defects: fail-open on UNSAFE; `--trust-report` cannot show `verified` | **Resolved** — VERIFY-RPT-1 shipped (`b914587`) |
-| [verified-contract-refuted-status-proposal.md](verified-contract-refuted-status-proposal.md) | Solver-SAFE conjunct on `verified`/strict-core; `refuted` as orthogonal trust status | **Settled (Rev 2) → Shipped** (`b914587`); promoted to LLMLL.md §3.4.3/§5.3.4/§4.4/§5.3.5 |
-| [compositional-trust-closure-proposal.md](compositional-trust-closure-proposal.md) | DEMO-COMP: surfaces shipped v0.9.0 assume-guarantee as verified call edges; `consumed_guarantees` channel; call-site obligation | **Rev 4 — VIABLE (§0)** — composition reaches `verified` (CLI-confirmed); infra green; §10 fixture needs Rev-5 reshape onto working shapes; DEFECT-1/2/3 open |
-| [proof-artifact-proposal.md](proof-artifact-proposal.md) | PROOF-ARTIFACT: unified reproducible verification artifact consolidating trust/obligation/`.fq`/sidecar surface | **Proposed (Rev 2)** — professor review folded ([proof-artifact-review.md](proof-artifact-review.md)); awaiting settlement |
-| [def-return-annotation-proposal.md](def-return-annotation-proposal.md) | DEF-RET: optional return-type annotation on def/def-shell; closes §3.4.6-vs-grammar drift | **Shipped (Rev 3)** — Unit 1 v0.13.1, Unit 2 v0.13.2; return-refinement discharge + export + staleness-hash coverage |
-| [admit-verified-callee-proposal.md](admit-verified-callee-proposal.md) | ADMIT-VERIFIED: strict-core `def` admission of independently-verified callees; wiring gap, not soundness | **Rev 2 — Option 2 BUILT, green (884)** — admissibility wall FIXED; composition reaches `verified`; see §0 |
-| [precondition-tier-proposal.md](precondition-tier-proposal.md) | TRUST-PRE (DEFECT-1): does a precondition floor a function's trust tier? `meet(csPre,csPost)` floors every pre-bearing fn to `asserted` | **BUILT & COMPLETE** — Position B (incl. callee meet) + persisted `caller_obligations` axis; 893 green; demo re-script in progress |
-| [cross-module-composition-finding.md](cross-module-composition-finding.md) | XMOD-COMP: cross-module verified composition is a 5-layer gap; admission/type-alias/tier-edge fixed, body-VC-emission + callee_tier open | **Finding — partially fixed, deliberately stopped** — same-module works; tracked as a scoped project (not a demo blocker) |
 
 ---
 
@@ -50,7 +29,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 | Document | Summary | Status |
 |---|---|---|
-| [invariant-discovery-proposal.md](invariant-discovery-proposal.md) | Nine ranked mechanisms; specification pressure and contract entropy concepts | Active reference (professor review folded as Appendix per M2) |
+| [invariant-discovery-proposal.md](invariant-discovery-proposal.md) | Nine ranked mechanisms; specification pressure and contract entropy concepts | Active reference (review folded as Appendix per M2) |
 
 ---
 
@@ -75,17 +54,15 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 
 ## Archived Material
 
-Historical design documents from shipped or superseded sources are in [`../archive/`](../archive/):
+Historical design documents from shipped or superseded sources are in [`../archive/`](../archive/). Settled-and-shipped proposals are folded (professor reviews → `## Appendix`) and moved here; version lineage lives in [`../compiler-team-roadmap.md`](../compiler-team-roadmap.md) `## Shipped Releases` and [`../../CHANGELOG.md`](../../CHANGELOG.md).
 
 | Directory / file | Contents | Origin |
 |---|---|---|
-| `shipped-design-specs/` | BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor, invariant-discovery (base), verification-debate-action-items, `proof-required-predicate-carrier.md` (superseded seed), `lead-agent.md` (v0.4 Lead Agent design, shipped) | v0.6.2–v0.9.0 (shipped or superseded) |
-| `professor-reviews/` | Standalone professor reviews folded into proposal appendices: `oblig-pbt-3-review.md`, `invariant-discovery-review.md` | Post-DOC-CONSOLIDATE M2 |
+| `shipped-design-specs/` | Shipped/superseded design specs. v0.6.2–v0.9.0: BODY-VC-0, EVID-0, COMP-0, interface-laws, spec-adequacy-closure, agent-prompt-semantics-gap, Algorithm W resolution, contract-clause-refactor, invariant-discovery (base), verification-debate-action-items, proof-required-predicate-carrier (+proposal), lead-agent, core-shell-inversion-direction. v0.11–v0.13 settled/shipped: REF-META 1–5, Bundle B0 (+cross-module addendum), DEF-RET (def-return-annotation), ADMIT-VERIFIED, TRUST-PRE (precondition-tier), CDP (contract-discriminative-power), LT-INV (core-shell-inversion), INT-2 (boundary-shims), positioning-constraint-decay, v0.11-rollback-discipline, verified-contract-refuted-status, verify-reporting-defects (VERIFY-RPT-1), v0.12-direction memo, compositional-trust-closure (DEMO-COMP — **superseded**: §10 realized by `examples/payments-core/`, DEFECT-1 resolved by TRUST-PRE) | v0.6.2–v0.13 (shipped or superseded) |
+| `professor-reviews/` | Standalone reviews folded into proposal appendices: `oblig-pbt-3-review`, `invariant-discovery-review`, `contract-discriminative-power-review`, `core-shell-inversion-review`, `positioning-constraint-decay-review`, `refinement-metatheory-of-record-review`, `proof-required-predicate-carrier-review`, `def-ret-staleness-hash-review` | Post-DOC-CONSOLIDATE M2 |
 | `wasm-investigations/` | `effectful-wasm-spike.md`, `wasm-poc-report.md` | Pre-roadmap-reorganization |
 | `do_notation/` | Do-notation design and two implementation plans | v0.3 (shipped) |
-| `older_discussions_and_plans/` | SMT/Lean analysis, language analysis, feedback, unicode decision | Pre-v0.2 |
+| `older_discussions_and_plans/` | `SMT_Lean_Analysis.md`, `unicode_decision.md` | Pre-v0.2 |
 | `sketch/` | Compiler handoff sketch, implementation guide | Pre-v0.2 |
-| `v0.3-plan/` | Delegate lifecycle, stratified verification briefs | v0.3 (shipped) |
-| `v0.3.1-plan/` | Compiler + professor implementation plans | v0.3.1 (shipped) |
-| `research-track.md` (file) | Original research-track doc; R1–R7 migrated into roadmap research-track section | Post-DOC-CONSOLIDATE M4 |
-| `roadmap-shipped-history.md` (file) | Detailed per-version shipped history (v0.1.2 → v0.12) split out of `compiler-team-roadmap.md`; live roadmap keeps a compact `## Shipped Releases` summary | Post-DOC-CONSOLIDATE M5 (large-cut, 2026-06-21) |
+| `research-track.md` (file) | Original research-track doc, **frozen-historical**; live items are R1–R7 in `compiler-team-roadmap.md` | Post-DOC-CONSOLIDATE M4 |
+| `roadmap-shipped-history.md` (file) | Detailed per-version shipped history (v0.1.2 → v0.12) split out of `compiler-team-roadmap.md`; live roadmap keeps a compact `## Shipped Releases` summary | Post-DOC-CONSOLIDATE M5 (2026-06-21) |
