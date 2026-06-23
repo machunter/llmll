@@ -222,6 +222,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 | Version | Headline | Date | Tests | Detail |
 |---------|----------|------|-------|--------|
+| **v0.13.4** | Loud verify + protocol & payments demos — `verify` prints a SOLVER-NOT-FOUND banner and exits 3 (≠ 1=refuted) when no SMT solver is on PATH; new `examples/payments-core/` (verified transfer + COMP-3b settle) and `examples/tcp_rfc793/` (RFC 793 state machine → `verified`); no schema change | 2026-06-23 | 914 H + 62 Py | `CHANGELOG.md §v0.13.4` |
 | **v0.13.3** | Sum-Type Verification Fixes (ADT emission + COMP-3b) — `.fq` ADT `data` declarations emit with source-case type names and valid constructor syntax (user sum types no longer crash liquid-fixpoint); COMP-3b — a refinement-aliased return over a flat two-arm `Result`-variable match now produces a body-faithful VC; `schemaVersion` `0.7.0` | 2026-06-23 | 914 H + 62 Py | `CHANGELOG.md §v0.13.3` |
 | **v0.13.2** | Return-Refinement Discharge (DEF-RET Unit 2) — a refinement-aliased return discharges via the body-VC and is exported as a caller-assumable guarantee; `schemaVersion` `0.7.0` | 2026-06-21 | 908 H + 62 Py | `CHANGELOG.md §v0.13.2` |
 | **v0.13.1** | Optional Return-Type Annotation (DEF-RET Unit 1 / OBLIG-1-FOLLOWON) — optional `-> RetType` on `def`/`def-shell`; populates `expected_return_type`; schema `0.6.0 → 0.7.0` | 2026-06-21 | (see v0.13.2) | `CHANGELOG.md §v0.13.1` |
@@ -252,7 +253,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | **v0.1.3** | Type Alias Expansion — structural type-alias resolution, where-clause binding scope, post-ship bug fixes | 2026-03-21 | 25 H | [archive §v0.1.3](archive/roadmap-shipped-history.md#v013--type-alias-expansion--shipped-2026-03-21) |
 | **v0.1.2** | Machine-First Foundation — JSON-AST parser + schema, Haskell codegen target, minimal surface syntax fixes | 2026-03 | — | [archive §v0.1.2](archive/roadmap-shipped-history.md#v012--machine-first-foundation--shipped) |
 
-> Detailed per-item implementation history (IDs, acceptance criteria, commit SHAs, design-doc links, the historical v0.8–v0.10 critical-path ASCII diagram, the "What Changed from LLMLL.md §14" table, and the "Items Removed from Scope" table) lives in [`docs/archive/roadmap-shipped-history.md`](archive/roadmap-shipped-history.md). **Current shipped: v0.13.3** (2026-06-23), 914 Haskell + 62 Python tests.
+> Detailed per-item implementation history (IDs, acceptance criteria, commit SHAs, design-doc links, the historical v0.8–v0.10 critical-path ASCII diagram, the "What Changed from LLMLL.md §14" table, and the "Items Removed from Scope" table) lives in [`docs/archive/roadmap-shipped-history.md`](archive/roadmap-shipped-history.md). **Current shipped: v0.13.4** (2026-06-23), 914 Haskell + 62 Python tests.
 
 ---
 

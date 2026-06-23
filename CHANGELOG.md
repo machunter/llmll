@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased
+<a id="Latest"></a>
+
+## v0.13.4 — Loud verify + protocol & payments demos (2026-06-23)
 
 ### Docs — withdraw-demo: complex-return beat (the type is the contract)
 
@@ -17,7 +19,7 @@
 
 - **New [`examples/payments-core/`](examples/payments-core/)** — a verified `transfer` over a `debit` call edge (no-overdraw + all-or-nothing failure-stasis); `transfer-bad` is `refuted`, `transfer-unsafe` is refused at the call site; `settle` exercises the COMP-3b `Result`-match refinement return. **New [`examples/tcp_rfc793/`](examples/tcp_rfc793/)** — an RFC 793 connection state machine reaching `verified` on the legal-successor invariant; `step-bad` is `refuted` on an illegal transition, `step-weak` shows an under-specified contract letting the bug through. Both stay in the QF-LIA verified core.
 
-<a id="Latest"></a>
+**Tests: 914 Haskell + 62 Python (unchanged from v0.13.3).**
 
 ## v0.13.3 — Sum-Type Verification Fixes (ADT emission + COMP-3b) (2026-06-23)
 
