@@ -1,0 +1,29 @@
+;; Payments-Core Demo — Beat A, the refuted twin.
+;;
+;; Identical to transfer.llmll EXCEPT the insufficient-funds branch "helpfully"
+;; completes the transfer anyway (subtracts), driving the balance negative. It
+;; type-checks and PASSES the happy-path test (which only exercises sufficient
+;; funds), but the solver refutes the post for all inputs with balance < amount:
+;;
+;;   llmll test   ./transfer-bad.llmll              ->  test passes (happy path)
+;;   llmll verify ./transfer-bad.llmll --strict-verified-core
+;;       ->  refuted: transfer  (no-overdraft violated on the insufficient-funds branch)
+
+(def debit [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (- balance amount))
+
+(def-shell transfer [balance: int amount: int] -> int
+  (pre  (and (>= balance 0) (>= amount 0)))
+  (post (and (>= result 0)
+             (or (= result (- balance amount)) (= result balance))))
+  (if (>= balance amount)
+      (debit balance amount)
+      (- balance amount)))
+
+(check "sufficient funds debit exactly; never overdraws"
+  (for-all [balance: int amount: int]
+    (if (and (>= balance 0) (and (>= amount 0) (>= balance amount)))
+        (= (transfer balance amount) (- balance amount))
+        true)))

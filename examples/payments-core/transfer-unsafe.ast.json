@@ -1,0 +1,208 @@
+{
+  "llmll_version": "0.13.3",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "balance"
+          },
+          {
+            "kind": "var",
+            "name": "amount"
+          }
+        ],
+        "kind": "op",
+        "op": "-"
+      },
+      "kind": "def",
+      "name": "debit",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "balance"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "amount"
+                  }
+                ],
+                "kind": "op",
+                "op": "-"
+              }
+            ],
+            "kind": "op",
+            "op": "="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "var",
+                "name": "amount"
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "amount"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "balance"
+          },
+          {
+            "kind": "var",
+            "name": "amount"
+          }
+        ],
+        "fn": "debit",
+        "kind": "app"
+      },
+      "kind": "def-shell",
+      "name": "transfer",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "amount"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

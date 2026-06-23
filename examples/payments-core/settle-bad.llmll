@@ -1,0 +1,17 @@
+;; Payments-Core Demo — Beat B, the refuted twin.
+;;
+;; A "dishonest Success": the Success arm returns the payload `n` directly, but `n`
+;; can be negative — violating the Balance refinement {b : int | b >= 0}. The body
+;; passes the happy-path test (non-negative payloads only), but the solver refutes
+;; on exactly the Success arm (per-arm localization, COMP-3b):
+;;
+;;   llmll test   ./settle-bad.llmll               ->  test passes (happy path)
+;;   llmll verify ./settle-bad.llmll --strict-verified-core
+;;       ->  refuted: settle  (Success arm does not establish b >= 0)
+
+(type Balance (where [b: int] (>= b 0)))
+
+(def settle [attempt: Result[int, string]] -> Balance
+  (match attempt
+    ((Success n) n)
+    ((Error e) 0)))

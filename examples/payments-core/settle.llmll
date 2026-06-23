@@ -1,0 +1,17 @@
+;; Payments-Core Demo — Beat B: the return type IS the contract (COMP-3b, v0.13.3).
+;;
+;; `settle` returns a Balance — a refinement type {b : int | b >= 0} — and its body
+;; IS a two-arm match on a Result. There is NO hand-written post: the return
+;; refinement is the ENTIRE specification, discharged PER ARM by the solver.
+;;
+;;   llmll verify ./settle.llmll   ->  settle verified (both arms establish b >= 0)
+;;
+;; The refuted twin (settle-bad.llmll) trusts the Success payload directly and is
+;; refuted on exactly the Success arm.
+
+(type Balance (where [b: int] (>= b 0)))
+
+(def settle [attempt: Result[int, string]] -> Balance
+  (match attempt
+    ((Success n) (if (>= n 0) n 0))
+    ((Error e) 0)))
