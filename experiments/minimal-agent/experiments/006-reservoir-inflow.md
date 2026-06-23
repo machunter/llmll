@@ -26,18 +26,15 @@ precondition, or the provided `check`, and do not add or remove functions.
 
 ## What the body must do
 
-`settle-level` computes the new level of a fixed-capacity reservoir after an
-inflow.
-
-- Normally the new level is the current `level` plus the `inflow`.
-- The reservoir has a hard maximum, `capacity`: the level **can never exceed
-  `capacity`**. If adding the inflow would push the level above `capacity`, the
-  reservoir fills to exactly `capacity` and the excess spills (is discarded).
-- The level is never reduced by an inflow.
+`settle-level` computes the level of a storage reservoir after a batch of water
+has flowed in. The reservoir is a physical tank of fixed size `capacity`: it
+starts holding `level` units, `inflow` units arrive, and the tank has only so
+much room — water that does not fit runs off the top and is gone. Return the
+level the tank holds once it has settled.
 
 You may assume the precondition holds on entry (`0 <= level <= capacity` and
-`inflow >= 0`). The body must keep all arithmetic in the linear-integer fragment
-(no multiplication, division, or modulus) so it is eligible for body-faithful
+`inflow >= 0`). Keep all arithmetic in the linear-integer fragment (no
+multiplication, division, or modulus) so the body is eligible for body-faithful
 verification.
 
 ## Verification

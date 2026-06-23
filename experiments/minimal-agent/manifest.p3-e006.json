@@ -1,0 +1,15 @@
+{
+  "_comment": "P3 grader-gap campaign (experiment 006 reservoir-inflow, solver-catches mode). SINGLE-ARM by design: unlike e004/e005 this is NOT a context-injection A/B. Each model appears ONCE; the same authored artifact is graded two ways by the evaluator (visible `check`/`test` near-ceiling vs the WITHHELD ceiling post under fixpoint). Per-cell metric: solver_caught = (test PASS) AND (verify REFUTED) on the obvious-but-wrong fill; grade A = refuted (the catch), B = verified-clean, C = vacuous, F = non-compile/missing. Grading mode auto-resolves to solver_catches because hidden-specs/006.json exists (prepare_run.py:482-486). run_matrix.py aggregates solver_caught/solver_catch_measured (run_matrix.py:329-347,371). HYPOTHESIS: a strong LLM's obvious fill passes the non-adversarial visible check but fails the withheld ceiling post under fixpoint -> verify-pass below ceiling with a test-verify gap whose CI excludes 0. NULL: both pass (obvious impl already correct / contract restates body). run_count=5 (the discriminating quantity is a mid-range rate, needs tighter CI than the saturated 3-try pilots).",
+  "_feasibility_gate": "RUN ON BRANCH feat/defret-grader-gap-p3 ONLY — experiment 006, hidden-specs/006.json, scaffold-templates/reservoir-inflow, and the solver_catches grader path in scripts/ are NOT on main. F-009.2/F-009.3 binary preflight: `llmll version` must report >= 0.13.2 (DEF-RET + grader-gap build); a stale binary false-nulls every cell. Confirmed 0.13.2 on PATH at authoring. Before the billed run: (1) `llmll version` >= 0.13.2; (2) `--prepare-only` dry-run and confirm grading_mode=solver_catches in each run dir's metadata, the scaffold is provided, hidden-specs/006.json is NOT copied into any agent-visible dir, and no `_`-prefixed key (e.g. _fixture_note) survives in the prepared scaffold.",
+  "_cmd_note": "Confirm model IDs against your auth tier before launch: (1) codex 'gpt-5.5' uses bare `codex exec` with NO --model flag (API-key-only models are auth-rejected on ChatGPT-tier accounts, postmortem-001 F-102). (2) Gemini slot is gemini-2.0-pro-exp-02-05 — the deliberate Phase-3 step-down from gemini-3-pro-preview (project memory: gemini-3 throttling 529s nulled e005's Gemini cells). Gemini-2-vs-3 is a DEFERRED sub-experiment, gated on throttling resolution; do not silently restore gemini-3 here. (3) claude model id is claude-opus-4-8.",
+  "experiments": ["006"],
+  "run_count": 5,
+  "llmll_cmd": "llmll",
+  "timeout_seconds": 1800,
+  "skip_verify": false,
+  "agents": [
+    { "name": "claude-opus-4-8", "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-8 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gpt-5.5",         "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gemini-2-pro",    "cmd": "gemini -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model gemini-2.0-pro-exp-02-05 --yolo" }
+  ]
+}
