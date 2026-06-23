@@ -1,17 +1,72 @@
 # LLMLL — v0.13.3
 
-**LLMLL** (Large Language Model Logical Language) is a programming language designed for AI-to-AI implementation under human direction. It prioritises contract clarity, token efficiency, and ambiguity elimination over human readability — the primary consumer of LLMLL source is an LLM agent, not a human programmer.
+**AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
+
+LLMLL (Large Language Model Logical Language) is a language and verification pipeline whose primary author is an LLM agent, not a human. Agents coordinate through formal contracts the compiler enforces — not through conversation. An agent can *hallucinate* an implementation and that's fine, as long as it satisfies the contract: verification turns hallucination from a failure mode into a search strategy (generate a candidate, check it against the spec, accept or reject).
 
 > **Current version:** see [`CHANGELOG.md § Latest`](CHANGELOG.md#Latest). Full release notes per version live in CHANGELOG; this README does not duplicate them.
 
 ---
 
-## See it in action — the repair-loop demo
+## See it: a bug that type-checks, caught anyway
 
-[`examples/withdraw-demo/`](examples/withdraw-demo/) walks the whole loop on a three-function program. An agent surveys typed `?hole`s, checks one out (the contract rides in with the lock), and submits patches that are **rejected on two channels** — first a type error, then a *type-correct but contract-violating* fill the SMT solver disproves. The finished program's trust report is **two axes**: every function `verified` (it proved its spec), with any precondition surfaced on a separate `caller_obligations` axis — and **composition enforces it**: a function that calls a verified one must discharge that precondition at the call site, or the verifier refuses the code. A fourth, orthogonal axis reports object-capability **authority** (`effect_summary`).
+An agent fills a `?hole` for `withdraw(balance, amount)`. The fill below is **type-correct** (`int + int → int`) and passes example tests — but it *adds* the amount instead of subtracting it. Types and tests miss it; the SMT solver does not:
 
-- **Copy-pasteable runbook:** [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) — every command verified against `llmll 0.13.0`.
-- **Narrated walkthrough:** [`DemoPost.md`](examples/withdraw-demo/DemoPost.md).
+```text
+# fill:  (+ balance amount)      ← type-correct, wrong
+$ llmll patch demo.ast.json patch-wrong.json
+{
+  "result": "PatchVerifyError",
+  "message": "body verification of 'withdraw' failed —
+              implementation does not satisfy postcondition (constraint #0)"
+}
+
+# fill:  (- balance amount)      ← correct
+$ llmll patch demo.ast.json patch-correct.json
+{ "result": "PatchSuccess" }
+```
+
+The gate **fails closed**: a patch that doesn't verify never lands. That is the whole pitch in ten lines — every other tool merges code that type-checks; LLMLL proves it wrong first.
+
+<!-- TODO: refutation GIF — 60–90s asciinema of this loop (type-correct fill → verify REFUTES → fix → accepted) -->
+*(A 60–90s screen capture of this loop will live here.)*
+
+Full copy-pasteable walkthrough: [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (commands verified against `llmll 0.13.1`; re-verification against the 0.13.3 release is pending) · narrated version: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md). A richer **payments-core** demo — conservation across a verified call chain ("money can't be created on the overdraft branch") — becomes the flagship once it lands.
+
+---
+
+## Try it
+
+The full repair loop (hole → rejected bad fills → accepted fix → verified) is the copy-pasteable [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md). Build first:
+
+```bash
+cd compiler && stack build
+stack exec llmll -- --help
+```
+
+Requires GHC ≥ 9.4 + Stack ≥ 2.9. The proof step also needs `z3` + `liquid-fixpoint`.
+
+> **`verify` degrades without the solver.** With `z3`/`liquid-fixpoint` absent it emits the `.fq` constraint file instead of running the proof — install both to see the refutation. See [`docs/getting-started.md`](docs/getting-started.md).
+
+> **Zero-install (in progress):** a prebuilt binary and a Docker image bundling `z3`/`liquid-fixpoint` are being prepared so the refutation above runs in one command (`docker run --rm <image> llmll verify <demo>`). Image/command name pending; not yet published.
+
+---
+
+## What it is
+
+LLMLL treats **verification as the coordination protocol**. A lead agent defines types and contracts (the *what*); specialist agents fill typed holes with the *how*; the compiler verifies each fill against its contract before merging. Agents trust each other's *contracts*, not each other's *code*. Merges are structured JSON-AST patches, not text diffs — so there are no structural merge conflicts, and every patch is re-verified before it lands.
+
+**It does not claim program correctness.** It guarantees that all code is *consistent with its declared specifications*, and it tracks how strong each guarantee is: a `verified` contract was proven by the SMT solver; an `asserted` one was not. Trust propagates — no `verified` claim silently rests on an unproven dependency. The weakness checker (`--weakness-check`) even flags a contract so weak that a trivial implementation satisfies it.
+
+---
+
+## What's proven vs. not — read this before believing the headline
+
+The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core**: integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and 2-arm `Result` matches. That covers numeric bounds, conservation invariants, and length preservation. Everything else — strings, general recursion, non-`Result` ADTs, non-linear arithmetic (`* / mod`), IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix below and in [`LLMLL.md §5.3.5`](LLMLL.md)).
+
+An interactive proof path for the rest (Lean 4 via "Leanstral" MCP) is **designed but not shipped** — it runs in mock mode only (`--leanstral-mock`), blocked on external availability.
+
+[`docs/one-pager.md`](docs/one-pager.md) carries the full **Claim-to-Evidence map** — every claim mapped to a shipped command or an explicit "Planned"/"Not shipped" label. The scope-honesty is deliberate; read it before sharing.
 
 ---
 
