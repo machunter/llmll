@@ -8,7 +8,11 @@
 
 - **`.fq` ADT (`data`) declarations now emit with source-case type names and `| ctor { }` constructor syntax** ([`FixpointIR.hs`](compiler/src/LLMLL/FixpointIR.hs)). `emitDataDecl` previously produced `data <lowercase> = [ctor 0 | …]`, which liquid-fixpoint rejects on two counts — the type-name position requires an uppercase identifier, and constructors require `| ctor { }` form — so any program containing a user sum type (`(type T (| A) (| B) …)`) crashed the solver with a `.fq` parse error instead of verifying body-faithfully. **No schema change.**
 
-**Tests: 908 → 910 Haskell (+2 FQDATA regression); 62 Python unchanged.**
+### Compiler — fix: refinement-aliased returns over a two-arm `Result` match (COMP-3b)
+
+- **A function returning a refinement-aliased type whose body is a two-arm `match` on a `Result`-typed parameter now produces a body-faithful VC** ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs)). COMP-3's `EMatch` encoding previously bailed because the `Result`-variable scrutinee could not translate (the SortEnv is int-only), so the function fell back to `asserted` and a refinement-violating arm was never `refuted`. The body-VC driver now intercepts a flat `match` on a `Result`-typed scrutinee, binds each arm's payload at its declared ok/err sort, and declares the synthetic discriminator and payloads as binders so liquid-fixpoint sees no free variables. A clean fill reaches `verified`; a refinement-violating arm reads `refuted` (per-arm localization). Constructor-dependent postconditions still fall back (unchanged); the encoding stays `Result`-specific and remains in QF-LIA. **Scope:** applies when the function body *is* the match; a match nested under `let`/`if` still falls back (COMP-3b-general, future). **No schema change.**
+
+**Tests: 908 → 914 Haskell (+2 FQDATA, +4 COMP-3b); 62 Python unchanged.**
 
 <a id="Latest"></a>
 

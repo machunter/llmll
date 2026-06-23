@@ -5618,6 +5618,47 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               _ -> expectationFailure $ "Expected BranchVC continuation, got: " ++ show cont
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
 
+    -- COMP-3b: a refinement-aliased return (-> Word) over a two-arm match on a
+    -- Result *variable* scrutinee now reaches a body-faithful per-arm VC. Before,
+    -- the Result var was absent from the int-only SortEnv, so the scrutinee failed
+    -- to translate and the whole function fell back. The synthetic guard and the
+    -- match payloads are declared as binders so fixpoint sees no free vars; the
+    -- error payload binds at its real (Str) sort, not the int default. Suite
+    -- convention: structural assertions on the emitted .fq; SAFE/refuted is
+    -- CLI-probe-verified (clean -> SAFE; an unclamped Success arm -> refuted).
+    describe "EMatch on Result + refinement return (COMP-3b)" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          word = "(type Word (where [x: int] (and (>= x 0) (<= x 65535))))\n"
+          clampSrc = word
+            <> "(def clamp-result [r: Result[int, string]] -> Word "
+            <> "(match r ((Success s) (if (> s 65535) 65535 (if (< s 0) 0 s))) ((Error e) 0)))"
+
+      it "C3B-1: refinement-return over a Result-variable match is body-faithful (was fallback)" $ do
+        er <- emitSrc clampSrc
+        erBodyFaithfulFns er `shouldSatisfy` elem "clamp-result"
+        erBodyFallback er    `shouldSatisfy` not . elem "clamp-result"
+
+      it "C3B-2: the synthetic match guard is declared as a bool binder (no free var)" $ do
+        er <- emitSrc clampSrc
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "_bv__match_success_flat"
+        fq `shouldSatisfy` T.isInfixOf "{ v : bool | true }"
+
+      it "C3B-3: Success payload binds int; Error payload binds at its real Str sort (not the int default)" $ do
+        er <- emitSrc clampSrc
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "s : { v : int | true }"
+        fq `shouldSatisfy` T.isInfixOf "e : { v : Str | true }"
+
+      it "C3B-4: a constructor-dependent post still falls back (Issue-2 gate preserved)" $ do
+        er <- emitSrc (word
+          <> "(def cdp [r: Result[int, string]] -> int "
+          <> "(post (match result ((Success v) (>= v 0)) ((Error e) (>= result 0)))) "
+          <> "(match r ((Success s) s) ((Error e) 0)))")
+        erBodyFaithfulFns er `shouldSatisfy` not . elem "cdp"
+
   -- -----------------------------------------------------------------------
   -- v0.10 Phase 2: GuardClassifier (Sub-task A)
   -- -----------------------------------------------------------------------
