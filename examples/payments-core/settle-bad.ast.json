@@ -1,0 +1,97 @@
+{
+  "llmll_version": "0.13.3",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "b",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "b"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": ">="
+        }
+      },
+      "kind": "type-decl",
+      "name": "Balance"
+    },
+    {
+      "body": {
+        "arms": [
+          {
+            "body": {
+              "kind": "var",
+              "name": "n"
+            },
+            "pattern": {
+              "constructor": "Success",
+              "kind": "constructor",
+              "sub_patterns": [
+                {
+                  "kind": "bind",
+                  "name": "n"
+                }
+              ]
+            }
+          },
+          {
+            "body": {
+              "kind": "lit-int",
+              "value": 0
+            },
+            "pattern": {
+              "constructor": "Error",
+              "kind": "constructor",
+              "sub_patterns": [
+                {
+                  "kind": "bind",
+                  "name": "e"
+                }
+              ]
+            }
+          }
+        ],
+        "kind": "match",
+        "scrutinee": {
+          "kind": "var",
+          "name": "attempt"
+        }
+      },
+      "kind": "def",
+      "name": "settle",
+      "params": [
+        {
+          "name": "attempt",
+          "param_type": {
+            "err_type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "result",
+            "ok_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "named",
+        "name": "Balance"
+      }
+    }
+  ]
+}

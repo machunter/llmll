@@ -1,0 +1,19 @@
+;; Payments-Core Demo — Beat A, the unsafe-composition twin.
+;;
+;; `transfer` calls the verified `debit` WITHOUT establishing debit's precondition
+;; (it drops the `balance >= amount` guard). Nothing proves the call-site
+;; precondition, so the verifier refuses it — the caller obligation `debit` carries
+;; is enforced:
+;;
+;;   llmll verify ./transfer-unsafe.llmll
+;;   error: call-site precondition of 'debit' not satisfied in 'transfer'
+
+(def debit [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (- balance amount))
+
+(def-shell transfer [balance: int amount: int] -> int
+  (pre  (and (>= balance 0) (>= amount 0)))
+  (post (>= result 0))
+  (debit balance amount))

@@ -1,0 +1,32 @@
+;; Payments-Core Demo — Beat A: verified transfer (composition + safety).
+;;
+;; `transfer` composes over the verified leaf `debit`: it DISCHARGES debit's
+;; precondition via its own `if` guard (the guard proves `balance >= amount` at the
+;; call site) and proves a COMPLETE property — the result is either the debited
+;; balance or the original balance (failure-stasis), and is NEVER negative. So it
+;; reaches `verified` THROUGH the call edge — verified composition, not a floor.
+;;
+;;   llmll verify ./transfer.llmll --trust-report   ->  debit, transfer both verified
+;;
+;; The refuted twin (transfer-bad.llmll) "helpfully" completes the transfer on
+;; insufficient funds and is refuted. The unsafe twin (transfer-unsafe.llmll) drops
+;; the guard and is refused at the call site.
+
+(def debit [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (- balance amount))
+
+(def-shell transfer [balance: int amount: int] -> int
+  (pre  (and (>= balance 0) (>= amount 0)))
+  (post (and (>= result 0)
+             (or (= result (- balance amount)) (= result balance))))
+  (if (>= balance amount)
+      (debit balance amount)
+      balance))
+
+(check "sufficient funds debit exactly; never overdraws"
+  (for-all [balance: int amount: int]
+    (if (and (>= balance 0) (and (>= amount 0) (>= balance amount)))
+        (= (transfer balance amount) (- balance amount))
+        true)))
