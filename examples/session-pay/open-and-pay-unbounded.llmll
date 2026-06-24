@@ -1,0 +1,61 @@
+;; session-pay WRONG TWIN #3 — drops the Word bound (bounded-amount safety violated).
+;;
+;; `amount` is plain `int`, NOT `Word`. The funds guard `(>= balance amount)` is
+;; kept, but with an unbounded `amount` nothing guarantees `amount >= 0` — so
+;; debit's second precondition conjunct `(>= amount 0)` is undischarged at the call
+;; site and the verifier REFUSES the code. The Word bound was load-bearing: it is
+;; what proved the amount non-negative.
+;;   llmll verify ./open-and-pay-unbounded.llmll   -> call-site precondition of 'debit' not satisfied
+
+(type ConnState  (where [s: int] (and (>= s 0) (<= s 4))))
+(type Event      (where [e: int] (and (>= e 0) (<= e 5))))
+(type StepResult (where [r: int] (and (>= r 0) (<= r 5))))
+
+(def step [state: ConnState event: Event] -> StepResult
+  (post
+    (and (or (not (and (= state 0) (= event 0))) (= result 1))
+    (and (or (not (and (= state 0) (= event 1))) (= result 2))
+    (and (or (not (and (= state 1) (= event 2))) (= result 3))
+    (and (or (not (and (= state 2) (= event 3))) (= result 4))
+    (and (or (not (and (= state 3) (= event 4))) (= result 4))
+    (and (or (not (and (= state 4) (= event 5))) (= result 4))
+         (or (and (= state 0) (= event 0))
+         (or (and (= state 0) (= event 1))
+         (or (and (= state 1) (= event 2))
+         (or (and (= state 2) (= event 3))
+         (or (and (= state 3) (= event 4))
+         (or (and (= state 4) (= event 5))
+             (= result 5)
+         ))))))))))))
+    :source "RFC 793 §3.2 — connection state transition table")
+  (if (and (= state 0) (= event 0)) 1
+  (if (and (= state 0) (= event 1)) 2
+  (if (and (= state 1) (= event 2)) 3
+  (if (and (= state 2) (= event 3)) 4
+  (if (and (= state 3) (= event 4)) 4
+  (if (and (= state 4) (= event 5)) 4
+    5)))))))
+
+(def debit [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (- balance amount))
+
+(def-shell open-and-pay [state: ConnState event: Event balance: int amount: int] -> int   ;; BUG: amount: int, not Word
+  (pre (>= balance 0))
+  (post
+    (and (or (not (and (or (and (= state 2) (= event 3))
+                   (or (and (= state 3) (= event 4))
+                       (and (= state 4) (= event 5))))
+                   (>= balance amount)))
+             (= result (- balance amount)))
+         (or (and (or (and (= state 2) (= event 3))
+                  (or (and (= state 3) (= event 4))
+                      (and (= state 4) (= event 5))))
+                  (>= balance amount))
+             (= result -1)))
+    :source "session-pay: pay iff a transition reaches ESTABLISHED (RFC 793 §3.2) and balance >= amount; else REJECTED")
+  (let [[next (step state event)]]
+    (if (and (= next 4) (>= balance amount))
+        (debit balance amount)
+        -1)))

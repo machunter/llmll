@@ -1,0 +1,92 @@
+;; session-pay — the connected demo: ALL THREE capabilities in ONE verified scenario.
+;;
+;;   "Open a connection, then pay."  A payment is allowed ONLY when the session
+;;   reaches ESTABLISHED, the funds are sufficient, and the amount is a bounded
+;;   16-bit value — and the compiler PROVES the implementation obeys all three at
+;;   once, on a single trust-report, through the call edges.
+;;
+;; Integrates, in one self-contained module (no cross-module import):
+;;   1. STATE-SAFETY     — `step` is the RFC 793 connection state machine
+;;                         (tcp_rfc793). int-encoded states; verified.
+;;   2. PAYMENT          — `debit` is the verified payment leaf (payments-core).
+;;                         `open-and-pay` discharges its precondition at the call site.
+;;   3. BOUNDED AMOUNT   — `amount: Word` is a refinement-typed 16-bit value
+;;                         (return-refine). The Word bound supplies `amount >= 0`,
+;;                         which discharges half of debit's precondition.
+;;
+;; The post is the legal session-pay relation: pay (result = balance - amount) IFF
+;; the (state,event) transition reaches ESTABLISHED *and* balance >= amount; else
+;; REJECTED (= -1, distinguishable from any valid balance, which is >= 0).
+;;
+;;   llmll verify ./open-and-pay.llmll --trust-report
+;;     -> step, debit, open-and-pay all verified; open-and-pay verified THROUGH
+;;        the step and debit edges.
+;;
+;; Wrong twins: open-and-pay-bad-step (pays on an illegal transition),
+;;              open-and-pay-unsafe (calls debit without the funds guard),
+;;              open-and-pay-unbounded (drops the Word bound).
+;;   Regenerate twin AST: llmll build ./open-and-pay.llmll --emit -o .
+
+(type ConnState  (where [s: int] (and (>= s 0) (<= s 4))))    ;; 0 CLOSED 1 LISTEN 2 SYN_SENT 3 SYN_RCVD 4 ESTABLISHED
+(type Event      (where [e: int] (and (>= e 0) (<= e 5))))    ;; 0 PASSIVE_OPEN 1 ACTIVE_OPEN 2 RCV_SYN 3 RCV_SYN_ACK 4 RCV_ACK 5 SEND_DATA
+(type StepResult (where [r: int] (and (>= r 0) (<= r 5))))    ;; next state 0..4, or 5 = REJECTED
+(type Word       (where [v: int] (and (>= v 0) (<= v 65535))))
+
+;; --- 1. STATE-SAFETY: the RFC 793 state machine (verified leaf) -----------------
+(def step [state: ConnState event: Event] -> StepResult
+  (post
+    (and (or (not (and (= state 0) (= event 0))) (= result 1))
+    (and (or (not (and (= state 0) (= event 1))) (= result 2))
+    (and (or (not (and (= state 1) (= event 2))) (= result 3))
+    (and (or (not (and (= state 2) (= event 3))) (= result 4))
+    (and (or (not (and (= state 3) (= event 4))) (= result 4))
+    (and (or (not (and (= state 4) (= event 5))) (= result 4))
+         (or (and (= state 0) (= event 0))
+         (or (and (= state 0) (= event 1))
+         (or (and (= state 1) (= event 2))
+         (or (and (= state 2) (= event 3))
+         (or (and (= state 3) (= event 4))
+         (or (and (= state 4) (= event 5))
+             (= result 5)
+         ))))))))))))
+    :source "RFC 793 §3.2 — connection state transition table")
+  (if (and (= state 0) (= event 0)) 1
+  (if (and (= state 0) (= event 1)) 2
+  (if (and (= state 1) (= event 2)) 3
+  (if (and (= state 2) (= event 3)) 4
+  (if (and (= state 3) (= event 4)) 4
+  (if (and (= state 4) (= event 5)) 4
+    5)))))))
+
+;; --- 2. PAYMENT: the verified payment leaf --------------------------------------
+(def debit [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (- balance amount))
+
+;; --- 3. THE COMPOSER: session-gated, funds-guarded, bounded-amount payment ------
+(def-shell open-and-pay [state: ConnState event: Event balance: int amount: Word] -> int
+  (pre (>= balance 0))
+  (post
+    (and (or (not (and (or (and (= state 2) (= event 3))
+                   (or (and (= state 3) (= event 4))
+                       (and (= state 4) (= event 5))))
+                   (>= balance amount)))
+             (= result (- balance amount)))
+         (or (and (or (and (= state 2) (= event 3))
+                  (or (and (= state 3) (= event 4))
+                      (and (= state 4) (= event 5))))
+                  (>= balance amount))
+             (= result -1)))
+    :source "session-pay: pay iff a transition reaches ESTABLISHED (RFC 793 §3.2) and balance >= amount; else REJECTED")
+  (let [[next (step state event)]]
+    (if (and (= next 4) (>= balance amount))
+        (debit balance amount)
+        -1)))
+
+(check "established + funds -> debited; illegal transition -> rejected"
+  (for-all [balance: int amount: int]
+    (if (and (>= balance 0) (and (>= amount 0) (and (<= amount 65535) (>= balance amount))))
+        (and (= (open-and-pay 2 3 balance amount) (- balance amount))   ;; SYN_SENT + RCV_SYN_ACK -> ESTABLISHED -> pay
+             (= (open-and-pay 0 0 balance amount) -1))                  ;; CLOSED + PASSIVE_OPEN -> LISTEN (not established) -> reject
+        true)))
