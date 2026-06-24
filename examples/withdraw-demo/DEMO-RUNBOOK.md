@@ -506,6 +506,38 @@ CDP measures how *tight* a contract is — the **score** is the discriminative m
 
 ---
 
+## Companion beat — `return-refine`: the type *is* the contract
+
+[`return-refine.llmll`](return-refine.llmll) is a standalone sibling to the protocol flow above — run it directly, no checkout/patch. It shows DEF-RET's payoff: when a function's **return type carries a refinement**, it needs *no hand-written `post`* — the type **is** the contract.
+
+`saturate [tokens added: int] -> Word` is a 16-bit saturating add, where `Word ≜ {v:int | 0 ≤ v ≤ 65535}`; `top-up` composes over it. The clean fill verifies — the `-> Word` refinement is discharged on every path, with no `post` written:
+
+```bash
+llmll verify ./return-refine.llmll
+```
+```
+   body-faithful: saturate, top-up
+   call-pre obligations: top-up
+   Running liquid-fixpoint ...
+✅ return-refine.llmll — SAFE (liquid-fixpoint)
+```
+
+The wrong twin ([`return-refine-bad.llmll`](return-refine-bad.llmll)) drops the ceiling (`(+ tokens added)`, no clamp) — type-correct, passes any in-range test, but the `-> Word` refinement is violated for overflowing inputs:
+
+```bash
+llmll verify ./return-refine-bad.llmll --strict-verified-core
+```
+```
+   body-faithful: saturate
+   Running liquid-fixpoint ...
+error: body verification of 'saturate' failed — implementation does not satisfy postcondition (constraint #0)
+ERROR: --strict-verified-core: refuted: saturate
+```
+
+Same `maxi` shape — the solver refutes a type-correct fill — but here the spec is the *return type itself*. **Narration:** *"No contract was written. The return type `-> Word` says the result is a 16-bit value, and the verifier holds the implementation to it — refuting the fill that forgets the ceiling."*
+
+---
+
 ## Narration cues
 
 - **Step 2:** "Two agents, two holes, one program — reserved at once. Watch what the system does when their writes collide."
