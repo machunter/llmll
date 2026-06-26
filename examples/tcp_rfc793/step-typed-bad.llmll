@@ -1,0 +1,31 @@
+;; TCP RFC 793 — idiomatic-types state machine, WRONG twin (COMP-3b-general).
+;;
+;; Identical to step-typed.llmll except the CLOSED + ActiveOpen arm jumps straight
+;; to ESTABLISHED, skipping the SYN_SENT → ESTABLISHED handshake. It type-checks
+;; (ConnState in, ConnState out) but violates the state-safety post for the
+;; (Closed, ActiveOpen) input — the solver refutes it, localized to that branch.
+
+(type ConnState
+  (| Closed)
+  (| Listen)
+  (| SynSent)
+  (| SynRcvd)
+  (| Established))
+
+(type Event
+  (| PassiveOpen)
+  (| ActiveOpen)
+  (| RcvSyn)
+  (| RcvSynAck)
+  (| RcvAck))
+
+(def step [state: ConnState event: Event] -> ConnState
+  (post
+    (and (not (and (= state Closed) (= result Established)))
+         (not (and (= state Listen) (= result Established)))))
+  (match state
+    ((Closed)      (match event ((PassiveOpen) Listen) ((ActiveOpen) Established) (_ Closed)))
+    ((Listen)      (match event ((RcvSyn) SynRcvd) (_ Listen)))
+    ((SynSent)     (match event ((RcvSynAck) Established) (_ SynSent)))
+    ((SynRcvd)     (match event ((RcvAck) Established) (_ SynRcvd)))
+    ((Established)  Established)))

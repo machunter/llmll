@@ -66,6 +66,9 @@ module LLMLL.FixpointEmit
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
+    -- * COMP-3b-general Phase 1 (exported for testing)
+  , desugarCtorValues
+  , buildCtorTagMap
     -- * INT-1 (v0.10.8): overflow taint scan
   , bodyHasOverflowArith
   ) where
@@ -406,7 +409,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
   -- postcondition, so the body VC PROVES it (introduction, §3.4.1). A non-Σ_auto
   -- return refinement makes the augmented post untranslatable → existing
   -- mPostPred=Nothing fallback (the §3.4.5 firewall) — no special guard needed.
-  let contract = augmentContractPost aliases mRet (augmentContractPre aliases params contract0)
+  -- COMP-3b-general (Phase 1): desugar nullary-constructor values to int tags in
+  -- the contract (and, below, the body) before translation, so an idiomatic enum
+  -- function reduces to the int-tag QF-LIA form the verifier already discharges.
+  let contractAug = augmentContractPost aliases mRet (augmentContractPre aliases params contract0)
+      ctorTags    = buildCtorTagMap aliases
+      dsExpr      = desugarCtorValues ctorTags (Set.fromList (map fst params))
+      contract    = contractAug { contractPre  = dsExpr <$> contractPre contractAug
+                                , contractPost = dsExpr <$> contractPost contractAug }
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isIntLike aliases t ]
@@ -523,6 +533,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
           (_, Nothing) -> addBodyFallback name  -- untranslatable pre → fallback
           (Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
+            let body' = dsExpr body  -- COMP-3b-general: desugar enum match + ctor values
             let sortEnv = buildSortEnv aliases params
             -- Translate body
             seed <- readIORef bodyCounterRef
@@ -536,7 +547,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
             -- (constructor-uniform) folded return refinement on BOTH arms — the maxi
             -- per-arm localization across a Result elimination. Constructor-dependent
             -- posts are unaffected (the generic path / fallback still owns them).
-            let mFlatResult = case body of
+            let mFlatResult = case body' of
                   EMatch (EVar v) arms
                     | Just (sV, sB, eV, eB) <- classifyResultArms arms
                     , Just vTy <- lookup v params
@@ -555,7 +566,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                            , [(sV, okS), (eV, errS), (guardName, FQBool)] )
                          _ -> (s2, Nothing, [])
                   Nothing ->
-                    let (ns, vc) = bodyToPredFrom seed sortEnv cenv sccSet body
+                    let (ns, vc) = bodyToPredFrom seed sortEnv cenv sccSet body'
                     in (ns, vc, [])
             writeIORef bodyCounterRef newSeed
             case mBodyVC of
@@ -711,6 +722,10 @@ isIntLike am (TDependent _ base _) = isIntLike am base
 isIntLike am (TCustom n)           = case Map.lookup n am of
                                         Just t  -> isIntLike am t
                                         Nothing -> False  -- unresolved: reject
+-- COMP-3b-general (Phase 1): a nullary enum is int-tag-encodable (each
+-- constructor → its declaration index), so its values live in the QF-LIA sort
+-- env as FQInt. Payload-bearing sum types stay non-int (→ asserted fallback).
+isIntLike _  (TSumType ctors)      = all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
 isIntLike _  _                     = False
 
 typeToSort :: Type -> FQSort
@@ -729,6 +744,83 @@ typeSorts _ _ = []
 maybeToList :: Maybe a -> [a]
 maybeToList Nothing  = []
 maybeToList (Just x) = [x]
+
+-- ---------------------------------------------------------------------------
+-- COMP-3b-general (Phase 1): nullary-enum constructor-value desugaring
+-- ---------------------------------------------------------------------------
+
+-- | Tag table for nullary-enum constructors: each constructor of an in-scope
+-- nullary 'TSumType' maps to its declaration index (its int tag). Only names
+-- that are UNAMBIGUOUS across all in-scope enums are kept — a name that is a
+-- constructor of more than one enum is excluded, so the desugar leaves it as a
+-- variable (→ unbound symbol → 'asserted' fallback, sound, never mis-tagged).
+buildCtorTagMap :: AliasMap -> Map Name Int
+buildCtorTagMap am =
+  let perEnum = [ (c, i)
+                | t <- Map.elems am
+                , TSumType ctors <- [t]
+                , all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
+                , (i, (c, _)) <- zip [0 ..] ctors ]
+      grouped = Map.fromListWith (++) [ (c, [i]) | (c, i) <- perEnum ]
+  in Map.fromList [ (c, i) | (c, [i]) <- Map.toList grouped ]  -- unambiguous only
+
+-- | Scope-aware desugar that lowers nullary-constructor VALUES and nullary-enum
+-- matches to the int-tag QF-LIA form the existing VC machinery already verifies:
+--   (a) a value-position @EVar n@ that resolves to a nullary constructor (n in
+--       the tag table, not shadowed by a local binding) → @ELit (LitInt tag)@;
+--   (b) an @EMatch@ on a variable whose arms are all nullary constructors (or a
+--       catch-all) → a right-nested @EIf@ on @(= scrut tag_i)@.
+-- Result matches (Success/Error, payload-bearing) are untouched — their
+-- constructors are not in the tag table — and flow to the existing COMP-3 path.
+-- The bound-set makes a @let@/param sharing a constructor's name win (it stays a
+-- variable). Payload-bearing constructors and payload-projecting posts are left
+-- alone (→ 'asserted'), keeping the QF-LIA boundary intact (no datatype theory).
+desugarCtorValues :: Map Name Int -> Set.Set Name -> Expr -> Expr
+desugarCtorValues tags = go
+  where
+    tagLit c = ELit (LitInt (toInteger (tags Map.! c)))
+
+    go bound e = case e of
+      EVar n
+        | n `Map.member` tags && not (n `Set.member` bound) -> tagLit n
+        | otherwise                                         -> e
+      ELit _      -> e
+      EHole _     -> e
+      EOp op as   -> EOp op (map (go bound) as)
+      EApp f as   -> EApp f (map (go bound) as)
+      EPair a b   -> EPair (go bound a) (go bound b)
+      EAwait a    -> EAwait (go bound a)
+      EIf c t el  -> EIf (go bound c) (go bound t) (go bound el)
+      ELambda ps body ->
+        ELambda ps (go (foldr (Set.insert . fst) bound ps) body)
+      ELet binds body ->
+        let bound' = foldr Set.insert bound (concatMap (\(p,_,_) -> patVars p) binds)
+        in ELet [ (p, mt, go bound' rhs) | (p, mt, rhs) <- binds ] (go bound' body)
+      EDo steps   -> EDo [ DoStep mn (go bound se) | DoStep mn se <- steps ]
+      EMatch scr arms
+        | EVar _ <- scr, not (null arms), all (rewritableArm . fst) arms
+          -> buildChain (go bound scr) bound arms
+        | otherwise
+          -> EMatch (go bound scr)
+               [ (p, go (foldr Set.insert bound (patVars p)) b) | (p, b) <- arms ]
+
+    rewritableArm (PConstructor c []) = c `Map.member` tags
+    rewritableArm (PVar _)            = True
+    rewritableArm PWildcard           = True
+    rewritableArm _                   = False
+
+    -- Right-nested EIf. The LAST arm is the bare else (exhaustiveness — enforced
+    -- by the type checker — guarantees it covers the remaining constructor); a
+    -- PVar/PWildcard arm is a catch-all and becomes the else, ignoring later arms.
+    buildChain _    bound [(_, b)]        = go bound b
+    buildChain scr' bound ((p, b) : rest) = case p of
+      PConstructor c [] -> EIf (EOp "=" [scr', tagLit c]) (go bound b) (buildChain scr' bound rest)
+      _                 -> go bound b
+    buildChain _    _     []              = ELit LitUnit  -- unreachable (arms non-empty)
+
+    patVars (PVar n)            = [n]
+    patVars (PConstructor _ ps) = concatMap patVars ps
+    patVars _                   = []
 
 -- | INT-1 (v0.10.8): True when an expression tree contains LLMLL-level
 -- integer arithmetic over operands that are not all integer literals whose

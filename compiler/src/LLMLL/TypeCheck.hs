@@ -709,7 +709,13 @@ collectConstructors stmts = concatMap go stmts
     go (STypeDef typeName (TSumType ctors)) =
       let retType = TCustom typeName
       in [ case mPayload of
-             Nothing -> (ctor, TFn [] retType)
+             -- COMP-3b-general: a nullary constructor used bare is a VALUE of the
+             -- sum type (not a 0-arg function), so `(= result Established)` and
+             -- `(step Closed PassiveOpen)` type-check. Pattern position reads the
+             -- constructor off the scrutinee's TSumType, not this binding, so this
+             -- does not affect match type-checking. Payload constructors stay
+             -- functions (applied as `(Circle r)`).
+             Nothing -> (ctor, retType)
              Just pt -> (ctor, TFn [pt] retType)
          | (ctor, mPayload) <- ctors ]
     go _ = []

@@ -1,0 +1,34 @@
+;; TCP RFC 793 — connection state machine, IDIOMATIC TYPES (COMP-3b-general).
+;;
+;; Same protocol as step.llmll, but states and events are real sum types and the
+;; body matches on them — reaching `verified` WITHOUT the int-encoding workaround.
+;; The compiler tags the nullary constructors internally (Closed=0 … Established=4)
+;; and discharges the post in pure QF-LIA. The `post` is a state-safety property:
+;; you cannot reach ESTABLISHED without going through the handshake — i.e. never
+;; straight from CLOSED or LISTEN. A clean implementation satisfies it for all
+;; inputs; an implementation that skips the handshake is refuted.
+
+(type ConnState
+  (| Closed)
+  (| Listen)
+  (| SynSent)
+  (| SynRcvd)
+  (| Established))
+
+(type Event
+  (| PassiveOpen)
+  (| ActiveOpen)
+  (| RcvSyn)
+  (| RcvSynAck)
+  (| RcvAck))
+
+(def step [state: ConnState event: Event] -> ConnState
+  (post
+    (and (not (and (= state Closed) (= result Established)))
+         (not (and (= state Listen) (= result Established)))))
+  (match state
+    ((Closed)      (match event ((PassiveOpen) Listen) ((ActiveOpen) SynSent) (_ Closed)))
+    ((Listen)      (match event ((RcvSyn) SynRcvd) (_ Listen)))
+    ((SynSent)     (match event ((RcvSynAck) Established) (_ SynSent)))
+    ((SynRcvd)     (match event ((RcvAck) Established) (_ SynRcvd)))
+    ((Established)  Established)))
