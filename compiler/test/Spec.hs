@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -5658,6 +5658,79 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           <> "(post (match result ((Success v) (>= v 0)) ((Error e) (>= result 0)))) "
           <> "(match r ((Success s) s) ((Error e) 0)))")
         erBodyFaithfulFns er `shouldSatisfy` not . elem "cdp"
+
+    -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
+    -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
+    -- (ctor value EVar -> int tag; enum EMatch -> nested EIf on (= scrut tag)).
+    -- The soundness guards (local shadowing via the bound-set; cross-enum
+    -- collision excluded) are unit-tested on the pure exported functions; SAFE/
+    -- refuted is CLI-probe-verified (examples/tcp_rfc793/step-typed{,-bad}.llmll).
+    describe "COMP-3b-general Phase 1: nullary-enum ctor-value desugar" $ do
+      let colorAliases = Map.fromList
+            [ ("Color", TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)]) ]
+          colorTags = buildCtorTagMap colorAliases
+          emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "CG-1: buildCtorTagMap assigns declaration-index tags to a nullary enum" $
+        colorTags `shouldBe` Map.fromList [("Red", 0), ("Green", 1), ("Blue", 2)]
+
+      it "CG-2: a constructor of two enums is excluded (cross-enum collision not tagged)" $ do
+        let am = Map.fromList
+              [ ("A", TSumType [("Foo", Nothing), ("Bar", Nothing)])
+              , ("B", TSumType [("Foo", Nothing), ("Qux", Nothing)]) ]
+            tags = buildCtorTagMap am
+        Map.member "Foo" tags `shouldBe` False          -- excluded: ctor of two enums
+        Map.lookup "Bar" tags `shouldBe` Just 1          -- index 1 within A = [Foo, Bar]
+        Map.lookup "Qux" tags `shouldBe` Just 1          -- index 1 within B = [Foo, Qux]
+
+      it "CG-3: a payload-bearing sum type contributes no tags (S3 boundary)" $
+        buildCtorTagMap (Map.fromList
+          [ ("Box", TSumType [("Full", Just (TCustom "int")), ("Empty", Nothing)]) ])
+          `shouldBe` Map.empty
+
+      it "CG-4: a value-position constructor EVar desugars to its int tag" $
+        desugarCtorValues colorTags Set.empty (EVar "Green") `shouldBe` ELit (LitInt 1)
+
+      it "CG-5: SHADOWING — a bound name matching a ctor stays a variable" $
+        desugarCtorValues colorTags (Set.fromList ["Red"]) (EVar "Red") `shouldBe` EVar "Red"
+
+      it "CG-6: a non-constructor EVar is left untouched" $
+        desugarCtorValues colorTags Set.empty (EVar "balance") `shouldBe` EVar "balance"
+
+      it "CG-7: an enum EMatch lowers to a right-nested EIf on (= scrut tag)" $
+        desugarCtorValues colorTags Set.empty
+          (EMatch (EVar "c")
+            [ (PConstructor "Red" [],   ELit (LitInt 100))
+            , (PConstructor "Green" [], ELit (LitInt 200))
+            , (PConstructor "Blue" [],  ELit (LitInt 300)) ])
+          `shouldBe`
+            EIf (EOp "=" [EVar "c", ELit (LitInt 0)]) (ELit (LitInt 100))
+              (EIf (EOp "=" [EVar "c", ELit (LitInt 1)]) (ELit (LitInt 200))
+                (ELit (LitInt 300)))
+
+      it "CG-8: a let-binding shadows a ctor name within its body (scope-aware)" $
+        desugarCtorValues colorTags Set.empty
+          (ELet [(PVar "Red", Nothing, ELit (LitInt 7))] (EVar "Red"))
+          `shouldBe`
+            ELet [(PVar "Red", Nothing, ELit (LitInt 7))] (EVar "Red")
+
+      it "CG-9: a payload-bearing match is left untouched (flows to the existing fallback path)" $ do
+        let am = Map.fromList [ ("Box", TSumType [("Full", Just (TCustom "int")), ("Empty", Nothing)]) ]
+            m  = EMatch (EVar "b")
+                   [ (PConstructor "Full" [PVar "n"], EVar "n")
+                   , (PConstructor "Empty" [], ELit (LitInt 0)) ]
+        desugarCtorValues (buildCtorTagMap am) Set.empty m `shouldBe` m
+
+      it "CG-10: a typed nullary-enum fn (match + ctor-value post) reaches a body-faithful VC" $ do
+        er <- emitSrc
+          ( "(type Light (| Red) (| Green) (| Yellow))\n"
+          <> "(def nextlight [c: Light] -> Light "
+          <> "(post (or (or (= result Red) (= result Green)) (= result Yellow))) "
+          <> "(match c ((Red) Green) ((Green) Yellow) ((Yellow) Red)))" )
+        erBodyFaithfulFns er `shouldSatisfy` elem "nextlight"
+        erBodyFallback er    `shouldSatisfy` not . elem "nextlight"
 
   -- -----------------------------------------------------------------------
   -- v0.10 Phase 2: GuardClassifier (Sub-task A)
