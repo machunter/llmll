@@ -4,6 +4,19 @@
 
 <a id="Latest"></a>
 
+## v0.13.6 — COMP-3b-general: opaque-sum elimination at any nesting depth (2026-06-27)
+
+### Compiler — COMP-3b-general: a Result-variable match verifies at any nesting depth
+
+- **A function whose body matches a `Result`-typed *variable* scrutinee (a param or a `let`-bound value) now reaches body-faithful `verified` at any nesting depth** — not just when the match is the top-level body. Previously a nested `Result`-variable match (under `let`/`if`) fell back to `asserted`: a `Result` variable is absent from the int-only `SortEnv`, so the scrutinee failed to translate. Mechanism ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs)): `BranchVC` now carries its match-introduced binders (the synthetic guard + arm payloads); `collectBranchBinders` declares them across the whole VC tree (the sole emitter, replacing the former single-shot `extraResultBinds`); a new leading `EMatch` clause detects a `Result`-variable scrutinee via derived `SortEnv` payload-sort keys (`<v>$ok`/`<v>$err`; `$` is not a legal source identifier char) the driver seeds for each `Result` param. Stays QF-LIA. **Exhaustiveness-only:** the post is proven for an arbitrary payload (a fresh `FQTrue` skolem per arm); a matched payload's own refinement is not consumed (that completeness step is future).
+- **The v0.13.3 top-level flat-`Result` special-case is subsumed and deleted** — its scrutinee discovery moves into the new `EMatch` clause, its binder declaration into `collectBranchBinders`. The synthetic guard is now the generic `_bv__match_success_N` (the `_flat_` marker is retired) and the arm payloads are alpha-renamed; both bind at their real ok/err sorts (an `Error` payload of type `string` binds at `Str`, not the int default).
+
+### Compiler — refuted-arm localization fix
+
+- **A refuted arm in a nested match is now attributed to the correct branch.** The per-arm obligation tag was computed by a path-index midpoint (`pathIdx < length paths / 2`), correct only for balanced arms; under unbalanced then/else path counts (which nested matches routinely produce) it mislabeled which arm a refutation belonged to. The tag now derives from structural branch provenance (`pathBranchSides`), positionally aligned with `flattenBodyVC`.
+
+**Tests: 928 Haskell + 62 Python** (+4 `C3BG-*`; `C3B-2`/`C3B-3` updated for the subsumed guard name and alpha-renamed payloads). No schema change (`BodyVC` is internal; `schemaVersion` stays `0.7.0`).
+
 ## v0.13.5 — Nullary-enum verification (COMP-3b-general Phase 1) + connected session demo (2026-06-27)
 
 ### Compiler — COMP-3b-general Phase 1: nullary-enum match + constructor-as-value
