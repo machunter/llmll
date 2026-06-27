@@ -4,6 +4,21 @@
 
 <a id="Latest"></a>
 
+## v0.13.5 — Nullary-enum verification (COMP-3b-general Phase 1) + connected session demo (2026-06-27)
+
+### Compiler — COMP-3b-general Phase 1: nullary-enum match + constructor-as-value
+
+- **Idiomatic nullary-enum types matched and used as values in a `def` body now reach body-faithful `verified`**, retiring the int-encoding workaround. A scope-aware pre-translation desugar (`desugarCtorValues`, [`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs)) lowers a nullary-constructor value `EVar → ELit` tag and an enum `EMatch → ` right-nested `EIf` on `(= scrut tag_i)`; existing QF-LIA machinery handles the rest (no `BranchVC`/`exprToPred` change, no `FQData` — the S3 invariant holds, stays QF-LIA). `buildSortEnv`/`isIntLike` admit nullary-enum params as int tags; the strict-core `def` gate (`Syntax.isCoreBodySyntactic`) admits N-arm exhaustive enum matches; nullary constructors register as values of their sum type (`TypeCheck.collectConstructors`).
+- **Soundness:** the desugar mirrors the type-checker's local→constructor→top-level resolution. Local shadowing is handled via the bound-set (a param `Red` shadowing constructor `Red` stays a variable); cross-enum duplicate constructor names are rejected at type-check. Verified end-to-end on [`examples/tcp_rfc793/`](examples/tcp_rfc793/): `step` (real `(type ConnState …)`) → `verified`; `step-bad` (illegal `Closed+ActiveOpen→Established`) → `refuted`; `step-weak` (post omits the LISTEN clause) → survives. **Scope (Phase 1):** the typed post proves state-safety (no `CLOSED`/`LISTEN→ESTABLISHED` skip), not full illegal→`REJECTED` totality (needs a payload-carrying `Rejected` variant → Phase 2); verify-time only — the runtime/PBT evaluator does not yet evaluate constructor values.
+
+### Examples — tcp_rfc793 re-typed to real enums; connected session demo
+
+- **`examples/tcp_rfc793/` re-typed** from the int-encoded sentinel to real `(type ConnState …)` / `(type Event …)` matched in the body, reaching `verified` via COMP-3b-general — no int-encoding workaround in the source. DEMO-RUNBOOK + VERIFICATION_SCOPE drop the int-sentinel caveat and add the two honest scope notes (state-safety not totality; verify-time-only constructor values).
+- **New [`examples/session-pay/`](examples/session-pay/)** — one verified scenario composing protocol state-safety (`tcp_rfc793 step`), a verified payment (`payments-core debit`), and a bounded amount (`return-refine Word`). `open-and-pay` reaches `verified` through the `step` and `debit` call edges (verified:3, asserted:0); three wrong twins each break one safety rule — `bad-step` (pays pre-handshake) → `refuted`, `unsafe` (no funds guard) → call-site refusal, `unbounded` (`amount:int` not `Word`) → call-site refusal. Single self-contained module, additive QF-LIA throughout.
+- **DEMO-RUNBOOKs added** for `withdraw-demo` (return-refine companion beat), `payments-core`, and `tcp_rfc793`; all command output captured from real runs.
+
+**Tests: 924 Haskell + 62 Python.**
+
 ## v0.13.4 — Loud verify + protocol & payments demos (2026-06-23)
 
 ### Docs — withdraw-demo: complex-return beat (the type is the contract)
