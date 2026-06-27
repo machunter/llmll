@@ -5664,7 +5664,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- (ctor value EVar -> int tag; enum EMatch -> nested EIf on (= scrut tag)).
     -- The soundness guards (local shadowing via the bound-set; cross-enum
     -- collision excluded) are unit-tested on the pure exported functions; SAFE/
-    -- refuted is CLI-probe-verified (examples/tcp_rfc793/step-typed{,-bad}.llmll).
+    -- refuted is CLI-probe-verified (examples/tcp_rfc793/step{,-bad}.llmll).
     describe "COMP-3b-general Phase 1: nullary-enum ctor-value desugar" $ do
       let colorAliases = Map.fromList
             [ ("Color", TSumType [("Red", Nothing), ("Green", Nothing), ("Blue", Nothing)]) ]

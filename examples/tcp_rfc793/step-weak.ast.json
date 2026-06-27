@@ -1,435 +1,240 @@
 {
-  "llmll_version": "0.13.3",
+  "llmll_version": "0.13.4",
   "schemaVersion": "0.7.0",
   "statements": [
     {
       "body": {
-        "base_type": {
-          "kind": "primitive",
-          "name": "int"
-        },
-        "binding": "s",
-        "kind": "where",
-        "predicate": {
-          "args": [
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "s"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                }
-              ],
-              "kind": "op",
-              "op": ">="
-            },
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "s"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 4
-                }
-              ],
-              "kind": "op",
-              "op": "<="
-            }
-          ],
-          "kind": "op",
-          "op": "and"
-        }
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Closed"
+          },
+          {
+            "constructor": "Listen"
+          },
+          {
+            "constructor": "SynSent"
+          },
+          {
+            "constructor": "SynRcvd"
+          },
+          {
+            "constructor": "Established"
+          }
+        ]
       },
       "kind": "type-decl",
       "name": "ConnState"
     },
     {
       "body": {
-        "base_type": {
-          "kind": "primitive",
-          "name": "int"
-        },
-        "binding": "e",
-        "kind": "where",
-        "predicate": {
-          "args": [
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "e"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                }
-              ],
-              "kind": "op",
-              "op": ">="
-            },
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "e"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 5
-                }
-              ],
-              "kind": "op",
-              "op": "<="
-            }
-          ],
-          "kind": "op",
-          "op": "and"
-        }
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "PassiveOpen"
+          },
+          {
+            "constructor": "ActiveOpen"
+          },
+          {
+            "constructor": "RcvSyn"
+          },
+          {
+            "constructor": "RcvSynAck"
+          },
+          {
+            "constructor": "RcvAck"
+          }
+        ]
       },
       "kind": "type-decl",
       "name": "Event"
     },
     {
       "body": {
-        "base_type": {
-          "kind": "primitive",
-          "name": "int"
-        },
-        "binding": "r",
-        "kind": "where",
-        "predicate": {
-          "args": [
-            {
-              "args": [
+        "arms": [
+          {
+            "body": {
+              "arms": [
                 {
-                  "kind": "var",
-                  "name": "r"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                }
-              ],
-              "kind": "op",
-              "op": ">="
-            },
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "r"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 5
-                }
-              ],
-              "kind": "op",
-              "op": "<="
-            }
-          ],
-          "kind": "op",
-          "op": "and"
-        }
-      },
-      "kind": "type-decl",
-      "name": "StepResult"
-    },
-    {
-      "body": {
-        "cond": {
-          "args": [
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "state"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                }
-              ],
-              "kind": "op",
-              "op": "="
-            },
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "event"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                }
-              ],
-              "kind": "op",
-              "op": "="
-            }
-          ],
-          "kind": "op",
-          "op": "and"
-        },
-        "else_branch": {
-          "cond": {
-            "args": [
-              {
-                "args": [
-                  {
+                  "body": {
                     "kind": "var",
-                    "name": "state"
+                    "name": "Listen"
                   },
-                  {
-                    "kind": "lit-int",
-                    "value": 0
+                  "pattern": {
+                    "constructor": "PassiveOpen",
+                    "kind": "constructor",
+                    "sub_patterns": []
                   }
-                ],
-                "kind": "op",
-                "op": "="
-              },
-              {
-                "args": [
-                  {
-                    "kind": "var",
-                    "name": "event"
-                  },
-                  {
-                    "kind": "lit-int",
-                    "value": 1
-                  }
-                ],
-                "kind": "op",
-                "op": "="
-              }
-            ],
-            "kind": "op",
-            "op": "and"
-          },
-          "else_branch": {
-            "cond": {
-              "args": [
-                {
-                  "args": [
-                    {
-                      "kind": "var",
-                      "name": "state"
-                    },
-                    {
-                      "kind": "lit-int",
-                      "value": 1
-                    }
-                  ],
-                  "kind": "op",
-                  "op": "="
                 },
                 {
-                  "args": [
-                    {
-                      "kind": "var",
-                      "name": "event"
-                    },
-                    {
-                      "kind": "lit-int",
-                      "value": 2
-                    }
-                  ],
-                  "kind": "op",
-                  "op": "="
+                  "body": {
+                    "kind": "var",
+                    "name": "SynSent"
+                  },
+                  "pattern": {
+                    "constructor": "ActiveOpen",
+                    "kind": "constructor",
+                    "sub_patterns": []
+                  }
+                },
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "Closed"
+                  },
+                  "pattern": {
+                    "kind": "wildcard"
+                  }
                 }
               ],
-              "kind": "op",
-              "op": "and"
-            },
-            "else_branch": {
-              "cond": {
-                "args": [
-                  {
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "state"
-                      },
-                      {
-                        "kind": "lit-int",
-                        "value": 2
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "="
-                  },
-                  {
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "event"
-                      },
-                      {
-                        "kind": "lit-int",
-                        "value": 3
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "="
-                  }
-                ],
-                "kind": "op",
-                "op": "and"
-              },
-              "else_branch": {
-                "cond": {
-                  "args": [
-                    {
-                      "args": [
-                        {
-                          "kind": "var",
-                          "name": "state"
-                        },
-                        {
-                          "kind": "lit-int",
-                          "value": 3
-                        }
-                      ],
-                      "kind": "op",
-                      "op": "="
-                    },
-                    {
-                      "args": [
-                        {
-                          "kind": "var",
-                          "name": "event"
-                        },
-                        {
-                          "kind": "lit-int",
-                          "value": 4
-                        }
-                      ],
-                      "kind": "op",
-                      "op": "="
-                    }
-                  ],
-                  "kind": "op",
-                  "op": "and"
-                },
-                "else_branch": {
-                  "cond": {
-                    "args": [
-                      {
-                        "args": [
-                          {
-                            "kind": "var",
-                            "name": "state"
-                          },
-                          {
-                            "kind": "lit-int",
-                            "value": 4
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "="
-                      },
-                      {
-                        "args": [
-                          {
-                            "kind": "var",
-                            "name": "event"
-                          },
-                          {
-                            "kind": "lit-int",
-                            "value": 5
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "="
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "and"
-                  },
-                  "else_branch": {
-                    "cond": {
-                      "args": [
-                        {
-                          "args": [
-                            {
-                              "kind": "var",
-                              "name": "state"
-                            },
-                            {
-                              "kind": "lit-int",
-                              "value": 2
-                            }
-                          ],
-                          "kind": "op",
-                          "op": "="
-                        },
-                        {
-                          "args": [
-                            {
-                              "kind": "var",
-                              "name": "event"
-                            },
-                            {
-                              "kind": "lit-int",
-                              "value": 5
-                            }
-                          ],
-                          "kind": "op",
-                          "op": "="
-                        }
-                      ],
-                      "kind": "op",
-                      "op": "and"
-                    },
-                    "else_branch": {
-                      "kind": "lit-int",
-                      "value": 5
-                    },
-                    "kind": "if",
-                    "then_branch": {
-                      "kind": "lit-int",
-                      "value": 4
-                    }
-                  },
-                  "kind": "if",
-                  "then_branch": {
-                    "kind": "lit-int",
-                    "value": 4
-                  }
-                },
-                "kind": "if",
-                "then_branch": {
-                  "kind": "lit-int",
-                  "value": 4
-                }
-              },
-              "kind": "if",
-              "then_branch": {
-                "kind": "lit-int",
-                "value": 4
+              "kind": "match",
+              "scrutinee": {
+                "kind": "var",
+                "name": "event"
               }
             },
-            "kind": "if",
-            "then_branch": {
-              "kind": "lit-int",
-              "value": 3
+            "pattern": {
+              "constructor": "Closed",
+              "kind": "constructor",
+              "sub_patterns": []
             }
           },
-          "kind": "if",
-          "then_branch": {
-            "kind": "lit-int",
-            "value": 2
+          {
+            "body": {
+              "arms": [
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "SynRcvd"
+                  },
+                  "pattern": {
+                    "constructor": "RcvSyn",
+                    "kind": "constructor",
+                    "sub_patterns": []
+                  }
+                },
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "Established"
+                  },
+                  "pattern": {
+                    "constructor": "RcvAck",
+                    "kind": "constructor",
+                    "sub_patterns": []
+                  }
+                },
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "Listen"
+                  },
+                  "pattern": {
+                    "kind": "wildcard"
+                  }
+                }
+              ],
+              "kind": "match",
+              "scrutinee": {
+                "kind": "var",
+                "name": "event"
+              }
+            },
+            "pattern": {
+              "constructor": "Listen",
+              "kind": "constructor",
+              "sub_patterns": []
+            }
+          },
+          {
+            "body": {
+              "arms": [
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "Established"
+                  },
+                  "pattern": {
+                    "constructor": "RcvSynAck",
+                    "kind": "constructor",
+                    "sub_patterns": []
+                  }
+                },
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "SynSent"
+                  },
+                  "pattern": {
+                    "kind": "wildcard"
+                  }
+                }
+              ],
+              "kind": "match",
+              "scrutinee": {
+                "kind": "var",
+                "name": "event"
+              }
+            },
+            "pattern": {
+              "constructor": "SynSent",
+              "kind": "constructor",
+              "sub_patterns": []
+            }
+          },
+          {
+            "body": {
+              "arms": [
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "Established"
+                  },
+                  "pattern": {
+                    "constructor": "RcvAck",
+                    "kind": "constructor",
+                    "sub_patterns": []
+                  }
+                },
+                {
+                  "body": {
+                    "kind": "var",
+                    "name": "SynRcvd"
+                  },
+                  "pattern": {
+                    "kind": "wildcard"
+                  }
+                }
+              ],
+              "kind": "match",
+              "scrutinee": {
+                "kind": "var",
+                "name": "event"
+              }
+            },
+            "pattern": {
+              "constructor": "SynRcvd",
+              "kind": "constructor",
+              "sub_patterns": []
+            }
+          },
+          {
+            "body": {
+              "kind": "var",
+              "name": "Established"
+            },
+            "pattern": {
+              "constructor": "Established",
+              "kind": "constructor",
+              "sub_patterns": []
+            }
           }
-        },
-        "kind": "if",
-        "then_branch": {
-          "kind": "lit-int",
-          "value": 1
+        ],
+        "kind": "match",
+        "scrutinee": {
+          "kind": "var",
+          "name": "state"
         }
       },
       "kind": "def",
@@ -457,42 +262,16 @@
               {
                 "args": [
                   {
-                    "args": [
-                      {
-                        "args": [
-                          {
-                            "kind": "var",
-                            "name": "state"
-                          },
-                          {
-                            "kind": "lit-int",
-                            "value": 0
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "="
-                      },
-                      {
-                        "args": [
-                          {
-                            "kind": "var",
-                            "name": "event"
-                          },
-                          {
-                            "kind": "lit-int",
-                            "value": 0
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "="
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "and"
+                    "kind": "var",
+                    "name": "state"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "Closed"
                   }
                 ],
                 "kind": "op",
-                "op": "not"
+                "op": "="
               },
               {
                 "args": [
@@ -501,8 +280,8 @@
                     "name": "result"
                   },
                   {
-                    "kind": "lit-int",
-                    "value": 1
+                    "kind": "var",
+                    "name": "Established"
                   }
                 ],
                 "kind": "op",
@@ -510,340 +289,16 @@
               }
             ],
             "kind": "op",
-            "op": "or"
-          },
-          {
-            "args": [
-              {
-                "args": [
-                  {
-                    "args": [
-                      {
-                        "args": [
-                          {
-                            "args": [
-                              {
-                                "kind": "var",
-                                "name": "state"
-                              },
-                              {
-                                "kind": "lit-int",
-                                "value": 0
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "="
-                          },
-                          {
-                            "args": [
-                              {
-                                "kind": "var",
-                                "name": "event"
-                              },
-                              {
-                                "kind": "lit-int",
-                                "value": 1
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "="
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "and"
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "not"
-                  },
-                  {
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "result"
-                      },
-                      {
-                        "kind": "lit-int",
-                        "value": 2
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "="
-                  }
-                ],
-                "kind": "op",
-                "op": "or"
-              },
-              {
-                "args": [
-                  {
-                    "args": [
-                      {
-                        "args": [
-                          {
-                            "args": [
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "state"
-                                  },
-                                  {
-                                    "kind": "lit-int",
-                                    "value": 1
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              },
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "event"
-                                  },
-                                  {
-                                    "kind": "lit-int",
-                                    "value": 2
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "and"
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "not"
-                      },
-                      {
-                        "args": [
-                          {
-                            "kind": "var",
-                            "name": "result"
-                          },
-                          {
-                            "kind": "lit-int",
-                            "value": 3
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "="
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "or"
-                  },
-                  {
-                    "args": [
-                      {
-                        "args": [
-                          {
-                            "args": [
-                              {
-                                "args": [
-                                  {
-                                    "args": [
-                                      {
-                                        "kind": "var",
-                                        "name": "state"
-                                      },
-                                      {
-                                        "kind": "lit-int",
-                                        "value": 2
-                                      }
-                                    ],
-                                    "kind": "op",
-                                    "op": "="
-                                  },
-                                  {
-                                    "args": [
-                                      {
-                                        "kind": "var",
-                                        "name": "event"
-                                      },
-                                      {
-                                        "kind": "lit-int",
-                                        "value": 3
-                                      }
-                                    ],
-                                    "kind": "op",
-                                    "op": "="
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "and"
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "not"
-                          },
-                          {
-                            "args": [
-                              {
-                                "kind": "var",
-                                "name": "result"
-                              },
-                              {
-                                "kind": "lit-int",
-                                "value": 4
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "="
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "or"
-                      },
-                      {
-                        "args": [
-                          {
-                            "args": [
-                              {
-                                "args": [
-                                  {
-                                    "args": [
-                                      {
-                                        "args": [
-                                          {
-                                            "kind": "var",
-                                            "name": "state"
-                                          },
-                                          {
-                                            "kind": "lit-int",
-                                            "value": 3
-                                          }
-                                        ],
-                                        "kind": "op",
-                                        "op": "="
-                                      },
-                                      {
-                                        "args": [
-                                          {
-                                            "kind": "var",
-                                            "name": "event"
-                                          },
-                                          {
-                                            "kind": "lit-int",
-                                            "value": 4
-                                          }
-                                        ],
-                                        "kind": "op",
-                                        "op": "="
-                                      }
-                                    ],
-                                    "kind": "op",
-                                    "op": "and"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "not"
-                              },
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "result"
-                                  },
-                                  {
-                                    "kind": "lit-int",
-                                    "value": 4
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "or"
-                          },
-                          {
-                            "args": [
-                              {
-                                "args": [
-                                  {
-                                    "args": [
-                                      {
-                                        "args": [
-                                          {
-                                            "kind": "var",
-                                            "name": "state"
-                                          },
-                                          {
-                                            "kind": "lit-int",
-                                            "value": 4
-                                          }
-                                        ],
-                                        "kind": "op",
-                                        "op": "="
-                                      },
-                                      {
-                                        "args": [
-                                          {
-                                            "kind": "var",
-                                            "name": "event"
-                                          },
-                                          {
-                                            "kind": "lit-int",
-                                            "value": 5
-                                          }
-                                        ],
-                                        "kind": "op",
-                                        "op": "="
-                                      }
-                                    ],
-                                    "kind": "op",
-                                    "op": "and"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "not"
-                              },
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "result"
-                                  },
-                                  {
-                                    "kind": "lit-int",
-                                    "value": 4
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "or"
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "and"
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "and"
-                  }
-                ],
-                "kind": "op",
-                "op": "and"
-              }
-            ],
-            "kind": "op",
             "op": "and"
           }
         ],
         "kind": "op",
-        "op": "and"
+        "op": "not"
       },
-      "post_source": "RFC 793 §3.2 — legal transitions only (INCOMPLETE: no rejection clause)",
+      "post_source": "RFC 793 §3.2 — no direct CLOSED -> ESTABLISHED (INCOMPLETE: omits LISTEN)",
       "return_type": {
         "kind": "named",
-        "name": "StepResult"
+        "name": "ConnState"
       }
     }
   ]
