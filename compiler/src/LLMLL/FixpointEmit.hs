@@ -63,6 +63,8 @@ module LLMLL.FixpointEmit
     -- * Body-VC engine (exported for testing)
   , bodyToPredFrom
   , flattenBodyVC
+  , pathBranchSides              -- COMP-3b-general: structural branch provenance (localization)
+  , collectBranchBinders         -- COMP-3b-general: match-binder tree-walk
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
@@ -134,8 +136,11 @@ type SortEnv = Map Name FQSort
 data BodyVC
   = SimpleVC [LetBinding] FQPred
     -- ^ A straight-line sequence of let-bindings followed by a result predicate
-  | BranchVC FQPred BodyVC BodyVC
-    -- ^ An if-then-else: guard, then-VC, else-VC
+  | BranchVC FQPred [(Name, FQSort)] BodyVC BodyVC
+    -- ^ A two-way branch: guard; binders INTRODUCED at this node (the synthetic
+    --   match guard + arm payloads for a Result elimination, each later declared
+    --   at trivial refinement FQTrue by 'collectBranchBinders'; empty @[]@ for an
+    --   if-then-else or a hoisted branch); then-VC; else-VC.
   | CallVC                               -- ^ v0.9.0: Compositional call site
     { cvCallee         :: Name           -- ^ callee function name
     , cvArgs           :: [FQPred]       -- ^ translated argument predicates
@@ -534,40 +539,27 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
           (Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
             let body' = dsExpr body  -- COMP-3b-general: desugar enum match + ctor values
-            let sortEnv = buildSortEnv aliases params
-            -- Translate body
+            -- COMP-3b-general (opaque-sum elimination): a Result-typed *variable*
+            -- scrutinee (param or let-bound) is opaque to the int-only SortEnv, so
+            -- the generic EMatch path cannot resolve its arm payload sorts. Seed the
+            -- SortEnv with derived payload-sort keys ("<v>$ok"/"<v>$err"; '$' is not
+            -- a legal source identifier char, so these cannot collide) for every
+            -- Result-typed param; the EMatch case reads them to build the branch at
+            -- ANY nesting depth (not just top level). The match guard and arm
+            -- payloads are declared by 'collectBranchBinders' over the whole VC tree
+            -- (generalizing the former single-shot extraResultBinds). This subsumes
+            -- the former top-level-only flat-Result special-case.
+            let sortEnv0 = buildSortEnv aliases params
+                resultKeys =
+                  [ kv
+                  | (v, t) <- params
+                  , TResult okT errT <- [resolveAliasTy aliases t]
+                  , kv <- [ (v <> "$ok",  typeToSort okT)
+                          , (v <> "$err", typeToSort errT) ] ]
+                sortEnv = foldr (uncurry Map.insert) sortEnv0 resultKeys
+            -- Translate body (generic path; Result-var matches handled within).
             seed <- readIORef bodyCounterRef
-            -- COMP-3b: a flat two-arm match on a Result-typed *variable* scrutinee
-            -- (parameter/binder) is not reached by the generic COMP-3 path: a Result
-            -- var is absent from the int-only SortEnv, so the scrutinee fails to
-            -- translate (the EVar gate) and the whole match falls back. Synthesize
-            -- the BranchVC here, where the scrutinee's static Result[ok,err] type is
-            -- in scope, binding each arm's payload at its real sort (not the
-            -- (FQInt,FQInt) default). The synthetic free guard discharges the
-            -- (constructor-uniform) folded return refinement on BOTH arms — the maxi
-            -- per-arm localization across a Result elimination. Constructor-dependent
-            -- posts are unaffected (the generic path / fallback still owns them).
-            let mFlatResult = case body' of
-                  EMatch (EVar v) arms
-                    | Just (sV, sB, eV, eB) <- classifyResultArms arms
-                    , Just vTy <- lookup v params
-                    , TResult okT errT <- resolveAliasTy aliases vTy
-                    -> Just (sV, sB, eV, eB, typeToSort okT, typeToSort errT)
-                  _ -> Nothing
-            let (newSeed, mBodyVC, extraResultBinds) = case mFlatResult of
-                  Just (sV, sB, eV, eB, okS, errS) ->
-                    let (s1, mSvc) = bodyToPredFrom seed (Map.insert sV okS sortEnv) cenv sccSet sB
-                        (s2, mEvc) = bodyToPredFrom s1   (Map.insert eV errS sortEnv) cenv sccSet eB
-                        guardName  = "_bv__match_success_flat_" <> T.pack (show s2)
-                    in case (mSvc, mEvc) of
-                         (Just svc, Just evc) ->
-                           ( s2 + 1
-                           , Just (BranchVC (FQVar guardName) svc evc)
-                           , [(sV, okS), (eV, errS), (guardName, FQBool)] )
-                         _ -> (s2, Nothing, [])
-                  Nothing ->
-                    let (ns, vc) = bodyToPredFrom seed sortEnv cenv sccSet body'
-                    in (ns, vc, [])
+            let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv cenv sccSet body'
             writeIORef bodyCounterRef newSeed
             case mBodyVC of
               Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
@@ -589,17 +581,20 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                         <> T.pack (show pathCount) <> " paths (high path count may slow solver)"
                     -- Flatten and emit constraints
                     let paths = flattenBodyVC bvc
+                        provs = pathBranchSides bvc  -- structural then/else provenance, positionally aligned with paths
                         retSort = maybe FQInt typeToSort mRet
-                    -- COMP-3b: declare match-introduced payload vars (at their real
-                    -- ok/err sort) and the synthetic match guard (bool) as binders, so
-                    -- the per-arm body-VC constraints are not "free vars" to fixpoint.
-                    -- Trivial refinement = an arbitrary value of the sort = the
-                    -- universal per-arm hypothesis. Empty list for non-match bodies.
+                    -- COMP-3b-general: declare every match-introduced binder across
+                    -- the WHOLE VC tree (synthetic guard + arm payloads, at their
+                    -- ok/err sort) so the per-arm body-VC constraints have no free
+                    -- vars. Trivial refinement FQTrue = an arbitrary value of the
+                    -- sort = the universal per-arm hypothesis. 'collectBranchBinders'
+                    -- is the SOLE emitter of these binders (no double-declaration);
+                    -- empty for a branch-free body.
                     extraBindIds <- mapM (\(vn, vs) -> do
                       ebid <- freshBid
                       addBind (FQBind ebid vn (FQReft "v" vs FQTrue))
-                      return ebid) extraResultBinds
-                    forM_ (zip [0::Int ..] paths) $ \(pathIdx, (guard, lbs, resultPred)) -> do
+                      return ebid) (collectBranchBinders bvc)
+                    forM_ (zip provs paths) $ \(prov, (guard, lbs, resultPred)) -> do
                       -- Emit binders for each let-binding in this path
                       lbBindIds <- mapM (\lb -> do
                         bid <- freshBid
@@ -618,12 +613,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                                                 ++ [resultEq]
                           lhs = FQReft "result" retSort lhsPred
                           rhs = FQReft "result" retSort postPred
-                      -- Determine tag based on guard
-                      let tag = case guard of
-                                  FQTrue -> "body-post"
-                                  _      -> if pathIdx < length (flattenBodyVC bvc) `div` 2
-                                             then "body-post-then"
-                                             else "body-post-else"
+                      -- Determine tag from structural branch provenance (the
+                      -- outermost branch side this path descends from), not a
+                      -- path-index midpoint — the midpoint mislabeled the refuted
+                      -- arm under unbalanced nesting (unequal then/else path counts).
+                      let tag = case prov of
+                                  Nothing    -> "body-post"
+                                  Just True  -> "body-post-then"
+                                  Just False -> "body-post-else"
                       cid <- freshCid
                       let allEnvIds = envIds ++ extraBindIds ++ lbBindIds ++ [rbid]
                           c = FQConstraint cid allEnvIds lhs rhs [name, tag]
@@ -1139,7 +1136,7 @@ bodyToPredM env se cenv sccSet (EIf guard thenE elseE) = do
       mthen <- bodyToPredM env se cenv sccSet thenE
       melse <- bodyToPredM env se cenv sccSet elseE
       case (mthen, melse) of
-        (Just tvc, Just evc) -> return (Just (BranchVC gp tvc evc))
+        (Just tvc, Just evc) -> return (Just (BranchVC gp [] tvc evc))
         _                    -> return Nothing
 
 -- ELet with single PVar binding: alpha-rename, emit LetBinding, recurse
@@ -1161,9 +1158,9 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
         Nothing -> return Nothing
         Just (SimpleVC lbs resultP) ->
           return (Just (SimpleVC (lb : lbs) resultP))
-        Just (BranchVC gp tvc evc) ->
+        Just (BranchVC gp bs tvc evc) ->
           -- Prepend this binding to both branches
-          return (Just (BranchVC gp (prependLB lb tvc) (prependLB lb evc)))
+          return (Just (BranchVC gp bs (prependLB lb tvc) (prependLB lb evc)))
         -- v0.9.0: SimpleVC RHS but body produces CallVC — prepend binding
         Just cvc@(CallVC {}) ->
           return (Just (prependLB lb cvc))
@@ -1182,7 +1179,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
         Just bvc -> return $ Just $ CallVC cal callArgs mPre mPost rVar rSort bvc
     -- RHS is a branch (EIf in let RHS) — hoist via flattening.
     -- Single-path degenerate branches are handled; multi-path falls back.
-    Just bvc@(BranchVC _ _ _) -> do
+    Just bvc@(BranchVC _ _ _ _) -> do
       renamed <- freshName v
       let env'  = Map.insert v renamed env
           se'   = Map.insert renamed FQInt se
@@ -1196,8 +1193,8 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
             Nothing -> return Nothing
             Just (SimpleVC lbs resultP) ->
               return (Just (SimpleVC (pathLBs ++ [lb] ++ lbs) resultP))
-            Just (BranchVC gp tvc evc) ->
-              return (Just (BranchVC gp
+            Just (BranchVC gp bs tvc evc) ->
+              return (Just (BranchVC gp bs
                 (prependLBs (pathLBs ++ [lb]) tvc)
                 (prependLBs (pathLBs ++ [lb]) evc)))
         -- Multi-path: fall back (conservative, sound)
@@ -1220,6 +1217,35 @@ bodyToPredM env se cenv sccSet (ELet [] body) = bodyToPredM env se cenv sccSet b
 --   - Scrutinee translation failure
 --   - Constructor-dependent postconditions (Issue 2)
 --   - Unannotated return types on scrutinee calls
+-- COMP-3b-general (opaque-sum elimination): a Result-typed VARIABLE scrutinee
+-- (param or let-bound), detected by the derived "<v>$ok"/"<v>$err" payload-sort
+-- keys the driver/ELet seeded into the SortEnv. The variable's value is opaque
+-- (it is not in the value SortEnv), so we do NOT translate the scrutinee; we
+-- case-split on a fresh free guard and bind each arm's payload at its declared
+-- sort. Guard + payloads ride the BranchVC binder field for 'collectBranchBinders'
+-- to declare (FQTrue skolems). Subsumes the former top-level flat-Result
+-- special-case; fires at any nesting depth.
+bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
+  | Just (sV, sB, eV, eB) <- classifyResultArms arms
+  , Just okSort  <- Map.lookup (r <> "$ok")  se
+  , Just errSort <- Map.lookup (r <> "$err") se
+  = do
+    sRenamed <- freshName sV
+    eRenamed <- freshName eV
+    guardVar <- freshName "_match_success"
+    let envS = Map.insert sV sRenamed env
+        seS  = Map.insert sRenamed okSort se
+    mSvc <- bodyToPredM envS seS cenv sccSet sB
+    let envE = Map.insert eV eRenamed env
+        seE  = Map.insert eRenamed errSort se
+    mEvc <- bodyToPredM envE seE cenv sccSet eB
+    return $ case (mSvc, mEvc) of
+      (Just svc, Just evc) ->
+        Just (BranchVC (FQVar guardVar)
+                       [(guardVar, FQBool), (sRenamed, okSort), (eRenamed, errSort)]
+                       svc evc)
+      _ -> Nothing
+
 bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
   -- Must be exactly 2 arms with Success and Error constructors
   | Just (successVar, successBody, errorVar, errorBody) <- classifyResultArms arms
@@ -1259,13 +1285,14 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
           (Just svc, Just evc) -> do
             -- For CallVC scrutinee: thread as let-binding + branch
             -- For SimpleVC scrutinee: just branch with synthetic guard
+            let matchBinders = [(guardVar, FQBool), (successRenamed, okSort), (errorRenamed, errSort)]
             case scrutVC of
               SimpleVC [] _scrutPred ->
-                return (Just (BranchVC (FQVar guardVar) svc evc))
+                return (Just (BranchVC (FQVar guardVar) matchBinders svc evc))
               CallVC {} ->
                 -- The scrutinee is a function call — wrap the branch as CallVC continuation
                 -- The CallVC result is the match scrutinee; branch discriminates its constructor
-                return (Just (setCallVCContinuation scrutVC (BranchVC (FQVar guardVar) svc evc)))
+                return (Just (setCallVCContinuation scrutVC (BranchVC (FQVar guardVar) matchBinders svc evc)))
               _ ->
                 -- Scrutinee produced a complex VC (branch, etc.) — fallback
                 return Nothing
@@ -1294,7 +1321,7 @@ guardToPredM = classifyGuardM
 -- For BranchVC, each branch produces paths with guard conjunction.
 flattenBodyVC :: BodyVC -> [FlatPath]
 flattenBodyVC (SimpleVC lbs result) = [(FQTrue, lbs, result)]
-flattenBodyVC (BranchVC guard thenVC elseVC) =
+flattenBodyVC (BranchVC guard _ thenVC elseVC) =
   let thenPaths = [(conjoin guard g, lbs, r) | (g, lbs, r) <- flattenBodyVC thenVC]
       elsePaths = [(conjoin (FQNot guard) g, lbs, r) | (g, lbs, r) <- flattenBodyVC elseVC]
   in thenPaths ++ elsePaths
@@ -1312,13 +1339,27 @@ flattenBodyVC (CallVC _callee _args _mPre mPost resultVar resultSort cont) =
      | (guard, lbs, resultPred) <- contPaths
      ]
 
+-- | Per-path outermost-branch provenance, in the SAME order as 'flattenBodyVC'.
+-- For each flattened path: @Just True@ if it descends from the then-subtree of
+-- the outermost 'BranchVC', @Just False@ from the else-subtree, @Nothing@ if the
+-- tree has no branch (unconditional). Used to localize a refuted arm structurally
+-- rather than by a path-index midpoint, which mislabels under unbalanced nesting
+-- (unequal then/else path counts). Mirrors 'flattenBodyVC's recursion so the two
+-- lists align positionally.
+pathBranchSides :: BodyVC -> [Maybe Bool]
+pathBranchSides (SimpleVC _ _)             = [Nothing]
+pathBranchSides (BranchVC _ _ thenVC elseVC) =
+  [Just True  | _ <- flattenBodyVC thenVC] ++
+  [Just False | _ <- flattenBodyVC elseVC]
+pathBranchSides (CallVC _ _ _ _ _ _ cont)  = pathBranchSides cont
+
 -- | Count paths in a BodyVC tree with an upper bound.
 -- Stops counting once the limit is exceeded (avoids state explosion).
 countPathsBounded :: Int -> BodyVC -> Int
 countPathsBounded limit = go
   where
     go (SimpleVC _ _) = 1
-    go (BranchVC _ tvc evc) =
+    go (BranchVC _ _ tvc evc) =
       let tc = go tvc
       in if tc >= limit then tc
          else let ec = go evc
@@ -1340,7 +1381,7 @@ collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, F
 collectCallPreObligations = go FQTrue []
   where
     go _guard _calls (SimpleVC _ _) = []
-    go guard calls (BranchVC g thenVC elseVC) =
+    go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
     go guard calls (CallVC callee _args mPre mPost rVar rSort cont) =
       let preObligs = case mPre of
@@ -1361,8 +1402,22 @@ collectCallPreObligations = go FQTrue []
 -- obligation's path lbs are gathered from its continuation subtree.
 subtreeLbs :: BodyVC -> [LetBinding]
 subtreeLbs (SimpleVC lbs _)          = lbs
-subtreeLbs (BranchVC _ t e)          = subtreeLbs t ++ subtreeLbs e
+subtreeLbs (BranchVC _ _ t e)        = subtreeLbs t ++ subtreeLbs e
 subtreeLbs (CallVC _ _ _ _ _ _ cont) = subtreeLbs cont
+
+-- | COMP-3b-general: every match-introduced binder (synthetic guard + arm
+-- payloads) carried in a 'BranchVC' binder field across the whole VC tree, so the
+-- driver can declare them all at trivial refinement FQTrue. This is the SOLE
+-- emitter of these binders — it generalizes the former single-shot
+-- @extraResultBinds@ from one top-level match to arbitrarily-nested matches.
+-- Soundness (professor confirm gate, Q1): each binder is 'freshName'-unique
+-- (globally distinct, well-formed flat context) and a payload symbol only occurs
+-- in its own arm's path predicates, so a flat FQTrue declaration is vacuous on any
+-- constraint where it does not occur — the validity-preserving weakening lemma.
+collectBranchBinders :: BodyVC -> [(Name, FQSort)]
+collectBranchBinders (SimpleVC _ _)            = []
+collectBranchBinders (BranchVC _ bs t e)       = bs ++ collectBranchBinders t ++ collectBranchBinders e
+collectBranchBinders (CallVC _ _ _ _ _ _ cont) = collectBranchBinders cont
 
 -- | F-NIW-4b: the subset of candidate let-bindings whose RHS free variables are
 -- all already in scope (params ∪ prior-call results ∪ already-included lbs),
@@ -1570,7 +1625,7 @@ collectCallArgCarrierVars am cenv = go
 -- | Prepend a let-binding to a BodyVC.
 prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
-prependLB lb (BranchVC g t e) = BranchVC g (prependLB lb t) (prependLB lb e)
+prependLB lb (BranchVC g bs t e) = BranchVC g bs (prependLB lb t) (prependLB lb e)
 prependLB lb (CallVC cal args mPre mPost rVar rSort cont) =
   CallVC cal args mPre mPost rVar rSort (prependLB lb cont)  -- v0.9.0
 

@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -4921,7 +4921,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = intSortEnv ["n"]
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
-          Just (BranchVC guard tvc evc) -> do
+          Just (BranchVC guard _ tvc evc) -> do
             guard `shouldBe` FQBinPred FQGt (FQVar "n") (FQLit 0)
             tvc `shouldBe` SimpleVC [] (FQVar "n")
             evc `shouldBe` SimpleVC [] (FQLit 0)
@@ -4989,14 +4989,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         length paths `shouldBe` 1
 
       it "BranchVC flattens to 2 paths" $ do
-        let bvc = BranchVC (FQVar "g") (SimpleVC [] (FQLit 1)) (SimpleVC [] (FQLit 2))
+        let bvc = BranchVC (FQVar "g") [] (SimpleVC [] (FQLit 1)) (SimpleVC [] (FQLit 2))
             paths = flattenBodyVC bvc
         length paths `shouldBe` 2
 
       it "countPathsBounded stops early" $ do
         -- Build a deep tree that would have 2^20 paths
         let mkDeep 0 = SimpleVC [] (FQLit 0)
-            mkDeep n = BranchVC (FQVar "g") (mkDeep (n-1)) (mkDeep (n-1))
+            mkDeep n = BranchVC (FQVar "g") [] (mkDeep (n-1)) (mkDeep (n-1))
             bvc = mkDeep (20 :: Int)
         countPathsBounded 5000 bvc `shouldBe` 5000  -- capped, not 1048576
 
@@ -5260,13 +5260,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("n", FQInt)]
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
-          Just (BranchVC guard thenVC elseVC) -> do
+          Just (BranchVC guard bnds thenVC elseVC) -> do
             -- The else branch returns n (which could be negative)
             guard `shouldBe` FQBinPred FQGt (FQVar "n") (FQLit 0)
             thenVC `shouldBe` SimpleVC [] (FQLit 0)     -- fine: 0 >= 0
             elseVC `shouldBe` SimpleVC [] (FQVar "n")    -- UNSAFE: n might be < 0
             -- Flatten and verify the else path
-            let paths = flattenBodyVC (BranchVC guard thenVC elseVC)
+            let paths = flattenBodyVC (BranchVC guard bnds thenVC elseVC)
                 (elseGuard, _, elseResult) = paths !! 1
             -- Else guard is ¬(n > 0), else result is n
             elseGuard `shouldBe` FQNot (FQBinPred FQGt (FQVar "n") (FQLit 0))
@@ -5551,7 +5551,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("r", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
-          Just (BranchVC guard svc evc) -> do
+          Just (BranchVC guard _ svc evc) -> do
             -- Guard should be a synthetic variable
             case guard of
               FQVar gn -> T.isPrefixOf "_bv__match_success" gn `shouldBe` True
@@ -5574,7 +5574,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("r", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
-          Just (BranchVC _ svc evc) -> do
+          Just (BranchVC _ _ svc evc) -> do
             -- Success is always the then-branch
             case svc of
               SimpleVC [] (FQVar sv) -> T.isPrefixOf "_bv_v" sv `shouldBe` True
@@ -5614,7 +5614,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             callee `shouldBe` "g"
             -- Continuation should be a BranchVC (the match)
             case cont of
-              BranchVC _ _ _ -> pure ()
+              BranchVC _ _ _ _ -> pure ()
               _ -> expectationFailure $ "Expected BranchVC continuation, got: " ++ show cont
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
 
@@ -5643,14 +5643,20 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "C3B-2: the synthetic match guard is declared as a bool binder (no free var)" $ do
         er <- emitSrc clampSrc
         let fq = erFQText er
-        fq `shouldSatisfy` T.isInfixOf "_bv__match_success_flat"
+        -- COMP-3b-general subsumed the top-level special-case into the generic
+        -- path, so the guard is the generic "_bv__match_success_N" (the old
+        -- "_flat_" marker is retired); it is still declared as a bool binder.
+        fq `shouldSatisfy` T.isInfixOf "_bv__match_success"
         fq `shouldSatisfy` T.isInfixOf "{ v : bool | true }"
 
-      it "C3B-3: Success payload binds int; Error payload binds at its real Str sort (not the int default)" $ do
+      it "C3B-3: the Error payload binds at its real Str sort (not the int default)" $ do
         er <- emitSrc clampSrc
         let fq = erFQText er
-        fq `shouldSatisfy` T.isInfixOf "s : { v : int | true }"
-        fq `shouldSatisfy` T.isInfixOf "e : { v : Str | true }"
+        -- COMP-3b-general routes through the generic (alpha-renaming) path, so the
+        -- payloads are now "_bv_<name>_N"; the discriminating evidence is the SORT:
+        -- the error payload is declared at its real Str sort, never the int default.
+        fq `shouldSatisfy` T.isInfixOf "{ v : Str | true }"
+        fq `shouldSatisfy` T.isInfixOf "_bv_s"   -- renamed Success payload present
 
       it "C3B-4: a constructor-dependent post still falls back (Issue-2 gate preserved)" $ do
         er <- emitSrc (word
@@ -5658,6 +5664,58 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           <> "(post (match result ((Success v) (>= v 0)) ((Error e) (>= result 0)))) "
           <> "(match r ((Success s) s) ((Error e) 0)))")
         erBodyFaithfulFns er `shouldSatisfy` not . elem "cdp"
+
+    -- COMP-3b-general (opaque-sum elimination): the flat-Result match generalized
+    -- to ANY nesting depth — a Result-var scrutinee is detected via derived
+    -- SortEnv payload-sort keys ("<v>$ok"/"<v>$err"), the guard+payloads ride the
+    -- binder-carrying BranchVC, and collectBranchBinders declares them across the
+    -- whole tree (the former top-level special-case is subsumed and deleted). Plus
+    -- the localization fix: a refuted arm is labeled by structural then/else
+    -- provenance (pathBranchSides), not a path-index midpoint that mislabeled under
+    -- unbalanced nesting.
+    describe "COMP-3b-general: opaque-sum elimination (nested + localization)" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          word = "(type Word (where [x: int] (and (>= x 0) (<= x 65535))))\n"
+          nestedSrc = word
+            <> "(def clamp-nested [r: Result[int, string]] -> Word "
+            <> "(let [(d 0)] (match r ((Success s) (if (> s 65535) 65535 (if (< s 0) 0 s))) ((Error e) 0))))"
+
+      it "C3BG-1: a Result-var match NESTED under a let is body-faithful (was fallback before COMP-3b-general)" $ do
+        er <- emitSrc nestedSrc
+        erBodyFaithfulFns er `shouldSatisfy` elem "clamp-nested"
+        erBodyFallback er    `shouldSatisfy` not . elem "clamp-nested"
+
+      it "C3BG-2: pathBranchSides labels arms structurally under unbalanced nesting" $ do
+        -- then-subtree: 2 paths (nested branch); else-subtree: 1 path.
+        -- The old midpoint (3 `div` 2 = 1) mislabeled path 1 as else; structural
+        -- provenance keeps it then.
+        let inner = BranchVC (FQVar "h") [] (SimpleVC [] (FQLit 1)) (SimpleVC [] (FQLit 2))
+            bvc   = BranchVC (FQVar "g") [] inner (SimpleVC [] (FQLit 3))
+        length (flattenBodyVC bvc) `shouldBe` 3
+        pathBranchSides bvc `shouldBe` [Just True, Just True, Just False]
+
+      it "C3BG-3: collectBranchBinders gathers guard+payloads across the whole tree" $ do
+        let inner = BranchVC (FQVar "g2") [("g2", FQBool), ("s2", FQInt), ("e2", FQInt)]
+                             (SimpleVC [] (FQVar "s2")) (SimpleVC [] (FQLit 0))
+            bvc   = BranchVC (FQVar "g1") [("g1", FQBool), ("s1", FQInt), ("e1", FQInt)]
+                             inner (SimpleVC [] (FQLit 0))
+        collectBranchBinders bvc `shouldBe`
+          [("g1", FQBool), ("s1", FQInt), ("e1", FQInt), ("g2", FQBool), ("s2", FQInt), ("e2", FQInt)]
+        collectBranchBinders (SimpleVC [] (FQLit 0)) `shouldBe` []
+
+      it "C3BG-4: a Result-var match (derived $ok/$err keys) yields a BranchVC carrying its binders" $ do
+        let body = EMatch (EVar "attempt")
+                     [ (PConstructor "Success" [PVar "n"], EVar "n")
+                     , (PConstructor "Error" [PVar "e"], ELit (LitInt 0)) ]
+            se = Map.fromList [("attempt$ok", FQInt), ("attempt$err", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        case result of
+          Just (BranchVC (FQVar gn) binders _ _) -> do
+            T.isPrefixOf "_bv__match_success" gn `shouldBe` True
+            map snd binders `shouldBe` [FQBool, FQInt, FQInt]
+          other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
 
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
