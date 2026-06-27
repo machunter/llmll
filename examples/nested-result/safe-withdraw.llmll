@@ -1,0 +1,27 @@
+;; nested-result — COMP-3b-general (v0.13.6): a nested Result-variable match → verified.
+;;
+;; The headline of v0.13.6 is that a `Result`-typed VARIABLE match verifies
+;; body-faithfully at ANY nesting depth — including nested under `let`/`if`.
+;; `payments-core/settle` shows the TOP-LEVEL form (the older v0.13.3 COMP-3b case);
+;; THIS example shows the *nested* form: the body is a `let`, and the two-arm match
+;; on the `Result`-typed `attempt` lives INSIDE the `let` body, not at top level.
+;;
+;; `safe-withdraw` returns a Balance — a refinement type {b : int | b >= 0} — and
+;; there is NO hand-written post: the return refinement is the ENTIRE spec,
+;; discharged PER ARM by the solver. The let-bound `guard` is provably non-negative
+;; (it is `(if (>= floor 0) floor 0)`), so both arms establish `b >= 0`.
+;;
+;;   llmll verify ./safe-withdraw.llmll   ->  body-faithful: safe-withdraw, SAFE
+;;
+;; The refuted twin (safe-withdraw-bad.llmll) returns the Success payload directly
+;; (which can be negative) and is refuted on exactly the Success arm.
+;;   Regenerate twin AST: llmll build ./safe-withdraw.llmll --emit -o .
+
+(type Balance (where [b: int] (>= b 0)))
+
+(def safe-withdraw [attempt: Result[int, string] floor: int] -> Balance
+  (pre (>= floor 0))
+  (let [[guard floor]]
+    (match attempt
+      ((Success n) (if (>= n guard) n guard))
+      ((Error e)   guard))))
