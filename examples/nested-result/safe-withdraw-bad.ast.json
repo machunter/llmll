@@ -1,0 +1,130 @@
+{
+  "llmll_version": "0.13.6",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "b",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "b"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": ">="
+        }
+      },
+      "kind": "type-decl",
+      "name": "Balance"
+    },
+    {
+      "body": {
+        "bindings": [
+          {
+            "expr": {
+              "kind": "var",
+              "name": "floor"
+            },
+            "name": "guard"
+          }
+        ],
+        "body": {
+          "arms": [
+            {
+              "body": {
+                "kind": "var",
+                "name": "n"
+              },
+              "pattern": {
+                "constructor": "Success",
+                "kind": "constructor",
+                "sub_patterns": [
+                  {
+                    "kind": "bind",
+                    "name": "n"
+                  }
+                ]
+              }
+            },
+            {
+              "body": {
+                "kind": "var",
+                "name": "guard"
+              },
+              "pattern": {
+                "constructor": "Error",
+                "kind": "constructor",
+                "sub_patterns": [
+                  {
+                    "kind": "bind",
+                    "name": "e"
+                  }
+                ]
+              }
+            }
+          ],
+          "kind": "match",
+          "scrutinee": {
+            "kind": "var",
+            "name": "attempt"
+          }
+        },
+        "kind": "let"
+      },
+      "kind": "def",
+      "name": "safe-withdraw",
+      "params": [
+        {
+          "name": "attempt",
+          "param_type": {
+            "err_type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "result",
+            "ok_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        },
+        {
+          "name": "floor",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "floor"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "named",
+        "name": "Balance"
+      }
+    }
+  ]
+}
