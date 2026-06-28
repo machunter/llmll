@@ -5739,6 +5739,45 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "(s = 0)"
         fq `shouldSatisfy` (not . T.isInfixOf "(s = A)")
 
+    -- COMP-4 (d-elim): two-arm USER-ADT opaque-sum elimination — the Result-
+    -- specific skolem-branch generalized to an arbitrary two-arm sum type with
+    -- single-payload constructors. Same QF-LIA exhaustiveness-only encoding;
+    -- payloads admissible iff QF-LIA scalars (int/bool/string), else fall back
+    -- (firewall). SAFE/refuted is CLI-probe-verified (the admissible match → SAFE;
+    -- the raw-payload twin → refuted).
+    describe "COMP-4 (d-elim): two-arm user-ADT opaque-sum elimination" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "DELIM-1: a match on an admissible two-arm USER ADT is body-faithful (beyond Result)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Balance (where [b: int] (>= b 0)))"
+          , "(type Outcome (| Ok int) (| Bad int))"
+          , "(def settle-adt [o: Outcome] -> Balance"
+          , "  (match o ((Ok n) (if (>= n 0) n 0)) ((Bad m) 0)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "settle-adt"
+        erBodyFallback er    `shouldSatisfy` not . elem "settle-adt"
+
+      it "DELIM-2: a two-arm ADT with a SUM-typed payload falls back (firewall, not body-faithful)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Inner (| A int) (| B int))"
+          , "(type Wrap (| W Inner) (| Z int))"
+          , "(def f [w: Wrap] -> int (post (>= result 0)) (match w ((W i) 0) ((Z n) 0)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` not . elem "f"
+
+      it "DELIM-3: a two-arm user-ADT var match (derived $Ctor keys) yields a BranchVC carrying its binders" $ do
+        let body = EMatch (EVar "o")
+                     [ (PConstructor "Ok" [PVar "n"], EVar "n")
+                     , (PConstructor "Bad" [PVar "m"], ELit (LitInt 0)) ]
+            se = Map.fromList [("o$Ok", FQInt), ("o$Bad", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        case result of
+          Just (BranchVC (FQVar gn) binders _ _) -> do
+            T.isPrefixOf "_bv__match_success" gn `shouldBe` True
+            map snd binders `shouldBe` [FQBool, FQInt, FQInt]
+          other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
+
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
     -- (ctor value EVar -> int tag; enum EMatch -> nested EIf on (= scrut tag)).

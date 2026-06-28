@@ -567,7 +567,20 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                   , TResult okT errT <- [resolveAliasTy aliases t]
                   , kv <- [ (v <> "$ok",  typeToSort okT)
                           , (v <> "$err", typeToSort errT) ] ]
-                sortEnv = foldr (uncurry Map.insert) sortEnv0 resultKeys
+                -- COMP-4 (d-elim): per-constructor payload-sort keys for an
+                -- admissible two-arm USER sum-type param, so the generic EMatch
+                -- path can opaque-sum-eliminate a match on it (same skolem-branch
+                -- as Result). Seeded ONLY when both payloads are QF-LIA scalars
+                -- (admissiblePayload); a sum/recursive payload is not seeded → the
+                -- match falls back (firewall, design §5). Param-scoped, matching
+                -- the Result seeding above.
+                adtKeys =
+                  [ (v <> "$" <> c, typeToSort pt)
+                  | (v, t) <- params
+                  , TSumType [(c1, Just t1), (c2, Just t2)] <- [resolveAliasTy aliases t]
+                  , admissiblePayload aliases t1, admissiblePayload aliases t2
+                  , (c, pt) <- [(c1, t1), (c2, t2)] ]
+                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys)
             -- Translate body (generic path; Result-var matches handled within).
             seed <- readIORef bodyCounterRef
             let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv cenv sccSet body'
@@ -743,6 +756,19 @@ typeToSort TString = FQStr            -- NIW: opaque carrier for string measures
 typeToSort (TList _) = FQList         -- NIW: opaque carrier for list measures
 typeToSort (TDependent _ base _) = typeToSort base
 typeToSort _     = FQInt  -- conservative default
+
+-- | COMP-4 (d-elim): a two-arm-ADT payload is admissible to opaque-sum
+-- elimination iff its sort is a QF-LIA-representable scalar (int / bool /
+-- string-measure carrier). A payload that is itself a sum/Result/list/etc. type
+-- is NOT admissible — it would need the datatype theory of COMP-4 (a) /
+-- construction reasoning — so the match falls back via the §5.3.3 firewall.
+-- (Enum-tag and list payloads are deliberate follow-ups, not this slice.)
+admissiblePayload :: AliasMap -> Type -> Bool
+admissiblePayload am t = case resolveAliasTy am t of
+  TInt    -> True
+  TBool   -> True
+  TString -> True
+  _       -> False
 
 typeSorts :: Name -> Type -> [FQDataDecl]
 typeSorts name (TSumType ctors) =
@@ -1240,22 +1266,19 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (sV, sB, eV, eB) <- classifyResultArms arms
   , Just okSort  <- Map.lookup (r <> "$ok")  se
   , Just errSort <- Map.lookup (r <> "$err") se
-  = do
-    sRenamed <- freshName sV
-    eRenamed <- freshName eV
-    guardVar <- freshName "_match_success"
-    let envS = Map.insert sV sRenamed env
-        seS  = Map.insert sRenamed okSort se
-    mSvc <- bodyToPredM envS seS cenv sccSet sB
-    let envE = Map.insert eV eRenamed env
-        seE  = Map.insert eRenamed errSort se
-    mEvc <- bodyToPredM envE seE cenv sccSet eB
-    return $ case (mSvc, mEvc) of
-      (Just svc, Just evc) ->
-        Just (BranchVC (FQVar guardVar)
-                       [(guardVar, FQBool), (sRenamed, okSort), (eRenamed, errSort)]
-                       svc evc)
-      _ -> Nothing
+  = buildOpaqueSumBranch env se cenv sccSet (sV, okSort, sB) (eV, errSort, eB)
+
+-- COMP-4 (d-elim): the same opaque-sum elimination for an arbitrary admissible
+-- two-arm USER sum type, detected by per-constructor "<v>$<Ctor>" payload-sort
+-- keys the driver seeded for the scrutinee variable. Ctor-agnostic generalization
+-- of the Result clause above (which keeps its "$ok"/"$err" key scheme). A match
+-- whose scrutinee var was not seeded (non-admissible/recursive payload) does not
+-- match here and falls through to the generic path → fallback.
+bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
+  | Just (c1, v1, b1, c2, v2, b2) <- classifyTwoArmAdtArms arms
+  , Just s1 <- Map.lookup (r <> "$" <> c1) se
+  , Just s2 <- Map.lookup (r <> "$" <> c2) se
+  = buildOpaqueSumBranch env se cenv sccSet (v1, s1, b1) (v2, s2, b2)
 
 bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
   -- Must be exactly 2 arms with Success and Error constructors
@@ -1311,6 +1334,36 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
 
 -- Everything else: match, app (user-defined without contract), lambda, etc. → fallback
 bodyToPredM _ _ _ _ _ = return Nothing
+
+-- | COMP-3b-general / COMP-4 (d-elim): build the opaque-sum elimination
+-- skolem-branch for a two-arm match on an opaque (param/let-bound) variable
+-- scrutinee. Each arm's payload binds as an FQTrue skolem at its declared sort;
+-- the synthetic free guard + the two payloads ride the BranchVC binder field for
+-- 'collectBranchBinders' to declare. The scrutinee value is opaque (absent from
+-- the value SortEnv), so it is never translated — the case-split is on the fresh
+-- guard, and exhaustiveness/distinctness are discharged structurally (the
+-- type-checker's two-arm coverage + the boolean guard), staying in QF-LIA.
+buildOpaqueSumBranch
+  :: Map Name Name -> SortEnv -> ContractEnv -> Set.Set Name
+  -> (Name, FQSort, Expr)   -- ^ arm 1: payload var, payload sort, arm body
+  -> (Name, FQSort, Expr)   -- ^ arm 2
+  -> State Int (Maybe BodyVC)
+buildOpaqueSumBranch env se cenv sccSet (v1, s1, b1) (v2, s2, b2) = do
+  r1 <- freshName v1
+  r2 <- freshName v2
+  guardVar <- freshName "_match_success"
+  let env1 = Map.insert v1 r1 env
+      se1  = Map.insert r1 s1 se
+  mvc1 <- bodyToPredM env1 se1 cenv sccSet b1
+  let env2 = Map.insert v2 r2 env
+      se2  = Map.insert r2 s2 se
+  mvc2 <- bodyToPredM env2 se2 cenv sccSet b2
+  return $ case (mvc1, mvc2) of
+    (Just vc1, Just vc2) ->
+      Just (BranchVC (FQVar guardVar)
+                     [(guardVar, FQBool), (r1, s1), (r2, s2)]
+                     vc1 vc2)
+    _ -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- Guard translation (v0.8.0, v0.10: extracted to GuardClassifier.hs)
@@ -1653,6 +1706,17 @@ classifyResultArms arms = case arms of
     Just (s, bodyS, e, bodyE)
   [(PConstructor "Error" [PVar e], bodyE), (PConstructor "Success" [PVar s], bodyS)] ->
     Just (s, bodyS, e, bodyE)
+  _ -> Nothing
+
+-- | COMP-4 (d-elim): classify a two-arm match on an arbitrary user sum type.
+-- Each arm is a single-payload constructor pattern over two DISTINCT
+-- constructors; returns (ctor1, payloadVar1, body1, ctor2, payloadVar2, body2)
+-- in source order. Ctor-agnostic generalization of 'classifyResultArms'; the
+-- caller resolves each arm's payload sort from the "<v>$<Ctor>" derived keys.
+classifyTwoArmAdtArms :: [(Pattern, Expr)] -> Maybe (Name, Name, Expr, Name, Name, Expr)
+classifyTwoArmAdtArms arms = case arms of
+  [(PConstructor c1 [PVar v1], b1), (PConstructor c2 [PVar v2], b2)]
+    | c1 /= c2 -> Just (c1, v1, b1, c2, v2, b2)
   _ -> Nothing
 
 -- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
