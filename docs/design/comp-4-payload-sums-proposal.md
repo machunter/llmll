@@ -4,8 +4,8 @@
 > **Date:** 2026-06-27 (Rev 1; Rev 2; Rev 3)
 > **Implements:** Active-Items row `COMP-3b-general / COMP-4` (`docs/compiler-team-roadmap.md`). Continues the COMP-3b → COMP-3c → COMP-3b-general line. **COMP-3b-general (opaque-sum elimination, exhaustiveness-only) shipped v0.13.6**; COMP-4 is the remainder.
 > **Prerequisites:** COMP-3b-general machinery (binder-carrying `BranchVC`, `collectBranchBinders`, derived `SortEnv` payload-sort keys, the new `EMatch` clause — `FixpointEmit.hs`). The native datatype substrate: `FQData`/`FQDataDecl`/`fqcArgs`/`emitDataDecl` (`FixpointIR.hs:55-61,148-163,279`), already emitted per sum type by `typeSorts` (`FixpointEmit.hs:736-739`) and v0.13.3-debugged against liquid-fixpoint.
-> **Reviewed:** Two professor critiques (Rev 1 → Rev 2 redirect; Rev 2 → Rev 3 precision fixes), both in the originating conversation. Standalone `comp-4-payload-sums-review.md` to be captured by the professor/doc-lead for the M2 fold-and-archive on settlement.
-> **Status:** Settled (Rev 3) — both professor reviews incorporated; the two professor open-questions resolved (admissibility predicate pinned §5; reflection⊥trust pinned §7). `(d-elim)` ready for compiler-engineer; awaiting user settlement signal.
+> **Reviewed:** Three professor critiques — Rev 1 → Rev 2 redirect; Rev 2 → Rev 3 precision fixes (both folded into the Version line above); plus a third pass on the (b) two forks (gating + emission channel) folded into §9/§13 at the v0.13.8 implementation. **No standalone review file** — the M2 fold is in-frontmatter.
+> **Status:** Settled (Rev 3) — **partially shipped.** `(d-elim)` shipped **v0.13.7** (`0cf53e9`); **(b) completeness + the payload-subtyping call-site obligation shipped v0.13.8** (`ebf812d`) — the Risk-1 gate is closed. **Remaining: (a)/(c) construction / payload-carrying `Rejected` totality** on the native `FQData` path, gated on `admissibleDatatype` (§5). This proposal stays the live reference for that slice.
 
 ---
 
@@ -74,10 +74,10 @@ Introduction must **not** re-tier the constructor builtins. `ok`/`err` (`TypeChe
 
 ## 9. Staging (the soundness-critical result)
 
-1. **(d-elim) first** — pure elimination, exhaustiveness-only over user ADTs, **QF-LIA, zero new soundness dependency, sound today**; a direct extension of the shipped COMP-3b-general skolem-branch.
-2. **The payload-subtyping call-site obligation** (`TypeCheck.hs`) — the shared prerequisite that unblocks (b) and (a) (construction must also prove the payload refinement at the build site).
-3. **(b) completeness** — now sound (the prerequisite established it), QF-LIA, high one-shot-correctness value.
-4. **(a)/(c) introduction** — native `FQData`, gated on `admissibleDatatype` (§5).
+1. **(d-elim) first** — ✅ **SHIPPED v0.13.7** (`0cf53e9`). Pure elimination, exhaustiveness-only over user ADTs, QF-LIA, zero new soundness dependency; a direct extension of the shipped COMP-3b-general skolem-branch.
+2. **The payload-subtyping call-site obligation** — ✅ **SHIPPED v0.13.8** (`ebf812d`). Built as a standalone refinement-subtyping Horn constraint at the **CallVC site** (`FixpointEmit.hs`), *not* a `TypeCheck.hs` check — the third professor pass resolved the emission-channel fork: refinement subtyping *is* an SMT implication, generated where the types meet and discharged by liquid-fixpoint, with a syntactic-reflexivity fast-path. **Declaration-driven** (the gating fork — the refinement is a caller contract derivable from the signature, like a `Word` bound).
+3. **(b) completeness** — ✅ **SHIPPED v0.13.8** (`ebf812d`). The arm consumes the matched payload's refinement (a `ReaderT` `RefEnv` + an `FQPred` on the `BranchVC` binder field), sound because step 2 obligates callers. QF-LIA.
+4. **(a)/(c) introduction** — **remaining.** Native `FQData`, gated on `admissibleDatatype` (§5). The hardest slice; this proposal is its live reference.
 
 This inverts Rev 1's "(b) first": Rev 1 assumed payload-subtyping held; Rev 2 proved it does not, so the dependency-free (d-elim) leads. The assume/guarantee split for (b) is **clean, no double-counting**: elimination *assumes* the payload refinement; the call-site obligation *guarantees* it; the elimination does not re-prove it.
 
@@ -105,6 +105,6 @@ The professor (datatype-theory reading path) and language-team (LLMLL-internal r
 
 ## 13. Hand-off
 
-**Code-track (compiler-engineer), first slice = (d-elim):** generalize the `Result`-specific `classifyResultArms` skolem-branch to arbitrary two-arm user ADTs — QF-LIA, zero new soundness dependency, sound today. Then the payload-subtyping call-site obligation (`TypeCheck.hs`); then (b); then (a)/(c) native-`FQData` gated on `admissibleDatatype`.
+**Code-track (compiler-engineer):** (d-elim) — ✅ shipped v0.13.7. Payload-subtyping obligation + (b) completeness — ✅ shipped v0.13.8 (a third professor pass resolved the gating + emission-channel forks; the obligation lands as an SMT Horn constraint at the CallVC, not a `TypeCheck.hs` check). **Remaining: (a)/(c) construction** — native `FQData` constructor/selector reflection (`exprToPred`/`bodyToPredM`), `typeSorts` real arities, gated on `admissibleDatatype` (§5). Pick up from this proposal.
 
-**Doc-lead (M2):** capture the two professor critiques as `comp-4-payload-sums-review.md` and fold-and-archive on settlement; add the INDEX one-liner with status `Settled (Rev 3)`.
+**Doc-lead (M2):** no standalone review file — the three professor critiques are folded inline (Version line + §9). INDEX one-liner reflects the partial ship.
