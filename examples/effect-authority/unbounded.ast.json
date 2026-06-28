@@ -1,0 +1,32 @@
+{
+  "llmll_version": "0.13.7",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "agent": "payments-agent",
+        "description": "apply the payment and return the new balance",
+        "kind": "hole-delegate",
+        "return_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      },
+      "kind": "def-shell",
+      "name": "settle-payment",
+      "params": [
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

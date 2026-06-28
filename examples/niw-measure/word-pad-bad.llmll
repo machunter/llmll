@@ -1,0 +1,18 @@
+;; NIW Showcase — the refuted twin.
+;;
+;; IDENTICAL body and post to word-pad.llmll. The ONLY change: the param is a
+;; bare `string` instead of a measure-refined `Word`. With no `(string-length
+;; tok) > 0` folded into the precondition, the measure's range axiom alone gives
+;; only `(string-length tok) >= 0` — the empty string is a witness with length 0,
+;; so the post `result >= 1` does NOT hold. The solver refutes on the body VC.
+;;
+;;   llmll verify ./word-pad-bad.llmll
+;;       ->  refuted: min-pad  (result >= 1 not established; empty string -> 0)
+;;
+;; This is the discriminating axis: the verdict flips on the parameter's
+;; refinement alone (Word vs string), with the body untouched — the measure
+;; predicate is genuinely load-bearing, not decorative.
+
+(def min-pad [tok: string] -> int
+  (post (>= result 1))
+  (string-length tok))

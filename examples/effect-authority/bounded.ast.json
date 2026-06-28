@@ -1,0 +1,44 @@
+{
+  "llmll_version": "0.13.7",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "capability": {
+        "deterministic": false,
+        "name": "stdout",
+        "path_or_port": ""
+      },
+      "kind": "import",
+      "path": "wasi.io"
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "amount"
+              }
+            ],
+            "fn": "int-to-string",
+            "kind": "app"
+          }
+        ],
+        "kind": "qual-app",
+        "qual_fn": "wasi.io.stdout"
+      },
+      "kind": "def-shell",
+      "name": "log-amount",
+      "params": [
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ]
+    }
+  ]
+}

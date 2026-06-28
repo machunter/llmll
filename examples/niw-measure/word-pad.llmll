@@ -1,0 +1,30 @@
+;; NIW Showcase — measure-refined parameters (path-(a), v0.12.0 NIW Phase 1).
+;;
+;; The feature: a refinement predicate that calls a MEASURE (`string-length`,
+;; `list-length`) on a non-int carrier is discharged body-faithfully. The measure
+;; emits as one uninterpreted function symbol carrying only its range axiom
+;; (`(string-length s) >= 0`); congruence closure relates repeated occurrences.
+;; The obligation lands in QF-LIA+EUF and reaches `verified` (LLMLL.md §3.4.4,
+;; §5.3.3 / REF-META-2; CHANGELOG v0.12.0 NIW entry, commit 0a3c5c2).
+;;
+;; `Word` is a measure-refined string alias {s : string | string-length s > 0}.
+;; `min-pad` takes a `Word` and proves a post stated purely over the param's
+;; measure image — the intro+elim that NIW Phase 1 completed (F-NIW-1/F-NIW-2):
+;; the param's predicate is FOLDED into the effective precondition, assumed in
+;; the body VC, and the post is discharged against that assumption.
+;;
+;;   llmll verify ./word-pad.llmll   ->  min-pad verified
+;;
+;; The refuted twin (word-pad-bad.llmll) takes a bare `string` instead of a
+;; `Word`, so the `string-length` lower bound is NOT in scope and the same post
+;; is refuted.
+
+(type Word (where [s: string] (> (string-length s) 0)))
+
+;; The body returns the param's length. Because `tok : Word`, the folded
+;; precondition `(string-length tok) > 0` is assumed, so the post `result >= 1`
+;; is discharged by the measure's range axiom + the assumed lower bound — no
+;; structural string reasoning required (stays inside the closed measure catalog).
+(def min-pad [tok: Word] -> int
+  (post (>= result 1))
+  (string-length tok))

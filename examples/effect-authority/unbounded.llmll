@@ -1,0 +1,21 @@
+;; Bundle B0 Showcase — unbounded authority (the ⊤ twin).
+;;
+;; Same shape as bounded.llmll — a shell function — but the body is a `?delegate`
+;; hole: the implementation is supplied out-of-process by an agent. The effect
+;; summary is a SOUND over-approximation, so at an opaque boundary it must report
+;; the top element ⊤ — the string "unbounded" — meaning "may exercise ANY
+;; capability." The delegated code is not in scope; nothing bounds its authority.
+;;
+;;   llmll verify ./unbounded.llmll --obligation-report
+;;       ->  effect_summary: settle-payment is "unbounded"  (delegate boundary)
+;;
+;; This is the discriminating axis. `bounded.log-amount` reaches a concrete,
+;; minimal set (["stdout"]); `unbounded.settle-payment` reaches ⊤. The authority
+;; report distinguishes a function whose effects are fully walked from one whose
+;; effects cannot be bounded — exactly the property a capability-conscious caller
+;; needs before granting trust. (Per the ∅-iff-fully-walked rule, only resolved
+;; functions / known builtins contribute ∅; an opaque hole joins ⊤.)
+
+(module unbounded
+  (def-shell settle-payment [amount: int] -> int
+    (?delegate @payments-agent "apply the payment and return the new balance" -> int)))

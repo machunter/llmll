@@ -1,0 +1,24 @@
+;; Bundle B0 Showcase — bounded authority (effect_summary, v0.12.0).
+;;
+;; `verify --obligation-report` emits a per-function `effect_summary`: a sound
+;; may-over-approximation of the coarse capabilities a function may reach through
+;; its call graph (object-capability "authority"). Informational, orthogonal to
+;; trust — it never enters the verified/asserted lattice (authority ⊥ trust;
+;; CHANGELOG v0.12.0 B0 entry, commit b2d9c1a).
+;;
+;; `log-amount` reaches EXACTLY one capability — `stdout` — and nothing else.
+;; Its authority is visible and minimal: a reader can see, without running it,
+;; the complete set of effects it can exercise.
+;;
+;;   llmll verify ./bounded.llmll --obligation-report
+;;       ->  effect_summary: log-amount exercises ["stdout"]
+;;
+;; The twin (unbounded.llmll) is its authority opposite: a delegate hole whose
+;; reachable capability set is ⊤ ("unbounded") — the over-approximation cannot
+;; bound what an out-of-process agent might do.
+
+(module bounded
+  (import wasi.io (capability stdout :deterministic false))
+
+  (def-shell log-amount [amount: int]
+    (wasi.io.stdout (int-to-string amount))))

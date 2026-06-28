@@ -1,85 +1,89 @@
 {
-  "schemaVersion": "0.6.0",
-  "llmll_version": "0.1.3",
-  "source_file": "hangman.ast.json",
+  "llmll_version": "0.13.7",
+  "schemaVersion": "0.7.0",
   "statements": [
     {
-      "kind": "type-decl",
-      "name": "Word",
+      "capability": {
+        "deterministic": false,
+        "name": "stdout",
+        "path_or_port": ""
+      },
+      "kind": "import",
+      "path": "wasi.io"
+    },
+    {
       "body": {
-        "kind": "where",
-        "binding": "s",
         "base_type": {
           "kind": "primitive",
           "name": "string"
         },
+        "binding": "s",
+        "kind": "where",
         "predicate": {
-          "kind": "op",
-          "op": ">",
           "args": [
             {
-              "kind": "app",
-              "fn": "string-length",
               "args": [
                 {
                   "kind": "var",
                   "name": "s"
                 }
-              ]
+              ],
+              "fn": "string-length",
+              "kind": "app"
             },
             {
               "kind": "lit-int",
               "value": 0
             }
-          ]
+          ],
+          "kind": "op",
+          "op": ">"
         }
-      }
+      },
+      "kind": "type-decl",
+      "name": "Word"
     },
     {
-      "kind": "type-decl",
-      "name": "Letter",
       "body": {
-        "kind": "where",
-        "binding": "s",
         "base_type": {
           "kind": "primitive",
           "name": "string"
         },
+        "binding": "s",
+        "kind": "where",
         "predicate": {
-          "kind": "op",
-          "op": "=",
           "args": [
             {
-              "kind": "app",
-              "fn": "string-length",
               "args": [
                 {
                   "kind": "var",
                   "name": "s"
                 }
-              ]
+              ],
+              "fn": "string-length",
+              "kind": "app"
             },
             {
               "kind": "lit-int",
               "value": 1
             }
-          ]
+          ],
+          "kind": "op",
+          "op": "="
         }
-      }
+      },
+      "kind": "type-decl",
+      "name": "Letter"
     },
     {
-      "kind": "type-decl",
-      "name": "GuessCount",
       "body": {
-        "kind": "where",
-        "binding": "n",
         "base_type": {
           "kind": "primitive",
           "name": "int"
         },
+        "binding": "n",
+        "kind": "where",
         "predicate": {
-          "kind": "op",
-          "op": ">=",
           "args": [
             {
               "kind": "var",
@@ -89,133 +93,258 @@
               "kind": "lit-int",
               "value": 0
             }
-          ]
+          ],
+          "kind": "op",
+          "op": ">="
         }
-      }
+      },
+      "kind": "type-decl",
+      "name": "GuessCount"
     },
     {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "s"
+          }
+        ],
+        "fn": "first",
+        "kind": "app"
+      },
       "kind": "def",
       "name": "state-word",
       "params": [
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
-      ],
-      "body": {
-        "kind": "app",
-        "fn": "first",
-        "args": [
-          {
-            "kind": "var",
-            "name": "s"
-          }
-        ]
-      }
+      ]
     },
     {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              }
+            ],
+            "fn": "second",
+            "kind": "app"
+          }
+        ],
+        "fn": "first",
+        "kind": "app"
+      },
       "kind": "def",
       "name": "state-guessed",
       "params": [
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
-      ],
-      "body": {
-        "kind": "app",
-        "fn": "first",
-        "args": [
-          {
-            "kind": "app",
-            "fn": "second",
-            "args": [
-              {
-                "kind": "var",
-                "name": "s"
-              }
-            ]
-          }
-        ]
-      }
+      ]
     },
     {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  }
+                ],
+                "fn": "second",
+                "kind": "app"
+              }
+            ],
+            "fn": "second",
+            "kind": "app"
+          }
+        ],
+        "fn": "first",
+        "kind": "app"
+      },
       "kind": "def",
       "name": "state-wrong",
       "params": [
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
-      ],
+      ]
+    },
+    {
       "body": {
-        "kind": "app",
-        "fn": "first",
         "args": [
           {
-            "kind": "app",
-            "fn": "second",
             "args": [
               {
-                "kind": "app",
-                "fn": "second",
                 "args": [
                   {
                     "kind": "var",
                     "name": "s"
                   }
-                ]
+                ],
+                "fn": "second",
+                "kind": "app"
               }
-            ]
+            ],
+            "fn": "second",
+            "kind": "app"
           }
-        ]
-      }
-    },
-    {
+        ],
+        "fn": "second",
+        "kind": "app"
+      },
       "kind": "def",
       "name": "state-max",
       "params": [
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
-      ],
-      "body": {
-        "kind": "app",
-        "fn": "second",
-        "args": [
-          {
-            "kind": "app",
-            "fn": "second",
-            "args": [
-              {
-                "kind": "app",
-                "fn": "second",
-                "args": [
-                  {
-                    "kind": "var",
-                    "name": "s"
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
+      ]
     },
     {
+      "body": {
+        "fst": {
+          "kind": "var",
+          "name": "w"
+        },
+        "kind": "pair",
+        "snd": {
+          "fst": {
+            "kind": "var",
+            "name": "g"
+          },
+          "kind": "pair",
+          "snd": {
+            "fst": {
+              "kind": "var",
+              "name": "wc"
+            },
+            "kind": "pair",
+            "snd": {
+              "kind": "var",
+              "name": "mx"
+            }
+          }
+        }
+      },
       "kind": "def",
       "name": "make-state",
       "params": [
@@ -229,11 +358,11 @@
         {
           "name": "g",
           "param_type": {
-            "kind": "list",
             "elem_type": {
               "kind": "primitive",
               "name": "string"
-            }
+            },
+            "kind": "list"
           }
         },
         {
@@ -250,34 +379,139 @@
             "name": "int"
           }
         }
-      ],
-      "body": {
-        "kind": "pair",
-        "fst": {
-          "kind": "var",
-          "name": "w"
-        },
-        "snd": {
-          "kind": "pair",
-          "fst": {
-            "kind": "var",
-            "name": "g"
-          },
-          "snd": {
-            "kind": "pair",
-            "fst": {
-              "kind": "var",
-              "name": "wc"
-            },
-            "snd": {
-              "kind": "var",
-              "name": "mx"
-            }
-          }
-        }
-      }
+      ]
     },
     {
+      "body": {
+        "cond": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "wrong"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": "="
+        },
+        "else_branch": {
+          "cond": {
+            "args": [
+              {
+                "kind": "var",
+                "name": "wrong"
+              },
+              {
+                "kind": "lit-int",
+                "value": 1
+              }
+            ],
+            "kind": "op",
+            "op": "="
+          },
+          "else_branch": {
+            "cond": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "wrong"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 2
+                }
+              ],
+              "kind": "op",
+              "op": "="
+            },
+            "else_branch": {
+              "cond": {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "wrong"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 3
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              },
+              "else_branch": {
+                "cond": {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "wrong"
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 4
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "="
+                },
+                "else_branch": {
+                  "cond": {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "wrong"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 5
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  },
+                  "else_branch": {
+                    "kind": "lit-string",
+                    "value": " -----\n |   |\n |   O\n |  /|\\\n |  /\\\n |\n-+----\n"
+                  },
+                  "kind": "if",
+                  "then_branch": {
+                    "kind": "lit-string",
+                    "value": " -----\n |   |\n |   O\n |  /|\\\n |  /\n |\n-+----\n"
+                  }
+                },
+                "kind": "if",
+                "then_branch": {
+                  "kind": "lit-string",
+                  "value": " -----\n |   |\n |   O\n |  /|\\\n |\n |\n-+----\n"
+                }
+              },
+              "kind": "if",
+              "then_branch": {
+                "kind": "lit-string",
+                "value": " -----\n |   |\n |   O\n |  /|\n |\n |\n-+----\n"
+              }
+            },
+            "kind": "if",
+            "then_branch": {
+              "kind": "lit-string",
+              "value": " -----\n |   |\n |   O\n |   |\n |\n |\n-+----\n"
+            }
+          },
+          "kind": "if",
+          "then_branch": {
+            "kind": "lit-string",
+            "value": " -----\n |   |\n |   O\n |\n |\n |\n-+----\n"
+          }
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "lit-string",
+          "value": " -----\n |   |\n |\n |\n |\n |\n-+----\n"
+        }
+      },
       "kind": "def",
       "name": "gallows-art",
       "params": [
@@ -288,139 +522,34 @@
             "name": "int"
           }
         }
-      ],
+      ]
+    },
+    {
       "body": {
-        "kind": "if",
         "cond": {
-          "kind": "op",
-          "op": "=",
           "args": [
             {
               "kind": "var",
-              "name": "wrong"
+              "name": "guessed"
             },
             {
-              "kind": "lit-int",
-              "value": 0
+              "kind": "var",
+              "name": "letter"
             }
-          ]
-        },
-        "then_branch": {
-          "kind": "lit-string",
-          "value": " -----\n |   |\n |\n |\n |\n |\n-+----\n"
+          ],
+          "fn": "list-contains",
+          "kind": "app"
         },
         "else_branch": {
-          "kind": "if",
-          "cond": {
-            "kind": "op",
-            "op": "=",
-            "args": [
-              {
-                "kind": "var",
-                "name": "wrong"
-              },
-              {
-                "kind": "lit-int",
-                "value": 1
-              }
-            ]
-          },
-          "then_branch": {
-            "kind": "lit-string",
-            "value": " -----\n |   |\n |   O\n |\n |\n |\n-+----\n"
-          },
-          "else_branch": {
-            "kind": "if",
-            "cond": {
-              "kind": "op",
-              "op": "=",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "wrong"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 2
-                }
-              ]
-            },
-            "then_branch": {
-              "kind": "lit-string",
-              "value": " -----\n |   |\n |   O\n |   |\n |\n |\n-+----\n"
-            },
-            "else_branch": {
-              "kind": "if",
-              "cond": {
-                "kind": "op",
-                "op": "=",
-                "args": [
-                  {
-                    "kind": "var",
-                    "name": "wrong"
-                  },
-                  {
-                    "kind": "lit-int",
-                    "value": 3
-                  }
-                ]
-              },
-              "then_branch": {
-                "kind": "lit-string",
-                "value": " -----\n |   |\n |   O\n |  /|\n |\n |\n-+----\n"
-              },
-              "else_branch": {
-                "kind": "if",
-                "cond": {
-                  "kind": "op",
-                  "op": "=",
-                  "args": [
-                    {
-                      "kind": "var",
-                      "name": "wrong"
-                    },
-                    {
-                      "kind": "lit-int",
-                      "value": 4
-                    }
-                  ]
-                },
-                "then_branch": {
-                  "kind": "lit-string",
-                  "value": " -----\n |   |\n |   O\n |  /|\\\n |\n |\n-+----\n"
-                },
-                "else_branch": {
-                  "kind": "if",
-                  "cond": {
-                    "kind": "op",
-                    "op": "=",
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "wrong"
-                      },
-                      {
-                        "kind": "lit-int",
-                        "value": 5
-                      }
-                    ]
-                  },
-                  "then_branch": {
-                    "kind": "lit-string",
-                    "value": " -----\n |   |\n |   O\n |  /|\\\n |  /\n |\n-+----\n"
-                  },
-                  "else_branch": {
-                    "kind": "lit-string",
-                    "value": " -----\n |   |\n |   O\n |  /|\\\n |  /\\\n |\n-+----\n"
-                  }
-                }
-              }
-            }
-          }
+          "kind": "lit-string",
+          "value": "_"
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "var",
+          "name": "letter"
         }
-      }
-    },
-    {
+      },
       "kind": "def",
       "name": "show-letter",
       "params": [
@@ -434,41 +563,210 @@
         {
           "name": "guessed",
           "param_type": {
-            "kind": "list",
             "elem_type": {
               "kind": "primitive",
               "name": "string"
-            }
+            },
+            "kind": "list"
           }
         }
-      ],
-      "body": {
-        "kind": "if",
-        "cond": {
-          "kind": "app",
-          "fn": "list-contains",
-          "args": [
-            {
-              "kind": "var",
-              "name": "guessed"
-            },
-            {
-              "kind": "var",
-              "name": "letter"
-            }
-          ]
-        },
-        "then_branch": {
-          "kind": "var",
-          "name": "letter"
-        },
-        "else_branch": {
-          "kind": "lit-string",
-          "value": "_"
-        }
-      }
+      ]
     },
     {
+      "body": {
+        "bindings": [
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "word"
+                }
+              ],
+              "fn": "string-length",
+              "kind": "app"
+            },
+            "name": "n"
+          },
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "lit-int",
+                  "value": 0
+                },
+                {
+                  "kind": "var",
+                  "name": "n"
+                }
+              ],
+              "fn": "range",
+              "kind": "app"
+            },
+            "name": "indices"
+          },
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "indices"
+                },
+                {
+                  "body": {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "word"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "i"
+                      }
+                    ],
+                    "fn": "string-char-at",
+                    "kind": "app"
+                  },
+                  "kind": "lambda",
+                  "params": [
+                    {
+                      "name": "i",
+                      "param_type": {
+                        "kind": "primitive",
+                        "name": "int"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "fn": "list-map",
+              "kind": "app"
+            },
+            "name": "chars"
+          },
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "chars"
+                },
+                {
+                  "body": {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "c"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "guessed"
+                      }
+                    ],
+                    "fn": "show-letter",
+                    "kind": "app"
+                  },
+                  "kind": "lambda",
+                  "params": [
+                    {
+                      "name": "c",
+                      "param_type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "fn": "list-map",
+              "kind": "app"
+            },
+            "name": "shown"
+          },
+          {
+            "expr": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "shown"
+                },
+                {
+                  "kind": "lit-string",
+                  "value": ""
+                },
+                {
+                  "body": {
+                    "cond": {
+                      "args": [
+                        {
+                          "kind": "var",
+                          "name": "acc"
+                        },
+                        {
+                          "kind": "lit-string",
+                          "value": ""
+                        }
+                      ],
+                      "kind": "op",
+                      "op": "="
+                    },
+                    "else_branch": {
+                      "args": [
+                        {
+                          "kind": "var",
+                          "name": "acc"
+                        },
+                        {
+                          "args": [
+                            {
+                              "kind": "lit-string",
+                              "value": " "
+                            },
+                            {
+                              "kind": "var",
+                              "name": "c"
+                            }
+                          ],
+                          "fn": "string-concat",
+                          "kind": "app"
+                        }
+                      ],
+                      "fn": "string-concat",
+                      "kind": "app"
+                    },
+                    "kind": "if",
+                    "then_branch": {
+                      "kind": "var",
+                      "name": "c"
+                    }
+                  },
+                  "kind": "lambda",
+                  "params": [
+                    {
+                      "comment": "pair-type or unresolved",
+                      "name": "acc",
+                      "untyped": true
+                    },
+                    {
+                      "comment": "pair-type or unresolved",
+                      "name": "c",
+                      "untyped": true
+                    }
+                  ]
+                }
+              ],
+              "fn": "list-fold",
+              "kind": "app"
+            },
+            "name": "joined"
+          }
+        ],
+        "body": {
+          "kind": "var",
+          "name": "joined"
+        },
+        "kind": "let"
+      },
       "kind": "def-shell",
       "name": "display-word",
       "params": [
@@ -482,35 +780,33 @@
         {
           "name": "guessed",
           "param_type": {
-            "kind": "list",
             "elem_type": {
               "kind": "primitive",
               "name": "string"
-            }
+            },
+            "kind": "list"
           }
         }
-      ],
+      ]
+    },
+    {
       "body": {
-        "kind": "let",
         "bindings": [
           {
-            "name": "n",
             "expr": {
-              "kind": "app",
-              "fn": "string-length",
               "args": [
                 {
                   "kind": "var",
                   "name": "word"
                 }
-              ]
-            }
+              ],
+              "fn": "string-length",
+              "kind": "app"
+            },
+            "name": "n"
           },
           {
-            "name": "indices",
             "expr": {
-              "kind": "app",
-              "fn": "range",
               "args": [
                 {
                   "kind": "lit-int",
@@ -520,33 +816,21 @@
                   "kind": "var",
                   "name": "n"
                 }
-              ]
-            }
+              ],
+              "fn": "range",
+              "kind": "app"
+            },
+            "name": "indices"
           },
           {
-            "name": "chars",
             "expr": {
-              "kind": "app",
-              "fn": "list-map",
               "args": [
                 {
                   "kind": "var",
                   "name": "indices"
                 },
                 {
-                  "kind": "lambda",
-                  "params": [
-                    {
-                      "name": "i",
-                      "param_type": {
-                        "kind": "primitive",
-                        "name": "int"
-                      }
-                    }
-                  ],
                   "body": {
-                    "kind": "app",
-                    "fn": "string-char-at",
                     "args": [
                       {
                         "kind": "var",
@@ -556,132 +840,83 @@
                         "kind": "var",
                         "name": "i"
                       }
-                    ]
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "name": "shown",
-            "expr": {
-              "kind": "app",
-              "fn": "list-map",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "chars"
-                },
-                {
+                    ],
+                    "fn": "string-char-at",
+                    "kind": "app"
+                  },
                   "kind": "lambda",
                   "params": [
                     {
-                      "name": "c",
+                      "name": "i",
                       "param_type": {
                         "kind": "primitive",
-                        "name": "string"
+                        "name": "int"
                       }
                     }
-                  ],
-                  "body": {
-                    "kind": "app",
-                    "fn": "show-letter",
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "c"
-                      },
-                      {
-                        "kind": "var",
-                        "name": "guessed"
-                      }
-                    ]
-                  }
+                  ]
                 }
-              ]
-            }
-          },
-          {
-            "name": "joined",
-            "expr": {
-              "kind": "app",
-              "fn": "list-fold",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "shown"
-                },
-                {
-                  "kind": "lit-string",
-                  "value": ""
-                },
-                {
-                  "kind": "lambda",
-                  "params": [
-                    {
-                      "name": "acc"
-                    },
-                    {
-                      "name": "c"
-                    }
-                  ],
-                  "body": {
-                    "kind": "if",
-                    "cond": {
-                      "kind": "op",
-                      "op": "=",
-                      "args": [
-                        {
-                          "kind": "var",
-                          "name": "acc"
-                        },
-                        {
-                          "kind": "lit-string",
-                          "value": ""
-                        }
-                      ]
-                    },
-                    "then_branch": {
-                      "kind": "var",
-                      "name": "c"
-                    },
-                    "else_branch": {
-                      "kind": "app",
-                      "fn": "string-concat",
-                      "args": [
-                        {
-                          "kind": "var",
-                          "name": "acc"
-                        },
-                        {
-                          "kind": "app",
-                          "fn": "string-concat",
-                          "args": [
-                            {
-                              "kind": "lit-string",
-                              "value": " "
-                            },
-                            {
-                              "kind": "var",
-                              "name": "c"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }
-              ]
-            }
+              ],
+              "fn": "list-map",
+              "kind": "app"
+            },
+            "name": "letters"
           }
         ],
         "body": {
-          "kind": "var",
-          "name": "joined"
-        }
-      }
-    },
-    {
+          "args": [
+            {
+              "kind": "var",
+              "name": "letters"
+            },
+            {
+              "kind": "lit-bool",
+              "value": true
+            },
+            {
+              "body": {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "acc"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "guessed"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "c"
+                      }
+                    ],
+                    "fn": "list-contains",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "and"
+              },
+              "kind": "lambda",
+              "params": [
+                {
+                  "comment": "pair-type or unresolved",
+                  "name": "acc",
+                  "untyped": true
+                },
+                {
+                  "comment": "pair-type or unresolved",
+                  "name": "c",
+                  "untyped": true
+                }
+              ]
+            }
+          ],
+          "fn": "list-fold",
+          "kind": "app"
+        },
+        "kind": "let"
+      },
       "kind": "def-shell",
       "name": "all-guessed?",
       "params": [
@@ -695,349 +930,283 @@
         {
           "name": "guessed",
           "param_type": {
-            "kind": "list",
             "elem_type": {
               "kind": "primitive",
               "name": "string"
-            }
+            },
+            "kind": "list"
           }
         }
-      ],
-      "body": {
-        "kind": "let",
-        "bindings": [
-          {
-            "name": "n",
-            "expr": {
-              "kind": "app",
-              "fn": "string-length",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "word"
-                }
-              ]
-            }
-          },
-          {
-            "name": "indices",
-            "expr": {
-              "kind": "app",
-              "fn": "range",
-              "args": [
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                },
-                {
-                  "kind": "var",
-                  "name": "n"
-                }
-              ]
-            }
-          },
-          {
-            "name": "letters",
-            "expr": {
-              "kind": "app",
-              "fn": "list-map",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "indices"
-                },
-                {
-                  "kind": "lambda",
-                  "params": [
-                    {
-                      "name": "i",
-                      "param_type": {
-                        "kind": "primitive",
-                        "name": "int"
-                      }
-                    }
-                  ],
-                  "body": {
-                    "kind": "app",
-                    "fn": "string-char-at",
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "word"
-                      },
-                      {
-                        "kind": "var",
-                        "name": "i"
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-          }
-        ],
-        "body": {
-          "kind": "app",
-          "fn": "list-fold",
-          "args": [
-            {
-              "kind": "var",
-              "name": "letters"
-            },
-            {
-              "kind": "lit-bool",
-              "value": true
-            },
-            {
-              "kind": "lambda",
-              "params": [
-                {
-                  "name": "acc"
-                },
-                {
-                  "name": "c"
-                }
-              ],
-              "body": {
-                "kind": "op",
-                "op": "and",
-                "args": [
-                  {
-                    "kind": "var",
-                    "name": "acc"
-                  },
-                  {
-                    "kind": "app",
-                    "fn": "list-contains",
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "guessed"
-                      },
-                      {
-                        "kind": "var",
-                        "name": "c"
-                      }
-                    ]
-                  }
-                ]
-              }
-            }
-          ]
-        }
-      }
+      ]
     },
     {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              }
+            ],
+            "fn": "state-word",
+            "kind": "app"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              }
+            ],
+            "fn": "state-guessed",
+            "kind": "app"
+          }
+        ],
+        "fn": "all-guessed?",
+        "kind": "app"
+      },
       "kind": "def-shell",
       "name": "game-won?",
       "params": [
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
-      ],
-      "body": {
-        "kind": "app",
-        "fn": "all-guessed?",
-        "args": [
-          {
-            "kind": "app",
-            "fn": "state-word",
-            "args": [
-              {
-                "kind": "var",
-                "name": "s"
-              }
-            ]
-          },
-          {
-            "kind": "app",
-            "fn": "state-guessed",
-            "args": [
-              {
-                "kind": "var",
-                "name": "s"
-              }
-            ]
-          }
-        ]
-      }
+      ]
     },
     {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              }
+            ],
+            "fn": "state-wrong",
+            "kind": "app"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              }
+            ],
+            "fn": "state-max",
+            "kind": "app"
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
       "kind": "def-shell",
       "name": "game-lost?",
       "params": [
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
-      ],
-      "body": {
-        "kind": "op",
-        "op": ">=",
-        "args": [
-          {
-            "kind": "app",
-            "fn": "state-wrong",
-            "args": [
-              {
-                "kind": "var",
-                "name": "s"
-              }
-            ]
-          },
-          {
-            "kind": "app",
-            "fn": "state-max",
-            "args": [
-              {
-                "kind": "var",
-                "name": "s"
-              }
-            ]
-          }
-        ]
-      }
+      ]
     },
     {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              }
+            ],
+            "fn": "game-won?",
+            "kind": "app"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              }
+            ],
+            "fn": "game-lost?",
+            "kind": "app"
+          }
+        ],
+        "kind": "op",
+        "op": "or"
+      },
       "kind": "def-shell",
       "name": "is-game-over?",
       "params": [
         {
           "name": "s",
           "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
           }
         }
-      ],
-      "body": {
-        "kind": "op",
-        "op": "or",
-        "args": [
-          {
-            "kind": "app",
-            "fn": "game-won?",
-            "args": [
-              {
-                "kind": "var",
-                "name": "s"
-              }
-            ]
-          },
-          {
-            "kind": "app",
-            "fn": "game-lost?",
-            "args": [
-              {
-                "kind": "var",
-                "name": "s"
-              }
-            ]
-          }
-        ]
-      }
+      ]
     },
     {
-      "kind": "def-shell",
-      "name": "render-board",
-      "params": [
-        {
-          "name": "s",
-          "param_type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        }
-      ],
       "body": {
-        "kind": "let",
         "bindings": [
           {
-            "name": "art",
             "expr": {
-              "kind": "app",
-              "fn": "gallows-art",
               "args": [
                 {
-                  "kind": "app",
-                  "fn": "state-wrong",
                   "args": [
                     {
                       "kind": "var",
                       "name": "s"
                     }
-                  ]
+                  ],
+                  "fn": "state-wrong",
+                  "kind": "app"
                 }
-              ]
-            }
+              ],
+              "fn": "gallows-art",
+              "kind": "app"
+            },
+            "name": "art"
           },
           {
-            "name": "disp",
             "expr": {
-              "kind": "app",
-              "fn": "display-word",
               "args": [
                 {
-                  "kind": "app",
-                  "fn": "state-word",
                   "args": [
                     {
                       "kind": "var",
                       "name": "s"
                     }
-                  ]
+                  ],
+                  "fn": "state-word",
+                  "kind": "app"
                 },
                 {
-                  "kind": "app",
-                  "fn": "state-guessed",
                   "args": [
                     {
                       "kind": "var",
                       "name": "s"
                     }
-                  ]
+                  ],
+                  "fn": "state-guessed",
+                  "kind": "app"
                 }
-              ]
-            }
+              ],
+              "fn": "display-word",
+              "kind": "app"
+            },
+            "name": "disp"
           },
           {
-            "name": "wrong",
             "expr": {
-              "kind": "app",
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "s"
+                }
+              ],
               "fn": "state-wrong",
+              "kind": "app"
+            },
+            "name": "wrong"
+          },
+          {
+            "expr": {
               "args": [
                 {
                   "kind": "var",
                   "name": "s"
                 }
-              ]
-            }
-          },
-          {
-            "name": "max-w",
-            "expr": {
-              "kind": "app",
+              ],
               "fn": "state-max",
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "s"
-                }
-              ]
-            }
+              "kind": "app"
+            },
+            "name": "max-w"
           },
           {
-            "name": "remain",
             "expr": {
-              "kind": "op",
-              "op": "-",
               "args": [
                 {
                   "kind": "var",
@@ -1047,14 +1216,14 @@
                   "kind": "var",
                   "name": "wrong"
                 }
-              ]
-            }
+              ],
+              "kind": "op",
+              "op": "-"
+            },
+            "name": "remain"
           },
           {
-            "name": "line1",
             "expr": {
-              "kind": "app",
-              "fn": "string-concat",
               "args": [
                 {
                   "kind": "lit-string",
@@ -1064,124 +1233,117 @@
                   "kind": "var",
                   "name": "disp"
                 }
-              ]
-            }
+              ],
+              "fn": "string-concat",
+              "kind": "app"
+            },
+            "name": "line1"
           },
           {
-            "name": "line2",
             "expr": {
-              "kind": "app",
-              "fn": "string-concat",
               "args": [
                 {
                   "kind": "lit-string",
                   "value": "\nWrong guesses: "
                 },
                 {
-                  "kind": "app",
-                  "fn": "int-to-string",
                   "args": [
                     {
                       "kind": "var",
                       "name": "wrong"
                     }
-                  ]
+                  ],
+                  "fn": "int-to-string",
+                  "kind": "app"
                 }
-              ]
-            }
+              ],
+              "fn": "string-concat",
+              "kind": "app"
+            },
+            "name": "line2"
           },
           {
-            "name": "line3",
             "expr": {
-              "kind": "app",
-              "fn": "string-concat",
               "args": [
                 {
                   "kind": "lit-string",
                   "value": " / "
                 },
                 {
-                  "kind": "app",
-                  "fn": "int-to-string",
                   "args": [
                     {
                       "kind": "var",
                       "name": "max-w"
                     }
-                  ]
+                  ],
+                  "fn": "int-to-string",
+                  "kind": "app"
                 }
-              ]
-            }
+              ],
+              "fn": "string-concat",
+              "kind": "app"
+            },
+            "name": "line3"
           },
           {
-            "name": "line4",
             "expr": {
-              "kind": "app",
-              "fn": "string-concat",
               "args": [
                 {
                   "kind": "lit-string",
                   "value": "  ("
                 },
                 {
-                  "kind": "app",
-                  "fn": "string-concat",
                   "args": [
                     {
-                      "kind": "app",
-                      "fn": "int-to-string",
                       "args": [
                         {
                           "kind": "var",
                           "name": "remain"
                         }
-                      ]
+                      ],
+                      "fn": "int-to-string",
+                      "kind": "app"
                     },
                     {
                       "kind": "lit-string",
                       "value": " remaining)\n"
                     }
-                  ]
+                  ],
+                  "fn": "string-concat",
+                  "kind": "app"
                 }
-              ]
-            }
+              ],
+              "fn": "string-concat",
+              "kind": "app"
+            },
+            "name": "line4"
           }
         ],
         "body": {
-          "kind": "app",
-          "fn": "string-concat",
           "args": [
             {
               "kind": "var",
               "name": "art"
             },
             {
-              "kind": "app",
-              "fn": "string-concat",
               "args": [
                 {
                   "kind": "lit-string",
                   "value": "\n"
                 },
                 {
-                  "kind": "app",
-                  "fn": "string-concat",
                   "args": [
                     {
                       "kind": "var",
                       "name": "line1"
                     },
                     {
-                      "kind": "app",
-                      "fn": "string-concat",
                       "args": [
                         {
                           "kind": "var",
                           "name": "line2"
                         },
                         {
-                          "kind": "app",
-                          "fn": "string-concat",
                           "args": [
                             {
                               "kind": "var",
@@ -1191,45 +1353,85 @@
                               "kind": "var",
                               "name": "line4"
                             }
-                          ]
+                          ],
+                          "fn": "string-concat",
+                          "kind": "app"
                         }
-                      ]
+                      ],
+                      "fn": "string-concat",
+                      "kind": "app"
                     }
-                  ]
+                  ],
+                  "fn": "string-concat",
+                  "kind": "app"
                 }
-              ]
+              ],
+              "fn": "string-concat",
+              "kind": "app"
             }
-          ]
+          ],
+          "fn": "string-concat",
+          "kind": "app"
+        },
+        "kind": "let"
+      },
+      "kind": "def-shell",
+      "name": "render-board",
+      "params": [
+        {
+          "name": "s",
+          "param_type": {
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
+          }
         }
-      }
+      ]
     },
     {
-      "kind": "def-shell",
-      "name": "start-game",
-      "params": [],
       "body": {
-        "kind": "let",
         "bindings": [
           {
-            "name": "word",
             "expr": {
               "kind": "lit-string",
               "value": "hangman"
-            }
+            },
+            "name": "word"
           },
           {
-            "name": "state",
             "expr": {
-              "kind": "app",
-              "fn": "make-state",
               "args": [
                 {
                   "kind": "var",
                   "name": "word"
                 },
                 {
-                  "kind": "lit-list",
-                  "items": []
+                  "args": [],
+                  "fn": "list-empty",
+                  "kind": "app"
                 },
                 {
                   "kind": "lit-int",
@@ -1239,35 +1441,33 @@
                   "kind": "lit-int",
                   "value": 6
                 }
-              ]
-            }
+              ],
+              "fn": "make-state",
+              "kind": "app"
+            },
+            "name": "state"
           },
           {
-            "name": "board",
             "expr": {
-              "kind": "app",
-              "fn": "render-board",
               "args": [
                 {
                   "kind": "var",
                   "name": "state"
                 }
-              ]
-            }
+              ],
+              "fn": "render-board",
+              "kind": "app"
+            },
+            "name": "board"
           },
           {
-            "name": "msg",
             "expr": {
-              "kind": "app",
-              "fn": "string-concat",
               "args": [
                 {
                   "kind": "lit-string",
                   "value": "=== HANGMAN ===\n"
                 },
                 {
-                  "kind": "app",
-                  "fn": "string-concat",
                   "args": [
                     {
                       "kind": "var",
@@ -1277,93 +1477,84 @@
                       "kind": "lit-string",
                       "value": "\nGuess a letter: "
                     }
-                  ]
+                  ],
+                  "fn": "string-concat",
+                  "kind": "app"
                 }
-              ]
-            }
+              ],
+              "fn": "string-concat",
+              "kind": "app"
+            },
+            "name": "msg"
           }
         ],
         "body": {
-          "kind": "pair",
           "fst": {
             "kind": "var",
             "name": "state"
           },
+          "kind": "pair",
           "snd": {
-            "kind": "qual-app",
-            "qual_fn": "wasi.io.stdout",
             "args": [
               {
                 "kind": "var",
                 "name": "msg"
               }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "kind": "def-shell",
-      "name": "game-loop",
-      "params": [
-        {
-          "name": "s",
-          "param_type": {
-            "kind": "primitive",
-            "name": "string"
+            ],
+            "kind": "qual-app",
+            "qual_fn": "wasi.io.stdout"
           }
         },
-        {
-          "name": "input",
-          "param_type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        }
-      ],
+        "kind": "let"
+      },
+      "kind": "def-shell",
+      "name": "start-game",
+      "params": []
+    },
+    {
       "body": {
-        "kind": "let",
         "bindings": [
           {
-            "name": "trimmed",
             "expr": {
-              "kind": "app",
-              "fn": "string-trim",
               "args": [
                 {
                   "kind": "var",
                   "name": "input"
                 }
-              ]
-            }
+              ],
+              "fn": "string-trim",
+              "kind": "app"
+            },
+            "name": "trimmed"
           },
           {
-            "name": "letter",
             "expr": {
-              "kind": "if",
               "cond": {
-                "kind": "op",
-                "op": ">",
                 "args": [
                   {
-                    "kind": "app",
-                    "fn": "string-length",
                     "args": [
                       {
                         "kind": "var",
                         "name": "trimmed"
                       }
-                    ]
+                    ],
+                    "fn": "string-length",
+                    "kind": "app"
                   },
                   {
                     "kind": "lit-int",
                     "value": 0
                   }
-                ]
+                ],
+                "kind": "op",
+                "op": ">"
               },
+              "else_branch": {
+                "kind": "lit-string",
+                "value": ""
+              },
+              "kind": "if",
               "then_branch": {
-                "kind": "app",
-                "fn": "string-char-at",
                 "args": [
                   {
                     "kind": "var",
@@ -1373,20 +1564,16 @@
                     "kind": "lit-int",
                     "value": 0
                   }
-                ]
-              },
-              "else_branch": {
-                "kind": "lit-string",
-                "value": ""
+                ],
+                "fn": "string-char-at",
+                "kind": "app"
               }
-            }
+            },
+            "name": "letter"
           }
         ],
         "body": {
-          "kind": "if",
           "cond": {
-            "kind": "op",
-            "op": "=",
             "args": [
               {
                 "kind": "var",
@@ -1396,121 +1583,101 @@
                 "kind": "lit-string",
                 "value": ""
               }
-            ]
-          },
-          "then_branch": {
-            "kind": "pair",
-            "fst": {
-              "kind": "var",
-              "name": "s"
-            },
-            "snd": {
-              "kind": "qual-app",
-              "qual_fn": "wasi.io.stdout",
-              "args": [
-                {
-                  "kind": "lit-string",
-                  "value": "Please enter a letter: "
-                }
-              ]
-            }
+            ],
+            "kind": "op",
+            "op": "="
           },
           "else_branch": {
-            "kind": "let",
             "bindings": [
               {
-                "name": "already",
                 "expr": {
-                  "kind": "app",
-                  "fn": "list-contains",
                   "args": [
                     {
-                      "kind": "app",
-                      "fn": "state-guessed",
                       "args": [
                         {
                           "kind": "var",
                           "name": "s"
                         }
-                      ]
+                      ],
+                      "fn": "state-guessed",
+                      "kind": "app"
                     },
                     {
                       "kind": "var",
                       "name": "letter"
                     }
-                  ]
-                }
+                  ],
+                  "fn": "list-contains",
+                  "kind": "app"
+                },
+                "name": "already"
               },
               {
-                "name": "new-guessed",
                 "expr": {
-                  "kind": "if",
                   "cond": {
                     "kind": "var",
                     "name": "already"
                   },
-                  "then_branch": {
-                    "kind": "app",
-                    "fn": "state-guessed",
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "s"
-                      }
-                    ]
-                  },
                   "else_branch": {
-                    "kind": "app",
-                    "fn": "list-append",
                     "args": [
                       {
-                        "kind": "app",
-                        "fn": "state-guessed",
                         "args": [
                           {
                             "kind": "var",
                             "name": "s"
                           }
-                        ]
+                        ],
+                        "fn": "state-guessed",
+                        "kind": "app"
                       },
                       {
                         "kind": "var",
                         "name": "letter"
                       }
-                    ]
+                    ],
+                    "fn": "list-append",
+                    "kind": "app"
+                  },
+                  "kind": "if",
+                  "then_branch": {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s"
+                      }
+                    ],
+                    "fn": "state-guessed",
+                    "kind": "app"
                   }
-                }
+                },
+                "name": "new-guessed"
               },
               {
-                "name": "in-word",
                 "expr": {
-                  "kind": "app",
-                  "fn": "string-contains",
                   "args": [
                     {
-                      "kind": "app",
-                      "fn": "state-word",
                       "args": [
                         {
                           "kind": "var",
                           "name": "s"
                         }
-                      ]
+                      ],
+                      "fn": "state-word",
+                      "kind": "app"
                     },
                     {
                       "kind": "var",
                       "name": "letter"
                     }
-                  ]
-                }
+                  ],
+                  "fn": "string-contains",
+                  "kind": "app"
+                },
+                "name": "in-word"
               },
               {
-                "name": "new-wrong",
                 "expr": {
-                  "kind": "if",
                   "cond": {
-                    "kind": "op",
-                    "op": "or",
                     "args": [
                       {
                         "kind": "var",
@@ -1520,55 +1687,56 @@
                         "kind": "var",
                         "name": "in-word"
                       }
-                    ]
-                  },
-                  "then_branch": {
-                    "kind": "app",
-                    "fn": "state-wrong",
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "s"
-                      }
-                    ]
+                    ],
+                    "kind": "op",
+                    "op": "or"
                   },
                   "else_branch": {
-                    "kind": "op",
-                    "op": "+",
                     "args": [
                       {
-                        "kind": "app",
-                        "fn": "state-wrong",
                         "args": [
                           {
                             "kind": "var",
                             "name": "s"
                           }
-                        ]
+                        ],
+                        "fn": "state-wrong",
+                        "kind": "app"
                       },
                       {
                         "kind": "lit-int",
                         "value": 1
                       }
-                    ]
+                    ],
+                    "kind": "op",
+                    "op": "+"
+                  },
+                  "kind": "if",
+                  "then_branch": {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s"
+                      }
+                    ],
+                    "fn": "state-wrong",
+                    "kind": "app"
                   }
-                }
+                },
+                "name": "new-wrong"
               },
               {
-                "name": "new-state",
                 "expr": {
-                  "kind": "app",
-                  "fn": "make-state",
                   "args": [
                     {
-                      "kind": "app",
-                      "fn": "state-word",
                       "args": [
                         {
                           "kind": "var",
                           "name": "s"
                         }
-                      ]
+                      ],
+                      "fn": "state-word",
+                      "kind": "app"
                     },
                     {
                       "kind": "var",
@@ -1579,97 +1747,95 @@
                       "name": "new-wrong"
                     },
                     {
-                      "kind": "app",
-                      "fn": "state-max",
                       "args": [
                         {
                           "kind": "var",
                           "name": "s"
                         }
-                      ]
+                      ],
+                      "fn": "state-max",
+                      "kind": "app"
                     }
-                  ]
-                }
+                  ],
+                  "fn": "make-state",
+                  "kind": "app"
+                },
+                "name": "new-state"
               },
               {
-                "name": "feedback",
                 "expr": {
-                  "kind": "if",
                   "cond": {
                     "kind": "var",
                     "name": "already"
                   },
-                  "then_branch": {
-                    "kind": "lit-string",
-                    "value": "You already guessed that letter!\n"
-                  },
                   "else_branch": {
-                    "kind": "if",
                     "cond": {
                       "kind": "var",
                       "name": "in-word"
                     },
-                    "then_branch": {
-                      "kind": "lit-string",
-                      "value": "Good guess!\n"
-                    },
                     "else_branch": {
                       "kind": "lit-string",
                       "value": "Wrong!\n"
+                    },
+                    "kind": "if",
+                    "then_branch": {
+                      "kind": "lit-string",
+                      "value": "Good guess!\n"
                     }
+                  },
+                  "kind": "if",
+                  "then_branch": {
+                    "kind": "lit-string",
+                    "value": "You already guessed that letter!\n"
                   }
-                }
+                },
+                "name": "feedback"
               },
               {
-                "name": "board",
                 "expr": {
-                  "kind": "app",
-                  "fn": "render-board",
                   "args": [
                     {
                       "kind": "var",
                       "name": "new-state"
                     }
-                  ]
-                }
+                  ],
+                  "fn": "render-board",
+                  "kind": "app"
+                },
+                "name": "board"
               },
               {
-                "name": "prompt",
                 "expr": {
-                  "kind": "if",
                   "cond": {
-                    "kind": "app",
-                    "fn": "is-game-over?",
                     "args": [
                       {
                         "kind": "var",
                         "name": "new-state"
                       }
-                    ]
-                  },
-                  "then_branch": {
-                    "kind": "lit-string",
-                    "value": ""
+                    ],
+                    "fn": "is-game-over?",
+                    "kind": "app"
                   },
                   "else_branch": {
                     "kind": "lit-string",
                     "value": "Guess a letter: "
+                  },
+                  "kind": "if",
+                  "then_branch": {
+                    "kind": "lit-string",
+                    "value": ""
                   }
-                }
+                },
+                "name": "prompt"
               },
               {
-                "name": "out",
                 "expr": {
-                  "kind": "app",
-                  "fn": "string-concat",
                   "args": [
                     {
                       "kind": "var",
                       "name": "feedback"
                     },
                     {
-                      "kind": "app",
-                      "fn": "string-concat",
                       "args": [
                         {
                           "kind": "var",
@@ -1679,144 +1845,235 @@
                           "kind": "var",
                           "name": "prompt"
                         }
-                      ]
+                      ],
+                      "fn": "string-concat",
+                      "kind": "app"
                     }
-                  ]
-                }
+                  ],
+                  "fn": "string-concat",
+                  "kind": "app"
+                },
+                "name": "out"
               }
             ],
             "body": {
-              "kind": "pair",
               "fst": {
                 "kind": "var",
                 "name": "new-state"
               },
+              "kind": "pair",
               "snd": {
-                "kind": "qual-app",
-                "qual_fn": "wasi.io.stdout",
                 "args": [
                   {
                     "kind": "var",
                     "name": "out"
                   }
-                ]
+                ],
+                "kind": "qual-app",
+                "qual_fn": "wasi.io.stdout"
               }
+            },
+            "kind": "let"
+          },
+          "kind": "if",
+          "then_branch": {
+            "fst": {
+              "kind": "var",
+              "name": "s"
+            },
+            "kind": "pair",
+            "snd": {
+              "args": [
+                {
+                  "kind": "lit-string",
+                  "value": "Please enter a letter: "
+                }
+              ],
+              "kind": "qual-app",
+              "qual_fn": "wasi.io.stdout"
             }
           }
-        }
-      }
-    },
-    {
+        },
+        "kind": "let"
+      },
       "kind": "def-shell",
-      "name": "show-result",
+      "name": "game-loop",
       "params": [
         {
           "name": "s",
+          "param_type": {
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "input",
           "param_type": {
             "kind": "primitive",
             "name": "string"
           }
         }
-      ],
+      ]
+    },
+    {
       "body": {
-        "kind": "let",
         "bindings": [
           {
-            "name": "won",
             "expr": {
-              "kind": "app",
-              "fn": "game-won?",
               "args": [
                 {
                   "kind": "var",
                   "name": "s"
                 }
-              ]
-            }
+              ],
+              "fn": "game-won?",
+              "kind": "app"
+            },
+            "name": "won"
           },
           {
-            "name": "prefix",
             "expr": {
-              "kind": "if",
               "cond": {
                 "kind": "var",
                 "name": "won"
               },
-              "then_branch": {
-                "kind": "lit-string",
-                "value": "You won! The word was: "
-              },
               "else_branch": {
                 "kind": "lit-string",
                 "value": "Game over! The word was: "
+              },
+              "kind": "if",
+              "then_branch": {
+                "kind": "lit-string",
+                "value": "You won! The word was: "
               }
-            }
+            },
+            "name": "prefix"
           },
           {
-            "name": "msg",
             "expr": {
-              "kind": "app",
-              "fn": "string-concat",
               "args": [
                 {
                   "kind": "var",
                   "name": "prefix"
                 },
                 {
-                  "kind": "app",
-                  "fn": "string-concat",
                   "args": [
                     {
-                      "kind": "app",
-                      "fn": "state-word",
                       "args": [
                         {
                           "kind": "var",
                           "name": "s"
                         }
-                      ]
+                      ],
+                      "fn": "state-word",
+                      "kind": "app"
                     },
                     {
                       "kind": "lit-string",
                       "value": "\n"
                     }
-                  ]
+                  ],
+                  "fn": "string-concat",
+                  "kind": "app"
                 }
-              ]
-            }
+              ],
+              "fn": "string-concat",
+              "kind": "app"
+            },
+            "name": "msg"
           }
         ],
         "body": {
-          "kind": "qual-app",
-          "qual_fn": "wasi.io.stdout",
           "args": [
             {
               "kind": "var",
               "name": "msg"
             }
-          ]
+          ],
+          "kind": "qual-app",
+          "qual_fn": "wasi.io.stdout"
+        },
+        "kind": "let"
+      },
+      "kind": "def-shell",
+      "name": "show-result",
+      "params": [
+        {
+          "name": "s",
+          "param_type": {
+            "fst": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "pair-type",
+            "snd": {
+              "fst": {
+                "elem_type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "kind": "list"
+              },
+              "kind": "pair-type",
+              "snd": {
+                "fst": {
+                  "kind": "primitive",
+                  "name": "int"
+                },
+                "kind": "pair-type",
+                "snd": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            }
+          }
         }
-      }
+      ]
     },
     {
-      "kind": "def-main",
-      "mode": "console",
-      "init": {
-        "kind": "app",
-        "fn": "start-game",
-        "args": []
-      },
-      "step": {
-        "kind": "var",
-        "name": "game-loop"
-      },
       "done?": {
         "kind": "var",
         "name": "is-game-over?"
       },
+      "init": {
+        "args": [],
+        "fn": "start-game",
+        "kind": "app"
+      },
+      "kind": "def-main",
+      "mode": "console",
       "on-done": {
         "kind": "var",
         "name": "show-result"
+      },
+      "step": {
+        "kind": "var",
+        "name": "game-loop"
       }
     }
   ]

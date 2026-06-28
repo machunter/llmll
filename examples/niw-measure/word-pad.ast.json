@@ -1,0 +1,79 @@
+{
+  "llmll_version": "0.13.7",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "string"
+        },
+        "binding": "s",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "s"
+                }
+              ],
+              "fn": "string-length",
+              "kind": "app"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": ">"
+        }
+      },
+      "kind": "type-decl",
+      "name": "Word"
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "tok"
+          }
+        ],
+        "fn": "string-length",
+        "kind": "app"
+      },
+      "kind": "def",
+      "name": "min-pad",
+      "params": [
+        {
+          "name": "tok",
+          "param_type": {
+            "kind": "named",
+            "name": "Word"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 1
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}
