@@ -4,6 +4,30 @@
 
 <a id="Latest"></a>
 
+## v0.13.9 — COMP-4 (a)/(c): native datatype construction — the COMP-4 line completes (2026-06-28)
+
+### Compiler — COMP-4 (a): native FQData construction
+
+- **A constructor application over an admissible two-arm sum reflects into a native datatype term** — `(Full n)` / `(Rejected reason)` lower to the FQData constructor, and a function returning such a sum binds its result at the datatype sort ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs): `typeToSortA`, the `bodyToPredM`/`exprToPred` constructor clauses; [`FixpointIR.hs`](compiler/src/LLMLL/FixpointIR.hs) `emitDataDecl` real-arity fields). A **construction post** `(= result (Full n))` discharges by constructor equality; a wrong payload `(= result (Full 0))` over arbitrary `n` is **refuted** by injectivity.
+- **Provenance-partitioned representation:** a nullary enum keeps the int-tag (COMP-3c), an opaque-received sum keeps the skolem-branch (d-elim/(b)), only a *constructed* admissible payload-sum uses the native datatype (`typeToSortA` gates on a real payload field; the strict-core gate admits admissible-sum constructors). A recursive datatype (`Tree = Node Tree Tree`) is firewalled by `admissibleDatatype` (transitive-closure acyclicity) and falls back.
+- **First verification beyond pure QF-LIA:** a constructed sum value's constraints are QF-LIA + the SMT datatype theory (constructors / selectors / distinctness, z3-discharged; decidability via polite-theory combination). The int-tag / opaque-skolem / int paths stay pure QF-LIA.
+
+### Compiler — COMP-4 (c): payload-carrying outcome totality
+
+- **A payload-bearing `Accepted`/`Rejected` outcome now verifies a totality post** — `legal -> Accepted(n)`, `illegal -> Rejected(n)` — by constructor equality, the payload-carrying discrimination the int sentinel could not express (uses the (a) mechanism; no separate compiler change).
+
+### Examples — outcome-totality
+
+- **New [`examples/outcome-totality/`](examples/outcome-totality/)** — `classify` (`n >= 0 -> Accepted(n)`, else `Rejected(n)`) reaches `verified` on the legal/illegal totality post; the always-`Accepted` twin is `refuted`.
+
+### Design — COMP-4 complete
+
+- **[`docs/design/comp-4-payload-sums-proposal.md`](docs/design/comp-4-payload-sums-proposal.md) fully shipped:** COMP-3c (v0.13.5) → COMP-3b-general (v0.13.6) → (d-elim) (v0.13.7) → (b) (v0.13.8) → (a)/(c) (v0.13.9). Sum-type elimination *and* introduction both reachable.
+
+**Honest scope.** (i) A nullary *variant* of a payload sum cannot yet be constructed via application — `(Empty)` types as `unit` (nullary-ctor-value gap; follow-on). (ii) The `tcp_rfc793` / `session-pay` int-sentinel reshape (dropping `-1 = REJECTED` for a real `Rejected` variant) is a deliberate follow-on — the capability ships here, the demo migration is separate.
+
+**Tests: 938 Haskell + 62 Python** (+2 `C4AC-*`). No schema change (`schemaVersion` `0.7.0`).
+
 ## v0.13.8 — COMP-4 (b): refined sum payloads — elimination + call-site subtyping (2026-06-28)
 
 ### Compiler — COMP-4 (b): a matched sum payload carries its declared refinement
