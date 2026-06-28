@@ -1,0 +1,8 @@
+;; WRONG TWIN — always Accepted; violates the illegal -> Rejected totality clause.
+;;   llmll verify ./classify-bad.llmll --strict-verified-core   -> refuted
+(type Outcome (| Accepted int) (| Rejected int))
+
+(def classify [n: int] -> Outcome
+  (post (and (or (not (>= n 0)) (= result (Accepted n)))
+             (or (>= n 0)       (= result (Rejected n)))))
+  (Accepted n))

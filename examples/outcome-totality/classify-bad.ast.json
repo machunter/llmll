@@ -1,0 +1,148 @@
+{
+  "llmll_version": "0.13.8",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Accepted",
+            "payload": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "constructor": "Rejected",
+            "payload": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ]
+      },
+      "kind": "type-decl",
+      "name": "Outcome"
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "n"
+          }
+        ],
+        "fn": "Accepted",
+        "kind": "app"
+      },
+      "kind": "def",
+      "name": "classify",
+      "params": [
+        {
+          "name": "n",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "n"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 0
+                      }
+                    ],
+                    "kind": "op",
+                    "op": ">="
+                  }
+                ],
+                "kind": "op",
+                "op": "not"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "n"
+                      }
+                    ],
+                    "fn": "Accepted",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "or"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "n"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "n"
+                      }
+                    ],
+                    "fn": "Rejected",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "or"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "named",
+        "name": "Outcome"
+      }
+    }
+  ]
+}
