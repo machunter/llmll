@@ -1,4 +1,4 @@
-# LLMLL — v0.13.6
+# LLMLL — v0.13.7
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -31,7 +31,7 @@ The gate **fails closed**: a patch that doesn't verify never lands. That is the 
 <!-- TODO: refutation GIF — 60–90s asciinema of this loop (type-correct fill → verify REFUTES → fix → accepted) -->
 *(A 60–90s screen capture of this loop will live here.)*
 
-Full copy-pasteable walkthrough: [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (commands verified against `llmll 0.13.3`) · narrated version: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md). A richer **payments-core** demo — conservation across a verified call chain ("money can't be created on the overdraft branch") — becomes the flagship once it lands.
+Full copy-pasteable walkthrough: [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (commands verified against `llmll 0.13.7`) · narrated version: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md). A richer **payments-core** demo — conservation across a verified call chain ("money can't be created on the overdraft branch") — becomes the flagship once it lands.
 
 ---
 
@@ -161,6 +161,19 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 ---
 
 ## Examples
+
+### Verification demos (`llmll verify`)
+
+| Demo | What it proves |
+|------|----------------|
+| [`examples/tcp_rfc793/`](examples/tcp_rfc793/) | RFC 793 connection state machine reaches `verified` on legal-successor safety; `step-bad` is `refuted` |
+| [`examples/payments-core/`](examples/payments-core/) | Verified `transfer` over a `debit` call edge (no-overdraw); `settle` is the COMP-3b `Result`-match return |
+| [`examples/session-pay/`](examples/session-pay/) | Connected demo: protocol state-safety + verified payment + bounded amount in one `verified` function |
+| [`examples/nested-result/`](examples/nested-result/) | A nested `Result`-variable match (under `let`) reaches `verified` — the COMP-3b-general showcase |
+| [`examples/banking_ledger/`](examples/banking_ledger/) | Three-level assume-guarantee chain (`transfer → withdraw → safe-subtract`), all verified |
+| [`examples/withdraw-demo/`](examples/withdraw-demo/) | The repair loop (hole → rejected bad fills → accepted fix → verified) + the `return-refine` beat |
+
+### Language / runtime examples
 
 | Example | Format | Description |
 |---------|--------|-------------|

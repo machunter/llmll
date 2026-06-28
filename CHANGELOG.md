@@ -4,6 +4,26 @@
 
 <a id="Latest"></a>
 
+## v0.13.7 — COMP-4 (d-elim) + ContractEnv enum-desugar fix (2026-06-27)
+
+### Compiler — COMP-4 (d-elim): two-arm user-ADT opaque-sum elimination
+
+- **A match on a two-arm *user* sum type with QF-LIA-scalar payloads (`int`/`bool`/`string`) now reaches body-faithful `verified`** — the opaque-sum skolem-branch ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs)) generalized beyond `Result` (`classifyTwoArmAdtArms`, `buildOpaqueSumBranch`, per-constructor derived `SortEnv` keys). Stays QF-LIA, exhaustiveness-only: each arm's payload binds as an unconstrained skolem; consuming a matched payload's own refinement is a later COMP-4 slice. A payload that is itself a sum/recursive type falls back via the soundness firewall. The strict-core `def` body gate (`isCoreBodySyntactic`) admits two-arm single-payload-constructor matches. Implements [`docs/design/comp-4-payload-sums-proposal.md`](docs/design/comp-4-payload-sums-proposal.md) §3. No schema change.
+
+### Compiler — fix: nullary-enum constructors desugared in the ContractEnv (compositional crash)
+
+- **A verified function calling another whose *contract* uses nullary-enum constructors no longer crashes liquid-fixpoint** with `Constraint with free vars`. `buildContractEnv` stored augmented-but-un-desugared contracts, so compositional assume-guarantee pulled raw enum constructors into the caller's `.fq`; the desugar had covered only the definition site, not the call edge. Fix: `buildContractEnv` desugars stored contracts (the per-function bound-set preserves shadowing). Not `def-shell`-specific.
+
+### Examples — nested-result: the v0.13.6 headline gets a showcase
+
+- **New [`examples/nested-result/`](examples/nested-result/)** — `safe-withdraw` matches a `Result` param *inside* a `let` (nested, not the top-level body) and reaches body-faithful `verified` via COMP-3b-general; the wrong twin returns the raw `Success` payload and is `refuted`. Closes the gap that the only Result-match example (`payments-core/settle`) was the top-level form.
+
+### Design — COMP-4 payload-sums settled
+
+- **[`docs/design/comp-4-payload-sums-proposal.md`](docs/design/comp-4-payload-sums-proposal.md) (Rev 3)** settled (two professor reviews folded): the elimination/introduction split, native-`FQData` construction, transitive-closure-acyclicity admissibility, and the (d-elim)-first staging. (d-elim) ships here; (b) completeness and (a)/(c) construction remain.
+
+**Tests: 932 Haskell + 62 Python.** No schema change (`schemaVersion` `0.7.0`).
+
 ## v0.13.6 — COMP-3b-general: opaque-sum elimination at any nesting depth (2026-06-27)
 
 ### Compiler — COMP-3b-general: a Result-variable match verifies at any nesting depth

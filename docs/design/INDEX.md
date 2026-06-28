@@ -19,6 +19,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [strategic-positioning.md](strategic-positioning.md) | What's genuinely novel vs borrowed; positioning guardrails | Active reference |
 | [oblig-pbt-3-proposal.md](oblig-pbt-3-proposal.md) | PBT-to-trust-report write-back; per-clause tier profiles | **Settled (Rev 2)** — awaiting engineer (review folded) |
 | [proof-artifact-proposal.md](proof-artifact-proposal.md) | PROOF-ARTIFACT: unified reproducible verification artifact (trust/obligation/`.fq`/sidecar) | **Proposed (Rev 2)** — review folded ([proof-artifact-review.md](proof-artifact-review.md)); awaiting settlement |
+| [comp-4-payload-sums-proposal.md](comp-4-payload-sums-proposal.md) | COMP-4 payload-bearing sum types: refined elimination, construction, totality | **Settled (Rev 3)** — (d-elim) shipped v0.13.7; review-fold pending |
 | [cross-module-composition-finding.md](cross-module-composition-finding.md) | XMOD-COMP: cross-module verified composition is a 5-layer gap; same-module works | **Finding — partially fixed** — body-VC-emission + callee_tier open |
 | [critique-2026-05-23-triage.md](critique-2026-05-23-triage.md) | 2026-05-23 external-critique triage; four-turn convergence; 17 routing items | **Settled** — routing in progress |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
