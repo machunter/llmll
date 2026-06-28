@@ -1,0 +1,27 @@
+;; COMP-4 (b) — a matched arm consumes its payload's DECLARED refinement, and a
+;; caller is OBLIGATED to honor it. Two capabilities, one verified module.
+;;
+;;   ELIM  `first-positive` matches a `Result[Pos, string]`. The Success arm KNOWS
+;;         its payload n > 0 (the `Pos` refinement), so the post `(>= result 1)`
+;;         verifies. Before COMP-4 (b) a matched payload bound at the trivial
+;;         refinement (an opaque skolem) and this post was unprovable.
+;;
+;;   INTRO `forward` forwards its OWN `Result[Pos, string]` to `first-positive`.
+;;         The payload types match — reflexive subtyping — so no obligation fires.
+;;         A caller forwarding a weaker `Result[int, string]` is refused: see the
+;;         twin `refined-payload-bad-forward.llmll`.
+;;
+;;   llmll verify ./refined-payload.llmll --strict-verified-core
+(type Pos (where [n: int] (> n 0)))
+
+;; ELIM: the Success payload's `> 0` discharges `(>= result 1)`.
+(def first-positive [r: Result[Pos, string]] -> int
+  (post (>= result 1))
+  (match r
+    ((Success n) n)
+    ((Error e) 1)))
+
+;; INTRO: forwards a Result[Pos] arg to a Result[Pos] param -> reflexive subtyping.
+(def-shell forward [r: Result[Pos, string]] -> int
+  (post (>= result 1))
+  (first-positive r))

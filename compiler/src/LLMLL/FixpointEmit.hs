@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 -- |
 -- Module      : LLMLL.FixpointEmit
 -- Description : Walk LLMLL typed AST → .fq constraint file + ConstraintTable.
@@ -62,9 +63,13 @@ module LLMLL.FixpointEmit
   , collectCallPreObligations
     -- * Body-VC engine (exported for testing)
   , bodyToPredFrom
+  , bodyToPredFromR
   , flattenBodyVC
   , pathBranchSides              -- COMP-3b-general: structural branch provenance (localization)
   , collectBranchBinders         -- COMP-3b-general: match-binder tree-walk
+  , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
+  , payloadRefinement            -- COMP-4 (b): payload type → (bindingVar, pred)
+  , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
@@ -84,7 +89,8 @@ import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, catMaybes)
 import Data.List (nub, partition)
 import Control.Monad (forM_, forM, when, unless)
-import Control.Monad.State.Strict (State, evalState, get, put)
+import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
+import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
 import Data.Graph (stronglyConnComp, SCC(..))
 
 import LLMLL.Syntax
@@ -136,7 +142,7 @@ type SortEnv = Map Name FQSort
 data BodyVC
   = SimpleVC [LetBinding] FQPred
     -- ^ A straight-line sequence of let-bindings followed by a result predicate
-  | BranchVC FQPred [(Name, FQSort)] BodyVC BodyVC
+  | BranchVC FQPred [(Name, FQSort, FQPred)] BodyVC BodyVC
     -- ^ A two-way branch: guard; binders INTRODUCED at this node (the synthetic
     --   match guard + arm payloads for a Result elimination, each later declared
     --   at trivial refinement FQTrue by 'collectBranchBinders'; empty @[]@ for an
@@ -581,9 +587,27 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                   , admissiblePayload aliases t1, admissiblePayload aliases t2
                   , (c, pt) <- [(c1, t1), (c2, t2)] ]
                 sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys)
+                -- COMP-4 (b): parallel refinement env — each refined-payload
+                -- Result/two-arm-ADT param payload's declared refinement, keyed
+                -- identically to the sort keys. Unrefined payloads contribute
+                -- nothing (FQTrue skolem, the d-elim behavior).
+                resultRefs =
+                  [ (key, ref)
+                  | (v, t) <- params
+                  , TResult okT errT <- [resolveAliasTy aliases t]
+                  , (key, pt) <- [ (v <> "$ok", okT), (v <> "$err", errT) ]
+                  , Just ref <- [payloadRefinement aliases pt] ]
+                adtRefs =
+                  [ (v <> "$" <> c, ref)
+                  | (v, t) <- params
+                  , TSumType [(c1, Just t1), (c2, Just t2)] <- [resolveAliasTy aliases t]
+                  , admissiblePayload aliases t1, admissiblePayload aliases t2
+                  , (c, pt) <- [(c1, t1), (c2, t2)]
+                  , Just ref <- [payloadRefinement aliases pt] ]
+                refEnv = Map.fromList (resultRefs ++ adtRefs)
             -- Translate body (generic path; Result-var matches handled within).
             seed <- readIORef bodyCounterRef
-            let (newSeed, mBodyVC) = bodyToPredFrom seed sortEnv cenv sccSet body'
+            let (newSeed, mBodyVC) = bodyToPredFromR seed sortEnv refEnv cenv sccSet body'
             writeIORef bodyCounterRef newSeed
             case mBodyVC of
               Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
@@ -614,9 +638,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     -- sort = the universal per-arm hypothesis. 'collectBranchBinders'
                     -- is the SOLE emitter of these binders (no double-declaration);
                     -- empty for a branch-free body.
-                    extraBindIds <- mapM (\(vn, vs) -> do
+                    extraBindIds <- mapM (\(vn, vs, vp) -> do
                       ebid <- freshBid
-                      addBind (FQBind ebid vn (FQReft "v" vs FQTrue))
+                      addBind (FQBind ebid vn (FQReft "v" vs vp))
                       return ebid) (collectBranchBinders bvc)
                     forM_ (zip provs paths) $ \(prov, (guard, lbs, resultPred)) -> do
                       -- Emit binders for each let-binding in this path
@@ -705,6 +729,45 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                         addConst c
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                         addOrigin cid (ConstraintOrigin name cpTag ptr srcFile)
+
+                    -- COMP-4 (b) intro-side: payload-subtyping obligations. For
+                    -- each call passing an arg to a refined-payload Result/ADT
+                    -- param, emit ∀v. p_arg(v) ⟹ p_param(v) as a standalone
+                    -- refinement-subtyping constraint (Vazou ICFP14; liquid-
+                    -- fixpoint's native operation). Syntactic-reflexivity fast-
+                    -- path: NO constraint when the arg's payload refinement equals
+                    -- the param's (the param-forwarding case). A forwarded-param
+                    -- arg sources p_arg from refEnv; any other arg is unrefined
+                    -- (FQTrue) → a refined param payload is then unprovable →
+                    -- refused (sound). The declaration-driven obligation makes the
+                    -- elim-side assumption (Stage 1b) sound.
+                    forM_ (collectCallSites bvc) $ \(callee, callArgs) ->
+                      case Map.lookup callee cenv of
+                        Nothing -> return ()
+                        Just (calleeParams, _, _) ->
+                          forM_ (zip calleeParams callArgs) $ \((_, pt), argPred) ->
+                            forM_ (payloadArms aliases pt) $ \(armKey, payT) ->
+                              case payloadRefinement aliases payT of
+                                Nothing -> return ()
+                                Just (xbP, pParamE) -> do
+                                  let mArgRef = case argPred of
+                                        FQVar a -> Map.lookup (a <> armKey) refEnv
+                                        _       -> Nothing
+                                      reflexive = case mArgRef of
+                                        Just (xbA, pA) -> renameVar xbA "v" pA == renameVar xbP "v" pParamE
+                                        Nothing        -> False
+                                  unless reflexive $ do
+                                    let psort    = typeToSort (resolveAliasTy aliases payT)
+                                        pParamFQ = fromMaybe FQTrue (exprToPred (renameVar xbP "v" pParamE))
+                                        pArgFQ   = case mArgRef of
+                                          Just (xbA, pA) -> fromMaybe FQTrue (exprToPred (renameVar xbA "v" pA))
+                                          Nothing        -> FQTrue
+                                        subTag   = "payload-sub:" <> callee
+                                    scid <- freshCid
+                                    let sc = FQConstraint scid envIds (FQReft "v" psort pArgFQ) (FQReft "v" psort pParamFQ) [name, subTag]
+                                    addConst sc
+                                    let sptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                                    addOrigin scid (ConstraintOrigin name subTag sptr srcFile)
 
 -- NIW (v0.12): alias-aware so a refinement-aliased param (e.g. `w : Word`)
 -- gets its carrier sort (Str/Lst) rather than the typeToSort default (int).
@@ -994,9 +1057,24 @@ hashPred = T.length . T.pack . show
 --
 -- v0.9.0: accepts ContractEnv and SCC set for compositional verification.
 -- Pass Map.empty / Set.empty for leaf functions (backward compat).
+-- | COMP-4 (b): the elimination-side refinement env. Keyed by the same
+-- "<scrutinee>$<arm>" derived keys as the sort env; the value is the matched
+-- arm payload's declared refinement as (bindingVar, pred). Read-only, seeded
+-- once by the driver (bodyToPredFromR); threaded as a Reader context so the
+-- bodyToPredM equations and their recursive calls are untouched.
+type RefEnv = Map Name (Name, Expr)
+
 bodyToPredFrom :: Int -> SortEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
 bodyToPredFrom seed sortEnv cenv sccSet expr =
-  let (result, finalCounter) = runStateFrom seed (bodyToPredM Map.empty sortEnv cenv sccSet expr)
+  bodyToPredFromR seed sortEnv Map.empty cenv sccSet expr
+
+-- | COMP-4 (b): bodyToPredFrom with an explicit elimination-side RefEnv. The
+-- driver seeds it from refined-payload Result/two-arm-ADT params; existing
+-- callers use 'bodyToPredFrom' (empty RefEnv → FQTrue payload skolems, the
+-- pre-(b) behavior).
+bodyToPredFromR :: Int -> SortEnv -> RefEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
+bodyToPredFromR seed sortEnv refEnv cenv sccSet expr =
+  let (result, finalCounter) = runStateFrom seed (runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr) refEnv)
   in (finalCounter, result)
   where
     -- Run a State Int computation with a given starting value.
@@ -1007,7 +1085,7 @@ bodyToPredFrom seed sortEnv cenv sccSet expr =
       in evalState go s
 
 -- | Fresh name generator for alpha-renaming.
-freshName :: Name -> State Int Text
+freshName :: MonadState Int m => Name -> m Text
 freshName base = do
   n <- get
   put (n + 1)
@@ -1031,7 +1109,7 @@ bodyToPredM :: Map Name Name  -- ^ renaming env
             -> ContractEnv    -- ^ v0.9.0: contract lookup
             -> Set.Set Name   -- ^ v0.9.0: recursive SCC set (for own-body exclusion)
             -> Expr
-            -> State Int (Maybe BodyVC)
+            -> ReaderT RefEnv (State Int) (Maybe BodyVC)
 
 -- Literals
 bodyToPredM _ _ _ _ (ELit (LitInt n)) = return (Just (SimpleVC [] (FQLit n)))
@@ -1166,7 +1244,7 @@ bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet 
 
 -- EIf: branch into guard + then-VC + else-VC
 bodyToPredM env se cenv sccSet (EIf guard thenE elseE) = do
-  mGuard <- guardToPredM env se guard
+  mGuard <- lift (guardToPredM env se guard)
   case mGuard of
     Nothing -> return Nothing
     Just gp -> do
@@ -1266,7 +1344,10 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (sV, sB, eV, eB) <- classifyResultArms arms
   , Just okSort  <- Map.lookup (r <> "$ok")  se
   , Just errSort <- Map.lookup (r <> "$err") se
-  = buildOpaqueSumBranch env se cenv sccSet (sV, okSort, sB) (eV, errSort, eB)
+  = do refEnv <- ask
+       buildOpaqueSumBranch env se cenv sccSet
+         (sV, okSort,  Map.lookup (r <> "$ok")  refEnv, sB)
+         (eV, errSort, Map.lookup (r <> "$err") refEnv, eB)
 
 -- COMP-4 (d-elim): the same opaque-sum elimination for an arbitrary admissible
 -- two-arm USER sum type, detected by per-constructor "<v>$<Ctor>" payload-sort
@@ -1278,7 +1359,10 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (c1, v1, b1, c2, v2, b2) <- classifyTwoArmAdtArms arms
   , Just s1 <- Map.lookup (r <> "$" <> c1) se
   , Just s2 <- Map.lookup (r <> "$" <> c2) se
-  = buildOpaqueSumBranch env se cenv sccSet (v1, s1, b1) (v2, s2, b2)
+  = do refEnv <- ask
+       buildOpaqueSumBranch env se cenv sccSet
+         (v1, s1, Map.lookup (r <> "$" <> c1) refEnv, b1)
+         (v2, s2, Map.lookup (r <> "$" <> c2) refEnv, b2)
 
 bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
   -- Must be exactly 2 arms with Success and Error constructors
@@ -1319,7 +1403,7 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
           (Just svc, Just evc) -> do
             -- For CallVC scrutinee: thread as let-binding + branch
             -- For SimpleVC scrutinee: just branch with synthetic guard
-            let matchBinders = [(guardVar, FQBool), (successRenamed, okSort), (errorRenamed, errSort)]
+            let matchBinders = [(guardVar, FQBool, FQTrue), (successRenamed, okSort, FQTrue), (errorRenamed, errSort, FQTrue)]
             case scrutVC of
               SimpleVC [] _scrutPred ->
                 return (Just (BranchVC (FQVar guardVar) matchBinders svc evc))
@@ -1345,10 +1429,10 @@ bodyToPredM _ _ _ _ _ = return Nothing
 -- type-checker's two-arm coverage + the boolean guard), staying in QF-LIA.
 buildOpaqueSumBranch
   :: Map Name Name -> SortEnv -> ContractEnv -> Set.Set Name
-  -> (Name, FQSort, Expr)   -- ^ arm 1: payload var, payload sort, arm body
-  -> (Name, FQSort, Expr)   -- ^ arm 2
-  -> State Int (Maybe BodyVC)
-buildOpaqueSumBranch env se cenv sccSet (v1, s1, b1) (v2, s2, b2) = do
+  -> (Name, FQSort, Maybe (Name, Expr), Expr)   -- ^ arm 1: payload var, sort, declared refinement, body
+  -> (Name, FQSort, Maybe (Name, Expr), Expr)   -- ^ arm 2
+  -> ReaderT RefEnv (State Int) (Maybe BodyVC)
+buildOpaqueSumBranch env se cenv sccSet (v1, s1, mref1, b1) (v2, s2, mref2, b2) = do
   r1 <- freshName v1
   r2 <- freshName v2
   guardVar <- freshName "_match_success"
@@ -1358,10 +1442,17 @@ buildOpaqueSumBranch env se cenv sccSet (v1, s1, b1) (v2, s2, b2) = do
   let env2 = Map.insert v2 r2 env
       se2  = Map.insert r2 s2 se
   mvc2 <- bodyToPredM env2 se2 cenv sccSet b2
+  -- COMP-4 (b): declare each payload at its DECLARED refinement (sound because
+  -- the intro-side obligation makes every caller prove it), not FQTrue. The
+  -- refinement (over its binding var xb) is instantiated at the renamed payload
+  -- var; a base/unrefined payload (Nothing) stays FQTrue, preserving d-elim.
+  let armPred rv mref = case mref of
+        Nothing      -> FQTrue
+        Just (xb, p) -> fromMaybe FQTrue (exprToPred (renameVar xb rv p))
   return $ case (mvc1, mvc2) of
     (Just vc1, Just vc2) ->
       Just (BranchVC (FQVar guardVar)
-                     [(guardVar, FQBool), (r1, s1), (r2, s2)]
+                     [(guardVar, FQBool, FQTrue), (r1, s1, armPred r1 mref1), (r2, s2, armPred r2 mref2)]
                      vc1 vc2)
     _ -> Nothing
 
@@ -1441,6 +1532,15 @@ countPathsBounded limit = go
 -- assumed post (assume-guarantee; the trust meet over those callees is taken
 -- downstream by TrustReport over the syntactic call graph). Without this context
 -- the result var is a free variable in the param-scoped call-pre constraint.
+-- | COMP-4 (b) intro-side: every (callee, translated-args) call site in the VC
+-- tree, for emitting per-call payload-subtyping obligations. Path-independent
+-- (the subtyping is a static fact about the arg/param types, not a runtime
+-- obligation), so guards/context are not collected.
+collectCallSites :: BodyVC -> [(Name, [FQPred])]
+collectCallSites (SimpleVC _ _)               = []
+collectCallSites (BranchVC _ _ t e)           = collectCallSites t ++ collectCallSites e
+collectCallSites (CallVC c args _ _ _ _ cont) = (c, args) : collectCallSites cont
+
 collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)], [LetBinding])]
 collectCallPreObligations = go FQTrue []
   where
@@ -1478,7 +1578,7 @@ subtreeLbs (CallVC _ _ _ _ _ _ cont) = subtreeLbs cont
 -- (globally distinct, well-formed flat context) and a payload symbol only occurs
 -- in its own arm's path predicates, so a flat FQTrue declaration is vacuous on any
 -- constraint where it does not occur — the validity-preserving weakening lemma.
-collectBranchBinders :: BodyVC -> [(Name, FQSort)]
+collectBranchBinders :: BodyVC -> [(Name, FQSort, FQPred)]
 collectBranchBinders (SimpleVC _ _)            = []
 collectBranchBinders (BranchVC _ bs t e)       = bs ++ collectBranchBinders t ++ collectBranchBinders e
 collectBranchBinders (CallVC _ _ _ _ _ _ cont) = collectBranchBinders cont
@@ -1591,6 +1691,26 @@ resolveAllRefinements am t = case t of
   TDependent x base p -> (x, p) : resolveAllRefinements am base
   TCustom n           -> maybe [] (resolveAllRefinements am) (Map.lookup n am)
   _                   -> []
+
+-- | COMP-4 (b): a payload type's declared refinement as (bindingVar, pred),
+-- or Nothing for a base/unrefined payload. Conjoins multiply-refined aliases,
+-- renamed to a common binding var. Reuses resolveAllRefinements, which already
+-- descends a refinement-aliased payload type (PositiveInt → n>0); the Result/
+-- TSumType wrapper is peeled by the caller (the driver works per payload arm).
+payloadRefinement :: AliasMap -> Type -> Maybe (Name, Expr)
+payloadRefinement am t = case resolveAllRefinements am t of
+  []             -> Nothing
+  ps@((x0, _):_) -> Just (x0, foldr1 (\a b -> EApp "and" [a, b]) [ renameVar x x0 p | (x, p) <- ps ])
+
+-- | COMP-4 (b): the per-arm payload TYPES of a two-arm sum type, each tagged
+-- with the "$<arm>" key suffix the driver/refEnv key by. Result → $ok/$err; a
+-- two-arm user ADT → $<Ctor>. Empty for a non-sum type. Mirrors the driver's
+-- resultKeys/adtKeys arm scheme so the intro-side keys align with the elim-side.
+payloadArms :: AliasMap -> Type -> [(Text, Type)]
+payloadArms am t = case resolveAliasTy am t of
+  TResult okT errT                        -> [("$ok", okT), ("$err", errT)]
+  TSumType [(c1, Just t1), (c2, Just t2)] -> [("$" <> c1, t1), ("$" <> c2, t2)]
+  _                                       -> []
 
 -- | Rename a free variable in an expression (the refinement binding var → the
 -- param name). Refinement predicates are first-order and closed over the single

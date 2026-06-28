@@ -1,0 +1,8 @@
+;; WRONG TWIN (elim) — the post claims `(>= result 2)`, but a `Pos` payload only
+;; guarantees n > 0 (i.e. n >= 1), NOT n >= 2. The matched refinement is exactly
+;; its declared strength, so this is REFUTED.
+;;   llmll verify ./refined-payload-bad-elim.llmll --strict-verified-core  -> refuted
+(type Pos (where [n: int] (> n 0)))
+(def first-positive [r: Result[Pos, string]] -> int
+  (post (>= result 2))
+  (match r ((Success n) n) ((Error e) 2)))

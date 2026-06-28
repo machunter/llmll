@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -5697,12 +5697,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         pathBranchSides bvc `shouldBe` [Just True, Just True, Just False]
 
       it "C3BG-3: collectBranchBinders gathers guard+payloads across the whole tree" $ do
-        let inner = BranchVC (FQVar "g2") [("g2", FQBool), ("s2", FQInt), ("e2", FQInt)]
+        let inner = BranchVC (FQVar "g2") [("g2", FQBool, FQTrue), ("s2", FQInt, FQTrue), ("e2", FQInt, FQTrue)]
                              (SimpleVC [] (FQVar "s2")) (SimpleVC [] (FQLit 0))
-            bvc   = BranchVC (FQVar "g1") [("g1", FQBool), ("s1", FQInt), ("e1", FQInt)]
+            bvc   = BranchVC (FQVar "g1") [("g1", FQBool, FQTrue), ("s1", FQInt, FQTrue), ("e1", FQInt, FQTrue)]
                              inner (SimpleVC [] (FQLit 0))
         collectBranchBinders bvc `shouldBe`
-          [("g1", FQBool), ("s1", FQInt), ("e1", FQInt), ("g2", FQBool), ("s2", FQInt), ("e2", FQInt)]
+          [("g1", FQBool, FQTrue), ("s1", FQInt, FQTrue), ("e1", FQInt, FQTrue), ("g2", FQBool, FQTrue), ("s2", FQInt, FQTrue), ("e2", FQInt, FQTrue)]
         collectBranchBinders (SimpleVC [] (FQLit 0)) `shouldBe` []
 
       it "C3BG-4: a Result-var match (derived $ok/$err keys) yields a BranchVC carrying its binders" $ do
@@ -5714,7 +5714,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case result of
           Just (BranchVC (FQVar gn) binders _ _) -> do
             T.isPrefixOf "_bv__match_success" gn `shouldBe` True
-            map snd binders `shouldBe` [FQBool, FQInt, FQInt]
+            map (\(_, s, _) -> s) binders `shouldBe` [FQBool, FQInt, FQInt]
           other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
 
       it "C3BG-5: a caller's assumed callee post desugars nullary-enum ctors across the call edge (cenv)" $ do
@@ -5775,8 +5775,53 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case result of
           Just (BranchVC (FQVar gn) binders _ _) -> do
             T.isPrefixOf "_bv__match_success" gn `shouldBe` True
-            map snd binders `shouldBe` [FQBool, FQInt, FQInt]
+            map (\(_, s, _) -> s) binders `shouldBe` [FQBool, FQInt, FQInt]
           other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
+
+    -- COMP-4 (b): a matched arm consumes its payload's DECLARED refinement
+    -- (elim-side), and a caller forwarding a weaker payload is refused by a
+    -- payload-subtyping obligation (intro-side). The elim-binder and the helper
+    -- extractors are unit-tested here; the intro-side refusal + the verified
+    -- consumer are CLI-probe-verified (examples/refined-payload/*).
+    describe "COMP-4 (b): refined-payload elimination + subtyping" $ do
+      it "C4B-1: payloadRefinement extracts a refined payload's predicate; Nothing for base" $ do
+        let posRef = EOp ">" [EVar "n", ELit (LitInt 0)]
+            am = Map.fromList [("Pos", TDependent "n" TInt posRef)]
+        payloadRefinement am (TCustom "Pos") `shouldBe` Just ("n", posRef)
+        payloadRefinement am TInt           `shouldBe` Nothing
+        payloadRefinement am TString        `shouldBe` Nothing
+
+      it "C4B-2: payloadArms gives per-arm payload types keyed by arm suffix" $ do
+        payloadArms Map.empty (TResult (TCustom "Pos") TString)
+          `shouldBe` [("$ok", TCustom "Pos"), ("$err", TString)]
+        payloadArms Map.empty (TSumType [("Ok", Just TInt), ("Bad", Just TString)])
+          `shouldBe` [("$Ok", TInt), ("$Bad", TString)]
+        payloadArms Map.empty TInt `shouldBe` []
+
+      it "C4B-3: bodyToPredFromR binds a matched payload at its declared refinement (not FQTrue)" $ do
+        let body = EMatch (EVar "attempt")
+                     [ (PConstructor "Success" [PVar "n"], EVar "n")
+                     , (PConstructor "Error" [PVar "e"], ELit (LitInt 0)) ]
+            se = Map.fromList [("attempt$ok", FQInt), ("attempt$err", FQInt)] :: SortEnv
+            refEnv = Map.fromList [("attempt$ok", ("n", EOp ">" [EVar "n", ELit (LitInt 0)]))]
+            (_, result) = bodyToPredFromR 0 se refEnv Map.empty Set.empty body
+        case result of
+          Just (BranchVC _ binders _ _) ->
+            -- exactly the Success payload binder carries a non-trivial refinement;
+            -- the Error payload (unrefined) and the guard stay FQTrue (d-elim).
+            length [ p | (_, _, p) <- binders, p /= FQTrue ] `shouldBe` 1
+          other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
+
+      it "C4B-4: an empty RefEnv preserves the FQTrue payload skolems (d-elim unaffected)" $ do
+        let body = EMatch (EVar "attempt")
+                     [ (PConstructor "Success" [PVar "n"], EVar "n")
+                     , (PConstructor "Error" [PVar "e"], ELit (LitInt 0)) ]
+            se = Map.fromList [("attempt$ok", FQInt), ("attempt$err", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFromR 0 se Map.empty Map.empty Set.empty body
+        case result of
+          Just (BranchVC _ binders _ _) ->
+            all (\(_, _, p) -> p == FQTrue) binders `shouldBe` True
+          other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
 
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar

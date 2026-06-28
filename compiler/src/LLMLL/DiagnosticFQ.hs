@@ -197,6 +197,11 @@ toDiag fp table cid =
                     in "call-site precondition of '" <> callee
                        <> "' not satisfied in '" <> coFunction orig
                        <> "' — caller does not prove callee's precondition"
+                  clause | "payload-sub:" `T.isPrefixOf` clause ->
+                    let callee = T.drop 12 clause  -- drop "payload-sub:"
+                    in "payload subtyping for call to '" <> callee
+                       <> "' not satisfied in '" <> coFunction orig
+                       <> "' — argument's payload does not satisfy the callee param's declared refinement (COMP-4 b)"
                   _                -> coClause orig <> "-condition of '" <> coFunction orig
                                       <> "' not verified"
                 <> " (constraint #" <> T.pack (show cid) <> ")"

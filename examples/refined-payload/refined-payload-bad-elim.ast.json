@@ -1,0 +1,111 @@
+{
+  "llmll_version": "0.13.7",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "base_type": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "binding": "n",
+        "kind": "where",
+        "predicate": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "n"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": ">"
+        }
+      },
+      "kind": "type-decl",
+      "name": "Pos"
+    },
+    {
+      "body": {
+        "arms": [
+          {
+            "body": {
+              "kind": "var",
+              "name": "n"
+            },
+            "pattern": {
+              "constructor": "Success",
+              "kind": "constructor",
+              "sub_patterns": [
+                {
+                  "kind": "bind",
+                  "name": "n"
+                }
+              ]
+            }
+          },
+          {
+            "body": {
+              "kind": "lit-int",
+              "value": 2
+            },
+            "pattern": {
+              "constructor": "Error",
+              "kind": "constructor",
+              "sub_patterns": [
+                {
+                  "kind": "bind",
+                  "name": "e"
+                }
+              ]
+            }
+          }
+        ],
+        "kind": "match",
+        "scrutinee": {
+          "kind": "var",
+          "name": "r"
+        }
+      },
+      "kind": "def",
+      "name": "first-positive",
+      "params": [
+        {
+          "name": "r",
+          "param_type": {
+            "err_type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "kind": "result",
+            "ok_type": {
+              "kind": "named",
+              "name": "Pos"
+            }
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 2
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

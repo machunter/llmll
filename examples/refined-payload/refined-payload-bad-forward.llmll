@@ -1,0 +1,12 @@
+;; WRONG TWIN (intro) — `forward-bad` forwards a `Result[int, string]` to a callee
+;; whose param is `Result[Pos, string]`. `int` is NOT a subtype of `Pos` (the
+;; payload could be <= 0), so the payload-subtyping obligation is REFUSED at the
+;; call site — the caller cannot prove the callee param's declared refinement.
+;;   llmll verify ./refined-payload-bad-forward.llmll  -> payload subtyping not satisfied
+(type Pos (where [n: int] (> n 0)))
+(def first-positive [r: Result[Pos, string]] -> int
+  (post (>= result 1))
+  (match r ((Success n) n) ((Error e) 1)))
+(def-shell forward-bad [q: Result[int, string]] -> int
+  (post (>= result 1))
+  (first-positive q))
