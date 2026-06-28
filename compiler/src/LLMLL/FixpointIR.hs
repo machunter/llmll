@@ -148,7 +148,7 @@ data FQQualifier = FQQualifier
 data FQDataDecl = FQDataDecl
   { ddName  :: Text
   , ddArity :: Int
-  , ddCtors :: [(Text, Int)]  -- ^ (ctor name, ctor arity)
+  , ddCtors :: [(Text, [FQSort])]  -- ^ (ctor name, field sorts) — COMP-4 (a): real arities
   } deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -288,11 +288,14 @@ emitDataDecl d =
     -- (emitSort (FQData n) = n, this module). The type name now preserves
     -- source case so declaration and reference agree.
     --
-    -- Each constructor must be emitted in fixpoint's ADT syntax
-    -- `| ctor { fields }`; the prior `name arity` form was rejected right
-    -- after the opening `[`. typeSorts drops payloads (all ctor arities 0; the
-    -- sum sort is unreferenced — sum binders lower to FQInt), so every
-    -- constructor is nullary `{ }`. That is the minimum that parses, and it is
-    -- sufficient because no predicate references the constructors. Constructor
-    -- symbols stay sanitized lowercase.
-    emitCtor (nm, _ar) = " | " <> sanitizeFQId (T.toLower nm) <> " { }"
+    -- Each constructor is emitted in fixpoint's ADT syntax `| ctor { fields }`.
+    -- COMP-4 (a): an admissible sum carries REAL fields (`ctor_i : sort`) so
+    -- constructor/selector terms discharge (the field name IS the selector);
+    -- inadmissible (recursive) and nullary ctors emit `{ }`. Constructor symbols
+    -- and field names stay sanitized lowercase, agreeing with the translation site.
+    emitCtor (nm, flds) =
+      let cn     = sanitizeFQId (T.toLower nm)
+          fields = T.intercalate ", "
+            [ cn <> "_" <> T.pack (show i) <> " : " <> emitSort s | (i, s) <- zip [0 :: Int ..] flds ]
+      in if null flds then " | " <> cn <> " { }"
+                      else " | " <> cn <> " { " <> fields <> " }"

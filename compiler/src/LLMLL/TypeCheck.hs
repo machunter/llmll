@@ -385,10 +385,34 @@ checkCalleeAdmissibility func = do
           Nothing -> False
         trusted = func `Set.member` trustedPrelude
                   || Map.member func builtinEnv
-    unless (persistedVerified || trusted) $ do
+    am <- gets tcAliasMap   -- COMP-4 (a): admissible-sum constructors are admissible
+    unless (persistedVerified || trusted || isAdmissibleConstructor am func) $ do
       enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
       modify $ \s -> s
         { tcErrors = tcErrors s ++ [mkCoreMembershipViolation enclosing func] }
+
+-- | COMP-4 (a): True iff @func@ is a constructor of an admissible (acyclic-
+-- closure) sum type. A recursive datatype (Tree = Node Tree Tree) is excluded so
+-- z3's datatype theory stays decidable. Mirrors FixpointEmit.admissibleDatatype
+-- — kept local to avoid a TypeCheck→FixpointEmit import; a future refactor shares
+-- it via Syntax. Construction of an admissible sum is strict-core-admissible.
+isAdmissibleConstructor :: Map.Map Name Type -> Name -> Bool
+isAdmissibleConstructor am func =
+  or [ go Set.empty (TCustom n)
+     | (n, TSumType ctors) <- Map.toList am, func `elem` map fst ctors ]
+  where
+    go seen t = case sumOf t of
+      Nothing -> True
+      Just (nm, ctors)
+        | nm `Set.member` seen -> False
+        | otherwise -> all (go (Set.insert nm seen)) [ pt | (_, Just pt) <- ctors ]
+    sumOf t = case t of
+      TSumType ctors -> Just ("", ctors)
+      TCustom n      -> case Map.lookup n am of
+                          Just (TSumType ctors) -> Just (n, ctors)
+                          Just other            -> sumOf other
+                          Nothing               -> Nothing
+      _              -> Nothing
 
 -- | ADMIT-VERIFIED (Option 2): the full-conjunction admissibility predicate for
 -- a single clause's evidence. Admit ONLY when the record is verified-level,

@@ -70,6 +70,8 @@ module LLMLL.FixpointEmit
   , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
   , payloadRefinement            -- COMP-4 (b): payload type → (bindingVar, pred)
   , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
+  , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
+  , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
@@ -91,6 +93,7 @@ import Data.List (nub, partition)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
 import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
+import Data.Char (isUpper)
 import Data.Graph (stronglyConnComp, SCC(..))
 
 import LLMLL.Syntax
@@ -313,7 +316,7 @@ emitFixpointWith opts srcFile stmts = do
     case stmt of
       STypeDef name body ->
         -- Emit ADT sorts for TSumType members
-        forM_ (typeSorts name body) addData
+        forM_ (typeSorts aliases name body) addData
 
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
@@ -365,10 +368,14 @@ emitFixpointWith opts srcFile stmts = do
   ovTainted <- readIORef overflowTaintedRef
   -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
   -- any constraint or binder. None used → empty section → byte-identical .fq.
-  let usedMeasures = Set.unions $
+  let ctorNames = Set.fromList [ T.toLower c | d <- dataDecs, (c, _) <- ddCtors d ]
+      -- COMP-4 (a): datatype constructors are declared via `data`, not as UF
+      -- constants — exclude them from the measure-symbol sweep (else a spurious
+      -- `constant full : ...` collides with the FQData constructor).
+      usedMeasures = (Set.unions $
            [ Set.union (appNames (reftPred (conLhs c))) (appNames (reftPred (conRhs c)))
            | c <- consts ]
-        ++ [ appNames (reftPred (bindReft b)) | b <- binds ]
+        ++ [ appNames (reftPred (bindReft b)) | b <- binds ]) Set.\\ ctorNames
       measureConsts = map measureConstant (Set.toList usedMeasures)
   let fqFile = FQFile measureConsts dataDecs quals binds consts
   return EmitResult
@@ -504,7 +511,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
           Just pred -> do
             cid    <- freshCid
             -- 'result' binder: type inferred from return annotation
-            let retSort = maybe FQInt typeToSort mRet
+            let retSort = maybe FQInt (typeToSortA aliases) mRet
             rbid   <- freshBid
             let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
             addBind resultBind
@@ -630,7 +637,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     -- Flatten and emit constraints
                     let paths = flattenBodyVC bvc
                         provs = pathBranchSides bvc  -- structural then/else provenance, positionally aligned with paths
-                        retSort = maybe FQInt typeToSort mRet
+                        retSort = maybe FQInt (typeToSortA aliases) mRet
                     -- COMP-3b-general: declare every match-introduced binder across
                     -- the WHOLE VC tree (synthetic guard + arm payloads, at their
                     -- ok/err sort) so the per-arm body-VC constraints have no free
@@ -820,6 +827,28 @@ typeToSort (TList _) = FQList         -- NIW: opaque carrier for list measures
 typeToSort (TDependent _ base _) = typeToSort base
 typeToSort _     = FQInt  -- conservative default
 
+-- | COMP-4 (a): alias-aware sort. An admissible sum lowers to its native FQData
+-- sort so constructor/selector terms type-check; everything else (int-tag enum,
+-- refinement alias, base type) falls through to 'typeToSort' unchanged.
+typeToSortA :: AliasMap -> Type -> FQSort
+typeToSortA am t = case t of
+  TCustom n | Just (TSumType ctors) <- Map.lookup n am
+            , admissibleDatatype am (TSumType ctors)
+            , hasRealPayload ctors -> FQData n
+  -- a resolved (anonymous) TSumType return: reverse-lookup its decl name
+  TSumType ctors
+    | admissibleDatatype am t
+    , hasRealPayload ctors
+    , (n:_) <- [ nm | (nm, TSumType c) <- Map.toList am, c == ctors ] -> FQData n
+  _ -> typeToSort t
+  where
+    -- A pure nullary enum (all unit/empty payloads) is int-tag-desugared
+    -- (COMP-3c) → keep FQInt; only a sum with a real payload field uses the
+    -- native FQData sort. Mirrors typeSorts' fieldsOf (unit is not a field).
+    hasRealPayload cs = any realField cs
+    realField (_, Just pt) = resolveAliasTy am pt /= TUnit
+    realField (_, Nothing) = False
+
 -- | COMP-4 (d-elim): a two-arm-ADT payload is admissible to opaque-sum
 -- elimination iff its sort is a QF-LIA-representable scalar (int / bool /
 -- string-measure carrier). A payload that is itself a sum/Result/list/etc. type
@@ -833,10 +862,39 @@ admissiblePayload am t = case resolveAliasTy am t of
   TString -> True
   _       -> False
 
-typeSorts :: Name -> Type -> [FQDataDecl]
-typeSorts name (TSumType ctors) =
-  [FQDataDecl name 0 [(c, 0) | (c, _) <- ctors]]
-typeSorts _ _ = []
+-- | COMP-4 (a) §5: a sum type is admissible for the native FQData path iff its
+-- reachable type-closure is ACYCLIC (transitive-closure acyclicity, Rev 3) — a
+-- recursive datatype (Tree = Node Tree Tree) is EXCLUDED so z3's datatype theory
+-- stays decidable. Conservative: a payload that is neither a base type nor an
+-- acyclically-reachable sum is treated as a non-sum leaf.
+admissibleDatatype :: AliasMap -> Type -> Bool
+admissibleDatatype am = go Set.empty
+  where
+    go seen t = case sumOf t of
+      Nothing -> True   -- base / non-sum payload: a leaf, fine
+      Just (nm, ctors)
+        | nm `Set.member` seen -> False                       -- cycle → inadmissible
+        | otherwise -> all (go (Set.insert nm seen)) [ pt | (_, Just pt) <- ctors ]
+    sumOf t = case t of
+      TSumType ctors -> Just ("", ctors)
+      TCustom n      -> case Map.lookup n am of
+                          Just (TSumType ctors) -> Just (n, ctors)
+                          Just other            -> sumOf other
+                          Nothing               -> Nothing
+      _              -> Nothing
+
+typeSorts :: AliasMap -> Name -> Type -> [FQDataDecl]
+typeSorts am name (TSumType ctors)
+  | admissibleDatatype am (TSumType ctors) =
+      [FQDataDecl name 0 [ (c, fieldsOf mp) | (c, mp) <- ctors ]]
+  | otherwise =
+      [FQDataDecl name 0 [ (c, []) | (c, _) <- ctors ]]
+  where
+    -- A `unit` payload is the nullary-enum marker (COMP-3c `(| Red unit)`), not a
+    -- real field — it must contribute no field, so an int-tag enum stays `{ }`.
+    fieldsOf (Just pt) | resolveAliasTy am pt /= TUnit = [typeToSort pt]
+    fieldsOf _                                         = []
+typeSorts _ _ _ = []
 
 maybeToList :: Maybe a -> [a]
 maybeToList Nothing  = []
@@ -1004,6 +1062,11 @@ exprToPred (EApp "string-length" [a]) = (\x -> FQApp "strLen"  [x]) <$> exprToPr
 exprToPred (EApp "list-length"   [a]) = (\x -> FQApp "listLen" [x]) <$> exprToPred a
 -- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
 exprToPred (EOp op args)     = exprToPred (EApp op args)
+-- COMP-4 (a): a constructor application (uppercase head) in a contract reflects
+-- into the native FQData constructor term — so a post `result = Rejected reason`
+-- discharges by constructor equality.
+exprToPred (EApp ctor args)
+  | not (T.null ctor), isUpper (T.head ctor) = FQApp (T.toLower ctor) <$> mapM exprToPred args
 exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
 
 -- | Extract qualifiers from an expression (auto-synthesis from pre/post).
@@ -1012,7 +1075,13 @@ extractQualifiers :: Text -> Name -> Expr -> [FQQualifier]
 extractQualifiers clause fnName expr =
   case exprToPred expr of
     Nothing   -> []  -- non-linear, no qualifiers
-    Just pred -> atomicQualifiers fnName clause pred
+    Just pred
+      -- COMP-4 (a): a post referencing a datatype constructor (a non-measure
+      -- FQApp) cannot become a qualifier — the ctor would be a free symbol
+      -- ("Qualifier with free vars"). Qualifiers are optional inference hints;
+      -- skipping is sound (the constraint still checks the post).
+      | not (Set.null (appNames pred `Set.difference` Set.fromList ["strLen", "listLen"])) -> []
+      | otherwise -> atomicQualifiers fnName clause pred
 
 atomicQualifiers :: Name -> Text -> FQPred -> [FQQualifier]
 atomicQualifiers fn clause pred =
@@ -1417,6 +1486,20 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
           _ -> return Nothing
 
 -- Everything else: match, app (user-defined without contract), lambda, etc. → fallback
+-- COMP-4 (a): a constructor application (uppercase head; not a cenv callee or a
+-- builtin op, which are lowercase) — e.g. (Rejected reason) — reflects into the
+-- native FQData constructor term `(ctor args)`. The strict-core gate admits only
+-- admissible-sum constructors, so a ctor reaching a body-faithful VC is declared
+-- (typeSorts real arities); the field name is the selector. The ctor symbol is
+-- lowercased to agree with emitCtor's `sanitizeFQId (toLower nm)`.
+bodyToPredM env se cenv sccSet (EApp ctor args)
+  | not (T.null ctor), isUpper (T.head ctor) = do
+      let tr (EVar v) = return (Just (FQVar (fromMaybe v (Map.lookup v env))))
+          tr a        = do mv <- bodyToPredM env se cenv sccSet a
+                           return $ case mv of Just (SimpleVC [] p) -> Just p; _ -> Nothing
+      margs <- mapM tr args
+      return $ (\fas -> SimpleVC [] (FQApp (T.toLower ctor) fas)) <$> sequence margs
+
 bodyToPredM _ _ _ _ _ = return Nothing
 
 -- | COMP-3b-general / COMP-4 (d-elim): build the opaque-sum elimination

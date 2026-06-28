@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, typeToSortA)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -5822,6 +5822,24 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Just (BranchVC _ binders _ _) ->
             all (\(_, _, p) -> p == FQTrue) binders `shouldBe` True
           other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
+
+    -- COMP-4 (a): native FQData construction — admissibility firewall +
+    -- provenance-partitioned sort (payload sum → FQData; nullary enum → int-tag).
+    -- The construction round-trip (verified SAFE / refuted on a wrong payload) is
+    -- CLI-probe-verified; the pure firewall/sort logic is unit-tested here.
+    describe "COMP-4 (a): construction substrate" $ do
+      it "C4AC-1: admissibleDatatype accepts a flat sum, rejects a recursive one" $ do
+        let boxAm  = Map.fromList [("Box", TSumType [("Full", Just TInt), ("Empty", Nothing)])]
+            treeAm = Map.fromList [("Tree", TSumType [("Node", Just (TCustom "Tree")), ("Leaf", Nothing)])]
+        admissibleDatatype boxAm  (TSumType [("Full", Just TInt), ("Empty", Nothing)]) `shouldBe` True
+        admissibleDatatype treeAm (TSumType [("Node", Just (TCustom "Tree")), ("Leaf", Nothing)]) `shouldBe` False
+
+      it "C4AC-2: typeToSortA gives FQData for a payload sum, FQInt for a nullary enum" $ do
+        let boxAm   = Map.fromList [("Box", TSumType [("Full", Just TInt), ("Empty", Nothing)])]
+            colorAm = Map.fromList [("Color", TSumType [("Red", Nothing), ("Green", Nothing)])]
+        typeToSortA boxAm   (TCustom "Box")   `shouldBe` FQData "Box"
+        typeToSortA colorAm (TCustom "Color") `shouldBe` FQInt
+        typeToSortA boxAm   TInt              `shouldBe` FQInt
 
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
