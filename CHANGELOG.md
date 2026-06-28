@@ -4,6 +4,20 @@
 
 <a id="Latest"></a>
 
+## v0.13.8 — COMP-4 (b): refined sum payloads — elimination + call-site subtyping (2026-06-28)
+
+### Compiler — COMP-4 (b): a matched sum payload carries its declared refinement
+
+- **A `match` arm now consumes the matched two-arm-sum payload's own refinement** — matching `r: Result[PositiveInt, E]`, the `Success` arm knows `n > 0` (before (b) the payload bound at the trivial refinement, an opaque skolem). Mechanism ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs)): the `BranchVC` binder field carries an `FQPred`; a read-only refinement env (`RefEnv`) is threaded as a `ReaderT` context (the `bodyToPredM` equations untouched), seeded by the driver from refined-payload params (`payloadRefinement`), so a matched payload binds at its declared refinement instead of `FQTrue`. Applies to `Result` and two-arm user ADTs; an unrefined payload stays `FQTrue` (the d-elim behavior). Stays QF-LIA.
+- **The consumption is sound because the refinement is now a caller obligation (introduction).** At every call passing an argument to a refined-payload sum param, the verifier emits a payload-subtyping obligation `∀v. p_arg(v) ⟹ p_param(v)` — a standalone refinement-subtyping Horn constraint discharged by liquid-fixpoint, with a syntactic-reflexivity fast-path (no constraint for param-forwarding). A caller forwarding a weaker payload (`Result[int, E]` → a `Result[PositiveInt, E]` param) is **refused**: `payload subtyping for call to '<callee>' not satisfied in '<fn>' — argument's payload does not satisfy the callee param's declared refinement (COMP-4 b)`. **Declaration-driven** — the refinement is a caller contract derivable from the signature, as a `Word` param's bound is.
+- **Migration:** a refined-payload sum param now carries a caller obligation it did not before. A pre-flight scan of `examples/`, `compiler/test/`, fixtures found ZERO refined-payload sum params (the corpus uses only unrefined `Result[int, string]`), so no existing code is affected.
+
+### Examples — refined-payload showcase
+
+- **New [`examples/refined-payload/`](examples/refined-payload/)** — `first-positive` matches a `Result[Pos, string]` and uses the `Success` payload's `> 0` to discharge `(>= result 1)` (elimination); `forward` forwards a `Result[Pos]` arg (reflexive subtyping, accepted). Twins: `-bad-elim` (post `(>= result 2)` — `Pos` yields only `>= 1`) → `refuted`; `-bad-forward` (forwards a `Result[int]` arg) → payload-subtyping refused (introduction).
+
+**Tests: 936 Haskell + 62 Python** (+4 `C4B-*`). No schema change (`BodyVC` binder field is internal; `schemaVersion` stays `0.7.0`). COMP-4 line: (d-elim) v0.13.7, **(b) here**; (a)/(c) construction remain.
+
 ## v0.13.7 — COMP-4 (d-elim) + ContractEnv enum-desugar fix (2026-06-27)
 
 ### Compiler — COMP-4 (d-elim): two-arm user-ADT opaque-sum elimination

@@ -1,7 +1,7 @@
 # Verification-Scope Matrix — Conway's Game of Life
 
 > **Module:** `examples/conways_life_json_verifier/life.ast.json`  
-> **Schema:** 0.3.0  
+> **Schema:** 0.6.0  
 > **Coverage:** 4 / 21 functions contracted (19%)
 
 ## Function Classification

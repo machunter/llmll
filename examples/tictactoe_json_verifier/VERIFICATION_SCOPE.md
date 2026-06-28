@@ -1,7 +1,7 @@
 # Verification-Scope Matrix — Tic-Tac-Toe
 
 > **Module:** `examples/tictactoe_json_verifier/tictactoe.ast.json`  
-> **Schema:** 0.3.0  
+> **Schema:** 0.6.0  
 > **Coverage:** 5 / 19 functions contracted (26%)
 
 ## Function Classification

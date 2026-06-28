@@ -1,4 +1,4 @@
-# LLMLL — v0.13.7
+# LLMLL — v0.13.8
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -170,6 +170,7 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 | [`examples/payments-core/`](examples/payments-core/) | Verified `transfer` over a `debit` call edge (no-overdraw); `settle` is the COMP-3b `Result`-match return |
 | [`examples/session-pay/`](examples/session-pay/) | Connected demo: protocol state-safety + verified payment + bounded amount in one `verified` function |
 | [`examples/nested-result/`](examples/nested-result/) | A nested `Result`-variable match (under `let`) reaches `verified` — the COMP-3b-general showcase |
+| [`examples/refined-payload/`](examples/refined-payload/) | A matched `Result[Pos,string]` arm uses its payload's `> 0` (`verified`); a caller forwarding a weaker `Result[int]` is refused — COMP-4 (b) |
 | [`examples/banking_ledger/`](examples/banking_ledger/) | Three-level assume-guarantee chain (`transfer → withdraw → safe-subtract`), all verified |
 | [`examples/withdraw-demo/`](examples/withdraw-demo/) | The repair loop (hole → rejected bad fills → accepted fix → verified) + the `return-refine` beat |
 

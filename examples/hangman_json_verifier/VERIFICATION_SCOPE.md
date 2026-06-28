@@ -1,7 +1,7 @@
 # Verification-Scope Matrix — Hangman
 
 > **Module:** `examples/hangman_json_verifier/hangman.ast.json`  
-> **Schema:** 0.3.0  
+> **Schema:** 0.6.0  
 > **Coverage:** 3 / 16 functions contracted (19%)
 
 ## Function Classification
