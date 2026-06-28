@@ -12,7 +12,7 @@ What the compiler **proves** versus what is **trusted**, for the connected demo.
 **Trusted (TCB):** the LLMLL compiler, liquid-fixpoint, and z3 — same as any LLMLL `verify`. Nothing demo-specific is assumed.
 
 **Scope honesty:**
-- **Int-sentinel encoding.** Multi-outcome results use an `int` sentinel (`-1 = REJECTED`), not a `Result` sum type — constructor-discriminating posts over `Result` values aren't QF-LIA-confirmed yet.
+- **Real enum states/events; int-sentinel outcome (COMP-4-blocked).** `ConnState` and `Event` are real nullary-enum sum types, matched and compared as values (COMP-3c / COMP-3b-general — verified). The multi-outcome RESULT still uses an `int` sentinel (`-1 = REJECTED`, next-state `0..4`) because a payload-free `Rejected` *value* is not yet expressible — that is COMP-4 (a) (construction), not shipped. The states/events were the int-sentinel-blocked half; only the outcome remains.
 - **Single module.** `step`/`debit` are re-authored in-file rather than cross-module-imported (cross-module verified composition is a tracked gap), so the entire composition stays body-faithful.
 - **Bounded state subset.** The state machine is the RFC 793 connection-setup subset (5 states × 6 events), well under the path-split ceiling.
 

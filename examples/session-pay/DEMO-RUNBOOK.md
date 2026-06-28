@@ -3,7 +3,7 @@
 > **Artifact:** "Open a connection, then pay — and prove all three safety rules at once."
 > **The integration:** one verified function composes **protocol state-safety** (tcp_rfc793), **verified payment** (payments-core), and a **bounded amount** (return-refine) — proven together on a single trust-report, through the call edges.
 > **Fixtures:** `open-and-pay.llmll` + wrong twins `-bad-step`, `-unsafe`, `-unbounded`.
-> **Verified against:** `llmll 0.13.4`, real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
+> **Verified against:** `llmll 0.13.7`, real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
 
 Run from this directory; the climax is one `verify --trust-report`.
 
@@ -59,7 +59,7 @@ ERROR: --strict-verified-core: refuted: open-and-pay
 llmll verify ./open-and-pay-unsafe.llmll
 ```
 ```
-error: call-site precondition of 'debit' not satisfied in 'open-and-pay' — caller does not prove callee's precondition (constraint #11)
+error: call-site precondition of 'debit' not satisfied in 'open-and-pay' — caller does not prove callee's precondition (constraint #10)
 ```
 
 **Bound safety — `open-and-pay-unbounded`** makes `amount` a plain `int`, so nothing proves `amount >= 0` and `debit`'s second precondition conjunct is undischarged:
@@ -67,14 +67,14 @@ error: call-site precondition of 'debit' not satisfied in 'open-and-pay' — cal
 llmll verify ./open-and-pay-unbounded.llmll
 ```
 ```
-error: call-site precondition of 'debit' not satisfied in 'open-and-pay' — caller does not prove callee's precondition (constraint #11)
+error: call-site precondition of 'debit' not satisfied in 'open-and-pay' — caller does not prove callee's precondition (constraint #10)
 ```
 
 Three rules, three twins, three distinct verdicts — a refutation for the state-safety violation, two call-site refusals for the dropped funds-guard and the dropped bound.
 
 ## Honest scope
 
-- **Int-sentinel, not `Result`.** Outcomes are encoded as `int` (`-1 = REJECTED`, distinguishable from any valid balance `>= 0`) rather than a `Result` sum type — a `post` discriminating on a `Result` value's constructor isn't QF-LIA-confirmed today (the same reason `tcp_rfc793` uses sentinels).
+- **Real enum states/events; int-sentinel outcome.** `ConnState`/`Event` are real nullary-enum sum types — matched and compared as values, verified (COMP-3c / COMP-3b-general). Only the multi-outcome RESULT stays an `int` sentinel (`-1 = REJECTED`, distinguishable from any valid balance `>= 0`), because a payload-free `Rejected` *value* needs COMP-4 (a) (construction), not yet shipped. The states/events were re-typed to real enums (as `tcp_rfc793` was); the outcome is the remaining sentinel.
 - **Single module.** `step`/`debit` are re-authored here, not cross-module-imported, to keep the whole composition in the body-faithful fragment (cross-module verified composition is a tracked gap).
 - **Everything is `verified`, nothing opaque.** Unlike a crypto-bearing RFC demo, there is no `asserted` core — all bodies are additive/comparison QF-LIA, so the solver (not a fallback) is the catcher throughout.
 

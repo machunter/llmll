@@ -1,95 +1,54 @@
 {
-  "llmll_version": "0.13.3",
+  "llmll_version": "0.13.7",
   "schemaVersion": "0.7.0",
   "statements": [
     {
       "body": {
-        "base_type": {
-          "kind": "primitive",
-          "name": "int"
-        },
-        "binding": "s",
-        "kind": "where",
-        "predicate": {
-          "args": [
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "s"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                }
-              ],
-              "kind": "op",
-              "op": ">="
-            },
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "s"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 4
-                }
-              ],
-              "kind": "op",
-              "op": "<="
-            }
-          ],
-          "kind": "op",
-          "op": "and"
-        }
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Closed"
+          },
+          {
+            "constructor": "Listen"
+          },
+          {
+            "constructor": "SynSent"
+          },
+          {
+            "constructor": "SynRcvd"
+          },
+          {
+            "constructor": "Established"
+          }
+        ]
       },
       "kind": "type-decl",
       "name": "ConnState"
     },
     {
       "body": {
-        "base_type": {
-          "kind": "primitive",
-          "name": "int"
-        },
-        "binding": "e",
-        "kind": "where",
-        "predicate": {
-          "args": [
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "e"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 0
-                }
-              ],
-              "kind": "op",
-              "op": ">="
-            },
-            {
-              "args": [
-                {
-                  "kind": "var",
-                  "name": "e"
-                },
-                {
-                  "kind": "lit-int",
-                  "value": 5
-                }
-              ],
-              "kind": "op",
-              "op": "<="
-            }
-          ],
-          "kind": "op",
-          "op": "and"
-        }
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "PassiveOpen"
+          },
+          {
+            "constructor": "ActiveOpen"
+          },
+          {
+            "constructor": "RcvSyn"
+          },
+          {
+            "constructor": "RcvSynAck"
+          },
+          {
+            "constructor": "RcvAck"
+          },
+          {
+            "constructor": "SendData"
+          }
+        ]
       },
       "kind": "type-decl",
       "name": "Event"
@@ -151,8 +110,8 @@
                   "name": "state"
                 },
                 {
-                  "kind": "lit-int",
-                  "value": 0
+                  "kind": "var",
+                  "name": "Closed"
                 }
               ],
               "kind": "op",
@@ -165,8 +124,8 @@
                   "name": "event"
                 },
                 {
-                  "kind": "lit-int",
-                  "value": 0
+                  "kind": "var",
+                  "name": "PassiveOpen"
                 }
               ],
               "kind": "op",
@@ -186,8 +145,8 @@
                     "name": "state"
                   },
                   {
-                    "kind": "lit-int",
-                    "value": 0
+                    "kind": "var",
+                    "name": "Closed"
                   }
                 ],
                 "kind": "op",
@@ -200,8 +159,8 @@
                     "name": "event"
                   },
                   {
-                    "kind": "lit-int",
-                    "value": 1
+                    "kind": "var",
+                    "name": "ActiveOpen"
                   }
                 ],
                 "kind": "op",
@@ -221,8 +180,8 @@
                       "name": "state"
                     },
                     {
-                      "kind": "lit-int",
-                      "value": 1
+                      "kind": "var",
+                      "name": "Listen"
                     }
                   ],
                   "kind": "op",
@@ -235,8 +194,8 @@
                       "name": "event"
                     },
                     {
-                      "kind": "lit-int",
-                      "value": 2
+                      "kind": "var",
+                      "name": "RcvSyn"
                     }
                   ],
                   "kind": "op",
@@ -256,8 +215,8 @@
                         "name": "state"
                       },
                       {
-                        "kind": "lit-int",
-                        "value": 2
+                        "kind": "var",
+                        "name": "SynSent"
                       }
                     ],
                     "kind": "op",
@@ -270,8 +229,8 @@
                         "name": "event"
                       },
                       {
-                        "kind": "lit-int",
-                        "value": 3
+                        "kind": "var",
+                        "name": "RcvSynAck"
                       }
                     ],
                     "kind": "op",
@@ -291,8 +250,8 @@
                           "name": "state"
                         },
                         {
-                          "kind": "lit-int",
-                          "value": 3
+                          "kind": "var",
+                          "name": "SynRcvd"
                         }
                       ],
                       "kind": "op",
@@ -305,8 +264,8 @@
                           "name": "event"
                         },
                         {
-                          "kind": "lit-int",
-                          "value": 4
+                          "kind": "var",
+                          "name": "RcvAck"
                         }
                       ],
                       "kind": "op",
@@ -326,8 +285,8 @@
                             "name": "state"
                           },
                           {
-                            "kind": "lit-int",
-                            "value": 4
+                            "kind": "var",
+                            "name": "Established"
                           }
                         ],
                         "kind": "op",
@@ -340,8 +299,8 @@
                             "name": "event"
                           },
                           {
-                            "kind": "lit-int",
-                            "value": 5
+                            "kind": "var",
+                            "name": "SendData"
                           }
                         ],
                         "kind": "op",
@@ -424,8 +383,8 @@
                             "name": "state"
                           },
                           {
-                            "kind": "lit-int",
-                            "value": 0
+                            "kind": "var",
+                            "name": "Closed"
                           }
                         ],
                         "kind": "op",
@@ -438,8 +397,8 @@
                             "name": "event"
                           },
                           {
-                            "kind": "lit-int",
-                            "value": 0
+                            "kind": "var",
+                            "name": "PassiveOpen"
                           }
                         ],
                         "kind": "op",
@@ -486,8 +445,8 @@
                                 "name": "state"
                               },
                               {
-                                "kind": "lit-int",
-                                "value": 0
+                                "kind": "var",
+                                "name": "Closed"
                               }
                             ],
                             "kind": "op",
@@ -500,8 +459,8 @@
                                 "name": "event"
                               },
                               {
-                                "kind": "lit-int",
-                                "value": 1
+                                "kind": "var",
+                                "name": "ActiveOpen"
                               }
                             ],
                             "kind": "op",
@@ -548,8 +507,8 @@
                                     "name": "state"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 1
+                                    "kind": "var",
+                                    "name": "Listen"
                                   }
                                 ],
                                 "kind": "op",
@@ -562,8 +521,8 @@
                                     "name": "event"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 2
+                                    "kind": "var",
+                                    "name": "RcvSyn"
                                   }
                                 ],
                                 "kind": "op",
@@ -610,8 +569,8 @@
                                         "name": "state"
                                       },
                                       {
-                                        "kind": "lit-int",
-                                        "value": 2
+                                        "kind": "var",
+                                        "name": "SynSent"
                                       }
                                     ],
                                     "kind": "op",
@@ -624,8 +583,8 @@
                                         "name": "event"
                                       },
                                       {
-                                        "kind": "lit-int",
-                                        "value": 3
+                                        "kind": "var",
+                                        "name": "RcvSynAck"
                                       }
                                     ],
                                     "kind": "op",
@@ -672,8 +631,8 @@
                                             "name": "state"
                                           },
                                           {
-                                            "kind": "lit-int",
-                                            "value": 3
+                                            "kind": "var",
+                                            "name": "SynRcvd"
                                           }
                                         ],
                                         "kind": "op",
@@ -686,8 +645,8 @@
                                             "name": "event"
                                           },
                                           {
-                                            "kind": "lit-int",
-                                            "value": 4
+                                            "kind": "var",
+                                            "name": "RcvAck"
                                           }
                                         ],
                                         "kind": "op",
@@ -734,8 +693,8 @@
                                                 "name": "state"
                                               },
                                               {
-                                                "kind": "lit-int",
-                                                "value": 4
+                                                "kind": "var",
+                                                "name": "Established"
                                               }
                                             ],
                                             "kind": "op",
@@ -748,8 +707,8 @@
                                                 "name": "event"
                                               },
                                               {
-                                                "kind": "lit-int",
-                                                "value": 5
+                                                "kind": "var",
+                                                "name": "SendData"
                                               }
                                             ],
                                             "kind": "op",
@@ -792,8 +751,8 @@
                                             "name": "state"
                                           },
                                           {
-                                            "kind": "lit-int",
-                                            "value": 0
+                                            "kind": "var",
+                                            "name": "Closed"
                                           }
                                         ],
                                         "kind": "op",
@@ -806,8 +765,8 @@
                                             "name": "event"
                                           },
                                           {
-                                            "kind": "lit-int",
-                                            "value": 0
+                                            "kind": "var",
+                                            "name": "PassiveOpen"
                                           }
                                         ],
                                         "kind": "op",
@@ -828,8 +787,8 @@
                                                 "name": "state"
                                               },
                                               {
-                                                "kind": "lit-int",
-                                                "value": 0
+                                                "kind": "var",
+                                                "name": "Closed"
                                               }
                                             ],
                                             "kind": "op",
@@ -842,8 +801,8 @@
                                                 "name": "event"
                                               },
                                               {
-                                                "kind": "lit-int",
-                                                "value": 1
+                                                "kind": "var",
+                                                "name": "ActiveOpen"
                                               }
                                             ],
                                             "kind": "op",
@@ -864,8 +823,8 @@
                                                     "name": "state"
                                                   },
                                                   {
-                                                    "kind": "lit-int",
-                                                    "value": 1
+                                                    "kind": "var",
+                                                    "name": "Listen"
                                                   }
                                                 ],
                                                 "kind": "op",
@@ -878,8 +837,8 @@
                                                     "name": "event"
                                                   },
                                                   {
-                                                    "kind": "lit-int",
-                                                    "value": 2
+                                                    "kind": "var",
+                                                    "name": "RcvSyn"
                                                   }
                                                 ],
                                                 "kind": "op",
@@ -900,8 +859,8 @@
                                                         "name": "state"
                                                       },
                                                       {
-                                                        "kind": "lit-int",
-                                                        "value": 2
+                                                        "kind": "var",
+                                                        "name": "SynSent"
                                                       }
                                                     ],
                                                     "kind": "op",
@@ -914,8 +873,8 @@
                                                         "name": "event"
                                                       },
                                                       {
-                                                        "kind": "lit-int",
-                                                        "value": 3
+                                                        "kind": "var",
+                                                        "name": "RcvSynAck"
                                                       }
                                                     ],
                                                     "kind": "op",
@@ -936,8 +895,8 @@
                                                             "name": "state"
                                                           },
                                                           {
-                                                            "kind": "lit-int",
-                                                            "value": 3
+                                                            "kind": "var",
+                                                            "name": "SynRcvd"
                                                           }
                                                         ],
                                                         "kind": "op",
@@ -950,8 +909,8 @@
                                                             "name": "event"
                                                           },
                                                           {
-                                                            "kind": "lit-int",
-                                                            "value": 4
+                                                            "kind": "var",
+                                                            "name": "RcvAck"
                                                           }
                                                         ],
                                                         "kind": "op",
@@ -972,8 +931,8 @@
                                                                 "name": "state"
                                                               },
                                                               {
-                                                                "kind": "lit-int",
-                                                                "value": 4
+                                                                "kind": "var",
+                                                                "name": "Established"
                                                               }
                                                             ],
                                                             "kind": "op",
@@ -986,8 +945,8 @@
                                                                 "name": "event"
                                                               },
                                                               {
-                                                                "kind": "lit-int",
-                                                                "value": 5
+                                                                "kind": "var",
+                                                                "name": "SendData"
                                                               }
                                                             ],
                                                             "kind": "op",
@@ -1310,8 +1269,8 @@
                                     "name": "state"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 2
+                                    "kind": "var",
+                                    "name": "SynSent"
                                   }
                                 ],
                                 "kind": "op",
@@ -1324,8 +1283,8 @@
                                     "name": "event"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 3
+                                    "kind": "var",
+                                    "name": "RcvSynAck"
                                   }
                                 ],
                                 "kind": "op",
@@ -1346,8 +1305,8 @@
                                         "name": "state"
                                       },
                                       {
-                                        "kind": "lit-int",
-                                        "value": 3
+                                        "kind": "var",
+                                        "name": "SynRcvd"
                                       }
                                     ],
                                     "kind": "op",
@@ -1360,8 +1319,8 @@
                                         "name": "event"
                                       },
                                       {
-                                        "kind": "lit-int",
-                                        "value": 4
+                                        "kind": "var",
+                                        "name": "RcvAck"
                                       }
                                     ],
                                     "kind": "op",
@@ -1380,8 +1339,8 @@
                                         "name": "state"
                                       },
                                       {
-                                        "kind": "lit-int",
-                                        "value": 4
+                                        "kind": "var",
+                                        "name": "Established"
                                       }
                                     ],
                                     "kind": "op",
@@ -1394,8 +1353,8 @@
                                         "name": "event"
                                       },
                                       {
-                                        "kind": "lit-int",
-                                        "value": 5
+                                        "kind": "var",
+                                        "name": "SendData"
                                       }
                                     ],
                                     "kind": "op",
@@ -1478,8 +1437,8 @@
                                 "name": "state"
                               },
                               {
-                                "kind": "lit-int",
-                                "value": 2
+                                "kind": "var",
+                                "name": "SynSent"
                               }
                             ],
                             "kind": "op",
@@ -1492,8 +1451,8 @@
                                 "name": "event"
                               },
                               {
-                                "kind": "lit-int",
-                                "value": 3
+                                "kind": "var",
+                                "name": "RcvSynAck"
                               }
                             ],
                             "kind": "op",
@@ -1514,8 +1473,8 @@
                                     "name": "state"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 3
+                                    "kind": "var",
+                                    "name": "SynRcvd"
                                   }
                                 ],
                                 "kind": "op",
@@ -1528,8 +1487,8 @@
                                     "name": "event"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 4
+                                    "kind": "var",
+                                    "name": "RcvAck"
                                   }
                                 ],
                                 "kind": "op",
@@ -1548,8 +1507,8 @@
                                     "name": "state"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 4
+                                    "kind": "var",
+                                    "name": "Established"
                                   }
                                 ],
                                 "kind": "op",
@@ -1562,8 +1521,8 @@
                                     "name": "event"
                                   },
                                   {
-                                    "kind": "lit-int",
-                                    "value": 5
+                                    "kind": "var",
+                                    "name": "SendData"
                                   }
                                 ],
                                 "kind": "op",

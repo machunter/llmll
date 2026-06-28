@@ -6,34 +6,36 @@
 ;; precondition unmet), it never even reaches the postcondition.
 ;;   llmll verify ./open-and-pay-unsafe.llmll   -> call-site precondition of 'debit' not satisfied
 
-(type ConnState  (where [s: int] (and (>= s 0) (<= s 4))))
-(type Event      (where [e: int] (and (>= e 0) (<= e 5))))
-(type StepResult (where [r: int] (and (>= r 0) (<= r 5))))
+(type ConnState
+  (| Closed) (| Listen) (| SynSent) (| SynRcvd) (| Established))   ;; tags 0..4
+(type Event
+  (| PassiveOpen) (| ActiveOpen) (| RcvSyn) (| RcvSynAck) (| RcvAck) (| SendData))  ;; tags 0..5
+(type StepResult (where [r: int] (and (>= r 0) (<= r 5))))    ;; outcome int sentinel (COMP-4-blocked)
 (type Word       (where [v: int] (and (>= v 0) (<= v 65535))))
 
 (def step [state: ConnState event: Event] -> StepResult
   (post
-    (and (or (not (and (= state 0) (= event 0))) (= result 1))
-    (and (or (not (and (= state 0) (= event 1))) (= result 2))
-    (and (or (not (and (= state 1) (= event 2))) (= result 3))
-    (and (or (not (and (= state 2) (= event 3))) (= result 4))
-    (and (or (not (and (= state 3) (= event 4))) (= result 4))
-    (and (or (not (and (= state 4) (= event 5))) (= result 4))
-         (or (and (= state 0) (= event 0))
-         (or (and (= state 0) (= event 1))
-         (or (and (= state 1) (= event 2))
-         (or (and (= state 2) (= event 3))
-         (or (and (= state 3) (= event 4))
-         (or (and (= state 4) (= event 5))
+    (and (or (not (and (= state Closed)      (= event PassiveOpen))) (= result 1))
+    (and (or (not (and (= state Closed)      (= event ActiveOpen)))  (= result 2))
+    (and (or (not (and (= state Listen)      (= event RcvSyn)))      (= result 3))
+    (and (or (not (and (= state SynSent)     (= event RcvSynAck)))   (= result 4))
+    (and (or (not (and (= state SynRcvd)     (= event RcvAck)))      (= result 4))
+    (and (or (not (and (= state Established) (= event SendData)))    (= result 4))
+         (or (and (= state Closed)      (= event PassiveOpen))
+         (or (and (= state Closed)      (= event ActiveOpen))
+         (or (and (= state Listen)      (= event RcvSyn))
+         (or (and (= state SynSent)     (= event RcvSynAck))
+         (or (and (= state SynRcvd)     (= event RcvAck))
+         (or (and (= state Established) (= event SendData))
              (= result 5)
          ))))))))))))
     :source "RFC 793 §3.2 — connection state transition table")
-  (if (and (= state 0) (= event 0)) 1
-  (if (and (= state 0) (= event 1)) 2
-  (if (and (= state 1) (= event 2)) 3
-  (if (and (= state 2) (= event 3)) 4
-  (if (and (= state 3) (= event 4)) 4
-  (if (and (= state 4) (= event 5)) 4
+  (if (and (= state Closed)      (= event PassiveOpen)) 1
+  (if (and (= state Closed)      (= event ActiveOpen))  2
+  (if (and (= state Listen)      (= event RcvSyn))      3
+  (if (and (= state SynSent)     (= event RcvSynAck))   4
+  (if (and (= state SynRcvd)     (= event RcvAck))      4
+  (if (and (= state Established) (= event SendData))    4
     5)))))))
 
 (def debit [balance: int amount: int] -> int
@@ -44,14 +46,14 @@
 (def-shell open-and-pay [state: ConnState event: Event balance: int amount: Word] -> int
   (pre (>= balance 0))
   (post
-    (and (or (not (and (or (and (= state 2) (= event 3))
-                   (or (and (= state 3) (= event 4))
-                       (and (= state 4) (= event 5))))
+    (and (or (not (and (or (and (= state SynSent)     (= event RcvSynAck))
+                   (or (and (= state SynRcvd)     (= event RcvAck))
+                       (and (= state Established) (= event SendData))))
                    (>= balance amount)))
              (= result (- balance amount)))
-         (or (and (or (and (= state 2) (= event 3))
-                  (or (and (= state 3) (= event 4))
-                      (and (= state 4) (= event 5))))
+         (or (and (or (and (= state SynSent)     (= event RcvSynAck))
+                  (or (and (= state SynRcvd)     (= event RcvAck))
+                      (and (= state Established) (= event SendData))))
                   (>= balance amount))
              (= result -1)))
     :source "session-pay: pay iff a transition reaches ESTABLISHED (RFC 793 §3.2) and balance >= amount; else REJECTED")
