@@ -184,7 +184,18 @@ buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
     -- caller-assumable guarantee, consumed via assume-guarantee), the dual of
     -- the param-refinement pre fold. Unconditional/syntactic; verdict-gating is
     -- the downstream trust closure (refutedClosure / asserted-floor meet).
-    aug params mRet c = augmentContractPost am mRet (augmentContractPre am params c)
+    ctorTags = buildCtorTagMap am
+    -- COMP-3c / COMP-3b-general (cenv-desugar fix): desugar nullary-enum
+    -- constructors in the STORED contract, not just at the definition site
+    -- (emitFnConstraints, ~:415-419). The ContractEnv is consumed by CALLERS via
+    -- assume-guarantee (CallVC); without this, a caller of a function whose contract
+    -- uses nullary-enum constructors pulls them RAW into its .fq → liquid-fixpoint
+    -- "Constraint with free vars" crash. The per-function bound-set (params)
+    -- preserves shadowing, exactly as the definition-site desugar does.
+    dsContract params c =
+      let ds = desugarCtorValues ctorTags (Set.fromList (map fst params))
+      in c { contractPre = ds <$> contractPre c, contractPost = ds <$> contractPost c }
+    aug params mRet c = dsContract params (augmentContractPost am mRet (augmentContractPre am params c))
     go (SDefLogic name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
     go (SLetrec name params mRet contract _ _) = Just (name, (params, aug params mRet contract, mRet))
     -- LT-INV (v0.11)

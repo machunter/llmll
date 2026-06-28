@@ -5717,6 +5717,28 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             map snd binders `shouldBe` [FQBool, FQInt, FQInt]
           other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
 
+      it "C3BG-5: a caller's assumed callee post desugars nullary-enum ctors across the call edge (cenv)" $ do
+        -- Regression for the cenv-desugar fix: a def-shell caller of a callee whose
+        -- contract uses nullary-enum constructors must pull the callee's assumed post
+        -- DESUGARED (int tags) via the ContractEnv, not RAW — otherwise the raw
+        -- capitalized constructor is a free var and liquid-fixpoint crashes
+        -- ("Constraint with free vars"). buildContractEnv now desugars stored
+        -- contracts, matching the definition-site desugar.
+        er <- emitSrc (T.unlines
+          [ "(type S (| A) (| B))"
+          , "(def callee [s: S] -> int"
+          , "  (post (and (>= result 0) (or (not (= s A)) (= result 1))))"
+          , "  (if (= s A) 1 0))"
+          , "(def-shell caller [s: S] -> int"
+          , "  (post (>= result 0))"
+          , "  (callee s))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "caller"
+        let fq = erFQText er
+        -- the callee's assumed post (pulled into caller's VC) is desugared: the
+        -- lowered tag `(s = 0)` is present; the raw `(s = A)` free-var form is gone.
+        fq `shouldSatisfy` T.isInfixOf "(s = 0)"
+        fq `shouldSatisfy` (not . T.isInfixOf "(s = A)")
+
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
     -- (ctor value EVar -> int tag; enum EMatch -> nested EIf on (= scrut tag)).
