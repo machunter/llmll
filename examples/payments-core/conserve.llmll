@@ -1,0 +1,22 @@
+;; Payments-Core Demo — Beat C: two-account conservation (PAIR-RET).
+;;
+;; The visceral "money cannot be created or destroyed" property wants a post over
+;; BOTH balances at once: the two account balances after a transfer sum to the two
+;; balances before. Before PAIR-RET this was inexpressible — `first`/`second` were
+;; not in the predicate sort env, so a pair-return post fell back to `asserted`.
+;;
+;; `conserve` returns the (from', to') pair and proves the conservation sum directly:
+;;
+;;   (first result) + (second result)  =  from + to
+;;
+;; reached at the body-faithful (verified) tier — the pair is constructed in the body
+;; and the projections discharge through z3's datatype theory (the single-constructor
+;; product restriction of the COMP-4 datatype class). The refuted twin
+;; (conserve-bad.llmll) credits one extra unit — money creation — and is refuted.
+;;
+;;   llmll verify ./conserve.llmll --trust-report   ->  conserve verified
+
+(def conserve [from: int to: int amount: int] -> (int, int)
+  (pre  (and (>= from amount) (>= amount 0)))
+  (post (= (+ (first result) (second result)) (+ from to)))
+  (pair (- from amount) (+ to amount)))

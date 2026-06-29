@@ -59,6 +59,8 @@ data FQSort
   | FQStr            -- ^ opaque string carrier (built-in Str sort)
   | FQList           -- ^ opaque list carrier (uninterpreted Lst sort)
   | FQData Text      -- ^ named ADT sort, e.g. Color
+  | FQDataApp Text [FQSort]  -- ^ PAIR-RET: applied (parametric) datatype sort, e.g. (Pair2 int int)
+  | FQTyVar Int      -- ^ PAIR-RET: polymorphic field tyvar @(n) inside a parametric data decl
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -193,6 +195,11 @@ emitSort FQUnit     = "unit"
 emitSort FQStr      = "Str"   -- liquid-fixpoint built-in string sort (opaque under path (a))
 emitSort FQList     = "Lst"   -- uninterpreted carrier sort (probe-verified accepted bare)
 emitSort (FQData n) = n
+-- PAIR-RET: an applied parametric sort prints as `(TyCon arg ...)`; a field tyvar
+-- prints as liquid-fixpoint's `@(n)` De-Bruijn sort variable. Both spike-confirmed
+-- accepted by the pinned fixpoint (polymorphic `data Pair2 2`, applied `(Pair2 int int)`).
+emitSort (FQDataApp n args) = "(" <> n <> " " <> T.unwords (map emitSort args) <> ")"
+emitSort (FQTyVar i)        = "@(" <> T.pack (show i) <> ")"
 
 -- | NIW: constant strLen : (func(0 , [Str; int]))
 emitConstant :: FQConstant -> Text

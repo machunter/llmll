@@ -1,0 +1,15 @@
+;; Payments-Core Demo — Beat C, refuted twin: money creation.
+;;
+;; Identical contract to conserve.llmll, but the implementation credits the
+;; destination with one unit MORE than it debits from the source — the two output
+;; balances sum to `from + to + 1`, not `from + to`. The conservation post is now
+;; false, and the body-faithful VC refutes it (the projection sum is discharged
+;; against the constructed pair via the datatype theory, so the violation is caught,
+;; not merely untested).
+;;
+;;   llmll verify ./conserve-bad.llmll   ->  refuted (postcondition not satisfied)
+
+(def conserve-bad [from: int to: int amount: int] -> (int, int)
+  (pre  (and (>= from amount) (>= amount 0)))
+  (post (= (+ (first result) (second result)) (+ from to)))
+  (pair (- from amount) (+ to (+ amount 1))))

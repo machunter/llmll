@@ -1,7 +1,7 @@
 # payments-core — Demo Runbook
 
 > **Artifact:** "A verified payments core — composition that proves correct, and an assurance story you can show with a real model."
-> **Fixtures:** `transfer.llmll` (+ `transfer-bad`, `transfer-unsafe`), `settle.llmll` (+ `settle-bad`).
+> **Fixtures:** `transfer.llmll` (+ `transfer-bad`, `transfer-unsafe`), `settle.llmll` (+ `settle-bad`), `conserve.llmll` (+ `conserve-bad`).
 > **Verified against:** `llmll 0.13.4`, real `liquid-fixpoint` on PATH.
 
 Run from this directory; every beat ends at `verify` / the trust-report.
@@ -10,9 +10,9 @@ Run from this directory; every beat ends at `verify` / the trust-report.
 
 `transfer` is composed over a **verified `debit` call edge** and proves a conservation-flavoured contract; `settle` shows the same idea on a `Result` return (the type *is* the contract, COMP-3b). The wrong twins type-check and pass a happy-path test, but the solver refutes them — and a missing precondition is refused at the call site.
 
-> **Honest scope (state it up front).** Two things this demo does *not* claim:
-> 1. **Single-int, not two-account conservation.** The visceral "money cannot be created" framing wants a post over both balances (`(fst result) + (snd result) = from + to`), but pair-return refinements aren't expressible today (`fst`/`snd` aren't in the predicate sort env). So `transfer` proves *no-overdraft + all-or-nothing* on a single returned balance — real and asymmetric, just not the sum-conservation headline.
-> 2. **The refutation twins are hand-authored.** The pitch is AI-to-AI, so the honest *assurance* evidence is the opposite of a gotcha: in a real-agent run, **two frontier models (claude-opus-4-8 and gpt-5.5) independently authored `transfer` correctly**, and the compiler *proved* each. That is the assurance story. The `-bad` twins exist to demonstrate the *capability* — that the verifier *would* catch a wrong fill — not to claim frontier models write that bug on a clear spec.
+> **Two-account conservation (PAIR-RET).** The visceral "money cannot be created" framing wants a post over *both* balances at once — `(first result) + (second result) = from + to`. `conserve.llmll` (Beat C) now proves exactly that at the body-faithful tier: the pair is constructed in the body and the projections discharge through z3's datatype theory (the single-constructor product restriction of the COMP-4 datatype class). `conserve-bad.llmll` credits one extra unit — money creation — and is refuted.
+>
+> **Honest scope (state it up front).** **The refutation twins are hand-authored.** The pitch is AI-to-AI, so the honest *assurance* evidence is the opposite of a gotcha: in a real-agent run, **two frontier models (claude-opus-4-8 and gpt-5.5) independently authored `transfer` correctly**, and the compiler *proved* each. That is the assurance story. The `-bad` twins exist to demonstrate the *capability* — that the verifier *would* catch a wrong fill — not to claim frontier models write that bug on a clear spec.
 
 ## Beat A — `transfer`: verified through a call edge
 
@@ -77,6 +77,28 @@ llmll verify ./settle-bad.llmll --strict-verified-core
 ```
 error: body verification of 'settle' failed (then-branch does not satisfy postcondition) (constraint #0)
 ERROR: --strict-verified-core: refuted: settle
+```
+
+## Beat C — `conserve`: two-account conservation over a pair return (PAIR-RET)
+
+`conserve [from to amount] -> (int, int)` returns *both* post-transfer balances and proves the conservation sum directly — `(first result) + (second result) = from + to` — at the body-faithful tier. The projections discharge through z3's datatype theory (the single-constructor product restriction of the COMP-4 datatype class), so this is a proof, not a tested sample:
+
+```bash
+llmll verify ./conserve.llmll
+```
+```
+   body-faithful: conserve
+   Running liquid-fixpoint ...
+✅ conserve.llmll — SAFE (liquid-fixpoint)
+```
+
+`conserve-bad.llmll` credits the destination with one unit more than it debits — the balances sum to `from + to + 1`. The body-faithful VC refutes it:
+
+```bash
+llmll verify ./conserve-bad.llmll
+```
+```
+error: body verification of 'conserve-bad' failed — implementation does not satisfy postcondition (constraint #0)
 ```
 
 ## Narration

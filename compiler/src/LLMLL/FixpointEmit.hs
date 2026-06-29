@@ -311,6 +311,13 @@ emitFixpointWith opts srcFile stmts = do
   let addCallPre n = modifyIORef' callPreRef (++ [n])  -- v0.9.0
   let addOverflowTainted n = modifyIORef' overflowTaintedRef (++ [n])  -- INT-1
 
+  -- PAIR-RET: emit the polymorphic product datatype `data Pair2 2 = [ | pair2 {...} ]`
+  -- exactly once, only when the module actually uses pairs — so a pair-free module's
+  -- .fq stays byte-identical (the NIW byte-inert convention). The single parametric
+  -- decl serves every (Pair2 s0 s1) applied sort; no per-sort-pair dedup is needed.
+  when (moduleUsesPairs aliases stmts) $
+    addData (FQDataDecl "Pair2" 2 [("pair2", [FQTyVar 0, FQTyVar 1])])
+
   -- Process each statement
   forM_ (zip [0..] stmts) $ \(idx, stmt) ->
     case stmt of
@@ -368,10 +375,16 @@ emitFixpointWith opts srcFile stmts = do
   ovTainted <- readIORef overflowTaintedRef
   -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
   -- any constraint or binder. None used → empty section → byte-identical .fq.
-  let ctorNames = Set.fromList [ T.toLower c | d <- dataDecs, (c, _) <- ddCtors d ]
+  let ctorNames = Set.fromList $ concat
+        [ T.toLower c : [ T.toLower c <> "_" <> T.pack (show i) | i <- [0 .. length flds - 1] ]
+        | d <- dataDecs, (c, flds) <- ddCtors d ]
       -- COMP-4 (a): datatype constructors are declared via `data`, not as UF
       -- constants — exclude them from the measure-symbol sweep (else a spurious
-      -- `constant full : ...` collides with the FQData constructor).
+      -- `constant full : ...` collides with the FQData constructor). PAIR-RET: also
+      -- exclude the per-constructor *selectors* (`<ctor>_<i>`, the field names) — a
+      -- pair projection `(pair2_0 r)` applies a datatype selector in goal position, so
+      -- the selector symbol now appears in the sweep where COMP-4 (match-skolem
+      -- elimination) never surfaced it.
       usedMeasures = (Set.unions $
            [ Set.union (appNames (reftPred (conLhs c))) (appNames (reftPred (conRhs c)))
            | c <- consts ]
@@ -819,12 +832,60 @@ isIntLike am (TCustom n)           = case Map.lookup n am of
 isIntLike _  (TSumType ctors)      = all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
 isIntLike _  _                     = False
 
+-- | PAIR-RET: does the module use pairs anywhere a Pair2 sort/term would be emitted?
+-- Checks each def-form's signature for a (transitive) pair type AND walks its contract
+-- and body for `EPair` / `(first _)` / `(second _)`. The body walk catches a pair that
+-- is constructed-and-consumed entirely inside a body (int signature, no surface pair) —
+-- which would otherwise emit `pair2`/`pair2_*` terms against an undeclared sort.
+moduleUsesPairs :: AliasMap -> [Statement] -> Bool
+moduleUsesPairs am = any stmtUsesPairs
+  where
+    stmtUsesPairs s = case sigOf s of
+      Nothing -> False
+      Just (params, mRet, contract, mBody) ->
+           any (typeHasPair . snd) params
+        || maybe False typeHasPair mRet
+        || any exprUsesPair ([ p | Just p <- [contractPre contract] ]
+                          ++ [ p | Just p <- [contractPost contract] ])
+        || maybe False exprUsesPair mBody
+    sigOf s = case s of
+      SDefLogic _ p r c b     -> Just (p, r, c, Just b)
+      SDef _ p r c b          -> Just (p, r, c, Just b)
+      SDefShell _ p r c b     -> Just (p, r, c, Just b)
+      SDefInvariant _ p r c b -> Just (p, r, c, Just b)
+      SLetrec _ p r c _ b     -> Just (p, r, c, Just b)
+      _                       -> Nothing
+    typeHasPair t = case resolveAliasTy am t of
+      TPair{}     -> True
+      TList t'    -> typeHasPair t'
+      TResult a b -> typeHasPair a || typeHasPair b
+      TPromise t' -> typeHasPair t'
+      _           -> False
+    exprUsesPair = go
+      where
+        go (EPair _ _)            = True
+        go (EApp op args)         = op `elem` ["first", "second"] || any go args
+        go (EOp  op args)         = op `elem` ["first", "second"] || any go args
+        go (EIf c t e)            = go c || go t || go e
+        go (ELet bs body)         = any (\(_, _, rhs) -> go rhs) bs || go body
+        go (EMatch scr arms)      = go scr || any (go . snd) arms
+        go (ELambda _ body)       = go body
+        go (EDo steps)            = any (\(DoStep _ e) -> go e) steps
+        go (EAwait e)             = go e
+        go _                      = False
+
 typeToSort :: Type -> FQSort
 typeToSort TInt    = FQInt
 typeToSort TBool   = FQBool
 typeToSort TString = FQStr            -- NIW: opaque carrier for string measures
 typeToSort (TList _) = FQList         -- NIW: opaque carrier for list measures
 typeToSort (TDependent _ base _) = typeToSort base
+-- PAIR-RET: a pair lowers to the parametric product sort `(Pair2 s0 s1)`, recursively
+-- (nested pairs nest the applied sort — spike-confirmed). This is unconditional so the
+-- binder sort always agrees with exprToPred's (sort-blind) selector emission; the
+-- discharging *scope* is QF-LIA-scalar components (int/bool/string-measure), enforced
+-- per-operator by exprToPred — a non-scalar projection used outside Σ_auto falls back.
+typeToSort (TPair a b) = FQDataApp "Pair2" [typeToSort a, typeToSort b]
 typeToSort _     = FQInt  -- conservative default
 
 -- | COMP-4 (a): alias-aware sort. An admissible sum lowers to its native FQData
@@ -1060,6 +1121,15 @@ exprToPred (EApp "not" [a])  = FQNot <$> exprToPred a
 -- centrally at addConst, not here. Only string-length / list-length are admitted.
 exprToPred (EApp "string-length" [a]) = (\x -> FQApp "strLen"  [x]) <$> exprToPred a
 exprToPred (EApp "list-length"   [a]) = (\x -> FQApp "listLen" [x]) <$> exprToPred a
+-- PAIR-RET: pair projections reflect to the native Pair2 selector terms, a pair
+-- construction to the constructor. The product is the single-constructor restriction
+-- of the COMP-4 datatype class (§5.3.3): the valid tester makes selectors total and
+-- fully determined, so selector-in-goal is sound with no under-specified region
+-- (professor adjudication). Symbols are namespaced (`pair2`) to avoid collision with a
+-- user sum whose `Pair` constructor COMP-4 lowercases to `pair`.
+exprToPred (EApp "first"  [a]) = (\x   -> FQApp "pair2_0" [x])   <$> exprToPred a
+exprToPred (EApp "second" [a]) = (\x   -> FQApp "pair2_1" [x])   <$> exprToPred a
+exprToPred (EPair a b)         = (\x y -> FQApp "pair2"   [x, y]) <$> exprToPred a <*> exprToPred b
 -- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
 exprToPred (EOp op args)     = exprToPred (EApp op args)
 -- COMP-4 (a): a constructor application (uppercase head) in a contract reflects
@@ -1499,6 +1569,23 @@ bodyToPredM env se cenv sccSet (EApp ctor args)
                            return $ case mv of Just (SimpleVC [] p) -> Just p; _ -> Nothing
       margs <- mapM tr args
       return $ (\fas -> SimpleVC [] (FQApp (T.toLower ctor) fas)) <$> sequence margs
+
+-- PAIR-RET: a pair construction in a body reflects to the Pair2 constructor term so a
+-- function returning `(pair a b)` is body-faithful for a projection post. Mirrors the
+-- COMP-4 (a) constructor clause above (the `tr` helper handles EVar specially and
+-- recurses for compound operands).
+bodyToPredM env se cenv sccSet (EPair a b) = do
+  let tr (EVar v) = return (Just (FQVar (fromMaybe v (Map.lookup v env))))
+      tr e        = do mv <- bodyToPredM env se cenv sccSet e
+                       return $ case mv of Just (SimpleVC [] p) -> Just p; _ -> Nothing
+  pa <- tr a
+  pb <- tr b
+  return $ (\x y -> SimpleVC [] (FQApp "pair2" [x, y])) <$> pa <*> pb
+-- PAIR-RET: a body that *is* a projection (`(first p)` / `(second p)` over a pair var).
+bodyToPredM env _ _ _ (EApp "first"  [EVar v]) =
+  return . Just $ SimpleVC [] (FQApp "pair2_0" [FQVar (fromMaybe v (Map.lookup v env))])
+bodyToPredM env _ _ _ (EApp "second" [EVar v]) =
+  return . Just $ SimpleVC [] (FQApp "pair2_1" [FQVar (fromMaybe v (Map.lookup v env))])
 
 bodyToPredM _ _ _ _ _ = return Nothing
 

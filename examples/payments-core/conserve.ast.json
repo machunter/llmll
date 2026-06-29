@@ -1,0 +1,155 @@
+{
+  "llmll_version": "0.13.10",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "fst": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "from"
+            },
+            {
+              "kind": "var",
+              "name": "amount"
+            }
+          ],
+          "kind": "op",
+          "op": "-"
+        },
+        "kind": "pair",
+        "snd": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "to"
+            },
+            {
+              "kind": "var",
+              "name": "amount"
+            }
+          ],
+          "kind": "op",
+          "op": "+"
+        }
+      },
+      "kind": "def",
+      "name": "conserve",
+      "params": [
+        {
+          "name": "from",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "to",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  }
+                ],
+                "fn": "first",
+                "kind": "app"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  }
+                ],
+                "fn": "second",
+                "kind": "app"
+              }
+            ],
+            "kind": "op",
+            "op": "+"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "from"
+              },
+              {
+                "kind": "var",
+                "name": "to"
+              }
+            ],
+            "kind": "op",
+            "op": "+"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "from"
+              },
+              {
+                "kind": "var",
+                "name": "amount"
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "amount"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "fst": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "kind": "pair-type",
+        "snd": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      }
+    }
+  ]
+}

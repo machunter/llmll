@@ -5852,6 +5852,64 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 mism   = filter (\d -> "mismatch" `T.isInfixOf` diagMessage d) (reportDiagnostics report)
             mism `shouldBe` []
 
+    -- PAIR-RET: refinement predicates over pair/tuple returns. A 2-tuple is the
+    -- single-constructor (product) restriction of the COMP-4 datatype class — the
+    -- valid tester makes selectors total and fully determined, so projection-in-goal
+    -- is sound (professor adjudication). The pure translation + emit structure is
+    -- unit-tested here; SAFE/refuted is CLI-probe-verified
+    -- (examples/payments-core/conserve{,-bad}.llmll).
+    describe "PAIR-RET: pair projections in refinement posts" $ do
+      let pairSrc = T.pack $ unlines
+            [ "(def conserve [from: int to: int amount: int] -> (int, int)"
+            , "  (pre  (and (>= from amount) (>= amount 0)))"
+            , "  (post (= (+ (first result) (second result)) (+ from to)))"
+            , "  (pair (- from amount) (+ to amount)))" ]
+          emitText src = case parseStatements GrammarCoreInversion "<test>" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> erFQText <$> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "PR-1: exprToPred reflects first/second/pair to the Pair2 selector/ctor terms" $ do
+        exprToPred (EApp "first"  [EVar "r"])    `shouldBe` Just (FQApp "pair2_0" [FQVar "r"])
+        exprToPred (EApp "second" [EVar "r"])    `shouldBe` Just (FQApp "pair2_1" [FQVar "r"])
+        exprToPred (EPair (EVar "a") (EVar "b")) `shouldBe` Just (FQApp "pair2" [FQVar "a", FQVar "b"])
+
+      it "PR-2: a conservation post (= (+ (first r) (second r)) k) is translatable (not asserted)" $
+        exprToPred (EApp "=" [ EApp "+" [EApp "first" [EVar "r"], EApp "second" [EVar "r"]]
+                             , EVar "k" ])
+          `shouldBe` Just (FQBinPred FQEq
+                            (FQBinArith FQAdd (FQApp "pair2_0" [FQVar "r"]) (FQApp "pair2_1" [FQVar "r"]))
+                            (FQVar "k"))
+
+      it "PR-3: typeToSortA lowers a pair to the applied (Pair2 s0 s1) sort, recursively" $ do
+        typeToSortA Map.empty (TPair TInt TInt)    `shouldBe` FQDataApp "Pair2" [FQInt, FQInt]
+        typeToSortA Map.empty (TPair TString TInt) `shouldBe` FQDataApp "Pair2" [FQStr, FQInt]
+
+      it "PR-4: a pair-returning def emits one `data Pair2 2` decl and selector goal terms" $ do
+        fq <- emitText pairSrc
+        fq `shouldSatisfy` T.isInfixOf "data Pair2 2"
+        fq `shouldSatisfy` T.isInfixOf "pair2_0 result"
+
+      it "PR-5: selectors are NOT swept into measure constants (no spurious `constant pair2_`)" $ do
+        fq <- emitText pairSrc
+        fq `shouldNotSatisfy` T.isInfixOf "constant pair2"
+
+      it "PR-6: a pair-FREE module emits no Pair2 decl (byte-inert)" $ do
+        fq <- emitText (T.pack "(def inc [n: int] -> int (post (= result (+ n 1))) (+ n 1))\n")
+        fq `shouldNotSatisfy` T.isInfixOf "Pair2"
+
+      it "PR-7: a string-component pair stacks the strLen measure under a selector" $ do
+        -- review req #3: the (string, int) component case — `(string-length (first p))`
+        -- lowers to `strLen (pair2_0 p)`, the measure UF composed over a datatype
+        -- selector. Applied sort carries Str; strLen stays a genuine measure constant.
+        fq <- emitText $ T.pack $ unlines
+          [ "(def split-tag [s: string n: int] -> (string, int)"
+          , "  (pre  (>= n 0))"
+          , "  (post (= (string-length (first result)) (string-length s)))"
+          , "  (pair s n))" ]
+        fq `shouldSatisfy`    T.isInfixOf "Pair2 Str int"
+        fq `shouldSatisfy`    T.isInfixOf "strLen (pair2_0 result)"
+        fq `shouldSatisfy`    T.isInfixOf "constant strLen"
+
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
     -- (ctor value EVar -> int tag; enum EMatch -> nested EIf on (= scrut tag)).
