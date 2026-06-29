@@ -10,8 +10,9 @@
   (| Closed) (| Listen) (| SynSent) (| SynRcvd) (| Established))   ;; tags 0..4
 (type Event
   (| PassiveOpen) (| ActiveOpen) (| RcvSyn) (| RcvSynAck) (| RcvAck) (| SendData))  ;; tags 0..5
-(type StepResult (where [r: int] (and (>= r 0) (<= r 5))))    ;; outcome int sentinel (COMP-4-blocked)
+(type StepResult (where [r: int] (and (>= r 0) (<= r 5))))
 (type Word       (where [v: int] (and (>= v 0) (<= v 65535))))
+(type PayOutcome (| Paid int) (| Rejected int))
 
 (def step [state: ConnState event: Event] -> StepResult
   (post
@@ -43,21 +44,21 @@
   (post (and (= result (- balance amount)) (>= result 0)))
   (- balance amount))
 
-(def-shell open-and-pay [state: ConnState event: Event balance: int amount: Word] -> int
+(def-shell open-and-pay [state: ConnState event: Event balance: int amount: Word] -> PayOutcome
   (pre (>= balance 0))
   (post
     (and (or (not (and (or (and (= state SynSent)     (= event RcvSynAck))
                    (or (and (= state SynRcvd)     (= event RcvAck))
                        (and (= state Established) (= event SendData))))
                    (>= balance amount)))
-             (= result (- balance amount)))
+             (= result (Paid (- balance amount))))
          (or (and (or (and (= state SynSent)     (= event RcvSynAck))
                   (or (and (= state SynRcvd)     (= event RcvAck))
                       (and (= state Established) (= event SendData))))
                   (>= balance amount))
-             (= result -1)))
+             (= result (Rejected 0))))
     :source "session-pay: pay iff a transition reaches ESTABLISHED (RFC 793 §3.2) and balance >= amount; else REJECTED")
   (let [[next (step state event)]]
     (if (= next 4)                                 ;; BUG: no `(>= balance amount)` guard
-        (debit balance amount)
-        -1)))
+        (let [[debited (debit balance amount)]] (Paid debited))
+        (Rejected 0))))

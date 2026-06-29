@@ -1,10 +1,12 @@
-;; TCP RFC 793 — the WRONG twin (REFUTED), idiomatic enum types.
+;; TCP RFC 793 — the WRONG twin (REFUTED), real outcome sum.
 ;;
 ;; Identical to step.llmll EXCEPT the CLOSED + ActiveOpen arm jumps straight to
-;; ESTABLISHED, skipping the SYN_SENT handshake. It type-checks (ConnState in,
-;; ConnState out) and passes the happy-path `check` (a valid handshake never hits
-;; that pair), but the solver REFUTES it against the state-safety post for the
-;; (Closed, ActiveOpen) input — localized to that branch.
+;; ESTABLISHED — it returns `(Next 4)` instead of the correct `(Next 2)` (SYN_SENT),
+;; skipping the handshake. It type-checks (ConnState/Event in, StepOutcome out), but
+;; the solver REFUTES it against the totality post for the (Closed, ActiveOpen)
+;; input — the post says that pair maps to `(Next 2)`, the body builds `(Next 4)`,
+;; and Z3's datatype injectivity (selector mismatch on `Next`'s payload) refutes it,
+;; localized to that branch.
 ;;   llmll verify ./step-bad.llmll --strict-verified-core  ->  refuted: step
 
 (type ConnState
@@ -21,14 +23,28 @@
   (| RcvSynAck)
   (| RcvAck))
 
-(def step [state: ConnState event: Event] -> ConnState
+(type StepOutcome
+  (| Next int)
+  (| Rejected int))
+
+(def step [state: ConnState event: Event] -> StepOutcome
   (post
-    (and (not (and (= state Closed) (= result Established)))
-         (not (and (= state Listen) (= result Established))))
-    :source "RFC 793 §3.2 — no direct CLOSED/LISTEN -> ESTABLISHED (handshake required)")
-  (match state
-    ((Closed)      (match event ((PassiveOpen) Listen) ((ActiveOpen) Established) (_ Closed)))
-    ((Listen)      (match event ((RcvSyn) SynRcvd) (_ Listen)))
-    ((SynSent)     (match event ((RcvSynAck) Established) (_ SynSent)))
-    ((SynRcvd)     (match event ((RcvAck) Established) (_ SynRcvd)))
-    ((Established)  Established)))
+    (and (or (not (and (= state Closed)  (= event PassiveOpen))) (= result (Next 1)))
+    (and (or (not (and (= state Closed)  (= event ActiveOpen)))  (= result (Next 2)))
+    (and (or (not (and (= state Listen)  (= event RcvSyn)))      (= result (Next 3)))
+    (and (or (not (and (= state SynSent) (= event RcvSynAck)))   (= result (Next 4)))
+    (and (or (not (and (= state SynRcvd) (= event RcvAck)))      (= result (Next 4)))
+         (or (and (= state Closed)  (= event PassiveOpen))
+         (or (and (= state Closed)  (= event ActiveOpen))
+         (or (and (= state Listen)  (= event RcvSyn))
+         (or (and (= state SynSent) (= event RcvSynAck))
+         (or (and (= state SynRcvd) (= event RcvAck))
+             (= result (Rejected 0))
+         ))))))))))
+    :source "RFC 793 §3.2 — connection state transition table; illegal pairs -> REJECTED")
+  (if (and (= state Closed)  (= event PassiveOpen)) (Next 1)
+  (if (and (= state Closed)  (= event ActiveOpen))  (Next 4)   ;; BUG: should be (Next 2) (SYN_SENT); jumps to ESTABLISHED
+  (if (and (= state Listen)  (= event RcvSyn))      (Next 3)
+  (if (and (= state SynSent) (= event RcvSynAck))   (Next 4)
+  (if (and (= state SynRcvd) (= event RcvAck))      (Next 4)
+    (Rejected 0)))))))

@@ -3,19 +3,19 @@
 > **Artifact:** "Open a connection, then pay — and prove all three safety rules at once."
 > **The integration:** one verified function composes **protocol state-safety** (tcp_rfc793), **verified payment** (payments-core), and a **bounded amount** (return-refine) — proven together on a single trust-report, through the call edges.
 > **Fixtures:** `open-and-pay.llmll` + wrong twins `-bad-step`, `-unsafe`, `-unbounded`.
-> **Verified against:** `llmll 0.13.7`, real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
+> **Verified against:** `llmll 0.13.9`, real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
 
 Run from this directory; the climax is one `verify --trust-report`.
 
 ## What it proves
 
-`open-and-pay [state event balance amount] -> int` allows a payment **only** when (a) the `(state, event)` transition reaches `ESTABLISHED` (the RFC 793 state machine), (b) `balance >= amount` (the funds guard), and (c) `amount` is a `Word` (a 16-bit bounded value). It returns the debited balance, or `-1` (`REJECTED`). The three capabilities compose:
+`open-and-pay [state event balance amount] -> PayOutcome` allows a payment **only** when (a) the `(state, event)` transition reaches `ESTABLISHED` (the RFC 793 state machine), (b) `balance >= amount` (the funds guard), and (c) `amount` is a `Word` (a 16-bit bounded value). It returns a real payload-bearing sum, `(type PayOutcome (| Paid int) (| Rejected int))`: `Paid(balance - amount)` on success, or `Rejected(0)` otherwise — a first-class constructor value, **not** a `-1` masquerading as a balance. The three capabilities compose:
 
 - **State-safety** — `step` is the RFC 793 connection state machine; `open-and-pay` pays only at `ESTABLISHED`.
 - **Payment** — `debit` is the verified payment leaf; `open-and-pay` discharges its precondition at the call site.
 - **Bounded amount** — `amount: Word` supplies `amount >= 0`, which discharges the *other* half of `debit`'s precondition.
 
-The `post` is the legal session-pay relation (pay iff an `ESTABLISHED`-reaching transition **and** sufficient funds; else `REJECTED`), authored from the spec — not a copy of the body.
+The `post` is the legal session-pay relation (`result = Paid(balance - amount)` iff an `ESTABLISHED`-reaching transition **and** sufficient funds; else `result = Rejected(0)`), authored from the spec — not a copy of the body. The outcome sum is **constructed natively** (COMP-4 (a)/(c), v0.13.9): the post discharges by constructor equality / injectivity, into Z3's datatype theory.
 
 ## The climax — one trust-report, verified through every edge
 
@@ -74,9 +74,9 @@ Three rules, three twins, three distinct verdicts — a refutation for the state
 
 ## Honest scope
 
-- **Real enum states/events; int-sentinel outcome.** `ConnState`/`Event` are real nullary-enum sum types — matched and compared as values, verified (COMP-3c / COMP-3b-general). Only the multi-outcome RESULT stays an `int` sentinel (`-1 = REJECTED`, distinguishable from any valid balance `>= 0`), because a payload-free `Rejected` *value* needs COMP-4 (a) (construction), not yet shipped. The states/events were re-typed to real enums (as `tcp_rfc793` was); the outcome is the remaining sentinel.
+- **Real enum states/events AND a real outcome sum.** `ConnState`/`Event` are real nullary-enum sum types — matched and compared as values, verified (COMP-3c / COMP-3b-general). The multi-outcome RESULT is now a real payload-bearing sum, `PayOutcome` (`Paid(int)` / `Rejected(int)`), **constructed natively** (COMP-4 (a)/(c), v0.13.9) and discharged by constructor equality / injectivity. No int sentinel: `Rejected(0)` is a first-class constructor value, distinct from every `Paid(n)` by Z3's datatype distinctness — not a `-1` posing as a balance.
 - **Single module.** `step`/`debit` are re-authored here, not cross-module-imported, to keep the whole composition in the body-faithful fragment (cross-module verified composition is a tracked gap).
-- **Everything is `verified`, nothing opaque.** Unlike a crypto-bearing RFC demo, there is no `asserted` core — all bodies are additive/comparison QF-LIA, so the solver (not a fallback) is the catcher throughout.
+- **Everything is `verified`, nothing opaque.** Unlike a crypto-bearing RFC demo, there is no `asserted` core — the bodies are additive/comparison QF-LIA plus the outcome's native datatype construction (COMP-4 (a)/(c)), all in the decidable fragment, so the solver (not a fallback) is the catcher throughout.
 
 ## Narration
 

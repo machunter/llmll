@@ -1,16 +1,18 @@
 ;; TCP RFC 793 — the CO-EVOLUTION starting point: a WEAK (under-specified) post,
-;; idiomatic enum types.
+;; real outcome sum.
 ;;
-;; The contract forbids the CLOSED -> ESTABLISHED jump but FORGETS the
-;; LISTEN -> ESTABLISHED case — a realistic human spec gap. The body sneaks in an
-;; illegal LISTEN + RcvAck -> ESTABLISHED transition; against the weak post it
-;; VERIFIES — the bug slips through, because nothing forbids the LISTEN jump.
+;; The contract pins the five LEGAL transitions to their `Next(tag)` outcomes but
+;; FORGETS the totality clause — it never says "every OTHER (state,event) pair is
+;; Rejected." A realistic human spec gap. The body sneaks in an illegal
+;; LISTEN + RcvAck -> (Next 4) transition (pretends LISTEN can establish); against
+;; the weak post it VERIFIES — the bug slips through, because nothing forbids an
+;; un-pinned pair from returning a `Next`.
 ;;
 ;; This is the spec/implementation co-evolution beat:
 ;;   1. weak post + buggy body                 -> SAFE (the bug survives)
 ;;   2. notice it (human-in-the-loop): --cdp / --weakness-check do NOT auto-flag
-;;      this (int,int)->refinement-style signature, so YOU spot the survival
-;;   3. add the LISTEN clause, cite the RFC    -> step.llmll's full post
+;;      this signature, so YOU spot the survival
+;;   3. add the totality clause (illegal -> Rejected), cite the RFC -> step.llmll's full post
 ;;   4. re-verify                              -> refuted (the bug is caught)
 ;;   llmll verify ./step-weak.llmll --strict-verified-core  ->  SAFE (survives)
 
@@ -28,14 +30,24 @@
   (| RcvSynAck)
   (| RcvAck))
 
-(def step [state: ConnState event: Event] -> ConnState
+(type StepOutcome
+  (| Next int)
+  (| Rejected int))
+
+(def step [state: ConnState event: Event] -> StepOutcome
   (post
-    ;; WEAK: forbids the CLOSED jump but omits the symmetric LISTEN clause.
-    (not (and (= state Closed) (= result Established)))
-    :source "RFC 793 §3.2 — no direct CLOSED -> ESTABLISHED (INCOMPLETE: omits LISTEN)")
-  (match state
-    ((Closed)      (match event ((PassiveOpen) Listen) ((ActiveOpen) SynSent) (_ Closed)))
-    ((Listen)      (match event ((RcvSyn) SynRcvd) ((RcvAck) Established) (_ Listen)))
-    ((SynSent)     (match event ((RcvSynAck) Established) (_ SynSent)))
-    ((SynRcvd)     (match event ((RcvAck) Established) (_ SynRcvd)))
-    ((Established)  Established)))
+    ;; WEAK: pins the five legal transitions but OMITS the "else -> Rejected"
+    ;; totality clause, so an un-pinned illegal pair may return any outcome.
+    (and (or (not (and (= state Closed)  (= event PassiveOpen))) (= result (Next 1)))
+    (and (or (not (and (= state Closed)  (= event ActiveOpen)))  (= result (Next 2)))
+    (and (or (not (and (= state Listen)  (= event RcvSyn)))      (= result (Next 3)))
+    (and (or (not (and (= state SynSent) (= event RcvSynAck)))   (= result (Next 4)))
+         (or (not (and (= state SynRcvd) (= event RcvAck)))      (= result (Next 4)))))))
+    :source "RFC 793 §3.2 — legal transitions only (INCOMPLETE: omits the illegal -> REJECTED totality)")
+  (if (and (= state Closed)  (= event PassiveOpen)) (Next 1)
+  (if (and (= state Closed)  (= event ActiveOpen))  (Next 2)
+  (if (and (= state Listen)  (= event RcvSyn))      (Next 3)
+  (if (and (= state Listen)  (= event RcvAck))      (Next 4)   ;; BUG: LISTEN can't establish; survives the weak (totality-free) post
+  (if (and (= state SynSent) (= event RcvSynAck))   (Next 4)
+  (if (and (= state SynRcvd) (= event RcvAck))      (Next 4)
+    (Rejected 0))))))))

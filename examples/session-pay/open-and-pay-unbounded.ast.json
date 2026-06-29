@@ -1,5 +1,5 @@
 {
-  "llmll_version": "0.13.7",
+  "llmll_version": "0.13.9",
   "schemaVersion": "0.7.0",
   "statements": [
     {
@@ -98,6 +98,29 @@
       },
       "kind": "type-decl",
       "name": "StepResult"
+    },
+    {
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Paid",
+            "payload": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "constructor": "Rejected",
+            "payload": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ]
+      },
+      "kind": "type-decl",
+      "name": "PayOutcome"
     },
     {
       "body": {
@@ -1197,23 +1220,47 @@
             "op": "and"
           },
           "else_branch": {
-            "kind": "lit-int",
-            "value": -1
+            "args": [
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "fn": "Rejected",
+            "kind": "app"
           },
           "kind": "if",
           "then_branch": {
-            "args": [
+            "bindings": [
               {
-                "kind": "var",
-                "name": "balance"
-              },
-              {
-                "kind": "var",
-                "name": "amount"
+                "expr": {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "balance"
+                    },
+                    {
+                      "kind": "var",
+                      "name": "amount"
+                    }
+                  ],
+                  "fn": "debit",
+                  "kind": "app"
+                },
+                "name": "debited"
               }
             ],
-            "fn": "debit",
-            "kind": "app"
+            "body": {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "debited"
+                }
+              ],
+              "fn": "Paid",
+              "kind": "app"
+            },
+            "kind": "let"
           }
         },
         "kind": "let"
@@ -1403,16 +1450,22 @@
                   {
                     "args": [
                       {
-                        "kind": "var",
-                        "name": "balance"
-                      },
-                      {
-                        "kind": "var",
-                        "name": "amount"
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "balance"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "amount"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "-"
                       }
                     ],
-                    "kind": "op",
-                    "op": "-"
+                    "fn": "Paid",
+                    "kind": "app"
                   }
                 ],
                 "kind": "op",
@@ -1565,8 +1618,14 @@
                     "name": "result"
                   },
                   {
-                    "kind": "lit-int",
-                    "value": -1
+                    "args": [
+                      {
+                        "kind": "lit-int",
+                        "value": 0
+                      }
+                    ],
+                    "fn": "Rejected",
+                    "kind": "app"
                   }
                 ],
                 "kind": "op",
@@ -1596,8 +1655,8 @@
         "op": ">="
       },
       "return_type": {
-        "kind": "primitive",
-        "name": "int"
+        "kind": "named",
+        "name": "PayOutcome"
       }
     }
   ]

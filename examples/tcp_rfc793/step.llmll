@@ -1,25 +1,29 @@
-;; TCP RFC 793 — connection state machine, idiomatic enum types.
+;; TCP RFC 793 — connection state machine, real outcome sum (COMP-4 (a)/(c)).
 ;;
-;; "Implement a protocol and let the compiler PROVE the implementation cannot
-;;  violate the protocol's state-safety rules." States and events are real sum
-;;  types and the body matches on them, reaching `verified` with NO int-encoding
-;;  workaround: the compiler tags the nullary constructors internally
-;;  (Closed=0 … Established=4) and discharges the post in pure QF-LIA
-;;  (COMP-3b-general). See VERIFICATION_SCOPE.md for what is proven vs trusted.
+;; "Implement a protocol and let the compiler PROVE the implementation maps EVERY
+;;  (state, event) input to the right outcome." States and events are real nullary
+;;  enums; the RESULT is a real payload-bearing sum, `StepOutcome`:
+;;    Next(s)     — a legal transition, s = the next-state tag (Listen=1 … Established=4)
+;;    Rejected(c) — an illegal (state, event) pair, c = a reason code (0)
+;;  constructed natively (COMP-4 (a)/(c)) and discharged by constructor equality /
+;;  refuted by injectivity. No `5 = REJECTED` int sentinel: the reject is a real
+;;  constructor value, distinct from any next-state by Z3's datatype theory.
 ;;
-;; The `post` is a state-safety property authored FROM the RFC (not a copy of the
-;; body): you cannot reach ESTABLISHED without the handshake — never straight from
-;; CLOSED or LISTEN. A clean implementation satisfies it for all inputs; one that
-;; skips the handshake is refuted and localized to the offending branch
-;; (see step-bad.llmll).
+;; The `post` is the FULL transition-table totality, authored FROM the RFC (not a
+;; copy of the body): each legal pair maps to its specific `Next(tag)`, and every
+;; other pair maps to `Rejected`. This is stronger than the earlier enum re-type
+;; (which proved only the partial "no CLOSED/LISTEN -> ESTABLISHED" safety): the real
+;; outcome sum restores the full totality the int-sentinel version once carried,
+;; WITHOUT the sentinel. A body that skips the handshake is refuted and localized to
+;; the offending branch (see step-bad.llmll).
 ;;   Regenerate twin: llmll build ./step.llmll --emit -o .
 
 (type ConnState
-  (| Closed)
-  (| Listen)
-  (| SynSent)
-  (| SynRcvd)
-  (| Established))
+  (| Closed)        ;; tag 0
+  (| Listen)        ;; tag 1
+  (| SynSent)       ;; tag 2
+  (| SynRcvd)       ;; tag 3
+  (| Established))  ;; tag 4
 
 (type Event
   (| PassiveOpen)
@@ -28,14 +32,31 @@
   (| RcvSynAck)
   (| RcvAck))
 
-(def step [state: ConnState event: Event] -> ConnState
+;; The outcome is a real payload-bearing sum (COMP-4 (a)/(c)):
+;;   Next(s)     — legal transition, s = next-state tag
+;;   Rejected(c) — illegal (state,event) pair, c = reason code
+(type StepOutcome
+  (| Next int)
+  (| Rejected int))
+
+(def step [state: ConnState event: Event] -> StepOutcome
   (post
-    (and (not (and (= state Closed) (= result Established)))
-         (not (and (= state Listen) (= result Established))))
-    :source "RFC 793 §3.2 — no direct CLOSED/LISTEN -> ESTABLISHED (handshake required)")
-  (match state
-    ((Closed)      (match event ((PassiveOpen) Listen) ((ActiveOpen) SynSent) (_ Closed)))
-    ((Listen)      (match event ((RcvSyn) SynRcvd) (_ Listen)))
-    ((SynSent)     (match event ((RcvSynAck) Established) (_ SynSent)))
-    ((SynRcvd)     (match event ((RcvAck) Established) (_ SynRcvd)))
-    ((Established)  Established)))
+    (and (or (not (and (= state Closed)  (= event PassiveOpen))) (= result (Next 1)))
+    (and (or (not (and (= state Closed)  (= event ActiveOpen)))  (= result (Next 2)))
+    (and (or (not (and (= state Listen)  (= event RcvSyn)))      (= result (Next 3)))
+    (and (or (not (and (= state SynSent) (= event RcvSynAck)))   (= result (Next 4)))
+    (and (or (not (and (= state SynRcvd) (= event RcvAck)))      (= result (Next 4)))
+         (or (and (= state Closed)  (= event PassiveOpen))
+         (or (and (= state Closed)  (= event ActiveOpen))
+         (or (and (= state Listen)  (= event RcvSyn))
+         (or (and (= state SynSent) (= event RcvSynAck))
+         (or (and (= state SynRcvd) (= event RcvAck))
+             (= result (Rejected 0))
+         ))))))))))
+    :source "RFC 793 §3.2 — connection state transition table; illegal pairs -> REJECTED")
+  (if (and (= state Closed)  (= event PassiveOpen)) (Next 1)
+  (if (and (= state Closed)  (= event ActiveOpen))  (Next 2)
+  (if (and (= state Listen)  (= event RcvSyn))      (Next 3)
+  (if (and (= state SynSent) (= event RcvSynAck))   (Next 4)
+  (if (and (= state SynRcvd) (= event RcvAck))      (Next 4)
+    (Rejected 0)))))))
