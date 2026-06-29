@@ -72,6 +72,7 @@ module LLMLL.FixpointEmit
   , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
   , sortableComponent            -- PAIR-RET-2: pair-component faithful-sortability
+  , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
   , countPathsBounded
     -- * Contract translation (exported for testing)
@@ -319,6 +320,13 @@ emitFixpointWith opts srcFile stmts = do
   when (moduleUsesPairs aliases stmts) $
     addData (FQDataDecl "Pair2" 2 [("pair2", [FQTyVar 0, FQTyVar 1])])
 
+  -- COMP-4-RESULT: emit the polymorphic Result datatype once, only when the module
+  -- CONSTRUCTS a Result (a `-> Result` admissible return or `(ok e)`/`(err e)` in a
+  -- body/contract) — an eliminate-only module (Result param, scalar return, e.g.
+  -- `settle`) never sorts a Result value (skolem path) and stays byte-identical.
+  when (moduleConstructsResult aliases stmts) $
+    addData (FQDataDecl "Result" 2 [("ok", [FQTyVar 0]), ("err", [FQTyVar 1])])
+
   -- Process each statement
   forM_ (zip [0..] stmts) $ \(idx, stmt) ->
     case stmt of
@@ -519,7 +527,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     -- Emit standalone post-condition constraint (legacy, non-body-VC mode only)
     -- PAIR-RET-2: a non-sortable pair component would mis-sort the result binder
     -- here too; skip rather than emit a crash-inducing constraint.
-    unless (emitBodyVCs opts || sigPairUnsafe aliases params mRet) $ case contractPost contract of
+    unless (emitBodyVCs opts || sigPairUnsafe aliases params mRet || resultReturnUnsafe aliases mRet) $ case contractPost contract of
       Nothing   -> pure ()
       Just post ->
         case exprToPred post of
@@ -568,6 +576,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
         -- this post untranslatable → mPostPred=Nothing → fallback (§3.4.5 firewall),
         -- exactly the Unit-1 conservative behavior, now via the existing path.
         let mPostPred | sigPairUnsafe aliases params mRet = Nothing  -- PAIR-RET-2: non-sortable pair component → fall back (no solver crash)
+                      | resultReturnUnsafe aliases mRet   = Nothing  -- COMP-4-RESULT: non-admissible Result payload → fall back
                       | otherwise                         = contractPost contract >>= exprToPred
             mPrePred  = case contractPre contract of
                           Nothing  -> Just Nothing       -- no pre is fine
@@ -878,6 +887,42 @@ moduleUsesPairs am = any stmtUsesPairs
         go (EAwait e)             = go e
         go _                      = False
 
+-- | COMP-4-RESULT: does the module CONSTRUCT a Result (so a Result FQData term/sort is
+-- emitted)? True for a `-> Result` return (its binder gets the FQData sort) or a body/
+-- contract that applies `ok`/`err`. False for an eliminate-only module (Result param,
+-- scalar return — opaque skolem path), keeping its .fq byte-identical. Match PATTERNS
+-- `(ok x)` are not walked (only arm bodies), so `settle`-shaped elimination is excluded.
+moduleConstructsResult :: AliasMap -> [Statement] -> Bool
+moduleConstructsResult am = any stmtConstructs
+  where
+    stmtConstructs s = case sigOf s of
+      Nothing -> False
+      Just (_params, mRet, contract, mBody) ->
+           maybe False isResult mRet
+        || any exprConstructs ([ p | Just p <- [contractPre contract] ]
+                            ++ [ p | Just p <- [contractPost contract] ])
+        || maybe False exprConstructs mBody
+    sigOf s = case s of
+      SDefLogic _ p r c b     -> Just (p, r, c, Just b)
+      SDef _ p r c b          -> Just (p, r, c, Just b)
+      SDefShell _ p r c b     -> Just (p, r, c, Just b)
+      SDefInvariant _ p r c b -> Just (p, r, c, Just b)
+      SLetrec _ p r c _ b     -> Just (p, r, c, Just b)
+      _                       -> Nothing
+    isResult t = case resolveAliasTy am t of TResult{} -> True; _ -> False
+    exprConstructs = go
+      where
+        go (EApp op args)    = op `elem` ["ok", "err"] || any go args
+        go (EOp  op args)    = op `elem` ["ok", "err"] || any go args
+        go (EIf c t e)       = go c || go t || go e
+        go (ELet bs body)    = any (\(_, _, rhs) -> go rhs) bs || go body
+        go (EMatch scr arms) = go scr || any (go . snd) arms
+        go (ELambda _ body)  = go body
+        go (EDo steps)       = any (\(DoStep _ e) -> go e) steps
+        go (EPair a b)       = go a || go b
+        go (EAwait e)        = go e
+        go _                 = False
+
 typeToSort :: Type -> FQSort
 typeToSort TInt    = FQInt
 typeToSort TBool   = FQBool
@@ -902,6 +947,12 @@ typeToSortA am t = case t of
   -- `(int, Box)` lowers to `(Pair2 int Box)` instead of collapsing Box to int.
   -- (The non-admissible case is firewalled by sigPairUnsafe before emission.)
   TPair a b -> FQDataApp "Pair2" [typeToSortA am a, typeToSortA am b]
+  -- COMP-4-RESULT: a constructed Result lowers to the native polymorphic datatype
+  -- `(Result a b)` so `(ok e)`/`(err e)` reflect (closing the COMP-4 (a) drift —
+  -- ok/err are lowercase builtins the uppercase-ctor guard misses). The non-admissible
+  -- payload case is firewalled by resultReturnUnsafe before emission; opaque/received
+  -- Results (param scrutinees) stay on the skolem path (disjoint binders).
+  TResult a b -> FQDataApp "Result" [typeToSortA am a, typeToSortA am b]
   TCustom n | Just (TSumType ctors) <- Map.lookup n am
             , admissibleDatatype am (TSumType ctors)
             , hasRealPayload ctors -> FQData n
@@ -950,6 +1001,24 @@ sigPairUnsafe am params mRet =
   where pairUnsafe t = case resolveAliasTy am t of
           TPair a b -> not (sortableComponent am a && sortableComponent am b)
           _         -> False
+
+-- | COMP-4-RESULT: a `-> Result` RETURN whose ok/err payload is non-admissible
+-- (list, recursive sum, nested Result, pair) would mis-sort the constructor term and
+-- crash the solver; force a clean fallback. Return-ONLY: a Result PARAM is opaque (the
+-- skolem path), never sorted as a Result, so it is unaffected (no regression to the
+-- existing d-elim / COMP-3b elimination of Result params). Admissible payloads = scalar
+-- (int/bool/string) or an acyclic sum (FQData / int-tag enum).
+resultReturnUnsafe :: AliasMap -> Maybe Type -> Bool
+resultReturnUnsafe am mRet = case resolveAliasTy am <$> mRet of
+  Just (TResult a b) -> not (payloadOK a && payloadOK b)
+  _                  -> False
+  where
+    payloadOK t = case resolveAliasTy am t of
+      TInt           -> True
+      TBool          -> True
+      TString        -> True
+      s@(TSumType _) -> admissibleDatatype am s
+      _              -> False
 
 -- | PAIR-RET-2: a SYNTACTIC (alias-free) conservative variant for the call-VC path
 -- (`bodyToPredM` has no AliasMap). True if the return is a pair with any component
@@ -1192,6 +1261,11 @@ exprToPred (EApp "second" [a]) = (\x   -> FQApp "pair2_1" [x])   <$> exprToPred 
 exprToPred (EPair a b)         = (\x y -> FQApp "pair2"   [x, y]) <$> exprToPred a <*> exprToPred b
 -- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
 exprToPred (EOp op args)     = exprToPred (EApp op args)
+-- COMP-4-RESULT: the Result builtins `ok`/`err` are lowercase, so the uppercase-ctor
+-- clause below misses them; reflect them explicitly into the native `Result` datatype
+-- constructor terms (closes the COMP-4 (a) drift for the Result builtin).
+exprToPred (EApp "ok"  [e]) = (\x -> FQApp "ok"  [x]) <$> exprToPred e
+exprToPred (EApp "err" [e]) = (\x -> FQApp "err" [x]) <$> exprToPred e
 -- COMP-4 (a): a constructor application (uppercase head) in a contract reflects
 -- into the native FQData constructor term — so a post `result = Rejected reason`
 -- discharges by constructor equality.
@@ -1635,6 +1709,16 @@ bodyToPredM env se cenv sccSet (EApp ctor args)
                            return $ case mv of Just (SimpleVC [] p) -> Just p; _ -> Nothing
       margs <- mapM tr args
       return $ (\fas -> SimpleVC [] (FQApp (T.toLower ctor) fas)) <$> sequence margs
+
+-- COMP-4-RESULT: the lowercase Result builtins `ok`/`err` constructed in a body reflect
+-- to the native Result constructor term (the uppercase clause above misses them).
+bodyToPredM env se cenv sccSet (EApp rc [a])
+  | rc == "ok" || rc == "err" = do
+      let tr (EVar v) = return (Just (FQVar (fromMaybe v (Map.lookup v env))))
+          tr e        = do mv <- bodyToPredM env se cenv sccSet e
+                           return $ case mv of Just (SimpleVC [] p) -> Just p; _ -> Nothing
+      ma <- tr a
+      return $ (\p -> SimpleVC [] (FQApp rc [p])) <$> ma
 
 -- PAIR-RET: a pair construction in a body reflects to the Pair2 constructor term so a
 -- function returning `(pair a b)` is body-faithful for a projection post. Mirrors the

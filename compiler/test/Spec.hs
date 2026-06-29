@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, typeToSortA)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -5962,6 +5962,54 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "  (post (= result (first p)))"
           , "  (first p))" ]
         erBodyFallback r `shouldBe` ["ftree"]
+
+    -- COMP-4-RESULT: `(ok e)`/`(err e)` construction is now body-faithful (closing the
+    -- COMP-4 (a) drift — the uppercase-ctor guard missed the lowercase Result builtins).
+    -- Result is promoted to a native polymorphic FQData datatype; opaque/received Result
+    -- params stay on the skolem path (disjoint). Non-admissible payloads firewall. Pure
+    -- sort/reflection/fallback logic unit-tested here; SAFE/refuted CLI-probe-verified.
+    describe "COMP-4-RESULT: ok/err construction" $ do
+      let boxAm = Map.fromList [("Box", TSumType [("Full", Just TInt), ("Empty", Nothing)])]
+          emitR src = case parseStatements GrammarCoreInversion "<test>" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "CR-1: typeToSortA lowers Result to the native (Result a b) datatype sort" $ do
+        typeToSortA Map.empty (TResult TInt TInt) `shouldBe` FQDataApp "Result" [FQInt, FQInt]
+        typeToSortA boxAm (TResult TInt (TCustom "Box"))
+          `shouldBe` FQDataApp "Result" [FQInt, FQData "Box"]
+
+      it "CR-2: exprToPred reflects the lowercase ok/err builtins to constructor terms" $ do
+        exprToPred (EApp "ok"  [EVar "n"]) `shouldBe` Just (FQApp "ok"  [FQVar "n"])
+        exprToPred (EApp "err" [EVar "e"]) `shouldBe` Just (FQApp "err" [FQVar "e"])
+
+      it "CR-3: a Result-constructing def emits `data Result 2` and binds at (Result int int)" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(def mkok [n: int] -> Result[int, int]"
+          , "  (post (= result (ok n)))"
+          , "  (ok n))" ]
+        erFQText r `shouldSatisfy` T.isInfixOf "data Result 2"
+        erFQText r `shouldSatisfy` T.isInfixOf "(Result int int)"
+        erBodyFallback r `shouldBe` []                  -- body-faithful, not fallen back
+
+      it "CR-4: an if-construction (ok/err arms) is body-faithful" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(def classify [n: int] -> Result[int, int]"
+          , "  (post (or (= result (ok n)) (= result (err n))))"
+          , "  (if (>= n 0) (ok n) (err n)))" ]
+        erBodyFallback r `shouldBe` []
+
+      it "CR-5: resultReturnUnsafe firewalls a non-admissible payload (scalar/sum ok)" $ do
+        resultReturnUnsafe Map.empty (Just (TResult TInt TInt))          `shouldBe` False
+        resultReturnUnsafe boxAm     (Just (TResult TInt (TCustom "Box"))) `shouldBe` False
+        resultReturnUnsafe Map.empty (Just (TResult TInt (TList TInt)))  `shouldBe` True   -- list payload → firewall
+        resultReturnUnsafe Map.empty (Just (TResult TInt (TResult TInt TInt))) `shouldBe` True -- nested Result → firewall
+
+      it "CR-6: an eliminate-only Result module emits no `data Result` (byte-inert)" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(def-shell elim [r: Result[int, int]] -> int"
+          , "  (match r ((ok x) x) ((err e) e)))" ]
+        erFQText r `shouldNotSatisfy` T.isInfixOf "data Result"
 
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
