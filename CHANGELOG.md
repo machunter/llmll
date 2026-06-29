@@ -4,6 +4,22 @@
 
 <a id="Latest"></a>
 
+## v0.13.10 — COMP-4 polish: nullary-variant typing fix, sentinel-free demos, spec reconciliation (2026-06-28)
+
+### Compiler — nullary-variant construction types as its sum
+
+- **A nullary variant of a payload-bearing sum, constructed via application — `(Empty)` — now types as its sum, not `unit`.** `inferExpr (EApp func [])` for a nullary constructor returned `TUnit` (a "might be a constructor call" placeholder), so `(= result (Empty))` failed type-checking; it now returns the sum type (η: `(f)` ≡ `f`), unblocking a payload-free arm like `(| Accepted int) (| Rejected)` ([`TypeCheck.hs`](compiler/src/LLMLL/TypeCheck.hs)). The payload form `(Full n)` was already fine. Test `C4AC-3`.
+
+### Examples — tcp_rfc793 + session-pay drop the int sentinel
+
+- **Both demos return a real payload-bearing outcome sum instead of the `-1`/`5` int sentinel** (now that COMP-4 (a)/(c) ships native construction). `session-pay` `open-and-pay -> PayOutcome (| Paid int) (| Rejected int)`; `tcp_rfc793` `step -> StepOutcome (| Next int) (| Rejected int)` with a **full transition-table totality** post — stronger than the prior partial state-safety. Outcomes constructed natively, discharged by constructor equality / injectivity. All twins hold their verdicts (3 refuted; `step-weak` survives); `.ast.json` regenerated, DEMO-RUNBOOK / VERIFICATION_SCOPE updated.
+
+### Docs — LLMLL.md verification matrix reconciled
+
+- **`LLMLL.md` §3.4 / §5.3.3 / §5.3.4 / §5.3.5 reconciled to the shipped sum-type surface.** The auto-discharge fragment is now `Σ_auto = QF-LIA ∪ measure class ∪ datatype class (admissible sums)` — the acyclic SMT datatype theory (Barrett–Shikanian–Tinelli; combined with QF-LIA by polite-theory combination), the first discharge beyond pure QF-LIA. The match-verification prose (stale since v0.13.6) now states: a two-arm sum match (`Result`, or a user ADT with **both** arms single-payload) at any nesting depth, consuming the matched payload's refinement; an admissible-sum constructor application; with `>2`-arm / nullary-arm matches and recursive-datatype constructors falling back.
+
+**Tests: 939 Haskell + 62 Python** (+1 `C4AC-3`). No schema change (`schemaVersion` `0.7.0`).
+
 ## v0.13.9 — COMP-4 (a)/(c): native datatype construction — the COMP-4 line completes (2026-06-28)
 
 ### Compiler — COMP-4 (a): native FQData construction
