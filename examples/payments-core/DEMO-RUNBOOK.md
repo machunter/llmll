@@ -2,7 +2,7 @@
 
 > **Artifact:** "A verified payments core — composition that proves correct, and an assurance story you can show with a real model."
 > **Fixtures:** `transfer.llmll` (+ `transfer-bad`, `transfer-unsafe`), `settle.llmll` (+ `settle-bad`), `conserve.llmll` (+ `conserve-bad`).
-> **Verified against:** `llmll 0.13.4`, real `liquid-fixpoint` on PATH.
+> **Verified against:** `llmll 0.13.11`, real `liquid-fixpoint` on PATH.
 
 Run from this directory; every beat ends at `verify` / the trust-report.
 
