@@ -4,6 +4,23 @@
 
 <a id="Latest"></a>
 
+## v0.13.11 — PAIR-RET: refinement predicates over pair/tuple returns (2026-06-29)
+
+### Compiler — pair projections discharge through the datatype theory
+
+- **A refinement post over a pair/tuple return now verifies instead of falling back to `asserted`.** `first`/`second` reflect to datatype selectors and `(pair a b)` to the constructor, so a post like `(= (+ (first result) (second result)) k)` is discharged (`verified`/`refuted`). A 2-tuple is the polymorphic product `data Pair2 2 = [ | pair2 { pair2_0 : @(0), pair2_1 : @(1) } ]` — the single-constructor restriction of the COMP-4 datatype class ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs): `typeToSort` `TPair`, `exprToPred`/`bodyToPredM` projection + construction reflection; [`FixpointIR.hs`](compiler/src/LLMLL/FixpointIR.hs): `FQDataApp`/`FQTyVar` sorts). Scoped to QF-LIA-scalar components (int/bool/string-measure); an opaque-pair return or a non-`Σ_auto` component operation falls back per the §5.3.3 firewall. Roadmap: PAIR-RET.
+- **Fix — datatype selectors are no longer swept into measure constants.** The measure-constant collector excluded constructors but not their selectors; a selector applied in goal position (`(pair2_0 r)`, new with PAIR-RET) emitted a spurious `constant pair2_0`. The sweep now excludes selector names too (retroactively protects COMP-4 selectors).
+
+### Examples — two-account conservation
+
+- **New [`examples/payments-core/conserve.llmll`](examples/payments-core/conserve.llmll)** (+ refuted `conserve-bad`) proves `(first result) + (second result) = from + to` at the body-faithful tier — the sum-conservation headline the single-int `transfer` could not express. DEMO-RUNBOOK Beat C added.
+
+### Docs — verification matrix + Σ_auto reconciliation
+
+- **`LLMLL.md` §5.3.5** — the `EPair`/`first`/`second` row's SMT-contract and SMT-body-faithful columns flip ❌→✅ (scalar components). **§5.3.3** — the datatype class admits single-constructor products; the recursion-exclusion rationale is re-attributed to the recursive-*measure* boundary (the QF recursive-datatype theory is itself decidable — Barrett–Shikanian–Tinelli CADE 2007, Reynolds–Blanchette JAR 2018), not datatype-theory undecidability.
+
+**Tests: 946 Haskell + 62 Python** (+7 `PR-1`..`PR-7`). No schema change (`schemaVersion` `0.7.0`).
+
 ## v0.13.10 — COMP-4 polish: nullary-variant typing fix, sentinel-free demos, spec reconciliation (2026-06-28)
 
 ### Compiler — nullary-variant construction types as its sum
