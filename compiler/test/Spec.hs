@@ -24,7 +24,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..) )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, typeToSortA)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, typeToSortA)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
@@ -5909,6 +5909,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy`    T.isInfixOf "Pair2 Str int"
         fq `shouldSatisfy`    T.isInfixOf "strLen (pair2_0 result)"
         fq `shouldSatisfy`    T.isInfixOf "constant strLen"
+
+    -- PAIR-RET-2: alias-aware pair-component sort routing. An admissible sum/ADT
+    -- component lowers to its FQData sort — (int, Box) → (Pair2 int Box) — so a
+    -- projection over the sum component verifies via the datatype theory; a
+    -- non-sortable component (Result, recursive sum) forces a clean erBodyFallback
+    -- instead of crashing the solver on a mis-sorted binder. SAFE/refuted/no-crash
+    -- is CLI-probe-verified; the pure sort + fallback logic is unit-tested here.
+    describe "PAIR-RET-2: alias-aware sum-component pair sorts" $ do
+      let boxAm  = Map.fromList [("Box",  TSumType [("Full", Just TInt), ("Empty", Nothing)])]
+          treeAm = Map.fromList [("Tree", TSumType [("Node", Just (TCustom "Tree")), ("Leaf", Nothing)])]
+          emitR src = case parseStatements GrammarCoreInversion "<test>" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "PR2-1: typeToSortA lowers (int, Box) to (Pair2 int Box) — sum component preserved" $
+        typeToSortA boxAm (TPair TInt (TCustom "Box"))
+          `shouldBe` FQDataApp "Pair2" [FQInt, FQData "Box"]
+
+      it "PR2-2: scalar / nested pairs unchanged (regression)" $ do
+        typeToSortA Map.empty (TPair TInt TInt) `shouldBe` FQDataApp "Pair2" [FQInt, FQInt]
+        typeToSortA Map.empty (TPair TInt (TPair TInt TInt))
+          `shouldBe` FQDataApp "Pair2" [FQInt, FQDataApp "Pair2" [FQInt, FQInt]]
+
+      it "PR2-3: sortableComponent — scalar/list/admissible-sum yes; Result/recursive no" $ do
+        sortableComponent boxAm  TInt                `shouldBe` True
+        sortableComponent boxAm  (TList TInt)        `shouldBe` True
+        sortableComponent boxAm  (TCustom "Box")     `shouldBe` True   -- admissible payload sum
+        sortableComponent boxAm  (TResult TInt TInt) `shouldBe` False  -- ok/err: separate gap
+        sortableComponent treeAm (TCustom "Tree")    `shouldBe` False  -- recursive → firewall
+
+      it "PR2-4: an admissible sum-component pair binds result at (Pair2 int Box), body-faithful" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(type Box (| Full int) (| Empty))"
+          , "(def withbox [n: int] -> (int, Box)"
+          , "  (post (= (second result) (Full n)))"
+          , "  (pair n (Full n)))" ]
+        erFQText r `shouldSatisfy` T.isInfixOf "(Pair2 int Box)"
+        erBodyFallback r `shouldBe` []                 -- verifies body-faithfully, not fallen back
+
+      it "PR2-5: a Result-component pair falls back cleanly (no crash, no mis-sort)" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(def withres [n: int] -> (int, Result[int, int])"
+          , "  (post (= (first result) n))"
+          , "  (pair n (ok n)))" ]
+        erBodyFallback r `shouldBe` ["withres"]
+
+      it "PR2-6: a recursive-type pair component falls back (param leg of the gate)" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(type Tree (| Node Tree) (| Leaf))"
+          , "(def-shell ftree [p: (int, Tree)] -> int"
+          , "  (post (= result (first p)))"
+          , "  (first p))" ]
+        erBodyFallback r `shouldBe` ["ftree"]
 
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar

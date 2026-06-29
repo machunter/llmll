@@ -71,6 +71,7 @@ module LLMLL.FixpointEmit
   , payloadRefinement            -- COMP-4 (b): payload type → (bindingVar, pred)
   , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
+  , sortableComponent            -- PAIR-RET-2: pair-component faithful-sortability
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
   , countPathsBounded
     -- * Contract translation (exported for testing)
@@ -516,7 +517,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
             addOrigin cid (ConstraintOrigin name "pre" ptr srcFile)
 
     -- Emit standalone post-condition constraint (legacy, non-body-VC mode only)
-    unless (emitBodyVCs opts) $ case contractPost contract of
+    -- PAIR-RET-2: a non-sortable pair component would mis-sort the result binder
+    -- here too; skip rather than emit a crash-inducing constraint.
+    unless (emitBodyVCs opts || sigPairUnsafe aliases params mRet) $ case contractPost contract of
       Nothing   -> pure ()
       Just post ->
         case exprToPred post of
@@ -564,7 +567,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
         -- is proven as part of the post goal. A non-Σ_auto return refinement makes
         -- this post untranslatable → mPostPred=Nothing → fallback (§3.4.5 firewall),
         -- exactly the Unit-1 conservative behavior, now via the existing path.
-        let mPostPred = contractPost contract >>= exprToPred
+        let mPostPred | sigPairUnsafe aliases params mRet = Nothing  -- PAIR-RET-2: non-sortable pair component → fall back (no solver crash)
+                      | otherwise                         = contractPost contract >>= exprToPred
             mPrePred  = case contractPre contract of
                           Nothing  -> Just Nothing       -- no pre is fine
                           Just pre -> case exprToPred pre of
@@ -893,6 +897,11 @@ typeToSort _     = FQInt  -- conservative default
 -- refinement alias, base type) falls through to 'typeToSort' unchanged.
 typeToSortA :: AliasMap -> Type -> FQSort
 typeToSortA am t = case t of
+  -- PAIR-RET-2: alias-AWARE pair lowering — a component is mapped through
+  -- typeToSortA (not the alias-unaware typeToSort), so an admissible sum component
+  -- `(int, Box)` lowers to `(Pair2 int Box)` instead of collapsing Box to int.
+  -- (The non-admissible case is firewalled by sigPairUnsafe before emission.)
+  TPair a b -> FQDataApp "Pair2" [typeToSortA am a, typeToSortA am b]
   TCustom n | Just (TSumType ctors) <- Map.lookup n am
             , admissibleDatatype am (TSumType ctors)
             , hasRealPayload ctors -> FQData n
@@ -909,6 +918,57 @@ typeToSortA am t = case t of
     hasRealPayload cs = any realField cs
     realField (_, Just pt) = resolveAliasTy am pt /= TUnit
     realField (_, Nothing) = False
+
+-- | PAIR-RET-2: is a pair component faithfully representable as an FQSort that
+-- AGREES with its reflected term? Scalars (int/bool/string carrier), lists (Lst
+-- carrier), nested pairs, nullary enums (int-tag, COMP-3c), and admissible payload
+-- sums (FQData) are. A `Result` or a recursive/non-admissible payload sum is NOT:
+-- typeToSortA collapses it to FQInt while construction reflects an FQData term, a
+-- sort mismatch that crashes liquid-fixpoint. A non-sortable component routes the
+-- whole function to erBodyFallback (the §5.3.3 firewall) instead of emitting the
+-- crash-inducing constraint.
+sortableComponent :: AliasMap -> Type -> Bool
+sortableComponent am t0 = case resolveAliasTy am t0 of
+  TInt        -> True
+  TBool       -> True
+  TString     -> True
+  TList _     -> True
+  TPair a b   -> sortableComponent am a && sortableComponent am b
+  TResult _ _ -> False                                   -- ok/err construction not body-faithful (separate COMP-4 gap)
+  s@(TSumType ctors)
+    | any realField ctors -> admissibleDatatype am s     -- payload sum → FQData iff acyclic
+    | otherwise           -> True                         -- nullary enum → int-tag (COMP-3c)
+  _           -> False
+  where realField (_, Just pt) = resolveAliasTy am pt /= TUnit
+        realField (_, Nothing) = False
+
+-- | PAIR-RET-2: does any pair in the signature carry a non-sortable component?
+-- If so the body-faithful path would mis-sort the binder; force a clean fallback.
+sigPairUnsafe :: AliasMap -> [(Name, Type)] -> Maybe Type -> Bool
+sigPairUnsafe am params mRet =
+  any (pairUnsafe . snd) params || maybe False pairUnsafe mRet
+  where pairUnsafe t = case resolveAliasTy am t of
+          TPair a b -> not (sortableComponent am a && sortableComponent am b)
+          _         -> False
+
+-- | PAIR-RET-2: a SYNTACTIC (alias-free) conservative variant for the call-VC path
+-- (`bodyToPredM` has no AliasMap). True if the return is a pair with any component
+-- that is not obviously sortable (scalar / list / nested-scalar-pair). A
+-- TCustom/TSumType/TResult component is treated as possibly-unsafe — conservative
+-- (a nullary-enum component is gated too, a harmless completeness loss); the
+-- precise alias-aware check is 'sigPairUnsafe'.
+syntacticUnsafePairRet :: Maybe Type -> Bool
+syntacticUnsafePairRet = maybe False go
+  where
+    go (TPair a b) = not (scalarish a && scalarish b)
+    go _           = False
+    scalarish TInt               = True
+    scalarish TBool              = True
+    scalarish TString            = True
+    scalarish (TList _)          = True
+    scalarish (TPair a b)        = scalarish a && scalarish b
+    scalarish (TDependent _ b _) = scalarish b
+    scalarish _                  = False
 
 -- | COMP-4 (d-elim): a two-arm-ADT payload is admissible to opaque-sum
 -- elimination iff its sort is a QF-LIA-representable scalar (int / bool /
@@ -1305,8 +1365,14 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
         case mPreResult of
           Nothing -> return Nothing  -- soundness: cannot assume post without verifying pre
           Just mPrePred -> do
-            -- Translate post (Nothing = no post → no assumption)
-            let mPostPred = contractPost contract >>= exprToPred
+            -- Translate post (Nothing = no post → no assumption).
+            -- PAIR-RET-2: bodyToPredM has no AliasMap, so use a syntactic, conservative
+            -- guard — if the callee returns a pair with any non-scalar/non-list/
+            -- non-nested-scalar-pair component, do NOT assume its post (it could
+            -- mis-sort `pair2_i` against the alias-unaware retSort and crash the
+            -- solver). The callee itself already fell back when emitted.
+            let mPostPred | syntacticUnsafePairRet mRetType = Nothing
+                          | otherwise                       = contractPost contract >>= exprToPred
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
             let mPostSubst = fmap (\p -> applySubst (Map.insert "result" (FQVar resultVar) subst) p) mPostPred
