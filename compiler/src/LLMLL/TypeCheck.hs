@@ -1229,9 +1229,17 @@ inferExpr (EApp func args) = do
               structuralUnify func subst (stripDep expected') (stripDep actual')
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
       pure (applySubst finalSubst retType)
-    Just (TCustom _) ->
-      -- Might be a constructor call
-      pure TUnit
+    Just (TCustom n)
+      -- COMP-4: a nullary constructor applied with no args — `(Empty)` — is a
+      -- VALUE of its sum type (η: `(f)` ≡ `f`). collectConstructors registers a
+      -- nullary ctor as `ctor : TCustom Sum`; the bare-EVar form already types as
+      -- the sum, and this makes the application form agree (so a payload sum with
+      -- a nullary variant, `(| Accepted int) (| Rejected)`, is constructible).
+      | null args -> pure (TCustom n)
+      | otherwise -> do
+          tcError $ "'" <> func <> "' is not a function (nullary constructor / value of type "
+                    <> n <> ") but is applied to " <> tshow nArgs <> " arg(s)"
+          pure (TCustom n)
     Just other -> do
       tcError $ "'" <> func <> "' is not a function, it has type " <> typeLabel other
       pure TUnit

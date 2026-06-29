@@ -5841,6 +5841,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         typeToSortA colorAm (TCustom "Color") `shouldBe` FQInt
         typeToSortA boxAm   TInt              `shouldBe` FQInt
 
+      it "C4AC-3: a nullary variant of a payload sum is constructible via application (no type mismatch)" $ do
+        let src = T.pack $ unlines
+              [ "(type Box (| Full int) (| Empty))"
+              , "(def mk [n: int] -> Box (post (= result (Empty))) (Empty))" ]
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Left err    -> expectationFailure (show err)
+          Right stmts -> do
+            let report = typeCheck GrammarCoreInversion emptyEnv stmts
+                mism   = filter (\d -> "mismatch" `T.isInfixOf` diagMessage d) (reportDiagnostics report)
+            mism `shouldBe` []
+
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
     -- (ctor value EVar -> int tag; enum EMatch -> nested EIf on (= scrut tag)).
