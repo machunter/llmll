@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.13.11)
+# LLMLL: Large Language Model Logical Language (v0.13.12)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.13.11.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.13.12.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -997,7 +997,7 @@ The following matrix documents the verification status of each syntax construct.
 | `EMatch` two-arm sum (`Result`, or user ADT both arms single-payload) | ✅ | ✅ | ✅ | ✅ (two-path, any nesting; consumes payload refinement) | ✅ | — |
 | constructor application `(Ctor e)` / `(Ctor)` over an admissible sum | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | recursive sum → strict-core gate → `def-shell` |
 | `EMatch` (>2 arms, or a nullary arm) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
-| `EPair`/`first`/`second` (scalar-component) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | opaque-pair / non-`Σ_auto` component → runtime |
+| `EPair`/`first`/`second` (scalar / admissible-sum / nested / list component) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | opaque-pair / `Result` / recursive-sum / non-`Σ_auto` component → runtime |
 | `letrec` (own body VC) | ✅ | ✅ | ⚠ measure well-formedness only | ❌ | ✅ | runtime + `:decreases` check |
 | `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |
 | `ELambda` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |

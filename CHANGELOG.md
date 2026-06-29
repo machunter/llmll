@@ -4,6 +4,19 @@
 
 <a id="Latest"></a>
 
+## v0.13.12 — PAIR-RET-2: admissible sum/ADT-typed pair components (2026-06-29)
+
+### Compiler — alias-aware pair-component sorts + crash-to-fallback
+
+- **A pair with an *admissible* sum/ADT component now verifies a projection over that component.** `typeToSortA` gains an alias-aware, recursive `TPair` case, so `(int, Box)` lowers to `(Pair2 int Box)` instead of collapsing the sum component to `int`; a post like `(= (second result) (Full n))` discharges via the datatype theory ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs): `typeToSortA`). Nested `(int, (int, int))` and list `(int, list[int])` components already verified (the recursive `typeToSort`) — unchanged.
+- **A non-admissible pair component now falls back cleanly instead of crashing the solver.** A `Result`/`ok`-`err` or recursive-sum component previously mis-sorted the binder (`(Pair2 int int)` for `(int, Box)`) and crashed liquid-fixpoint (`"sort Box is not numeric"`) when the component was projected. New `sortableComponent`/`sigPairUnsafe` route such a function to `erBodyFallback` (the §5.3.3 firewall); a `syntacticUnsafePairRet` guard closes the same residual on the compositional call-VC path. This also removes a latent mis-sorted binder in the scalar-projection-over-sum-component path.
+
+### Docs — verification matrix
+
+- **`LLMLL.md` §5.3.5** — the `EPair`/`first`/`second` row widens: scalar **and** admissible-sum/ADT/nested/list components discharge; `Result` and recursive-sum components fall back via the §5.3.3 firewall.
+
+**Tests: 952 Haskell + 62 Python** (+6 `PR2-1`..`PR2-6`). No schema change (`schemaVersion` `0.7.0`). `Result`-builtin construction (`(ok n)` not body-faithful even without a pair) remains a separate COMP-4 follow-on.
+
 ## v0.13.11 — PAIR-RET: refinement predicates over pair/tuple returns (2026-06-29)
 
 ### Compiler — pair projections discharge through the datatype theory
