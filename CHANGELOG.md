@@ -4,6 +4,18 @@
 
 <a id="Latest"></a>
 
+## v0.13.14 — datatype-tail: admissibility closed under acyclic composition (2026-06-29)
+
+### Compiler — composed-datatype construction
+
+- **The datatype-admissibility predicates now recurse over the acyclic composition of scalar / pair / sum / Result**, completing the construction matrix opened by PAIR-RET → COMP-4-RESULT. A **pair-of-`Result`** component (`(int, Result[int,int])`) is body-faithful, and **nested** (`Result[Result[int,int],int]`) and **composed** (`Result[(int,int),int]`) payloads verify. Two predicates in [`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs) changed: `sortableComponent` (`TResult` was a leaf `False` → now recurses on its payloads) and `resultReturnUnsafe`'s payload check (`TPair`/`TResult` recurse). A `list`-carrier payload and a genuinely-recursive type stay firewalled — the deliberate final boundary; they fall back cleanly, never crash (the recursion bottoms out at `admissibleDatatype`). No new solver capability (spike-confirmed the nested applied sorts); `examples/payments-core/settle.llmll` is byte-identical.
+
+### Docs
+
+- **`LLMLL.md` §5.3.3** — the datatype-class clause notes admissibility is closed under acyclic composition (pair-of-`Result`, nested/composed payloads), correcting the v0.13.13 "nested-`Result` falls back" note.
+
+**Tests: 961 Haskell + 62 Python** (+3 `CT-1`..`CT-3`; `PR2-5`/`CR-5` updated for the moved boundary). No schema change (`schemaVersion` `0.7.0`).
+
 ## v0.13.13 — COMP-4-RESULT: `ok`/`err` construction is body-faithful (2026-06-29)
 
 ### Compiler — Result construction reflects (drift-closure)
