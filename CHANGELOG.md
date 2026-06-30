@@ -4,6 +4,19 @@
 
 <a id="Latest"></a>
 
+## v0.13.13 — COMP-4-RESULT: `ok`/`err` construction is body-faithful (2026-06-29)
+
+### Compiler — Result construction reflects (drift-closure)
+
+- **`(ok e)`/`(err e)` construction is now body-faithful.** A `-> Result[…]` function with a construction post — `(= result (ok n))` or an `if`-totality `(if g (ok x) (err y))` — discharges via the datatype theory (a wrong constructor refutes). Closes a COMP-4 (a) drift: the construction reflection fired only for *uppercase* constructors, so the lowercase Result builtins `ok`/`err` fell back — even though `§5.3.3` / `§5.3.5` already asserted `(Ctor e)` construction over an admissible sum discharges. Result is promoted from fully-opaque to a native polymorphic datatype (the Result analog of `Pair2`): a `typeToSortA` `TResult` case lowering to `(Result a b)`, `ok`/`err` reflection in `exprToPred`/`bodyToPredM`, and a one-time gated `data Result 2 = [ | ok { ok_0 : @(0) } | err { err_0 : @(1) } ]` decl ([`FixpointEmit.hs`](compiler/src/LLMLL/FixpointEmit.hs)). Scoped to scalar and admissible-sum `ok`/`err` payloads (`Result[int,int]`, `Result[int,Box]`).
+- **A non-admissible Result payload falls back cleanly.** `resultReturnUnsafe` firewalls a `-> Result` return whose payload is a list / recursive sum / nested Result — `erBodyFallback`, never a solver crash. Return-only, so Result *params* (the skolem-based d-elim path) are untouched: `examples/payments-core/settle.llmll` (Result-param elimination) is byte-identical with an unchanged verdict.
+
+### Docs — verification matrix
+
+- **`LLMLL.md` §5.3.3 / §5.3.5** — the `(Ctor e)` construction clauses now name the Result builtins `ok`/`err` explicitly (scalar / admissible-sum payloads; list / recursive / nested-Result payloads fall back).
+
+**Tests: 958 Haskell + 62 Python** (+6 `CR-1`..`CR-6`). No schema change (`schemaVersion` `0.7.0`). `ok`/`err` ↔ a user `Ok`/`Err` constructor (lowercased) is a flagged niche collision.
+
 ## v0.13.12 — PAIR-RET-2: admissible sum/ADT-typed pair components (2026-06-29)
 
 ### Compiler — alias-aware pair-component sorts + crash-to-fallback
