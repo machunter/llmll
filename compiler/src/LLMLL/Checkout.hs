@@ -152,12 +152,21 @@ instance FromJSON TypeDefEntry where
   parseJSON = withObject "TypeDefEntry" $ \o -> do
     n <- o .: "name"
     k <- o .: "kind"
-    cs <- o .:? "constructors"
+    -- Constructors are serialized by the ToJSON above as objects {name, payload?}.
+    -- Parse them back with a matching object parser; the default instance for
+    -- [(Text, Maybe Text)] expects 2-element arrays, so relying on it silently
+    -- breaks the checkout-lock round-trip for any program with a sum type in scope
+    -- (loadLock returns Nothing -> every patch fails "invalid or expired token").
+    mCtors <- o .:? "constructors"
+    cs <- traverse (mapM parseCtorEntry) mCtors
     bt <- o .:? "base_type"
     rec_ <- o .:? "recursive"
     pure TypeDefEntry
       { tdName = n, tdKind = k, tdConstructors = cs
       , tdBaseType = bt, tdRecursive = maybe False id rec_ }
+    where
+      parseCtorEntry = withObject "constructor" $ \c ->
+        (,) <$> c .: "name" <*> c .:? "payload"
 
 data CheckoutToken = CheckoutToken
   { ctPointer   :: Text             -- RFC 6901 pointer to the hole

@@ -64,7 +64,7 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), FuncEntry(..), checkoutHole)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), FuncEntry(..), checkoutHole)
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..))
@@ -2138,6 +2138,18 @@ main = hspec $ do
 
     it "lockFilePath: simple.json -> simple.llmll-lock.json" $
       lockFilePath "simple.json" `shouldBe` "simple.llmll-lock.json"
+
+    -- Regression: a sum-type TypeDefEntry must survive the JSON round-trip that
+    -- backs the checkout lock. The ToJSON writes constructors as {name, payload?}
+    -- objects; before the matching FromJSON parser, decode used the default
+    -- [(Text, Maybe Text)] (2-element-array) instance and silently returned
+    -- Nothing, so loadLock failed and every patch on a program with a sum type
+    -- in scope rejected its token as "invalid or expired".
+    it "TypeDefEntry: sum type round-trips through JSON (checkout-lock fix)" $ do
+      let td = TypeDefEntry "Reason" "sum"
+                 (Just [("Insufficient", Nothing), ("Overdraft", Just "int")])
+                 Nothing False
+      decode (encode td) `shouldBe` Just td
 
     it "expireStale removes expired tokens" $ do
       let epoch = UTCTime (fromGregorian 2026 1 1) 0
