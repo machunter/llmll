@@ -3,13 +3,18 @@
 ;; Regenerate the twin after editing: llmll build ./demo.llmll --emit -o .
 ;; Capture script: DEMO-RUNBOOK.md
 ;;
-;; Three functions, three points the demo makes:
-;;   withdraw — a contract whose post restates the body; the legible on-ramp (sign-error catch).
-;;   double   — proven, no precondition: a "fully closed" companion that earns top-tier `verified`.
-;;   maxi     — a post that is a complete *property* (result is ≥ both inputs and is one of them),
-;;              not a copy of the body: the evidential case. A plausible wrong fill (returns the
-;;              min) type-checks and passes most tests, but the verifier refutes it for all inputs
-;;              and localizes the defect to each branch.
+;; Four functions, four points the demo makes:
+;;   withdraw        — a contract whose post restates the body; the legible on-ramp. Carries a
+;;                     precondition: the caller must guarantee `balance ≥ amount`.
+;;   double          — proven, no precondition: a "fully closed" companion that earns top-tier `verified`.
+;;   maxi            — a post that is a complete *property* (result is ≥ both inputs and is one of them),
+;;                     not a copy of the body: the evidential case. A plausible wrong fill (returns the
+;;                     min) type-checks and passes most tests, but the verifier refutes it for all inputs
+;;                     and localizes the defect to each branch.
+;;   withdraw-outcome — the SIBLING of `withdraw`: same signature, but it drops the precondition and makes
+;;                     failure a *value*. Total over `Result[int, Reason]`; the return type carries the
+;;                     success/failure discrimination, and a guard-bound post proves it. Two honest
+;;                     designs for one operation — one demands a guarantee, one returns `err`.
 
 (type PositiveInt (where [x: int] (> x 0)))
 
@@ -26,3 +31,12 @@
   (post (and (and (>= result a) (>= result b))
              (or (= result a) (= result b))))
   ?maxi_body)
+
+(type Reason (| Insufficient))
+
+(def withdraw-outcome [balance: int amount: PositiveInt] -> Result[int, Reason]
+  ;; No `pre` — total. The guard-bound post ties the outcome constructor to the guard:
+  ;; legal → ok(debited), illegal → err. Discharged body-faithfully by z3's datatype theory.
+  (post (and (or (not (>= balance amount)) (= result (ok (- balance amount))))
+             (or (>= balance amount)       (= result (err Insufficient)))))
+  ?withdraw_outcome_body)
