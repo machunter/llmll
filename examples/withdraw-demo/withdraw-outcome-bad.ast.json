@@ -1,0 +1,171 @@
+{
+  "llmll_version": "0.14.0",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "Insufficient"
+          }
+        ]
+      },
+      "kind": "type-decl",
+      "name": "Reason"
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "balance"
+              },
+              {
+                "kind": "var",
+                "name": "amount"
+              }
+            ],
+            "kind": "op",
+            "op": "-"
+          }
+        ],
+        "fn": "ok",
+        "kind": "app"
+      },
+      "kind": "def",
+      "name": "withdraw-outcome-bad",
+      "params": [
+        {
+          "name": "balance",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "amount",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "balance"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "amount"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": ">="
+                  }
+                ],
+                "kind": "op",
+                "op": "not"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "balance"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "amount"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "-"
+                      }
+                    ],
+                    "fn": "ok",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "or"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "balance"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "amount"
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "Insufficient"
+                      }
+                    ],
+                    "fn": "err",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "or"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "err_type": {
+          "kind": "named",
+          "name": "Reason"
+        },
+        "kind": "result",
+        "ok_type": {
+          "kind": "primitive",
+          "name": "int"
+        }
+      }
+    }
+  ]
+}

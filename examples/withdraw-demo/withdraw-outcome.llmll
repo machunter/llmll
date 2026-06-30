@@ -1,0 +1,25 @@
+;; withdraw-demo — "the outcome is the contract" (datatype construction).
+;;
+;; The plain `withdraw` returns an int and leans on a precondition `balance >= amount`.
+;; `withdraw-outcome` instead makes the success/failure discrimination part of the
+;; RETURN TYPE — `Result[int, Reason]` — and is TOTAL: it accepts any balance/amount and
+;; constructs the honest outcome, `(ok debited)` on the legal branch, `(err Insufficient)`
+;; on the illegal one. No precondition; the type carries the case split.
+;;
+;; The post is GUARD-BOUND — it ties the outcome constructor to the guard, so it is
+;; discriminative: legal -> ok(balance - amount), illegal -> err. It discharges
+;; body-faithfully via z3's datatype theory (COMP-4-RESULT, v0.13.13): `(ok e)`/`(err e)`
+;; reflect to the native `Result` datatype and the post proves by constructor equality.
+;; Same totality-over-a-constructed-sum discipline as payments-core's PayOutcome/StepOutcome.
+;;
+;;   llmll verify ./withdraw-outcome.llmll   ->  withdraw-outcome verified (body-faithful)
+;;
+;; The dishonest twin (withdraw-outcome-bad.llmll) returns `(ok ...)` even on overdraft —
+;; the type admits the shape, but the contract refutes the lie.
+
+(type Reason (| Insufficient))
+
+(def withdraw-outcome [balance: int amount: int] -> Result[int, Reason]
+  (post (and (or (not (>= balance amount)) (= result (ok (- balance amount))))
+             (or (>= balance amount)       (= result (err Insufficient)))))
+  (if (>= balance amount) (ok (- balance amount)) (err Insufficient)))

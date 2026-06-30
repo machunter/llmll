@@ -1,0 +1,22 @@
+;; withdraw-demo — the dishonest-outcome twin (refuted).
+;;
+;; Identical contract to withdraw-outcome.llmll, but the body returns `(ok ...)`
+;; UNCONDITIONALLY — it "succeeds" even on an overdraft, debiting past zero instead of
+;; erroring. The return type still type-checks (`Result[int, Reason]` admits any `ok`),
+;; but the guard-bound post demands `err` on the illegal branch, so the solver REFUTES it
+;; by constructor distinctness (`ok` /= `err`).
+;;
+;;   llmll verify ./withdraw-outcome-bad.llmll
+;;   -> error: body verification of 'withdraw-outcome-bad' failed —
+;;             implementation does not satisfy postcondition
+;;
+;; The type admits the shape; the contract refutes the lie. (And — Beat 9 — you cannot
+;; forge a 'verified' proof artifact for it either: the §4.1 kernel rejects a positive
+;; tier flagged refuted.)
+
+(type Reason (| Insufficient))
+
+(def withdraw-outcome-bad [balance: int amount: int] -> Result[int, Reason]
+  (post (and (or (not (>= balance amount)) (= result (ok (- balance amount))))
+             (or (>= balance amount)       (= result (err Insufficient)))))
+  (ok (- balance amount)))

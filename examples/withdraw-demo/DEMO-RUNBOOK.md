@@ -1,6 +1,6 @@
 # LLMLL Repair-Loop Demo — Capture Runbook
 
-> **Artifact:** "From a bad agent patch to verified trust closure."
+> **Artifact:** "From a bad agent patch to verified trust closure — then to a portable, replayable, unfakeable record of it. You can't sneak bad code past the verifier; you can't sneak a fake verdict past the artifact."
 > **Fixture:** [`demo.ast.json`](demo.ast.json) — `PositiveInt`, `withdraw` (typed hole), `double` (pre-verified), `maxi` (typed hole). The JSON-AST is what the agent checkout/patch protocol operates on; [`demo.llmll`](demo.llmll) is the human-readable source it is generated from (`llmll build ./demo.llmll --emit -o .`). [`audit.llmll`](audit.llmll) / [`audit.ast.json`](audit.ast.json) is a thin **shell** module over the core, used only by the authority-axis step (7).
 > **Verified against:** `llmll 0.13.1`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the step-2 checkout brief's `expected_return_type` requires v0.13.1 (DEF-RET — `withdraw`/`double`/`maxi` declare `-> int`). The step-2 checkout brief was re-captured on `0.13.1` (2026-06-21) with the DEMO-COMP fields (`available_functions` / `consumed_guarantees` / `brief_version`) and the DEF-RET `expected_return_type`; steps 1 and 3–7 carry their prior captures unchanged — DEF-RET adds no verification obligation for a base-type (`int`) return, so the `verify` / trust-report / authority verdicts are byte-identical.
 
@@ -462,6 +462,39 @@ error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw' 
 
 One fact, **three views**: the *report* surfaces it (`caller_obligations`), the *verifier* enforces it (the call-site VC), and the *protocol* rejects a patch that violates it (`PatchVerifyError / callee-precondition-unmet`). The caller-obligation is load-bearing — compose with `withdraw` and you **must** discharge `balance ≥ amount`, or your code does not land.
 
+### 6.7 — The outcome is the contract (`Result` construction)
+
+`withdraw` leans on a precondition — *the caller must guarantee `balance ≥ amount`*. [`withdraw-outcome.llmll`](withdraw-outcome.llmll) takes the other design: it moves the success/failure discrimination **into the return type** and is **total**. It accepts any input and constructs the honest outcome — `(ok debited)` on the legal branch, `(err Insufficient)` on the illegal one — and the verifier proves it total *over the constructed outcome*:
+
+```lisp
+(type Reason (| Insufficient))
+(def withdraw-outcome [balance: int amount: int] -> Result[int, Reason]
+  (post (and (or (not (>= balance amount)) (= result (ok (- balance amount))))   ;; legal  → ok(debited)
+             (or (>= balance amount)       (= result (err Insufficient)))))      ;; illegal → err
+  (if (>= balance amount) (ok (- balance amount)) (err Insufficient)))
+```
+
+```bash
+llmll verify ./withdraw-outcome.llmll
+```
+```
+   body-faithful: withdraw-outcome
+✅ withdraw-outcome.llmll — SAFE (liquid-fixpoint)
+```
+
+The post is **guard-bound** — it ties the outcome *constructor* to the guard (legal → `ok`, illegal → `err`), so it is discriminative, not decorative. It discharges body-faithfully through z3's datatype theory: `(ok e)`/`(err e)` reflect to the native `Result` datatype and the post proves by constructor equality (the `§5.3.3` datatype class — `Σ_auto`, no Lean). Same totality-over-a-constructed-sum discipline as `payments-core`'s `PayOutcome`/`StepOutcome`.
+
+The dishonest twin ([`withdraw-outcome-bad.llmll`](withdraw-outcome-bad.llmll)) returns `(ok ...)` **unconditionally** — it "succeeds" on an overdraft, debiting past zero. The return type still admits the shape (`Result` accepts any `ok`), but the contract refutes the lie by constructor distinctness (`ok` ≠ `err` on the illegal branch):
+
+```bash
+llmll verify ./withdraw-outcome-bad.llmll
+```
+```
+error: body verification of 'withdraw-outcome-bad' failed — implementation does not satisfy postcondition (constraint #0)
+```
+
+Same `maxi`/`return-refine` shape — a type-correct fill the solver refutes — but here the spec rides the **outcome type**. The companion [`return-refine`](return-refine.llmll) does this with a refinement-aliased *return* (`-> Word`); this does it with a constructed *sum* outcome. Both are the discriminative-contract bar (the step-8 CDP axis is what *measures* that tightness): the type admits the shape, the contract refutes the dishonest one.
+
 ### 7 — The authority axis (`effect_summary`)
 
 The trust lattice answers *"is it correct?"*. A second, **orthogonal** axis answers *"what can it touch?"* — the object-capability **authority** a function may exercise. As of v0.12.0 (Bundle B0), `verify --obligation-report` emits a per-function `effect_summary`. The core (`demo.ast.json`) is pure — every function reports `∅`, which makes the point but does not exercise the feature. So [`audit.llmll`](audit.llmll) is a thin **shell** module over the core: it `(import demo)`s the verified `withdraw` and adds the one thing the core deliberately does not do — an audit line to `stdout`.
@@ -538,6 +571,58 @@ Same `maxi` shape — the solver refutes a type-correct fill — but here the sp
 
 ---
 
+## Capstone — the trust closure as a replayable, unfakeable record (PROOF-ARTIFACT)
+
+The demo opened by proving you **can't sneak bad *code* past the verifier** — the type channel catches the obvious fill, the contract channel refutes the type-correct one (the `min`/`max` bug, the dishonest-`ok` outcome). The capstone is the dual: with **PROOF-ARTIFACT** (v0.14.0) you **can't sneak a fake *verdict* past the artifact** either. Same anti-laundering discipline, one layer up.
+
+**One portable record.** `--proof-artifact` writes a single file consolidating the trust closure — every axis above, colocated — for the verified composition of step 6.5:
+
+```bash
+llmll verify ./compose.llmll --strict-verified-core --proof-artifact ./compose.proof.json
+```
+```
+   body-faithful: withdraw, guarded-withdraw
+✅ compose.llmll — SAFE (liquid-fixpoint)
+   proof-artifact written to ./compose.proof.json
+```
+
+**An auditor replays the receipt — they don't take your word.** `replay-artifact` recomputes the source hash and re-runs the recorded VC under the *pinned* solver, and the verdict must reproduce:
+
+```bash
+llmll replay-artifact ./compose.proof.json
+```
+```
+✅ replay reproduced verdict: RSafe
+```
+
+Change the source out from under the record and it **fails closed** — a stale receipt is never honored:
+
+```bash
+printf '\n;; tampered\n' >> ./compose.llmll       # then restore with: git checkout compose.llmll
+llmll replay-artifact ./compose.proof.json
+```
+```
+⛔ replay FAILED CLOSED: source/AST hash mismatch — artifact stale relative to the named source
+```
+
+**You can't forge the verdict.** The artifact for the refuted `withdraw-outcome-bad` is *honest* — it records the function as `asserted` with `refuted: true`, never a positive tier. Now try to launder it: hand-edit that record to claim `"verified"`. The artifact's kernel refuses it **on parse** — a positive tier is structurally inseparable from its evidence:
+
+```bash
+llmll verify ./withdraw-outcome-bad.llmll --proof-artifact ./bad.proof.json   # records: evidence_level "asserted", refuted true
+#   ... edit bad.proof.json: functions[0].evidence_level -> "verified" ...
+llmll replay-artifact ./bad.proof.json
+```
+```
+ERROR: proof-artifact rejected (parse / §4.1 invariant): ill-formed artifact:
+       function 'withdraw-outcome-bad' carries a positive tier but is flagged refuted
+```
+
+**You can't sneak bad code past the verifier; you can't sneak a fake verdict past the artifact. Correctness is structural at both layers.**
+
+> **Honest scope (state it — do not oversell).** The artifact is **hermetic, version-pinned, auditable re-verification**: `replay-artifact` **re-runs the solver** under pinned determinism inputs (the *replay* property — the F\*-`.hints` / Dafny-caching precedent). It is **not** a verdict checkable *without* the solver — that stronger property (a third party validates against a small kernel, not the prover) is the future **Lean tier** (the reserved `certificate` field), not what ships here. "Reproducible and unfakeable" is the claim; "checkable without trusting the solver" is **not**. And note the distinction the forgery beat turns on: the artifact *for* bad code tells the truth (it records `refuted`); only a *forged* artifact — one that *claims* a verdict it didn't earn — is what the kernel rejects.
+
+---
+
 ## Narration cues
 
 - **Step 2:** "Two agents, two holes, one program — reserved at once. Watch what the system does when their writes collide."
@@ -547,6 +632,8 @@ Same `maxi` shape — the solver refutes a type-correct fill — but here the sp
 - **Step 6, the key line:** *"All three are verified — `withdraw` included. It proved its job. What it carries is a separate thing: a caller-obligation, `balance ≥ amount`, on its own axis. We don't demote a function for having a precondition — we name the precondition as the caller's to honor. Two questions, two axes."*
 - **Step 6.5 (composition), the payoff:** *"Now watch the obligation become real. A function that calls `withdraw` and discharges `balance ≥ amount` is verified too. Drop that guarantee and the verifier refuses the code — the call-site precondition is exactly the obligation the report showed. The report names it, the verifier enforces it, the protocol rejects violations of it. One fact, three views."*
 - **Step 7 (authority):** *"Correctness is one axis; authority is the other — what the code is even allowed to touch. The core proves correct **and** reaches nothing. The shell that logs an audit line reaches exactly `stdout`, and the report names it — composed across the import edge. Trust and authority are separate questions, and LLMLL answers both without conflating them."* Drop this step too for a purely correctness-focused pitch; lead with it for a security/capability audience.
+- **Step 6.7 (the outcome is the contract):** *"`withdraw` asked the caller for a guarantee. This version asks for nothing — it makes success-or-failure part of the return type and is total: legal returns `ok` with the debited balance, illegal returns `err`. The verifier proves it total over the outcome. And the fill that 'helpfully' returns `ok` on an overdraft? Type-correct — and refuted. The type admits the shape; the contract refutes the lie."*
+- **Capstone (the artifact):** *"We proved you can't sneak bad code past the verifier. Here's the other half: you can't sneak a fake verdict past the artifact. The verified closure becomes one portable record; an auditor replays it instead of trusting us; change the source and it fails closed; and edit the record to claim a verdict it didn't earn — the kernel rejects it on parse. Honest framing: this is replayable, auditable re-verification — it re-runs the solver under pinned inputs. It is not a proof you can check without the solver; that's the Lean tier, later. Correctness is structural at both layers — the code and the claim."*
 
 > **Reading the report — two axes, don't scalarize.** The summary `verified` count is the *trust* axis (did the body prove its spec?); it no longer demotes a function for *having* a precondition. The *obligation* axis (`caller_obligations`) reports separately what a caller must guarantee. An agent that greps `effective_level == "verified"` and stops gets a true answer to *"is it correct?"* but misses *"what must I guarantee to call it?"* — read both. (Historical note: before TRUST-PRE this demo showed `withdraw` floored to `asserted: 1`. That floor conflated a function's *verification status* with its *caller's obligation* — a category error — and was removed; the precondition is now surfaced on its own axis. See [`docs/design/precondition-tier-proposal.md`](../../docs/design/precondition-tier-proposal.md).)
 
