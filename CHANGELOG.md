@@ -4,6 +4,18 @@
 
 <a id="Latest"></a>
 
+## v0.14.1 — checkout-lock sum-type fix (2026-06-30)
+
+### Compiler — checkout/patch
+
+- **`fix(checkout)`: a sum-type `TypeDefEntry` now round-trips through the checkout lock.** The lock emitter wrote a sum type's constructors as `{name, payload?}` objects, but the parser decoded the `constructors` field via the default `[(Text, Maybe Text)]` instance, which expects two-element arrays. So a checkout lock for **any program with a `data`/sum type in scope** serialized a `type_definitions` entry that `loadLock` could not parse back — `loadLock` returned `Nothing`, and every subsequent `llmll patch` rejected its valid token as `"invalid or expired checkout token"`. This silently broke the agent checkout → patch repair-loop protocol for all datatype programs. The parser now reads the constructor objects the emitter writes. Regression test added (`Checkout helpers`: `decode (encode td) == Just td` for a sum-type `TypeDefEntry`). No schema change, no CLI surface change.
+
+### Examples
+
+- **`withdraw-demo` integrates `withdraw-outcome` as a third fillable hole** — `withdraw`'s total-`Result` sibling (same signature, but it drops the precondition and returns `err Insufficient` instead of demanding `balance ≥ amount`). The repair-loop runbook re-threads to three holes; `withdraw`'s fill shows the contract channel, and the new step 4b carries the full type→contract escalation on `withdraw-outcome` (a `Result`-typed hole). This integration is what surfaced the checkout bug above — a fillable sum-type hole is impossible without the fix.
+
+**Tests: 966 Haskell + 62 Python**
+
 ## v0.14.0 — PROOF-ARTIFACT: unified, replayable verification record (staged MVP) (2026-06-30)
 
 ### Compiler — the proof artifact

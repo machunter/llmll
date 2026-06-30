@@ -84,7 +84,7 @@
 
 ## Upcoming Releases
 
-> **Roadmap reorganization (2026-04-30):** Professor's five-round review identified that the old v0.8.1 was entirely blocked on external availability (`lean-lsp-mcp`). Replaced with three actionable milestones: v0.8.1a (documentation boundary clarity), v0.8.1b (evidence model refactor), v0.9 (compositional verification). Those, and everything through v0.14.0 (PROOF-ARTIFACT staged MVP), have shipped — see [Shipped Releases](#shipped-releases). No version is currently in flight; the next release will be cut from the [Active Items](#active-items) above. LEAN-GA, TRUST-2b, MCP remain in the [Externally-Blocked Parking Lot](#externally-blocked-parking-lot). Research items in [`docs/archive/research-track.md`](archive/research-track.md).
+> **Roadmap reorganization (2026-04-30):** Professor's five-round review identified that the old v0.8.1 was entirely blocked on external availability (`lean-lsp-mcp`). Replaced with three actionable milestones: v0.8.1a (documentation boundary clarity), v0.8.1b (evidence model refactor), v0.9 (compositional verification). Those, and everything through v0.14.1 (PROOF-ARTIFACT staged MVP + a checkout-lock sum-type fix), have shipped — see [Shipped Releases](#shipped-releases). No version is currently in flight; the next release will be cut from the [Active Items](#active-items) above. LEAN-GA, TRUST-2b, MCP remain in the [Externally-Blocked Parking Lot](#externally-blocked-parking-lot). Research items in [`docs/archive/research-track.md`](archive/research-track.md).
 
 ---
 
