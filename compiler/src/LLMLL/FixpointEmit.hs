@@ -985,7 +985,7 @@ sortableComponent am t0 = case resolveAliasTy am t0 of
   TString     -> True
   TList _     -> True
   TPair a b   -> sortableComponent am a && sortableComponent am b
-  TResult _ _ -> False                                   -- ok/err construction not body-faithful (separate COMP-4 gap)
+  TResult a b -> sortableComponent am a && sortableComponent am b  -- v0.13.14: Result is a native datatype (COMP-4-RESULT) → a pair-of-Result component is sortable iff its payloads are
   s@(TSumType ctors)
     | any realField ctors -> admissibleDatatype am s     -- payload sum → FQData iff acyclic
     | otherwise           -> True                         -- nullary enum → int-tag (COMP-3c)
@@ -1003,11 +1003,12 @@ sigPairUnsafe am params mRet =
           _         -> False
 
 -- | COMP-4-RESULT: a `-> Result` RETURN whose ok/err payload is non-admissible
--- (list, recursive sum, nested Result, pair) would mis-sort the constructor term and
--- crash the solver; force a clean fallback. Return-ONLY: a Result PARAM is opaque (the
--- skolem path), never sorted as a Result, so it is unaffected (no regression to the
--- existing d-elim / COMP-3b elimination of Result params). Admissible payloads = scalar
--- (int/bool/string) or an acyclic sum (FQData / int-tag enum).
+-- would mis-sort the constructor term and crash the solver; force a clean fallback.
+-- Return-ONLY: a Result PARAM is opaque (the skolem path), never sorted as a Result, so
+-- it is unaffected (no regression to the existing d-elim / COMP-3b elimination of Result
+-- params). Admissible payloads (v0.13.14) = any acyclic composition of scalar
+-- (int/bool/string), an acyclic sum (FQData / int-tag enum), a pair, or a nested Result.
+-- A `list` carrier or a recursive sum stays firewalled (the deliberate final boundary).
 resultReturnUnsafe :: AliasMap -> Maybe Type -> Bool
 resultReturnUnsafe am mRet = case resolveAliasTy am <$> mRet of
   Just (TResult a b) -> not (payloadOK a && payloadOK b)
@@ -1017,8 +1018,10 @@ resultReturnUnsafe am mRet = case resolveAliasTy am <$> mRet of
       TInt           -> True
       TBool          -> True
       TString        -> True
+      TPair a b      -> payloadOK a && payloadOK b           -- v0.13.14: composed (int,int) payload
+      TResult a b    -> payloadOK a && payloadOK b           -- v0.13.14: nested Result payload
       s@(TSumType _) -> admissibleDatatype am s
-      _              -> False
+      _              -> False                                -- list carrier / recursive → firewall (final boundary)
 
 -- | PAIR-RET-2: a SYNTACTIC (alias-free) conservative variant for the call-VC path
 -- (`bodyToPredM` has no AliasMap). True if the return is a pair with any component

@@ -5932,11 +5932,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         typeToSortA Map.empty (TPair TInt (TPair TInt TInt))
           `shouldBe` FQDataApp "Pair2" [FQInt, FQDataApp "Pair2" [FQInt, FQInt]]
 
-      it "PR2-3: sortableComponent — scalar/list/admissible-sum yes; Result/recursive no" $ do
+      it "PR2-3: sortableComponent — scalar/list/admissible-sum/Result yes; recursive no" $ do
         sortableComponent boxAm  TInt                `shouldBe` True
         sortableComponent boxAm  (TList TInt)        `shouldBe` True
         sortableComponent boxAm  (TCustom "Box")     `shouldBe` True   -- admissible payload sum
-        sortableComponent boxAm  (TResult TInt TInt) `shouldBe` False  -- ok/err: separate gap
+        sortableComponent boxAm  (TResult TInt TInt) `shouldBe` True   -- v0.13.14: pair-of-Result (Result is now a native datatype)
         sortableComponent treeAm (TCustom "Tree")    `shouldBe` False  -- recursive → firewall
 
       it "PR2-4: an admissible sum-component pair binds result at (Pair2 int Box), body-faithful" $ do
@@ -5948,12 +5948,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erFQText r `shouldSatisfy` T.isInfixOf "(Pair2 int Box)"
         erBodyFallback r `shouldBe` []                 -- verifies body-faithfully, not fallen back
 
-      it "PR2-5: a Result-component pair falls back cleanly (no crash, no mis-sort)" $ do
+      it "PR2-5: a Result-component pair is body-faithful (v0.13.14: pair-of-Result)" $ do
+        -- pre-v0.13.14 this fell back (Result component non-sortable); the datatype-tail
+        -- slice made Result a sortable component, so it now verifies (see CT-1).
         r <- emitR $ T.pack $ unlines
           [ "(def withres [n: int] -> (int, Result[int, int])"
           , "  (post (= (first result) n))"
           , "  (pair n (ok n)))" ]
-        erBodyFallback r `shouldBe` ["withres"]
+        erBodyFallback r `shouldBe` []
 
       it "PR2-6: a recursive-type pair component falls back (param leg of the gate)" $ do
         r <- emitR $ T.pack $ unlines
@@ -5970,6 +5972,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- sort/reflection/fallback logic unit-tested here; SAFE/refuted CLI-probe-verified.
     describe "COMP-4-RESULT: ok/err construction" $ do
       let boxAm = Map.fromList [("Box", TSumType [("Full", Just TInt), ("Empty", Nothing)])]
+          treeAm = Map.fromList [("Tree", TSumType [("Node", Just (TCustom "Tree")), ("Leaf", Nothing)])]
           emitR src = case parseStatements GrammarCoreInversion "<test>" src of
             Left err    -> error ("parse failed: " <> show err)
             Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
@@ -6003,13 +6006,40 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         resultReturnUnsafe Map.empty (Just (TResult TInt TInt))          `shouldBe` False
         resultReturnUnsafe boxAm     (Just (TResult TInt (TCustom "Box"))) `shouldBe` False
         resultReturnUnsafe Map.empty (Just (TResult TInt (TList TInt)))  `shouldBe` True   -- list payload → firewall
-        resultReturnUnsafe Map.empty (Just (TResult TInt (TResult TInt TInt))) `shouldBe` True -- nested Result → firewall
+        -- v0.13.14: nested Result is now admissible (recursion); see CT-3. List/recursive stay firewalled.
 
       it "CR-6: an eliminate-only Result module emits no `data Result` (byte-inert)" $ do
         r <- emitR $ T.pack $ unlines
           [ "(def-shell elim [r: Result[int, int]] -> int"
           , "  (match r ((ok x) x) ((err e) e)))" ]
         erFQText r `shouldNotSatisfy` T.isInfixOf "data Result"
+
+      -- v0.13.14 datatype-tail: the admissibility predicates recurse over the acyclic
+      -- composition of scalar / pair / sum / Result, so pair-of-Result components and
+      -- nested/composed-datatype Result payloads verify; list and recursive payloads
+      -- stay firewalled (the deliberate final boundary). Spike-confirmed fixpoint accepts
+      -- the nested applied sorts; SAFE/fallback is CLI-probe-verified.
+      it "CT-1: a pair-of-Result component is body-faithful (Pair2 + Result decls)" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(def mkpr [n: int m: int] -> (int, Result[int, int])"
+          , "  (post (= (second result) (ok m)))"
+          , "  (pair n (ok m)))" ]
+        erFQText r `shouldSatisfy`    T.isInfixOf "data Pair2"
+        erFQText r `shouldSatisfy`    T.isInfixOf "data Result"
+        erBodyFallback r `shouldBe` []
+
+      it "CT-2: a nested-Result payload is body-faithful" $ do
+        r <- emitR $ T.pack $ unlines
+          [ "(def mknr [n: int] -> Result[Result[int, int], int]"
+          , "  (post (= result (ok (ok n))))"
+          , "  (ok (ok n)))" ]
+        erBodyFallback r `shouldBe` []
+
+      it "CT-3: resultReturnUnsafe recurses — nested/composed admissible, list/recursive firewalled" $ do
+        resultReturnUnsafe Map.empty (Just (TResult (TResult TInt TInt) TInt)) `shouldBe` False  -- nested Result
+        resultReturnUnsafe Map.empty (Just (TResult (TPair TInt TInt) TInt))   `shouldBe` False  -- composed pair payload
+        resultReturnUnsafe Map.empty (Just (TResult TInt (TList TInt)))        `shouldBe` True   -- list carrier → firewall
+        resultReturnUnsafe treeAm    (Just (TResult (TCustom "Tree") TInt))    `shouldBe` True   -- recursive → firewall
 
     -- COMP-3b-general Phase 1: an idiomatic nullary-enum, matched and used as
     -- VALUES in a def body, reaches a body-faithful VC via a scope-aware desugar
