@@ -4,6 +4,25 @@
 
 <a id="Latest"></a>
 
+## v0.14.0 — PROOF-ARTIFACT: unified, replayable verification record (staged MVP) (2026-06-30)
+
+### Compiler — the proof artifact
+
+- **`llmll verify <file> --proof-artifact <FILE>`** emits one serializable record per run that consolidates the previously scattered justification surfaces — the trust report, the obligation report, the `.fq` VC, and the `.verified.json` sidecar — plus the determinism-pin delta fields (solver versions/options, codegen-semantics stamp, source hash). The honest value is a *hermetic, auditable, version-pinned re-verification record* (the F\*-`.hints` / Dafny-caching precedent), **not** a verdict checkable without the solver. A synthesis: no new proof obligation, no `Σ_auto` growth, no `trust_report_version` semantic bump (it composes `1.4.0`).
+- **`llmll replay-artifact <FILE>`** re-derives the recorded verdict — recompute the source hash, re-run the stored VC under the pinned solver — and **fails closed** on any source/AST hash mismatch, solver-determinism-input mismatch, or an `unknown`/timeout outcome (a distinct non-verdict, never read as SAFE/UNSAFE).
+- **Anti-laundering (LCF discipline).** A positive-tier per-function record (`verified`/`contract-checked`/`tested`) is *structurally unconstructible* without its coherent qualifiers — not refuted, no `fallback_reason` when verified, a `basis` for any recorded discriminative axis. Enforced through a smart constructor on **both emit and deserialization**: a hand-forged artifact claiming `verified` while flagged `refuted` fails to parse. New module [`LLMLL.ProofArtifact`](compiler/src/LLMLL/ProofArtifact.hs).
+- The SMT tier ships the **replay (R-) property** only; independent checkability (the C-property) is reserved for the future Lean tier (the reserved `certificate` field), and Z3 proof-object serialization is explicitly rejected. **`unsat_core` is deferred** (a reserved schema field — Z3's core is not cheaply surfaced through liquid-fixpoint); the staged MVP ships the R-property on the full `vc`.
+
+### Schema
+
+- **New [`docs/proof-artifact.schema.json`](docs/proof-artifact.schema.json)** — the artifact schema (the emitter validates against it). No change to `docs/llmll-ast.schema.json` (`schemaVersion` `0.7.0`).
+
+### Docs
+
+- **`LLMLL.md` §5.4** documents the two commands, the R-/C-property split, and the LCF anti-laundering invariant. Design of record: [`docs/design/proof-artifact-proposal.md`](docs/design/proof-artifact-proposal.md) (Rev 2, settled).
+
+**Tests: 965 Haskell + 62 Python** (+4 `PA-1`..`PA-4`; emit/replay/fail-closed/laundering-reject CLI-probe-verified). Roadmap: PROOF-ARTIFACT shipped (staged MVP).
+
 ## v0.13.14 — datatype-tail: admissibility closed under acyclic composition (2026-06-29)
 
 ### Compiler — composed-datatype construction

@@ -153,3 +153,20 @@ The Rev 1 §10 question (is "reproducible proof artifact" a known notion; is re-
 2. *`unknown`/timeout and determinism inputs* → **`unknown`/timeout fails closed as a distinct outcome** (§4.3, §5 edge case 2), and the artifact pins `solver_version` + `solver_options` + `resource_limits` (+ `codegen_semantics_version`), not the version alone.
 
 No open professor questions remain for Rev 2.
+
+---
+
+## Appendix — Professor review log
+
+> Folded on settlement (M2). The standalone review is archived at [`docs/archive/professor-reviews/proof-artifact-review.md`](../archive/professor-reviews/proof-artifact-review.md). Shipped as v0.14.0 (staged MVP).
+
+**Review of Rev 1** (professor, 2026-06-20) — recommendation **revise-and-resubmit**. The proposal was sound and in-scope; the central framing conflated two distinct properties, the §1 motivation overclaimed, and the closest external precedent (F\* hints) was omitted. Six gaps, all folded into Rev 2:
+
+1. **Mode 1 vs Mode 2 are not one axis** — two properties with two trusted bases: *replay reproducibility* (re-run, same verdict; trusted base = the solver build; F\* `.hints`, Dafny caching) vs. *independent checkability* (validate without trusting/re-running the prover; trusted base = a small checker; PCC, de Bruijn, SMTCoq, Alethe/Carcara, DRAT/LRAT). → §4.4.
+2. **§1 overclaims** — Mode 1 *is* a compiler run; what it delivers is hermetic, version-pinned re-verification, not "reproducible without a compiler run." → §1.
+3. **`solver_version` insufficient; `unknown`/timeout unhandled** — pin options + resource limits (+ seed/platform), and make `unknown` a distinct fail-closed outcome. → §4.3.
+4. **`erased_core` gives false end-to-end appearance** — codegen faithfulness stays a `§3.4.3` commitment (Path B declined); record, do not certify. → §4.2.
+5. **Faithfulness was prose, not a representable invariant** — promote to a schema well-formedness condition enforced LCF-style by a smart constructor (a positive tier is unconstructible without its qualifiers). → §4.1.
+6. **"Serialize Z3's proof object" is the wrong Mode 2** — Z3 proofs are large/under-specified/un-checked; the genuine certificate path is the Lean tier. The reserved `certificate` field is format-agnostic, Lean-only. → §4.4, §7.
+
+**§10 answer (folded):** "reproducible proof artifact" bifurcates along the Mode 1/Mode 2 line as two properties; Mode 1 (now the R-property) is a legitimate, field-validated notion for the decidable QF-LIA fragment (F\*-`.hints` parity), and independent checkability (the C-property) is reserved for the Lean tier. Rev 1 → Rev 2 incorporated all six; no open questions remain.
