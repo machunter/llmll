@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://llmll.dev/schemas/proof-artifact/v0.1/proof-artifact.schema.json",
+  "title": "LLMLL Proof Artifact",
+  "description": "PROOF-ARTIFACT (staged MVP) — a unified, reproducible verification record emitted by `llmll verify <file> --proof-artifact <FILE>` and re-derived by `llmll replay-artifact <FILE>`. A SYNTHESIS of the existing trust-report / obligation-report / .fq / .verified.json surfaces; it introduces no new proof obligation. Settled design: docs/design/proof-artifact-proposal.md (Rev 2). The §4.1 LCF faithfulness invariant is enforced structurally by the emitter and re-checked on deserialization (a positive-tier function record claiming refuted, or carrying a fallback_reason, or recording a discriminative axis without a basis, is ill-formed and is rejected on parse).",
+  "type": "object",
+  "required": [
+    "proof_artifact_version", "composed_versions", "source_path", "source_hash",
+    "solver", "codegen_semantics_version", "solver_result", "vc", "functions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "proof_artifact_version": {
+      "type": "string",
+      "description": "Version of THIS artifact schema, bumped independently of the surfaces it composes."
+    },
+    "composed_versions": {
+      "type": "object",
+      "description": "Versions this artifact embeds rather than re-mints (proposal Risk 6).",
+      "required": ["trust_report_version", "schema_version"],
+      "properties": {
+        "trust_report_version": { "type": "string" },
+        "schema_version":       { "type": "string", "description": "JSON-AST schemaVersion the run was produced under." }
+      }
+    },
+    "source_path": { "type": "string", "description": "The source file the artifact was built from; replay recomputes its hash." },
+    "source_hash": { "type": ["string", "null"], "description": "\"sha256:\" identity / staleness driver. Replay fails closed on a mismatch." },
+    "solver": {
+      "type": "object",
+      "description": "The pinned determinism inputs for replay (§4.3) — version ALONE is insufficient.",
+      "required": ["fixpoint_version", "z3_version", "options"],
+      "properties": {
+        "fixpoint_version": { "type": "string" },
+        "z3_version":       { "type": "string" },
+        "options":          { "type": "array", "items": { "type": "string" } },
+        "resource_limits":  { "type": ["string", "null"] }
+      }
+    },
+    "codegen_semantics_version": {
+      "type": "string",
+      "description": "Distinguishes unbounded `int` from a future bounded `machine-int` (LLMLL.md §5.3.5:1051). Replay fails closed on a mismatch."
+    },
+    "solver_result": {
+      "type": "string",
+      "enum": ["safe", "unsafe-refuted", "no-vc", "unknown"],
+      "description": "`unknown` is a DISTINCT fail-closed outcome (needs-re-verify), never read as a verdict."
+    },
+    "vc": {
+      "type": "string",
+      "description": "The full .fq verification condition — the R-property (replay) proof trace for the SMT tier."
+    },
+    "unsat_core": {
+      "type": ["string", "null"],
+      "description": "RESERVED (deferred): the minimized proof trace. Not surfaced in the staged MVP (Z3's core is not cheaply available through liquid-fixpoint). The full `vc` carries the R-property meanwhile."
+    },
+    "functions": {
+      "type": "array",
+      "description": "Per-function projections. Each is minted only through the §4.1 LCF kernel.",
+      "items": { "$ref": "#/definitions/functionRecord" }
+    },
+    "certificate": {
+      "type": ["string", "null"],
+      "description": "RESERVED for the Lean tier (the C-property — independent checkability) ONLY. Never a Z3 proof object (proposal §4.4, Risk 5)."
+    }
+  },
+  "definitions": {
+    "functionRecord": {
+      "type": "object",
+      "description": "A per-function record. §4.1 invariant (enforced by the emitter and re-checked on parse): if `evidence_level` is positive (verified / contract-checked / tested) then `refuted` must be false, `fallback_reason` must be null when `evidence_level` is `verified`, and a present `discriminative_axis` must carry a `basis`.",
+      "required": ["name", "evidence_level", "caller_obligations", "refuted"],
+      "additionalProperties": false,
+      "properties": {
+        "name":               { "type": "string" },
+        "evidence_level":     { "type": "string", "enum": ["verified", "contract-checked", "tested", "asserted", "none"] },
+        "caller_obligations": { "type": "array", "items": { "type": "string" }, "description": "`requires` predicates a caller must discharge to invoke this function soundly." },
+        "fallback_reason":    { "type": ["string", "null"], "description": "Why the body left the body-faithful fragment; null iff body-faithful." },
+        "refuted":            { "type": "boolean", "description": "Orthogonal negative evidence; necessarily false on a positive tier." },
+        "discriminative_axis": {
+          "type": "object",
+          "required": ["basis"],
+          "properties": { "basis": { "type": ["string", "null"], "description": "The CDP basis Ω; required when the axis is present (its observational caveat travels with it)." } }
+        }
+      }
+    }
+  }
+}

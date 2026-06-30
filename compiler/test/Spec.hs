@@ -44,6 +44,9 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.ProofArtifact
+import Data.Either (isLeft, isRight)
+import Data.Aeson (encode, decode)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
@@ -9337,6 +9340,48 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let (csMap, diags) = pbtTrustWriteback stmts Map.empty pbtResult
       csMap `shouldBe` Map.empty
       diags `shouldSatisfy` (not . null)
+
+  -- PROOF-ARTIFACT (staged MVP): the §4.1 LCF invariant (a positive tier is
+  -- unconstructible without coherent qualifiers — laundering by omission/contradiction
+  -- is an unrepresentable state, enforced on BOTH construction and deserialization) and
+  -- the §4.3 fail-closed replay classification. Emit/replay CLI paths are CLI-probe-verified.
+  describe "PROOF-ARTIFACT: §4.1 LCF invariant + §4.3 fail-closed replay" $ do
+    let pos = FnInputs "f" TVerified [] Nothing False Nothing  -- a clean positive-tier input
+
+    it "PA-1: mkFnRecord REJECTS laundered positive records" $ do
+      mkFnRecord pos { fiFallbackReason = Just "x" } `shouldSatisfy` isLeft  -- positive + fallback
+      mkFnRecord pos { fiRefuted = True }            `shouldSatisfy` isLeft  -- positive + refuted
+      mkFnRecord pos { fiDiscrim = Just Nothing }    `shouldSatisfy` isLeft  -- discriminative axis, no basis
+
+    it "PA-2: mkFnRecord ACCEPTS well-formed records (positive clean; negative with evidence)" $ do
+      mkFnRecord pos                                                          `shouldSatisfy` isRight
+      mkFnRecord pos { fiTier = TAsserted, fiFallbackReason = Just "fell back" } `shouldSatisfy` isRight
+      mkFnRecord pos { fiTier = TAsserted, fiRefuted = True }                 `shouldSatisfy` isRight
+      mkFnRecord pos { fiDiscrim = Just (Just "Omega") }                      `shouldSatisfy` isRight
+
+    it "PA-3: artifact JSON round-trips; a laundered artifact FAILS to deserialize" $ do
+      let Right fr = mkFnRecord pos
+          meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
+          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+                   "f.llmll" (Just "sha256:abc") meta codegenSemanticsVersion
+                   RSafe "vc-text" Nothing [fr] Nothing
+      decode (encode art) `shouldBe` Just art
+      -- a hand-forged record claiming verified + refuted must not decode (kernel on read side)
+      let laundered = "{\"name\":\"f\",\"evidence_level\":\"verified\",\"caller_obligations\":[],\"fallback_reason\":null,\"refuted\":true}"
+      (decode laundered :: Maybe FnRecord) `shouldBe` Nothing
+
+    it "PA-4: classifyReplay reproduces only on exact match; fails closed on every axis" $ do
+      let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
+          Right fr = mkFnRecord pos
+          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+                   "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
+                   RSafe "vc" Nothing [fr] Nothing
+          failed o = case o of ReplayFailClosed _ -> True; _ -> False
+      classifyReplay (Just "sha256:H") meta RSafe art          `shouldBe` ReplayReproduced RSafe
+      classifyReplay (Just "sha256:WRONG") meta RSafe art      `shouldSatisfy` failed  -- hash mismatch
+      classifyReplay (Just "sha256:H") (meta { smZ3Version = "z3 9.x" }) RSafe art `shouldSatisfy` failed  -- determinism input
+      classifyReplay (Just "sha256:H") meta RUnknown art       `shouldSatisfy` failed  -- unknown/timeout
+      classifyReplay (Just "sha256:H") meta RUnsafeRefuted art `shouldSatisfy` failed  -- verdict mismatch
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

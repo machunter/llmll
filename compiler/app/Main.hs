@@ -70,7 +70,11 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson)
+import LLMLL.ProofArtifact
+import qualified Crypto.Hash.SHA256 as PASHA
+import qualified Data.ByteString as PABS
+import Numeric (showHex)
 import LLMLL.CDP
   ( CDPResult(..), CDPScope(..)
   , computeCDPFor
@@ -103,7 +107,8 @@ data Command
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
   | CmdHubQuery T.Text                                      -- v0.6.1: hub query --signature <sig>
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool Bool -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report, --cdp (LT-CDP v0.11)
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool Bool (Maybe FilePath) -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report, --cdp, --proof-artifact (PROOF-ARTIFACT)
+  | CmdReplayArtifact FilePath  -- PROOF-ARTIFACT: re-derive + check a recorded artifact (fail-closed)
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
@@ -172,6 +177,8 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
           (progDesc "v0.3: Apply an RFC 6902 JSON-Patch to a checked-out hole"))
       <> command "replay" (info (helper <*> replayCmd)
           (progDesc "v0.3.1: Replay an event log against a compiled program"))
+      <> command "replay-artifact" (info (helper <*> (CmdReplayArtifact <$> strArgument (metavar "ARTIFACT" <> help "Path to a proof-artifact JSON file")))
+          (progDesc "PROOF-ARTIFACT: re-derive and check a recorded verification artifact (fail-closed)"))
       <> command "spec" (info (helper <*> specCmd)
           (progDesc "v0.3.4: Emit agent specification from compiler builtins"))
       <> command "version" (info (helper <*> pure CmdVersion)
@@ -266,6 +273,9 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
             <> help "v0.10: Emit structured obligation report (JSON, OBLIG-0 spec §2.1)")
       <*> switch (long "cdp"
             <> help "LT-CDP (v0.11): Compute contract discriminative power per function; emits discriminative_axis block in --trust-report --json")
+      <*> optional (strOption
+            (long "proof-artifact" <> metavar "FILE"
+            <> help "PROOF-ARTIFACT: write a unified, replayable verification record to FILE"))
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -344,7 +354,8 @@ main = do
     CmdHub   tarball              -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut      -> doHubScaffold json gm tmpl mOut
     CmdHubQuery sig               -> doHubQuery json GrammarLegacy sig
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag mPa -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag mPa
+    CmdReplayArtifact af -> doReplayArtifact json af
     CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
     CmdServe serveOpts            -> runServe serveOpts
     CmdCheckout fp ptr            -> doCheckout json gm fp (T.pack ptr)
@@ -1089,8 +1100,8 @@ fqExitCode FQSafe        = ExitSuccess
 fqExitCode (FQUnsafe _)  = ExitFailure 1
 fqExitCode (FQError _)   = ExitFailure 1
 
-doVerify :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> IO ()
-doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport cdpFlag = do
+doVerify :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Maybe FilePath -> IO ()
+doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport cdpFlag mProofArtifact = do
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json gm fp
   case mResult of
@@ -1292,6 +1303,20 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
             unless strictCore (exitWith (fqExitCode fqResult))
 
           let report = fqResultToReport fp table fqResult
+
+          -- PROOF-ARTIFACT: emit the unified, replayable record (additive, informational).
+          case mProofArtifact of
+            Nothing -> pure ()
+            Just paPath -> do
+              paSidecar <- loadVerified fp
+              meta      <- captureSolverMeta lfBin
+              srcHash   <- sourceHashOf fp
+              let paTrust = markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)
+              case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
+                Left e   -> unless json $ TIO.putStrLn ("   proof-artifact NOT written (internal inconsistency): " <> renderLaunderError e)
+                Right pa -> do
+                  BL.writeFile paPath (encode pa)
+                  unless json $ TIO.putStrLn ("   proof-artifact written to " <> T.pack paPath)
 
           -- 6. Report
           if json
@@ -1905,3 +1930,112 @@ doVersion json =
     then TIO.putStrLn . T.pack . BLC.unpack . encode $
            object ["version" .= showVersion version]
     else TIO.putStrLn $ T.pack ("llmll " ++ showVersion version)
+
+-- ===========================================================================
+-- PROOF-ARTIFACT (staged MVP) — assembly, solver-meta capture, fail-closed replay
+-- ===========================================================================
+
+-- | "sha256:" hash of the source file bytes (recomputable at replay).
+sourceHashOf :: FilePath -> IO T.Text
+sourceHashOf fpath = do
+  bytes <- PABS.readFile fpath
+  let hex = T.pack $ concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
+                               (PABS.unpack (PASHA.hash bytes))
+  pure ("sha256:" <> hex)
+
+-- | Pin the determinism inputs (§4.3): fixpoint + z3 versions and the option set.
+captureSolverMeta :: FilePath -> IO SolverMeta
+captureSolverMeta lfBin = do
+  fpv <- probe lfBin ["--numeric-version"]
+  z3v <- do mz3 <- findExecutable "z3"
+            maybe (pure "unavailable") (\z3 -> probe z3 ["--version"]) mz3
+  pure SolverMeta { smFixpointVersion = fpv, smZ3Version = z3v
+                  , smOptions = ["-q", "--json"], smResourceLimits = Nothing }
+  where
+    probe bin args = do (_c, o, _e) <- readProcessWithExitCode bin args ""
+                        pure (T.strip (T.pack o))
+
+fqToSolverResult :: FQVerifyResult -> SolverResult
+fqToSolverResult FQSafe       = RSafe
+fqToSolverResult (FQUnsafe _) = RUnsafeRefuted
+fqToSolverResult (FQError _)  = RNoVC
+
+-- | Re-project the trust report into the artifact, minting every per-function
+-- record through the §4.1 kernel. A refuted body VC is pre-demoted off the positive
+-- axis (it did not verify); the kernel still guards the deserialization path.
+buildProofArtifact :: FilePath -> T.Text -> SolverMeta -> FQVerifyResult -> EmitResult -> TrustReport
+                   -> Either LaunderError ProofArtifact
+buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
+  fns <- mapM (mkFnRecord . entryToInputs) (trEntries trust)
+  pure ProofArtifact
+    { paVersion       = proofArtifactVersion
+    , paComposed      = ComposedVersions { cvTrustReport = "1.4.0", cvSchema = "0.7.0" }
+    , paSourcePath    = T.pack srcPath
+    , paSourceHash    = Just srcHash
+    , paSolver        = meta
+    , paCodegenSemVer = codegenSemanticsVersion
+    , paSolverResult  = fqToSolverResult fqResult
+    , paVc            = erFQText emitR
+    , paUnsatCore     = Nothing
+    , paFunctions     = fns
+    , paCertificate   = Nothing
+    }
+  where
+    fallbackSet     = Set.fromList (erBodyFallback emitR)
+    bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
+    -- This run's evidence drives the tier (the sidecar may be stale/absent on a
+    -- first verify): a body-faithful fn whose VC was not refuted IS verified
+    -- (refutedSet = body-faithful fns the solver reported UNSAFE), so
+    -- body-faithful \ refuted = body-faithful fns proven SAFE.
+    entryToInputs te =
+      let refuted = teName te `Set.member` trRefutedFns trust
+          tier | refuted                                = TAsserted
+               | teName te `Set.member` bodyFaithfulSet = TVerified
+               | otherwise                              = tierOf (teEffectivePostLevel te)
+      in FnInputs
+           { fiName           = teName te
+           , fiTier           = tier
+           , fiCallerObligs   = map coObRequires (teCallerObligations te)
+           , fiFallbackReason = if teName te `Set.member` fallbackSet
+                                  then Just "left the body-faithful fragment (§5.3.3 firewall)"
+                                  else Nothing
+           , fiRefuted        = refuted
+           , fiDiscrim        = Nothing
+           }
+    tierOf Nothing                      = TNoContract
+    tierOf (Just (DLVerified _))        = TVerified
+    tierOf (Just (DLContractChecked _)) = TContractChecked
+    tierOf (Just (DLTested _))          = TTested
+    tierOf (Just DLAsserted)            = TAsserted
+
+-- | Re-derive + check a recorded artifact, fail-closed (§4.3).
+doReplayArtifact :: Bool -> FilePath -> IO ()
+doReplayArtifact _json artFp = do
+  exists <- doesFileExist artFp
+  if not exists
+    then TIO.putStrLn ("ERROR: artifact not found: " <> T.pack artFp) >> exitWith (ExitFailure 2)
+    else do
+      raw <- BL.readFile artFp
+      case A.eitherDecode raw :: Either String ProofArtifact of
+        Left e -> do
+          TIO.putStrLn ("ERROR: proof-artifact rejected (parse / §4.1 invariant): " <> T.pack e)
+          exitWith (ExitFailure 2)
+        Right art -> do
+          srcExists  <- doesFileExist (T.unpack (paSourcePath art))
+          recomputed <- if srcExists then Just <$> sourceHashOf (T.unpack (paSourcePath art)) else pure Nothing
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> TIO.putStrLn "ERROR: liquid-fixpoint not on PATH — cannot replay" >> exitWith (ExitFailure 3)
+            Just lfBin -> do
+              meta <- captureSolverMeta lfBin
+              let tmp = "/tmp/llmll-replay-artifact.fq"
+              TIO.writeFile tmp (paVc art)
+              (_c, o, err) <- readProcessWithExitCode lfBin ["-q", "--json", tmp] ""
+              let merged = T.pack o <> T.pack err
+                  rerun  = fqToSolverResult (fromMaybe (parseFQResult merged) (parseFQResultJSON merged))
+              case classifyReplay recomputed meta rerun art of
+                ReplayReproduced r ->
+                  TIO.putStrLn ("\x2705 replay reproduced verdict: " <> T.pack (show r)) >> exitSuccess
+                ReplayFailClosed reason ->
+                  TIO.putStrLn ("\x26d4 replay FAILED CLOSED: " <> reason) >> exitWith (ExitFailure 1)
