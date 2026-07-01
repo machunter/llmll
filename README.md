@@ -8,30 +8,27 @@ LLMLL (Large Language Model Logical Language) is a language and verification pip
 
 ---
 
-## See it: a bug that type-checks, caught anyway
+## See it: money that can't be created, proven
 
-An agent fills a `?hole` for `withdraw(balance, amount)`. The fill below is **type-correct** (`int + int → int`) and passes example tests — but it *adds* the amount instead of subtracting it. Types and tests miss it; the SMT solver does not:
+`conserve(from, to, amount)` returns **both** post-transfer balances, and its contract ties them together: `(first result) + (second result) = from + to` — the total is conserved, full stop. A "helpful" fill that credits the destination one unit extra is **type-correct** and looks harmless on inspection — but it breaks conservation, and the SMT solver refutes it:
 
 ```text
-# fill:  (+ balance amount)      ← type-correct, wrong
-$ llmll patch demo.ast.json patch-wrong.json
-{
-  "result": "PatchVerifyError",
-  "message": "body verification of 'withdraw' failed —
-              implementation does not satisfy postcondition (constraint #0)"
-}
+# body:  (pair (- from amount) (+ to (+ amount 1)))      ← type-correct, creates money
+$ llmll verify conserve-bad.llmll
+error: body verification of 'conserve-bad' failed —
+       implementation does not satisfy postcondition (constraint #0)
 
-# fill:  (- balance amount)      ← correct
-$ llmll patch demo.ast.json patch-correct.json
-{ "result": "PatchSuccess" }
+# body:  (pair (- from amount) (+ to amount))             ← correct, conserves the sum
+$ llmll verify conserve.llmll
+✅ conserve.llmll — SAFE (liquid-fixpoint)
 ```
 
-The gate **fails closed**: a patch that doesn't verify never lands. That is the whole pitch in ten lines — every other tool merges code that type-checks; LLMLL proves it wrong first.
+The proof is over **both** return values at once — a relational invariant, not a bound on one number. Every other tool merges code that type-checks; LLMLL proves the money didn't move.
 
 <!-- TODO: refutation GIF — 60–90s asciinema of this loop (type-correct fill → verify REFUTES → fix → accepted) -->
 *(A 60–90s screen capture of this loop will live here.)*
 
-Full copy-pasteable walkthrough: [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (commands verified against `llmll 0.13.7`) · narrated version: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md). A richer **payments-core** demo — conservation across a verified call chain ("money can't be created on the overdraft branch") — becomes the flagship once it lands.
+Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/payments-core/DEMO-RUNBOOK.md) (commands verified against `llmll 0.14.2`) — the composed `transfer`/`debit` call-chain beat and the COMP-3b `settle` beat live there too. For the interactive **repair-loop protocol** — an agent checks out a typed `?hole`, submits a patch, and the compiler rejects or accepts it before anything merges — see [`withdraw-demo/DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (narrated: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md)).
 
 ---
 
@@ -167,8 +164,8 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 
 | Demo | What it proves |
 |------|----------------|
+| [`examples/payments-core/`](examples/payments-core/) | **Flagship.** Two-account conservation over a pair return (`conserve`, PAIR-RET) — "money can't be created"; `transfer` verified over a `debit` call edge (no-overdraw); `settle` is the COMP-3b `Result`-match return |
 | [`examples/tcp_rfc793/`](examples/tcp_rfc793/) | RFC 793 connection state machine reaches `verified` on legal-successor safety; `step-bad` is `refuted` |
-| [`examples/payments-core/`](examples/payments-core/) | Verified `transfer` over a `debit` call edge (no-overdraw); `settle` is the COMP-3b `Result`-match return |
 | [`examples/session-pay/`](examples/session-pay/) | Connected demo: protocol state-safety + verified payment + bounded amount in one `verified` function |
 | [`examples/nested-result/`](examples/nested-result/) | A nested `Result`-variable match (under `let`) reaches `verified` — the COMP-3b-general showcase |
 | [`examples/refined-payload/`](examples/refined-payload/) | A matched `Result[Pos,string]` arm uses its payload's `> 0` (`verified`); a caller forwarding a weaker `Result[int]` is refused — COMP-4 (b) |
@@ -251,7 +248,8 @@ examples/
   erc20_token/              ← v0.6.0 ERC-20 benchmark (frozen ground truth)
   totp_rfc6238/             ← v0.6.1 TOTP RFC 6238 benchmark
   benchmarks/               ← v0.10.0 OBLIG-B benchmark suite (B1/B3/B5)
-  withdraw-demo/            ← flagship repair-loop demo: holes → checkout/patch → two-axis trust + composition (see "See it in action")
+  payments-core/            ← flagship verified-payments demo: two-account conservation, transfer/debit call chain, COMP-3b settle (see "See it")
+  withdraw-demo/            ← repair-loop demo: holes → checkout/patch → two-axis trust + composition + CDP + proof-artifact
   pair_type_test/           ← TPair + do-notation test fixtures
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
