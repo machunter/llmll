@@ -107,7 +107,7 @@ LLMLL is a new language — LLMs weren't trained on it. This is a real concern, 
 | **WASM sandboxing** | WASM-WASI capability enforcement replacing the current Docker sandbox. `effectful` compatibility confirmed. |
 | **Synthetic training corpus** | Hackage back-translation for fine-tuning LLMs on LLMLL. |
 
-See [research-track.md](research-track.md) for additional research items: differential implementation pressure, contract discriminative power, spec-from-RFC pipeline, call-site strict descent, and indexed/dependent types.
+See [research-track.md](archive/research-track.md) for additional research items: differential implementation pressure, contract discriminative power, spec-from-RFC pipeline, call-site strict descent, and indexed/dependent types.
 
 ---
 
@@ -145,7 +145,7 @@ See [research-track.md](research-track.md) for additional research items: differ
 
 | Reference | Relevance |
 |-----------|-----------|
-| Edwin Brady, *Type-Driven Development with Idris* (Manning, 2017) | Foundational text on types-as-specs with compiler-guided hole-filling. LLMLL's typed-hole workflow and obligation-guided agent coding are directly influenced by this. LLMLL aims for the Idris workflow *feel* (goal-directed construction from rich obligations) without the indexed-type architecture; see [research-track.md](research-track.md) §1. |
+| Edwin Brady, *Type-Driven Development with Idris* (Manning, 2017) | Foundational text on types-as-specs with compiler-guided hole-filling. LLMLL's typed-hole workflow and obligation-guided agent coding are directly influenced by this. LLMLL aims for the Idris workflow *feel* (goal-directed construction from rich obligations) without the indexed-type architecture; see [research-track.md](archive/research-track.md) §1. |
 | Ranjit Jhala & Niki Vazou, *Liquid Haskell* (UCSD) | Refinement types verified by SMT solvers. LLMLL uses the same underlying engine (liquid-fixpoint/Z3). |
 | Bertrand Meyer, *Design by Contract* (1986) | Original formulation of pre/post conditions as formal interface specs. |
 | LangGraph, CrewAI, AutoGen | Multi-agent AI frameworks. LLMLL differs: coordination through a *compiler*, not conversation. |

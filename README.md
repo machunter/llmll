@@ -233,6 +233,12 @@ compiler/                   ← Haskell compiler (stack project)
     GuardClassifier.hs      ← v0.10.0: shared guard classification (verifier + obligations)
     SpecCoverage.hs         ← v0.6.0: specification coverage metric + governance guardrails
     JsonPointer.hs          ← RFC 6901 pointer resolution + descendant hole search
+    Checkout.hs             ← Hole checkout with per-file lock management (llmll checkout)
+    PatchApply.hs           ← RFC 6902 JSON-Patch application with scope validation + re-verification (llmll patch)
+    AgentSpec.hs            ← Compiler-emitted agent spec for LLM system prompts (llmll spec)
+    HubQuery.hs             ← Query-by-signature: find hub modules matching a type signature (llmll hub query)
+    CDP.hs                  ← v0.11: LT-CDP contract discriminative power evidence axis (--cdp)
+    ProofArtifact.hs        ← v0.14.0: PROOF-ARTIFACT unified, replayable verification record (--proof-artifact / replay-artifact)
   package.yaml / stack.yaml
 examples/
   hangman_sexp/             ← Full Hangman (S-expression)
@@ -250,13 +256,19 @@ examples/
   benchmarks/               ← v0.10.0 OBLIG-B benchmark suite (B1/B3/B5)
   payments-core/            ← flagship verified-payments demo: two-account conservation, transfer/debit call chain, COMP-3b settle (see "See it")
   withdraw-demo/            ← repair-loop demo: holes → checkout/patch → two-axis trust + composition + CDP + proof-artifact
+  tcp_rfc793/               ← RFC 793 connection state machine, legal-successor safety
+  session-pay/              ← Connected demo: protocol state-safety + verified payment + bounded amount in one verified function
+  nested-result/            ← Nested Result-variable match under let (COMP-3b-general)
+  refined-payload/          ← Matched Result payload refinement + weaker-forward refusal (COMP-4 (b))
+  outcome-totality/         ← Payload-carrying outcome sum, verified legal/illegal totality (COMP-4 (a)/(c))
+  banking_ledger/           ← Three-level assume-guarantee chain (transfer → withdraw → safe-subtract)
   pair_type_test/           ← TPair + do-notation test fixtures
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
   UPDATE-PROTOCOL.md        ← Doc canonical-sources + per-change update matrix (DOC-CONSOLIDATE D1)
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog and shipped-releases history
-  llmll-ast.schema.json     ← JSON-AST schema v0.6.0 (use with AI agents; CheckoutToken introduced v0.3.0; CheckDecl.subjects introduced v0.5.0)
+  llmll-ast.schema.json     ← JSON-AST schema v0.7.0 (use with AI agents; CheckoutToken introduced v0.3.0; CheckDecl.subjects introduced v0.5.0)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
   design/                   ← Active design proposals (status in design/INDEX.md)
