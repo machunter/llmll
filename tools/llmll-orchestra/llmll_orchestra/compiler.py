@@ -43,6 +43,32 @@ class CheckoutToken:
     context: dict[str, Any] = field(default_factory=dict)
 
 
+def _build_context(data: dict[str, Any]) -> dict[str, Any]:
+    """Build the `context` dict that agent.py's `_format_context()` consumes,
+    from the real `llmll checkout --json` response shape.
+
+    `Checkout.hs`'s `ToJSON CheckoutToken` instance emits FLAT top-level keys
+    (`in_scope`, `expected_return_type`, `available_functions`,
+    `type_definitions`, `scope_truncated`, ...) -- there is no `"context"`
+    sub-object in the real CLI response. `_format_context()` reads
+    `scope`/`functions`/`type_definitions`/`expected_return_type`/
+    `scope_truncated` off the dict it's handed, so this maps the CLI's flat
+    field names onto the names `_format_context()` actually looks up.
+    """
+    context: dict[str, Any] = {}
+    if "expected_return_type" in data:
+        context["expected_return_type"] = data["expected_return_type"]
+    if "in_scope" in data:
+        context["scope"] = data["in_scope"]
+    if "available_functions" in data:
+        context["functions"] = data["available_functions"]
+    if "type_definitions" in data:
+        context["type_definitions"] = data["type_definitions"]
+    if data.get("scope_truncated"):
+        context["scope_truncated"] = True
+    return context
+
+
 class CompilerError(Exception):
     """Raised when a compiler subprocess returns non-zero or malformed output."""
     def __init__(self, command: str, stderr: str, returncode: int):
@@ -113,7 +139,7 @@ class Compiler:
         return CheckoutToken(
             token=data.get("token", ""),
             pointer=pointer,
-            context=data.get("context", {}),
+            context=_build_context(data),
         )
 
     # -----------------------------------------------------------------
@@ -153,7 +179,12 @@ class Compiler:
     # -----------------------------------------------------------------
 
     def checkout_status(self, source: str | Path, token: str) -> dict[str, Any]:
-        """Run `llmll checkout --status <file> <token>` and return TTL info."""
+        """Run `llmll checkout --status <file> <token>` and return TTL info.
+
+        The real CLI (`Main.hs`) emits `{"remaining_ttl": <seconds>}` --
+        NOT `remaining_seconds`. Callers (e.g. `Orchestrator._ensure_checkout`)
+        must read `remaining_ttl`.
+        """
         result = self._run(
             ["--json", "checkout", str(source), "--status", token],
             check=False,
@@ -161,7 +192,7 @@ class Compiler:
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError:
-            return {"remaining_seconds": 0}
+            return {"remaining_ttl": 0}
 
     # -----------------------------------------------------------------
     # release (abandon checkout)

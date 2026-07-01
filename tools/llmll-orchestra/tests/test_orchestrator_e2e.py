@@ -67,7 +67,9 @@ class MockCompiler:
         )
         self.patch_results: list[dict] = [{"success": True, "diagnostics": []}]
         self._patch_call_idx = 0
-        self.status_result: dict = {"remaining_seconds": 300}
+        # Real CLI shape (Checkout.hs / `llmll checkout --status --json`) is
+        # `{"remaining_ttl": <seconds>}` -- NOT `remaining_seconds`.
+        self.status_result: dict = {"remaining_ttl": 300}
         self.spec_result: str | None = "## Builtins\n- abs\n- list-head"
 
         # Call tracking
@@ -194,7 +196,7 @@ def test_lock_expiry_recheckout():
     """O3: When TTL is low, orchestrator re-checkouts and continues."""
     compiler = MockCompiler()
     # TTL is expired
-    compiler.status_result = {"remaining_seconds": 2}
+    compiler.status_result = {"remaining_ttl": 2}
     # Re-checkout returns a new token
     new_token = CheckoutToken(
         token="new-token-xyz789",
@@ -229,7 +231,7 @@ def test_lock_expiry_recheckout():
 def test_ec6_token_update_after_recheckout():
     """EC-6: After re-checkout, the patch request uses the new token."""
     compiler = MockCompiler()
-    compiler.status_result = {"remaining_seconds": 1}  # force re-checkout
+    compiler.status_result = {"remaining_ttl": 1}  # force re-checkout
 
     new_token = CheckoutToken(
         token="recheckout-token-NEW",
@@ -366,7 +368,7 @@ def test_multiple_holes():
 def test_recheckout_fails_lock_taken():
     """O3: If re-checkout fails, hole is skipped with appropriate error."""
     compiler = MockCompiler()
-    compiler.status_result = {"remaining_seconds": 0}  # force re-checkout
+    compiler.status_result = {"remaining_ttl": 0}  # force re-checkout
 
     call_count = [0]
 
@@ -384,6 +386,60 @@ def test_recheckout_fails_lock_taken():
 
     assert report.failed == 1
     assert "re-checkout failed" in report.results[0].error
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Test 8b: O3 reads the real CLI's TTL key (`remaining_ttl`), not a key
+# that never exists in the real response (regression for the doc-audit
+# finding: `_ensure_checkout` read `remaining_seconds`, which is always
+# absent from `llmll checkout --status --json`'s real `{"remaining_ttl": N}`
+# response, so `status.get("remaining_seconds", 0) > 5` was always False and
+# every fresh checkout was immediately treated as expired and re-checked-out).
+# ─────────────────────────────────────────────────────────────────────
+
+def test_healthy_ttl_key_prevents_spurious_recheckout():
+    """A fresh, healthy checkout (matching the real CLI's `remaining_ttl`
+    shape, e.g. `{"remaining_ttl": 3600}`) must NOT trigger a re-checkout,
+    even across multiple fill attempts on the same hole.
+
+    Under the pre-fix code (`status.get("remaining_seconds", 0)` in
+    `Orchestrator._ensure_checkout`, or the matching wrong-key fallback in
+    `Compiler.checkout_status`), this dict's real key is never read, so the
+    default of 0 is used, 0 is never > 5, and the orchestrator re-checks-out
+    on every single attempt -- colliding with the still-held original lock.
+    This test fails under that old behavior (checkout called > 1 time) and
+    passes under the fix (checkout called exactly once).
+    """
+    compiler = MockCompiler()
+    # Matches the real CLI's confirmed shape/value: `llmll --json checkout
+    # <file> --status <token>` -> `{"remaining_ttl":3600}`.
+    compiler.status_result = {"remaining_ttl": 3600}
+
+    # Force two attempts (first patch rejected, second accepted) so
+    # `_ensure_checkout` (and therefore `checkout_status`) is consulted
+    # more than once for the same hole.
+    compiler.patch_results = [
+        {"success": False, "diagnostics": [{"message": "type error attempt 1"}]},
+        {"success": True, "diagnostics": []},
+    ]
+
+    agent = MockAgent()
+    agent.responses = [
+        AgentResponse(success=True, patch_ops=VALID_PATCH_OPS),
+        AgentResponse(success=True, patch_ops=VALID_PATCH_OPS),
+    ]
+
+    orch = Orchestrator(compiler=compiler, agent=agent, max_retries=3)
+    report = orch.run("auth_module.ast.json")
+
+    assert report.filled == 1
+    assert report.results[0].attempts == 2
+    # checkout_status was consulted on both attempts...
+    assert len(compiler.status_calls) == 2
+    # ...but a healthy remaining_ttl must mean checkout() itself is only
+    # ever called ONCE (the initial checkout in _fill_one) -- no
+    # re-checkout, no lock collision.
+    assert len(compiler.checkout_calls) == 1
 
 
 # ─────────────────────────────────────────────────────────────────────

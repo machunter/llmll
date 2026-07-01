@@ -4223,6 +4223,64 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io"
 
   -- =========================================================================
+  -- pCapKind: capability-import parser ordering (doc-audit regression)
+  --
+  -- "get-bytes" was unparseable: `CapHttpGet <$ try (symbol "get")` was tried
+  -- before `CapRandomGet <$ try (symbol "get-bytes")`, and `symbol "get"`
+  -- (no word-boundary check) matched the "get" prefix of "get-bytes",
+  -- leaving "-bytes" dangling and unparseable ("unexpected '(' ... expecting
+  -- ')'"). Fixed by longest-match-first ordering, matching the existing
+  -- read-write/read precedent in the same `choice` list.
+  -- =========================================================================
+  describe "pCapKind: capability-import parser ordering" $ do
+
+    it "CAP-GB-1: (capability get-bytes ...) parses to CapRandomGet, not a truncated CapHttpGet" $ do
+      let src = "(import wasi.random (capability get-bytes :deterministic true))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure $ "Parse failed (regression!): " ++ show err
+        Right [SImport (Import path _ (Just (Capability kind target det)))] -> do
+          path `shouldBe` "wasi.random"
+          kind `shouldBe` CapRandomGet
+          target `shouldBe` ""
+          det `shouldBe` True
+        Right other -> expectationFailure $ "Unexpected AST shape: " ++ show other
+
+    it "CAP-GB-2: (capability get ...) still parses to CapHttpGet (no regression on the short form)" $ do
+      let src = "(import wasi.http (capability get :deterministic true))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+        Right [SImport (Import _ _ (Just (Capability kind _ _)))] -> kind `shouldBe` CapHttpGet
+        Right other -> expectationFailure $ "Unexpected AST shape: " ++ show other
+
+    it "CAP-GB-3: every pCapKind alternative still round-trips (no regressions from reordering)" $ do
+      let cases =
+            [ ("read-write",     CapReadWrite)
+            , ("read",           CapRead)
+            , ("write",          CapWrite)
+            , ("connect",        CapNetConnect)
+            , ("serve",          CapNetServe)
+            , ("post",           CapHttpPost)
+            , ("get-bytes",      CapRandomGet)
+            , ("get",            CapHttpGet)
+            , ("monotonic-read", CapClockMonotonic)
+            ]
+      forM_ cases $ \(kw, expected) -> do
+        let src = "(import wasi.test (capability " <> kw <> " :deterministic true))"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Left err -> expectationFailure $ T.unpack kw ++ " parse failed: " ++ show err
+          Right [SImport (Import _ _ (Just (Capability kind _ _)))] ->
+            kind `shouldBe` expected
+          Right other -> expectationFailure $ T.unpack kw ++ " unexpected AST shape: " ++ show other
+
+    it "CAP-GB-4: an unrecognized capability keyword falls back to CapCustom" $ do
+      let src = "(import wasi.test (capability frobnicate :deterministic true))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+        Right [SImport (Import _ _ (Just (Capability kind _ _)))] ->
+          kind `shouldBe` CapCustom "frobnicate"
+        Right other -> expectationFailure $ "Unexpected AST shape: " ++ show other
+
+  -- =========================================================================
   -- v0.4 U-Lite: Per-Call-Site Substitution Tests
   -- =========================================================================
   describe "U-Lite per-call-site substitution" $ do
@@ -9422,6 +9480,37 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           report = typeCheck GrammarCoreInversion emptyEnv stmts
       length (reportDiagnostics report) `shouldSatisfy` (>= 0)
 
+    -- DEFINV-4/5: S-expression surface form (v0.14.3 doc-audit regression).
+    -- Parser.hs's pStatement had no production for 'def-invariant' — only
+    -- ParserJSON.parseDefInvariant implemented it, JSON-AST-only. LLMLL.md
+    -- §11.4/§12 document an S-expression grammar production for it that
+    -- never actually parsed: "(def-invariant foo [x: int] (> x 0))" failed
+    -- with "unexpected '(' expecting end of input".
+
+    it "DEFINV-4 S-expr def-invariant parses to the SAME AST as its hand-written JSON-AST equivalent" $ do
+      let sexpSrc = "(def-invariant inv [x: int] (> x 0))"
+          jsonSrc = BL.fromStrict $ TE.encodeUtf8 $ T.pack
+                      "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-invariant\",\"name\":\"inv\",\"param\":{\"name\":\"x\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}},\"body\":{\"kind\":\"op\",\"op\":\">\",\"args\":[{\"kind\":\"var\",\"name\":\"x\"},{\"kind\":\"lit-int\",\"value\":0}]}}]}"
+      case (parseStatements GrammarCoreInversion "<test>" sexpSrc, parseJSONAST GrammarCoreInversion "<test>" jsonSrc) of
+        (Right sexpStmts, Right jsonStmts) -> sexpStmts `shouldBe` jsonStmts
+        (sexpResult, jsonResult) -> expectationFailure
+          ("expected both surface forms to parse to the same AST; s-expr=" ++ show sexpResult ++ " json-ast=" ++ show jsonResult)
+
+    it "DEFINV-5 S-expr def-invariant produces SDefInvariant and type-checks cleanly (matches DEFINV-1/3 style)" $ do
+      let src = "(def-invariant foo [x: int] (> x 0))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts@[SDefInvariant name params _ _ body] -> do
+          name `shouldBe` "foo"
+          params `shouldBe` [("x", TInt)]
+          -- S-expression '>' parses as a built-in EOp (not EApp) -- distinct
+          -- from DEFINV-1/3's hand-written JSON-AST fixtures, which happened
+          -- to use EApp; both are valid, semantically-equivalent front-end
+          -- choices for the same operator.
+          body `shouldBe` EOp ">" [EVar "x", ELit (LitInt 0)]
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
+          length (reportDiagnostics report) `shouldSatisfy` (>= 0)
+        other -> expectationFailure ("expected SDefInvariant, got: " ++ show other)
+
     -- HINT-1: the generic S-expression top-level parse-error hint must not
     -- recommend the removed `def-logic` construct (it should point at def/def-shell).
     it "HINT-1 S-expr def-logic rejection hint recommends def/def-shell, not def-logic" $ do
@@ -9640,6 +9729,78 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       classifyReplay (Just "sha256:H") (meta { smZ3Version = "z3 9.x" }) RSafe art `shouldSatisfy` failed  -- determinism input
       classifyReplay (Just "sha256:H") meta RUnknown art       `shouldSatisfy` failed  -- unknown/timeout
       classifyReplay (Just "sha256:H") meta RUnsafeRefuted art `shouldSatisfy` failed  -- verdict mismatch
+
+  -- -----------------------------------------------------------------------
+  -- CodegenHs: generated Main.hs must be valid, compilable Haskell
+  -- (regression for the v0.14.2 doc-audit hangman findings — the `esc`
+  -- helper in emitEventLogPreamble was over-escaped to invalid Haskell,
+  -- and captureStdout referenced a nonexistent `hDupTo` function with a
+  -- missing `unix` package.yaml dependency; both were invisible because
+  -- `llmll build`'s own `stack build` self-check never ran in outDir)
+  -- -----------------------------------------------------------------------
+
+  describe "CodegenHs emitEventLogPreamble: valid Haskell escaping" $ do
+
+    it "esc lambda uses a single-backslash Haskell lambda, not doubled" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      -- correct: "(\c -> ..." (one backslash right after the open paren)
+      T.isInfixOf "(\\c ->" preamble `shouldBe` True
+      -- regression guard: must NOT be doubled to "(\\c -> ...", which is
+      -- not valid Haskell (parse error on '->') when written into Main.hs
+      T.isInfixOf "(\\\\c ->" preamble `shouldBe` False
+
+    it "esc newline-branch char literal is '\\n' (one escape), not '\\\\n' (invalid 2-char literal)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      -- correct: '\n' — a single escaped-newline char literal
+      T.isInfixOf "'\\n'" preamble `shouldBe` True
+      -- regression guard: '\\n' is two characters inside a Char literal,
+      -- which GHC rejects outright (lexical error in character literal)
+      T.isInfixOf "'\\\\n'" preamble `shouldBe` False
+
+    it "esc quote/newline string-literal replacements stay correctly escaped (\\\" and \\n text)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "\"\\\\\\\"\"" preamble `shouldBe` True  -- output text for a quote char: \"
+      T.isInfixOf "\"\\\\n\""  preamble `shouldBe` True  -- output text for a newline char: \n
+
+    it "captureStdout uses hDuplicateTo (real GHC.IO.Handle export), not hDupTo" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "hDuplicateTo" preamble `shouldBe` True
+      T.isInfixOf "hDupTo" preamble `shouldBe` False
+
+    it "Generated Main.hs imports hDuplicateTo (not hDupTo) from GHC.IO.Handle" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "tesths" stmts
+          case cgMainHs result of
+            Nothing -> expectationFailure "No Main.hs generated"
+            Just mainHs -> do
+              T.isInfixOf "import GHC.IO.Handle (hDuplicate, hDuplicateTo)" mainHs `shouldBe` True
+              T.isInfixOf "hDupTo" mainHs `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  describe "CodegenHs emitPackageYaml: unix dependency for def-main's event-log harness" $ do
+
+    it "package.yaml declares `unix` (top-level, shared by library+executable) when a def-main is present" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "testpkg" stmts
+          -- Main.hs is only emitted when SDefMain is present, and it always
+          -- imports System.Posix.IO (unix). hpack's default source-dirs
+          -- auto-discovery pulls Main.hs into BOTH the library's and the
+          -- executable's other-modules, so `unix` must be a top-level dep,
+          -- not scoped to just the executable stanza.
+          T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    it "package.yaml does NOT declare `unix` when there is no def-main (no Main.hs emitted)" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def f [] 0)" of
+        Right stmts -> do
+          let result = generateHaskell "testnopkg" stmts
+          cgMainHs result `shouldBe` Nothing
+          T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

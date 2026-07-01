@@ -800,17 +800,17 @@ emitEventLogPreamble =
   , "  ++ \",\\\"input\\\":{\\\"kind\\\":\\\"\" ++ ik ++ \"\\\",\\\"value\\\":\\\"\" ++ esc iv"
   , "  ++ \"\\\"},\\\"result\\\":{\\\"kind\\\":\\\"\" ++ rk ++ \"\\\",\\\"value\\\":\\\"\" ++ esc rv"
   , "  ++ \"\\\"},\\\"captures\\\":[]}\""
-  , "  where esc = concatMap (\\\\c -> if c == '\"' then \"\\\\\\\"\" else if c == '\\\\n' then \"\\\\n\" else [c])"
+  , "  where esc = concatMap (\\c -> if c == '\"' then \"\\\\\\\"\" else if c == '\\n' then \"\\\\n\" else [c])"
   , ""
   , "captureStdout :: IO () -> IO String"
   , "captureStdout action = do"
   , "  oldStdout <- hDuplicate stdout"
   , "  (readFd, writeFd) <- createPipe"
   , "  writeEnd <- fdToHandle writeFd"
-  , "  hDupTo writeEnd stdout"
+  , "  hDuplicateTo writeEnd stdout"
   , "  action"
   , "  hFlush stdout"
-  , "  hDupTo oldStdout stdout"
+  , "  hDuplicateTo oldStdout stdout"
   , "  hClose writeEnd"
   , "  readEnd <- fdToHandle readFd"
   , "  output <- hGetContents readEnd"
@@ -833,7 +833,7 @@ emitMainHs modName stmts =
       , "import System.Environment (getArgs)"
       , "import System.IO (hSetBuffering, hFlush, hClose, hIsEOF, hPutStrLn, hGetContents, openFile, IOMode(..), BufferMode(..), stdin, stdout)"
       , "import Data.IORef (newIORef, readIORef, modifyIORef')"
-      , "import GHC.IO.Handle (hDuplicate, hDupTo)"
+      , "import GHC.IO.Handle (hDuplicate, hDuplicateTo)"
       , "import System.Posix.IO (createPipe, fdToHandle)"
       , ""
       ] ++ emitEventLogPreamble ++ [""] ++ emitMainBody modName dm
@@ -947,6 +947,12 @@ emitPackageYaml modName hasMain hackagePkgs = T.unlines $
   , "  - async"
   , "  - regex-tdfa"
   ] ++
+  -- src/Main.hs (emitted whenever hasMain) imports System.Posix.IO for the
+  -- event-log capture harness; hpack's default source-dirs auto-discovery
+  -- pulls Main.hs into the `library` component's other-modules as well as
+  -- the executable's, so `unix` must be a top-level (shared) dependency,
+  -- not just an executable-scoped one.
+  (if hasMain then ["  - unix"] else []) ++
   map (\p -> "  - " <> p) (hackagePkgNames hackagePkgs) ++
   [ ""
   , "library:"

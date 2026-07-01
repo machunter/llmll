@@ -87,7 +87,7 @@ import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, exprToSExpr)
 import LLMLL.FixpointEmit (buildContractEnv)
 import LLMLL.HoleAnalysis (enclosingFunc)
-import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess)
+import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
 import System.IO (hGetLine)
 
 import qualified Data.Map.Strict as Map
@@ -156,7 +156,7 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <> command "test"  (info (helper <*> testCmd)
           (progDesc "Run property-based tests (check blocks)"))
       <> command "build" (info (helper <*> buildCmd)
-          (progDesc "Compile .llmll to Rust; use --emit json-ast to emit JSON-AST instead"))
+          (progDesc "Compile .llmll to Haskell; use --emit json-ast to emit JSON-AST instead"))
       <> command "build-json" (info (helper <*> buildJsonCmd)
           (progDesc "Compile a .ast.json file (JSON-AST) — same as build but from JSON input"))
       <> command "run"   (info (helper <*> runCmd)
@@ -618,7 +618,7 @@ pbtResultJson fp r writebackDiags =
       , "counterexample".= pbtCounterexample run
       ]
 -- ---------------------------------------------------------------------------
--- build (Rust codegen + optional WASM)
+-- build (Haskell codegen + optional WASM)
 -- ---------------------------------------------------------------------------
 
 doBuild :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> ContractsMode -> IO ()
@@ -847,8 +847,8 @@ runGhcCheck json outDir = do
   case mStack of
     Just stackBin -> do
       if not json then TIO.putStrLn "   Running stack build ..." else pure ()
-      (code, _out, stderr_) <- readProcessWithExitCode stackBin
-        ["build", "--no-terminal"] ""
+      (code, _out, stderr_) <- readCreateProcessWithExitCode
+        (proc stackBin ["build", "--no-terminal"]) { cwd = Just outDir } ""
       case code of
         ExitSuccess -> do
           if not json then TIO.putStrLn "   stack build OK" else pure ()
@@ -873,8 +873,8 @@ runGhcCheck json outDir = do
           pure True  -- non-fatal; user can build manually
         Just ghcBin -> do
           if not json then TIO.putStrLn "   Running ghc --make ..." else pure ()
-          (code, _out, stderr_) <- readProcessWithExitCode ghcBin
-            ["--make", "-isrc", outDir <> "/src/Lib.hs"] ""
+          (code, _out, stderr_) <- readCreateProcessWithExitCode
+            (proc ghcBin ["--make", "-isrc", "src/Lib.hs"]) { cwd = Just outDir } ""
           case code of
             ExitSuccess -> do
               if not json then TIO.putStrLn "   ghc OK" else pure ()

@@ -294,7 +294,7 @@ class Orchestrator:
         """
         try:
             status = self.compiler.checkout_status(source, token.token)
-            if status.get("remaining_seconds", 0) > 5:
+            if status.get("remaining_ttl", 0) > 5:
                 return token  # plenty of time
             # TTL expired or about to expire — re-checkout
             self._log(f"  Checkout TTL low/expired, re-checking out {hole.pointer}")

@@ -546,7 +546,9 @@ data Statement
   -- other def-forms so 'normalizeDefStmt' and every consumer arm stay uniform;
   -- only AstEmit treats it specially, serialising the single param + body as a
   -- @def-invariant@ node rather than the lossy @def-logic@ form (the v0.12.1
-  -- round-trip fix). Surface form is JSON-AST only (no S-expression keyword).
+  -- round-trip fix). Parseable from both surface forms: JSON-AST
+  -- ('LLMLL.ParserJSON.parseDefInvariant') and S-expression
+  -- ('LLMLL.Parser.pDefInvariant', @(def-invariant name [x: type] body)@).
   | SDefInvariant
     { defInvariantName     :: Name
     , defInvariantParams   :: [(Name, Type)]
