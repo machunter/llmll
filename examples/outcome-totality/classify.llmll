@@ -2,9 +2,10 @@
 ;; a real payload-bearing variant — Accepted(n) or Rejected(n) — and the compiler
 ;; PROVES the discrimination (legal -> Accepted, illegal -> Rejected), via native
 ;; FQData construction. This is what the COMP-3c int-tag and the d-elim skolem
-;; could NOT express (a constructed, payload-bearing result), so demos like
-;; tcp_rfc793 / session-pay had to fall back to an int sentinel (-1 = REJECTED);
-;; COMP-4 (a)/(c) lifts that.
+;; could NOT express (a constructed, payload-bearing result). Demos like
+;; tcp_rfc793 / session-pay used to fall back to an int sentinel (-1 = REJECTED)
+;; for exactly this reason; COMP-4 (a)/(c) is what made the v0.13.10 reshape to
+;; real payload-bearing `Rejected` variants possible (see CHANGELOG.md §v0.13.10).
 ;;   llmll verify ./classify.llmll --strict-verified-core   -> SAFE
 (type Outcome (| Accepted int) (| Rejected int))
 
