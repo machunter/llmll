@@ -9642,6 +9642,78 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       classifyReplay (Just "sha256:H") meta RUnsafeRefuted art `shouldSatisfy` failed  -- verdict mismatch
 
   -- -----------------------------------------------------------------------
+  -- CodegenHs: generated Main.hs must be valid, compilable Haskell
+  -- (regression for the v0.14.2 doc-audit hangman findings — the `esc`
+  -- helper in emitEventLogPreamble was over-escaped to invalid Haskell,
+  -- and captureStdout referenced a nonexistent `hDupTo` function with a
+  -- missing `unix` package.yaml dependency; both were invisible because
+  -- `llmll build`'s own `stack build` self-check never ran in outDir)
+  -- -----------------------------------------------------------------------
+
+  describe "CodegenHs emitEventLogPreamble: valid Haskell escaping" $ do
+
+    it "esc lambda uses a single-backslash Haskell lambda, not doubled" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      -- correct: "(\c -> ..." (one backslash right after the open paren)
+      T.isInfixOf "(\\c ->" preamble `shouldBe` True
+      -- regression guard: must NOT be doubled to "(\\c -> ...", which is
+      -- not valid Haskell (parse error on '->') when written into Main.hs
+      T.isInfixOf "(\\\\c ->" preamble `shouldBe` False
+
+    it "esc newline-branch char literal is '\\n' (one escape), not '\\\\n' (invalid 2-char literal)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      -- correct: '\n' — a single escaped-newline char literal
+      T.isInfixOf "'\\n'" preamble `shouldBe` True
+      -- regression guard: '\\n' is two characters inside a Char literal,
+      -- which GHC rejects outright (lexical error in character literal)
+      T.isInfixOf "'\\\\n'" preamble `shouldBe` False
+
+    it "esc quote/newline string-literal replacements stay correctly escaped (\\\" and \\n text)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "\"\\\\\\\"\"" preamble `shouldBe` True  -- output text for a quote char: \"
+      T.isInfixOf "\"\\\\n\""  preamble `shouldBe` True  -- output text for a newline char: \n
+
+    it "captureStdout uses hDuplicateTo (real GHC.IO.Handle export), not hDupTo" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "hDuplicateTo" preamble `shouldBe` True
+      T.isInfixOf "hDupTo" preamble `shouldBe` False
+
+    it "Generated Main.hs imports hDuplicateTo (not hDupTo) from GHC.IO.Handle" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "tesths" stmts
+          case cgMainHs result of
+            Nothing -> expectationFailure "No Main.hs generated"
+            Just mainHs -> do
+              T.isInfixOf "import GHC.IO.Handle (hDuplicate, hDuplicateTo)" mainHs `shouldBe` True
+              T.isInfixOf "hDupTo" mainHs `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  describe "CodegenHs emitPackageYaml: unix dependency for def-main's event-log harness" $ do
+
+    it "package.yaml declares `unix` (top-level, shared by library+executable) when a def-main is present" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "testpkg" stmts
+          -- Main.hs is only emitted when SDefMain is present, and it always
+          -- imports System.Posix.IO (unix). hpack's default source-dirs
+          -- auto-discovery pulls Main.hs into BOTH the library's and the
+          -- executable's other-modules, so `unix` must be a top-level dep,
+          -- not scoped to just the executable stanza.
+          T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    it "package.yaml does NOT declare `unix` when there is no def-main (no Main.hs emitted)" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def f [] 0)" of
+        Right stmts -> do
+          let result = generateHaskell "testnopkg" stmts
+          cgMainHs result `shouldBe` Nothing
+          T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec
