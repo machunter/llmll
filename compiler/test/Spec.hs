@@ -2,7 +2,7 @@
 module Main (main) where
 
 import Test.Hspec
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Control.Exception (finally)
 import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe)
 import qualified Data.Text as T
@@ -38,7 +38,7 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation)
-import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
+import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
@@ -52,7 +52,8 @@ import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
-import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
+import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory)
+import System.Environment (setEnv, unsetEnv, lookupEnv)
 import System.Process (callProcess)
 import Data.List (isSuffixOf, sort, find)
 import qualified Data.Set as Set
@@ -3234,6 +3235,56 @@ main = hspec $ do
           output = emitHole (HScaffold spec)
       T.isInfixOf "scaffold" output `shouldBe` True
       T.isInfixOf "todo-app" output `shouldBe` True
+
+  -- =========================================================================
+  -- BUG-1 (resumed task, 2026-07-01): hub fetch --from-file tar-extraction
+  -- path. installEntries used to strip the tarball's top-level
+  -- `<package>-<version>/` directory outright (stripTopDir), flattening
+  -- every file straight into the shared cache root and losing both the
+  -- package name and version directory (collides across packages). Fixed
+  -- by destPathFor/splitPkgVersion, which reconstitute the top-level dir
+  -- into <package>/<version>/... matching resolveHubPath's expected
+  -- layout (see LLMLL.Hub). Runs against a HOME override so it never
+  -- touches the real ~/.llmll cache.
+  -- =========================================================================
+  describe "Hub: hubFetchLocal tar-extraction path (BUG-1)" $ do
+    it "installs a <pkg>-<version>/ tarball into ~/.llmll/modules/<pkg>/<version>/..." $ do
+      origHome <- lookupEnv "HOME"
+      tmpRoot  <- getTemporaryDirectory
+      let tmpHome = tmpRoot </> "llmll-hub-test-home"
+          srcDir  = tmpRoot </> "llmll-hub-test-src"
+          pkgName = "llmll-hub-test-pkg"
+          pkgVer  = "0.3.7"
+          topDir  = pkgName ++ "-" ++ pkgVer
+          cleanup = do
+            homeEx <- doesDirectoryExist tmpHome
+            when homeEx (removeDirectoryRecursive tmpHome)
+            srcEx  <- doesDirectoryExist srcDir
+            when srcEx (removeDirectoryRecursive srcDir)
+      cleanup
+      createDirectoryIfMissing True (srcDir </> topDir </> "math")
+      writeFile (srcDir </> topDir </> "math" </> "add.llmll")
+                "(def add [a: int b: int] (+ a b))"
+      let tarPath = srcDir </> (topDir ++ ".tar.gz")
+      callProcess "tar" ["czf", tarPath, "-C", srcDir, topDir]
+      createDirectoryIfMissing True tmpHome
+      setEnv "HOME" tmpHome
+      result <- hubFetchLocal tarPath
+      case origHome of
+        Just h  -> setEnv "HOME" h
+        Nothing -> unsetEnv "HOME"
+      result `shouldBe` Right ()
+      let installedFile = tmpHome </> ".llmll" </> "modules" </> pkgName </> pkgVer
+                             </> "math" </> "add.llmll"
+      installedExists <- doesFileExist installedFile
+      installedExists `shouldBe` True
+      contents <- readFile installedFile
+      contents `shouldBe` "(def add [a: int b: int] (+ a b))"
+      -- regression: files must NOT be flattened directly under modules/ root
+      -- (the old stripTopDir bug lost the package/version directory)
+      flatExists <- doesFileExist (tmpHome </> ".llmll" </> "modules" </> "math" </> "add.llmll")
+      flatExists `shouldBe` False
+      cleanup
 
   -- =========================================================================
   -- v0.3.1: Event Log (#13)
