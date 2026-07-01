@@ -35,7 +35,7 @@
         },
         "snd": {
           "kind": "app",
-          "fn": "int-add",
+          "fn": "+",
           "args": [
             {
               "kind": "var",

@@ -32,7 +32,7 @@
         },
         "snd": {
           "kind": "app",
-          "fn": "int-mul",
+          "fn": "*",
           "args": [
             {
               "kind": "var",

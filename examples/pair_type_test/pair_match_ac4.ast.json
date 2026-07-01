@@ -3,6 +3,14 @@
   "llmll_version": "0.3.0",
   "statements": [
     {
+      "kind": "import",
+      "path": "wasi.io",
+      "capability": {
+        "name": "stdout",
+        "deterministic": false
+      }
+    },
+    {
       "kind": "def-shell",
       "name": "use-pair",
       "params": [
