@@ -140,46 +140,51 @@ yet — we'll show both formats for each piece as we go.
 ```lisp
 ;;; ── Two independent low-level implementations ───────────────────
 
-(def-logic hash-password-impl [raw-pw: string]
+(def hash-password-impl [raw-pw: string]
   (?delegate @crypto-agent
     "Hash the raw password using a salt-based scheme.
      Concatenate a fixed salt with the password, compute a digest
      representation, and return the hashed string prefixed with 'hashed:'."
-    :return-type string
-    :on-failure "hash-unavailable"))
+    -> string
+    (on-failure "hash-unavailable")))
 
-(def-logic verify-token-impl [token: string]
+(def verify-token-impl [token: string]
   (?delegate @crypto-agent
     "Verify the session token is well-formed and not expired.
      Reject empty tokens. Valid tokens must be at least 8 characters.
      Return true if valid, false otherwise."
-    :return-type bool
-    :on-failure false))
+    -> bool
+    (on-failure false)))
 
 ;;; ── A higher-level function that DEPENDS on hash-password-impl ──
 
-(def-logic login-handler [username: string password: string]
-  (pre (not (= (string-length password) 0)))
-  (let [(hashed (hash-password-impl password))]     ; ← this creates a dependency!
+;; The `let` binding below (hashed = ...) is what creates the dependency on
+;; hash-password-impl: the compiler sees this call and knows this hole can't
+;; be filled until that one is.
+(def-shell login-handler [username: string password: string]
+  (pre (not (string-empty? password)))
+  (let [(hashed (hash-password-impl password))]
     (?delegate @session-agent
       "Using the hashed password and the username, build a session token.
        If the hash failed, return an error. Otherwise concatenate
        username:hashed into a session ID. Return Result[string, string]."
-      :return-type Result[string, string]
-      :on-failure (err "session-agent unavailable"))))
+      -> Result[string, string]
+      (on-failure (err "session-agent unavailable")))))
 
 ;;; ── The top-level entry point: depends on EVERYTHING above ──────
 
-(def-logic authenticate-request
+;; token-valid depends on Tier 0 (verify-token-impl); session depends on
+;; Tier 1 (login-handler) — this hole waits on both.
+(def-shell authenticate-request
     [username: string password: string existing-token: string]
-  (let [(token-valid (verify-token-impl existing-token))  ; ← dep on Tier 0
-        (session     (login-handler username password))]  ; ← dep on Tier 1
+  (let [(token-valid (verify-token-impl existing-token))
+        (session     (login-handler username password))]
     (?delegate @gateway-agent
       "If token-valid is true, return ok with existing-token (reuse).
        Otherwise, pattern-match on session: on Success return ok with
        the new session ID, on Error propagate. Return Result[string, string]."
-      :return-type Result[string, string]
-      :on-failure (err "gateway-agent unavailable"))))
+      -> Result[string, string]
+      (on-failure (err "gateway-agent unavailable")))))
 ```
 
 A few things to notice:
@@ -203,7 +208,7 @@ Let's verify it type-checks:
 
 ```bash
 $ stack exec llmll -- check ../examples/orchestrator_walkthrough/auth_module.ast.json
-✅ auth_module.ast.json — OK (5 statements)
+✅ ../examples/orchestrator_walkthrough/auth_module.ast.json — OK (5 statements)
 ```
 
 Five statements: one interface, four functions. Four of those functions have
@@ -228,24 +233,32 @@ Here's the output, annotated:
     "pointer":      "/statements/1/body",          // ← RFC 6901 path into the AST
     "kind":         "delegate",
     "status":       "agent-task",
-    "agent":        "@crypto-agent",
-    "module-path":  "def-logic hash-password-impl",
+    "agent":        "crypto-agent",
+    "message":      "hole: ?delegate @crypto-agent",
+    "inferred-type": null,
+    "module-path":  "def hash-password-impl",
     "depends_on":   [],                            // ← no dependencies: leaf node
     "cycle_warning": false
   },
   {
     "pointer":      "/statements/2/body",
     "kind":         "delegate",
-    "agent":        "@crypto-agent",
-    "module-path":  "def-logic verify-token-impl",
+    "status":       "agent-task",
+    "agent":        "crypto-agent",
+    "message":      "hole: ?delegate @crypto-agent",
+    "inferred-type": null,
+    "module-path":  "def verify-token-impl",
     "depends_on":   [],                            // ← another leaf node
     "cycle_warning": false
   },
   {
     "pointer":      "/statements/3/body/body",     // ← note: body/body (inside the let)
     "kind":         "delegate",
-    "agent":        "@session-agent",
-    "module-path":  "def-logic login-handler",
+    "status":       "agent-task",
+    "agent":        "session-agent",
+    "message":      "hole: ?delegate @session-agent",
+    "inferred-type": null,
+    "module-path":  "def-shell login-handler",
     "depends_on": [
       {
         "pointer": "/statements/1/body",           // ← depends on hash-password-impl
@@ -258,8 +271,11 @@ Here's the output, annotated:
   {
     "pointer":      "/statements/4/body/body",
     "kind":         "delegate",
-    "agent":        "@gateway-agent",
-    "module-path":  "def-logic authenticate-request",
+    "status":       "agent-task",
+    "agent":        "gateway-agent",
+    "message":      "hole: ?delegate @gateway-agent",
+    "inferred-type": null,
+    "module-path":  "def-shell authenticate-request",
     "depends_on": [
       {
         "pointer": "/statements/2/body",           // ← depends on verify-token-impl
@@ -341,10 +357,8 @@ auth_module.ast.json — 4 holes (4 fillable)
   Tier 0 (parallel):
     /statements/1/body [@crypto-agent]
     /statements/2/body [@crypto-agent]
-
   Tier 1 (parallel):
     /statements/3/body/body [@session-agent] ← depends on: hash-password-impl
-
   Tier 2 (parallel):
     /statements/4/body/body [@gateway-agent] ← depends on: verify-token-impl, login-handler
 ```
@@ -401,8 +415,8 @@ Let's walk through each hole.
 
 - **Pointer:** `/statements/1/body`
 - **Kind:** `delegate`
-- **Context:** `def-logic hash-password-impl`
-- **Description:** hole: ?delegate @@crypto-agent
+- **Context:** `def hash-password-impl`
+- **Description:** hole: ?delegate @crypto-agent
 - **Target agent:** `@crypto-agent`
 
 Return a JSON array of RFC 6902 patch operations to fill this hole.
@@ -507,10 +521,8 @@ and B doesn't matter — neither depends on the other.
   "path": "/statements/2/body",
   "value": {
     "kind": "if",
-    "cond": {"kind": "op", "op": "=",
-             "args": [{"kind": "app", "fn": "string-length",
-                        "args": [{"kind": "var", "name": "token"}]},
-                      {"kind": "lit-int", "value": 0}]},
+    "cond": {"kind": "app", "fn": "string-empty?",
+             "args": [{"kind": "var", "name": "token"}]},
     "then_branch": {"kind": "lit-bool", "value": false},
     "else_branch": {"kind": "op", "op": ">=",
                     "args": [{"kind": "app", "fn": "string-length",
@@ -523,7 +535,7 @@ and B doesn't matter — neither depends on the other.
 In S-expression:
 
 ```lisp
-(if (= (string-length token) 0)
+(if (string-empty? token)
     false
     (>= (string-length token) 8))
 ```
@@ -744,19 +756,19 @@ Here's the complete filled program in S-expression:
   [hash-password (fn [raw-pw: string] -> string)]
   [verify-token  (fn [token: string]  -> bool)])
 
-(def-logic hash-password-impl [raw-pw: string]
+(def hash-password-impl [raw-pw: string]
   (let [(salt   "llmll-v1-salt")
         (salted (string-concat salt raw-pw))
         (digest (int-to-string (string-length salted)))]
     (string-concat "hashed:" digest)))
 
-(def-logic verify-token-impl [token: string]
-  (if (= (string-length token) 0)
+(def verify-token-impl [token: string]
+  (if (string-empty? token)
       false
       (>= (string-length token) 8)))
 
-(def-logic login-handler [username: string password: string]
-  (pre (not (= (string-length password) 0)))
+(def-shell login-handler [username: string password: string]
+  (pre (not (string-empty? password)))
   (let [(hashed (hash-password-impl password))]
     (if (= hashed "hash-unavailable")
         (err "crypto agent failed to hash password")
@@ -764,7 +776,7 @@ Here's the complete filled program in S-expression:
               (string-concat username
                 (string-concat ":" hashed)))))))
 
-(def-logic authenticate-request
+(def-shell authenticate-request
     [username: string password: string existing-token: string]
   (let [(token-valid (verify-token-impl existing-token))
         (session     (login-handler username password))]
@@ -800,8 +812,8 @@ The generated Haskell (with comments added for clarity):
 ```haskell
 -- ─── Interface ──────────────────────────────────────────────────────
 class AuthSystem t where
-  hash_password :: t -> a -> String
-  verify_token  :: t -> a -> Bool
+  hash_password :: t -> String -> String
+  verify_token  :: t -> String -> Bool
 
 -- ─── Tier 0: @crypto-agent filled these ─────────────────────────────
 
@@ -812,18 +824,17 @@ hash_password_impl raw_pw =
   in  string_concat "hashed:" digest
 
 verify_token_impl token =
-  if string_length token == (0 :: Int)
+  if string_empty' token
     then False
-    else string_length token >= (8 :: Int)
+    else string_length token >= 8
 
 -- ─── Tier 1: @session-agent filled this ─────────────────────────────
--- pre: password is non-empty (runtime assertion)
+-- pre: password is non-empty (runtime assertion — see caveat below)
 
 login_handler username password =
-  let _pre_ = if not (string_length password == (0 :: Int))
-               then () else error "pre-condition failed"
-  in  _pre_ `seq`
-      let hashed = hash_password_impl password
+  let _pre_check = if not (string_empty' password)
+               then () else error "Precondition violated in login-handler"
+  in  let hashed = hash_password_impl password
       in  if hashed == "hash-unavailable"
             then err "crypto agent failed to hash password"
             else ok (string_concat "session:"
@@ -841,6 +852,15 @@ authenticate_request username password existing_token =
                Right s -> ok  (string_concat "new-session:" s)
                Left  e -> err (string_concat "login-failed:" e)
 ```
+
+> **Known issue: the `pre` check above does not currently fire at runtime.**
+> `_pre_check` is bound but never forced anywhere in `login_handler`'s body — under
+> Haskell's laziness, an unforced `let` binding is simply never evaluated, so
+> `error "Precondition violated..."` never runs even when `password` is empty.
+> (Earlier compiler versions forced it explicitly via `` _pre_ `seq` ...``; current
+> codegen dropped that.) The GHCi transcript below shows the real, current
+> behavior — an empty password is silently accepted — not the intended one.
+> This is a live compiler bug, tracked separately from the doc fixes here.
 
 Load it in GHCi and try it out:
 
@@ -862,11 +882,11 @@ False
 λ> verify_token_impl "session:alice:hashed:19"
 True
 
--- Login (pre-condition enforced at runtime)
+-- Login
 λ> login_handler "alice" "s3cret"
 Right "session:alice:hashed:19"
-λ> login_handler "alice" ""
-*** Exception: pre-condition failed
+λ> login_handler "alice" ""              -- pre-condition is NOT enforced (see caveat above)
+Right "session:alice:hashed:13"
 
 -- Full authentication — existing token is valid, reuse it
 λ> authenticate_request "alice" "s3cret" "session:alice:hashed:19"
@@ -887,6 +907,17 @@ type-checked every fill, and the result is a working Haskell application.
 ---
 
 ## Step 7: Read the Report
+
+> **Known issue: this exact "4/4 filled, 1 attempt each" outcome does not currently
+> reproduce.** The orchestrator's checkout-TTL renewal reads a JSON key
+> (`remaining_seconds`) the compiler doesn't emit (it emits `remaining_ttl`), so
+> every hole is treated as already-expired and immediately re-checked-out,
+> colliding with its own lock on attempt 1. A separate, related bug means the
+> "in-scope variables" / "available functions" context described under Hole A/B/C/D
+> above is never actually delivered to the agent (a `"context"` JSON wrapper the
+> orchestrator expects doesn't exist in the compiler's response). Both are tracked
+> compiler/orchestrator bugs, not documentation issues — this walkthrough describes
+> the intended behavior once they're fixed.
 
 The orchestrator produces a summary when it's done:
 
@@ -938,7 +969,7 @@ sequenceDiagram
     participant A as OpenAI (gpt-4o)
 
     O->>C: llmll spec
-    C-->>O: 36 builtins + 14 operators
+    C-->>O: 38 builtins + 14 operators
     Note over O: build_system_prompt(spec)
 
     O->>C: llmll holes --json --deps
@@ -1133,11 +1164,13 @@ If you want to read or modify the orchestrator source:
 
 ```
 tools/llmll-orchestra/llmll_orchestra/
-  __main__.py       CLI entry — argparse, provider selection, scan-only mode
+  __main__.py       CLI entry — argparse, provider selection, scan-only mode, --mode plan|lead|auto
   compiler.py       Subprocess wrapper — spec(), holes(), checkout(), patch(), release()
   graph.py          topo_sort() via Kahn's BFS, scheduling_tiers()
   agent.py          build_system_prompt(), build_prompt(), OpenAIAgent, Agent, DryRunAgent
   orchestrator.py   The main loop: spec → scan → sort → (checkout → fill → patch → retry)*
+  lead_agent.py     Lead Agent — generates an architecture plan from an --intent and converts it to a type-checked skeleton
+  quality.py        Quality heuristics that validate a Lead Agent plan before skeleton generation
 ```
 
 ```

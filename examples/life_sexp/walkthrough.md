@@ -98,19 +98,19 @@ expecting ')'
 
 ---
 
-### Problem 2 — `\u001b` escape not valid in S-expression strings
+### Problem 2 — `\u001b` escape not valid in S-expression strings (RESOLVED)
 
-**Symptom:** Used `"\u001b[2J\u001b[H"` (ANSI clear-screen) in S-expression `main.llmll`. Parse error:
+**Symptom (at the time):** Used `"\u001b[2J\u001b[H"` (ANSI clear-screen) in S-expression `main.llmll`. Parse error:
 ```
 unexpected '\'
 expecting '"' or literal character
 ```
 
-**Root cause:** JSON-AST string `value` fields follow RFC 8259 where `\uXXXX` is valid. S-expression strings follow Haskell/C-style escapes — `\uXXXX` is not recognized. The JSON-AST version works correctly using `"\u001b[2J\u001b[H"`.
+**Root cause (at the time):** JSON-AST string `value` fields follow RFC 8259 where `\uXXXX` is valid. S-expression strings followed Haskell/C-style escapes only — `\uXXXX` was not recognized.
 
-**Fix:** Replaced clear-screen ANSI escape with a `"---...---\n"` separator line in the S-expression version. This avoids the escape entirely.
+**Fix applied to this example:** Replaced the clear-screen ANSI escape with a `"---...---\n"` separator line in the S-expression version, avoiding the escape entirely (this workaround is still what `main.llmll` in this example uses, and is left as-is).
 
-**Compiler team note:** Document in `getting-started.md §4.9` that S-expression strings do NOT support `\uXXXX` JSON escapes. Options for terminal escape in S-expr: (a) embed the literal ESC byte (U+001B) directly in the UTF-8 source file, or (b) add `\uXXXX` as a recognized S-expression escape like the Unicode operator aliases.
+**Resolved upstream:** `\uXXXX` is now a recognized S-expression escape (option (b) from the original compiler-team note below) — confirmed via `docs/getting-started.md §4.12`, which documents and demonstrates `(def clear-screen [] "\u001b[2J\u001b[H")` parsing correctly in S-expression source today. This example's own workaround predates that fix and was left in place rather than reverted, since the separator-line approach works fine and isn't worth churning.
 
 ---
 

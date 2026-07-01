@@ -23,32 +23,56 @@ stack build
 stack exec llmll -- --help
 ```
 
-Expected output:
+Expected output (v0.14.2):
 
 ```bash
 llmll — AI-to-AI programming language compiler
 
-Usage: llmll [--version] COMMAND [--json]
+Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
+
+  LLMLL — Large Language Model Logical Language Compiler (v0.14.2)
 
 Available options:
-  --version    Print compiler version and exit
+  -h,--help                Show this help text
+  --version                Print compiler version and exit
+  --json                   Output diagnostics as JSON
+  --grammar MODE           LT-INV: grammar mode: core-inversion (default) or
+                           legacy (v0.10 compatibility)
 
 Available commands:
-  check      Parse and type-check a .llmll or .ast.json file
-  holes      List and classify all holes in a file
-  test       Run property-based tests (check blocks)
-  build      Compile source to a Haskell application
-  verify     Emit .fq constraints, run liquid-fixpoint, trust report
-  spec       Emit the agent prompt specification from builtinEnv
-  typecheck  Type inference (use --sketch for partial programs)
-  serve      HTTP sketch endpoint for agent swarms
-  checkout   Lock a hole for exclusive agent editing
-  patch      Apply an RFC 6902 JSON-Patch to a checked-out hole
-  hub        llmll-hub package registry (fetch, scaffold, query)
-  replay     Deterministic replay from event log
-  version    Print compiler version and exit
-  repl       Start an interactive LLMLL REPL
+  check                    Parse and type-check a .llmll or .ast.json file
+  holes                    List and classify all holes in a .llmll file
+  test                     Run property-based tests (check blocks)
+  build                    Compile .llmll to Rust; use --emit json-ast to emit
+                           JSON-AST instead
+  build-json               Compile a .ast.json file (JSON-AST) — same as build
+                           but from JSON input
+  run                      Compile and immediately run an LLMLL program
+                           (requires def-main)
+  repl                     Start an interactive LLMLL REPL
+  hub                      Manage llmll-hub local package cache (fetch,
+                           scaffold)
+  verify                   D4: Emit .fq constraints and run liquid-fixpoint (if
+                           installed)
+  typecheck                Parse and type-check; with --sketch infer hole types
+                           from context (Phase 2c)
+  serve                    D5: Start HTTP server on 127.0.0.1:7777 for AI agent
+                           integration
+  checkout                 v0.3: Lock a hole for exclusive editing
+                           (checkout/release/status)
+  patch                    v0.3: Apply an RFC 6902 JSON-Patch to a checked-out
+                           hole
+  replay                   v0.3.1: Replay an event log against a compiled
+                           program
+  replay-artifact          PROOF-ARTIFACT: re-derive and check a recorded
+                           verification artifact (fail-closed)
+  spec                     v0.3.4: Emit agent specification from compiler
+                           builtins
+  version                  Print compiler version and exit
 ```
+
+> [!NOTE]
+> The `build` line above literally says "Compile .llmll to Rust" — that's a stale leftover from an early Rust-codegen prototype in the compiler's own `--help` text; actual `build` behavior is Haskell codegen (see [`build`](#build--generate-haskell) below). Tracked as a compiler bug, not a doc error.
 
 ---
 
@@ -60,7 +84,7 @@ All commands run from the `compiler/` directory.
 
 ```bash
 stack exec llmll -- check ../examples/withdraw.llmll
-# ✅ ../examples/withdraw.llmll — OK (5 statements)
+# ✅ ../examples/withdraw.llmll — OK (4 statements)
 
 stack exec llmll -- --json check ../examples/withdraw.llmll
 # {"diagnostics":[...],"phase":"typecheck","success":true}
@@ -122,7 +146,10 @@ Writes the full JSON output (with dependency data) to `deps.json`. Implies `--de
 
 ```bash
 stack exec llmll -- test ../examples/hangman_json/hangman.ast.json
-# 4 properties: ✅ Passed: 4  ❌ Failed: 0  ⚠️ Skipped: 0
+# ../examples/hangman_json/hangman.ast.json — 0 properties
+#   ✅ Passed:  0
+#   ❌ Failed:  0
+#   ⚠️  Skipped: 0
 ```
 
 Properties are skipped when they contain `Command`-producing expressions that cannot be statically evaluated.
@@ -133,7 +160,7 @@ The skip message names which case applies.
 >
 > ```bash
 > stack exec llmll -- test hangman.ast.json --emit-only
-> #    src/Lib.hs -- 8803 chars
+> #    src/Lib.hs -- 10344 chars
 > #    (stack test skipped — --emit-only)
 > ```
 
@@ -174,11 +201,15 @@ cd generated/hangman_json && stack build && stack exec hangman
 
 ### `hub` — package registry
 
-```bash
-# Download a package into the local cache (~/.llmll/modules/)
-llmll hub fetch llmll-crypto@0.1.0
+> [!IMPORTANT]
+> **Phase 2a is local-tarball-only.** There is no registry-by-name fetch (`llmll hub fetch <pkg>@<ver>` does not exist) — HTTPS registry fetch is deferred to Phase 2b. The only supported form is installing a local `.tar.gz`:
 
-# Cache layout after fetch:
+```bash
+# Install a local tarball into the cache (~/.llmll/modules/)
+llmll hub fetch --from-file ./llmll-crypto-0.1.0.tar.gz
+
+# Intended cache layout after fetch (tarball's top-level <package>-<version>/
+# directory is meant to be stripped on install):
 # ~/.llmll/modules/llmll-crypto/0.1.0/
 #   hash/bcrypt.ast.json
 #   hash/bcrypt.llmll
@@ -187,11 +218,13 @@ llmll hub fetch llmll-crypto@0.1.0
 ```bash
 # Scaffold a new project from a hub skeleton template
 llmll hub scaffold web-api-server --output ./my-project
-
-# Template cache: ~/.llmll/templates/
+# Template 'web-api-server' not found in ~/.llmll/templates/.
+# Install with: llmll hub fetch --from-file <tarball>
 ```
 
-Import fetched packages using the `hub.` prefix (see §4.8).
+No scaffold templates ship with the compiler — `hub scaffold` only works once you've fetched a template package yourself via `hub fetch --from-file`.
+
+Import fetched packages using the `hub.` prefix (see §4.9).
 
 ```bash
 # Query the hub for functions matching a type signature
@@ -235,17 +268,23 @@ stack exec llmll -- verify file.llmll --leanstral-mock
 # Leanstral with custom command and timeout:
 stack exec llmll -- verify file.llmll --leanstral-cmd /path/to/lean-lsp-mcp --leanstral-timeout 60
 
-# Trust report — transitive trust closure with epistemic drift detection:
+# Trust report — transitive trust closure with epistemic drift detection
+# (run plain `verify` first so the .verified.json sidecar is warm — see NOTE below):
+stack exec llmll -- verify file.llmll
 stack exec llmll -- verify file.llmll --trust-report
 # Trust Report
 # ────────────────────────────────────────────────────────────
 #   withdraw:
-#     pre: proven (liquid-fixpoint)  |  post: proven (liquid-fixpoint)
+#     pre:  asserted  |  post: verified (liquid-fixpoint)
 #     ↳ calls auth.verify-token (pre: —, post: asserted)
-#     ⚠ withdraw is proven, but depends on auth.verify-token which is asserted
+#     ⚠ withdraw is verified, but depends on auth.verify-token which is asserted
 # ────────────────────────────────────────────────────────────
 # Summary:
-#   proven: 3  tested: 1  asserted: 2  no contract: 5
+#   verified:         3
+#   contract-checked: 0
+#   tested:           1
+#   asserted:         2
+#   no contract:      5
 #   ⚠ epistemic drifts: 1
 
 # JSON trust report (for tooling consumption):
@@ -281,7 +320,8 @@ stack exec llmll -- verify file.llmll --spec-coverage
 # Spec Coverage Report
 # ────────────────────────────────────────────
 #   Functions with contracts:     4 / 7   (57%)
-#     Proven:                     2
+#     Verified:                   2
+#     Contract-checked:           0
 #     Tested:                     1
 #     Asserted:                   1
 #   Intentional Underspecification:
@@ -369,26 +409,48 @@ This leverages existing `TrustReport.hs` transitive closure infrastructure and t
 ```bash
 stack exec llmll -- verify file.llmll --obligation-report --json
 # {
-#   "schema_version": "0.10.0",
+#   "schema_version": "0.12.1",
+#   "source_file": "./file.llmll",
+#   "cross_module": "single-file",
 #   "obligations": [
 #     {
 #       "kind": "hole-obligation",
-#       "hole": "?impl",
 #       "function": "withdraw",
-#       "expected_type": "int",
-#       "contract_context": {
-#         "preconditions": ["(>= balance amount)"],
-#         "postcondition_goal": "(>= result 0)"
+#       "origin": "/statements/0/body",
+#       "type_channel": {
+#         "expected_type": "unknown",
+#         "in_scope": [
+#           { "name": "balance", "source": "param", "type": "int" },
+#           { "name": "amount", "source": "param", "type": "int" }
+#         ],
+#         "polymorphic": false
 #       },
-#       "path_condition": ["(>= balance amount)"],
-#       "in_scope": { "balance": "int", "amount": "int" },
-#       "suggestions": [{ "expression": "(- balance amount)", "reason": "arithmetic candidate" }],
+#       "contract_channel": {
+#         "preconditions": ["(>= balance amount)"],
+#         "postcondition_goal": "(= result (- balance amount))",
+#         "path_condition": [],
+#         "path_truncated": false,
+#         "body_fragment": "hole_bearing",
+#         "contract_fragment": "non_qf_lia",
+#         "body_faithful_possible": false
+#       },
+#       "trust_channel": {
+#         "effective_level": "asserted",
+#         "body_faithful": false,
+#         "assumptions": []
+#       },
+#       "suggestions": [],
 #       "contracted_functions": [...],
 #       "available_functions": [...]
 #     }
-#   ]
+#   ],
+#   "refuted_fns": [],
+#   "effect_summary": [...],
+#   "summary": { "total": 1, "discharged": 1, "open": 0, "deferred": 0, "asserted": 0, "refuted": 0 }
 # }
 ```
+
+The three channels below are the three top-level keys on each obligation (`type_channel`, `contract_channel`, `trust_channel`) — `expected_type` is `"unknown"` here because `withdraw` has no `-> RetType` annotation (see DEF-RET, §4.25); an annotated function reports the real type instead.
 
 Three obligation channels:
 
@@ -404,10 +466,42 @@ Three obligation channels:
 
 **Function lists:** Each obligation includes `contracted_functions` (user-defined with compatible return type and trust labels) and `available_functions` (builtins with compatible signatures). Both lists are capped at 8 entries with truncation signals.
 
-`verify` is **gracefully degrading**: if `fixpoint` or `z3` is not in `PATH`, it writes the `.fq` file and exits 0 with an install hint. The file can be checked manually or in CI once the tools are installed.
+`verify` is **loud, not silent, when the solver is missing** (v0.13.4+): if `fixpoint` or `z3` is not on `PATH`, it still writes the `.fq` file, but prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and **exits `3`** (distinct from `1` = refuted) — never a silent pass:
+
+```
+   .fq written to /tmp/hole-demo.fq
+   body-fallback: withdraw
+
+  ============================================================
+  !!  SOLVER NOT FOUND -- NOTHING WAS PROVEN
+  ============================================================
+  'llmll verify' needs liquid-fixpoint + z3 to discharge proofs.
+  Neither was found on PATH, so the contract was NOT checked.
+  (This is not a pass -- no proof ran.)
+  ...
+  ============================================================
+EXIT=3
+```
+
+The `.fq` file is still written and can be checked manually or in CI once the tools are installed, but do not treat exit `0`/no-error as a pass here — check the exit code, not just "did it crash." (Before v0.13.4, `verify` exited `0` in this case; if you see that behavior, you're on a stale binary.)
 
 > [!IMPORTANT]
 > `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
+
+#### Proof artifact (PROOF-ARTIFACT, v0.14.0)
+
+`--proof-artifact FILE` writes a single, self-contained, replayable verification record — the trust/obligation/`.fq`/sidecar surfaces plus determinism pins (solver version, codegen semantics version) — to `FILE`. `replay-artifact FILE` re-derives it: recomputes the source hash, re-runs the recorded VC under the pinned solver, and **fails closed** on any source/solver-determinism mismatch.
+
+```bash
+stack exec llmll -- verify file.llmll --proof-artifact ./file.proof.json
+#    proof-artifact written to ./file.proof.json
+# ✅ file.llmll — SAFE (liquid-fixpoint)
+
+stack exec llmll -- replay-artifact ./file.proof.json
+# ✅ replay reproduced verdict: RSafe
+```
+
+Top-level artifact fields: `proof_artifact_version`, `source_path`, `source_hash`, `solver`, `solver_result`, `codegen_semantics_version`, `composed_versions`, `functions`, `vc`, `certificate`, `unsat_core` (reserved — deferred; Z3's core isn't cheaply surfaced through liquid-fixpoint). The §4.1 LCF anti-laundering invariant (a positive tier is unconstructible without its supporting qualifiers) is enforced on both emit and parse — hand-editing a refuted function's record to claim a verified tier is rejected on parse, not silently accepted. This is a **replay** guarantee (re-runs the solver under pinned inputs), not a proof checkable without the solver — that stronger property is the future Lean tier.
 
 #### Body-faithful verification
 
@@ -463,11 +557,33 @@ The replay command:
 
 ### `typecheck --sketch` — partial-program type inference
 
+> [!NOTE]
+> The `compiler/examples/sketch/` fixtures shipped in this repo predate schema `0.7.0` and the `def`/`def-shell` grammar (they're `schemaVersion: "0.2.0"`, `"kind":"def-logic"` — `def-logic` was removed in v0.12.1) and no longer parse. The worked example below is inlined and current.
+
+```json
+// if_hole.ast.json
+{
+  "schemaVersion": "0.7.0",
+  "statements": [
+    { "kind": "def", "name": "greet",
+      "params": [{ "name": "formal", "param_type": { "kind": "primitive", "name": "bool" } }],
+      "body": { "kind": "if", "cond": { "kind": "var", "name": "formal" },
+        "then_branch": { "kind": "lit-string", "value": "Dear Sir/Madam" },
+        "else_branch": { "kind": "hole-named", "name": "informal_greeting" } } }
+  ]
+}
+```
+
 ```bash
-stack exec llmll -- typecheck --sketch ../examples/sketch/if_hole.ast.json
+stack exec llmll -- typecheck --sketch if_hole.ast.json
 # {
-#   "holes": [ { "name": "?handler", "inferredType": "Command", "pointer": "/statements/2/body/else" } ],
-#   "errors": []
+#   "holes": [ { "name": "?informal_greeting", "inferredType": "string",
+#                "pointer": "/statements/0/body/else",
+#                "scope": [ { "name": "formal", "source": "param", "type": "bool" },
+#                           { "name": "greet", "source": "let-binding", "type": "fn[1 args] -> ?" } ] } ],
+#   "errors": [],
+#   "invariant_suggestions": [],
+#   "schemaVersion": "0.4.0"
 # }
 ```
 
@@ -517,59 +633,87 @@ Every `POST /sketch` is **stateless** — a fresh type-check context per request
 
 ### `checkout` — lock a hole for exclusive editing
 
+`examples/delegate_demo/program.ast.json` has 2 statements today; its hole (`compute-value`'s `?delegate` body) is at `/statements/1/body`, and — because `compute-value` carries no `pre`/`post` — this particular checkout doesn't populate the contract/typing fields (see "Context-aware fields" below for a hole that does):
+
 ```bash
-# Lock a hole and get a checkout token (includes the hole's contract + typing context)
-stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/2/body
+stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/1/body --json
 # {
-#   "pointer": "/statements/2/body",
+#   "pointer": "/statements/1/body",
 #   "hole_kind": "hole-delegate",
-#   "token": "a1b2c3d4e5f6...",
+#   "token": "35b582cfbe3a97f8...",
 #   "ttl": 3600,
-#   "in_scope": [
-#     { "name": "state", "type": "(int, string)", "source": "param" },
-#     { "name": "input", "type": "string", "source": "param" }
-#   ],
-#   "expected_return_type": "(int, Command)",
-#   "available_functions": [
-#     { "name": "list-head", "params": [{"name": "p0", "type": "list[int]"}],
-#       "returns": "Result[int, string]", "status": "builtin" }
-#   ],
-#   "type_definitions": [
-#     { "name": "GameState", "kind": "alias", "base_type": "(string, (list[string], (int, int)))" }
-#   ]
+#   "brief_version": "0.12.1",
+#   "source_hash": "efab8d7013749661e...",
+#   "timestamp": "2026-07-01T19:22:35.87Z",
+#   "contract_pre": null, "postcondition_goal": null, "path_condition": null,
+#   "obligation_id": null, "assumptions": null, "consumed_guarantees": null,
+#   "verified_hash": null
 # }
 
 # Check remaining TTL
-stack exec llmll -- checkout --status ../examples/delegate_demo/program.ast.json a1b2c3d4e5f6...
-# { "remaining_ttl": 3542 }
+stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --status 35b582cfbe3a97f8...
+# { "remaining_ttl": 3600 }
 
 # Explicitly release a lock (don't wait for TTL expiry)
-stack exec llmll -- checkout --release ../examples/delegate_demo/program.ast.json a1b2c3d4e5f6...
+stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --release 35b582cfbe3a97f8...
 # { "released": true }
 ```
 
-`checkout` validates that the RFC 6901 pointer targets a `hole-*` node in the JSON-AST. If the pointer targets a non-hole node but a descendant hole exists, the error includes a hint: `"did you mean /statements/2/body?"`. Pointers are normalized (EC-3): leading zeros in numeric segments are stripped (`/statements/02/body` → `/statements/2/body`).
+> [!IMPORTANT]
+> **Flag comes after the file, not before.** `--status TOKEN` / `--release TOKEN` are options on `checkout FILE ...`, not standalone subcommands: `llmll checkout FILE --status TOKEN` / `llmll checkout FILE --release TOKEN`. Putting `--status`/`--release` before `FILE` fails.
+
+`checkout` validates that the RFC 6901 pointer targets a `hole-*` node in the JSON-AST. If the pointer targets a non-hole node but a descendant hole exists, the error includes a hint naming the actual hole pointer. Pointers are normalized (EC-3): leading zeros in numeric segments are stripped (`/statements/02/body` → `/statements/2/body`).
 
 Locks are per-file (`.llmll-lock.json` alongside the source) with a 1-hour TTL. Stale locks are auto-expired on any `checkout` or `patch` call.
 
-**Context-aware fields** (optional — present when the compiler has sketch data):
+**Context-aware fields** — present when the hole's enclosing function carries a contract and/or the compiler has typing/scope data. A `def withdraw` body-hole with a `pre`/`post` and an `-> int` return type (e.g. `examples/withdraw-demo/demo.ast.json`, `/statements/1/body`) populates all of them:
+
+```bash
+stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statements/1/body --json
+# {
+#   ...,
+#   "contract_pre": "(>= balance amount)",
+#   "postcondition_goal": "(= result (- balance amount))",
+#   "expected_return_type": "int",
+#   "in_scope": [
+#     { "name": "amount", "source": "param", "type": "PositiveInt" },
+#     { "name": "balance", "source": "param", "type": "int" },
+#     { "name": "double", "source": "let-binding", "type": "fn[1 args] -> int" }, ...
+#   ],
+#   "available_functions": [
+#     { "name": "withdraw", "params": [...], "pre": "(>= balance amount)",
+#       "post": "(= result (- balance amount))", "return_type": "int",
+#       "tier": "asserted", "status": "filled" }, ...
+#   ],
+#   "type_definitions": [
+#     { "name": "PositiveInt", "kind": "dependent", "base_type": "int" }, ...
+#   ]
+# }
+```
 
 | Field | Content |
 |-------|---------|
+| `contract_pre` / `postcondition_goal` | The hole's precondition (assumable) and postcondition (must prove). `null` when the enclosing function has no contract. |
 | `in_scope` | Bindings visible at the hole site, with source provenance (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by priority; truncated at 50 entries if scope is large (`scope_truncated: true`). |
 | `expected_return_type` | The expected type at the hole site (τ). Populated (DEF-RET, v0.13.1) for a function-body hole when the enclosing function declares a return type (`-> RetType`), and for a sub-expression hole whose type is fixed by local inference; absent otherwise. |
-| `available_functions` | Non-`wasi.*` function signatures, monomorphized against concrete scope types (e.g., `list-head : list[int] → Result[int, string]` when `xs : list[int]` is in scope). |
+| `available_functions` | Contracted user functions with `params`/`pre`/`post`/`return_type`/`tier`/`status` (DEMO-COMP). |
 | `type_definitions` | User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection. |
+| `consumed_guarantees` | A verified callee's post the body may assume without re-proving (composition only); `null` otherwise. |
 | `scope_truncated` | `true` if the scope was truncated; absent or `false` otherwise. |
+| `path_condition`, `obligation_id`, `assumptions` | Reserved/contextual fields; `null` when not applicable to this hole. |
+| `brief_version`, `source_hash`, `verified_hash`, `timestamp` | Bookkeeping: brief schema version, content hash at checkout (for compare-and-swap staleness detection), last-verified hash, and checkout time. |
 
 > [!IMPORTANT]
 > `checkout` requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`.
 
 ### `patch` — apply an RFC 6902 JSON-Patch to a checked-out hole
 
+> [!NOTE]
+> The `int-mul`/`int-add` builtin names in the repo's `examples/delegate_demo/patch-request.json` fixture don't exist (LLMLL uses the `*`/`+` operators, not those names) — the example below uses a fresh, working patch instead.
+
 ```bash
 stack exec llmll -- patch ../examples/delegate_demo/program.ast.json ../examples/delegate_demo/patch-request.json
-# { "result": "PatchSuccess", "statements": 5 }
+# { "result": "PatchSuccess", "statements": 2 }
 ```
 
 The patch request is a JSON envelope containing the checkout token and RFC 6902 operations:
@@ -600,8 +744,8 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.6.0",
-  "llmll_version": "0.10.8",
+  "schemaVersion": "0.7.0",
+  "llmll_version": "0.14.2",
   "statements": [ ... ]
 }
 ```
@@ -617,7 +761,7 @@ The compiler rejects mismatched versions immediately. **Strict mode:** only the 
 
 **Upgrade path:** bump `schemaVersion` in `docs/llmll-ast.schema.json`, update `expectedSchemaVersion` in `ParserJSON.hs`, re-emit fixtures.
 
-**Round-trip guarantee:** `llmll build file.llmll --emit json-ast` then `llmll build file.ast.json` produces semantically identical output. Any divergence is a bug.
+**Round-trip guarantee:** `llmll build file.llmll --emit` (`-o DIR` optional; defaults to `generated/<name>/`) then `llmll build file.ast.json` produces semantically identical output. Any divergence is a bug.
 
 ---
 
@@ -752,7 +896,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 
 ---
 
-### 4.8 Multi-File Modules: `open`, `export`, and `hub`
+### 4.9 Multi-File Modules: `open`, `export`, and `hub`
 
 Use these patterns when authoring or consuming multi-module programs.
 
@@ -980,7 +1124,7 @@ A predicate-carrying `?proof-required` in `pre`/`post` emits a Haskell runtime a
 
 ---
 
-### §4.9 String Escape Sequences by Format
+### §4.12 String Escape Sequences by Format
 
 S-expression (`.llmll`) and JSON-AST (`.ast.json`) files use different string escape rules. Mixing them up is a common source of parse errors.
 
@@ -1015,9 +1159,9 @@ The compiler emits a hint when it detects the `\x1b` pattern:
 
 ---
 
-### §4.12 Pair-Type JSON-AST Round-Trip
+### §4.13 Pair-Type JSON-AST Round-Trip
 
-Since PR 1, `llmll build --emit json-ast` on any program containing `(pair a b)` emits the correct `"pair-type"` node:
+Since PR 1, `llmll build --emit` on any program containing `(pair a b)` emits the correct `"pair-type"` node:
 
 ```json
 { "kind": "pair-type", "fst": { "kind": "primitive", "name": "int" }, "snd": { "kind": "primitive", "name": "string" } }
@@ -1026,11 +1170,11 @@ Since PR 1, `llmll build --emit json-ast` on any program containing `(pair a b)`
 Previously, pair expressions were approximated as `"result-type"` in JSON-AST output. That approximation is gone. The schema `$def/TypePair` with `fst`/`snd` fields was already correct and required no change.
 
 > [!IMPORTANT]
-> If you have any tooling that post-processes `llmll build --emit json-ast` output and matches on `"kind": "result-type"` for pairs, update it to match `"kind": "pair-type"` instead. Programs that do **not** post-process the JSON-AST are unaffected.
+> If you have any tooling that post-processes `llmll build --emit` output and matches on `"kind": "result-type"` for pairs, update it to match `"kind": "pair-type"` instead. Programs that do **not** post-process the JSON-AST are unaffected.
 
 ---
 
-### §4.13 do-notation JSON-AST Schema
+### §4.14 do-notation JSON-AST Schema
 
 Since PR 2, the JSON-AST schema for `do`-blocks uses a single, unified `"do-step"` node. The old separation of `"bind-step"` and `"expr-step"` is obsolete:
 
@@ -1046,7 +1190,7 @@ Since PR 2, the JSON-AST schema for `do`-blocks uses a single, unified `"do-step
 > **Migrating from pre-PR2 do-blocks:** The JSON parser **rejects** old `"bind-step"` and `"expr-step"` kinds with a clear migration error. To update, rename your step `"kind"` to `"do-step"`. For named steps, keep the `"name"` property to capture the bound state.
 > Furthermore, `llmll check` enforces state threading. Every step inside a `do`-block must return exactly `(S, Command)`, and the type `S` must be strictly identical across all steps. A mismatch produces a `"type-mismatch"` diagnostic.
 
-### 4.14 Pair Destructuring in `let` Bindings
+### 4.15 Pair Destructuring in `let` Bindings
 
 The binding head of a `let` form can be a **pattern** instead of a simple name, enabling pair destructuring without a separate `match`:
 
@@ -1104,14 +1248,14 @@ When a `let` binding's RHS is a complex expression (delegation, `await`, functio
                          -> ImageBytes))]
     (let [(chart-result (await chart-future))]
       (match chart-result
-        (Success img) (pair state (wasi.http.response 200 img))
-        (Error err)   (pair state (wasi.http.response 500 "Agent failed"))))))
+        ((Success img) (pair state (wasi.http.response 200 img)))
+        ((Error err)   (pair state (wasi.http.response 500 "Agent failed")))))))
 
 ;; ❌ WRONG — inlining await + delegate-async as a direct argument:
 (def-shell build-report [state: AppState data: ReportData]
   (match (await (?delegate-async @viz-agent "Render chart" -> ImageBytes))
-    (Success img) (pair state (wasi.http.response 200 img))
-    (Error err)   (pair state (wasi.http.response 500 "Agent failed"))))
+    ((Success img) (pair state (wasi.http.response 200 img)))
+    ((Error err)   (pair state (wasi.http.response 500 "Agent failed")))))
 ```
 
 The same pattern applies to any multi-step computation: bind results to names with sequential `let`, then use the names in the body.
@@ -1139,7 +1283,7 @@ The same pattern applies to any multi-step computation: bind results to names wi
 
 ---
 
-### §4.15 Capability Enforcement
+### §4.16 Capability Enforcement
 
 Calling a `wasi.*` function without a matching capability import is a **compile-time type error**. The check is in `inferExpr (EApp ...)` — it covers all nesting contexts: `let` RHS, `if` branches, `match` arms, `do` steps, and contract expressions.
 
@@ -1170,7 +1314,7 @@ Calling a `wasi.*` function without a matching capability import is a **compile-
 
 ---
 
-### §4.16 Type Errors for Polymorphic Functions
+### §4.17 Type Errors for Polymorphic Functions
 
 U-Lite replaces the previous `compatibleWith (TVar _) _ = True` wildcard with substitution-based unification for concrete types. This catches several classes of type errors that were previously silently accepted.
 
@@ -1209,20 +1353,21 @@ U-Lite replaces the previous `compatibleWith (TVar _) _ = True` wildcard with su
 
 ---
 
-### §4.17 Type Soundness
+### §4.18 Type Soundness
 
 U-Full completes Algorithm W with occurs check and let-generalization, closing the last known unsoundness in the type checker.
 
 #### Occurs check
 
-A type variable cannot unify with a type that contains itself. This prevents infinite type construction:
+A type variable cannot unify with a type that contains itself. This prevents infinite type construction — `structuralUnify` (`TypeCheck.hs`) runs `occursIn` before binding a `TVar`, and on a genuine self-referential unification raises `"infinite type: " <> a <> " occurs in " <> typeLabel actual`.
 
-```lisp
-;; ❌ Infinite type error:
-;; TVar "a" cannot unify with list[TVar "a"]
-(def bad [x: a] (list-prepend x x))
-;; Error: occurs check failed: a ~ list[a] (infinite type)
-```
+> [!NOTE]
+> The following is a *plausible-looking but not actual* trigger — `(def bad [x: a] (list-prepend x x))` is caught earlier, by an ordinary argument-type mismatch (`x`'s declared type `a` doesn't match `list-prepend`'s second-argument position `list[a]`), not by the occurs check specifically:
+> ```lisp
+> (def bad [x: a] (list-prepend x x))
+> ;; Error: type mismatch in 'list-prepend': expected list[a], got a
+> ```
+> Both are soundness catches — the occurs check specifically guards against a `TVar` unifying with a compound type built from itself during per-call-site unification (`a ~ list[a]`), which requires a case where the compiler unifies a *fresh inference variable* against a self-referential structure, not a declared parameter type mismatch like the one above.
 
 The `occursIn` helper is structurally total over the `Type` ADT, including `TSumType`.
 
@@ -1247,7 +1392,7 @@ Top-level `def`, `def-shell`, and `letrec` (legacy) functions are let-generalize
 
 ---
 
-### §4.18 Benchmark CI Gates
+### §4.19 Benchmark CI Gates
 
 Two frozen benchmarks have CI gate scripts that verify compiler output against expected results. Use these to guard against regressions.
 
@@ -1271,7 +1416,7 @@ make benchmark-all
 > [!NOTE]
 > Benchmark gates compare **frozen JSON output** against `EXPECTED_RESULTS.json` in each benchmark's directory. If you modify a benchmark's contracts, update the expected results file and re-freeze. The scripts exit non-zero on any divergence.
 
-### §4.19 Result Patterns: Construct, Match, Test (v0.10.2+)
+### §4.20 Result Patterns: Construct, Match, Test (v0.10.2+)
 
 Result values have three syntactic surfaces. Use the right one in the right position; mixing them is a typecheck error after v0.10.2 (`compiler/src/LLMLL/TypeCheck.hs` `inferHole HDelegate` now visits `on-failure` expressions, which previously dropped through silently).
 
@@ -1282,10 +1427,10 @@ Result values have three syntactic surfaces. Use the right one in the right posi
       (err "division by zero")
       (ok (/ a b))))
 
-;; Match — pattern position only
+;; Match — pattern position only (each arm is its own (pattern body) pair)
 (match (safe-divide x y)
-  (Success q)  q
-  (Error  msg) -1)
+  ((Success q)  q)
+  ((Error  msg) -1))
 
 ;; Test — boolean position
 (if (is-ok (safe-divide x y)) "ok" "fail")
@@ -1295,7 +1440,7 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 
 **Old workaround (pre-v0.10.2):** agents sometimes wrote `(Result.Error DelegationError)` inside `(on-failure …)` clauses. The v0.10.1 typechecker tolerated this because it never visited the fallback expression. After v0.10.2, the fallback is typechecked and these forms produce `unknown identifier` diagnostics. Replace with `(err DelegationError)`.
 
-### §4.20 `llmll check` Warning Surface (v0.10.2+)
+### §4.21 `llmll check` Warning Surface (v0.10.2+)
 
 `llmll check` non-strict mode now surfaces accumulated warnings on success. Previously, the runner printed only `OK` and dropped warning text. Agents should read warnings even when the exit code is 0.
 
@@ -1306,13 +1451,13 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 
 **Old workaround:** agents had to invoke `llmll check --strict` (warnings → errors with nonzero rc) or `llmll check --json` (structured output with the diagnostics array) to see warning text. Both still work; non-strict text mode now matches the warning surface of `--json`.
 
-### §4.21 PBT Outcome Discipline (v0.10.2+)
+### §4.22 PBT Outcome Discipline (v0.10.2+)
 
 `check` blocks report `pass` / `fail` / `skip` per `LLMLL.md §5.1`. A `skip` is **not** a `pass`. Property bodies that touch unevaluable terms — `?delegate` without `on-failure`, `?proof-required` references, `?delegate-async` / `await`, or command constructors (`wasi.io.stdout`, etc.) — are reported `skip` and contribute zero trust evidence.
 
 **Old workaround (pre-v0.10.2):** the runner defaulted unevaluable QuickCheck-eligible samples to `True`, producing vacuous passes that masked unimplemented logic. After v0.10.2, `runQC` returns `QC.discard` on those samples; QuickCheck's `GaveUp` resolves to `PBTSkipped`. Agents must add `(on-failure …)` clauses or factor `?delegate` calls out of property bodies to lift `skip` outcomes to `pass`.
 
-### §4.22 PBT Complex-Type `for-all` Bindings (v0.10.5+)
+### §4.23 PBT Complex-Type `for-all` Bindings (v0.10.5+)
 
 ```lisp
 (check "pair-sum-commutative"
@@ -1327,9 +1472,9 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 **Generator caps.** `maxGenDepth = 5` (recursion depth on aliases and nested types); `listMaxLen = 8` (max generated list length). Properties whose bindings include function types, promises, or free type variables still skip — the catch-all falls back to an integer sample those types cannot accept.
 
 > [!NOTE]
-> **F-033 status.** Closed by OBLIG-PBT-3 / v0.10.5: `PBTPassed` lifts `csPost` on the singleton head-position contracted callee to `DLTested n`. For multi-callee properties, see §4.23 below.
+> **F-033 status.** Closed by OBLIG-PBT-3 / v0.10.5: `PBTPassed` lifts `csPost` on the singleton head-position contracted callee to `DLTested n`. For multi-callee properties, see §4.24 below.
 
-### §4.23 PBT Subject Annotation (`:subject` / `:subjects`) (v0.10.6+)
+### §4.24 PBT Subject Annotation (`:subject` / `:subjects`) (v0.10.6+)
 
 `(check ...)` blocks can carry an optional `:subject f` (singleton sugar) or `:subjects [f₁ … fₖ]` (joint form) keyword between the description string and the `(for-all …)` body. Annotated properties bypass the head-position scan at the OBLIG-PBT-3 PBT-Lift writeback site and explicitly attribute the `DLTested n` evidence to each named subject under the [LLMLL.md §4.4.5](../LLMLL.md#445-pbt-derived-trust-evidence) `PBT-Lift-Annotated` rule.
 
@@ -1359,41 +1504,7 @@ Result values have three syntactic surfaces. Use the right one in the right posi
 
 ---
 
-## Part 5 — Core Language Quick Reference
-
-```lisp
-;; Dependent type (runtime-checked constraint)
-(type Name (where [var: basetype] constraint-expr))
-
-;; Pure function with contracts
-(def name [param: type ...]
-  (pre  precondition-expr)      ;; optional
-  (post postcondition-expr)     ;; optional — can reference `result`
-  body-expr)
-
-;; Let binding (sequential)
-(let [(x expr1) (y expr2)] body)
-
-;; If expression
-(if cond then-expr else-expr)
-
-;; Named hole
-?my_hole_name
-
-;; Property-based test
-(check "description"
-  (for-all [param: type ...]
-    property-expr))
-
-;; Entry point
-(def-main :mode console :init (start-game) :step game-loop)
-```
-
-> Unicode aliases are supported: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`
-
----
-
-### §4.14 Core/Shell Grammar (default from v0.11; `--grammar=legacy` for v0.10)
+### §4.25 Core/Shell Grammar (default from v0.11; `--grammar=legacy` for v0.10)
 
 Active by default from v0.11 (LT-INV). Pass `--grammar=legacy` to parse v0.10 `letrec` programs (`def-logic` was removed in v0.12.1 and no longer parses under any mode). Two definition keywords are available under the default mode:
 
@@ -1443,3 +1554,37 @@ A **refinement-aliased return** (`-> PositiveInt`) now **discharges** (DEF-RET U
 **Known restrictions:**
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
 - Schema `schemaVersion` is `0.7.0` (DEF-RET: optional `return_type` on `def`/`def-shell`; the reader also accepts `0.6.0` for backward compatibility). New `.ast.json` files should carry `"schemaVersion": "0.7.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
+
+---
+
+## Part 5 — Core Language Quick Reference
+
+```lisp
+;; Dependent type (runtime-checked constraint)
+(type Name (where [var: basetype] constraint-expr))
+
+;; Pure function with contracts
+(def name [param: type ...]
+  (pre  precondition-expr)      ;; optional
+  (post postcondition-expr)     ;; optional — can reference `result`
+  body-expr)
+
+;; Let binding (sequential)
+(let [(x expr1) (y expr2)] body)
+
+;; If expression
+(if cond then-expr else-expr)
+
+;; Named hole
+?my_hole_name
+
+;; Property-based test
+(check "description"
+  (for-all [param: type ...]
+    property-expr))
+
+;; Entry point
+(def-main :mode console :init (start-game) :step game-loop)
+```
+
+> Unicode aliases are supported: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`

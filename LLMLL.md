@@ -449,7 +449,7 @@ The annotation is **optional and checking-mode**, consistent with the synthesis-
   (string-concat "Hello " (string-concat name (string-concat " x" (int-to-string count)))))
 ```
 
-> **Legacy grammar.** `def-logic` is **removed** — it is rejected under **all** grammar modes (including `--grammar=legacy`) with a `removed-construct` diagnostic and no auto-rewrite. Use `def` for strict-core functions and `def-shell` for permissive functions. `--grammar=legacy` is retained only for `letrec` (the explicit-recursion form); `def` and `def-shell` are not available under `--grammar=legacy`. See [`docs/getting-started.md §4.14`](docs/getting-started.md) for the grammar-mode table and `LLMLL.md §12` for the EBNF.
+> **Legacy grammar.** `def-logic` is **removed** — it is rejected under **all** grammar modes (including `--grammar=legacy`) with a `removed-construct` diagnostic and no auto-rewrite. Use `def` for strict-core functions and `def-shell` for permissive functions. `--grammar=legacy` is retained only for `letrec` (the explicit-recursion form); `def` and `def-shell` are not available under `--grammar=legacy`. See [`docs/getting-started.md §4.25`](docs/getting-started.md) for the grammar-mode table and `LLMLL.md §12` for the EBNF.
 
 ### 4.2 Recursive Functions (`def-shell`)
 
@@ -794,6 +794,8 @@ For types where rejection sampling is inefficient (e.g., a 64-hex-digit string),
 
 A `gen` declaration applies to all `for-all` blocks in the same module that use the named type. If no `gen` is declared for a refinement type, rejection sampling is used automatically.
 
+> **Illustrative, not currently runnable.** `string-char-at` is a real, codegen-backed builtin, but `random-int`, `hex-encode`, and `random-bytes` are not: `random-int` is listed in the type checker's `trustedPrelude` core-membership allowlist and has an orphaned Haskell codegen stub (`CodegenHs.hs`, always returns `42`), but isn't registered in `builtinEnv`, so a call to it is rejected as an unknown function before codegen is ever reached; `hex-encode` and `random-bytes` don't exist anywhere in the compiler. These examples show the intended `gen` declaration syntax and are reserved names for future random-generation builtins, not code you can build today.
+
 ### 5.3 Verification
 
 **`llmll verify`** is the compile-time verification command. It:
@@ -905,7 +907,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 | Fragment | Status | Prover | What it covers |
 |----------|--------|--------|----------------|
 | **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** | Z3 via liquid-fixpoint | `+`, `-`, `=`, `≠`, `<`, `<=`, `>=`, `>`, and the boolean connectives `and`/`or`/`not`, over `int`/`bool`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
-| **Termination** (`:decreases` measures) | **Shipped** | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is a research-track item (see [`docs/research-track.md`](docs/research-track.md) §7). Complex measures emit `?proof-required(complex-decreases)`. |
+| **Termination** (`:decreases` measures) | **Shipped** | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is research-track item **R7 "Call-Site Strict Descent"** (see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) Research Track, or the frozen historical record at [`docs/archive/research-track.md`](docs/archive/research-track.md) §7). Complex measures emit `?proof-required(complex-decreases)`. |
 | **Property-based testing** | **Shipped** | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Inductive properties** | **Designed, not shipped** | Lean 4 via Leanstral MCP | Translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`). Currently runs in **mock mode only** (`--leanstral-mock`). Real proof integration is blocked on `lean-lsp-mcp` availability. |
 | **Cryptographic primitives** | **Asserted** | _(opaque — outside any decidable fragment)_ | `hmac-sha1` and `sha1` builtins are treated as axiomatically correct. Contracts on functions that use them are capped at `asserted` in the trust report. The TOTP benchmark (`examples/totp_rfc6238/`) demonstrates mixed display levels (verified + asserted + tested) across a single module. |
@@ -1018,7 +1020,7 @@ The following matrix documents the verification status of each syntax construct.
 > **Integer overflow model.** Z3 reasons over mathematical integers (unbounded). LLMLL `int` lowers to Haskell `Integer` (unbounded) at codegen, so the verifier and runtime semantics agree on `int` — there is no overflow gap on `int`. The gap re-arms only for programs that opt into a future bounded `machine-int` primitive (post-freeze, per [`docs/design/int-3-machine-int-sketch.md`](docs/design/int-3-machine-int-sketch.md)) under QF-BV verification with the higher solver cost that implies; on `int` there is no overflow event.
 
 > [!IMPORTANT]
-> **`overflow_tainted` marking — dormant on `int`.** The `overflow_tainted` machinery (`erOverflowTainted` field on `EvidenceRecord`, `overflow_tainted` JSON projection in trust report / `.verified.json` sidecar / obligation-report trust channel, `--strict-verified-core` refusal, `bodyHasOverflowArith` walker) is preserved across the trust-report / sidecar / obligation surface, but the trigger is disarmed on `int`: the body-VC emitter call to `addOverflowTainted` at [`compiler/src/LLMLL/FixpointEmit.hs:516`](compiler/src/LLMLL/FixpointEmit.hs#L516) is commented out, and the walker — though still defined and round-trippable — is not reached on production verify runs. `examples/banking_ledger/banking.llmll`'s `safe-subtract` is the demonstrating case (admitted under `--strict-verified-core`). The **reader-side** counterpart — `VerifiedCache.sidecarNeedsRevalidation`, which invalidated any verified body-faithful sidecar *lacking* the field — is **disarmed (VERIFY-RPT-1)**: with the emitter dormant the field is legitimately absent on every verified sidecar, so the trigger fired on all of them and `--trust-report` could never surface `verified` (Defect 2). The disarm is sound only while all `int` codegen is unbounded; INT-3 (`machine-int` opt-in under QF-BV, post-freeze, per [`docs/design/int-3-machine-int-sketch.md`](docs/design/int-3-machine-int-sketch.md)) re-arms the **emitter** with a type-aware predicate that fires on `machine-int` but not `int`, and must re-arm the **reader** via a `codegen_semantics_version` stamp (not field-absence) so the disarm's antecedent is not silently inherited by the bounded-codegen construct that falsifies it.
+> **`overflow_tainted` marking — dormant on `int`.** The `overflow_tainted` machinery (`erOverflowTainted` field on `EvidenceRecord`, `overflow_tainted` JSON projection in trust report / `.verified.json` sidecar / obligation-report trust channel, `--strict-verified-core` refusal, `bodyHasOverflowArith` walker) is preserved across the trust-report / sidecar / obligation surface, but the trigger is disarmed on `int`: the body-VC emitter call to `addOverflowTainted` at [`compiler/src/LLMLL/FixpointEmit.hs:733`](compiler/src/LLMLL/FixpointEmit.hs#L733) is commented out, and the walker — though still defined and round-trippable — is not reached on production verify runs. `examples/banking_ledger/banking.llmll`'s `safe-subtract` is the demonstrating case (admitted under `--strict-verified-core`). The **reader-side** counterpart — `VerifiedCache.sidecarNeedsRevalidation`, which invalidated any verified body-faithful sidecar *lacking* the field — is **disarmed (VERIFY-RPT-1)**: with the emitter dormant the field is legitimately absent on every verified sidecar, so the trigger fired on all of them and `--trust-report` could never surface `verified` (Defect 2). The disarm is sound only while all `int` codegen is unbounded; INT-3 (`machine-int` opt-in under QF-BV, post-freeze, per [`docs/design/int-3-machine-int-sketch.md`](docs/design/int-3-machine-int-sketch.md)) re-arms the **emitter** with a type-aware predicate that fires on `machine-int` but not `int`, and must re-arm the **reader** via a `codegen_semantics_version` stamp (not field-absence) so the disarm's antecedent is not silently inherited by the bounded-codegen construct that falsifies it.
 >
 > **`overflow_tainted` trigger set:** the marking is purely syntactic — it does not consult refinement predicates that might witness bounds — and the trigger set is `EOp` / `EApp` applications of `+`, `-`, `*`, `/`, `mod`, `rem`, `^`, `**` whose operands are not all integer literals whose folded value fits `Int64`. Compile-time constant arithmetic like `(+ 40 2)` is cleared. The taint never propagates transitively across calls — it is per-function-body — because the call-site verification still proves the callee's post against the caller's pre under Z3's unbounded-integer semantics. The discharge paths are: (i) wrap the post-condition in `?proof-required` and complete via Leanstral; (ii) the INT-2 codegen switch; (iii) post-freeze `machine-int` under QF-BV per INT-3.
 
@@ -1094,6 +1096,8 @@ Capabilities can carry the `:deterministic` flag (see §10a) to opt into event-l
 (import wasi.clock  (capability monotonic-read :deterministic true))
 (import wasi.random (capability get-bytes      :deterministic true))
 ```
+
+> **Known compiler bug (parser, fix in progress).** `get-bytes` currently fails to parse: the capability-kind parser tries the `get` alternative before `get-bytes`, and `get` matches without a word-boundary check, consuming the prefix. This is the correct, intended grammar — not a documentation error — but it will not parse until the parser fix lands.
 
 **External Bridge (FFI):** To use existing Haskell packages or C libraries, define a Verified Wrapper using the `haskell.*` or `c.*` prefix:
 
@@ -1320,13 +1324,15 @@ Interfaces can declare **algebraic laws** that any conforming implementation mus
 
 ;; Monoid laws: identity and associativity
 (def-interface Monoid
-  [mempty   string]
+  [mempty   (fn [] -> string)]
   [mappend  (fn [a: string b: string] -> string)]
-  :laws [(for-all [x: string] (= (mappend mempty x) x))
-         (for-all [x: string] (= (mappend x mempty) x))
+  :laws [(for-all [x: string] (= (mappend (mempty) x) x))
+         (for-all [x: string] (= (mappend x (mempty)) x))
          (for-all [a: string b: string c: string]
            (= (mappend (mappend a b) c) (mappend a (mappend b c))))])
 ```
+
+**Note:** `def-interface` members must be function-typed (`(fn [args] -> ret)`) — there is no bare-value/constant member form, so a nullary-constant interface member like `mempty` is declared `(fn [] -> T)` and called as `(mempty)`, including inside `:laws`.
 
 **Syntax:** `:laws` is an optional clause after the method list. It contains a list of `(for-all [bindings] expr)` properties. Each `for-all` binding follows standard typed-parameter syntax.
 
@@ -1341,7 +1347,7 @@ Interfaces can declare **algebraic laws** that any conforming implementation mus
   "kind": "def-interface",
   "name": "Normalizer",
   "methods": [
-    { "name": "normalize", "type": { "kind": "fn-type", "params": [{"name": "x", "param_type": {"kind": "primitive", "name": "string"}}], "return_type": {"kind": "primitive", "name": "string"} } }
+    { "name": "normalize", "fn_type": { "kind": "fn-type", "params": [{"name": "x", "param_type": {"kind": "primitive", "name": "string"}}], "return_type": {"kind": "primitive", "name": "string"} } }
   ],
   "laws": [
     { "kind": "for-all",
@@ -1567,6 +1573,7 @@ For complex sequences of actions that thread a state and accumulate commands, LL
 - **State threading enforced:** Every step inside a `do`-block must evaluate to exactly `(S, Command)`. The type `S` must be strictly identical across all steps in the block.
 - **Named vs. Anonymous steps:** A named step `[s1 <- (expr)]` binds the state component of `expr`'s result to `s1` for subsequent steps. An anonymous step `(expr)` simply discards the state component and threads exactly the identical state. 
 - **Compilation:** The `do` block is compiled directly into a pure `let` chain. No Haskell `do` or monads are emitted, ensuring soundness in `def`/`def-shell` pure contexts. Each step's `(State, Command)` pair is destructured via `let`; the final result is `(lastState, lastCommand)`.
+- **Called functions need an explicit return-type annotation to be usable in a step.** Type inference for `do`-steps works in synthesis mode per step rather than resolving through unification: calling an unannotated `def`/`def-shell` function (no `-> RetType`) as a step infers `?` for its result and fails with `do-step-type-error`, even though the identical call outside a `do`-block, or with an explicit `-> (S, Command)` on the callee, type-checks fine. Give every function called from inside a `do`-block an explicit return-type annotation.
 - **Intermediate commands are silently discarded by default.** Non-final steps' `Command` components are bound but not executed unless explicitly wrapped in `seq-commands` (see §9.3) or the future `(discard cmd)` marker. This is a known surprise relative to monadic `do`-notation in other languages where the point of sequencing is to execute effects in order. **In LLMLL `def`/`def-shell`, effects are values, not statements; sequencing them is the agent's explicit responsibility.** Generated code that looks effectful can silently drop effects unless the agent uses `seq-commands` or returns the intermediate `Command` value in the final tuple. This is planned to tighten to a warn-or-error on non-final `Command`-typed binds without explicit-discard wrapping; the syntactic surface is preserved during the warning phase.
 
 > [!WARNING]
@@ -1610,6 +1617,8 @@ Correct replay is the foundation of fault tolerance, audit trails, and SMT proof
 (import wasi.clock  (capability monotonic-read :deterministic true))
 (import wasi.random (capability get-bytes      :deterministic true))
 ```
+
+> **Known compiler bug (parser, fix in progress).** `get-bytes` currently fails to parse — see the note at its first occurrence above (§10, Capability Imports).
 
 When `:deterministic true` is set, the runtime **captures the return value** of every call and appends it to the Event Log. On replay, these calls **read from the log** instead of invoking the real system call.
 
@@ -1682,14 +1691,16 @@ A `?hole` does not always require human intervention. An AI can delegate a sub-t
 `?delegate` requires an explicit `-> ReturnType` annotation. An optional `(on-failure ...)` clause provides a fallback:
 
 ```lisp
-(def-shell login-route [req: HttpRequest]
+(def-shell login-route [req: HttpRequest fallback-hash: bytes[64]]
   (let [[password  (get req :pass)]
         [hashed-pw (?delegate @crypto-agent
                      "Implement secure PBKDF2 hashing"
                      -> bytes[64]
-                     (on-failure (err DelegationError)))]]
+                     (on-failure fallback-hash))]]
     (db.insert user hashed-pw)))
 ```
+
+The `(on-failure e)` side condition (`Γ ⊢ e : T`) requires `e` to already be a value of the delegate's return type — `bytes[64]` has no literal syntax in LLMLL, so a realistic fallback is a value threaded in from the caller (here, `fallback-hash`), not a literal constructed inline. `(err DelegationError)` would type as `Result[?, DelegationError]`, not `bytes[64]`, and is rejected.
 
 Without `(on-failure ...)`, an unresolved delegation becomes a `?delegate-pending` hole — analyzable but not executable:
 
@@ -1729,7 +1740,7 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
     (let [[chart-result (await chart-future)]]
       (match chart-result
         ((Success img) (pair state (wasi.http.response 200 img)))
-        ((Error err)   (pair state (wasi.http.response 500 "Agent failed"))))))))
+        ((Error err)   (pair state (wasi.http.response 500 "Agent failed")))))))
 ```
 
 > [!IMPORTANT]
@@ -1836,7 +1847,7 @@ The current module system provides `mergeModuleEnvs` (name unification across im
 ### 11.4 Global Module Invariants (`def-invariant`)
 
 > [!WARNING]
-> **Designed, not yet implemented.** `def-invariant` is parsed (reduced to `SDefLogic`) but semantic enforcement is deferred. Z3 invariant verification on merge is not yet implemented.
+> **Parses (JSON-AST only); semantic enforcement not yet implemented.** `def-invariant` produces its own `SDefInvariant` AST node (not, as an earlier version of this note said, a reduction to `SDefLogic` — that stopped being true in v0.12.1, when `SDefInvariant` was promoted to a first-class node). It currently parses only from **JSON-AST**; the S-expression production shown below is the intended grammar (§12) but is not yet implemented in the S-expression parser (known compiler bug, fix in progress) — a `def-invariant` form in `.llmll` source is rejected. Z3 invariant verification on merge is not yet implemented either way.
 
 A module can declare invariants that must hold over its state at all times:
 
@@ -1844,6 +1855,17 @@ A module can declare invariants that must hold over its state at all times:
 (def-invariant balance-conservation [state: LedgerState]
   (= (sum (map-values (state-accounts state)))
      (state-total-supply state)))
+```
+
+This is the intended S-expression form (§12) — not yet parseable (see warning above). The equivalent JSON-AST, which does parse today and produces a real `SDefInvariant` node:
+
+```json
+{ "kind": "def-invariant", "name": "balance-conservation",
+  "param": { "name": "state", "param_type": { "kind": "named", "name": "LedgerState" } },
+  "body": { "kind": "app", "fn": "=", "args": [
+    { "kind": "app", "fn": "sum", "args": [{ "kind": "app", "fn": "map-values", "args": [
+      { "kind": "app", "fn": "state-accounts", "args": [{ "kind": "var", "name": "state" }] } ] }] },
+    { "kind": "app", "fn": "state-total-supply", "args": [{ "kind": "var", "name": "state" }] } ] } }
 ```
 
 The design intent is that after any AST merge, the compiler will run Z3 verification of all declared invariants. A merge that breaks a global invariant would be rejected before it can produce runnable code. This is not yet implemented — the `def-invariant` form is accepted by the parser but has no runtime or verification effect.
@@ -2383,12 +2405,13 @@ Cryptographic builtins are **opaque primitives** — the compiler does not attem
 **Usage in TOTP benchmark:**
 
 ```lisp
-(def-shell hmac-sha1-wrap [key: bytes[20] msg: bytes[20]]
-  :source "RFC 2104"
-  (hmac-sha1 key msg))
+(def-shell hmac-sha1-wrap [key: bytes[20] message: bytes[20]]
+  (hmac-sha1 key message))
 
-(weakness-ok hmac-sha1-wrap "wrapper around opaque crypto primitive")
+(weakness-ok hmac-sha1-wrap "Cryptographic hash correctness is outside QF-LIA; asserted per RFC 2104")
 ```
+
+`:source` (§4.6) is grammatically a suffix on a `(pre ...)`/`(post ...)` clause — it cannot appear bare in a body. `hmac-sha1-wrap` has no `pre`/`post` predicate to attach it to (it's unconditionally trusted via `weakness-ok`, not a contract), so RFC provenance here lives in the `weakness-ok` reason string instead — matching the real fixture, [`examples/totp_rfc6238/totp_filled.ast.json`](examples/totp_rfc6238/totp_filled.ast.json).
 
 The `weakness-ok` declaration acknowledges that the wrapper has no meaningful contract — its correctness rests entirely on the axiomatically assumed `hmac-sha1` builtin.
 
