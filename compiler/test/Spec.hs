@@ -9480,6 +9480,37 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           report = typeCheck GrammarCoreInversion emptyEnv stmts
       length (reportDiagnostics report) `shouldSatisfy` (>= 0)
 
+    -- DEFINV-4/5: S-expression surface form (v0.14.3 doc-audit regression).
+    -- Parser.hs's pStatement had no production for 'def-invariant' — only
+    -- ParserJSON.parseDefInvariant implemented it, JSON-AST-only. LLMLL.md
+    -- §11.4/§12 document an S-expression grammar production for it that
+    -- never actually parsed: "(def-invariant foo [x: int] (> x 0))" failed
+    -- with "unexpected '(' expecting end of input".
+
+    it "DEFINV-4 S-expr def-invariant parses to the SAME AST as its hand-written JSON-AST equivalent" $ do
+      let sexpSrc = "(def-invariant inv [x: int] (> x 0))"
+          jsonSrc = BL.fromStrict $ TE.encodeUtf8 $ T.pack
+                      "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-invariant\",\"name\":\"inv\",\"param\":{\"name\":\"x\",\"param_type\":{\"kind\":\"primitive\",\"name\":\"int\"}},\"body\":{\"kind\":\"op\",\"op\":\">\",\"args\":[{\"kind\":\"var\",\"name\":\"x\"},{\"kind\":\"lit-int\",\"value\":0}]}}]}"
+      case (parseStatements GrammarCoreInversion "<test>" sexpSrc, parseJSONAST GrammarCoreInversion "<test>" jsonSrc) of
+        (Right sexpStmts, Right jsonStmts) -> sexpStmts `shouldBe` jsonStmts
+        (sexpResult, jsonResult) -> expectationFailure
+          ("expected both surface forms to parse to the same AST; s-expr=" ++ show sexpResult ++ " json-ast=" ++ show jsonResult)
+
+    it "DEFINV-5 S-expr def-invariant produces SDefInvariant and type-checks cleanly (matches DEFINV-1/3 style)" $ do
+      let src = "(def-invariant foo [x: int] (> x 0))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts@[SDefInvariant name params _ _ body] -> do
+          name `shouldBe` "foo"
+          params `shouldBe` [("x", TInt)]
+          -- S-expression '>' parses as a built-in EOp (not EApp) -- distinct
+          -- from DEFINV-1/3's hand-written JSON-AST fixtures, which happened
+          -- to use EApp; both are valid, semantically-equivalent front-end
+          -- choices for the same operator.
+          body `shouldBe` EOp ">" [EVar "x", ELit (LitInt 0)]
+          let report = typeCheck GrammarCoreInversion emptyEnv stmts
+          length (reportDiagnostics report) `shouldSatisfy` (>= 0)
+        other -> expectationFailure ("expected SDefInvariant, got: " ++ show other)
+
     -- HINT-1: the generic S-expression top-level parse-error hint must not
     -- recommend the removed `def-logic` construct (it should point at def/def-shell).
     it "HINT-1 S-expr def-logic rejection hint recommends def/def-shell, not def-logic" $ do

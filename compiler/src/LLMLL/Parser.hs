@@ -137,6 +137,7 @@ pStatement mode = choice $
     GrammarCoreInversion -> [pDef, pDefShell]
     GrammarLegacy        -> [pLetrec]) ++
   [ pDefLogicRemoved
+  , pDefInvariant
   , pDefMain
   , pDefInterface
   , pTypeDef
@@ -161,6 +162,22 @@ pDefLogicRemoved = do
   fail $ "removed-construct: 'def-logic' was removed in v0.12.1 and is "
       ++ "rejected under all grammar modes (no auto-rewrite); use 'def' for "
       ++ "strict-core or 'def-shell' for permissive"
+
+-- | v0.12.1: Parse (def-invariant name [x: type] body) — the S-expression
+-- surface form for 'SDefInvariant' (LLMLL.md §11.4/§12 grammar:
+-- @def-invariant = "(" "def-invariant" IDENT "[" typed-param "]" expr ")"@).
+-- Mirrors 'LLMLL.ParserJSON.parseDefInvariant', the pre-existing JSON-AST
+-- reference implementation: single typed-param (not a param list), no
+-- return-type/pre/post clauses (Contract is all-Nothing, matching the
+-- verification semantics of 'SDefShell'/'SDefLogic' — Phase 2b, no obligations).
+pDefInvariant :: Parser Statement
+pDefInvariant = do
+  _ <- try (symbol "(" *> symbol "def-invariant")
+  name  <- pIdent
+  param <- brackets pTypedParam
+  body  <- pExpr
+  _ <- symbol ")"
+  pure $ SDefInvariant name [param] Nothing (Contract Nothing Nothing Nothing Nothing Nothing) body
 
 -- | Parse (letrec name [params] :decreases measure body)
 -- Introduces an explicitly recursive function with a termination measure.
