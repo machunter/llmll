@@ -5,7 +5,7 @@
 ;; call site) and proves its own post by leaning on withdraw's. So it reaches
 ;; `verified` too — verified composition, not a static floor.
 ;;
-;;   llmll verify ./compose.llmll --trust-report  ->  withdraw, guarded-withdraw both verified
+;;   llmll verify ./compose.llmll --strict-verified-core --trust-report  ->  withdraw, guarded-withdraw both verified
 ;;
 ;; The bad twin (compose-bad.llmll) drops the precondition and is refused at the
 ;; call site. Same-module is used deliberately: cross-module verified composition

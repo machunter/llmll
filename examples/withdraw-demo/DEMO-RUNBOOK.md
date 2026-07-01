@@ -485,9 +485,10 @@ llmll verify ./compose.llmll --strict-verified-core --trust-report --json 2>/dev
 ```json
 "consumed_guarantees": [
   { "callee": "withdraw", "guarantee": "(= result (- balance amount))",
-    "instantiated": "(= <call-result> (- balance amount))", "status": "discharged" } ]
+    "instantiated": "(= <call-result> (- balance amount))", "callee_tier": "asserted",
+    "status": "discharged" } ]
 ```
-`status: discharged` means "`withdraw` already proved this — assume it, don't re-derive it." Trust flows **up** from the callee.
+`status: discharged` means "`withdraw` already proved this — assume it, don't re-derive it." `callee_tier` is read from `withdraw`'s real trust state (never hardcoded `"verified"`), so the channel stays honest even before `--strict-verified-core` promotes it. Trust flows **up** from the callee.
 
 **Drop the precondition, and the system refuses the code.** Remove `guarded-withdraw`'s `pre` ([`compose-bad.llmll`](compose-bad.llmll)) — now nothing guarantees `balance ≥ amount` at the call site:
 ```bash
@@ -640,7 +641,7 @@ ERROR: proof-artifact rejected (parse / §4.1 invariant): ill-formed artifact:
 - **Step 4b (withdraw-outcome — the outcome is the contract):** *"`withdraw` asked the caller for a guarantee. Its sibling asks for nothing — it makes success-or-failure part of the return type and is total: legal returns `ok` with the debited balance, illegal returns `err`. Because the return type carries the contract, both channels show here: a bare-int fill is the wrong shape (`PatchTypeError`), and a fill that 'helpfully' returns `ok` on an overdraft is type-correct but refuted (`PatchVerifyError`). The type admits the shape; the contract refutes the lie."*
 - **Capstone (the artifact):** *"We proved you can't sneak bad code past the verifier. Here's the other half: you can't sneak a fake verdict past the artifact. The verified closure becomes one portable record; an auditor replays it instead of trusting us; change the source and it fails closed; and edit the record to claim a verdict it didn't earn — the kernel rejects it on parse. Honest framing: this is replayable, auditable re-verification — it re-runs the solver under pinned inputs. It is not a proof you can check without the solver; that's the Lean tier, later. Correctness is structural at both layers — the code and the claim."*
 
-> **Reading the report — two axes, don't scalarize.** The summary `verified` count is the *trust* axis (did the body prove its spec?); it no longer demotes a function for *having* a precondition. The *obligation* axis (`caller_obligations`) reports separately what a caller must guarantee. An agent that greps `effective_level == "verified"` and stops gets a true answer to *"is it correct?"* but misses *"what must I guarantee to call it?"* — read both. (Historical note: before TRUST-PRE this demo showed `withdraw` floored to `asserted: 1`. That floor conflated a function's *verification status* with its *caller's obligation* — a category error — and was removed; the precondition is now surfaced on its own axis. See [`docs/design/precondition-tier-proposal.md`](../../docs/design/precondition-tier-proposal.md).)
+> **Reading the report — two axes, don't scalarize.** The summary `verified` count is the *trust* axis (did the body prove its spec?); it no longer demotes a function for *having* a precondition. The *obligation* axis (`caller_obligations`) reports separately what a caller must guarantee. An agent that greps `effective_level == "verified"` and stops gets a true answer to *"is it correct?"* but misses *"what must I guarantee to call it?"* — read both. (Historical note: before TRUST-PRE this demo showed `withdraw` floored to `asserted: 1`. That floor conflated a function's *verification status* with its *caller's obligation* — a category error — and was removed; the precondition is now surfaced on its own axis. See [`docs/design/precondition-tier-proposal.md`](../../docs/archive/shipped-design-specs/precondition-tier-proposal.md).)
 
 ---
 

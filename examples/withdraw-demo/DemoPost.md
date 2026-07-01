@@ -10,7 +10,7 @@ This post walks the whole loop on a tiny four-function program: surveying holes,
 
 A note on formats: LLMLL source comes in two shapes — a human-readable **s-expression** form, and a machine-processable (and mildly human-readable) **JSON-AST**. We'll read the program in s-expression form; the checkout/patch protocol operates on the JSON-AST.
 
-> **Versions.** `llmll 0.14.1`, JSON-AST schema `0.7.0`, `trust_report_version 1.4.0`. The two-axis trust closure and the composition step require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the checkout brief's return type and callable-function menu require v0.13.1 (DEF-RET) and DEMO-COMP; the `withdraw-outcome` sibling and its `Result` construction require v0.13.13+ (COMP-4-RESULT); and a *fillable* sum-type hole requires v0.14.1 (a checkout-lock round-trip fix). The AST schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.7.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
+> **Versions.** `llmll 0.14.2`, JSON-AST schema `0.7.0`, `trust_report_version 1.4.0`. The two-axis trust closure and the composition step require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the checkout brief's return type and callable-function menu require v0.13.1 (DEF-RET) and DEMO-COMP; the `withdraw-outcome` sibling and its `Result` construction require v0.13.13+ (COMP-4-RESULT); a *fillable* sum-type hole requires v0.14.1 (a checkout-lock round-trip fix); and the `--cdp` measurement below — genuine scoring of `withdraw-outcome`'s `Result` return and a populated `--json` `discriminative_axis` — requires v0.14.2 (the CDP candidate-basis fix). The AST schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.7.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
 
 ## The program we're building
 
@@ -60,13 +60,13 @@ llmll holes ./demo.ast.json --deps --json 2>/dev/null | jq .
 
 ```json
 [
-  { "agent": null, "cycle_warning": false, "depends_on": [], "inferred-type": null,
+  { "agent": null, "cycle_warning": false, "depends_on": [], "inferred-type": "int",
     "kind": "named", "message": "hole: ?body_impl",
     "module-path": "def withdraw", "pointer": "/statements/1/body", "status": "non-blocking" },
-  { "agent": null, "cycle_warning": false, "depends_on": [], "inferred-type": null,
+  { "agent": null, "cycle_warning": false, "depends_on": [], "inferred-type": "int",
     "kind": "named", "message": "hole: ?maxi_body",
     "module-path": "def maxi", "pointer": "/statements/3/body", "status": "non-blocking" },
-  { "agent": null, "cycle_warning": false, "depends_on": [], "inferred-type": null,
+  { "agent": null, "cycle_warning": false, "depends_on": [], "inferred-type": "Result[int,Reason]",
     "kind": "named", "message": "hole: ?withdraw_outcome_body",
     "module-path": "def withdraw-outcome", "pointer": "/statements/5/body", "status": "non-blocking" }
 ]
@@ -105,18 +105,19 @@ That's the whole job, machine-readable: fill `withdraw`'s body with an expressio
 
 ## Getting the locks
 
-Picture a swarm of agents told to fill these holes. The first thing each one does is grab a token-lock — essentially *"I'm working on this node."* You call `llmll checkout` with the pointer; it hands back a token. Capture the **full** response, not just the token — it carries the hole's brief inline, so one call gives both the lock and the spec. Let's take both holes now:
+Picture a swarm of agents told to fill these holes. The first thing each one does is grab a token-lock — essentially *"I'm working on this node."* You call `llmll checkout` with the pointer; it hands back a token. Capture the **full** response, not just the token — it carries the hole's brief inline, so one call gives both the lock and the spec. Let's take all three holes now:
 
 ```bash
 CO_W=$(llmll checkout ./demo.ast.json /statements/1/body --json)
 CO_M=$(llmll checkout ./demo.ast.json /statements/3/body --json)
-TOKEN_W=$(jq -r '.token' <<<"$CO_W"); TOKEN_M=$(jq -r '.token' <<<"$CO_M")
+CO_O=$(llmll checkout ./demo.ast.json /statements/5/body --json)
+TOKEN_W=$(jq -r '.token' <<<"$CO_W"); TOKEN_M=$(jq -r '.token' <<<"$CO_M"); TOKEN_O=$(jq -r '.token' <<<"$CO_O")
 ```
 
 **The spec rode in with the lock.** Project agent A's response — it's the same three-channel contract the obligation report gave us, scoped to the one hole A reserved:
 
 ```bash
-jq '{contract_pre, postcondition_goal,
+jq '{contract_pre, postcondition_goal, expected_return_type,
      in_scope: [.in_scope[] | {name, type}], type_definitions}' <<<"$CO_W"
 ```
 
@@ -168,9 +169,25 @@ This same call also creates a lock file, `demo.llmll-lock.json`. Peeking under t
 ```json
 {
   "assumptions": null,
+  "available_functions": [
+    { "name": "withdraw", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }],
+      "pre": "(>= balance amount)", "post": "(= result (- balance amount))",
+      "return_type": "int", "returns": "int", "status": "filled", "tier": "asserted" },
+    { "name": "double", "params": [{ "name": "x", "type": "int" }],
+      "pre": null, "post": "(= result (+ x x))",
+      "return_type": "int", "returns": "int", "status": "filled", "tier": "asserted" },
+    { "name": "maxi", "params": [{ "name": "a", "type": "int" }, { "name": "b", "type": "int" }],
+      "pre": null, "post": "(and (and (>= result a) (>= result b)) (or (= result a) (= result b)))",
+      "return_type": "int", "returns": "int", "status": "filled", "tier": "asserted" },
+    { "name": "withdraw-outcome", "params": [{ "name": "balance", "type": "int" }, { "name": "amount", "type": "PositiveInt" }],
+      "pre": null, "post": "(and (or (not (>= balance amount)) (= result (ok (- balance amount)))) (or (>= balance amount) (= result (err Insufficient))))",
+      "return_type": "Result[int,Reason]", "returns": "Result[int,Reason]", "status": "filled", "tier": "asserted" }
+  ],
+  "brief_version": "0.12.1",
+  "consumed_guarantees": null,
   "contract_pre": "(>= balance amount)",
-  "hole_kind": "hole-named",
   "expected_return_type": "int",
+  "hole_kind": "hole-named",
   "in_scope": [
     { "name": "Insufficient", "source": "let-binding", "type": "Reason" },
     { "name": "PositiveInt", "source": "let-binding", "type": "PositiveInt" },
@@ -455,7 +472,7 @@ llmll patch ./demo.ast.json ./po-bad.json | jq '{result, message: .diagnostics[0
 ```json
 {
   "result": "PatchVerifyError",
-  "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #0)"
+  "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #2)"
 }
 ```
 
@@ -504,7 +521,7 @@ The report carries **two orthogonal axes**:
 - **The trust axis (`effective`)** — all four are `verified`, `withdraw` included. It proved its Hoare triple `{balance ≥ amount} body {result = balance − amount}`, so it is verified; a function whose body the solver *couldn't* prove would read `asserted` here instead.
 - **The obligation axis (`requires`) — and the sibling contrast lands here as data.** `withdraw` carries a visible caller-obligation, `balance ≥ amount`: the part a *caller* must establish, surfaced explicitly rather than folded into the tier. `withdraw-outcome` carries **none** — it made that same failure case a *value* (`err Insufficient`) instead of a caller obligation. Same operation, two honest designs, and the obligation axis shows exactly the difference. `double` and `maxi` carry none either.
 
-*Is it correct?* and *what must a caller guarantee?* are two questions, answered on two axes — neither collapsed into the other. (Deliberately so: an earlier version of this report *floored* `withdraw` to `asserted` for merely having a precondition, conflating its verification status with its caller's obligation. That was a category error; the precondition now lives on its own axis — see [`precondition-tier-proposal.md`](../../docs/design/precondition-tier-proposal.md).)
+*Is it correct?* and *what must a caller guarantee?* are two questions, answered on two axes — neither collapsed into the other. (Deliberately so: an earlier version of this report *floored* `withdraw` to `asserted` for merely having a precondition, conflating its verification status with its caller's obligation. That was a category error; the precondition now lives on its own axis — see [`precondition-tier-proposal.md`](../../docs/archive/shipped-design-specs/precondition-tier-proposal.md).)
 
 ## Composition: the obligation flows down
 
@@ -517,11 +534,11 @@ The obligation axis is not a label — it is **enforced** when something *compos
   (withdraw balance amount))
 ```
 
-It *discharges* `withdraw`'s precondition (its own `pre` guarantees `balance ≥ amount` at the call site) and proves its post by leaning on `withdraw`'s — so it reaches `verified` too. And when an agent checks out a hole in a composer, the brief hands back what it may *assume* without re-proving — `consumed_guarantees: [{ "callee": "withdraw", "guarantee": "(= result (- balance amount))", "status": "discharged" }]`. Trust flows **up** from the callee.
+It *discharges* `withdraw`'s precondition (its own `pre` guarantees `balance ≥ amount` at the call site) and proves its post by leaning on `withdraw`'s — so it reaches `verified` too (with `--strict-verified-core`; plain `--trust-report` reports the pre-tier `asserted` for both, per [Verify the trust closure](#verify-the-trust-closure) above). And when an agent checks out a hole in a composer, the brief hands back what it may *assume* without re-proving — `consumed_guarantees: [{ "callee": "withdraw", "guarantee": "(= result (- balance amount))", "instantiated": "(= <call-result> (- balance amount))", "callee_tier": "asserted", "status": "discharged" }]`. `callee_tier` is read from the callee's real trust state, not hardcoded — the channel stays honest even when the callee isn't (yet) `verified`. Trust flows **up** from the callee.
 
 Drop the precondition ([`compose-bad.llmll`](./compose-bad.llmll)) and the verifier refuses the code:
 ```
-error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw' — caller does not prove callee's precondition
+error: call-site precondition of 'withdraw' not satisfied in 'guarded-withdraw' — caller does not prove callee's precondition (constraint #2)
 ```
 
 One fact, **three views**: the report surfaces the obligation (`caller_obligations`), the verifier enforces it (the call-site VC), and the patch protocol rejects violations (`callee-precondition-unmet`). That — verified *and* what a caller owes, with the obligation enforced on composition — is the thing LLMLL gives you that a green CI check doesn't.
@@ -555,13 +572,51 @@ Authority is orthogonal to trust: a `verified` function can still reach every ca
 
 ## (Optional) Discriminative power
 
-One more axis, for the curious. `--cdp` measures how *tight* a contract is — roughly, how few candidate bodies satisfy it. A loose contract that almost anything satisfies isn't pinning down much; a tight one — `maxi`'s complete min/max property, or `withdraw-outcome`'s guard-bound outcome — rules out nearly every wrong fill (which is exactly why the type-correct-but-wrong fills above got refuted). It's a human-readable-only step: under `--json` the per-function `discriminative_axis` stays `"basis": "not-measured"`, so the scores live only in the text output of:
+One more axis, for the curious. `--cdp` measures how *tight* a contract is: it samples a basis of generic, spec-agnostic candidate bodies (`Ω` — identities, constants, projections) and reports how many satisfy the contract. A loose contract that a trivial candidate satisfies isn't pinning down much; a tight one rules out every candidate in the basis:
 
 ```bash
 llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
 ```
 
-The discriminative-power scoring basis is still being refined — on a tight contract the current build emits an advisory (the contract is tighter than the candidate-sampling basis can score) rather than a clean fraction — so read `--cdp` as a *qualitative* signal: it flags the loose contracts that a trivial body would satisfy, the ones worth tightening. The contracts in this demo are deliberately not in that category.
+```
+   CDP measured 4 function(s):
+   double:           [spec-too-tight-for-omega] 0/5 reliable candidates
+   maxi:             [spec-too-tight-for-omega] 0/6 reliable candidates
+   withdraw:         [spec-too-tight-for-omega] 0/5 reliable candidates
+   withdraw-outcome: [spec-too-tight-for-omega] 0/1 reliable candidates
+```
+
+All four functions here score `spec-too-tight-for-omega`: zero of the sampled candidates satisfy the contract, so there's no fraction to report — the spec is tighter than this generic basis can discriminate within, which is itself a strong signal (it's exactly why the type-correct-but-wrong fills above got refuted). A looser contract — one a trivial candidate happens to satisfy — gets a genuine numeric `score` instead, the case worth tightening. `withdraw-outcome` (the `Result`-returning function) now gets this same real measurement as its siblings (v0.14.2; earlier builds excluded `Result`-returning contracts from scoring entirely).
+
+This axis is no longer human-readable-only: `--json` now populates it too (fixed v0.14.2 — an earlier build silently dropped `discriminative_axis` to `"not-requested"` under `--strict-verified-core --trust-report --cdp --json` regardless of the flag). Projecting it:
+
+```bash
+llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp --json 2>/dev/null \
+  | jq -s '.[1].entries[] | {name, discriminative_axis: (.discriminative_axis | {basis, headline, candidate_count, satisfying_candidate_count, score})}'
+```
+
+```json
+{
+  "name": "withdraw",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 5, "satisfying_candidate_count": 0, "score": null }
+}
+{
+  "name": "double",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 5, "satisfying_candidate_count": 0, "score": null }
+}
+{
+  "name": "maxi",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 6, "satisfying_candidate_count": 0, "score": null }
+}
+{
+  "name": "withdraw-outcome",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 1, "satisfying_candidate_count": 0, "score": null }
+}
+```
 
 ## Wrapping up
 
