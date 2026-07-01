@@ -199,23 +199,60 @@ def _format_context(context: dict[str, Any]) -> str:
         sections.append("\n".join(lines))
 
     # Available functions (Σ)
+    # BUG-3 (resumed task, 2026-07-01): `FuncEntry`'s ToJSON (Checkout.hs) has
+    # no "signature" key -- it emits "params" ([{name, type}, ...]) and
+    # "returns"/"return_type" (an alias). Build the signature from those.
     functions = context.get("functions", [])
     if functions:
         lines = ["\n### Available functions"]
         for fn in functions:
             name = fn.get("name", "?")
-            sig = fn.get("signature", "?")
-            lines.append(f"- `{name}` : `{sig}`")
+            params = fn.get("params", [])
+            param_str = ", ".join(
+                f"{p.get('name', '?')}: {p.get('type', '?')}" for p in params
+            )
+            ret = fn.get("returns") or fn.get("return_type", "?")
+            sig = f"({param_str}) -> {ret}"
+            details = []
+            pre = fn.get("pre")
+            post = fn.get("post")
+            tier = fn.get("tier")
+            if pre:
+                details.append(f"pre: `{pre}`")
+            if post:
+                details.append(f"post: `{post}`")
+            if tier:
+                details.append(f"tier: {tier}")
+            suffix = f" ({'; '.join(details)})" if details else ""
+            lines.append(f"- `{name}` : `{sig}`{suffix}")
         sections.append("\n".join(lines))
 
     # Type definitions
+    # BUG-3 (resumed task, 2026-07-01): `TypeDefEntry`'s ToJSON (Checkout.hs)
+    # has no "definition" key -- it emits "kind" ("sum" | "alias" |
+    # "dependent"), and either "constructors" ([{name, payload?}, ...]) for a
+    # sum type or "base_type" for an alias/dependent type, plus an optional
+    # "recursive": true.
     type_defs = context.get("type_definitions", [])
     if type_defs:
         lines = ["\n### Type definitions"]
         for td in type_defs:
             name = td.get("name", "?")
-            defn = td.get("definition", "?")
-            lines.append(f"- `{name}` = `{defn}`")
+            kind = td.get("kind", "?")
+            ctors = td.get("constructors")
+            base_type = td.get("base_type")
+            if ctors is not None:
+                shape = " | ".join(
+                    f"{c.get('name', '?')}({c['payload']})" if c.get("payload") is not None
+                    else c.get("name", "?")
+                    for c in ctors
+                )
+            elif base_type is not None:
+                shape = base_type
+            else:
+                shape = "?"
+            note = " [recursive]" if td.get("recursive") else ""
+            lines.append(f"- `{name}` ({kind}) = `{shape}`{note}")
         sections.append("\n".join(lines))
 
     # Fallback: any context keys not handled above
