@@ -332,7 +332,7 @@ Two holes left to fill (`maxi` and `withdraw-outcome`) — and notice agent A's 
 
 ## maxi: resync the stale reservation, then the evidential bug
 
-This step does double duty: it shows the compare-and-swap resync the concurrency model promised, *and* it's the "isn't this a toy?" beat — `maxi`'s contract is a real **property**, and a type-passing wrong body still gets caught.
+This step does double duty: it shows the compare-and-swap resync the concurrency model promised, *and* it's the "isn't this a toy?" beat — `maxi`'s contract is a real **property**, and a test-passing wrong body still gets caught.
 
 ### Stale Token; resync
 
@@ -372,7 +372,7 @@ TOKEN_M=$(llmll checkout ./demo.ast.json /statements/3/body --json | jq -r '.tok
 
 Now we hold a token that witnesses the *current* program.
 
-### The type-passing bug (returns the min)
+### The test-passing bug (returns the min)
 
 A one-character slip — the branches are swapped. It type-checks, and any test where `a = b` passes:
 

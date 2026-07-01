@@ -345,7 +345,7 @@ llmll patch ./demo.ast.json ./po-correct.json | jq '{result}'   # -> {"result":"
 
 ### 5 — `maxi`: resync the stale reservation, then the evidential bug
 
-This step does double duty: it shows the compare-and-swap resync the concurrency note promised, *and* it is the "isn't this a toy?" beat — `maxi`'s spec is a property a type-passing wrong body still violates.
+This step does double duty: it shows the compare-and-swap resync the concurrency note promised, *and* it is the "isn't this a toy?" beat — `maxi`'s spec is a property a test-passing wrong body still violates.
 
 #### 5a — agent B discovers its token is stale, and resyncs
 
@@ -370,7 +370,7 @@ TOKEN_M=$(llmll checkout ./demo.ast.json /statements/3/body --json | jq -r '.tok
 > ```
 > *"`PatchAuthError` isn't a bug — it's the swarm refusing a lost update. Agent B re-reads the committed program, then proceeds."*
 
-#### 5b — the type-passing bug (returns the *min*)
+#### 5b — the test-passing bug (returns the *min*)
 
 `(if (> a b) b a)` — a one-character slip; type-correct, and any test with `a = b` passes.
 
