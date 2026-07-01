@@ -267,39 +267,40 @@ wrapWithContracts funcName contract body =
   in withPost
 
 -- | Wrap body with pre-condition check.
--- (let [_pre_check (if (not pre) (error "pre violated") unit)] body)
+--
+-- BUG (Haskell laziness): a prior version bound the check to an unused
+-- `let [_pre_check ...] body` — under call-by-need, a `let` binding that
+-- the body never references is never forced, so the assertion was dead
+-- code and violations silently passed through. `EIf` is strict in its
+-- scrutinee under every codegen backend (`emitExpr` lowers it to a plain
+-- Haskell `if`), so gating the body behind the check directly — instead
+-- of routing the check through a discarded binding — guarantees the
+-- predicate is evaluated whenever the wrapped body is forced at all,
+-- with no reliance on `seq`/BangPatterns at the emission site.
+-- (if (not pre) (error "pre violated") body)
 wrapPre :: Name -> Maybe Expr -> Expr -> Expr
 wrapPre _ Nothing body = body
 wrapPre funcName (Just preExpr) body =
-  ELet
-    [ (PVar "_pre_check"
-      , Just TBool
-      , EIf
-          (EOp "not" [preExpr])
-          (EApp "runtime-error"
-            [ELit (LitString ("Precondition violated in " <> funcName))])
-          (ELit LitUnit)
-      )
-    ]
+  EIf
+    (EOp "not" [preExpr])
+    (EApp "runtime-error"
+      [ELit (LitString ("Precondition violated in " <> funcName))])
     body
 
--- | Wrap body with post-condition check.
--- (let [result body] (let [_post_check ...] result))
+-- | Wrap body with post-condition check. `result` is bound first so
+-- postExpr may reference it (v0.6 result-binding convention); the check
+-- itself is an `if`, not a discarded `let`, for the same reason as
+-- wrapPre above.
+-- (let [result body] (if (not post) (error "post violated") result))
 wrapPost :: Name -> Maybe Expr -> Expr -> Expr
 wrapPost _ Nothing body = body
 wrapPost funcName (Just postExpr) body =
   ELet
     [ (PVar "result", Nothing, body) ]
-    (ELet
-      [ (PVar "_post_check"
-        , Just TBool
-        , EIf
-            (EOp "not" [postExpr])  -- postExpr can reference 'result'
-            (EApp "runtime-error"
-              [ELit (LitString ("Postcondition violated in " <> funcName))])
-            (ELit LitUnit)
-        )
-      ]
+    (EIf
+      (EOp "not" [postExpr])  -- postExpr can reference 'result'
+      (EApp "runtime-error"
+        [ELit (LitString ("Postcondition violated in " <> funcName))])
       (EVar "result"))
 
 -- ---------------------------------------------------------------------------

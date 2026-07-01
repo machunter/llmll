@@ -23,7 +23,7 @@ import System.Directory (getHomeDirectory, createDirectoryIfMissing, doesFileExi
 import qualified Codec.Archive.Tar     as Tar
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy  as BL
-import Data.List (isPrefixOf, isSuffixOf)
+import Data.List (isPrefixOf, isSuffixOf, intercalate)
 
 import LLMLL.Syntax (ModulePath)
 import qualified Data.Text as T
@@ -95,6 +95,15 @@ hubFetchLocal tarPath = do
       pure result
 
 -- | Walk Tar entries and write each file to the hub cache.
+--
+-- Each entry path arrives as "<package>-<version>/rest/of/path" (the
+-- `stack pack` / `cabal sdist` layout). The top-level directory is NOT a
+-- bare prefix to discard: it encodes both the package name and version,
+-- which must be reconstituted into the cache's <package>/<version>/...
+-- directory structure (see hubCacheRoot / resolveHubPath). Simply
+-- stripping the top-level segment (dropping it entirely) would flatten
+-- every package's files into the shared cache root, colliding across
+-- packages and losing the version directory.
 installEntries :: FilePath -> Tar.Entries Tar.FormatError -> IO (Either String ())
 installEntries root entries = go entries
   where
@@ -103,18 +112,50 @@ installEntries root entries = go entries
     go (Tar.Next e es) = do
       case Tar.entryContent e of
         Tar.NormalFile bs _ -> do
-          let rawPath  = Tar.entryPath e
-              -- Strip top-level dir (e.g. "llmll-crypto-0.1.0/hash/bcrypt.ast.json")
-              destPath = root </> stripTopDir rawPath
-          createDirectoryIfMissing True (fst (splitFileName destPath))
-          BL.writeFile destPath bs
-          go es
+          let rawPath = Tar.entryPath e
+          case destPathFor root rawPath of
+            Nothing       -> go es  -- entry has no top-level dir; skip (malformed tarball)
+            Just destPath -> do
+              createDirectoryIfMissing True (fst (splitFileName destPath))
+              BL.writeFile destPath bs
+              go es
         _ -> go es   -- ignore directories, symlinks, etc.
 
-    stripTopDir p =
-      case break (== '/') p of
-        (_, '/':rest) -> rest
-        _             -> p
+-- | Compute the cache-relative destination for a tar entry. The entry's
+-- top-level directory ("<package>-<version>") is rewritten to
+-- "<package>/<version>/" instead of being dropped, so a file at
+-- "llmll-demo-pkg-0.1.0/math/add.llmll" lands at
+-- ~/.llmll/modules/llmll-demo-pkg/0.1.0/math/add.llmll, matching
+-- resolveHubPath's expected layout.
+destPathFor :: FilePath -> FilePath -> Maybe FilePath
+destPathFor root rawPath =
+  case break (== '/') rawPath of
+    (topDir, '/':rest) | not (null rest) ->
+      let (pkg, ver) = splitPkgVersion topDir
+      in Just $ if null ver
+                  then root </> pkg </> rest
+                  else root </> pkg </> ver </> rest
+    _ -> Nothing  -- no top-level directory in this entry path
+
+-- | Split a "<package>-<version>" directory name into (package, version).
+-- The version is taken to be the last '-'-separated segment if it looks
+-- like a semver (contains a '.' and is otherwise digits/dots) — matching
+-- the version-shape heuristic resolveHubPath already uses. If no segment
+-- looks like a version, the whole name is treated as the package with no
+-- version directory.
+splitPkgVersion :: String -> (String, String)
+splitPkgVersion name =
+  case reverse (splitOnDash name) of
+    (lastSeg : rest@(_:_)) | looksLikeVersion lastSeg ->
+      (intercalate "-" (reverse rest), lastSeg)
+    _ -> (name, "")
+  where
+    looksLikeVersion t = '.' `elem` t && all (\c -> c == '.' || c `elem` ['0'..'9']) t
+
+    splitOnDash s = case break (== '-') s of
+      (seg, '-':rest) -> seg : splitOnDash rest
+      (seg, "")       -> [seg]
+      (seg, _)        -> [seg]
 
 -- ---------------------------------------------------------------------------
 -- Scaffold template resolution

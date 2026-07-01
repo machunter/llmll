@@ -22,7 +22,7 @@ import json
 from unittest.mock import patch, MagicMock
 
 from llmll_orchestra.compiler import Compiler, CheckoutToken, HoleEntry, _build_context
-from llmll_orchestra.agent import build_prompt
+from llmll_orchestra.agent import build_prompt, _format_context
 
 
 # A realistic `llmll checkout --json` response: flat top-level keys, exactly
@@ -163,3 +163,85 @@ def test_checkout_context_renders_nonempty_prompt_section():
     assert "`Status`" in prompt
     assert "### Expected return type" in prompt
     assert "`bool`" in prompt
+    # _format_context() field-shape regression (resumed task, 2026-07-01,
+    # distinct from the checkout-context-key-mismatch bug above): the
+    # function signature and type-definition shape must be built from the
+    # REAL FuncEntry/TypeDefEntry fields (params + returns; kind +
+    # constructors/base_type) -- not read off nonexistent
+    # "signature"/"definition" keys, which used to render as a bare "?".
+    assert "`(x: int) -> int`" in prompt
+    assert "tier: verified" in prompt
+    assert "`Active | Inactive`" in prompt
+
+
+# ─────────────────────────────────────────────────────────────────────
+# _format_context() field-shape regression (resumed task, 2026-07-01):
+# real FuncEntry/TypeDefEntry field shapes must render actual content,
+# not "?" placeholders from nonexistent "signature"/"definition" keys.
+# ─────────────────────────────────────────────────────────────────────
+
+def test_format_context_function_signature_from_params_and_returns():
+    """FuncEntry (Checkout.hs) has no "signature" key -- it has "params"
+    ([{name, type}, ...]) and "returns"/"return_type". A function with a
+    pre-condition must render both the built signature and the pre clause,
+    not a "?" placeholder."""
+    context = {
+        "functions": [
+            {
+                "name": "withdraw",
+                "params": [{"name": "balance", "type": "int"}, {"name": "amount", "type": "int"}],
+                "returns": "int",
+                "return_type": "int",
+                "status": "filled",
+                "pre": "(>= balance amount)",
+                "post": None,
+                "tier": "asserted",
+            },
+        ],
+    }
+    rendered = _format_context(context)
+    assert "### Available functions" in rendered
+    assert "`(balance: int, amount: int) -> int`" in rendered
+    assert "pre: `(>= balance amount)`" in rendered
+    assert "tier: asserted" in rendered
+    # regression: must not fall back to the old nonexistent-key placeholder
+    assert "`?`" not in rendered
+
+
+def test_format_context_type_definition_sum_type_from_constructors():
+    """TypeDefEntry (Checkout.hs) has no "definition" key for a sum type --
+    it has "kind": "sum" and "constructors": [{name, payload?}, ...]."""
+    context = {
+        "type_definitions": [
+            {
+                "name": "Shape",
+                "kind": "sum",
+                "constructors": [{"name": "Circle", "payload": "int"}, {"name": "Rect"}],
+            },
+        ],
+    }
+    rendered = _format_context(context)
+    assert "### Type definitions" in rendered
+    assert "`Shape` (sum) = `Circle(int) | Rect`" in rendered
+    assert "`?`" not in rendered
+
+
+def test_format_context_type_definition_dependent_type_from_base_type():
+    """TypeDefEntry (Checkout.hs) for an alias/dependent type has no
+    "definition" key either -- it has "kind": "dependent" (or "alias") and
+    "base_type", plus an optional "recursive": true."""
+    context = {
+        "type_definitions": [
+            {
+                "name": "PositiveInt",
+                "kind": "dependent",
+                "base_type": "int",
+                "recursive": True,
+            },
+        ],
+    }
+    rendered = _format_context(context)
+    assert "### Type definitions" in rendered
+    assert "`PositiveInt` (dependent) = `int`" in rendered
+    assert "[recursive]" in rendered
+    assert "`?`" not in rendered

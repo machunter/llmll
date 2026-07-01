@@ -2,7 +2,7 @@
 module Main (main) where
 
 import Test.Hspec
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Control.Exception (finally)
 import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe)
 import qualified Data.Text as T
@@ -38,7 +38,7 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation)
-import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold)
+import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
@@ -52,7 +52,8 @@ import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
-import System.Directory (removeFile, doesFileExist, createDirectoryIfMissing, removeDirectoryRecursive)
+import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory)
+import System.Environment (setEnv, unsetEnv, lookupEnv)
 import System.Process (callProcess)
 import Data.List (isSuffixOf, sort, find)
 import qualified Data.Set as Set
@@ -2359,6 +2360,66 @@ main = hspec $ do
       -- because no body-faithful provers exist yet
       defLogicBody result `shouldNotBe` body
 
+  -- =========================================================================
+  -- BUG-2 (resumed task, 2026-07-01): precondition/postcondition runtime
+  -- checks were dead code under Haskell laziness. wrapPre/wrapPost used to
+  -- bind the check to an unused `let [_pre_check ...] body` — the body never
+  -- referenced `_pre_check`, so under call-by-need the assertion was never
+  -- forced and a violated precondition silently passed through. Fixed by
+  -- gating the body directly behind an `EIf`, which is strict in its
+  -- scrutinee under every codegen backend (see LLMLL.Contracts.wrapPre /
+  -- wrapPost). Live repro: generate Haskell for a def-shell with
+  -- `(pre (not (string-empty? password)))`, `stack ghci`-load it, call with
+  -- "" — pre-fix: returns "" with no exception; post-fix: throws
+  -- "Precondition violated in ...".
+  -- =========================================================================
+  describe "BUG-2: precondition/postcondition checks must not be dead code" $ do
+    let preE  = EApp ">" [EVar "x", ELit (LitInt 0)]
+        postE = EApp ">=" [EVar "result", ELit (LitInt 0)]
+        body  = EVar "x"
+        noCS  = ContractStatus Nothing Nothing []
+
+    it "wrapPre-instrumented def-shell gates the body behind EIf, not an unused let" $ do
+      let stmt = SDefShell "f" [("x", TInt)] Nothing
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body
+          result = instrumentStatement ContractsFull noCS stmt
+      case result of
+        SDefShell _ _ _ _ (EIf _ _ elseBranch) -> elseBranch `shouldBe` body
+        other -> expectationFailure $
+          "expected precondition check to strictly gate the body via EIf, got: " ++ show other
+
+    it "wrapPost-instrumented def-shell gates 'result' behind EIf, not an unused let" $ do
+      let stmt = SDefShell "f" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body
+          result = instrumentStatement ContractsFull noCS stmt
+      case result of
+        SDefShell _ _ _ _ (ELet [(PVar "result", _, boundBody)] (EIf _ _ (EVar "result"))) ->
+          boundBody `shouldBe` body
+        other -> expectationFailure $
+          "expected postcondition check to strictly gate 'result' via EIf, got: " ++ show other
+
+    it "generated Haskell for a violated def-shell precondition has no dead _pre_check binding" $ do
+      let stmt = SDefShell "check-me" [("x", TInt)] Nothing
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body
+          instrumented = instrumentStatement ContractsFull noCS stmt
+          src = cgHsSource (generateHaskell "test" [instrumented])
+      -- regression: the old codegen bound `_pre_check` in a `let` the body
+      -- never referenced, so it was never forced and the check was skipped.
+      T.isInfixOf "_pre_check" src `shouldBe` False
+      T.isInfixOf "Precondition violated in check-me" src `shouldBe` True
+      -- the check must directly gate the returned value (strict `if`), not
+      -- sit in a discarded binding.
+      T.isInfixOf "check_me x =\n  (if " src `shouldBe` True
+
+    it "generated Haskell for a violated def-shell postcondition has no dead _post_check binding" $ do
+      let stmt = SDefShell "double-it" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body
+          instrumented = instrumentStatement ContractsFull noCS stmt
+          src = cgHsSource (generateHaskell "test" [instrumented])
+      T.isInfixOf "_post_check" src `shouldBe` False
+      T.isInfixOf "Postcondition violated in double-it" src `shouldBe` True
+      T.isInfixOf "else result)" src `shouldBe` True
+
   describe "parseTrustDecl (S-expression)" $ do
     it "parses (trust foo.bar :level tested)" $ do
       case parseStatements GrammarCoreInversion "<test>" "(trust foo.bar :level tested)" of
@@ -3234,6 +3295,56 @@ main = hspec $ do
           output = emitHole (HScaffold spec)
       T.isInfixOf "scaffold" output `shouldBe` True
       T.isInfixOf "todo-app" output `shouldBe` True
+
+  -- =========================================================================
+  -- BUG-1 (resumed task, 2026-07-01): hub fetch --from-file tar-extraction
+  -- path. installEntries used to strip the tarball's top-level
+  -- `<package>-<version>/` directory outright (stripTopDir), flattening
+  -- every file straight into the shared cache root and losing both the
+  -- package name and version directory (collides across packages). Fixed
+  -- by destPathFor/splitPkgVersion, which reconstitute the top-level dir
+  -- into <package>/<version>/... matching resolveHubPath's expected
+  -- layout (see LLMLL.Hub). Runs against a HOME override so it never
+  -- touches the real ~/.llmll cache.
+  -- =========================================================================
+  describe "Hub: hubFetchLocal tar-extraction path (BUG-1)" $ do
+    it "installs a <pkg>-<version>/ tarball into ~/.llmll/modules/<pkg>/<version>/..." $ do
+      origHome <- lookupEnv "HOME"
+      tmpRoot  <- getTemporaryDirectory
+      let tmpHome = tmpRoot </> "llmll-hub-test-home"
+          srcDir  = tmpRoot </> "llmll-hub-test-src"
+          pkgName = "llmll-hub-test-pkg"
+          pkgVer  = "0.3.7"
+          topDir  = pkgName ++ "-" ++ pkgVer
+          cleanup = do
+            homeEx <- doesDirectoryExist tmpHome
+            when homeEx (removeDirectoryRecursive tmpHome)
+            srcEx  <- doesDirectoryExist srcDir
+            when srcEx (removeDirectoryRecursive srcDir)
+      cleanup
+      createDirectoryIfMissing True (srcDir </> topDir </> "math")
+      writeFile (srcDir </> topDir </> "math" </> "add.llmll")
+                "(def add [a: int b: int] (+ a b))"
+      let tarPath = srcDir </> (topDir ++ ".tar.gz")
+      callProcess "tar" ["czf", tarPath, "-C", srcDir, topDir]
+      createDirectoryIfMissing True tmpHome
+      setEnv "HOME" tmpHome
+      result <- hubFetchLocal tarPath
+      case origHome of
+        Just h  -> setEnv "HOME" h
+        Nothing -> unsetEnv "HOME"
+      result `shouldBe` Right ()
+      let installedFile = tmpHome </> ".llmll" </> "modules" </> pkgName </> pkgVer
+                             </> "math" </> "add.llmll"
+      installedExists <- doesFileExist installedFile
+      installedExists `shouldBe` True
+      contents <- readFile installedFile
+      contents `shouldBe` "(def add [a: int b: int] (+ a b))"
+      -- regression: files must NOT be flattened directly under modules/ root
+      -- (the old stripTopDir bug lost the package/version directory)
+      flatExists <- doesFileExist (tmpHome </> ".llmll" </> "modules" </> "math" </> "add.llmll")
+      flatExists `shouldBe` False
+      cleanup
 
   -- =========================================================================
   -- v0.3.1: Event Log (#13)
