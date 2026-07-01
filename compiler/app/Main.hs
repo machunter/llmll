@@ -156,7 +156,7 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <> command "test"  (info (helper <*> testCmd)
           (progDesc "Run property-based tests (check blocks)"))
       <> command "build" (info (helper <*> buildCmd)
-          (progDesc "Compile .llmll to Rust; use --emit json-ast to emit JSON-AST instead"))
+          (progDesc "Compile .llmll to Haskell; use --emit json-ast to emit JSON-AST instead"))
       <> command "build-json" (info (helper <*> buildJsonCmd)
           (progDesc "Compile a .ast.json file (JSON-AST) — same as build but from JSON input"))
       <> command "run"   (info (helper <*> runCmd)
@@ -618,7 +618,7 @@ pbtResultJson fp r writebackDiags =
       , "counterexample".= pbtCounterexample run
       ]
 -- ---------------------------------------------------------------------------
--- build (Rust codegen + optional WASM)
+-- build (Haskell codegen + optional WASM)
 -- ---------------------------------------------------------------------------
 
 doBuild :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> Bool -> Bool -> Bool -> ContractsMode -> IO ()
