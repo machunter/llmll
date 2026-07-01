@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.1)
+# LLMLL: Large Language Model Logical Language (v0.14.2)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.1.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.2.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -664,7 +664,7 @@ The diamond-lattice evidence axis at §4.4.1 answers one question: *do we know t
 DP_Ω(S) = 1 − log(|⟦S⟧_Ω|) / log(|B_{T,U,Ω}|)
 ```
 
-where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T → U` over candidate set `Ω`, and `⟦S⟧_Ω = { b ∈ B | b satisfies contract S }`. `DP = 0` when the contract admits every observable behavior; `DP = 1` when it admits exactly one. Inconsistent contracts (`|⟦S⟧_Ω| = 0`) surface as a distinct `spec-inconsistent` warning rather than score 0.
+where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T → U` over candidate set `Ω`, and `⟦S⟧_Ω = { b ∈ B | b satisfies contract S }`. `DP = 0` when the contract admits every observable behavior; `DP = 1` when it admits exactly one. A zero-satisfying result (`|⟦S⟧_Ω| = 0`) is not reported as score 0 — it splits into two typed states, since `Ω` cannot itself distinguish a genuinely vacuous contract from one that is merely tight for this candidate set: `spec-too-tight-for-omega` when the post carries independent verification evidence (a strong-spec signal), or `spec-inconsistent-or-unproven` otherwise — an epistemic, not semantic, label, since no solver-UNSAT-on-`pre ∧ post` check independent of `Ω` exists in this pipeline (cf. the vacuity/coverage distinction in Chockler, Kupferman & Vardi, *Coverage Metrics for Formal Verification*, FMSD 2006, alongside DeMillo, Lipton & Sayward's original mutation-adequacy framing, *Hints on Test Data Selection*, IEEE Computer 1978). A candidate whose own trivial body falls outside the body-VC-translatable fragment (§5.3.3) is excluded from measurement entirely — `body-unfaithful-candidates-excluded` — rather than counted either way.
 
 **Observational, not semantic.** The score is meaningful relative to `Ω` only — two implementations that disagree semantically but agree on every input in `Ω` collapse to one observed behavior. Cross-function and cross-version score comparison requires same-`Ω` discipline; the `basis` field in the trust-report `discriminative_axis` block records `Ω`'s identity for auditability. Consumers setting CI gates on CDP scores must respect this distinction or risk gating on the wrong reading. See [`docs/archive/shipped-design-specs/contract-discriminative-power-proposal.md`](docs/archive/shipped-design-specs/contract-discriminative-power-proposal.md) §1 Rev 2.
 
@@ -689,7 +689,7 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
 - **`:intentional`** — low DP is the design (caches admit any eviction; schedulers admit any ready thread; hash-map iteration order is unspecified). The annotation is the agent's explicit declaration; CDP is still computed and reported, but the diagnostic is suppressed. Self-attestation discipline: agents may over-annotate to silence warnings, so the trust report surfaces the annotation in `spec_entropy_annotation` and a module-level `over-annotation-warning` fires when the ratio of `:intentional` contracts exceeds 30% (configurable later).
 - **`:unknown`** — CDP is computed and reported but does not raise. For spec-development workflows where the contract is in flux.
 
-**CLI.** `llmll verify <file> --cdp` runs the closed candidate-set sweep per §4.3.1 of the proposal after the SAFE result and emits one `discriminative_axis` block per contracted function. Combined with `--trust-report --json`, the score is paired with the diamond-lattice evidence level in the trust-report JSON (`trust_report_version 1.2.0`, additive — existing consumers ignore `discriminative_axis`).
+**CLI.** `llmll verify <file> --cdp` runs the closed candidate-set sweep per §4.3.1 of the proposal after the SAFE result and emits one `discriminative_axis` block per contracted function. Combined with `--trust-report --json`, the score is paired with the diamond-lattice evidence level in the trust-report JSON (`trust_report_version 1.4.0`, additive — existing consumers ignore `discriminative_axis`).
 
 **Scope (CDPScopeCoreOnly).** `--cdp` scores only `def`-form (`SDef`) functions regardless of grammar mode. `def-shell` functions appear in the trust-report `discriminative_axis` block with `"score": null` and `"warnings": ["def-shell-out-of-scope"]`; the result map is uniform — every contracted function has an entry. `CDPScopeAllDefLogic` is available in the compiler for testing contexts but is not exposed via a CLI flag. See [`docs/archive/shipped-design-specs/contract-discriminative-power-proposal.md §2`](docs/archive/shipped-design-specs/contract-discriminative-power-proposal.md) for the scope-selection rationale under LT-INV gate Outcome 0.
 

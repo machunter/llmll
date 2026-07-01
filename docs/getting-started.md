@@ -270,7 +270,7 @@ stack exec llmll -- verify file.llmll --cdp
 #    Running CDP measurement (LT-CDP v0.11) ...
 #    CDP measured 3 function(s):
 #    transfer: score=0.823 (3/14 candidates satisfy)
-#    cache-lookup: score=0.000 (14/14 candidates satisfy) [identity-satisfies-post, const-satisfies-post]
+#    cache-lookup: [identity-satisfies-post, const-satisfies-post] score=0.000 (14/14 candidates satisfy)
 #    increment: score=1.000 (1/12 candidates satisfy)
 
 # CDP combined with trust-report JSON — pairs DP with the diamond-lattice evidence axis:
