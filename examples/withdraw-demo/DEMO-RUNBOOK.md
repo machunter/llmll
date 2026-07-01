@@ -1,8 +1,8 @@
 # LLMLL Repair-Loop Demo — Capture Runbook
 
 > **Artifact:** "From a bad agent patch to verified trust closure — then to a portable, replayable, unfakeable record of it. You can't sneak bad code past the verifier; you can't sneak a fake verdict past the artifact."
-> **Fixture:** [`demo.ast.json`](demo.ast.json) — `PositiveInt`, `withdraw` (typed hole), `double` (pre-verified), `maxi` (typed hole). The JSON-AST is what the agent checkout/patch protocol operates on; [`demo.llmll`](demo.llmll) is the human-readable source it is generated from (`llmll build ./demo.llmll --emit -o .`). [`audit.llmll`](audit.llmll) / [`audit.ast.json`](audit.ast.json) is a thin **shell** module over the core, used only by the authority-axis step (7).
-> **Verified against:** `llmll 0.14.1`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the step-2 checkout brief's `expected_return_type` requires v0.13.1 (DEF-RET). The `withdraw-outcome` sibling (step 4b) and its `Result[int, Reason]` construction require v0.13.13+ (COMP-4-RESULT), and a fillable sum-type hole requires v0.14.1 (the checkout-lock round-trip fix for sum-type `type_definitions`). Steps 1–7 and the brief were re-captured on `0.14.1` for the four-function program.
+> **Fixture:** [`demo.ast.json`](demo.ast.json) — `PositiveInt`, `Reason`, `withdraw` (typed hole), `double` (pre-verified), `maxi` (typed hole), `withdraw-outcome` (typed hole). The JSON-AST is what the agent checkout/patch protocol operates on; [`demo.llmll`](demo.llmll) is the human-readable source it is generated from (`llmll build ./demo.llmll --emit -o .`). [`audit.llmll`](audit.llmll) / [`audit.ast.json`](audit.ast.json) is a thin **shell** module over the core, used only by the authority-axis step (7).
+> **Verified against:** `llmll 0.14.2`, real `liquid-fixpoint` on PATH, `jq` on PATH. The two-axis trust closure (§6) and the composition step (§6.5) require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the step-2 checkout brief's `expected_return_type` requires v0.13.1 (DEF-RET). The `withdraw-outcome` sibling (step 4b) and its `Result[int, Reason]` construction require v0.13.13+ (COMP-4-RESULT), and a fillable sum-type hole requires v0.14.1 (the checkout-lock round-trip fix for sum-type `type_definitions`). Step 8's genuine `withdraw-outcome` CDP scoring and populated `--json` `discriminative_axis` require v0.14.2 (the CDP candidate-basis fix). Steps 1–8 and the brief were re-captured on `0.14.2` for the four-function program.
 
 This is the canonical capture script for the public repair-loop demo. It supersedes the older single-function `withdraw.ast.json` flow, which could only ever show `verified: 0` in the summary (sound but visually self-undercutting — see [Why these functions](#why-these-functions)).
 
@@ -26,12 +26,12 @@ A separate shell module, [`audit.llmll`](audit.llmll), adds a second, **orthogon
 ## Prerequisites
 
 ```bash
-llmll --version          # must report 0.13.1 (DEF-RET expected_return_type; TRUST-PRE caller_obligations + DEMO-COMP consumed_guarantees from 0.13.0, on top of the v0.12.x features; see note below)
+llmll --version          # must report 0.14.2 to run every step (step 8's genuine withdraw-outcome CDP scoring + populated --json discriminative_axis need the v0.14.2 candidate-basis fix; DEF-RET expected_return_type and TRUST-PRE caller_obligations + DEMO-COMP consumed_guarantees are satisfied from 0.13.1, on top of the v0.12.x features; see note below)
 which fixpoint           # must resolve — refuted/verified verdicts require the real solver
 which jq                 # used to build patches and project JSON output to the values that matter
 ```
 
-> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. Step 2's inline checkout brief additionally requires the OBLIG-1 population that shipped in `0.11.2`; on `0.11.1` the same `checkout` call returns `contract_pre` / `postcondition_goal` / `in_scope` as `null`. Step 7's `effect_summary` / `cross_module` fields require `0.12.0` (Bundle B0) or later. **The two-axis trust closure (§6, `caller_obligations`) and the composition step (§6.5) require `0.13.0`** (TRUST-PRE + DEMO-COMP), and the step-2 brief's `expected_return_type` requires `0.13.1` (DEF-RET). If `llmll --version` is not ≥ `0.13.1`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; confirm the brief fields are populated.)
+> **Critical:** a binary older than `b914587` (2026-06-06) reports `success: true` on the bad fill and can never render `verified` — the very bugs this demo was blocked on. Step 2's inline checkout brief additionally requires the OBLIG-1 population that shipped in `0.11.2`; on `0.11.1` the same `checkout` call returns `contract_pre` / `postcondition_goal` / `in_scope` as `null`. Step 7's `effect_summary` / `cross_module` fields require `0.12.0` (Bundle B0) or later. **The two-axis trust closure (§6, `caller_obligations`) and the composition step (§6.5) require `0.13.0`** (TRUST-PRE + DEMO-COMP), and the step-2 brief's `expected_return_type` requires `0.13.1` (DEF-RET). **Step 8's genuine `withdraw-outcome` CDP measurement and populated `--json` `discriminative_axis` require `0.14.2`** (the CDP candidate-basis fix; earlier builds excluded `Result`-returning contracts from scoring and left `discriminative_axis` at `"not-requested"` under `--json` regardless of `--cdp`). If `llmll --version` is not ≥ `0.14.2`, run `cd compiler && stack install` first. (The `--version` number alone is not proof; confirm the brief fields are populated.)
 
 Work from a scratch directory so every command is relative and `patch` can mutate files freely:
 
@@ -86,21 +86,21 @@ Output — three fillable holes: one in `withdraw`, one in `maxi`, one in `withd
 [
   {
     "agent": null, "cycle_warning": false, "depends_on": [],
-    "inferred-type": null, "kind": "named",
+    "inferred-type": "int", "kind": "named",
     "message": "hole: ?body_impl",
     "module-path": "def withdraw",
     "pointer": "/statements/1/body", "status": "non-blocking"
   },
   {
     "agent": null, "cycle_warning": false, "depends_on": [],
-    "inferred-type": null, "kind": "named",
+    "inferred-type": "int", "kind": "named",
     "message": "hole: ?maxi_body",
     "module-path": "def maxi",
     "pointer": "/statements/3/body", "status": "non-blocking"
   },
   {
     "agent": null, "cycle_warning": false, "depends_on": [],
-    "inferred-type": null, "kind": "named",
+    "inferred-type": "Result[int,Reason]", "kind": "named",
     "message": "hole: ?withdraw_outcome_body",
     "module-path": "def withdraw-outcome",
     "pointer": "/statements/5/body", "status": "non-blocking"
@@ -117,6 +117,7 @@ llmll verify ./demo.ast.json --obligation-report --json 2>/dev/null \
   | jq '.obligations[] | select(.origin=="/statements/1/body")
         | {function,
            in_scope: [.type_channel.in_scope[] | {name, type}],
+           expected_type: .type_channel.expected_type,
            assume:   .contract_channel.preconditions,
            prove:    .contract_channel.postcondition_goal}'
 ```
@@ -128,12 +129,13 @@ llmll verify ./demo.ast.json --obligation-report --json 2>/dev/null \
     { "name": "balance", "type": "int" },
     { "name": "amount", "type": "PositiveInt" }
   ],
+  "expected_type": "int",
   "assume": [ "(>= balance amount)" ],
   "prove": "(= result (- balance amount))"
 }
 ```
 
-That is the agent's contract: fill `/statements/1/body` with an expression over `balance` and `amount` that, *assuming* `balance ≥ amount`, *proves* `result = balance − amount`. The full object also carries the trust channel, the callable `available_functions`, and OBLIG-4 repair `suggestions`; `expected_type` reads `int` — `withdraw` declares `-> int` (DEF-RET, v0.13.1), so the body hole carries its type.
+That is the agent's contract: fill `/statements/1/body` with an expression over `balance` and `amount` that, *assuming* `balance ≥ amount`, *proves* `result = balance − amount`. The full object also carries the trust channel, the callable `available_functions`, and OBLIG-4 repair `suggestions`; `type_channel.expected_type` reads `int` — `withdraw` declares `-> int` (DEF-RET, v0.13.1), so the body hole carries its type.
 
 > `verify --obligation-report` is the **whole-program** view — every hole, unproven contract, call-site failure, and `refuted_fns` at once. As of `0.11.2`, `checkout` (next step) returns this *same per-hole brief inline* for the single hole you reserve, so an agent gets the spec and the lock in one call — you'll see it ride in with the token in step 2. Use the report when surveying the program; use the checkout brief when working one reserved hole.
 
@@ -200,23 +202,27 @@ jq '{contract_pre, postcondition_goal,
   "expected_return_type": "int",
   "hole_kind": "hole-named",
   "in_scope": [
+    { "name": "Insufficient", "source": "let-binding", "type": "Reason" },
     { "name": "PositiveInt", "source": "let-binding", "type": "PositiveInt" },
+    { "name": "Reason", "source": "let-binding", "type": "Reason" },
     { "name": "amount", "source": "param", "type": "PositiveInt" },
     { "name": "balance", "source": "param", "type": "int" },
     { "name": "double", "source": "let-binding", "type": "fn[1 args] -> int" },
     { "name": "maxi", "source": "let-binding", "type": "fn[2 args] -> int" },
-    { "name": "withdraw", "source": "let-binding", "type": "fn[2 args] -> int" }
+    { "name": "withdraw", "source": "let-binding", "type": "fn[2 args] -> int" },
+    { "name": "withdraw-outcome", "source": "let-binding", "type": "fn[2 args] -> Result[int,Reason]" }
   ],
   "obligation_id": null,
   "path_condition": null,
   "pointer": "/statements/1/body",
   "postcondition_goal": "(= result (- balance amount))",
-  "source_hash": "e2edf9dd21e58339a16caf6d2c7fe48d9da3d71f6ac86adb8db283f3aa9784d4",
-  "timestamp": "2026-06-21T00:00:00Z",
-  "token": "6087457baa8d6adf1c694e934b3e7c0b4a7041d6b3a685b46b1792d15c785e51",
+  "source_hash": "b07cf493843b4ccb2ae95fc359f81f02fa01d06af4779a843594fe7e371ad69f",
+  "timestamp": "2026-07-01T14:05:49.061507Z",
+  "token": "6459ca8cae8b360e1350c81f24aff1e37828a42ed87c925755645f10c65cf93f",
   "ttl": 3600,
   "type_definitions": [
-    { "base_type": "int", "kind": "dependent", "name": "PositiveInt" }
+    { "base_type": "int", "kind": "dependent", "name": "PositiveInt" },
+    { "constructors": [{ "name": "Insufficient" }], "kind": "sum", "name": "Reason" }
   ],
   "verified_hash": null
 }
@@ -224,13 +230,14 @@ jq '{contract_pre, postcondition_goal,
 
 </details>
 
-> **🔍 Check — two live reservations in one lock file.**
+> **🔍 Check — three live reservations in one lock file.**
 > ```bash
 > jq -r '.tokens[].pointer' demo.llmll-lock.json
 > ```
 > ```
 > /statements/1/body
 > /statements/3/body
+> /statements/5/body
 > ```
 > `jq '.tokens | length' demo.llmll-lock.json` → `3`. The lock sidecar `demo.llmll-lock.json` holds an *array* of reservations — three agents, three holes, one program.
 
@@ -325,7 +332,7 @@ jq -n --arg t "$TOKEN_O" '{token:$t, patch:[
      {kind:"op",op:"-",args:[{kind:"var",name:"balance"},{kind:"var",name:"amount"}]}]}}]}' > ./po-bad.json
 llmll patch ./demo.ast.json ./po-bad.json | jq '{result, message: .diagnostics[0].message}'
 #  -> { "result": "PatchVerifyError",
-#       "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #0)" }
+#       "message": "body verification of 'withdraw-outcome' failed — implementation does not satisfy postcondition (constraint #2)" }
 ```
 
 The repair constructs the honest outcome on each branch — `ok` when legal, `err` when not:
@@ -527,7 +534,7 @@ This is the core/shell split made measurable, and it is **orthogonal to step 6**
 
 ### 8 — (Optional) Discriminative-power axis
 
-Append `--cdp`. **This is the one human-readable step** — `--cdp` does *not* populate the JSON trust report (under `--json` the per-function `discriminative_axis` stays `"basis": "not-measured"`, `"score": null` regardless of flag order), so its scores exist only in the text output:
+Append `--cdp`:
 
 ```bash
 llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
@@ -539,6 +546,28 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
    maxi: [spec-too-tight-for-omega] 0/6 reliable candidates
    withdraw: [spec-too-tight-for-omega] 0/5 reliable candidates
    withdraw-outcome: [spec-too-tight-for-omega] 0/1 reliable candidates
+```
+
+As of `0.14.2`, `--json` populates this axis too (an earlier build silently dropped `discriminative_axis` to `"not-requested"` under `--strict-verified-core --trust-report --cdp --json` regardless of the flag — fixed):
+
+```bash
+llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp --json 2>/dev/null \
+  | jq -s '.[1].entries[] | {name, discriminative_axis: (.discriminative_axis | {basis, headline, candidate_count, satisfying_candidate_count, score})}'
+```
+
+```json
+{ "name": "withdraw",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 5, "satisfying_candidate_count": 0, "score": null } }
+{ "name": "double",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 5, "satisfying_candidate_count": 0, "score": null } }
+{ "name": "maxi",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 6, "satisfying_candidate_count": 0, "score": null } }
+{ "name": "withdraw-outcome",
+  "discriminative_axis": { "basis": "observational-candidate-set", "headline": "spec-too-tight-for-omega",
+                            "candidate_count": 1, "satisfying_candidate_count": 0, "score": null } }
 ```
 
 **Read this as a triviality *screen*, not a graded score.** CDP enumerates a closed set of trivial candidate bodies (constants, identity, small defaults) and checks how many satisfy the contract. `spec-too-tight-for-omega` means *none of them do* — no constant, no identity, no default-value body passes any of the four contracts. That is the honest, positive reading: all four **passed the trivial-body screen**. It is not a graded number and not a failure; a contract this tight simply has no witness inside the trivial candidate set. `withdraw-outcome` used to report the v0.14.1-era `datatype-return-out-of-scope` gate (a blanket suppression covering an unregistered-name defect in its candidate basis); the candidate basis now emits real, type-correct `ok`/`err` candidates, so `withdraw-outcome` gets the same measurement treatment as the other three — its lone reliable candidate (`err Insufficient` is filtered at the type level; only `(ok 0)` survives) genuinely fails to satisfy the contract, same story as its siblings. Powerful for a technical audience; **drop this step for a general audience** to keep the climax on the trust lattice.
@@ -619,7 +648,7 @@ llmll verify ./withdraw-outcome-bad.llmll --proof-artifact ./bad.proof.json   # 
 llmll replay-artifact ./bad.proof.json
 ```
 ```
-ERROR: proof-artifact rejected (parse / §4.1 invariant): ill-formed artifact:
+ERROR: proof-artifact rejected (parse / §4.1 invariant): Error in $.functions[0]: ill-formed artifact:
        function 'withdraw-outcome-bad' carries a positive tier but is flagged refuted
 ```
 
@@ -651,6 +680,6 @@ ERROR: proof-artifact rejected (parse / §4.1 invariant): ill-formed artifact:
 
 `withdraw-outcome` is the fourth core function, and it earns its place as `withdraw`'s **sibling**: the same operation under the opposite design. Where `withdraw` *demands* a precondition, `withdraw-outcome` *drops* it and makes failure a value — returning `Result[int, Reason]`, `ok(debited)` when legal and `err Insufficient` when not. It adds the dimension the int-typed trio lacks: a **constructed datatype outcome**, proved total by a guard-bound post that discharges body-faithfully through z3's datatype theory (`(ok e)`/`(err e)` reflect to the native `Result`; the `§5.3.3` datatype class, `Σ_auto`, no Lean — same totality-over-a-constructed-sum discipline as `payments-core`'s `PayOutcome`/`StepOutcome`). Its filling beat (4b) is also where the **type→contract escalation** lives, because its return type carries the contract: a wrong-shaped fill is a type error, a dishonest outcome is a contract refutation. The pairing is the payload — at step 6 the obligation axis shows the two designs side by side, one with a caller obligation, one without.
 
-`maxi` is the evidential function, and it was chosen deliberately over a `clamp` example. `clamp`'s natural spec (`lo ≤ result ≤ hi`) is a *range*, which a constant body (`return lo`) satisfies — an under-specified contract (CDP scores it `0.472`, flags `const-satisfies-post`), and it cannot be completed cleanly because LLMLL has no implication operator. `maxi`'s property (`result ≥ a` ∧ `result ≥ b` ∧ `result ∈ {a, b}`) is **complete** with only conjunction and disjunction: it pins `result` to `max(a, b)` uniquely, no trivial body satisfies it (CDP `1.000`), and it stays inside the QF-LIA fragment liquid-fixpoint discharges. It is a sharp, honest instance of what the verifier genuinely does — relational/bounds properties over linear integer arithmetic, localized to the branch — not a stretch toward correctness it cannot prove.
+`maxi` is the evidential function, and it was chosen deliberately over a `clamp` example. `clamp`'s natural spec (`lo ≤ result ≤ hi`) is a *range*, which a constant body (`return lo`) satisfies — an under-specified contract (an early CDP prototype scored it `0.472`, flagging `const-satisfies-post`; that raw-fraction scoring formula predates the current `observational-candidate-set` basis and isn't reproducible with today's `--cdp`), and it cannot be completed cleanly because LLMLL has no implication operator. `maxi`'s property (`result ≥ a` ∧ `result ≥ b` ∧ `result ∈ {a, b}`) is **complete** with only conjunction and disjunction: it pins `result` to `max(a, b)` uniquely, and no trivial body satisfies it — the current CDP engine scores it `spec-too-tight-for-omega` (0 of its sampled candidates satisfy the contract, same as its three siblings in this demo, step 8) — and it stays inside the QF-LIA fragment liquid-fixpoint discharges. It is a sharp, honest instance of what the verifier genuinely does — relational/bounds properties over linear integer arithmetic, localized to the branch — not a stretch toward correctness it cannot prove.
 
 `audit-withdraw` (in [`audit.llmll`](audit.llmll)) is **not** a fourth *core* function — it is a **shell** over the core, and it exists to make the authority axis (step 7) non-trivial. The core is pure, so its `effect_summary` is uniformly `∅`; a demo that only ever showed `∅` would not exercise Bundle B0. The shell imports the core's `withdraw` and adds the single capability the core deliberately lacks (`stdout`), so `effect_summary` reads `["stdout"]` and `cross_module` reads `"supported"` — authority composed across the import edge. It is a `def-shell` (not `def`) precisely because touching the world is non-body-faithful: the core's own `--strict-verified-core` gate (step 6) would *correctly* reject it. That is why it lives in its own module — so the climax stays pristine and the authority axis is shown without compromising the trust closure.
