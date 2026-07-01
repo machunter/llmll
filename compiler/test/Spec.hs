@@ -2360,6 +2360,66 @@ main = hspec $ do
       -- because no body-faithful provers exist yet
       defLogicBody result `shouldNotBe` body
 
+  -- =========================================================================
+  -- BUG-2 (resumed task, 2026-07-01): precondition/postcondition runtime
+  -- checks were dead code under Haskell laziness. wrapPre/wrapPost used to
+  -- bind the check to an unused `let [_pre_check ...] body` — the body never
+  -- referenced `_pre_check`, so under call-by-need the assertion was never
+  -- forced and a violated precondition silently passed through. Fixed by
+  -- gating the body directly behind an `EIf`, which is strict in its
+  -- scrutinee under every codegen backend (see LLMLL.Contracts.wrapPre /
+  -- wrapPost). Live repro: generate Haskell for a def-shell with
+  -- `(pre (not (string-empty? password)))`, `stack ghci`-load it, call with
+  -- "" — pre-fix: returns "" with no exception; post-fix: throws
+  -- "Precondition violated in ...".
+  -- =========================================================================
+  describe "BUG-2: precondition/postcondition checks must not be dead code" $ do
+    let preE  = EApp ">" [EVar "x", ELit (LitInt 0)]
+        postE = EApp ">=" [EVar "result", ELit (LitInt 0)]
+        body  = EVar "x"
+        noCS  = ContractStatus Nothing Nothing []
+
+    it "wrapPre-instrumented def-shell gates the body behind EIf, not an unused let" $ do
+      let stmt = SDefShell "f" [("x", TInt)] Nothing
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body
+          result = instrumentStatement ContractsFull noCS stmt
+      case result of
+        SDefShell _ _ _ _ (EIf _ _ elseBranch) -> elseBranch `shouldBe` body
+        other -> expectationFailure $
+          "expected precondition check to strictly gate the body via EIf, got: " ++ show other
+
+    it "wrapPost-instrumented def-shell gates 'result' behind EIf, not an unused let" $ do
+      let stmt = SDefShell "f" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body
+          result = instrumentStatement ContractsFull noCS stmt
+      case result of
+        SDefShell _ _ _ _ (ELet [(PVar "result", _, boundBody)] (EIf _ _ (EVar "result"))) ->
+          boundBody `shouldBe` body
+        other -> expectationFailure $
+          "expected postcondition check to strictly gate 'result' via EIf, got: " ++ show other
+
+    it "generated Haskell for a violated def-shell precondition has no dead _pre_check binding" $ do
+      let stmt = SDefShell "check-me" [("x", TInt)] Nothing
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body
+          instrumented = instrumentStatement ContractsFull noCS stmt
+          src = cgHsSource (generateHaskell "test" [instrumented])
+      -- regression: the old codegen bound `_pre_check` in a `let` the body
+      -- never referenced, so it was never forced and the check was skipped.
+      T.isInfixOf "_pre_check" src `shouldBe` False
+      T.isInfixOf "Precondition violated in check-me" src `shouldBe` True
+      -- the check must directly gate the returned value (strict `if`), not
+      -- sit in a discarded binding.
+      T.isInfixOf "check_me x =\n  (if " src `shouldBe` True
+
+    it "generated Haskell for a violated def-shell postcondition has no dead _post_check binding" $ do
+      let stmt = SDefShell "double-it" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body
+          instrumented = instrumentStatement ContractsFull noCS stmt
+          src = cgHsSource (generateHaskell "test" [instrumented])
+      T.isInfixOf "_post_check" src `shouldBe` False
+      T.isInfixOf "Postcondition violated in double-it" src `shouldBe` True
+      T.isInfixOf "else result)" src `shouldBe` True
+
   describe "parseTrustDecl (S-expression)" $ do
     it "parses (trust foo.bar :level tested)" $ do
       case parseStatements GrammarCoreInversion "<test>" "(trust foo.bar :level tested)" of
