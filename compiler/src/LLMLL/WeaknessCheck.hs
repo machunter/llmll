@@ -31,6 +31,8 @@ module LLMLL.WeaknessCheck
   , generateWeaknessCandidates
     -- * LT-CDP (v0.11) — closed enumeration per proposal §4.3.1
   , generateCDPCandidates
+    -- * CDP deep-dive Rev 5 (item 5)
+  , wcSyntheticName
   ) where
 
 import Data.Text (Text)
@@ -58,8 +60,10 @@ data TrivialBody
   | TrivConstBool Bool          -- ^ return literal bool (true, false)
   | TrivConstEmptyList          -- ^ (list-empty) — polymorphic empty list
   | TrivConstListSingle Type    -- ^ single-element list with type default
-  | TrivConstSuccess Type       -- ^ Success wrapping the payload-type default
-  | TrivConstError              -- ^ Error "default"
+  | TrivConstSuccess Type       -- ^ ok wrapping the payload-type default
+  | TrivConstError Type         -- ^ err wrapping the payload-type default (CDP deep-dive
+                                 -- Rev 5, item 3: was a hardcoded string regardless of the
+                                 -- real error-payload type)
   | TrivConstPair Type Type     -- ^ pair of element-type defaults
   deriving (Show, Eq)
 
@@ -72,10 +76,10 @@ trivialLabel (TrivConstBool True)    = "(lambda [...] true)"
 trivialLabel (TrivConstBool False)   = "(lambda [...] false)"
 trivialLabel TrivConstEmptyList      = "(lambda [...] (list-empty))"
 trivialLabel (TrivConstListSingle t) =
-  "(lambda [...] (list-cons " <> defaultLabel t <> " (list-empty)))"
+  "(lambda [...] (list-prepend " <> defaultLabel t <> " (list-empty)))"
 trivialLabel (TrivConstSuccess t)    =
-  "(lambda [...] (Success " <> defaultLabel t <> "))"
-trivialLabel TrivConstError          = "(lambda [...] (Error \"default\"))"
+  "(lambda [...] (ok " <> defaultLabel t <> "))"
+trivialLabel (TrivConstError t)      = "(lambda [...] (err " <> defaultLabel t <> "))"
 trivialLabel (TrivConstPair a b)     =
   "(lambda [...] (pair " <> defaultLabel a <> " " <> defaultLabel b <> "))"
 
@@ -88,9 +92,13 @@ trivialExpr (TrivConstString s)     = ELit (LitString s)
 trivialExpr (TrivConstBool b)       = ELit (LitBool b)
 trivialExpr TrivConstEmptyList      = EApp "list-empty" []
 trivialExpr (TrivConstListSingle t) =
-  EApp "list-cons" [defaultExpr t, EApp "list-empty" []]
-trivialExpr (TrivConstSuccess t)    = EApp "Success" [defaultExpr t]
-trivialExpr TrivConstError          = EApp "Error" [ELit (LitString "default")]
+  EApp "list-prepend" [defaultExpr t, EApp "list-empty" []]
+-- CDP deep-dive Rev 5 (item 3): 'ok'/'err' (registered in builtinEnv) replace
+-- the raw internal constructor names 'Success'/'Error' (unregistered), which
+-- let a type-unsound candidate reach the solver unvalidated (768ab11's
+-- Omega-adequacy gate suppressed the symptom; this closes the mechanism).
+trivialExpr (TrivConstSuccess t)    = EApp "ok" [defaultExpr t]
+trivialExpr (TrivConstError t)      = EApp "err" [defaultExpr t]
 trivialExpr (TrivConstPair a b)     = EApp "pair" [defaultExpr a, defaultExpr b]
 
 -- | Canonical default expression for a base type. Used to seed list-singleton,
@@ -124,6 +132,16 @@ data WeaknessCandidate = WeaknessCandidate
   , wcPrecondition  :: Maybe Expr    -- ^ original pre (for EC-7 diagnostic text)
   , wcPostcondition :: Maybe Expr    -- ^ original post
   } deriving (Show)
+
+-- | CDP deep-dive Rev 5 (item 5): the name 'wcSyntheticStmt' is registered
+-- under, matching 'FixpointEmit.erBodyFallback''s function-name list.
+-- Derived from the statement itself (not re-synthesized) so it can never
+-- drift from 'tryCandidate''s naming convention below.
+wcSyntheticName :: WeaknessCandidate -> Name
+wcSyntheticName wc = case wcSyntheticStmt wc of
+  SDefLogic n _ _ _ _ -> n
+  SDef      n _ _ _ _ -> n
+  _                   -> "__weakness_check_" <> wcFunctionName wc
 
 -- ---------------------------------------------------------------------------
 -- Core API — Legacy --weakness-check (v0.10 catalog, unchanged)
@@ -225,9 +243,12 @@ cdpCatalog params mRet =
         Nothing          -> [TrivConstEmptyList]  -- polymorphic; TC filters
         _                -> []
       sums = case mRet of
-        Just (TResult okT _) -> [TrivConstSuccess okT, TrivConstError]
-        Nothing              -> [TrivConstError]  -- payload-free form; TC filters
-        _                    -> []
+        -- CDP deep-dive Rev 5 (item 3): errT is now threaded through instead
+        -- of discarded, so TrivConstError's payload matches the real
+        -- error-payload type rather than a hardcoded string.
+        Just (TResult okT errT) -> [TrivConstSuccess okT, TrivConstError errT]
+        Nothing                 -> [TrivConstError TInt]  -- payload-free form; TC filters
+        _                       -> []
       pairs = case mRet of
         Just (TPair a b) -> [TrivConstPair a b]
         _                -> []

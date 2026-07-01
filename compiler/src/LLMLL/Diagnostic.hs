@@ -34,6 +34,7 @@ module LLMLL.Diagnostic
   , mkTrustGapWarning
   -- * v0.3.5: Weakness check
   , mkSpecWeakness
+  , mkCandidateUnvalidated
   -- * v0.4: Capability enforcement (CAP-1)
   , mkMissingCapability
   -- * LT-INV (v0.11): core/shell grammar violations
@@ -238,6 +239,24 @@ mkSpecWeakness funcName trivialLabel mPre mPost =
        { diagKind       = Just "spec-weakness"
        , diagSuggestion = Just suggestion
        }
+
+-- | CDP deep-dive Rev 5 (item 5): a weakness-check candidate whose own
+-- synthetic body fell outside the QF-LIA-translatable fragment
+-- ('erBodyFallback'). Distinct from 'mkSpecWeakness': this candidate's
+-- satisfaction is unknown, not confirmed weak — a solver verdict on a
+-- body-fallback emission is not evidence either way, so it must not be
+-- silently dropped (that would regress '--weakness-check''s diagnostic
+-- surface for functions whose only weak candidate happens to be excluded).
+mkCandidateUnvalidated
+  :: Text  -- ^ function name
+  -> Text  -- ^ trivial body label
+  -> Diagnostic
+mkCandidateUnvalidated funcName trivialLabel =
+  let msg = "Weakness-check candidate for `" <> funcName <> "` could not be validated: "
+            <> trivialLabel <> " — body translation fell outside the checkable "
+            <> "(QF-LIA) fragment. This candidate's satisfaction is unknown, not confirmed weak."
+  in (mkWarning Nothing msg)
+       { diagKind = Just "weakness-check-candidate-unvalidated" }
 
 -- ---------------------------------------------------------------------------
 -- v0.4: Capability Enforcement Diagnostics (CAP-1)

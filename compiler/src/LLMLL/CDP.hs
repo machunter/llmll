@@ -97,6 +97,13 @@ data CDPResult = CDPResult
   , cdpSpecEntropyAnnotation  :: SpecEntropy
     -- ^ The contract's '(spec-entropy ...)' annotation (defaults to
     -- 'SpecEntropyStrict' on absent annotation per proposal §3).
+  , cdpExcludedCandidateCount :: Int
+    -- ^ CDP deep-dive Rev 5 (item 5): count of candidates whose own synthetic
+    -- body fell outside the QF-LIA-translatable fragment ('erBodyFallback')
+    -- and were therefore excluded from both 'cdpCandidateCount' and
+    -- 'cdpSatisfyingCount' — a solver verdict on a body-fallback emission
+    -- asserts nothing about whether the candidate satisfies the contract.
+    -- Nonzero triggers 'WarnBodyUnfaithfulCandidatesExcluded'.
   } deriving (Show, Eq)
 
 -- | Typed diagnostic enumeration per proposal §5. Downstream consumers must
@@ -109,9 +116,20 @@ data CDPWarning
     -- admits input-pass-through behavior.
   | WarnConstSatisfiesPost
     -- ^ A trivial constant body satisfied the contract.
-  | WarnSpecInconsistent
-    -- ^ Zero candidates satisfied the contract and there is no verification
-    -- evidence for the post-condition. Score is suppressed.
+  | WarnSpecInconsistentOrUnproven
+    -- ^ CDP deep-dive Rev 5 (item 1): renamed from 'WarnSpecInconsistent'.
+    -- Zero Omega candidates satisfied the contract and there is no
+    -- independent verification evidence for the post-condition. This is an
+    -- EPISTEMIC condition, not a semantic one: F-005 Rev 4 (the archived
+    -- contract-discriminative-power-proposal.md §"F-005 scope-policy
+    -- adjudication") reserved "spec-inconsistent" for a solver-UNSAT-on-
+    -- pre∧post check, independent of Omega — no such check exists here.
+    -- This condition is Omega-relative and cannot distinguish a genuinely
+    -- vacuous contract from one that is merely tight for the closed §4.3.1
+    -- candidate set and unverified by other means. A true Omega-independent
+    -- semantic-UNSAT check remains future work (requires a structurally
+    -- different existential SAT query, not an extension of the per-candidate
+    -- Horn-refutation loop this module already runs). Score is suppressed.
   | WarnSpecTooTightForOmega
     -- ^ The post-condition carries DLVerified or DLContractChecked evidence
     -- (the spec is provably correct), but no trivial-body candidate from the
@@ -126,24 +144,20 @@ data CDPWarning
   | WarnDefShellOutOfScope
     -- ^ Function is def-shell (or, pre-LT-INV, classified as out-of-scope by
     -- the active 'CDPScope'). Score is NOT measured — distinct from undefined.
-  | WarnDatatypeReturnOutOfScope
-    -- ^ Function returns a datatype/sum payload type ('TResult' — the only
-    -- shape 'WeaknessCheck.cdpCatalog' currently derives sum-shaped candidates
-    -- for) for which the closed §4.3.1 candidate basis Omega is not known to
-    -- be faithfully type-adequate: 'cdpCatalog' emits the trivial-body
-    -- candidates via the raw internal constructor names ("Success"/"Error"),
-    -- which are unregistered in 'builtinEnv' (only the surface 'ok'/'err'
-    -- forms are), so 'WeaknessCheck.tryCandidate''s independent (lenient-mode)
-    -- re-typecheck cannot validate them and a type-unsound candidate can reach
-    -- the solver with a vacuously-satisfiable VC. Score is NOT measured —
-    -- deliberately distinct from 'WarnDefShellOutOfScope' (scope-class
-    -- exclusion) and from 'WarnEnumerationTooNarrow' (measurement weakness)
-    -- per the discipline stated above: downstream consumers must not conflate
-    -- "not applicable" with "measured but degenerate." The candidate basis
-    -- itself is not fixed here — see the CDP/WeaknessCheck follow-on.
   | WarnCandidatesEmptyUnderLimit
     -- ^ Zero type-compatible candidates from the §4.3.1 enumeration applied.
     -- A v0.12+ widening may close this case.
+  | WarnBodyUnfaithfulCandidatesExcluded
+    -- ^ CDP deep-dive Rev 5 (item 5): one or more type-compatible candidates
+    -- were excluded from measurement because their own synthetic body fell
+    -- outside the QF-LIA-translatable fragment ('FixpointEmit.erBodyFallback')
+    -- — a solver-SAFE verdict on such an emission is not evidence the
+    -- candidate satisfies the contract (confirmed mechanism: list-valued
+    -- return expressions like '(list-empty)' are not in the translatable
+    -- fragment; see 'WeaknessCheck.hs' catalog). Distinct from
+    -- 'WarnCandidatesEmptyUnderLimit' (no type-compatible candidates existed
+    -- at all) — this fires when candidates existed but could not be reliably
+    -- checked. See 'cdpExcludedCandidateCount' for the raw count.
   | WarnOverAnnotationModule
     -- ^ Module-level diagnostic: ':intentional' annotations exceed the
     -- threshold ratio (default 30 %) of '@over-annotation-warning@' per
@@ -159,12 +173,12 @@ data CDPWarning
 cdpWarningLabel :: CDPWarning -> Text
 cdpWarningLabel WarnIdentitySatisfiesPost     = "identity-satisfies-post"
 cdpWarningLabel WarnConstSatisfiesPost        = "const-satisfies-post"
-cdpWarningLabel WarnSpecInconsistent          = "spec-inconsistent"
+cdpWarningLabel WarnSpecInconsistentOrUnproven = "spec-inconsistent-or-unproven"
 cdpWarningLabel WarnSpecTooTightForOmega      = "spec-too-tight-for-omega"
 cdpWarningLabel WarnEnumerationTooNarrow      = "enumeration-too-narrow"
 cdpWarningLabel WarnDefShellOutOfScope        = "def-shell-out-of-scope"
-cdpWarningLabel WarnDatatypeReturnOutOfScope  = "datatype-return-out-of-scope"
 cdpWarningLabel WarnCandidatesEmptyUnderLimit = "candidates-empty-under-limit"
+cdpWarningLabel WarnBodyUnfaithfulCandidatesExcluded = "body-unfaithful-candidates-excluded"
 cdpWarningLabel WarnOverAnnotationModule      = "over-annotation-warning"
 cdpWarningLabel WarnNotRequested              = "not-requested"
 
@@ -213,15 +227,19 @@ overAnnotationRatio stmts =
 --     'v0.11-cross-proposal-rollback-discipline.md' §2; functions outside
 --     scope produce a 'WarnDefShellOutOfScope' result with no score.
 --   * 'runCandidate' — solver-runner that emits .fq for a single candidate
---     statement and returns 'True' iff the solver reports SAFE. Owned by
---     Main.hs which holds the liquid-fixpoint binary path.
+--     statement and returns 'Just True'/'Just False' iff the solver reports
+--     SAFE/not-SAFE on a body-faithful emission, or 'Nothing' when the
+--     candidate's own synthetic body fell outside the QF-LIA-translatable
+--     fragment ('FixpointEmit.erBodyFallback') — CDP deep-dive Rev 5 (item 5):
+--     a solver verdict on such an emission is not evidence of satisfaction.
+--     Owned by Main.hs which holds the liquid-fixpoint binary path.
 --
 -- Returns a per-function map; entries are populated for every contracted
 -- function so the trust-report shape is uniform.
 computeCDPFor
   :: GrammarMode
   -> CDPScope
-  -> (WeaknessCandidate -> IO Bool)
+  -> (WeaknessCandidate -> IO (Maybe Bool))
   -> Map Name Bool
   -> [Statement]
   -> IO (Map Name CDPResult)
@@ -232,36 +250,32 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
   -- CDPScopeCoreOnly / CDPScopeFlagGated → SDef only;
   -- CDPScopeAllDefLogic → all four forms (legacy path).
   --
-  -- Omega-adequacy gate (fix/cdp-tresult-omega-gate): among in-scope
-  -- functions, those returning 'TResult' are further split off BEFORE
-  -- candidate generation / the solver ever runs. 'WeaknessCheck.cdpCatalog'
-  -- derives their trivial-body candidates via the raw internal constructor
-  -- names ("Success"/"Error"), unregistered in 'builtinEnv' (only the
-  -- surface 'ok'/'err' forms are); the independent, lenient-mode re-typecheck
-  -- in 'WeaknessCheck.tryCandidate' cannot validate them, so a type-unsound
-  -- candidate (observed: the constant-error candidate, whose payload is
-  -- unconditionally a string literal regardless of the real error-payload
-  -- type) can reach the solver and be reported as vacuously satisfying —
-  -- producing a false low/zero-discriminative-power score that contradicts
-  -- the real verifier's refutation of an equivalent-shaped implementation.
-  -- Gating on return-type shape closes this without depending on the
-  -- candidate-basis fix (tracked separately) and without spending solver
-  -- calls on candidates already known to be unreliable.
+  -- CDP deep-dive Rev 5 (item 3): the 768ab11 Omega-adequacy gate that used
+  -- to split 'TResult'-returning functions off BEFORE candidate generation
+  -- (routing them to 'WarnDatatypeReturnOutOfScope' unconditionally) has been
+  -- removed. It suppressed a symptom: 'WeaknessCheck.cdpCatalog' derived
+  -- trivial-body sum candidates via the raw internal constructor names
+  -- ("Success"/"Error"), unregistered in 'builtinEnv', so a type-unsound
+  -- candidate reached the solver unvalidated. The candidate basis now emits
+  -- real 'ok'/'err' candidates (registered, type-correct payloads) — closing
+  -- the mechanism instead of gating around it (confirmed empirically:
+  -- CDP-CANDBASIS-1 shows the fixed candidate produces zero diagnostics
+  -- under the same independent re-typecheck that used to only warn). The
+  -- item-5 'erBodyFallback' gate in 'resultFor' remains as the general
+  -- defense against any candidate — datatype-returning or otherwise — whose
+  -- own synthetic body fails to translate.
   let inScopeAll = [ (n, mRet, c)
                    | s <- stmts, Just (n, mRet, c) <- [inScopeFunc scope s] ]
-      (datatypeReturnFuncs, scorableFuncs) = L.partition isDatatypeReturn inScopeAll
       outOfScopeFuncs = [ (n, c)
                         | s <- stmts, Just (n, _mRet, c) <- [outOfScopeFunc scope s] ]
   measured <- mapM (\(name, _mRet, contract) ->
                        let verifies  = Map.findWithDefault False name verifMap
                            candidates = candidatesFor name stmts
                        in fmap ((,) name) (resultFor runCandidate verifies contract candidates))
-                   scorableFuncs
-  let skippedDatatype = [ (name, outOfScopeResultForDatatypeReturn contract)
-                         | (name, _mRet, contract) <- datatypeReturnFuncs ]
-      skipped = [ (name, outOfScopeResult contract)
+                   inScopeAll
+  let skipped = [ (name, outOfScopeResult contract)
                 | (name, contract) <- outOfScopeFuncs ]
-  pure (Map.fromList (measured ++ skippedDatatype ++ skipped))
+  pure (Map.fromList (measured ++ skipped))
   where
     -- In-scope: forms that enter the measurement pipeline. Now carries the
     -- return-type annotation so the Omega-adequacy gate can inspect it.
@@ -290,13 +304,6 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
     nonCoreContractedFunc (SDefShell n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
     nonCoreContractedFunc _                                           = Nothing
 
-    -- Omega-adequacy predicate: only 'TResult' is currently derived into
-    -- sum-shaped candidates by 'cdpCatalog' (WeaknessCheck.hs §4.3.1); a bare
-    -- user-defined sum return produces no sum-shaped candidates at all and is
-    -- unaffected by this mechanism, so it is intentionally not gated here.
-    isDatatypeReturn (_, Just (TResult _ _), _) = True
-    isDatatypeReturn _                          = False
-
     -- Out-of-scope result: no score, WarnDefShellOutOfScope, annotation preserved.
     outOfScopeResult contract =
       let annotation = case contractSpecEntropy contract of
@@ -310,24 +317,7 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
            , cdpWarnings              = [WarnDefShellOutOfScope]
            , cdpDistinguishingInputs  = []
            , cdpSpecEntropyAnnotation = annotation
-           }
-
-    -- Omega-inadequate-for-datatype-return result: no score, no candidates
-    -- generated (the solver is never invoked), distinctly labeled per the
-    -- 'CDPWarning' discipline against conflating not-applicable with
-    -- measured-but-degenerate.
-    outOfScopeResultForDatatypeReturn contract =
-      let annotation = case contractSpecEntropy contract of
-                         Just se -> se
-                         Nothing -> SpecEntropyStrict
-      in CDPResult
-           { cdpCandidateCount        = 0
-           , cdpSatisfyingCount       = 0
-           , cdpDistinctBehaviorCount = 0
-           , cdpScore                 = Nothing
-           , cdpWarnings              = [WarnDatatypeReturnOutOfScope]
-           , cdpDistinguishingInputs  = []
-           , cdpSpecEntropyAnnotation = annotation
+           , cdpExcludedCandidateCount = 0
            }
 
     candidatesFor n ss = filter (\wc -> wcFunctionName wc == n) (generateCDPCandidates gm ss)
@@ -338,11 +328,11 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
 -- candidates and the IO solver runner.  Scope filtering has already been
 -- applied by 'computeCDPFor'; every function reaching here is in scope.
 -- Candidate-empty cases fire 'WarnCandidatesEmptyUnderLimit'; inconsistent
--- contracts fire 'WarnSpecInconsistent' or 'WarnSpecTooTightForOmega' per
+-- contracts fire 'WarnSpecInconsistentOrUnproven' or 'WarnSpecTooTightForOmega' per
 -- 'buildWarnings'; observational equivalence is the per-candidate
 -- 'trivialLabel' partition (proposal §4.3 corpus-bias caveat applies).
 resultFor
-  :: (WeaknessCandidate -> IO Bool)
+  :: (WeaknessCandidate -> IO (Maybe Bool))
   -> Bool
   -> Contract
   -> [WeaknessCandidate]
@@ -360,16 +350,25 @@ resultFor runCandidate functionVerifies contract candidates = do
       , cdpWarnings = [WarnCandidatesEmptyUnderLimit]
       , cdpDistinguishingInputs = []
       , cdpSpecEntropyAnnotation = annotation
+      , cdpExcludedCandidateCount = 0
       }
     else do
       passes <- mapM (\wc -> fmap ((,) wc) (runCandidate wc)) candidates
-      let candCount    = length candidates
-          satisfying   = [wc | (wc, True)  <- passes]
-          nonSatisfying = [wc | (wc, False) <- passes]
+      -- CDP deep-dive Rev 5 (item 5): a candidate whose own synthetic body
+      -- fell outside the QF-LIA-translatable fragment ('Nothing') is
+      -- excluded from both the numerator and denominator — a solver verdict
+      -- on a body-fallback emission is not evidence either way.
+      let reliable      = [(wc, b) | (wc, Just b) <- passes]
+          excludedCount = length passes - length reliable
+          reliableCands = map fst reliable
+          candCount    = length reliable
+          satisfying   = [wc | (wc, True)  <- reliable]
+          nonSatisfying = [wc | (wc, False) <- reliable]
           satCount     = length satisfying
           distinctSat  = length (equivalenceClasses (map wcTrivialLabel satisfying))
-          distinctAll  = length (equivalenceClasses (map wcTrivialLabel candidates))
-          warns        = buildWarnings candidates satisfying distinctAll annotation functionVerifies
+          distinctAll  = length (equivalenceClasses (map wcTrivialLabel reliableCands))
+          warns        = buildWarnings reliableCands satisfying distinctAll annotation functionVerifies
+                           ++ [WarnBodyUnfaithfulCandidatesExcluded | excludedCount > 0]
           score        = computeScore satCount distinctAll
           distInputs   = take 4 [wcTrivialLabel wc | wc <- nonSatisfying ++ satisfying]
       pure CDPResult
@@ -380,6 +379,7 @@ resultFor runCandidate functionVerifies contract candidates = do
         , cdpWarnings = warns
         , cdpDistinguishingInputs = distInputs
         , cdpSpecEntropyAnnotation = annotation
+        , cdpExcludedCandidateCount = excludedCount
         }
 
 -- | Build the typed warning list for a per-function CDP result per proposal §5.
@@ -398,7 +398,7 @@ buildWarnings candidates satisfying distinctAll _annotation functionVerifies =
   in concat
        [ [WarnIdentitySatisfiesPost | identityOk]
        , [WarnConstSatisfiesPost    | constOk]
-       , [if functionVerifies then WarnSpecTooTightForOmega else WarnSpecInconsistent | inconsistent]
+       , [if functionVerifies then WarnSpecTooTightForOmega else WarnSpecInconsistentOrUnproven | inconsistent]
        , [WarnEnumerationTooNarrow  | narrow && not inconsistent]
        ]
   where
@@ -411,7 +411,7 @@ buildWarnings candidates satisfying distinctAll _annotation functionVerifies =
 -- ('|B|≤1', |⟦S⟧|=0).
 computeScore :: Int -> Int -> Maybe Double
 computeScore _ b | b <= 1 = Nothing  -- enumeration-too-narrow / collapses to 0/0
-computeScore s _ | s <= 0 = Nothing  -- spec-inconsistent
+computeScore s _ | s <= 0 = Nothing  -- spec-inconsistent-or-unproven
 computeScore satCount totalCount =
   let logSat   = log (fromIntegral satCount :: Double)
       logTotal = log (fromIntegral totalCount :: Double)

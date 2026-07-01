@@ -394,10 +394,20 @@ emitFixpointWith opts srcFile stmts = do
       -- pair projection `(pair2_0 r)` applies a datatype selector in goal position, so
       -- the selector symbol now appears in the sweep where COMP-4 (match-skolem
       -- elimination) never surfaced it.
+      -- CDP deep-dive Rev 5 (routed finding): the sweep used to miss measures
+      -- referenced ONLY by an auto-synthesized qualifier (extractQualifiers)
+      -- and nowhere in a constraint or binder — e.g. a post-condition
+      -- referencing 'list-length' on a function whose body-VC fell back, so
+      -- no constraint ever mentions 'listLen'. The qualifier still does, and
+      -- liquid-fixpoint crashes ("Qualifier with free vars") on the
+      -- undeclared symbol. Scanning 'quals' too closes the gap; 'quals'
+      -- includes 'builtinQualifiers' (pure int comparisons, no measure
+      -- symbols), so this is a no-op for programs that don't hit the gap.
       usedMeasures = (Set.unions $
            [ Set.union (appNames (reftPred (conLhs c))) (appNames (reftPred (conRhs c)))
            | c <- consts ]
-        ++ [ appNames (reftPred (bindReft b)) | b <- binds ]) Set.\\ ctorNames
+        ++ [ appNames (reftPred (bindReft b)) | b <- binds ]
+        ++ [ appNames (qualBody q) | q <- quals ]) Set.\\ ctorNames
       measureConsts = map measureConstant (Set.toList usedMeasures)
   let fqFile = FQFile measureConsts dataDecs quals binds consts
   return EmitResult

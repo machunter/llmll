@@ -534,13 +534,13 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
 
 ```
    CDP measured 4 function(s):
-   double: score=undefined (0/5 candidates satisfy) [spec-too-tight-for-omega]
-   maxi: score=undefined (0/6 candidates satisfy) [spec-too-tight-for-omega]
-   withdraw: score=undefined (0/5 candidates satisfy) [spec-too-tight-for-omega]
-   withdraw-outcome: score=undefined (0/0 candidates satisfy) [datatype-return-out-of-scope]
+   double: [spec-too-tight-for-omega] 0/5 reliable candidates
+   maxi: [spec-too-tight-for-omega] 0/6 reliable candidates
+   withdraw: [spec-too-tight-for-omega] 0/5 reliable candidates
+   withdraw-outcome: [spec-too-tight-for-omega] 0/1 reliable candidates
 ```
 
-**Read this as a triviality *screen*, not a graded score.** CDP enumerates a closed set of trivial candidate bodies (constants, identity, small defaults) and checks how many satisfy the contract. `spec-too-tight-for-omega` means *none of them do* — no constant, no identity, no default-value body passes `double`/`maxi`/`withdraw`'s contracts. That is the honest, positive reading: these three **passed the trivial-body screen**. It is not a graded number and not a failure; a contract this tight simply has no witness inside the trivial candidate set. `withdraw-outcome` reports `datatype-return-out-of-scope`: its `Result[int, Reason]` return type isn't yet covered by CDP's candidate basis, so no score is claimed rather than a misleading one. Powerful for a technical audience; **drop this step for a general audience** to keep the climax on the trust lattice.
+**Read this as a triviality *screen*, not a graded score.** CDP enumerates a closed set of trivial candidate bodies (constants, identity, small defaults) and checks how many satisfy the contract. `spec-too-tight-for-omega` means *none of them do* — no constant, no identity, no default-value body passes any of the four contracts. That is the honest, positive reading: all four **passed the trivial-body screen**. It is not a graded number and not a failure; a contract this tight simply has no witness inside the trivial candidate set. `withdraw-outcome` used to report the v0.14.1-era `datatype-return-out-of-scope` gate (a blanket suppression covering an unregistered-name defect in its candidate basis); the candidate basis now emits real, type-correct `ok`/`err` candidates, so `withdraw-outcome` gets the same measurement treatment as the other three — its lone reliable candidate (`err Insufficient` is filtered at the type level; only `(ok 0)` survives) genuinely fails to satisfy the contract, same story as its siblings. Powerful for a technical audience; **drop this step for a general audience** to keep the climax on the trust lattice.
 
 ---
 

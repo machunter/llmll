@@ -1293,19 +1293,36 @@ formatTrustReportJson report =
       , "candidate_count"            .= (0 :: Int)
       , "satisfying_candidate_count" .= (0 :: Int)
       , "distinct_observed_behavior_count" .= (0 :: Int)
+      , "excluded_candidate_count"   .= (0 :: Int)
       , "distinguishing_inputs"      .= ([] :: [Text])
       , "spec_entropy_annotation"    .= ("strict" :: Text)
       , "warnings"                   .= [cdpWarningLabel WarnNotRequested]
+      -- CDP deep-dive Rev 5 (item 2): additive headline field — the typed
+      -- flag/witness a consumer should read first, per the professor's
+      -- flag-not-score recommendation; the graded 'score' is advisory.
+      , "headline"                   .= cdpWarningLabel WarnNotRequested
       ]
     cdpAxisJson (Just r) = object
       [ "score"                      .= cdpScore r
       , "basis"                      .= ("observational-candidate-set" :: Text)
       , "candidate_count"            .= cdpCandidateCount r
       , "satisfying_candidate_count" .= cdpSatisfyingCount r
+      -- CDP deep-dive Rev 5 (item 5): 'candidate_count' narrows post-fix to
+      -- mean "type-compatible AND body-VC-translatable"; this field exposes
+      -- how many type-compatible candidates were excluded as unreliable, so
+      -- cross-version comparison doesn't need to infer the narrowing from
+      -- 'basis' alone (which intentionally does not change — Ω's identity
+      -- is unchanged, only which members were reliably checkable this run).
+      , "excluded_candidate_count"   .= cdpExcludedCandidateCount r
       , "distinct_observed_behavior_count" .= cdpDistinctBehaviorCount r
       , "distinguishing_inputs"      .= cdpDistinguishingInputs r
       , "spec_entropy_annotation"    .= specEntropyLabel (cdpSpecEntropyAnnotation r)
       , "warnings"                   .= map cdpWarningLabel (cdpWarnings r)
+      -- CDP deep-dive Rev 5 (item 2): first warning when any fired, else
+      -- "measured" for a genuine 1<=s<b loose-contract score with no warning.
+      , "headline"                   .= case cdpWarnings r of
+                                           (w : _) -> cdpWarningLabel w
+                                           []      -> "measured" :: Text
       ]
 
 -- ---------------------------------------------------------------------------

@@ -67,7 +67,7 @@ import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDes
 import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), FuncEntry(..), checkoutHole)
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts)
 import System.FilePath ((</>))
-import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..))
+import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
   ( CDPResult(..), CDPWarning(..), CDPScope(..)
   , computeCDPFor, overAnnotationRatio, overAnnotationThreshold
@@ -5089,6 +5089,24 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "result = (strLen s)"
         fq `shouldSatisfy` T.isInfixOf "result >= (strLen s)"
 
+      -- NIW-B5: CDP deep-dive Rev 5 (routed finding, not part of the original
+      -- 7-item plan). 'usedMeasures' (the .fq preamble's 'constant' sweep)
+      -- scanned only constraints and binders, never the auto-synthesized
+      -- qualifiers ('extractQualifiers'). A function whose body-VC falls back
+      -- (list values aren't in the translatable fragment — see the CDP
+      -- deep-dive's own item-5 finding) emits NO constraint referencing
+      -- 'listLen', yet 'extractQualifiers' still auto-synthesizes a qualifier
+      -- from a 'list-length' post — 'listLen' then appears ONLY in that
+      -- qualifier, undeclared, and liquid-fixpoint crashes ("Qualifier with
+      -- free vars"). Reproduced and confirmed against the real binary before
+      -- fixing (a genuine pre-existing bug, unrelated to items 1-6, found
+      -- while empirically verifying item 5's --weakness-check call site).
+      it "NIW-B5 a body-fallback function whose post references list-length still declares the listLen constant (regression guard for the 'Qualifier with free vars' crash)" $ do
+        er <- emitSrc "(def-shell f [xs: list[int]] (post (= (list-length result) (list-length xs))) xs)"
+        erBodyFallback er `shouldSatisfy` elem "f"
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "constant listLen : (func(0 , [Lst; int]))"
+
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
     -- an uppercase identifier) and whose constructors use `| ctor { }` syntax.
@@ -8222,10 +8240,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             candidates = generateCDPCandidates GrammarCoreInversion stmts
             sums = filter (\b -> case b of
                                     TrivConstSuccess _ -> True
-                                    TrivConstError     -> True
+                                    TrivConstError _   -> True
                                     _                  -> False
                           ) (map wcTrivialBody candidates)
-        length sums `shouldBe` 2
+        length sums `shouldBe` (2 :: Int)
 
       it "C6 pair[int,int]-returning function yields pair of defaults" $ do
         let stmts = [SDefLogic "f" [("a", TInt), ("b", TInt)] (Just (TPair TInt TInt))
@@ -8265,8 +8283,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "C9 score undefined when |total| <= 1" $ do
         cdpScore (mkResult 1 1 [WarnEnumerationTooNarrow]) `shouldBe` Nothing
 
-      it "C10a score undefined when |satisfying| = 0 with WarnSpecInconsistent" $ do
-        cdpScore (mkResult 0 5 [WarnSpecInconsistent]) `shouldBe` Nothing
+      it "C10a score undefined when |satisfying| = 0 with WarnSpecInconsistentOrUnproven" $ do
+        cdpScore (mkResult 0 5 [WarnSpecInconsistentOrUnproven]) `shouldBe` Nothing
 
       it "C10b score undefined when |satisfying| = 0 with WarnSpecTooTightForOmega" $ do
         cdpScore (mkResult 0 5 [WarnSpecTooTightForOmega]) `shouldBe` Nothing
@@ -8316,7 +8334,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                       (EVar "n")]
             sidecar = Map.empty
             cdpResults = Map.fromList
-              [ ("f", CDPResult 12 6 5 (Just 0.5) [] ["(lambda [...] 0)"] SpecEntropyStrict) ]
+              [ ("f", CDPResult 12 6 5 (Just 0.5) [] ["(lambda [...] 0)"] SpecEntropyStrict 0) ]
             report = buildTrustReportWithCDP Map.empty stmts sidecar cdpResults
             jsonTxt = formatTrustReportJson report
         T.isInfixOf "\"discriminative_axis\":" jsonTxt `shouldBe` True
@@ -8333,25 +8351,39 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"warnings\":[\"not-requested\"]" jsonTxt `shouldBe` True
         T.isInfixOf "\"basis\":\"not-measured\"" jsonTxt `shouldBe` True
 
+      it "C17b (item 2) headline is the first warning label when warnings fired, \"measured\" otherwise" $ do
+        let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing
+                                (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "n")]
+            withWarning = Map.fromList
+              [ ("f", CDPResult 5 5 1 Nothing [WarnEnumerationTooNarrow] [] SpecEntropyStrict 0) ]
+            noWarning = Map.fromList
+              [ ("f", CDPResult 12 6 5 (Just 0.5) [] ["(lambda [...] 0)"] SpecEntropyStrict 0) ]
+            notRequested = buildTrustReport Map.empty stmts Map.empty
+        T.isInfixOf "\"headline\":\"enumeration-too-narrow\"" (formatTrustReportJson (buildTrustReportWithCDP Map.empty stmts Map.empty withWarning)) `shouldBe` True
+        T.isInfixOf "\"headline\":\"measured\"" (formatTrustReportJson (buildTrustReportWithCDP Map.empty stmts Map.empty noWarning)) `shouldBe` True
+        T.isInfixOf "\"headline\":\"not-requested\"" (formatTrustReportJson notRequested) `shouldBe` True
+
       it "C18 trust_report_version is 1.4.0 (TRUST-PRE bump)" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
         T.isInfixOf "\"trust_report_version\":\"1.4.0\"" jsonTxt `shouldBe` True
 
-      it "C19 all nine warning labels round-trip" $ do
+      it "C19 all ten warning labels round-trip" $ do
         let labels = map cdpWarningLabel
               [ WarnIdentitySatisfiesPost, WarnConstSatisfiesPost
-              , WarnSpecInconsistent, WarnSpecTooTightForOmega
+              , WarnSpecInconsistentOrUnproven, WarnSpecTooTightForOmega
               , WarnEnumerationTooNarrow, WarnDefShellOutOfScope
-              , WarnCandidatesEmptyUnderLimit, WarnOverAnnotationModule
-              , WarnNotRequested
+              , WarnCandidatesEmptyUnderLimit, WarnBodyUnfaithfulCandidatesExcluded
+              , WarnOverAnnotationModule, WarnNotRequested
               ]
         labels `shouldBe`
           [ "identity-satisfies-post", "const-satisfies-post"
-          , "spec-inconsistent", "spec-too-tight-for-omega"
+          , "spec-inconsistent-or-unproven", "spec-too-tight-for-omega"
           , "enumeration-too-narrow", "def-shell-out-of-scope"
-          , "candidates-empty-under-limit", "over-annotation-warning"
-          , "not-requested"
+          , "candidates-empty-under-limit", "body-unfaithful-candidates-excluded"
+          , "over-annotation-warning", "not-requested"
           ]
 
     -- C20: joint-witness ∩ CDP interaction (OBLIG-PBT-5a regression guard)
@@ -8383,7 +8415,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   (EVar "n")
               , STypeDef "Foo" TInt  -- non-contracted: should not appear in result
               ]
-            stubSolver _wc = pure True  -- all candidates "satisfy" — yields score 0.0 + identity-satisfies-post
+            stubSolver _wc = pure (Just True)  -- all candidates "satisfy" — yields score 0.0 + identity-satisfies-post
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubSolver Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "f" results of
@@ -8480,8 +8512,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ints = [i | wc <- candidates, TrivConstInt i <- [wcTrivialBody wc]]
         ints `shouldBe` [0, 1, -1, 42]
 
-    -- C23a-C23c: WarnSpecTooTightForOmega / WarnSpecInconsistent dispatch
-    describe "C23a-C23c spec-too-tight-for-omega vs spec-inconsistent disambiguation" $ do
+    -- C23a-C23c: WarnSpecTooTightForOmega / WarnSpecInconsistentOrUnproven dispatch
+    describe "C23a-C23c spec-too-tight-for-omega vs spec-inconsistent-or-unproven disambiguation" $ do
 
       it "C23a WarnSpecTooTightForOmega fires when function verifies but no candidate satisfies" $ do
         let stmts =
@@ -8492,7 +8524,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            stubFail _wc = pure False
+            stubFail _wc = pure (Just False)
             verifMap = Map.fromList [("withdraw", True)]
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubFail verifMap stmts
         case Map.lookup "withdraw" results of
@@ -8507,16 +8539,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            stubPass _wc = pure True
+            stubPass _wc = pure (Just True)
             verifMap = Map.fromList [("compute-fee", True)]
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass verifMap stmts
         case Map.lookup "compute-fee" results of
           Just r  -> do
             cdpWarnings r `shouldSatisfy` (WarnSpecTooTightForOmega `notElem`)
-            cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `notElem`)
+            cdpWarnings r `shouldSatisfy` (WarnSpecInconsistentOrUnproven `notElem`)
           Nothing -> expectationFailure "expected entry for compute-fee"
 
-      it "C23c WarnSpecInconsistent used as conservative fallback when verifMap is empty" $ do
+      it "C23c WarnSpecInconsistentOrUnproven used as conservative fallback when verifMap is empty" $ do
         let stmts =
               [ SDef "withdraw"
                   [("balance", TInt), ("amount", TInt)] Nothing
@@ -8525,26 +8557,23 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp "=" [EVar "result", EApp "-" [EVar "balance", EVar "amount"]])) Nothing Nothing)
                   (ELit (LitInt 0))
               ]
-            stubFail _wc = pure False
+            stubFail _wc = pure (Just False)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubFail Map.empty stmts
         case Map.lookup "withdraw" results of
-          Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `elem`)
+          Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistentOrUnproven `elem`)
           Nothing -> expectationFailure "expected entry for withdraw"
 
-    -- CDP-OMEGA-1 through CDP-OMEGA-4: Omega-adequacy gate for TResult returns
-    -- (fix/cdp-tresult-omega-gate). WeaknessCheck.cdpCatalog derives TResult
-    -- candidates via the raw internal constructor names ("Success"/"Error"),
-    -- unregistered in builtinEnv, so tryCandidate's independent lenient-mode
-    -- re-typecheck cannot validate them; a type-unsound candidate (observed:
-    -- the constant-error candidate, whose payload is unconditionally a string
-    -- literal regardless of the real error-payload type) can reach the solver
-    -- with a vacuously-satisfiable VC, producing a false discriminative-power
-    -- score. computeCDPFor now routes any TResult-returning function directly
-    -- to a no-score, WarnDatatypeReturnOutOfScope result before candidate
-    -- generation or the solver run at all.
-    describe "CDP-OMEGA: TResult return-type Omega-adequacy gate" $ do
+    -- CDP-OMEGA-1..3: CDP deep-dive Rev 5 (item 3) retired the 768ab11
+    -- Omega-adequacy gate (fix/cdp-tresult-omega-gate) that unconditionally
+    -- routed every TResult-returning function to a no-score
+    -- WarnDatatypeReturnOutOfScope result before candidate generation. The
+    -- candidate basis now emits real, type-correct 'ok'/'err' candidates
+    -- (see CDP-CANDBASIS above), so TResult-returning functions are measured
+    -- exactly like any other contracted function — these tests assert real
+    -- scoring now happens, replacing the old "gated to no-score" assertions.
+    describe "CDP-OMEGA: TResult-returning functions are measured normally (gate retired)" $ do
 
-      it "CDP-OMEGA-1 TResult-returning function is gated to no-score even when solver reports SAFE" $ do
+      it "CDP-OMEGA-1 TResult-returning function is scored (not gated) when candidates satisfy" $ do
         let stmts =
               [ SDef "withdraw-outcome" [("balance", TInt), ("amount", TInt)]
                   (Just (TResult TInt TString))
@@ -8555,21 +8584,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     Nothing Nothing)
                   (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
               ]
-            -- Stub that reports every candidate SAFE — exactly the (false)
-            -- behavior the real solver exhibited pre-fix for TResult
-            -- candidates. If the gate is not applied, this stub reproduces
-            -- the false '2/2 satisfy [const-satisfies-post] score=0.000'.
-            stubAlwaysSafe _wc = pure True
+            -- Every candidate reports SAFE; with the fixed basis there are
+            -- exactly 2 type-correct candidates (ok/err), both counted.
+            stubAlwaysSafe _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubAlwaysSafe Map.empty stmts
         case Map.lookup "withdraw-outcome" results of
           Just r -> do
-            cdpScore r `shouldBe` Nothing
-            cdpCandidateCount r `shouldBe` 0
-            cdpSatisfyingCount r `shouldBe` 0
-            cdpWarnings r `shouldBe` [WarnDatatypeReturnOutOfScope]
+            cdpCandidateCount r `shouldBe` 2
+            cdpSatisfyingCount r `shouldBe` 2
+            cdpScore r `shouldBe` Just 0.0
+            cdpWarnings r `shouldSatisfy` (WarnConstSatisfiesPost `elem`)
           Nothing -> expectationFailure "expected entry for withdraw-outcome"
 
-      it "CDP-OMEGA-2 TResult-returning function is gated identically when solver reports UNSAFE (solver-independence)" $ do
+      it "CDP-OMEGA-2 TResult-returning function with zero satisfying candidates reports undefined score, not a false low-DP number" $ do
         let stmts =
               [ SDef "withdraw-outcome" [("balance", TInt), ("amount", TInt)]
                   (Just (TResult TInt TString))
@@ -8580,15 +8607,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     Nothing Nothing)
                   (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
               ]
-            stubAlwaysUnsafe _wc = pure False
+            stubAlwaysUnsafe _wc = pure (Just False)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubAlwaysUnsafe Map.empty stmts
         case Map.lookup "withdraw-outcome" results of
           Just r -> do
+            cdpCandidateCount r `shouldBe` 2
             cdpScore r `shouldBe` Nothing
-            cdpWarnings r `shouldBe` [WarnDatatypeReturnOutOfScope]
+            cdpWarnings r `shouldSatisfy` (WarnSpecInconsistentOrUnproven `elem`)
           Nothing -> expectationFailure "expected entry for withdraw-outcome"
 
-      it "CDP-OMEGA-3 non-TResult-returning function is unaffected by the gate (regression guard)" $ do
+      it "CDP-OMEGA-3 non-TResult-returning function is unaffected (regression guard)" $ do
         let stmts =
               [ SDef "double" [("x", TInt)] (Just TInt)
                   (Contract Nothing Nothing
@@ -8596,18 +8624,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     Nothing Nothing)
                   (EApp "+" [EVar "x", EVar "x"])
               ]
-            stubPass _wc = pure True
+            stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         case Map.lookup "double" results of
-          Just r  -> do
-            cdpWarnings r `shouldSatisfy` (WarnDatatypeReturnOutOfScope `notElem`)
-            cdpCandidateCount r `shouldSatisfy` (> 0)
+          Just r  -> cdpCandidateCount r `shouldSatisfy` (> 0)
           Nothing -> expectationFailure "expected entry for double"
 
-      it "CDP-OMEGA-4 wire-line label for WarnDatatypeReturnOutOfScope" $
-        cdpWarningLabel WarnDatatypeReturnOutOfScope `shouldBe` "datatype-return-out-of-scope"
-
-      it "CDP-OMEGA-5 def-shell TResult-return reports WarnDefShellOutOfScope, not WarnDatatypeReturnOutOfScope (no conflation)" $ do
+      it "CDP-OMEGA-4 def-shell TResult-return still reports WarnDefShellOutOfScope (scope exclusion unrelated to the retired gate)" $ do
         let stmts =
               [ SDefLogic "shell-outcome" [("balance", TInt), ("amount", TInt)]
                   (Just (TResult TInt TString))
@@ -8618,7 +8641,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     Nothing Nothing)
                   (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
               ]
-            stubPass _wc = pure True
+            stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         case Map.lookup "shell-outcome" results of
           Just r -> cdpWarnings r `shouldBe` [WarnDefShellOutOfScope]
@@ -8634,7 +8657,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (EVar "n")
               ]
-            stubPass _wc = pure True
+            stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "g" results of
@@ -8648,7 +8671,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (EVar "n")
               ]
-            stubPass _wc = pure True
+            stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "h" results of
@@ -8664,7 +8687,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (EVar "n")
               ]
-            stubPass _wc = pure True
+            stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "s" results of
@@ -8680,12 +8703,142 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
                   (EVar "n")
               ]
-            stubPass _wc = pure True
+            stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeAllDefLogic stubPass Map.empty stmts
         Map.size results `shouldBe` 1
         case Map.lookup "legacy" results of
           Just r  -> cdpScore r `shouldSatisfy` (/= Nothing)
           Nothing -> expectationFailure "expected entry for legacy"
+
+    -- CDP-BODYFAITHFUL-1..3: CDP deep-dive Rev 5 (item 5). checkCDPCandidate /
+    -- checkWeaknessCandidate (Main.hs) ignored 'erBodyFallback' on the
+    -- synthetic candidate's own emission, so a solver-SAFE verdict on a
+    -- body-fallback emission was (wrongly) trusted. list-valued return
+    -- expressions like '(list-empty)' are not in the body-VC-translatable
+    -- fragment (only 'list-length' on a bound *variable* is), so this is not
+    -- a stub-level regression check — it must exercise the real
+    -- 'emitFixpointWith' translation to confirm the root-cause mechanism
+    -- empirically, the same discipline that caught the TResult bug's real
+    -- cause after two prior hand-offs got it wrong from source-reading alone.
+    describe "CDP-BODYFAITHFUL: erBodyFallback-aware candidate exclusion (item 5)" $ do
+
+      it "CDP-BODYFAITHFUL-1 (root-cause confirmation) a list-empty candidate against a list-length postcondition falls back in the real emitter" $ do
+        let stmt = SDef "make-two" [] (Just (TList TInt))
+              (Contract Nothing Nothing
+                (Just (EApp "=" [EApp "list-length" [EVar "result"], ELit (LitInt 2)]))
+                Nothing Nothing)
+              (EApp "list-prepend" [ELit (LitInt 1), EApp "list-prepend" [ELit (LitInt 2), EApp "list-empty" []]])
+            candidates = generateCDPCandidates GrammarCoreInversion [stmt]
+        case [wc | wc <- candidates, wcTrivialBody wc == TrivConstEmptyList] of
+          [emptyCand] -> do
+            let weakOpts = defaultEmitOptions { emitBodyVCs = True }
+            emitR <- emitFixpointWith weakOpts "<test>" [wcSyntheticStmt emptyCand]
+            wcSyntheticName emptyCand `shouldSatisfy` (`elem` erBodyFallback emitR)
+          other -> expectationFailure ("expected exactly one list-empty candidate, got " <> show (length other))
+
+      it "CDP-BODYFAITHFUL-2 resultFor excludes a Nothing-verdict candidate from both numerator and denominator" $ do
+        let stmts =
+              [ SDef "make-two" [] (Just (TList TInt))
+                  (Contract Nothing Nothing
+                    (Just (EApp "=" [EApp "list-length" [EVar "result"], ELit (LitInt 2)]))
+                    Nothing Nothing)
+                  (EApp "list-empty" [])
+              ]
+            -- Simulates the real checkCDPCandidate: TrivConstEmptyList falls
+            -- back (Nothing, excluded); anything else reports satisfying,
+            -- reproducing the pre-fix false '2/2 satisfy' shape if the
+            -- exclusion did not apply.
+            stubBodyFaithful wc = case wcTrivialBody wc of
+              TrivConstEmptyList -> pure Nothing
+              _                  -> pure (Just True)
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubBodyFaithful Map.empty stmts
+        case Map.lookup "make-two" results of
+          Just r -> do
+            cdpWarnings r `shouldSatisfy` (WarnBodyUnfaithfulCandidatesExcluded `elem`)
+            cdpExcludedCandidateCount r `shouldSatisfy` (> 0)
+            -- the excluded candidate must not inflate either the numerator
+            -- or the denominator — this is the false '2/2 satisfy' regression
+            -- guard.
+            cdpSatisfyingCount r `shouldSatisfy` (< cdpCandidateCount r + cdpExcludedCandidateCount r)
+          Nothing -> expectationFailure "expected entry for make-two"
+
+      it "CDP-BODYFAITHFUL-3 wire-line label for WarnBodyUnfaithfulCandidatesExcluded" $
+        cdpWarningLabel WarnBodyUnfaithfulCandidatesExcluded `shouldBe` "body-unfaithful-candidates-excluded"
+
+    -- CDP-CANDBASIS-1..2: CDP deep-dive Rev 5 (item 3). Root-cause
+    -- confirmation, empirical not source-read: 'tryCandidate''s independent
+    -- re-typecheck previously only WARNED on the raw 'Success'/'Error' names
+    -- (tcStrictMode = False by default in runTC), so a type-unsound
+    -- candidate slipped through undetected — this is the actual mechanism,
+    -- not merely 'the label was wrong'. The fixed 'ok'/'err' candidates must
+    -- produce ZERO diagnostics (not just zero errors) under the same
+    -- independent re-typecheck 'tryCandidate' performs, proving the
+    -- candidate is genuinely well-typed rather than merely tolerated in
+    -- permissive mode.
+    describe "CDP-CANDBASIS: ok/err candidate basis is genuinely well-typed (item 3)" $ do
+
+      it "CDP-CANDBASIS-1 (root-cause confirmation) the err candidate for a Result[int,string] return produces zero diagnostics under independent re-typecheck (was: a tolerated warning)" $ do
+        let stmt = SDef "withdraw-outcome" [("balance", TInt), ("amount", TInt)]
+              (Just (TResult TInt TString))
+              (Contract Nothing Nothing
+                (Just (EApp "is-ok" [EVar "result"]))
+                Nothing Nothing)
+              (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
+            candidates = generateCDPCandidates GrammarCoreInversion [stmt]
+        case [wc | wc <- candidates, case wcTrivialBody wc of TrivConstError _ -> True; _ -> False] of
+          [errCand] -> do
+            let report = typeCheck GrammarCoreInversion builtinEnv [wcSyntheticStmt errCand]
+            reportDiagnostics report `shouldBe` []
+          other -> expectationFailure ("expected exactly one err candidate, got " <> show (length other))
+
+      it "CDP-CANDBASIS-2 the ok candidate's payload type matches the declared ok-type, not a hardcoded default" $ do
+        let stmt = SDef "withdraw-outcome" [("balance", TInt), ("amount", TInt)]
+              (Just (TResult TInt TString))
+              (Contract Nothing Nothing (Just (EApp "is-ok" [EVar "result"])) Nothing Nothing)
+              (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
+            candidates = generateCDPCandidates GrammarCoreInversion [stmt]
+        case [wc | wc <- candidates, case wcTrivialBody wc of TrivConstSuccess _ -> True; _ -> False] of
+          [okCand] -> wcTrivialLabel okCand `shouldBe` "(lambda [...] (ok 0))"
+          other    -> expectationFailure ("expected exactly one ok candidate, got " <> show (length other))
+
+      -- CDP-CANDBASIS-3: CDP deep-dive Rev 5 (second routed finding). Even
+      -- with the type-correct 'ok'/'err' candidates (item 3), a
+      -- 'Result[int, CustomEnum]' contract's candidates STILL fell back —
+      -- confirmed empirically (not from source-reading) to be a THIRD gap,
+      -- structurally identical to the other two: 'checkCDPCandidate' /
+      -- 'checkWeaknessCandidate''s isolated per-candidate emission
+      -- ('emitFixpointWith ... [wcSyntheticStmt wc]') omitted the module's
+      -- 'STypeDef' statements, unlike 'tryCandidate''s independent
+      -- re-typecheck (F-006), which already prepends them. Without the
+      -- custom sum type's declaration, ANY candidate whose contract
+      -- references one of its constructors spuriously falls back — even
+      -- though the identical candidate is body-faithful once the type-def is
+      -- present. This is why the isolated emission needs the same type-defs
+      -- 'tryCandidate' already threads through; Main.hs's 'checkCDPCandidate'
+      -- / 'checkWeaknessCandidate' now take an explicit '[Statement]'
+      -- type-defs parameter and prepend it, mirroring F-006 exactly.
+      it "CDP-CANDBASIS-3 (root-cause confirmation) an ok-candidate against a custom-sum-type Result contract is body-faithful once the module's STypeDef is included in the isolated emission" $ do
+        let reasonTypeDef = STypeDef "Reason" (TSumType [("Insufficient", Nothing)])
+            stmt = SDef "withdraw-outcome" [("balance", TInt), ("amount", TInt)]
+              (Just (TResult TInt (TCustom "Reason")))
+              (Contract Nothing Nothing
+                (Just (EApp "and"
+                  [ EApp "or" [EApp "not" [EApp ">=" [EVar "balance", EVar "amount"]], EApp "=" [EVar "result", EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]]]]
+                  , EApp "or" [EApp ">=" [EVar "balance", EVar "amount"], EApp "=" [EVar "result", EApp "err" [EVar "Insufficient"]]]
+                  ]))
+                Nothing Nothing)
+              (EIf (EApp ">=" [EVar "balance", EVar "amount"]) (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]]) (EApp "err" [EVar "Insufficient"]))
+            candidates = generateCDPCandidates GrammarCoreInversion [reasonTypeDef, stmt]
+        case [wc | wc <- candidates, case wcTrivialBody wc of TrivConstSuccess _ -> True; _ -> False] of
+          [okCand] -> do
+            let weakOpts = defaultEmitOptions { emitBodyVCs = True }
+            -- Without the type-def (the pre-fix Main.hs behavior): falls back.
+            emitR_noTypeDef <- emitFixpointWith weakOpts "<test>" [wcSyntheticStmt okCand]
+            wcSyntheticName okCand `shouldSatisfy` (`elem` erBodyFallback emitR_noTypeDef)
+            -- With the type-def prepended (the fixed Main.hs behavior): body-faithful.
+            emitR_withTypeDef <- emitFixpointWith weakOpts "<test>" [reasonTypeDef, wcSyntheticStmt okCand]
+            wcSyntheticName okCand `shouldSatisfy` (`notElem` erBodyFallback emitR_withTypeDef)
+          other -> expectationFailure ("expected exactly one ok candidate, got " <> show (length other))
 
   -- -----------------------------------------------------------------------
   -- LT-INV (v0.11): core/shell grammar inversion

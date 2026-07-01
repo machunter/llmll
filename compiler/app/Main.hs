@@ -55,7 +55,7 @@ import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..)
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
-  , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness)
+  , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
@@ -81,7 +81,7 @@ import LLMLL.CDP
   , overAnnotationRatio, overAnnotationThreshold
   , cdpWarningLabel )
 import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
-import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..))
+import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), wcSyntheticName)
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, exprToSExpr)
@@ -1411,7 +1411,8 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
             FQSafe | weaknessCheck -> do
               unless json $ TIO.putStrLn "   Running weakness check ..."
               let candidates = generateWeaknessCandidates gm stmts
-              weakDiags <- fmap concat $ mapM (checkWeaknessCandidate lfBin json) candidates
+                  typeDefs   = [s | s@STypeDef{} <- stmts]
+              weakDiags <- fmap concat $ mapM (checkWeaknessCandidate lfBin json typeDefs) candidates
               if null weakDiags
                 then unless json $ TIO.putStrLn "   No spec weaknesses detected."
                 else do
@@ -1442,7 +1443,8 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           cdpResults <- case (fqResult, cdpFlag) of
             (FQSafe, True) -> do
               unless json $ TIO.putStrLn "   Running CDP measurement (LT-CDP v0.11) ..."
-              let runOneCandidate wc = checkCDPCandidate lfBin wc
+              let cdpTypeDefs = [s | s@STypeDef{} <- stmts]
+                  runOneCandidate wc = checkCDPCandidate lfBin cdpTypeDefs wc
                   verifMap = if trustReport
                         then Map.map (\cs ->
                                 case csPost cs of
@@ -1455,7 +1457,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                         else Map.empty
               unless trustReport $
                 hPutStrLn stderr
-                  "Note: --cdp without --trust-report: WarnSpecInconsistent used conservatively \
+                  "Note: --cdp without --trust-report: WarnSpecInconsistentOrUnproven used conservatively \
                   \for all zero-satisfying functions; pass --trust-report to enable \
                   \WarnSpecTooTightForOmega disambiguation."
               results <- computeCDPFor gm CDPScopeCoreOnly runOneCandidate verifMap stmts
@@ -1474,13 +1476,21 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                   then TIO.putStrLn "   No contracted functions in scope for CDP."
                   else do
                     TIO.putStrLn $ "   CDP measured " <> tshow (length scored) <> " function(s):"
+                    -- CDP deep-dive Rev 5 (item 2): the typed flag is the
+                    -- headline (per the professor's flag-not-score
+                    -- recommendation), the graded score is parenthetical and
+                    -- shown only when it exists — no more "score=undefined"
+                    -- leading a line that a warning already fully explains.
                     mapM_ (\(n, r) -> TIO.putStrLn $
                             "   " <> n <> ": "
-                            <> maybe "score=undefined" (\s -> "score=" <> T.pack (showFFloat (Just 3) s "")) (cdpScore r)
-                            <> " (" <> tshow (cdpSatisfyingCount r) <> "/" <> tshow (cdpCandidateCount r) <> " candidates satisfy)"
-                            <> if null (cdpWarnings r)
-                                 then ""
-                                 else " [" <> T.intercalate ", " (map cdpWarningLabel (cdpWarnings r)) <> "]"
+                            <> (if null (cdpWarnings r)
+                                  then ""
+                                  else "[" <> T.intercalate ", " (map cdpWarningLabel (cdpWarnings r)) <> "] ")
+                            <> maybe
+                                 (tshow (cdpSatisfyingCount r) <> "/" <> tshow (cdpCandidateCount r) <> " reliable candidates")
+                                 (\s -> "score=" <> T.pack (showFFloat (Just 3) s "")
+                                        <> " (" <> tshow (cdpSatisfyingCount r) <> "/" <> tshow (cdpCandidateCount r) <> " candidates satisfy)")
+                                 (cdpScore r)
                          ) scored
               pure results
             _ -> pure Map.empty
@@ -1517,7 +1527,13 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           -- (and not already emitted via the obligation report) before failing.
           when strictCore $ do
             stSidecar <- loadVerified fp
-            let stReport = markRefuted refutedSet (buildTrustReport _cache stmts stSidecar)
+            -- CDP deep-dive Rev 5 (item 6): was 'buildTrustReport', which
+            -- drops 'discriminative_axis' to a uniform "not-requested" for
+            -- every function under '--strict-verified-core --cdp --json',
+            -- even pre-existing/untouched functions. The sibling non-strict
+            -- branch above (cdpFlag && not strictCore) already threads
+            -- 'cdpResults' correctly; this branch just never did.
+            let stReport = markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)
                 refusal  = refutedClosure refutedSet stReport
             when (trustReport && not obligationReport) $
               if json
@@ -1559,38 +1575,67 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
 -- solver reports SAFE (the candidate's trivial body satisfies the contract).
 -- Mirrors 'checkWeaknessCandidate' but threads the SAFE/UNSAFE outcome rather
 -- than constructing a spec-weakness diagnostic.
-checkCDPCandidate :: FilePath -> WeaknessCandidate -> IO Bool
-checkCDPCandidate lfBin wc = do
+-- | CDP deep-dive Rev 5 (routed finding): the isolated per-candidate emission
+-- omitted the module's 'STypeDef' statements — unlike 'tryCandidate''s
+-- independent re-typecheck (WeaknessCheck.hs), which correctly prepends them
+-- (F-006). Without them, any candidate whose contract references a custom
+-- sum-type constructor (e.g. a nullary error-payload type) spuriously falls
+-- back to non-body-faithful VC emission, even when the same candidate proves
+-- body-faithful with the type-defs present — confirmed empirically: an
+-- '(ok 0)' candidate against a 'Result[int, Reason]' contract falls back
+-- given only '[wcSyntheticStmt wc]', but does not once 'Reason'\'s STypeDef
+-- is included. Every caller now threads the module's type-defs through.
+--
+-- | CDP deep-dive Rev 5 (item 5): 'Nothing' means the candidate's own
+-- synthetic body fell outside the QF-LIA-translatable fragment
+-- ('erBodyFallback') — a solver verdict on that emission is not evidence the
+-- candidate satisfies the contract, so the solver is never invoked for it.
+checkCDPCandidate :: FilePath -> [Statement] -> WeaknessCandidate -> IO (Maybe Bool)
+checkCDPCandidate lfBin typeDefs wc = do
   let weakOpts = defaultEmitOptions { emitBodyVCs = True }
-  emitR <- emitFixpointWith weakOpts "<cdp-candidate>" [wcSyntheticStmt wc]
-  let fqText = erFQText emitR
-      fqPath = "/tmp/llmll-cdp-" <> T.unpack (wcFunctionName wc) <> ".fq"
-  TIO.writeFile fqPath fqText
-  (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
-  case parseFQResult (T.pack out <> T.pack err) of
-    FQSafe -> pure True
-    _      -> pure False
+      syntheticName = wcSyntheticName wc
+  emitR <- emitFixpointWith weakOpts "<cdp-candidate>" (typeDefs ++ [wcSyntheticStmt wc])
+  if syntheticName `elem` erBodyFallback emitR
+    then pure Nothing
+    else do
+      let fqText = erFQText emitR
+          fqPath = "/tmp/llmll-cdp-" <> T.unpack (wcFunctionName wc) <> ".fq"
+      TIO.writeFile fqPath fqText
+      (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+      case parseFQResult (T.pack out <> T.pack err) of
+        FQSafe -> pure (Just True)
+        _      -> pure (Just False)
 
 -- | Check a single weakness candidate: emit .fq, run solver, return diagnostic if SAFE.
-checkWeaknessCandidate :: FilePath -> Bool -> WeaknessCandidate -> IO [Diagnostic]
-checkWeaknessCandidate lfBin _json wc = do
+checkWeaknessCandidate :: FilePath -> Bool -> [Statement] -> WeaknessCandidate -> IO [Diagnostic]
+checkWeaknessCandidate lfBin _json typeDefs wc = do
   -- Emit .fq for the synthetic trivial statement (v0.8.0: body-aware)
   let weakOpts = defaultEmitOptions { emitBodyVCs = True }
-  emitR <- emitFixpointWith weakOpts "<weakness-check>" [wcSyntheticStmt wc]
-  let fqText = erFQText emitR
-      fqPath = "/tmp/llmll-weakness-" <> T.unpack (wcFunctionName wc) <> ".fq"
-  TIO.writeFile fqPath fqText
-  -- Run the solver
-  (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
-  let fqResult = parseFQResult (T.pack out <> T.pack err)
-  case fqResult of
-    FQSafe -> do
-      -- The trivial body satisfies the contracts → spec is weak
-      let preText  = fmap (T.pack . show) (wcPrecondition wc)
-          postText = fmap (T.pack . show) (wcPostcondition wc)
-          diag     = mkSpecWeakness (wcFunctionName wc) (wcTrivialLabel wc) preText postText
-      pure [diag]
-    _ -> pure []  -- UNSAFE or error → spec is not weak for this body
+      syntheticName = wcSyntheticName wc
+  emitR <- emitFixpointWith weakOpts "<weakness-check>" (typeDefs ++ [wcSyntheticStmt wc])
+  -- CDP deep-dive Rev 5 (item 5): if the candidate's own body fell outside
+  -- the QF-LIA-translatable fragment, a solver verdict on it would be
+  -- meaningless. Do not run the solver, and do not silently return [] either
+  -- (that would regress --weakness-check's diagnostic surface for a
+  -- function whose only weak candidate happens to be excluded) — report it
+  -- as unvalidated instead.
+  if syntheticName `elem` erBodyFallback emitR
+    then pure [mkCandidateUnvalidated (wcFunctionName wc) (wcTrivialLabel wc)]
+    else do
+      let fqText = erFQText emitR
+          fqPath = "/tmp/llmll-weakness-" <> T.unpack (wcFunctionName wc) <> ".fq"
+      TIO.writeFile fqPath fqText
+      -- Run the solver
+      (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+      let fqResult = parseFQResult (T.pack out <> T.pack err)
+      case fqResult of
+        FQSafe -> do
+          -- The trivial body satisfies the contracts → spec is weak
+          let preText  = fmap (T.pack . show) (wcPrecondition wc)
+              postText = fmap (T.pack . show) (wcPostcondition wc)
+              diag     = mkSpecWeakness (wcFunctionName wc) (wcTrivialLabel wc) preText postText
+          pure [diag]
+        _ -> pure []  -- UNSAFE or error → spec is not weak for this body
 
 -- ---------------------------------------------------------------------------
 -- v0.3.1: Leanstral proof pipeline
