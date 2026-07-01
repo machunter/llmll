@@ -4,16 +4,23 @@
 ;; The safe-div function has a proof obligation that Leanstral would verify.
 ;;
 ;; Test procedure:
-;;   1. llmll holes --json proof_required_test.llmll
+;;   1. llmll --json holes proof_required_test.llmll
 ;;      → verify output includes "proof-required"
 ;;   2. llmll verify --leanstral-mock proof_required_test.llmll
-;;      → verify .proof-cache.json created
-;;   3. llmll verify proof_required_test.llmll (second run)
-;;      → verify certificate read from cache, no re-call
+;;      → verify .proof-cache.json created ("safe-div: proof found")
+;;   3. llmll verify --leanstral-mock proof_required_test.llmll (second run)
+;;      → verify certificate read from cache, no re-call ("safe-div: cached proof (skip)")
+;;
+;; safe-div needs a real pre/post pair for Leanstral to have anything to
+;; translate and prove -- a bare, contract-free ?proof-required hole never
+;; reaches the Leanstral pipeline at all ("unsupported (empty contract)"),
+;; regardless of --leanstral-mock.
 
 (import wasi.io (capability stdout :deterministic false))
 
 (def-shell safe-div [n: int d: int]
+  (pre  (> d 0))
+  (post (>= result 0))
   ?proof-required)
 
 (def-shell main-step [state: string input: string]
