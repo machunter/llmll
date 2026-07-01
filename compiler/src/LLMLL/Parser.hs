@@ -501,9 +501,9 @@ pCapKind = choice
   , CapNetConnect    <$ try (symbol "connect")
   , CapNetServe      <$ try (symbol "serve")
   , CapHttpPost      <$ try (symbol "post")
+  , CapRandomGet     <$ try (symbol "get-bytes")  -- longest-match-first: must precede "get"
   , CapHttpGet       <$ try (symbol "get")
   , CapClockMonotonic <$ try (symbol "monotonic-read")
-  , CapRandomGet     <$ try (symbol "get-bytes")
   , CapCustom <$> pIdent
   ]
 

@@ -4223,6 +4223,64 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       diagMessage (head capErrors) `shouldSatisfy` T.isInfixOf "wasi.io"
 
   -- =========================================================================
+  -- pCapKind: capability-import parser ordering (doc-audit regression)
+  --
+  -- "get-bytes" was unparseable: `CapHttpGet <$ try (symbol "get")` was tried
+  -- before `CapRandomGet <$ try (symbol "get-bytes")`, and `symbol "get"`
+  -- (no word-boundary check) matched the "get" prefix of "get-bytes",
+  -- leaving "-bytes" dangling and unparseable ("unexpected '(' ... expecting
+  -- ')'"). Fixed by longest-match-first ordering, matching the existing
+  -- read-write/read precedent in the same `choice` list.
+  -- =========================================================================
+  describe "pCapKind: capability-import parser ordering" $ do
+
+    it "CAP-GB-1: (capability get-bytes ...) parses to CapRandomGet, not a truncated CapHttpGet" $ do
+      let src = "(import wasi.random (capability get-bytes :deterministic true))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure $ "Parse failed (regression!): " ++ show err
+        Right [SImport (Import path _ (Just (Capability kind target det)))] -> do
+          path `shouldBe` "wasi.random"
+          kind `shouldBe` CapRandomGet
+          target `shouldBe` ""
+          det `shouldBe` True
+        Right other -> expectationFailure $ "Unexpected AST shape: " ++ show other
+
+    it "CAP-GB-2: (capability get ...) still parses to CapHttpGet (no regression on the short form)" $ do
+      let src = "(import wasi.http (capability get :deterministic true))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+        Right [SImport (Import _ _ (Just (Capability kind _ _)))] -> kind `shouldBe` CapHttpGet
+        Right other -> expectationFailure $ "Unexpected AST shape: " ++ show other
+
+    it "CAP-GB-3: every pCapKind alternative still round-trips (no regressions from reordering)" $ do
+      let cases =
+            [ ("read-write",     CapReadWrite)
+            , ("read",           CapRead)
+            , ("write",          CapWrite)
+            , ("connect",        CapNetConnect)
+            , ("serve",          CapNetServe)
+            , ("post",           CapHttpPost)
+            , ("get-bytes",      CapRandomGet)
+            , ("get",            CapHttpGet)
+            , ("monotonic-read", CapClockMonotonic)
+            ]
+      forM_ cases $ \(kw, expected) -> do
+        let src = "(import wasi.test (capability " <> kw <> " :deterministic true))"
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Left err -> expectationFailure $ T.unpack kw ++ " parse failed: " ++ show err
+          Right [SImport (Import _ _ (Just (Capability kind _ _)))] ->
+            kind `shouldBe` expected
+          Right other -> expectationFailure $ T.unpack kw ++ " unexpected AST shape: " ++ show other
+
+    it "CAP-GB-4: an unrecognized capability keyword falls back to CapCustom" $ do
+      let src = "(import wasi.test (capability frobnicate :deterministic true))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+        Right [SImport (Import _ _ (Just (Capability kind _ _)))] ->
+          kind `shouldBe` CapCustom "frobnicate"
+        Right other -> expectationFailure $ "Unexpected AST shape: " ++ show other
+
+  -- =========================================================================
   -- v0.4 U-Lite: Per-Call-Site Substitution Tests
   -- =========================================================================
   describe "U-Lite per-call-site substitution" $ do
