@@ -47,7 +47,7 @@
 
 > **Routing:** items below are the genuinely-open work. Tags follow the `XXX-N` pattern; full triage record at [`docs/design/critique-2026-05-23-triage.md`](design/critique-2026-05-23-triage.md) §4. The v0.10.x patch lane and the v0.11/v0.12 architectural lanes have fully shipped — their rows are retired to the [Resolved cross-cutting items](#resolved-cross-cutting-items) block, with full provenance in [Shipped Releases](#shipped-releases), [`docs/archive/roadmap-shipped-history.md`](archive/roadmap-shipped-history.md), and `CHANGELOG.md`.
 
-> **Near-term adoption work (off-roadmap).** The current near-term priorities for *sharing* the project — zero-install/Docker packaging, the README rewrite, the payments-core + TCP-793 demos, and version-embed — are **not on this roadmap**, which tracks verification depth. They are tracked as adoption work, not as rows here; do not read the items below as the current priority order.
+> **Near-term adoption work (off-roadmap).** Zero-install/Docker packaging is the remaining near-term priority for *sharing* the project — **not on this roadmap**, which tracks verification depth. (The README rewrite, the payments-core + TCP-793 demos, and version-embed — also originally tracked here as adoption work — have since shipped.) Do not read the items below as the current priority order.
 
 ### Standing items
 
@@ -84,7 +84,7 @@
 
 ## Upcoming Releases
 
-> **Roadmap reorganization (2026-04-30):** Professor's five-round review identified that the old v0.8.1 was entirely blocked on external availability (`lean-lsp-mcp`). Replaced with three actionable milestones: v0.8.1a (documentation boundary clarity), v0.8.1b (evidence model refactor), v0.9 (compositional verification). Those, and everything through v0.14.1 (PROOF-ARTIFACT staged MVP + a checkout-lock sum-type fix), have shipped — see [Shipped Releases](#shipped-releases). No version is currently in flight; the next release will be cut from the [Active Items](#active-items) above. LEAN-GA, TRUST-2b, MCP remain in the [Externally-Blocked Parking Lot](#externally-blocked-parking-lot). Research items in [`docs/archive/research-track.md`](archive/research-track.md).
+> **Roadmap reorganization (2026-04-30):** Professor's five-round review identified that the old v0.8.1 was entirely blocked on external availability (`lean-lsp-mcp`). Replaced with three actionable milestones: v0.8.1a (documentation boundary clarity), v0.8.1b (evidence model refactor), v0.9 (compositional verification). Those, and everything through v0.14.2 (PROOF-ARTIFACT staged MVP + a checkout-lock sum-type fix + the CDP deep-dive candidate-basis/body-faithfulness fix), have shipped — see [Shipped Releases](#shipped-releases). No version is currently in flight; the next release will be cut from the [Active Items](#active-items) above. LEAN-GA, TRUST-2b, MCP remain in the [Externally-Blocked Parking Lot](#externally-blocked-parking-lot). Research items in [`docs/archive/research-track.md`](archive/research-track.md).
 
 ---
 
@@ -222,6 +222,9 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 | Version | Headline | Date | Tests | Detail |
 |---------|----------|------|-------|--------|
+| **v0.14.2** | CDP deep-dive — candidate basis emits real `ok`/`err` (not raw internal names); `erBodyFallback` body-faithfulness gate closes a broader unvalidated-candidate class; `--strict-verified-core --trust-report --cdp --json` now actually populates `discriminative_axis`; `spec-inconsistent` → `spec-inconsistent-or-unproven` (claim-accuracy rename); no schema change | 2026-07-01 | 978 H + 62 Py | `CHANGELOG.md §v0.14.2` |
+| **v0.14.1** | Checkout-lock sum-type fix — a sum-type `TypeDefEntry` now round-trips through the checkout lock (fixes `patch` rejecting valid tokens for any program with a `data`/sum type in scope); `withdraw-demo` integrates `withdraw-outcome` as a third fillable hole | 2026-06-30 | 966 H + 62 Py | `CHANGELOG.md §v0.14.1` |
+| **v0.14.0** | PROOF-ARTIFACT (staged MVP) — `verify --proof-artifact` emits a unified, replayable verification record; `replay-artifact` re-derives it fail-closed; §4.1 LCF anti-laundering invariant enforced on emit and parse; `unsat_core` deferred | 2026-06-30 | 965 H + 62 Py | `CHANGELOG.md §v0.14.0` |
 | **v0.13.10** | COMP-4 polish — nullary-variant construction `(Empty)` types as its sum (typecheck fix); tcp_rfc793/session-pay reshaped to real outcome sums (int sentinel dropped, full totality posts); LLMLL.md verification matrix reconciled to the shipped sum-type surface (`Σ_auto` + acyclic datatype theory). No schema change | 2026-06-28 | 939 H + 62 Py | `CHANGELOG.md §v0.13.10` |
 | **v0.13.9** | COMP-4 (a)/(c): native datatype construction — a constructor application over an admissible two-arm sum reflects into a native FQData term (result binds at the datatype sort); construction + payload-carrying totality posts discharge by constructor equality, refute by injectivity. Provenance-partitioned (nullary→int-tag, opaque→skolem, constructed→FQData); recursive datatypes firewalled. First verification beyond pure QF-LIA (+ SMT datatype theory). Completes the COMP-4 line. New `examples/outcome-totality/`; no schema change | 2026-06-28 | 938 H + 62 Py | `CHANGELOG.md §v0.13.9` |
 | **v0.13.8** | COMP-4 (b): refined sum payloads — a matched two-arm-sum payload carries its declared refinement (elimination, via a `ReaderT` refinement-env + `FQPred` binder field), enforced by a declaration-driven call-site payload-subtyping obligation (introduction, a refinement-subtyping Horn constraint with a syntactic-reflexivity fast-path); new `examples/refined-payload/`; no schema change | 2026-06-28 | 936 H + 62 Py | `CHANGELOG.md §v0.13.8` |
@@ -259,7 +262,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | **v0.1.3** | Type Alias Expansion — structural type-alias resolution, where-clause binding scope, post-ship bug fixes | 2026-03-21 | 25 H | [archive §v0.1.3](archive/roadmap-shipped-history.md#v013--type-alias-expansion--shipped-2026-03-21) |
 | **v0.1.2** | Machine-First Foundation — JSON-AST parser + schema, Haskell codegen target, minimal surface syntax fixes | 2026-03 | — | [archive §v0.1.2](archive/roadmap-shipped-history.md#v012--machine-first-foundation--shipped) |
 
-> Detailed per-item implementation history (IDs, acceptance criteria, commit SHAs, design-doc links, the historical v0.8–v0.10 critical-path ASCII diagram, the "What Changed from LLMLL.md §14" table, and the "Items Removed from Scope" table) lives in [`docs/archive/roadmap-shipped-history.md`](archive/roadmap-shipped-history.md). **Current shipped: v0.13.4** (2026-06-23), 914 Haskell + 62 Python tests.
+> Detailed per-item implementation history (IDs, acceptance criteria, commit SHAs, design-doc links, the historical v0.8–v0.10 critical-path ASCII diagram, the "What Changed from LLMLL.md §14" table, and the "Items Removed from Scope" table) lives in [`docs/archive/roadmap-shipped-history.md`](archive/roadmap-shipped-history.md). Current shipped version is the top row of this table — canonical source is [`../CHANGELOG.md § Latest`](../CHANGELOG.md#Latest), per this doc's own no-version-stamp policy above.
 
 ---
 
