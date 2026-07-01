@@ -490,7 +490,7 @@ llmll patch ./demo.ast.json ./po-correct.json | jq '{result}'   # → { "result"
 
 ## Verify the trust closure
 
-Both holes are filled and every patch was proven on the way in — so what does the finished program's trust report say?
+All three holes are filled and every patch was proven on the way in — so what does the finished program's trust report say?
 
 `verify --trust-report --json` emits two JSON documents on stdout (the verify result, then the report), so `jq -s '.[1]'` slurps both and selects the report. We project the fields that matter:
 
@@ -547,7 +547,7 @@ One fact, **three views**: the report surfaces the obligation (`caller_obligatio
 
 The trust report answers *"is it correct?"*. A second, orthogonal question is *"what is it even allowed to touch?"* — the object-capability **authority** a function may exercise. `verify --obligation-report` answers it with a per-function `effect_summary`.
 
-Our three core functions are pure, so their authority is uniformly empty (`∅`) — true, but it doesn't show the machinery doing anything. So [`audit.llmll`](./audit.llmll) is a thin **shell** over the core: it imports the verified `withdraw` and adds the one thing the core deliberately does *not* do — an audit line to `stdout`.
+Our four core functions are pure, so their authority is uniformly empty (`∅`) — true, but it doesn't show the machinery doing anything. So [`audit.llmll`](./audit.llmll) is a thin **shell** over the core: it imports the verified `withdraw` and adds the one thing the core deliberately does *not* do — an audit line to `stdout`.
 
 ```bash
 llmll verify ./audit.ast.json --obligation-report --json 2>/dev/null \
