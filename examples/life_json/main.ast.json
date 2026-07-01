@@ -16,6 +16,10 @@
       "path": "world"
     },
     {
+      "kind": "open",
+      "path": "world"
+    },
+    {
       "kind": "def-shell",
       "name": "start-game",
       "params": [],

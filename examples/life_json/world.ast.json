@@ -8,6 +8,10 @@
       "path": "core"
     },
     {
+      "kind": "open",
+      "path": "core"
+    },
+    {
       "kind": "export",
       "names": [
         "make-world",
