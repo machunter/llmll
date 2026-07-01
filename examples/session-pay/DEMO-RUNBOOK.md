@@ -3,7 +3,7 @@
 > **Artifact:** "Open a connection, then pay — and prove all three safety rules at once."
 > **The integration:** one verified function composes **protocol state-safety** (tcp_rfc793), **verified payment** (payments-core), and a **bounded amount** (return-refine) — proven together on a single trust-report, through the call edges.
 > **Fixtures:** `open-and-pay.llmll` + wrong twins `-bad-step`, `-unsafe`, `-unbounded`.
-> **Verified against:** `llmll 0.13.9`, real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
+> **Verified against:** `llmll 0.14.2`, real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
 
 Run from this directory; the climax is one `verify --trust-report`.
 
@@ -28,13 +28,24 @@ llmll verify ./open-and-pay.llmll --strict-verified-core --trust-report
    Running liquid-fixpoint ...
 ✅ open-and-pay.llmll — SAFE (liquid-fixpoint)
 Trust Report
-  debit:         post: verified (liquid-fixpoint)
-  open-and-pay:  post: verified (liquid-fixpoint)
-    ↳ calls step  (post: verified (liquid-fixpoint))
-    ↳ calls debit (post: verified (liquid-fixpoint))
-  step:          post: verified (liquid-fixpoint)
+────────────────────────────────────────────────────────────
+  debit:
+    pre:  asserted  |  post: verified (liquid-fixpoint)
+  open-and-pay:
+    pre:  asserted  |  post: verified (liquid-fixpoint)
+    source (post): session-pay: pay iff a transition reaches ESTABLISHED (RFC 793 §3.2) and balance >= amount; else REJECTED
+    ↳ calls step (pre: —, post: verified (liquid-fixpoint))
+    ↳ calls debit (pre: asserted, post: verified (liquid-fixpoint))
+  step:
+    pre:  —  |  post: verified (liquid-fixpoint)
+    source (post): RFC 793 §3.2 — connection state transition table
+────────────────────────────────────────────────────────────
 Summary:
-  verified: 3   asserted: 0
+  verified:         3
+  contract-checked: 0
+  tested:           0
+  asserted:         0
+  no contract:      0
 ```
 
 All three functions `verified`; `open-and-pay` verified **through** the `step` and `debit` edges — the integration holds at the solver level, not as a floor. The happy-path property also passes:

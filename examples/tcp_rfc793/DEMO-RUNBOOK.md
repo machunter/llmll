@@ -2,7 +2,7 @@
 
 > **Artifact:** "Implement a protocol from the RFC — in idiomatic types, with a real outcome sum — and prove the implementation maps every input to the right outcome."
 > **Fixtures:** `step.llmll` (+ `step-bad`, `step-weak`). See [`VERIFICATION_SCOPE.md`](VERIFICATION_SCOPE.md) for the proven-vs-trusted matrix (read it first — the scope matrix is the headline, not a disclaimer).
-> **Verified against:** `llmll 0.13.9`, real `liquid-fixpoint` on PATH.
+> **Verified against:** `llmll 0.14.2`, real `liquid-fixpoint` on PATH.
 
 Run from this directory. This is the flagship "take an RFC and let the system implement it" demo — and unlike the TOTP RFC example (whose crypto core is opaque/`asserted`), a protocol **state machine** lands its core invariant in the verified fragment, so it reaches `verified`.
 
@@ -33,7 +33,7 @@ llmll verify ./step.llmll --strict-verified-core
 llmll verify ./step-bad.llmll --strict-verified-core
 ```
 ```
-error: body verification of 'step' failed (then-branch does not satisfy postcondition)
+error: body verification of 'step' failed (else-branch does not satisfy postcondition) (constraint #1)
 ERROR: --strict-verified-core: refuted: step
 ```
 
