@@ -8531,6 +8531,99 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Just r  -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistent `elem`)
           Nothing -> expectationFailure "expected entry for withdraw"
 
+    -- CDP-OMEGA-1 through CDP-OMEGA-4: Omega-adequacy gate for TResult returns
+    -- (fix/cdp-tresult-omega-gate). WeaknessCheck.cdpCatalog derives TResult
+    -- candidates via the raw internal constructor names ("Success"/"Error"),
+    -- unregistered in builtinEnv, so tryCandidate's independent lenient-mode
+    -- re-typecheck cannot validate them; a type-unsound candidate (observed:
+    -- the constant-error candidate, whose payload is unconditionally a string
+    -- literal regardless of the real error-payload type) can reach the solver
+    -- with a vacuously-satisfiable VC, producing a false discriminative-power
+    -- score. computeCDPFor now routes any TResult-returning function directly
+    -- to a no-score, WarnDatatypeReturnOutOfScope result before candidate
+    -- generation or the solver run at all.
+    describe "CDP-OMEGA: TResult return-type Omega-adequacy gate" $ do
+
+      it "CDP-OMEGA-1 TResult-returning function is gated to no-score even when solver reports SAFE" $ do
+        let stmts =
+              [ SDef "withdraw-outcome" [("balance", TInt), ("amount", TInt)]
+                  (Just (TResult TInt TString))
+                  (Contract Nothing Nothing
+                    (Just (EApp "="
+                      [ EVar "result"
+                      , EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]] ]))
+                    Nothing Nothing)
+                  (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
+              ]
+            -- Stub that reports every candidate SAFE — exactly the (false)
+            -- behavior the real solver exhibited pre-fix for TResult
+            -- candidates. If the gate is not applied, this stub reproduces
+            -- the false '2/2 satisfy [const-satisfies-post] score=0.000'.
+            stubAlwaysSafe _wc = pure True
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubAlwaysSafe Map.empty stmts
+        case Map.lookup "withdraw-outcome" results of
+          Just r -> do
+            cdpScore r `shouldBe` Nothing
+            cdpCandidateCount r `shouldBe` 0
+            cdpSatisfyingCount r `shouldBe` 0
+            cdpWarnings r `shouldBe` [WarnDatatypeReturnOutOfScope]
+          Nothing -> expectationFailure "expected entry for withdraw-outcome"
+
+      it "CDP-OMEGA-2 TResult-returning function is gated identically when solver reports UNSAFE (solver-independence)" $ do
+        let stmts =
+              [ SDef "withdraw-outcome" [("balance", TInt), ("amount", TInt)]
+                  (Just (TResult TInt TString))
+                  (Contract Nothing Nothing
+                    (Just (EApp "="
+                      [ EVar "result"
+                      , EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]] ]))
+                    Nothing Nothing)
+                  (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
+              ]
+            stubAlwaysUnsafe _wc = pure False
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubAlwaysUnsafe Map.empty stmts
+        case Map.lookup "withdraw-outcome" results of
+          Just r -> do
+            cdpScore r `shouldBe` Nothing
+            cdpWarnings r `shouldBe` [WarnDatatypeReturnOutOfScope]
+          Nothing -> expectationFailure "expected entry for withdraw-outcome"
+
+      it "CDP-OMEGA-3 non-TResult-returning function is unaffected by the gate (regression guard)" $ do
+        let stmts =
+              [ SDef "double" [("x", TInt)] (Just TInt)
+                  (Contract Nothing Nothing
+                    (Just (EApp "=" [EVar "result", EApp "+" [EVar "x", EVar "x"]]))
+                    Nothing Nothing)
+                  (EApp "+" [EVar "x", EVar "x"])
+              ]
+            stubPass _wc = pure True
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
+        case Map.lookup "double" results of
+          Just r  -> do
+            cdpWarnings r `shouldSatisfy` (WarnDatatypeReturnOutOfScope `notElem`)
+            cdpCandidateCount r `shouldSatisfy` (> 0)
+          Nothing -> expectationFailure "expected entry for double"
+
+      it "CDP-OMEGA-4 wire-line label for WarnDatatypeReturnOutOfScope" $
+        cdpWarningLabel WarnDatatypeReturnOutOfScope `shouldBe` "datatype-return-out-of-scope"
+
+      it "CDP-OMEGA-5 def-shell TResult-return reports WarnDefShellOutOfScope, not WarnDatatypeReturnOutOfScope (no conflation)" $ do
+        let stmts =
+              [ SDefLogic "shell-outcome" [("balance", TInt), ("amount", TInt)]
+                  (Just (TResult TInt TString))
+                  (Contract Nothing Nothing
+                    (Just (EApp "="
+                      [ EVar "result"
+                      , EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]] ]))
+                    Nothing Nothing)
+                  (EApp "ok" [EApp "-" [EVar "balance", EVar "amount"]])
+              ]
+            stubPass _wc = pure True
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
+        case Map.lookup "shell-outcome" results of
+          Just r -> cdpWarnings r `shouldBe` [WarnDefShellOutOfScope]
+          Nothing -> expectationFailure "expected entry for shell-outcome"
+
     -- CDP-SCOPE-1 through CDP-SCOPE-4: CDPScopeCoreOnly filtering (§8 Outcome 0)
     describe "CDP-SCOPE: CDPScopeCoreOnly scope filtering" $ do
 

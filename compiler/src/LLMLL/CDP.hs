@@ -126,6 +126,21 @@ data CDPWarning
   | WarnDefShellOutOfScope
     -- ^ Function is def-shell (or, pre-LT-INV, classified as out-of-scope by
     -- the active 'CDPScope'). Score is NOT measured — distinct from undefined.
+  | WarnDatatypeReturnOutOfScope
+    -- ^ Function returns a datatype/sum payload type ('TResult' — the only
+    -- shape 'WeaknessCheck.cdpCatalog' currently derives sum-shaped candidates
+    -- for) for which the closed §4.3.1 candidate basis Omega is not known to
+    -- be faithfully type-adequate: 'cdpCatalog' emits the trivial-body
+    -- candidates via the raw internal constructor names ("Success"/"Error"),
+    -- which are unregistered in 'builtinEnv' (only the surface 'ok'/'err'
+    -- forms are), so 'WeaknessCheck.tryCandidate''s independent (lenient-mode)
+    -- re-typecheck cannot validate them and a type-unsound candidate can reach
+    -- the solver with a vacuously-satisfiable VC. Score is NOT measured —
+    -- deliberately distinct from 'WarnDefShellOutOfScope' (scope-class
+    -- exclusion) and from 'WarnEnumerationTooNarrow' (measurement weakness)
+    -- per the discipline stated above: downstream consumers must not conflate
+    -- "not applicable" with "measured but degenerate." The candidate basis
+    -- itself is not fixed here — see the CDP/WeaknessCheck follow-on.
   | WarnCandidatesEmptyUnderLimit
     -- ^ Zero type-compatible candidates from the §4.3.1 enumeration applied.
     -- A v0.12+ widening may close this case.
@@ -148,6 +163,7 @@ cdpWarningLabel WarnSpecInconsistent          = "spec-inconsistent"
 cdpWarningLabel WarnSpecTooTightForOmega      = "spec-too-tight-for-omega"
 cdpWarningLabel WarnEnumerationTooNarrow      = "enumeration-too-narrow"
 cdpWarningLabel WarnDefShellOutOfScope        = "def-shell-out-of-scope"
+cdpWarningLabel WarnDatatypeReturnOutOfScope  = "datatype-return-out-of-scope"
 cdpWarningLabel WarnCandidatesEmptyUnderLimit = "candidates-empty-under-limit"
 cdpWarningLabel WarnOverAnnotationModule      = "over-annotation-warning"
 cdpWarningLabel WarnNotRequested              = "not-requested"
@@ -215,19 +231,40 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
   -- 'v0.11-cross-proposal-rollback-discipline.md' §2.1 (Outcome 0):
   -- CDPScopeCoreOnly / CDPScopeFlagGated → SDef only;
   -- CDPScopeAllDefLogic → all four forms (legacy path).
-  let inScopeFuncs  = [ (n, c, candidatesFor n stmts)
-                      | s <- stmts, Just (n, c) <- [inScopeFunc scope s] ]
+  --
+  -- Omega-adequacy gate (fix/cdp-tresult-omega-gate): among in-scope
+  -- functions, those returning 'TResult' are further split off BEFORE
+  -- candidate generation / the solver ever runs. 'WeaknessCheck.cdpCatalog'
+  -- derives their trivial-body candidates via the raw internal constructor
+  -- names ("Success"/"Error"), unregistered in 'builtinEnv' (only the
+  -- surface 'ok'/'err' forms are); the independent, lenient-mode re-typecheck
+  -- in 'WeaknessCheck.tryCandidate' cannot validate them, so a type-unsound
+  -- candidate (observed: the constant-error candidate, whose payload is
+  -- unconditionally a string literal regardless of the real error-payload
+  -- type) can reach the solver and be reported as vacuously satisfying —
+  -- producing a false low/zero-discriminative-power score that contradicts
+  -- the real verifier's refutation of an equivalent-shaped implementation.
+  -- Gating on return-type shape closes this without depending on the
+  -- candidate-basis fix (tracked separately) and without spending solver
+  -- calls on candidates already known to be unreliable.
+  let inScopeAll = [ (n, mRet, c)
+                   | s <- stmts, Just (n, mRet, c) <- [inScopeFunc scope s] ]
+      (datatypeReturnFuncs, scorableFuncs) = L.partition isDatatypeReturn inScopeAll
       outOfScopeFuncs = [ (n, c)
-                        | s <- stmts, Just (n, c) <- [outOfScopeFunc scope s] ]
-  measured <- mapM (\(name, contract, candidates) ->
-                       let verifies = Map.findWithDefault False name verifMap
+                        | s <- stmts, Just (n, _mRet, c) <- [outOfScopeFunc scope s] ]
+  measured <- mapM (\(name, _mRet, contract) ->
+                       let verifies  = Map.findWithDefault False name verifMap
+                           candidates = candidatesFor name stmts
                        in fmap ((,) name) (resultFor runCandidate verifies contract candidates))
-                   inScopeFuncs
-  let skipped = [ (name, outOfScopeResult contract)
+                   scorableFuncs
+  let skippedDatatype = [ (name, outOfScopeResultForDatatypeReturn contract)
+                         | (name, _mRet, contract) <- datatypeReturnFuncs ]
+      skipped = [ (name, outOfScopeResult contract)
                 | (name, contract) <- outOfScopeFuncs ]
-  pure (Map.fromList (measured ++ skipped))
+  pure (Map.fromList (measured ++ skippedDatatype ++ skipped))
   where
-    -- In-scope: forms that enter the measurement pipeline.
+    -- In-scope: forms that enter the measurement pipeline. Now carries the
+    -- return-type annotation so the Omega-adequacy gate can inspect it.
     inScopeFunc CDPScopeAllDefLogic s = allContractedFunc s
     inScopeFunc CDPScopeCoreOnly    s = coreOnlyFunc s
     inScopeFunc CDPScopeFlagGated   s = coreOnlyFunc s
@@ -237,21 +274,28 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
     outOfScopeFunc _                   s = nonCoreContractedFunc s
 
     -- CDPScopeAllDefLogic: legacy — all four forms in scope.
-    allContractedFunc (SDefLogic n _ _ c _)   | hasContracts c = Just (n, c)
-    allContractedFunc (SLetrec   n _ _ c _ _) | hasContracts c = Just (n, c)
-    allContractedFunc (SDef      n _ _ c _)   | hasContracts c = Just (n, c)
-    allContractedFunc (SDefShell n _ _ c _)   | hasContracts c = Just (n, c)
+    allContractedFunc (SDefLogic n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
+    allContractedFunc (SLetrec   n _ mRet c _ _) | hasContracts c = Just (n, mRet, c)
+    allContractedFunc (SDef      n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
+    allContractedFunc (SDefShell n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
     allContractedFunc _ = Nothing
 
     -- CDPScopeCoreOnly / CDPScopeFlagGated: only def (strict-core) form.
-    coreOnlyFunc (SDef n _ _ c _) | hasContracts c = Just (n, c)
-    coreOnlyFunc _                                 = Nothing
+    coreOnlyFunc (SDef n _ mRet c _) | hasContracts c = Just (n, mRet, c)
+    coreOnlyFunc _                                    = Nothing
 
     -- Contracted forms that are out of scope under CDPScopeCoreOnly.
-    nonCoreContractedFunc (SDefLogic n _ _ c _)   | hasContracts c = Just (n, c)
-    nonCoreContractedFunc (SLetrec   n _ _ c _ _) | hasContracts c = Just (n, c)
-    nonCoreContractedFunc (SDefShell n _ _ c _)   | hasContracts c = Just (n, c)
-    nonCoreContractedFunc _                                        = Nothing
+    nonCoreContractedFunc (SDefLogic n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
+    nonCoreContractedFunc (SLetrec   n _ mRet c _ _) | hasContracts c = Just (n, mRet, c)
+    nonCoreContractedFunc (SDefShell n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
+    nonCoreContractedFunc _                                           = Nothing
+
+    -- Omega-adequacy predicate: only 'TResult' is currently derived into
+    -- sum-shaped candidates by 'cdpCatalog' (WeaknessCheck.hs §4.3.1); a bare
+    -- user-defined sum return produces no sum-shaped candidates at all and is
+    -- unaffected by this mechanism, so it is intentionally not gated here.
+    isDatatypeReturn (_, Just (TResult _ _), _) = True
+    isDatatypeReturn _                          = False
 
     -- Out-of-scope result: no score, WarnDefShellOutOfScope, annotation preserved.
     outOfScopeResult contract =
@@ -264,6 +308,24 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
            , cdpDistinctBehaviorCount = 0
            , cdpScore                 = Nothing
            , cdpWarnings              = [WarnDefShellOutOfScope]
+           , cdpDistinguishingInputs  = []
+           , cdpSpecEntropyAnnotation = annotation
+           }
+
+    -- Omega-inadequate-for-datatype-return result: no score, no candidates
+    -- generated (the solver is never invoked), distinctly labeled per the
+    -- 'CDPWarning' discipline against conflating not-applicable with
+    -- measured-but-degenerate.
+    outOfScopeResultForDatatypeReturn contract =
+      let annotation = case contractSpecEntropy contract of
+                         Just se -> se
+                         Nothing -> SpecEntropyStrict
+      in CDPResult
+           { cdpCandidateCount        = 0
+           , cdpSatisfyingCount       = 0
+           , cdpDistinctBehaviorCount = 0
+           , cdpScore                 = Nothing
+           , cdpWarnings              = [WarnDatatypeReturnOutOfScope]
            , cdpDistinguishingInputs  = []
            , cdpSpecEntropyAnnotation = annotation
            }

@@ -533,13 +533,14 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
 ```
 
 ```
-   CDP measured 3 function(s):
-   double: score=1.000 (1/6 candidates satisfy) [const-satisfies-post]
-   maxi: score=1.000 (1/7 candidates satisfy) [const-satisfies-post]
-   withdraw: score=0.644 (2/7 candidates satisfy) [identity-satisfies-post, const-satisfies-post]
+   CDP measured 4 function(s):
+   double: score=undefined (0/5 candidates satisfy) [spec-too-tight-for-omega]
+   maxi: score=undefined (0/6 candidates satisfy) [spec-too-tight-for-omega]
+   withdraw: score=undefined (0/5 candidates satisfy) [spec-too-tight-for-omega]
+   withdraw-outcome: score=undefined (0/0 candidates satisfy) [datatype-return-out-of-scope]
 ```
 
-CDP measures how *tight* a contract is — the **score** is the discriminative measure (`maxi` and `double` are maximal at `1.000`; `withdraw`'s exact-value contract scores `0.644`). The bracketed advisories are sampling-based hints that appear broadly; read the score, not the flags. Powerful for a technical audience; **drop this step for a general audience** to keep the climax on the trust lattice.
+**Read this as a triviality *screen*, not a graded score.** CDP enumerates a closed set of trivial candidate bodies (constants, identity, small defaults) and checks how many satisfy the contract. `spec-too-tight-for-omega` means *none of them do* — no constant, no identity, no default-value body passes `double`/`maxi`/`withdraw`'s contracts. That is the honest, positive reading: these three **passed the trivial-body screen**. It is not a graded number and not a failure; a contract this tight simply has no witness inside the trivial candidate set. `withdraw-outcome` reports `datatype-return-out-of-scope`: its `Result[int, Reason]` return type isn't yet covered by CDP's candidate basis, so no score is claimed rather than a misleading one. Powerful for a technical audience; **drop this step for a general audience** to keep the climax on the trust lattice.
 
 ---
 
