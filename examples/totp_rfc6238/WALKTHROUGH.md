@@ -30,7 +30,8 @@ This benchmark implements the core TOTP algorithm from RFC 6238, demonstrating L
 Spec Coverage Report
 ────────────────────────────────────────────
   Functions with contracts:     5 / 6   (83%)
-    Proven:                     0
+    Verified:                   0
+    Contract-checked:           0
     Tested:                     0
     Asserted:                   5
   Intentional Underspecification:
@@ -38,6 +39,8 @@ Spec Coverage Report
 ────────────────────────────────────────────
   Effective coverage: 100% (6/6)
 ```
+
+> **Note:** the trust report (as opposed to spec coverage above) splits these 6 differently: `hmac-sha1-wrap` has no `pre`/`post` at all (its contract lives entirely in the `weakness-ok` suppression + `:source` citations, not in a checkable pre/post), so it lands in the trust report's `no_contract` bucket alongside `validate-totp` (which has a `pre` but no `post` — no effective post-level under TRUST-PRE) — `verified: 0, asserted: 4, no_contract: 2`. See `EXPECTED_RESULTS.json`'s `expected_trust_report`.
 
 ## Check Blocks (Test Vectors)
 

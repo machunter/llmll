@@ -11,9 +11,9 @@
     "effective_coverage": 1
   },
   "expected_trust_report": {
-    "proven": 0,
-    "asserted": 5,
-    "no_contract": 1,
+    "verified": 0,
+    "asserted": 4,
+    "no_contract": 2,
     "drifts": 0,
     "suppressions": [
       {

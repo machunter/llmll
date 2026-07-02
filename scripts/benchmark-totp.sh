@@ -102,7 +102,7 @@ ACTUAL_TR_NONE=$(echo "$TRUST_JSON" | jq '.summary.no_contract')
 ACTUAL_TR_DRIFTS=$(echo "$TRUST_JSON" | jq '.summary.drifts')
 ACTUAL_TR_SUPPS=$(echo "$TRUST_JSON" | jq '.suppressions | length')
 
-EXPECTED_TR_ENTRIES=$(jq '.expected_trust_report.proven + .expected_trust_report.asserted + .expected_trust_report.no_contract' "$EXPECTED")
+EXPECTED_TR_ENTRIES=$(jq '.expected_trust_report.verified + .expected_trust_report.asserted + .expected_trust_report.no_contract' "$EXPECTED")
 EXPECTED_TR_NONE=$(jq '.expected_trust_report.no_contract' "$EXPECTED")
 EXPECTED_TR_SUPPS=$(jq '.expected_trust_report.suppressions | length' "$EXPECTED")
 
