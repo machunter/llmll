@@ -1010,10 +1010,20 @@ pDottedIdent = lexeme' $ do
   rest <- T.pack <$> many (alphaNumChar <|> char '-' <|> char '_' <|> char '.')
   pure $ T.cons first rest
 
+-- | BUG-5 follow-on (v0.14.3): keep the leading "@" in the stored agent
+-- name. DelegateSpec's field doc (Syntax.hs) and every other producer/
+-- consumer of an "agent" value (AstEmit.hs's verbatim JSON emission, the
+-- JSON-AST fixtures under examples/, and the tools/llmll-orchestra Python
+-- side) treat it as always carrying "@" -- e.g. "@crypto-agent", never
+-- "crypto-agent". Discarding the '@' here (as the old implementation did)
+-- was the one inconsistent producer: an S-expression-sourced ?delegate
+-- hole would round-trip to JSON-AST as "agent": "crypto-agent" (no "@"),
+-- unlike every hand-authored fixture and every other code path.
 pAgentRef :: Parser Name
 pAgentRef = lexeme' $ do
   _ <- char '@'
-  T.pack <$> some (alphaNumChar <|> char '-' <|> char '_')
+  rest <- some (alphaNumChar <|> char '-' <|> char '_')
+  pure (T.cons '@' (T.pack rest))
 
 -- | Parse a typed parameter: name: type
 pTypedParam :: Parser (Name, Type)

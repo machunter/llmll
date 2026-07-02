@@ -3992,6 +3992,56 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       HA.holePointer (head entries) `shouldBe` "/statements/0/body/then_branch"
 
   -- -----------------------------------------------------------------
+  -- BUG-5 (v0.14.3): doubled "@" in delegate-hole messages.
+  -- holeKindLabel prepended a literal "@" even though delegateAgent
+  -- already carries its "@" prefix (Syntax.hs's DelegateSpec doc, the
+  -- verbatim JSON emission in AstEmit.hs, every examples/*.ast.json
+  -- fixture, and tools/llmll-orchestra's Python side all agree "agent" is
+  -- always spelled "@name"). Confirmed live: `llmll holes --json` on any
+  -- file with a ?delegate hole showed "message":"hole: ?delegate
+  -- @@crypto-agent". Follow-on found in the same investigation: the
+  -- S-expression parser's pAgentRef discarded the leading "@" instead of
+  -- keeping it (Parser.hs), the one inconsistent producer of the
+  -- convention -- fixed alongside so the invariant holds for every source
+  -- format, not just JSON-AST.
+  -- -----------------------------------------------------------------
+
+  describe "BUG-5: delegate-hole agent label formatting" $ do
+    it "holeKindLabel does not double the '@' when delegateAgent already carries it" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "@crypto-agent" "task" TInt Nothing)))
+                 ]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      holeName (head entries) `shouldBe` "?delegate @crypto-agent"
+      T.isInfixOf "@@" (holeName (head entries)) `shouldBe` False
+
+    it "holeKindLabel does not double the '@' for ?delegate-async either" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EAwait (EHole (HDelegateAsync (DelegateSpec "@math-agent" "task" TInt Nothing))))
+                 ]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      holeName (head entries) `shouldBe` "?delegate-async @math-agent"
+      T.isInfixOf "@@" (holeName (head entries)) `shouldBe` False
+
+    it "JSON hole report 'message' field shows a single '@', not a doubled '@@' (auth_module-style fixture)" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "@crypto-agent" "task" TInt Nothing)))
+                 ]
+          json = HA.formatHoleReportJson "<test>" False (analyzeHoles prog)
+      T.isInfixOf "hole: ?delegate @crypto-agent" json `shouldBe` True
+      T.isInfixOf "@@" json `shouldBe` False
+
+    it "pAgentRef (S-expression parser) keeps the '@' prefix on the parsed agent name" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (?delegate @crypto-agent \"task\" -> int))" of
+        Right [SDefShell _ _ _ _ (EHole (HDelegate spec))] ->
+          delegateAgent spec `shouldBe` "@crypto-agent"
+        other -> expectationFailure $ "Unexpected parse result: " ++ show other
+
+  -- -----------------------------------------------------------------
   -- Dependency analysis (3 tests)
   -- -----------------------------------------------------------------
 

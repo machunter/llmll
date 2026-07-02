@@ -391,8 +391,13 @@ holeKindLabel (HNamed n)          = "?" <> n
 holeKindLabel (HChoose opts)      = "?choose(" <> T.intercalate ", " opts <> ")"
 holeKindLabel (HRequestCap cap)   = "?request-cap(" <> cap <> ")"
 holeKindLabel (HScaffold spec)    = "?scaffold(" <> scaffoldTemplate spec <> ")"
-holeKindLabel (HDelegate spec)    = "?delegate @" <> delegateAgent spec
-holeKindLabel (HDelegateAsync s)  = "?delegate-async @" <> delegateAgent s
+-- BUG-5 (v0.14.3): delegateAgent already carries its "@" prefix (see
+-- Syntax.hs's DelegateSpec doc comment, AstEmit.hs's verbatim JSON
+-- emission, and the tools/llmll-orchestra Python side which universally
+-- treats the "agent" field as "@name") -- prepending a literal "@" here
+-- doubled it: "?delegate @@crypto-agent" instead of "?delegate @crypto-agent".
+holeKindLabel (HDelegate spec)    = "?delegate " <> delegateAgent spec
+holeKindLabel (HDelegateAsync s)  = "?delegate-async " <> delegateAgent s
 holeKindLabel (HDelegatePending t) = "?pending(" <> typeLabel t <> ")"
 holeKindLabel HConflictResolution = "?conflict"
 holeKindLabel (HProofRequired r _) = "?proof-required(" <> r <> ")"
