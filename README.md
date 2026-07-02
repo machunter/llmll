@@ -184,9 +184,9 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 | `examples/life_sexp/` | S-expression | Conway's Game of Life; multi-module (`core`, `world`, `main`) |
 | `examples/life_json/` | JSON-AST | Same Life program in JSON-AST format |
 | `examples/withdraw.llmll` | S-expression | Simple withdraw with `pre`/`post` contracts; acceptance gate |
-| `examples/hangman_json_verifier/` | JSON-AST | Hangman with verified `apply-guess` contracts (`llmll verify`) |
-| `examples/tictactoe_json_verifier/` | JSON-AST | Tic-Tac-Toe with verified `set-cell` contracts |
-| `examples/conways_life_json_verifier/` | JSON-AST | Conway's Life with verified `count-neighbors` and `next-cell` contracts |
+| `examples/hangman_json_verifier/` | JSON-AST | Hangman with `apply-guess` contracts (`llmll verify`; asserted, not solver-proven) |
+| `examples/tictactoe_json_verifier/` | JSON-AST | Tic-Tac-Toe with `set-cell` contracts (asserted, not solver-proven) |
+| `examples/conways_life_json_verifier/` | JSON-AST | Conway's Life — `next-cell` verified; `count-neighbors`'s own postcondition discharges too, but reports asserted (depends on asserted `cell-at`/`neighbor-alive`) |
 | `examples/pair_type_test/` | Mixed | TPair type system and do-notation test fixtures |
 | `examples/event_log_test/` | S-expression | v0.3.1 event log codegen validation |
 | `examples/proof_required_test/` | S-expression | v0.3.1 Leanstral proof pipeline validation |

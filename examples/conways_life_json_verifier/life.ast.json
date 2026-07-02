@@ -415,6 +415,14 @@
           }
         }
       ],
+      "post": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [ { "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 0 } ] },
+          { "kind": "op", "op": "<=", "args": [ { "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 1 } ] }
+        ]
+      },
       "body": {
         "kind": "let",
         "bindings": [
@@ -623,6 +631,14 @@
           }
         }
       ],
+      "post": {
+        "kind": "op",
+        "op": "and",
+        "args": [
+          { "kind": "op", "op": ">=", "args": [ { "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 0 } ] },
+          { "kind": "op", "op": "<=", "args": [ { "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 1 } ] }
+        ]
+      },
       "body": {
         "kind": "if",
         "cond": {
