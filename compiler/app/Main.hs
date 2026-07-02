@@ -30,8 +30,10 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
 import Data.Aeson (Value, encode, object, (.=))
+import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy.Char8 as BLC
+import qualified Data.Text.Lazy as TL
 import Options.Applicative
 import qualified Data.Set as Set
 
@@ -553,7 +555,7 @@ doTest json gm fp emitOnly = do
               result  = generateHaskell modName mergedStmts
               libSrc  = cgHsSource result
           if json
-            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+            then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                    object ["file" .= fp, "emit_only" .= True
                           , "lib_chars" .= T.length libSrc]
             else do
@@ -600,7 +602,7 @@ printPbtResult fp r = do
 
 pbtResultJson :: FilePath -> PBTResult -> [T.Text] -> T.Text
 pbtResultJson fp r writebackDiags =
-  T.pack . BLC.unpack . encode $ object
+  TL.toStrict . encodeToLazyText $ object
     [ "file"    .= fp
     , "total"   .= pbtTotal r
     , "passed"  .= pbtPassed r
@@ -643,7 +645,7 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
             createDirectoryIfMissing True outDir
             BL.writeFile astFile (emitJsonAST stmts)
             if json
-              then TIO.putStrLn . T.pack . BLC.unpack . encode $
+              then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                      object ["file" .= fp, "ast_json" .= astFile, "success" .= True]
               else TIO.putStrLn $ "✅ JSON-AST written to " <> T.pack astFile
             exitSuccess
@@ -855,7 +857,7 @@ runGhcCheck json outDir = do
           pure True
         ExitFailure _ -> do
           if json
-            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+            then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                    object ["ghc_check" .= False, "stderr" .= stderr_]
             else do
               TIO.putStrLn "FAIL: stack build failed:"
@@ -867,7 +869,7 @@ runGhcCheck json outDir = do
         Nothing -> do
           let msg = "stack/ghc not found -- install from https://haskellstack.org"
           if json
-            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+            then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                    object ["ghc_check" .= False, "error" .= msg]
             else TIO.putStrLn $ "WARN: " <> T.pack msg
           pure True  -- non-fatal; user can build manually
@@ -881,7 +883,7 @@ runGhcCheck json outDir = do
               pure True
             ExitFailure _ -> do
               if json
-                then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                        object ["ghc_check" .= False, "stderr" .= stderr_]
                 else do
                   TIO.putStrLn "FAIL: ghc --make failed:"
@@ -894,7 +896,7 @@ runWasmPack _json _outDir =
 
 buildResultJson :: FilePath -> FilePath -> [T.Text] -> Maybe T.Text -> T.Text
 buildResultJson fp outDir warnings mWasmPkg =
-  T.pack . BLC.unpack . encode $ object $
+  TL.toStrict . encodeToLazyText $ object $
     [ "file"       .= fp
     , "out_dir"    .= outDir
     , "success"    .= True
@@ -968,13 +970,13 @@ doHubFetch json tarball = do
   case result of
     Left err -> do
       if json
-        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+        then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                object ["success" .= False, "error" .= err]
         else TIO.putStrLn $ "ERROR: " <> T.pack err
       exitFailure
     Right () -> do
       if json
-        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+        then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                object ["success" .= True, "tarball" .= tarball]
         else TIO.putStrLn $ "\x2705 Hub package installed from: " <> T.pack tarball
       exitSuccess
@@ -990,7 +992,7 @@ doHubScaffold json gm template mOutDir = do
     Nothing -> do
       let msg = "Template '" <> T.unpack template <> "' not found in ~/.llmll/templates/."
       if json
-        then TIO.putStrLn . T.pack . BLC.unpack . encode $
+        then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                object ["success" .= False, "error" .= msg]
         else do
           hPutStrLn stderr msg
@@ -1030,7 +1032,7 @@ doHubQuery json _gm sigText = do
   let queryType = parseSigText sigText
   results <- queryBySignature queryType
   if json
-    then TIO.putStrLn . T.pack . BLC.unpack . encode $
+    then TIO.putStrLn . TL.toStrict . encodeToLazyText $
            object
              [ "query"   .= sigText
              , "results" .= map resultToJson results
@@ -1205,7 +1207,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                    ]
         unless (null errs) $ do
           if json
-            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+            then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                    object $ ["file" .= fp]
                          ++ [ "strict_errors" .= [ object [ "cause" .= cause
                                                          , "fns"   .= fns
@@ -1232,7 +1234,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           -- written so an expert can run fixpoint by hand.
           let reason = "liquid-fixpoint / z3 not found on PATH -- the proof did NOT run"
           if json
-            then TIO.putStrLn . T.pack . BLC.unpack . encode $
+            then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                    object [ "file" .= fp, "fq_file" .= fqPath
                            , "verified" .= False
                            , "solver_available" .= False
@@ -1320,7 +1322,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
             then do
               -- v0.8.0: augment JSON with body-faithful metadata
               let reportJson = formatReportJson report
-                  bodyMeta = T.pack . BLC.unpack . encode $ object
+                  bodyMeta = TL.toStrict . encodeToLazyText $ object
                     [ "body_faithful" .= erBodyFaithfulFns emitR
                     , "body_fallback" .= erBodyFallback emitR
                     ]
@@ -1426,7 +1428,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                               , "suggestion" .= diagSuggestion d
                               ]) weakDiags
                           ]
-                    TIO.putStrLn . T.pack . BLC.unpack $ encode weakJson
+                    TIO.putStrLn . TL.toStrict . encodeToLazyText $ weakJson
             _ -> pure ()
 
           -- LT-CDP (v0.11): contract discriminative power — runs on SAFE results.
@@ -1538,7 +1540,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
                 else TIO.putStr (formatTrustReport stReport)
             unless (Set.null refusal) $ do
               if json
-                then TIO.putStrLn . T.pack . BLC.unpack . encode $
+                then TIO.putStrLn . TL.toStrict . encodeToLazyText $
                        object [ "file" .= fp
                               , "strict_errors" .=
                                   [ object
@@ -1988,7 +1990,7 @@ doSpec jsonOut =
 doVersion :: Bool -> IO ()
 doVersion json =
   if json
-    then TIO.putStrLn . T.pack . BLC.unpack . encode $
+    then TIO.putStrLn . TL.toStrict . encodeToLazyText $
            object ["version" .= showVersion version]
     else TIO.putStrLn $ T.pack ("llmll " ++ showVersion version)
 
