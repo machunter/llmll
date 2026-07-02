@@ -10,9 +10,22 @@ start as `?delegate` holes and are filled by out-of-process agents.
    type-checks (`llmll check auth_module.ast.json` → OK).
 2. **`auth_module_filled.ast.json`** — the *resolved* module after the agents
    return implementations and the loop merges them back.
-3. **Trust:** delegate-bodied functions stay `asserted` (the out-of-process
-   carve-out, LLMLL.md §4.4 / §11.2) — verifying the filled module shows which
-   functions reach which tier.
+3. **Trust:** none of `hash-password-impl`, `verify-token-impl`, or
+   `authenticate-request` carry a `pre`/`post` at all in this fixture, so they
+   land in `--spec-coverage`'s **Unspecified** bucket, not `asserted` — the
+   out-of-process carve-out (LLMLL.md §4.4 / §11.2) is real, but this fixture
+   doesn't exercise it, since there's no stated contract to be asserted-not-
+   proven in the first place. `login-handler` (a `def-shell`) is the one
+   function that shows `asserted`, from its own hand-written `pre` — unrelated
+   to the delegate-filled bodies it composes. Verifying the filled module
+   (`llmll verify auth_module_filled.ast.json --trust-report`) shows this
+   1-contracted-of-4 split directly.
 
-> Distinct from `examples/auth_module/` — that ships concrete impls (no holes);
-> this one is the *delegation/orchestration* story. Do not merge.
+> Distinct from `examples/auth_module/` — despite the name, that fixture is
+> *not* concrete: `llmll holes examples/auth_module/auth_module.ast.json`
+> shows 2 unfilled `?delegate` holes (`login-handler`, `validate-session`),
+> deliberately left as-is since `tools/llmll-orchestra`'s own scan/dry-run/
+> full-run examples use it in that state. The distinction from this
+> walkthrough's fixtures is which *story* each tells (delegation/orchestration
+> mechanics here vs. the orchestrator's own CLI examples there), not
+> holes-vs-no-holes. Do not merge.
