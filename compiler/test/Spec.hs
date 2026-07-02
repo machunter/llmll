@@ -4566,6 +4566,52 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           report = typeCheck GrammarCoreInversion emptyEnv stmts
       reportSuccess report `shouldBe` True
 
+    -- ---------------------------------------------------------------------
+    -- BUG-3 (v0.14.3): false-positive "infinite type" from a bare-name
+    -- collision, isolated from the hangman_json_verifier fixture that
+    -- surfaced it (examples/hangman_json_verifier/hangman.ast.json,
+    -- `make-state`). An unannotated empty-list literal ((list-empty), what
+    -- an empty `[]`/lit-list desugars to) is inferred with an UNRESOLVED
+    -- `TVar "a"` for its element type (nothing ever pins it to a concrete
+    -- type). That bare TVar leaks into the function's inferred body/result
+    -- type (no let-generalization in this checker). Separately, the builtin
+    -- `second :: TFn [TPair (TVar "a") (TVar "b")] (TVar "b")` uses the
+    -- SAME literal name "a" for its own (semantically irrelevant, thrown
+    -- away) placeholder. Before the fix, calling `second` on a value
+    -- containing the leaked list unified second's own "a" against the
+    -- leaked `TList (TVar "a")`, and `occursIn`'s plain string-equality
+    -- check couldn't tell "the same variable" apart from "two unrelated
+    -- variables that happen to be spelled the same" -- firing a false
+    -- "infinite type: a occurs in list[a]" though there was no real cycle.
+    -- Fix: freshenFnType renames a callee's TVars to a globally-unique name
+    -- at every EApp/EOp call site (TypeCheck.hs), so no two call sites (nor
+    -- a call site and a leaked user TVar) can ever collide by name again.
+    -- ---------------------------------------------------------------------
+    it "BUG-3: empty-list TVar does not collide with a builtin's own TVar placeholder (no false 'infinite type')" $ do
+      let stmts =
+            [ SDefLogic "make-state" [] Nothing
+                (Contract Nothing Nothing
+                   -- post: (= (first (second result)) 0) — mirrors
+                   -- make-state's real post shape (pair-accessor chain on
+                   -- `result`), one nesting level shorter than the fixture
+                   -- (which needs two `second`s because its empty list sits
+                   -- one pair-slot deeper) but the same collision mechanism.
+                   (Just (EApp "=" [ EApp "first" [EApp "second" [EVar "result"]]
+                                    , ELit (LitInt 0) ]))
+                   Nothing Nothing)
+                -- body: (pair (list-empty) (pair 0 0)) — an empty list
+                -- directly in the first pair slot, same as make-state's
+                -- `(pair word (pair (lit-list []) ...))` collapsed by one
+                -- level (dropping the outer `word` wrapper is what shortens
+                -- the required `second` nesting from two calls to one).
+                (EApp "pair" [ EApp "list-empty" []
+                             , EApp "pair" [ELit (LitInt 0), ELit (LitInt 0)] ])
+            ]
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      any (T.isInfixOf "infinite type") (map diagMessage errs) `shouldBe` False
+      reportSuccess report `shouldBe` True
+
     -- U2-full: TVar-TVar binding — polymorphic function called with TVar arg
     it "U2-full: TVar-TVar binding records in substitution map" $ do
       let subst = Map.empty :: Map.Map T.Text Type
