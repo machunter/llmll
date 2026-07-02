@@ -37,6 +37,9 @@ module LLMLL.CodegenHs
   , emitHole
     -- * Event Log (v0.3.1)
   , emitEventLogPreamble
+    -- * Package-name sanitization (BUG-2, v0.14.3 — shared with Main.hs so the
+    -- generated executable's on-disk name always matches package.yaml)
+  , sanitizePkgName
   ) where
 
 import Data.Text (Text)
@@ -811,11 +814,33 @@ emitEventLogPreamble =
   , "  action"
   , "  hFlush stdout"
   , "  hDuplicateTo oldStdout stdout"
+  -- BUG-1 follow-on (v0.14.3): hDuplicateTo does not reliably preserve the
+  -- NoBuffering mode set at program start (`stdout` picks up writeEnd's
+  -- default BlockBuffering across the redirect/restore round trip, verified
+  -- empirically -- omitting this line reproduces a hang on interactive
+  -- step-by-step stdin/stdout, e.g. under `llmll replay`, because the
+  -- restored stdout's write below sits in an unflushed block buffer that
+  -- the reader blocks on forever). Re-assert NoBuffering after every
+  -- restore rather than relying on inherited Handle state.
+  , "  hSetBuffering stdout NoBuffering"
   , "  hClose writeEnd"
   , "  readEnd <- fdToHandle readFd"
   , "  output <- hGetContents readEnd"
   , "  length output `seq` pure ()   -- force lazy I/O (professor flag #1)"
-  , "  putStr output"
+  -- BUG-1 follow-on (v0.14.3): must be putStrLn, not putStr. Each step's
+  -- captured output is echoed back to the real stdout with no delimiter
+  -- between steps when `output` itself has no trailing newline (e.g.
+  -- wasi.io.stdout does not append one) -- consecutive steps' output runs
+  -- together on the wire ("helloworld" for inputs "hello","world"). `llmll
+  -- replay`'s runReplay/replayOne (LLMLL.Replay) synchronizes step-by-step
+  -- via hGetLine on this same stream, so with no newline it doesn't just
+  -- look wrong -- it deadlocks: hGetLine blocks forever waiting for a line
+  -- terminator that never arrives, since the child won't reach EOF until it
+  -- gets more stdin, which the parent won't send until hGetLine returns.
+  -- The event log's own recorded value is captured into `output` above,
+  -- before this line, so this only affects the echoed real-stdout framing,
+  -- not what gets logged/compared.
+  , "  putStrLn output"
   , "  pure output"
   ]
 
@@ -936,9 +961,26 @@ emitStackYaml = T.unlines
   , "  - ."
   ]
 
+-- | Sanitize a filename-derived module name into a valid Cabal/hpack package
+-- (and dependency, and executable-component) name. Cabal package names may
+-- only contain letters, digits, and hyphens -- hpack's 'dependencies:' field
+-- parses each entry as a package name and rejects underscores outright
+-- (\"invalid dependency\"), even though the top-level 'name:' field is more
+-- lenient about what it accepts. BUG-2 (v0.14.3): any def-main program whose
+-- filename contained an underscore (e.g. event_log_test.llmll) failed to
+-- build because 'modName' was emitted verbatim as its own self-dependency.
+-- The standard Cabal convention is underscore -> hyphen, applied uniformly
+-- to 'name:', the 'executables:' stanza key, and the self-dependency entry
+-- so all three stay mutually consistent (hpack auto-links the internal
+-- library to an executable whose dependency name matches the package name).
+sanitizePkgName :: Text -> Text
+sanitizePkgName = T.map (\c -> if c == '_' then '-' else c)
+
 emitPackageYaml :: Text -> Bool -> [Text] -> Text
-emitPackageYaml modName hasMain hackagePkgs = T.unlines $
-  [ "name: " <> modName
+emitPackageYaml modName hasMain hackagePkgs =
+  let pkgName = sanitizePkgName modName
+  in T.unlines $
+  [ "name: " <> pkgName
   , "version: 0.1.0"
   , "dependencies:"
   , "  - base >= 4.14"
@@ -962,11 +1004,11 @@ emitPackageYaml modName hasMain hackagePkgs = T.unlines $
   (if hasMain
     then [ ""
          , "executables:"
-         , "  " <> modName <> ":"
+         , "  " <> pkgName <> ":"
          , "    main: Main.hs"
          , "    source-dirs: src"
          , "    dependencies:"
-         , "      - " <> modName
+         , "      - " <> pkgName
          ]
     else [])
 

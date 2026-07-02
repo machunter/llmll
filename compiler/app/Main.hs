@@ -51,7 +51,7 @@ import LLMLL.HoleAnalysis
   , formatHoleReportJson, holeDensityWarnings)
 import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, canonicalDefEvidenceHash, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
-import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..))
+import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName)
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
@@ -66,7 +66,7 @@ import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, check
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
 import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, loadVerified, verifiedPath)
-import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
@@ -1926,21 +1926,40 @@ doReplay json gm srcFp logFp = do
         putStrLn $ "Event log: " ++ show (length entries) ++ " events found in " ++ logFp
 
       -- Build the program to get an executable
-      let modName = takeBaseName srcFp
-          outDir  = "generated/" ++ modName
+      let modName  = takeBaseName srcFp
+          -- BUG-2 (v0.14.3): the executable's on-disk name is the
+          -- hpack/Cabal-sanitized name (underscores -> hyphens; see
+          -- CodegenHs.sanitizePkgName / emitPackageYaml), not the raw
+          -- filename-derived modName. Both must agree or `which` below
+          -- looks for a binary that was never built under that name.
+          execName = T.unpack (sanitizePkgName (T.pack modName))
+          outDir   = "generated/" ++ modName
       unless json $ putStrLn $ "Building " ++ srcFp ++ " ..."
-      doBuild json gm srcFp Nothing False False False ContractsFull
+      -- BUG-1 (v0.14.3): doBuild/doBuildFromJson always terminate the whole
+      -- process via exitSuccess/exitFailure on every path (see doBuild and
+      -- doBuildFromJson below), which previously killed `llmll replay`
+      -- outright before it ever reached runReplay. runCapturingExit
+      -- (LLMLL.Replay) intercepts that ExitCode instead of letting it
+      -- propagate to the RTS, so a successful build lets replay continue
+      -- and a failed build still exits with the build's own failure code
+      -- (no silent swallow).
+      buildCode <- runCapturingExit (doBuild json gm srcFp Nothing False False False ContractsFull)
+      case buildCode of
+        ExitSuccess       -> pure ()
+        code@(ExitFailure _) -> exitWith code
 
-      -- Find the executable (stack build puts it in .stack-work)
-      let execFinder = (proc "stack" ["exec", "which", modName])
-                        { std_out = CreatePipe }
+      -- Find the executable (stack build puts it in .stack-work). `cwd` must
+      -- point at the generated package's own directory so `stack exec`
+      -- resolves the project whose .stack-work actually has the binary.
+      let execFinder = (proc "stack" ["exec", "which", execName])
+                        { std_out = CreatePipe, cwd = Just outDir }
       (_, Just hexec, _, ph) <- createProcess execFinder
       execPath <- hGetLine hexec
       _ <- waitForProcess ph
 
       if null execPath
         then do
-          hPutStrLn stderr $ "Could not find executable for " ++ modName
+          hPutStrLn stderr $ "Could not find executable for " ++ execName
           exitFailure
         else do
           unless json $ putStrLn $ "Running replay against " ++ execPath ++ " ..."

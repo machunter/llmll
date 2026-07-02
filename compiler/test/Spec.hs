@@ -4,6 +4,8 @@ module Main (main) where
 import Test.Hspec
 import Control.Monad (forM_, when)
 import Control.Exception (finally)
+import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -27,7 +29,7 @@ import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResu
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
@@ -39,7 +41,7 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
 import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
-import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
@@ -3591,6 +3593,42 @@ replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
       replayTotal result `shouldBe` 1
       replayMatched result `shouldBe` 0
       length (replayDiverged result) `shouldBe` 1
+
+    -- -----------------------------------------------------------------
+    -- BUG-1 (v0.14.3): `llmll replay`'s doReplay (app/Main.hs) used to call
+    -- doBuild directly. doBuild ends every code path in exitSuccess or
+    -- exitFailure, which unconditionally killed the whole `llmll replay`
+    -- process before it ever reached runReplay -- the "N/N events matched"
+    -- summary was dead, unreachable code. app/Main.hs is the executable
+    -- component (not part of the `llmll` library), so it can't be
+    -- unit-tested directly from this suite; these tests instead exercise
+    -- runCapturingExit, the exact shared helper doReplay now calls to wrap
+    -- the build sub-step (see LLMLL.Replay.runCapturingExit and its call
+    -- site in doReplay). If a future edit reintroduces a raw exitSuccess/
+    -- exitFailure call on doReplay's build step (bypassing this helper),
+    -- these tests won't catch that directly, but they pin down that the
+    -- interception mechanism itself behaves correctly: the caller survives
+    -- past an exiting sub-action, observes its ExitCode, and continues.
+    -- -----------------------------------------------------------------
+    it "BUG-1: runCapturingExit intercepts exitFailure instead of killing the caller" $ do
+      code <- runCapturingExit (exitWith (ExitFailure 3))
+      code `shouldBe` ExitFailure 3
+
+    it "BUG-1: runCapturingExit intercepts exitSuccess, and code AFTER the call still runs" $ do
+      -- This is the crux of BUG-1: before the fix, everything after the
+      -- exiting build step was unreachable because the process was already
+      -- dead. Prove the caller's subsequent code genuinely executes.
+      ranAfter <- newIORef False
+      code <- runCapturingExit exitSuccess
+      code `shouldBe` ExitSuccess
+      writeIORef ranAfter True
+      readIORef ranAfter `shouldReturn` True
+
+    it "BUG-1: runCapturingExit preserves side effects performed before the exit call" $ do
+      sideEffect <- newIORef (0 :: Int)
+      code <- runCapturingExit (writeIORef sideEffect 42 >> exitFailure)
+      code `shouldBe` ExitFailure 1
+      readIORef sideEffect `shouldReturn` 42
 
 -- =====================================================================
 -- Phase E tests: Verify Integration (v0.3.1)
@@ -9890,6 +9928,36 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               T.isInfixOf "hDupTo" mainHs `shouldBe` False
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
+    -- -----------------------------------------------------------------
+    -- BUG-1 follow-ons (v0.14.3), found while live-verifying the BUG-1 fix:
+    -- the console harness's captureStdout echoes each step's output back
+    -- to the real stdout with `putStr` (no trailing newline guaranteed --
+    -- e.g. wasi.io.stdout doesn't add one), so two consecutive steps'
+    -- output ran together with no delimiter ("helloworld" for inputs
+    -- "hello","world"), AND `hDuplicateTo` does not reliably preserve the
+    -- NoBuffering mode set at program start across the redirect/restore
+    -- round trip (verified empirically: omitting the re-assert reproduces
+    -- an interactive stdin/stdout deadlock). Both defects independently
+    -- broke `llmll replay`'s step-by-step hGetLine synchronization
+    -- (LLMLL.Replay.replayOne) even after the BUG-1 exitSuccess/exitFailure
+    -- fix: replay would hang forever instead of completing.
+    -- -----------------------------------------------------------------
+    it "BUG-1 follow-on: captureStdout echoes with putStrLn, not putStr (newline-delimits each step)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "putStrLn output" preamble `shouldBe` True
+      -- regression guard: a bare (non-Ln) putStr on `output` would silently
+      -- reintroduce the concatenated-output / replay-deadlock bug
+      T.isInfixOf "  putStr output" preamble `shouldBe` False
+
+    it "BUG-1 follow-on: captureStdout re-asserts NoBuffering on stdout after hDuplicateTo restores it" $ do
+      let preamble = T.unlines emitEventLogPreamble
+          (_, afterRestore) = T.breakOn "hDuplicateTo oldStdout stdout" preamble
+      -- the re-assert must appear strictly after the restore call, not just
+      -- anywhere in the preamble (the initial `hSetBuffering stdout
+      -- NoBuffering` at program start would otherwise satisfy a bare
+      -- infix check without actually fixing the bug)
+      T.isInfixOf "hSetBuffering stdout NoBuffering" afterRestore `shouldBe` True
+
   describe "CodegenHs emitPackageYaml: unix dependency for def-main's event-log harness" $ do
 
     it "package.yaml declares `unix` (top-level, shared by library+executable) when a def-main is present" $ do
@@ -9911,6 +9979,55 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           let result = generateHaskell "testnopkg" stmts
           cgMainHs result `shouldBe` Nothing
           T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- -----------------------------------------------------------------------
+  -- BUG-2 (v0.14.3): a def-main program whose source filename contains an
+  -- underscore (e.g. event_log_test.llmll) failed to build. emitPackageYaml
+  -- emitted the raw, unsanitized modName as its own self-dependency in
+  -- package.yaml's `dependencies:` list; hpack parses each dependencies:
+  -- entry as a Cabal package name and rejects underscores outright
+  -- ("invalid dependency"), even though the top-level `name:` field alone
+  -- is more lenient. Fix: sanitizePkgName (underscore -> hyphen) applied
+  -- uniformly to `name:`, the `executables:` stanza key, and the
+  -- self-dependency entry, so all three stay mutually consistent.
+  -- -----------------------------------------------------------------------
+
+  describe "CodegenHs sanitizePkgName / emitPackageYaml: underscore filenames (BUG-2)" $ do
+
+    it "sanitizePkgName replaces every underscore with a hyphen" $ do
+      sanitizePkgName "event_log_test" `shouldBe` "event-log-test"
+      sanitizePkgName "already-hyphenated" `shouldBe` "already-hyphenated"
+      sanitizePkgName "no_underscores_" `shouldBe` "no-underscores-"
+
+    it "package.yaml for an underscored def-main module has no underscore anywhere in name:, executables:, or dependencies:" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "event_log_test" stmts
+              yaml    = cgPackageYaml result
+          T.isInfixOf "name: event-log-test" yaml `shouldBe` True
+          T.isInfixOf "  event-log-test:" yaml `shouldBe` True
+          T.isInfixOf "      - event-log-test" yaml `shouldBe` True
+          -- regression guard: the raw underscored form must not survive
+          -- into any hpack-parsed identifier field
+          T.isInfixOf "event_log_test" yaml `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    it "package.yaml self-dependency always equals the sanitized name: (hpack auto-links the internal library by exact-name match)" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))" of
+        Right stmts -> do
+          let result = generateHaskell "a_b_c" stmts
+              yaml    = cgPackageYaml result
+          T.isInfixOf "name: a-b-c" yaml `shouldBe` True
+          T.isInfixOf "      - a-b-c" yaml `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    it "package.yaml for a non-underscored module name is unaffected by sanitization" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def f [] 0)" of
+        Right stmts -> do
+          let result = generateHaskell "cleanname" stmts
+          T.isInfixOf "name: cleanname" (cgPackageYaml result) `shouldBe` True
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
   -- -----------------------------------------------------------------------
