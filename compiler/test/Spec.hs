@@ -1058,6 +1058,63 @@ main = hspec $ do
           jsonTxt = formatTrustReportJson report
       T.isInfixOf "pre_predicate_form" jsonTxt `shouldBe` True
 
+    -- -----------------------------------------------------------------------
+    -- BUG-4 (v0.14.3): pre_source/post_source (RFC-citation provenance, PROV-3
+    -- / CHANGELOG v0.6.1) always rendered null/absent in trust reports.
+    -- ParserJSON.hs correctly reads pre_source/post_source into Contract's
+    -- contractPreSource/contractPostSource, and the formatter (formatEntry,
+    -- the JSON emitter) was already correctly wired to display erSource when
+    -- present -- but collectAllContractStatus's mkCS/mkER helpers built each
+    -- EvidenceRecord from only the clause Expr, never reading
+    -- contractPreSource/contractPostSource, so erSource was hard-coded to
+    -- Nothing on every path regardless of what the source actually
+    -- specified. Fix: mkCS now passes contractPreSource/contractPostSource
+    -- through to mkER, which threads it into erSource's slot.
+    -- -----------------------------------------------------------------------
+    it "BUG-4: contract :source annotation reaches erSource in the trust report (mkCS/mkER threading)" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)]))
+                        (Just "RFC 6238 §4.2 — time step computation")
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)]))
+                        (Just "safety invariant")
+                        Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          entries = trEntries report
+      case filter (\e -> teName e == "f") entries of
+        [e] -> do
+          (tePre e >>= erSource)  `shouldBe` Just "RFC 6238 §4.2 — time step computation"
+          (tePost e >>= erSource) `shouldBe` Just "safety invariant"
+        _   -> expectationFailure "Expected entry for f"
+
+    it "BUG-4: a contract with no :source annotation still has erSource = Nothing (no false provenance)" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)])) Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          entries = trEntries report
+      case filter (\e -> teName e == "f") entries of
+        [e] -> do
+          (tePre e >>= erSource)  `shouldBe` Nothing
+          (tePost e >>= erSource) `shouldBe` Nothing
+        _   -> expectationFailure "Expected entry for f"
+
+    it "BUG-4: formatTrustReportJson emits pre_source/post_source text when :source is present" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)]))
+                        (Just "cite-pre")
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)]))
+                        (Just "cite-post")
+                        Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          jsonTxt = formatTrustReportJson report
+      T.isInfixOf "pre_source"  jsonTxt `shouldBe` True
+      T.isInfixOf "cite-pre"    jsonTxt `shouldBe` True
+      T.isInfixOf "post_source" jsonTxt `shouldBe` True
+      T.isInfixOf "cite-post"   jsonTxt `shouldBe` True
+
     -- PPR-CG1: pre-position predicate-carrying PPR emits predicate assertion
     it "PPR-CG1 pre-position predicate-carrying PPR emits runtime predicate assertion" $ do
       let pred  = EApp ">" [EVar "n", ELit (LitInt 0)]
