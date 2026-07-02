@@ -36,7 +36,20 @@
         "kind": "primitive",
         "name": "int"
       },
-      "pre": null,
+      "pre": {
+        "kind": "op",
+        "op": ">=",
+        "args": [
+          {
+            "kind": "var",
+            "name": "state"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ]
+      },
       "post": {
         "kind": "op",
         "op": ">=",
@@ -79,7 +92,20 @@
         "kind": "primitive",
         "name": "int"
       },
-      "pre": null,
+      "pre": {
+        "kind": "op",
+        "op": ">=",
+        "args": [
+          {
+            "kind": "var",
+            "name": "state"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ]
+      },
       "post": {
         "kind": "op",
         "op": ">=",
@@ -100,7 +126,7 @@
       }
     },
     {
-      "kind": "def",
+      "kind": "def-shell",
       "name": "transfer",
       "params": [
         {
@@ -289,7 +315,7 @@
       }
     },
     {
-      "kind": "def",
+      "kind": "def-shell",
       "name": "transfer-from",
       "params": [
         {

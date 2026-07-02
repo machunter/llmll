@@ -1,7 +1,7 @@
 {
   "benchmark": "erc20-token",
   "schema_version": "0.3.0",
-  "description": "Frozen ground truth for the ERC-20 token benchmark. All values are expected outputs from the LLMLL compiler toolchain.",
+  "description": "Frozen ground truth for the ERC-20 token benchmark. All values are expected outputs from the LLMLL compiler toolchain. Re-baselined 2026-07-02 against llmll 0.14.2 after the original v0.3.0-era expectations (predating BODY-VC v0.8.0, LT-INV core/shell v0.11.0, and TRUST-PRE v0.13.0) stopped holding — see 'future_work' below for what a full 6/6-verified baseline would actually require.",
   "verification_scope": {
     "total_functions": 6,
     "contracted": 6,
@@ -12,58 +12,58 @@
       {
         "property": "total-supply non-negative",
         "function": "total-supply",
-        "level": "Proven",
+        "level": "Verified",
         "theory": "QF-LIA",
-        "rationale": "result >= 0 is pure integer comparison"
+        "rationale": "result >= 0, given (pre (>= state 0)) — pure integer comparison, body-faithful"
       },
       {
         "property": "balance-of non-negative",
         "function": "balance-of",
-        "level": "Proven",
+        "level": "Verified",
         "theory": "QF-LIA",
-        "rationale": "result >= 0 is pure integer comparison"
+        "rationale": "result >= 0, given (pre (>= state 0)) — pure integer comparison, body-faithful"
       },
       {
         "property": "transfer conservation",
         "function": "transfer",
-        "level": "Proven",
-        "theory": "QF-LIA",
-        "rationale": "total-supply(result) = total-supply(state) — integer addition/subtraction"
+        "level": "Asserted",
+        "theory": "QF-LIA (stated, not discharged)",
+        "rationale": "total-supply(result) = total-supply(state) is stated but not solver-discharged: transfer's body is a no-op stub (state modeled as a single int, no real per-account transfer logic) and total-supply is called only inside the postcondition, not the body, so the assume-guarantee call-edge machinery has no call site to compose over. See 'future_work'."
       },
       {
         "property": "transfer non-negative amount",
         "function": "transfer",
-        "level": "Proven",
-        "theory": "QF-LIA",
-        "rationale": "amount >= 0 precondition"
+        "level": "Asserted",
+        "theory": "QF-LIA (stated, not discharged)",
+        "rationale": "amount >= 0 precondition is stated; transfer itself is def-shell (permissive, required to admit calling total-supply/balance-of, which are not in the trusted prelude) and its own body-VC falls back for the same reason as the conservation property above"
       },
       {
         "property": "approve non-negative amount",
         "function": "approve",
-        "level": "Proven",
-        "theory": "QF-LIA",
-        "rationale": "amount >= 0 precondition"
+        "level": "No contract (precondition only)",
+        "theory": "n/a",
+        "rationale": "amount >= 0 is a precondition (a caller obligation) with no postcondition on approve's own behavior, so under TRUST-PRE (v0.13.0) it has no effective post-level and reports as no-contract for trust-report summary purposes — this is correct, current behavior, not a gap"
       },
       {
         "property": "allowance non-negative",
         "function": "allowance",
-        "level": "Proven",
+        "level": "Verified",
         "theory": "QF-LIA",
-        "rationale": "result >= 0 is pure integer comparison"
+        "rationale": "result >= 0 is pure integer comparison, body-faithful"
       },
       {
         "property": "transfer-from conservation",
         "function": "transfer-from",
-        "level": "Proven",
-        "theory": "QF-LIA",
-        "rationale": "total-supply(result) = total-supply(state) — integer arithmetic"
+        "level": "Asserted",
+        "theory": "QF-LIA (stated, not discharged)",
+        "rationale": "same structural limitation as transfer conservation above"
       },
       {
         "property": "transfer-from allowance check",
         "function": "transfer-from",
-        "level": "Proven",
-        "theory": "QF-LIA",
-        "rationale": "allowance >= amount precondition — integer comparison"
+        "level": "Asserted",
+        "theory": "QF-LIA (stated, not discharged)",
+        "rationale": "allowance >= amount precondition is stated; transfer-from is def-shell for the same reason as transfer"
       },
       {
         "property": "map key membership/absence",
@@ -81,6 +81,11 @@
       }
     ]
   },
+  "future_work": {
+    "goal": "Get transfer/transfer-from's own postconditions to genuinely verify (not just be stated), matching what this benchmark originally aspired to.",
+    "why_not_now": "This benchmark models the entire ledger as a single bare int (see total-supply/balance-of's bodies, both literally `(var state)`) with no real per-account balances. transfer's body is a no-op stub; its conservation postcondition calls total-supply only inside the post clause, which the current assume-guarantee call-edge machinery doesn't compose over (it needs a real call site in the body, the way examples/payments-core/transfer.llmll actually calls debit in its body). Getting transfer to verified requires a materially richer benchmark: a real per-account balance representation and a body that actually moves value between two accounts, calling balance-of/total-supply-equivalents as part of that computation -- not just a fixture patch.",
+    "reference_pattern": "examples/payments-core/transfer.llmll shows the shape this would need: a def-shell caller whose body genuinely calls a verified callee, composing to reach verified itself."
+  },
   "expected_spec_coverage": {
     "contracted": 6,
     "suppressed": 0,
@@ -93,10 +98,10 @@
     "note": "All functions have meaningful contracts — no trivially satisfiable specifications"
   },
   "expected_trust_report": {
-    "proven": 6,
+    "verified": 3,
     "tested": 0,
-    "asserted": 0,
-    "no_contract": 0,
+    "asserted": 2,
+    "no_contract": 1,
     "suppressions": []
   }
 }
