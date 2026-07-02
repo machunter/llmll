@@ -10,6 +10,7 @@ module LLMLL.Replay
   , parseEventLog
   , EventLogEntry(..)
   , runReplay
+  , runCapturingExit
   ) where
 
 import Data.Text (Text)
@@ -17,6 +18,7 @@ import qualified Data.Text as T
 import System.Process (createProcess, proc, std_in, std_out, StdStream(..), waitForProcess)
 import System.IO (Handle, hPutStrLn, hFlush, hGetLine, hSetBuffering, BufferMode(..), hClose)
 import Control.Exception (try, SomeException)
+import System.Exit (ExitCode(..))
 
 -- | A single event from the JSONL log.
 data EventLogEntry = EventLogEntry
@@ -150,3 +152,25 @@ replayOne hin hout entry = do
           actual   = T.strip (T.pack output)
       pure (expected == actual)
 
+-- | Run an IO action that always terminates the whole process via
+--   'System.Exit.exitWith' \/ 'exitSuccess' \/ 'exitFailure' on every code
+--   path (this is how @doBuild@\/@doBuildFromJson@ in app\/Main.hs behave),
+--   intercepting the resulting 'ExitCode' instead of letting it propagate
+--   up through the RTS and kill the caller outright.
+--
+--   BUG-1 (v0.14.3): @doReplay@ used to call such a build step directly.
+--   Every path through @doBuild@ ends in 'exitSuccess' or 'exitFailure', so
+--   the call unconditionally terminated the whole @llmll replay@ invocation
+--   before it ever reached 'runReplay' below it — the replay summary
+--   ("N\/N events matched") was dead, unreachable code. Wrapping the build
+--   sub-step in 'runCapturingExit' lets the caller inspect the outcome: on
+--   'ExitSuccess' it continues to 'runReplay'; on 'ExitFailure' it should
+--   re-raise via 'System.Exit.exitWith' so a build failure still fails the
+--   whole command (no silent swallow).
+--
+--   'System.Exit.exitWith' is documented to work by throwing an 'ExitCode'
+--   exception that the RTS normally catches at the top level; catching it
+--   ourselves first is the standard technique for running an
+--   exit-terminated sub-step without dying with it.
+runCapturingExit :: IO () -> IO ExitCode
+runCapturingExit act = either id (const ExitSuccess) <$> try act

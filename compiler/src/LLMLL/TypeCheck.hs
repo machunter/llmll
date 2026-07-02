@@ -217,6 +217,15 @@ data TCState = TCState
   -- LT-INV (v0.11): core/shell grammar mode
   , tcGrammarMode    :: GrammarMode  -- ^ active grammar mode, set by the caller
   , tcCoreMode       :: Bool         -- ^ True while type-checking inside a strict-core SDef body
+  -- BUG-3 (v0.14.3): monotonic counter for freshening a callee's polymorphic
+  -- TVars at each call site (see freshenFnType). Without this, two unrelated
+  -- instantiations of the same builtin signature -- or a builtin's TVar and
+  -- an unrelated user-inferred TVar that escaped its per-call-site scope
+  -- (e.g. an unannotated empty list literal, `TList (TVar "a")`, carried
+  -- through the type environment) -- can coincidentally share a bare name
+  -- like "a", and structuralUnify's occurs check (occursIn, string-equality
+  -- on TVar names) fires a false "infinite type" on the coincidence alone.
+  , tcTVarCounter    :: Int
   } deriving (Show)
 
 type TC a = State TCState a
@@ -437,13 +446,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTC gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode.
 runTCSketch :: GrammarMode -> TypeEnv -> TC a -> (a, TCState)
 runTCSketch gm env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False)
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -547,7 +556,7 @@ typeCheckStrict gm env stmts =
 
 runTCStrict :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTCStrict gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0)
   in (result, tcErrors st)
 
 -- | v0.6.3: Strict typecheck with module cache.
@@ -592,7 +601,7 @@ typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
       -- shadow these in 'checkStatements' (local wins; same direction as 'open').
       seededAliases = Map.foldl seedAliases Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False)
+        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -1179,7 +1188,12 @@ inferExpr (EApp func args) = do
     tcWarn $ "dotted function name '" <> func <> "' in app position is not supported; "
            <> "use (open <module-path>) and call the bare exported name. "
            <> "For Result constructors, use 'ok' and 'err' instead of qualified forms."
-  mFuncTy <- tcLookup func
+  -- BUG-3 (v0.14.3): freshen the callee's TVars for this call site so a
+  -- polymorphic builtin's own placeholder names (e.g. "a"/"b" in `second`)
+  -- can never collide with an unrelated leaked TVar or another call's
+  -- instantiation of the same signature. See freshenFnType.
+  mFuncTyRaw <- tcLookup func
+  mFuncTy    <- traverse freshenFnType mFuncTyRaw
   let nArgs = length args
   -- D2: warn when a def-logic calls itself recursively without :decreases (GrammarLegacy only).
   -- Under GrammarCoreInversion: def-shell self-calls are correct (no warning); def self-calls
@@ -1251,7 +1265,9 @@ inferExpr (EOp op args) = do
   -- (=, !=, etc.) declare TVar "a" in builtinEnv; structuralUnify's
   -- per-call-site substitution map enforces same-tyvar-same-type within one
   -- call, so (= 1 "1") fails at arg 1 against the int bound from arg 0.
-  case Map.lookup op builtinEnv of
+  -- BUG-3 (v0.14.3): freshen for the same reason as the EApp path above.
+  mOpTy <- traverse freshenFnType (Map.lookup op builtinEnv)
+  case mOpTy of
     Just (TFn paramTypes retType) -> do
       let nArgs = length args
       when (nArgs /= length paramTypes) $
@@ -1553,6 +1569,64 @@ occursIn a (TMap k v)         = occursIn a k || occursIn a v
 occursIn a (TDependent _ b _) = occursIn a b
 occursIn a (TSumType ctors)   = any (\(_, mT) -> maybe False (occursIn a) mT) ctors
 occursIn _ _                  = False  -- TInt, TString, TBool, TUnit, TBytes, TCustom, TFloat, TDelegationError
+
+-- | Collect every distinct TVar name occurring (structurally) in a type.
+-- Mirrors 'occursIn's constructor coverage exactly, as a set-builder instead
+-- of a membership test. Used by 'freshenFnType' (BUG-3, v0.14.3).
+freeTVarNames :: Type -> Set.Set Name
+freeTVarNames (TVar a)           = Set.singleton a
+freeTVarNames (TList t)          = freeTVarNames t
+freeTVarNames (TResult x y)      = Set.union (freeTVarNames x) (freeTVarNames y)
+freeTVarNames (TPair x y)        = Set.union (freeTVarNames x) (freeTVarNames y)
+freeTVarNames (TFn ps r)         = Set.unions (map freeTVarNames ps) `Set.union` freeTVarNames r
+freeTVarNames (TPromise t)       = freeTVarNames t
+freeTVarNames (TMap k v)         = Set.union (freeTVarNames k) (freeTVarNames v)
+freeTVarNames (TDependent _ b _) = freeTVarNames b
+freeTVarNames (TSumType ctors)   = Set.unions [ maybe Set.empty freeTVarNames mT | (_, mT) <- ctors ]
+freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TBytes, TCustom, TFloat, TDelegationError
+
+-- | BUG-3 (v0.14.3): instantiate a (possibly polymorphic) function type with
+-- fresh, globally-unique TVar names before it is used at a call site.
+--
+-- Root cause this fixes: 'builtinEnv' declares polymorphic builtins with
+-- fixed, literal TVar names ("a", "b", ...), e.g. @second :: TFn [TPair
+-- (TVar "a") (TVar "b")] (TVar "b")@ -- and every call to the same builtin
+-- resolves to the exact same 'Type' value (a constant Map lookup, never
+-- instantiated). Separately, an unannotated empty-list literal is inferred
+-- with an unbound 'TVar "a"' that is never resolved to a concrete element
+-- type; because LLMLL has no let-generalization, this bare TVar propagates
+-- structurally through the type environment wherever the binding is used.
+-- When such a leaked user TVar and a builtin's own placeholder happen to
+-- share a bare name, 'structuralUnify's occurs check ('occursIn', plain
+-- string equality on TVar names) cannot tell "the same variable, seen
+-- twice" apart from "two unrelated variables that happen to be spelled the
+-- same" -- and fires a false "infinite type" on the latter.
+--
+-- Fix scope (deliberately narrow, not full HM let-polymorphism): freshen
+-- only the *callee's own* TVars at each 'EApp'/'EOp' call site, via a
+-- monotonic per-typecheck-run counter ('tcTVarCounter'). This is standard
+-- Hindley-Milner instantiation (rename bound TVars to fresh names before
+-- unification) applied at exactly the two call sites that look up a
+-- function/operator type from the environment. It does not touch
+-- let-bound value types (e.g. the leaked empty-list TVar itself is left
+-- alone) -- full let-generalization/instantiation is a materially larger
+-- change and out of scope for this fix; narrowing to callee-signature
+-- freshening is sufficient because collisions require a *builtin's*
+-- fixed-name TVar on one side, and after freshening no two call sites (nor
+-- a call site and an unrelated leaked TVar) can ever share a name again.
+-- No-op (and free) for any concrete, TVar-free type, which covers ordinary
+-- user-defined 'def'/'def-shell' signatures (LLMLL's surface syntax has no
+-- generic/type-variable annotation, so user function types never contain a
+-- TVar in the first place).
+freshenFnType :: Type -> TC Type
+freshenFnType t =
+  case Set.toList (freeTVarNames t) of
+    []  -> pure t  -- no TVars: nothing to freshen (the common case for user defs)
+    vs -> do
+      n <- gets tcTVarCounter
+      modify $ \s -> s { tcTVarCounter = n + 1 }
+      let rename = Map.fromList [ (v, TVar (v <> "$" <> tshow n)) | v <- vs ]
+      pure (applySubst rename t)
 
 -- | Structural unification with substitution tracking.
 -- When a TVar in the expected type first encounters a concrete actual type,

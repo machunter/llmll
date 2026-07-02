@@ -4,6 +4,8 @@ module Main (main) where
 import Test.Hspec
 import Control.Monad (forM_, when)
 import Control.Exception (finally)
+import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Maybe (fromJust, isJust, listToMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -27,7 +29,7 @@ import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResu
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
-import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..))
+import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
@@ -39,7 +41,7 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
 import LLMLL.Module (mergeCS)
 import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
-import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..))
+import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
@@ -1055,6 +1057,63 @@ main = hspec $ do
           report  = buildTrustReport Map.empty stmts Map.empty
           jsonTxt = formatTrustReportJson report
       T.isInfixOf "pre_predicate_form" jsonTxt `shouldBe` True
+
+    -- -----------------------------------------------------------------------
+    -- BUG-4 (v0.14.3): pre_source/post_source (RFC-citation provenance, PROV-3
+    -- / CHANGELOG v0.6.1) always rendered null/absent in trust reports.
+    -- ParserJSON.hs correctly reads pre_source/post_source into Contract's
+    -- contractPreSource/contractPostSource, and the formatter (formatEntry,
+    -- the JSON emitter) was already correctly wired to display erSource when
+    -- present -- but collectAllContractStatus's mkCS/mkER helpers built each
+    -- EvidenceRecord from only the clause Expr, never reading
+    -- contractPreSource/contractPostSource, so erSource was hard-coded to
+    -- Nothing on every path regardless of what the source actually
+    -- specified. Fix: mkCS now passes contractPreSource/contractPostSource
+    -- through to mkER, which threads it into erSource's slot.
+    -- -----------------------------------------------------------------------
+    it "BUG-4: contract :source annotation reaches erSource in the trust report (mkCS/mkER threading)" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)]))
+                        (Just "RFC 6238 §4.2 — time step computation")
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)]))
+                        (Just "safety invariant")
+                        Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          entries = trEntries report
+      case filter (\e -> teName e == "f") entries of
+        [e] -> do
+          (tePre e >>= erSource)  `shouldBe` Just "RFC 6238 §4.2 — time step computation"
+          (tePost e >>= erSource) `shouldBe` Just "safety invariant"
+        _   -> expectationFailure "Expected entry for f"
+
+    it "BUG-4: a contract with no :source annotation still has erSource = Nothing (no false provenance)" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)])) Nothing
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          entries = trEntries report
+      case filter (\e -> teName e == "f") entries of
+        [e] -> do
+          (tePre e >>= erSource)  `shouldBe` Nothing
+          (tePost e >>= erSource) `shouldBe` Nothing
+        _   -> expectationFailure "Expected entry for f"
+
+    it "BUG-4: formatTrustReportJson emits pre_source/post_source text when :source is present" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)]))
+                        (Just "cite-pre")
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)]))
+                        (Just "cite-post")
+                        Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          jsonTxt = formatTrustReportJson report
+      T.isInfixOf "pre_source"  jsonTxt `shouldBe` True
+      T.isInfixOf "cite-pre"    jsonTxt `shouldBe` True
+      T.isInfixOf "post_source" jsonTxt `shouldBe` True
+      T.isInfixOf "cite-post"   jsonTxt `shouldBe` True
 
     -- PPR-CG1: pre-position predicate-carrying PPR emits predicate assertion
     it "PPR-CG1 pre-position predicate-carrying PPR emits runtime predicate assertion" $ do
@@ -3592,6 +3651,42 @@ replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
       replayMatched result `shouldBe` 0
       length (replayDiverged result) `shouldBe` 1
 
+    -- -----------------------------------------------------------------
+    -- BUG-1 (v0.14.3): `llmll replay`'s doReplay (app/Main.hs) used to call
+    -- doBuild directly. doBuild ends every code path in exitSuccess or
+    -- exitFailure, which unconditionally killed the whole `llmll replay`
+    -- process before it ever reached runReplay -- the "N/N events matched"
+    -- summary was dead, unreachable code. app/Main.hs is the executable
+    -- component (not part of the `llmll` library), so it can't be
+    -- unit-tested directly from this suite; these tests instead exercise
+    -- runCapturingExit, the exact shared helper doReplay now calls to wrap
+    -- the build sub-step (see LLMLL.Replay.runCapturingExit and its call
+    -- site in doReplay). If a future edit reintroduces a raw exitSuccess/
+    -- exitFailure call on doReplay's build step (bypassing this helper),
+    -- these tests won't catch that directly, but they pin down that the
+    -- interception mechanism itself behaves correctly: the caller survives
+    -- past an exiting sub-action, observes its ExitCode, and continues.
+    -- -----------------------------------------------------------------
+    it "BUG-1: runCapturingExit intercepts exitFailure instead of killing the caller" $ do
+      code <- runCapturingExit (exitWith (ExitFailure 3))
+      code `shouldBe` ExitFailure 3
+
+    it "BUG-1: runCapturingExit intercepts exitSuccess, and code AFTER the call still runs" $ do
+      -- This is the crux of BUG-1: before the fix, everything after the
+      -- exiting build step was unreachable because the process was already
+      -- dead. Prove the caller's subsequent code genuinely executes.
+      ranAfter <- newIORef False
+      code <- runCapturingExit exitSuccess
+      code `shouldBe` ExitSuccess
+      writeIORef ranAfter True
+      readIORef ranAfter `shouldReturn` True
+
+    it "BUG-1: runCapturingExit preserves side effects performed before the exit call" $ do
+      sideEffect <- newIORef (0 :: Int)
+      code <- runCapturingExit (writeIORef sideEffect 42 >> exitFailure)
+      code `shouldBe` ExitFailure 1
+      readIORef sideEffect `shouldReturn` 42
+
 -- =====================================================================
 -- Phase E tests: Verify Integration (v0.3.1)
 -- =====================================================================
@@ -3895,6 +3990,56 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           entries = holeEntries report
       length entries `shouldBe` 1
       HA.holePointer (head entries) `shouldBe` "/statements/0/body/then_branch"
+
+  -- -----------------------------------------------------------------
+  -- BUG-5 (v0.14.3): doubled "@" in delegate-hole messages.
+  -- holeKindLabel prepended a literal "@" even though delegateAgent
+  -- already carries its "@" prefix (Syntax.hs's DelegateSpec doc, the
+  -- verbatim JSON emission in AstEmit.hs, every examples/*.ast.json
+  -- fixture, and tools/llmll-orchestra's Python side all agree "agent" is
+  -- always spelled "@name"). Confirmed live: `llmll holes --json` on any
+  -- file with a ?delegate hole showed "message":"hole: ?delegate
+  -- @@crypto-agent". Follow-on found in the same investigation: the
+  -- S-expression parser's pAgentRef discarded the leading "@" instead of
+  -- keeping it (Parser.hs), the one inconsistent producer of the
+  -- convention -- fixed alongside so the invariant holds for every source
+  -- format, not just JSON-AST.
+  -- -----------------------------------------------------------------
+
+  describe "BUG-5: delegate-hole agent label formatting" $ do
+    it "holeKindLabel does not double the '@' when delegateAgent already carries it" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "@crypto-agent" "task" TInt Nothing)))
+                 ]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      holeName (head entries) `shouldBe` "?delegate @crypto-agent"
+      T.isInfixOf "@@" (holeName (head entries)) `shouldBe` False
+
+    it "holeKindLabel does not double the '@' for ?delegate-async either" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EAwait (EHole (HDelegateAsync (DelegateSpec "@math-agent" "task" TInt Nothing))))
+                 ]
+          report = analyzeHoles prog
+          entries = holeEntries report
+      length entries `shouldBe` 1
+      holeName (head entries) `shouldBe` "?delegate-async @math-agent"
+      T.isInfixOf "@@" (holeName (head entries)) `shouldBe` False
+
+    it "JSON hole report 'message' field shows a single '@', not a doubled '@@' (auth_module-style fixture)" $ do
+      let prog = [ SDefLogic "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
+                     (EHole (HDelegate (DelegateSpec "@crypto-agent" "task" TInt Nothing)))
+                 ]
+          json = HA.formatHoleReportJson "<test>" False (analyzeHoles prog)
+      T.isInfixOf "hole: ?delegate @crypto-agent" json `shouldBe` True
+      T.isInfixOf "@@" json `shouldBe` False
+
+    it "pAgentRef (S-expression parser) keeps the '@' prefix on the parsed agent name" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (?delegate @crypto-agent \"task\" -> int))" of
+        Right [SDefShell _ _ _ _ (EHole (HDelegate spec))] ->
+          delegateAgent spec `shouldBe` "@crypto-agent"
+        other -> expectationFailure $ "Unexpected parse result: " ++ show other
 
   -- -----------------------------------------------------------------
   -- Dependency analysis (3 tests)
@@ -4526,6 +4671,52 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "list-head" [EVar "xs"])
             ]
           report = typeCheck GrammarCoreInversion emptyEnv stmts
+      reportSuccess report `shouldBe` True
+
+    -- ---------------------------------------------------------------------
+    -- BUG-3 (v0.14.3): false-positive "infinite type" from a bare-name
+    -- collision, isolated from the hangman_json_verifier fixture that
+    -- surfaced it (examples/hangman_json_verifier/hangman.ast.json,
+    -- `make-state`). An unannotated empty-list literal ((list-empty), what
+    -- an empty `[]`/lit-list desugars to) is inferred with an UNRESOLVED
+    -- `TVar "a"` for its element type (nothing ever pins it to a concrete
+    -- type). That bare TVar leaks into the function's inferred body/result
+    -- type (no let-generalization in this checker). Separately, the builtin
+    -- `second :: TFn [TPair (TVar "a") (TVar "b")] (TVar "b")` uses the
+    -- SAME literal name "a" for its own (semantically irrelevant, thrown
+    -- away) placeholder. Before the fix, calling `second` on a value
+    -- containing the leaked list unified second's own "a" against the
+    -- leaked `TList (TVar "a")`, and `occursIn`'s plain string-equality
+    -- check couldn't tell "the same variable" apart from "two unrelated
+    -- variables that happen to be spelled the same" -- firing a false
+    -- "infinite type: a occurs in list[a]" though there was no real cycle.
+    -- Fix: freshenFnType renames a callee's TVars to a globally-unique name
+    -- at every EApp/EOp call site (TypeCheck.hs), so no two call sites (nor
+    -- a call site and a leaked user TVar) can ever collide by name again.
+    -- ---------------------------------------------------------------------
+    it "BUG-3: empty-list TVar does not collide with a builtin's own TVar placeholder (no false 'infinite type')" $ do
+      let stmts =
+            [ SDefLogic "make-state" [] Nothing
+                (Contract Nothing Nothing
+                   -- post: (= (first (second result)) 0) — mirrors
+                   -- make-state's real post shape (pair-accessor chain on
+                   -- `result`), one nesting level shorter than the fixture
+                   -- (which needs two `second`s because its empty list sits
+                   -- one pair-slot deeper) but the same collision mechanism.
+                   (Just (EApp "=" [ EApp "first" [EApp "second" [EVar "result"]]
+                                    , ELit (LitInt 0) ]))
+                   Nothing Nothing)
+                -- body: (pair (list-empty) (pair 0 0)) — an empty list
+                -- directly in the first pair slot, same as make-state's
+                -- `(pair word (pair (lit-list []) ...))` collapsed by one
+                -- level (dropping the outer `word` wrapper is what shortens
+                -- the required `second` nesting from two calls to one).
+                (EApp "pair" [ EApp "list-empty" []
+                             , EApp "pair" [ELit (LitInt 0), ELit (LitInt 0)] ])
+            ]
+          report = typeCheck GrammarCoreInversion emptyEnv stmts
+          errs = filter (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+      any (T.isInfixOf "infinite type") (map diagMessage errs) `shouldBe` False
       reportSuccess report `shouldBe` True
 
     -- U2-full: TVar-TVar binding — polymorphic function called with TVar arg
@@ -9890,6 +10081,36 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               T.isInfixOf "hDupTo" mainHs `shouldBe` False
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
+    -- -----------------------------------------------------------------
+    -- BUG-1 follow-ons (v0.14.3), found while live-verifying the BUG-1 fix:
+    -- the console harness's captureStdout echoes each step's output back
+    -- to the real stdout with `putStr` (no trailing newline guaranteed --
+    -- e.g. wasi.io.stdout doesn't add one), so two consecutive steps'
+    -- output ran together with no delimiter ("helloworld" for inputs
+    -- "hello","world"), AND `hDuplicateTo` does not reliably preserve the
+    -- NoBuffering mode set at program start across the redirect/restore
+    -- round trip (verified empirically: omitting the re-assert reproduces
+    -- an interactive stdin/stdout deadlock). Both defects independently
+    -- broke `llmll replay`'s step-by-step hGetLine synchronization
+    -- (LLMLL.Replay.replayOne) even after the BUG-1 exitSuccess/exitFailure
+    -- fix: replay would hang forever instead of completing.
+    -- -----------------------------------------------------------------
+    it "BUG-1 follow-on: captureStdout echoes with putStrLn, not putStr (newline-delimits each step)" $ do
+      let preamble = T.unlines emitEventLogPreamble
+      T.isInfixOf "putStrLn output" preamble `shouldBe` True
+      -- regression guard: a bare (non-Ln) putStr on `output` would silently
+      -- reintroduce the concatenated-output / replay-deadlock bug
+      T.isInfixOf "  putStr output" preamble `shouldBe` False
+
+    it "BUG-1 follow-on: captureStdout re-asserts NoBuffering on stdout after hDuplicateTo restores it" $ do
+      let preamble = T.unlines emitEventLogPreamble
+          (_, afterRestore) = T.breakOn "hDuplicateTo oldStdout stdout" preamble
+      -- the re-assert must appear strictly after the restore call, not just
+      -- anywhere in the preamble (the initial `hSetBuffering stdout
+      -- NoBuffering` at program start would otherwise satisfy a bare
+      -- infix check without actually fixing the bug)
+      T.isInfixOf "hSetBuffering stdout NoBuffering" afterRestore `shouldBe` True
+
   describe "CodegenHs emitPackageYaml: unix dependency for def-main's event-log harness" $ do
 
     it "package.yaml declares `unix` (top-level, shared by library+executable) when a def-main is present" $ do
@@ -9911,6 +10132,55 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           let result = generateHaskell "testnopkg" stmts
           cgMainHs result `shouldBe` Nothing
           T.isInfixOf "  - unix" (cgPackageYaml result) `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- -----------------------------------------------------------------------
+  -- BUG-2 (v0.14.3): a def-main program whose source filename contains an
+  -- underscore (e.g. event_log_test.llmll) failed to build. emitPackageYaml
+  -- emitted the raw, unsanitized modName as its own self-dependency in
+  -- package.yaml's `dependencies:` list; hpack parses each dependencies:
+  -- entry as a Cabal package name and rejects underscores outright
+  -- ("invalid dependency"), even though the top-level `name:` field alone
+  -- is more lenient. Fix: sanitizePkgName (underscore -> hyphen) applied
+  -- uniformly to `name:`, the `executables:` stanza key, and the
+  -- self-dependency entry, so all three stay mutually consistent.
+  -- -----------------------------------------------------------------------
+
+  describe "CodegenHs sanitizePkgName / emitPackageYaml: underscore filenames (BUG-2)" $ do
+
+    it "sanitizePkgName replaces every underscore with a hyphen" $ do
+      sanitizePkgName "event_log_test" `shouldBe` "event-log-test"
+      sanitizePkgName "already-hyphenated" `shouldBe` "already-hyphenated"
+      sanitizePkgName "no_underscores_" `shouldBe` "no-underscores-"
+
+    it "package.yaml for an underscored def-main module has no underscore anywhere in name:, executables:, or dependencies:" $ do
+      let src = "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Right stmts -> do
+          let result = generateHaskell "event_log_test" stmts
+              yaml    = cgPackageYaml result
+          T.isInfixOf "name: event-log-test" yaml `shouldBe` True
+          T.isInfixOf "  event-log-test:" yaml `shouldBe` True
+          T.isInfixOf "      - event-log-test" yaml `shouldBe` True
+          -- regression guard: the raw underscored form must not survive
+          -- into any hpack-parsed identifier field
+          T.isInfixOf "event_log_test" yaml `shouldBe` False
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    it "package.yaml self-dependency always equals the sanitized name: (hpack auto-links the internal library by exact-name match)" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def-main :mode console :step (fn [s: string input: string] (pair s (wasi.io.stdout input))))" of
+        Right stmts -> do
+          let result = generateHaskell "a_b_c" stmts
+              yaml    = cgPackageYaml result
+          T.isInfixOf "name: a-b-c" yaml `shouldBe` True
+          T.isInfixOf "      - a-b-c" yaml `shouldBe` True
+        Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+    it "package.yaml for a non-underscored module name is unaffected by sanitization" $ do
+      case parseStatements GrammarCoreInversion "<test>" "(def f [] 0)" of
+        Right stmts -> do
+          let result = generateHaskell "cleanname" stmts
+          T.isInfixOf "name: cleanname" (cgPackageYaml result) `shouldBe` True
         Left err -> expectationFailure $ "Parse failed: " ++ show err
 
   -- -----------------------------------------------------------------------

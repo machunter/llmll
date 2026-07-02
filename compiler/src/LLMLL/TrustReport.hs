@@ -507,25 +507,36 @@ collectAllContractStatus cache entryStmts =
     -- bare `-> RetType` function (no explicit `post`) gets a csPost slot for the
     -- sidecar's verified evidence to surface. Matches the write-side basis.
     am = buildAliasMap entryStmts
+    -- BUG-4 (v0.14.3): mkER now takes the clause's :source provenance
+    -- (contractPreSource / contractPostSource) and threads it into
+    -- erSource, instead of hard-coding Nothing on every path. The parser
+    -- (ParserJSON.hs) already reads pre_source/post_source into Contract,
+    -- and the trust-report formatter (formatEntry, the JSON emitter) was
+    -- already correctly wired to display erSource when present — this was
+    -- the one missing link, present since a v0.11-era commit (3391713),
+    -- that silently dropped it before it ever reached either. augmentContractPost
+    -- only ever record-updates `contractPost`, so `contractPostSource cAug`
+    -- always equals `contractPostSource c` (the return-refinement synthesis
+    -- carries no citation of its own to merge in).
     mkCS name mRet c =
       let cAug = augmentContractPost am mRet c
       in if contractPre c /= Nothing || contractPost cAug /= Nothing
            then Just (name, ContractStatus
-                  { csPre  = fmap mkER (contractPre c)
-                  , csPost = fmap mkER (contractPost cAug)
+                  { csPre  = fmap (mkER (contractPreSource c)) (contractPre c)
+                  , csPost = fmap (mkER (contractPostSource cAug)) (contractPost cAug)
                   , csAssumptions = []
                   })
            else Nothing
     -- LT-PPR (v0.11): populate predicate fields when clause is a
     -- predicate-carrying ?proof-required hole; otherwise use defaults.
-    mkER :: Expr -> EvidenceRecord
-    mkER (EHole (HProofRequired _ (Just pred))) =
-      EvidenceRecord DLAsserted False Nothing [] False
+    mkER :: Maybe Text -> Expr -> EvidenceRecord
+    mkER src (EHole (HProofRequired _ (Just pred))) =
+      EvidenceRecord DLAsserted False src [] False
         (Just "runtime")
         (Just (T.pack (BLC.unpack (encode (exprToJson pred)))))
         True
         Nothing
-    mkER _ = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing
+    mkER src _ = EvidenceRecord DLAsserted False src [] False Nothing Nothing False Nothing
 
 -- | XMOD-TIER: inject bare-name aliases into the contract-status map for every
 -- name brought into scope by an @(open M)@ in the entry module, mirroring the
