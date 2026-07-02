@@ -8836,6 +8836,60 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             cdpWarnings r `shouldSatisfy` (WarnIdentitySatisfiesPost `elem`)
           Nothing -> expectationFailure "expected entry for f"
 
+    -- C23-C26: spec-entropy-gated diagnostic suppression (CDP default-on
+    -- precondition (c) — LLMLL.md §4.4.6 documents that ':intentional' /
+    -- ':unknown' suppress the low-DP warnings while ':strict' raises them;
+    -- 'buildWarnings' previously ignored the annotation entirely (fixed here).
+    describe "C23-C26 spec-entropy suppression gating (§4.4.6)" $ do
+      let mkStmt se = SDef "f" [("n", TInt)] (Just TInt)
+            (Contract (Just (EApp ">=" [EVar "n", ELit (LitInt 0)])) Nothing
+                      (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing se)
+            (EVar "n")
+          alwaysTrue  _wc = pure (Just True)   -- every candidate "satisfies" → identity-satisfies-post territory
+          alwaysFalse _wc = pure (Just False)  -- zero candidates satisfy → spec-inconsistent-or-unproven territory
+
+      it "C23 :intentional suppresses WarnIdentitySatisfiesPost, score still reported" $ do
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly alwaysTrue Map.empty
+                     [mkStmt (Just SpecEntropyIntentional)]
+        case Map.lookup "f" results of
+          Just r -> do
+            cdpWarnings r `shouldSatisfy` (not . (WarnIdentitySatisfiesPost `elem`))
+            cdpScore r `shouldBe` Just 0.0
+            cdpSpecEntropyAnnotation r `shouldBe` SpecEntropyIntentional
+          Nothing -> expectationFailure "expected entry for f"
+
+      it "C24 :unknown also suppresses WarnIdentitySatisfiesPost (does-not-raise, not just intentional)" $ do
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly alwaysTrue Map.empty
+                     [mkStmt (Just SpecEntropyUnknown)]
+        case Map.lookup "f" results of
+          Just r -> cdpWarnings r `shouldSatisfy` (not . (WarnIdentitySatisfiesPost `elem`))
+          Nothing -> expectationFailure "expected entry for f"
+
+      it "C23-regression :strict (absent annotation) still raises WarnIdentitySatisfiesPost" $ do
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly alwaysTrue Map.empty
+                     [mkStmt Nothing]
+        case Map.lookup "f" results of
+          Just r -> cdpWarnings r `shouldSatisfy` (WarnIdentitySatisfiesPost `elem`)
+          Nothing -> expectationFailure "expected entry for f"
+
+      it "C25 :intentional does NOT suppress WarnSpecInconsistentOrUnproven (different axis — possible inconsistency, not permissiveness)" $ do
+        results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly alwaysFalse Map.empty
+                     [mkStmt (Just SpecEntropyIntentional)]
+        case Map.lookup "f" results of
+          Just r -> cdpWarnings r `shouldSatisfy` (WarnSpecInconsistentOrUnproven `elem`)
+          Nothing -> expectationFailure "expected entry for f"
+
+      it "C26 tryCandidate resolves and threads spec-entropy onto every generated WeaknessCandidate" $ do
+        let stmtsIntentional = [mkStmt (Just SpecEntropyIntentional)]
+            stmtsAbsent      = [mkStmt Nothing]
+        map wcSpecEntropy (generateCDPCandidates GrammarCoreInversion stmtsIntentional)
+          `shouldSatisfy` (all (== SpecEntropyIntentional))
+        map wcSpecEntropy (generateWeaknessCandidates GrammarCoreInversion stmtsIntentional)
+          `shouldSatisfy` (all (== SpecEntropyIntentional))
+        -- absent annotation resolves to the ':strict' default (proposal §3), not left unresolved
+        map wcSpecEntropy (generateCDPCandidates GrammarCoreInversion stmtsAbsent)
+          `shouldSatisfy` (all (== SpecEntropyStrict))
+
     -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
     describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do
 

@@ -46,6 +46,8 @@ module LLMLL.Syntax
   , SpecEntropy(..)
   , specEntropyLabel
   , parseSpecEntropy
+  , resolveSpecEntropy
+  , raiseLowDP
 
     -- * Evidence Model (v0.8.1b)
   , DisplayLevel(..)
@@ -342,6 +344,24 @@ parseSpecEntropy "strict"      = Just SpecEntropyStrict
 parseSpecEntropy "intentional" = Just SpecEntropyIntentional
 parseSpecEntropy "unknown"     = Just SpecEntropyUnknown
 parseSpecEntropy _             = Nothing
+
+-- | Resolve a contract's spec-entropy annotation, defaulting absent
+-- annotations to ':strict' per proposal §3. Single source of truth for the
+-- 'Nothing -> SpecEntropyStrict' default — used by both 'LLMLL.CDP' and
+-- 'LLMLL.WeaknessCheck' (the latter cannot import 'LLMLL.CDP', which imports
+-- it, so this lives here rather than in 'LLMLL.CDP').
+resolveSpecEntropy :: Contract -> SpecEntropy
+resolveSpecEntropy c = case contractSpecEntropy c of
+  Just se -> se
+  Nothing -> SpecEntropyStrict
+
+-- | Does this annotation raise a low-DP diagnostic (identity/const-satisfies
+-- warnings under '--cdp', spec-weakness under '--weakness-check')? Per §4.4.6:
+-- ':strict' raises; ':intentional' and ':unknown' both suppress (they differ
+-- only in author intent, not in whether the diagnostic fires).
+raiseLowDP :: SpecEntropy -> Bool
+raiseLowDP SpecEntropyStrict = True
+raiseLowDP _                 = False
 
 -- ---------------------------------------------------------------------------
 -- Evidence Model (v0.8.1b — Diamond Lattice)

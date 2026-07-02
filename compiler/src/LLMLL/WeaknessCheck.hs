@@ -131,6 +131,9 @@ data WeaknessCandidate = WeaknessCandidate
   , wcSyntheticStmt :: Statement     -- ^ synthetic SDefLogic for emitFixpoint
   , wcPrecondition  :: Maybe Expr    -- ^ original pre (for EC-7 diagnostic text)
   , wcPostcondition :: Maybe Expr    -- ^ original post
+  , wcSpecEntropy   :: SpecEntropy   -- ^ resolved '(spec-entropy ...)' annotation (§4.4.6);
+                                     -- gates whether a passing trivial body raises a
+                                     -- 'spec-weakness' diagnostic (Main.hs 'checkWeaknessCandidate')
   } deriving (Show)
 
 -- | CDP deep-dive Rev 5 (item 5): the name 'wcSyntheticStmt' is registered
@@ -329,4 +332,5 @@ tryCandidate gm allStmts name params mRet contract trivBody =
        , wcSyntheticStmt = syntheticStmt
        , wcPrecondition  = contractPre contract
        , wcPostcondition = contractPost contract
+       , wcSpecEntropy   = resolveSpecEntropy contract
        }
