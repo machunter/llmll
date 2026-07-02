@@ -1,14 +1,14 @@
 # Conway's Game of Life — JSON-AST Walkthrough
 
-**Date:** 2026-03-25 (original); re-verified 2026-07-02 against llmll 0.14.2 — still builds and runs, with two corrections noted inline below (a missing `(open world)` statement that broke the build until this pass, and an improved compiler error message for Problem 1)  
-**Compiler:** LLMLL v0.2 (Haskell backend) at original authoring time  
+**Compiler:** LLMLL (Haskell backend)
 **Format:** JSON-AST (`*.ast.json`)
 
 ---
 
 ## What Was Built
 
-A modular Conway's Game of Life with three modules exercising Phase 2a multi-file compilation:
+A modular Conway's Game of Life with three modules exercising multi-file
+compilation:
 
 | File | Module | Role |
 |------|--------|------|
@@ -45,7 +45,10 @@ stack exec llmll -- build ../examples/life_json/main.ast.json \
 cd ../generated/life_json && stack build   # ✅ GHC 9.6.6 build succeeded
 ```
 
-> **Statement counts bumped by one (world 17→18, main 6→7) since the original run:** both `world.ast.json` and `main.ast.json` were missing an `(open ...)` statement after their `(import ...)` — the LLMLL module pattern is `import → open → bare call`, and without `open`, bare calls to imported functions (`glider-grid`, `make-world`, `render-world`, `evolve`) failed with "unknown function." This wasn't a regression introduced since 2026-03-25; the files simply never had it and `llmll build` genuinely failed until this pass added it (see the repo's git history for `examples/life_json/{world,main}.ast.json`). Fixed as part of this re-verification.
+The module pattern is `import → open → bare call`: both `world.ast.json` and
+`main.ast.json` need an `(open ...)` statement after their `(import ...)` —
+without it, bare calls to imported functions (`glider-grid`, `make-world`,
+`render-world`, `evolve`) fail with `unknown function`.
 
 ---
 
@@ -66,27 +69,25 @@ Subsequent generations show correct Glider movement confirmed against reference.
 
 ---
 
-## Problems Encountered
+## Gotchas
 
-### Problem 1 — Qualified names codegen to undefined Haskell identifiers
+### Qualified names are not preserved through codegen
 
-**Symptom:** Used `world.glider-grid`, `world.make-world`, `world.evolve`, `world.render-world` in `main.ast.json` (following §8.5 qualified-access docs). Generated Haskell contained `world_glider_grid` etc. which were **not in scope** — GHC error: `Variable not in scope: world_glider_grid`.
+Calling an imported function with a qualified name (`world.glider-grid`) parses
+and type-checks, but codegen merges all imported modules into a single flat
+module — qualified calls don't survive to the generated Haskell. Use the bare
+function name at call sites instead (`glider-grid`), even for functions imported
+from another module; the `(import world)` statement is still required for the
+resolver to load and merge the module.
 
-**Root cause:** The LLMLL Phase 2a codegen merges all imported modules into a **single flat `Lib.hs`**. Functions from `world` are emitted as bare Haskell names (`glider_grid`, `make_world`, etc.) without any module prefix. Qualified references from `main` are translated to `world_X` which don't exist.
+If you write a dotted call anyway, the compiler catches it with:
+`warning: dotted function name 'world.glider-grid' in app position is not
+supported; use (open <module-path>) and call the bare exported name.`
 
-**Fix:** Use bare function names in `main.ast.json` even for functions imported from other modules. The `(import world)` statement is still required for the resolver to load and merge the module, but call sites must use plain names.
+### Import resolution is flat-directory-only
 
-**Compiler team note:** This is a known Phase 2a limitation. The docs (§4.8) correctly describe flat-layout requirements but do not explicitly state that qualified-access calls (`world.fn`) do NOT survive codegen in the current implementation. Consider either: (a) emitting Haskell modules per LLMLL module (Phase 2b multi-module layout), or (b) documenting in getting-started.md that `module.fn` call syntax is parsed/type-checked but currently flattened in codegen.
-
-> **Update (2026-07-02, llmll 0.14.2):** the underlying limitation is unchanged — `module.fn` calls still don't survive codegen — but the compiler now catches this immediately with a clear, actionable message instead of the confusing downstream GHC "not in scope" error described above: `warning: dotted function name 'world.glider-grid' in app position is not supported; use (open <module-path>) and call the bare exported name.` Confirmed live. (b) from the note above has effectively happened at the compiler-error level rather than in the docs.
-
----
-
-### Problem 2 — `(import world)` import path resolution
-
-**Observation:** `llmll check ../examples/life_json/main.ast.json` correctly resolves `(import world)` to `world.ast.json` in the same directory (flat layout per §4.8 Phase 2a constraint). Cross-directory imports would break. This matches documented limitation.
-
-**No fix required** — followed documented flat layout. Compiler team: the `--lib <dir>` flag planned for Phase 2b will resolve this.
+`(import world)` resolves to `world.ast.json` in the same directory as the
+importing file. Cross-directory imports aren't supported.
 
 ---
 

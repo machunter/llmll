@@ -1,7 +1,6 @@
 # Conway's Game of Life — S-expression Walkthrough
 
-**Date:** 2026-03-25  
-**Compiler:** LLMLL v0.2 (Haskell backend)  
+**Compiler:** LLMLL (Haskell backend)
 **Format:** S-expression (`*.llmll`)
 
 ---
@@ -80,51 +79,18 @@ Glider evolution confirmed correct (matches reference pattern).
 
 ---
 
-## Problems Encountered
+## Gotchas
 
-### Problem 1 — Negative integer literals rejected in expression position
+### Qualified names
 
-**Symptom:** Used `(pair -1 -1)` inside a `list-prepend` chain to build the 8-direction delta list for neighbor counting. Parse error at the `-1` literal:
-```
-unexpected '('
-expecting ')'
-```
+Same flat-namespace behavior as the JSON-AST version — see
+`life_json/walkthrough.md`.
 
-**Root cause:** The S-expression parser rejects bare negative integers (e.g. `-1`) in expression position — they are treated as a `-` operator token followed by `1`, not as a negative literal. This worked in JSON-AST (`{"kind": "lit-int", "value": -1}`) because JSON natively supports negative integers.
+### Parenthesis counting in deeply nested forms
 
-**Fix:** Bind intermediate values `(neg1 (- 0 1))`, `(zero 0)`, `(pos1 1)` in a `let` at the top of `count-neighbors` and use those variables in the `pair` calls.
-
-**Compiler team note:** Negative integer literals in expression position (`-1`, `-42`) are valid LLMLL syntax per §3.1 but parsing them in S-expression mode fails in certain positions. The lexer likely tokenizes `-` as OP before seeing the digit. The JSON-AST path handles it correctly through the `lit-int` node. Consider adding `-[digit]` as a valid `INT` token production to the S-expression lexer.
-
----
-
-### Problem 2 — `\u001b` escape not valid in S-expression strings (RESOLVED)
-
-**Symptom (at the time):** Used `"\u001b[2J\u001b[H"` (ANSI clear-screen) in S-expression `main.llmll`. Parse error:
-```
-unexpected '\'
-expecting '"' or literal character
-```
-
-**Root cause (at the time):** JSON-AST string `value` fields follow RFC 8259 where `\uXXXX` is valid. S-expression strings followed Haskell/C-style escapes only — `\uXXXX` was not recognized.
-
-**Fix applied to this example:** Replaced the clear-screen ANSI escape with a `"---...---\n"` separator line in the S-expression version, avoiding the escape entirely (this workaround is still what `main.llmll` in this example uses, and is left as-is).
-
-**Resolved upstream:** `\uXXXX` is now a recognized S-expression escape (option (b) from the original compiler-team note below) — confirmed via `docs/getting-started.md §4.12`, which documents and demonstrates `(def clear-screen [] "\u001b[2J\u001b[H")` parsing correctly in S-expression source today. This example's own workaround predates that fix and was left in place rather than reverted, since the separator-line approach works fine and isn't worth churning.
-
----
-
-### Problem 3 — Qualified names (inherited from JSON-AST investigation)
-
-Same flat-namespace finding as JSON-AST version. Used bare function names throughout.
-
----
-
-### Problem 4 — Extra closing parenthesis (paren drift)
-
-**Symptom:** When translating `count-neighbors` from JSON-AST to S-expression, the nested `list-fold` + `fn` + `let` accumulated one extra `)` giving 7 closing parens where 6 were needed. Parse error at the unexpected `)`.
-
-**Fix:** Manual paren count. The multi-nesting of `(let [...] (list-fold ... (fn [...] (let [...] ...)))))` is error-prone in S-expressions — this is exactly the failure mode that motivated the JSON-AST format for AI agents.
+Multi-level nesting like `(let [...] (list-fold ... (fn [...] (let [...] ...)))))`
+is easy to miscount by one paren. This is exactly the failure mode the JSON-AST
+format avoids for AI-authored code.
 
 ---
 

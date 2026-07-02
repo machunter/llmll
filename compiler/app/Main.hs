@@ -148,10 +148,10 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <*> switch (long "json" <> help "Output diagnostics as JSON")
       <*> option (eitherReader parseGrammarMode)
             (long "grammar" <> value GrammarCoreInversion <> metavar "MODE"
-            <> help "LT-INV: grammar mode: core-inversion (default) or legacy (v0.10 compatibility)")
+            <> help "Grammar mode: core-inversion (default) or legacy (backward-compatible grammar)")
 
     commandParser = subparser
-      ( command "check" (info (helper <*> (CmdCheck <$> fileArg <*> switch (long "strict" <> help "v0.6.3: Treat warnings (unbound vars, unknown fns) as hard errors")))
+      ( command "check" (info (helper <*> (CmdCheck <$> fileArg <*> switch (long "strict" <> help "Treat warnings (unbound vars, unknown fns) as hard errors")))
           (progDesc "Parse and type-check a .llmll or .ast.json file"))
       <> command "holes" (info (helper <*> holesCmd)
           (progDesc "List and classify all holes in a .llmll file"))
@@ -168,21 +168,21 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <> command "hub"   (info (helper <*> hubCmd)
           (progDesc "Manage llmll-hub local package cache (fetch, scaffold)"))
       <> command "verify" (info (helper <*> verifyCmd)
-          (progDesc "D4: Emit .fq constraints and run liquid-fixpoint (if installed)"))
+          (progDesc "Emit .fq constraints and run liquid-fixpoint (if installed)"))
       <> command "typecheck" (info (helper <*> typecheckCmd)
-          (progDesc "Parse and type-check; with --sketch infer hole types from context (Phase 2c)"))
+          (progDesc "Parse and type-check; with --sketch infer hole types from context"))
       <> command "serve" (info (helper <*> serveCmd)
-          (progDesc "D5: Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
+          (progDesc "Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
       <> command "checkout" (info (helper <*> checkoutCmd)
-          (progDesc "v0.3: Lock a hole for exclusive editing (checkout/release/status)"))
+          (progDesc "Lock a hole for exclusive editing (checkout/release/status)"))
       <> command "patch" (info (helper <*> patchCmd)
-          (progDesc "v0.3: Apply an RFC 6902 JSON-Patch to a checked-out hole"))
+          (progDesc "Apply an RFC 6902 JSON-Patch to a checked-out hole"))
       <> command "replay" (info (helper <*> replayCmd)
-          (progDesc "v0.3.1: Replay an event log against a compiled program"))
+          (progDesc "Replay an event log against a compiled program"))
       <> command "replay-artifact" (info (helper <*> (CmdReplayArtifact <$> strArgument (metavar "ARTIFACT" <> help "Path to a proof-artifact JSON file")))
-          (progDesc "PROOF-ARTIFACT: re-derive and check a recorded verification artifact (fail-closed)"))
+          (progDesc "Re-derive and check a recorded verification artifact (fail-closed)"))
       <> command "spec" (info (helper <*> specCmd)
-          (progDesc "v0.3.4: Emit agent specification from compiler builtins"))
+          (progDesc "Emit agent specification from compiler builtins"))
       <> command "version" (info (helper <*> pure CmdVersion)
           (progDesc "Print compiler version and exit"))
       )
@@ -201,7 +201,7 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
 
     contractsOpt = option (eitherReader parseContractsMode)
         (  long "contracts" <> value ContractsFull <> metavar "MODE"
-        <> help "v0.3: runtime assertion mode: full (default), unproven, none")
+        <> help "Runtime assertion mode: full (default), unproven, none")
 
     parseContractsMode :: String -> Either String ContractsMode
     parseContractsMode "full"     = Right ContractsFull
@@ -234,9 +234,9 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       (  command "fetch" (info (helper <*> hubFetchCmd)
            (progDesc "Install a .tar.gz package into the local hub cache"))
       <> command "scaffold" (info (helper <*> hubScaffoldCmd)
-           (progDesc "v0.3: Copy a scaffold template to the current directory"))
+           (progDesc "Copy a scaffold template to the current directory"))
       <> command "query" (info (helper <*> hubQueryCmd)
-           (progDesc "v0.6.1: Query hub for functions matching a type signature"))
+           (progDesc "Query hub for functions matching a type signature"))
       )
 
     hubFetchCmd = CmdHub
@@ -262,22 +262,22 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
             <> help "Write .fq constraint file to FILE (default: <name>.fq in /tmp)"))
       <*> leanstralOpts
       <*> switch (long "trust-report"
-            <> help "v0.3.2: Print transitive trust summary instead of running fixpoint")
+            <> help "Print transitive trust summary instead of running fixpoint")
       <*> switch (long "weakness-check"
-            <> help "v0.3.5: After SAFE, check if trivial implementations also satisfy contracts")
+            <> help "After SAFE, check if trivial implementations also satisfy contracts")
       <*> switch (long "obligations"
-            <> help "v0.4: On UNSAFE, suggest postcondition strengthenings on callees")
+            <> help "On UNSAFE, suggest postcondition strengthenings on callees")
       <*> switch (long "spec-coverage"
-            <> help "v0.6: Print specification coverage report")
+            <> help "Print specification coverage report")
       <*> switch (long "strict-verified-core"
-            <> help "v0.9.0 + INT-1 v0.10.8: Hard-error if any function falls back from body-faithful verification or carries overflow-tainted verified evidence")
+            <> help "Hard-error if any function falls back from body-faithful verification or carries overflow-tainted verified evidence")
       <*> switch (long "obligation-report"
-            <> help "v0.10: Emit structured obligation report (JSON, OBLIG-0 spec §2.1)")
+            <> help "Emit structured obligation report (JSON)")
       <*> switch (long "cdp"
-            <> help "LT-CDP (v0.11): Compute contract discriminative power per function; emits discriminative_axis block in --trust-report --json")
+            <> help "Compute contract discriminative power per function; emits discriminative_axis block in --trust-report --json")
       <*> optional (strOption
             (long "proof-artifact" <> metavar "FILE"
-            <> help "PROOF-ARTIFACT: write a unified, replayable verification record to FILE"))
+            <> help "Write a unified, replayable verification record to FILE"))
 
     leanstralOpts = LeanstralOpts
       <$> switch (long "leanstral-mock"
@@ -325,10 +325,10 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
 
     holesCmd = CmdHoles
       <$> fileArg
-      <*> switch (long "deps" <> help "v0.3.3: Include dependency graph in --json output")
+      <*> switch (long "deps" <> help "Include dependency graph in --json output")
       <*> optional (strOption
             (long "deps-out" <> metavar "FILE"
-            <> help "v0.3.3: Write dependency graph to FILE (implies --deps)"))
+            <> help "Write dependency graph to FILE (implies --deps)"))
 
     specCmd = CmdSpec
       <$> switch (long "json" <> help "Output as JSON (default: formatted text for LLM prompts)")

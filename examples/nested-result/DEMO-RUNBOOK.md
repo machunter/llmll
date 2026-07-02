@@ -1,9 +1,9 @@
 # nested-result — Demo Runbook
 
 > **Artifact:** "A `Result` match verifies even when it's *nested* — one level down, inside a `let`."
-> **Feature:** COMP-3b-general (v0.13.6) — a `Result`-typed VARIABLE match verifies body-faithfully at ANY nesting depth (under `let`/`if`, param- or let-bound). Before v0.13.6 a nested Result-var match fell back to `asserted`.
+> **Feature:** a `Result`-typed variable match verifies body-faithfully at any nesting depth (under `let`/`if`, param- or let-bound), not just at the top level.
 > **Fixtures:** `safe-withdraw.llmll` (+ `safe-withdraw-bad`). See [`VERIFICATION_SCOPE.md`](VERIFICATION_SCOPE.md) for the proven-vs-trusted matrix.
-> **Verified against:** `llmll 0.13.6`, real `liquid-fixpoint` on PATH.
+> **Requires:** real `liquid-fixpoint` on PATH.
 
 Run from this directory.
 
@@ -16,9 +16,9 @@ solver. The body is a `let`, and the two-arm match on the `Result`-typed `attemp
 lives **inside the `let` body** — the *nested* form. The let-bound `guard` is
 provably non-negative, so both arms establish `b >= 0`.
 
-This is the headline of v0.13.6: `payments-core/settle` is the **top-level**
-Result-match (the body *is* the match); here the match is **one level down**, under a
-`let` — the case COMP-3b-general added.
+`payments-core/settle` demonstrates the same discipline with a **top-level**
+Result-match (the body *is* the match); here the match is **one level down**,
+under a `let`.
 
 ## Beats
 

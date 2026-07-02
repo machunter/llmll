@@ -28,7 +28,7 @@ The proof is over **both** return values at once — a relational invariant, not
 <!-- TODO: refutation GIF — 60–90s asciinema of this loop (type-correct fill → verify REFUTES → fix → accepted) -->
 *(A 60–90s screen capture of this loop will live here.)*
 
-Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/payments-core/DEMO-RUNBOOK.md) (commands verified against `llmll 0.14.2`) — the composed `transfer`/`debit` call-chain beat and the COMP-3b `settle` beat live there too. For the interactive **repair-loop protocol** — an agent checks out a typed `?hole`, submits a patch, and the compiler rejects or accepts it before anything merges — see [`withdraw-demo/DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (narrated: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md)).
+Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/payments-core/DEMO-RUNBOOK.md) — the composed `transfer`/`debit` call-chain beat and the single-constructor `settle` beat live there too. For the interactive **repair-loop protocol** — an agent checks out a typed `?hole`, submits a patch, and the compiler rejects or accepts it before anything merges — see [`withdraw-demo/DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md) (narrated: [`DemoPost.md`](examples/withdraw-demo/DemoPost.md)).
 
 ---
 
@@ -67,16 +67,16 @@ An interactive proof path for the rest (Lean 4 via "Leanstral" MCP) is **designe
 
 ## Compiler
 
-The active compiler is a **Haskell stack project** in `compiler/`. It is the only supported backend as of v0.2.
+The active compiler is a **Haskell stack project** in `compiler/`. It is the only supported backend.
 
 | Command | What it does |
 |---------|--------------| 
-| `llmll check <file> [--strict]` | Parse + type-check; emit structured diagnostics. With `--strict`: unbound variables, unknown functions, unknown operators, and branch type mismatches are hard errors instead of warnings. Without `--strict`: text mode renders accumulated warnings on success (v0.10.2). |
+| `llmll check <file> [--strict]` | Parse + type-check; emit structured diagnostics. With `--strict`: unbound variables, unknown functions, unknown operators, and branch type mismatches are hard errors instead of warnings. Without `--strict`: text mode renders accumulated warnings on success. |
 | `llmll holes <file> [--deps] [--deps-out FILE]` | List all `?hole` expressions. With `--deps`: include dependency graph in `--json` output. With `--deps-out`: persist graph to file. |
 | `llmll test <file>` | Run property-based tests (`check`/`for-all` blocks via QuickCheck) |
 | `llmll build <file> [-o <dir>]` | Generate a Haskell package (`src/Lib.hs` + `package.yaml` + `stack.yaml`). Accepts both `.llmll` S-expression and `.ast.json` JSON-AST sources. |
-| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report] [--weakness-check] [--obligations] [--obligation-report] [--spec-coverage] [--strict-verified-core] [--cdp] [--proof-artifact FILE]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--proof-artifact FILE`, also writes a unified, replayable verification record (PROOF-ARTIFACT, v0.14.0) consolidating the trust/obligation/`.fq`/sidecar surfaces plus the determinism pins. With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure, epistemic drift warnings, and `weakness-ok` suppressions (note: `--trust-report` reloads persisted evidence **instead of running fixpoint**, so a solver-refutable function renders as `asserted`, not `refuted` — use the default `verify` or `--strict-verified-core` to surface `refuted`). With `--weakness-check`, detects specs that admit trivial implementations. With `--obligations`, suggests postcondition strengthening when UNSAFE at cross-function boundaries. With `--obligation-report`, emits structured JSON obligation report for every hole, unproven contract, and failed call-site precondition (v0.10.0). With `--spec-coverage`, classifies every function and computes effective specification coverage ratio. With `--strict-verified-core`, hard-errors if any function falls back from body-faithful verification, carries overflow-tainted verified evidence, or is refuted (body-faithful but disproved by the solver), transitively over the call graph (v0.9.0 + INT-1 v0.10.8 + VERIFY-RPT-1 v0.11). With `--cdp`, computes contract discriminative power per function (LT-CDP v0.11): emits a paired `discriminative_axis` block in the trust-report JSON alongside the existing diamond-lattice evidence axis. |
-| `llmll replay-artifact <FILE>` | Re-derive and check a recorded proof artifact (PROOF-ARTIFACT, v0.14.0): recompute the source hash, re-run the stored VC under the pinned solver, and **fail closed** on any source/solver-determinism mismatch or `unknown`/timeout. |
+| `llmll verify <file> [--fq-out FILE] [--leanstral-mock] [--trust-report] [--weakness-check] [--obligations] [--obligation-report] [--spec-coverage] [--strict-verified-core] [--cdp] [--proof-artifact FILE]` | Emit `.fq` constraint file and run `liquid-fixpoint` (if installed). With `--proof-artifact FILE`, also writes a unified, replayable verification record consolidating the trust/obligation/`.fq`/sidecar surfaces plus the determinism pins. With `--leanstral-mock`, also runs Leanstral proof pipeline on `?proof-required` holes. With `--trust-report`, prints per-function trust summary with transitive closure, epistemic drift warnings, and `weakness-ok` suppressions (note: `--trust-report` reloads persisted evidence **instead of running fixpoint**, so a solver-refutable function renders as `asserted`, not `refuted` — use the default `verify` or `--strict-verified-core` to surface `refuted`). With `--weakness-check`, detects specs that admit trivial implementations. With `--obligations`, suggests postcondition strengthening when UNSAFE at cross-function boundaries. With `--obligation-report`, emits structured JSON obligation report for every hole, unproven contract, and failed call-site precondition. With `--spec-coverage`, classifies every function and computes effective specification coverage ratio. With `--strict-verified-core`, hard-errors if any function falls back from body-faithful verification, carries overflow-tainted verified evidence, or is refuted (body-faithful but disproved by the solver), transitively over the call graph. With `--cdp`, computes contract discriminative power per function: emits a paired `discriminative_axis` block in the trust-report JSON alongside the existing diamond-lattice evidence axis. |
+| `llmll replay-artifact <FILE>` | Re-derive and check a recorded proof artifact: recompute the source hash, re-run the stored VC under the pinned solver, and **fail closed** on any source/solver-determinism mismatch or `unknown`/timeout. |
 | `llmll typecheck --sketch <file>` | Partial-program type inference. Returns inferred type for every `?hole` plus `holeSensitive`-annotated errors and `invariant_suggestions` from the pattern registry. |
 | `llmll serve [--host H] [--port P] [--token T]` | Expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll checkout <file.ast.json> <pointer>` | Lock a `?hole` for exclusive agent editing. Returns a checkout token with the hole's contract context (`contract_pre`, `postcondition_goal`, `path_condition`) and typing context (`in_scope`, `type_definitions`). Use `--release` to abandon, `--status` to query TTL. |
@@ -136,7 +136,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 
 ## Verification Boundary
 
-LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning** (v0.9.0): integer literals, integer-typed variables, simple let-bindings, conditionals, function calls to contracted functions (assume-guarantee), `Result` pattern matching, and linear arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=`). Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions with explicit trust labels.
+LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning**: integer literals, integer-typed variables, simple let-bindings, conditionals, function calls to contracted functions (assume-guarantee), `Result` pattern matching, and linear arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`, `!=`). Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions with explicit trust labels.
 
 | Construct | SMT body-faithful | Fallback |
 |---|---|---|
@@ -144,9 +144,9 @@ LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core*
 | `EOp` (+, -, =, <, <=, >=, >, !=) | ✅ | — |
 | `ELet` (PVar, int RHS) | ✅ | — |
 | `EIf` (≤4096 paths) | ✅ (path-split) | — |
-| `EApp` (contracted callee) | ✅ (v0.9.0 assume-guarantee) | — |
+| `EApp` (contracted callee) | ✅ (assume-guarantee) | — |
 | `EApp` (uncontracted / recursive self) | ❌ | contract-only |
-| `EMatch` on `Result` (2-arm) | ✅ (v0.9.0 two-path) | — |
+| `EMatch` on `Result` (2-arm) | ✅ (two-path) | — |
 | `EMatch` (general ADT), `EPair`, `ELambda`, `EDo` | ❌ | runtime |
 | `letrec` (own body VC) | ❌ | runtime + `:decreases` |
 | Non-linear ops (*, /, mod) | ❌ | runtime + `?proof-required` |
@@ -164,12 +164,12 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 
 | Demo | What it proves |
 |------|----------------|
-| [`examples/payments-core/`](examples/payments-core/) | **Flagship.** Two-account conservation over a pair return (`conserve`, PAIR-RET) — "money can't be created"; `transfer` verified over a `debit` call edge (no-overdraw); `settle` is the COMP-3b `Result`-match return |
+| [`examples/payments-core/`](examples/payments-core/) | **Flagship.** Two-account conservation over a pair return (`conserve`) — "money can't be created"; `transfer` verified over a `debit` call edge (no-overdraw); `settle` is a `Result`-match return |
 | [`examples/tcp_rfc793/`](examples/tcp_rfc793/) | RFC 793 connection state machine reaches `verified` on legal-successor safety; `step-bad` is `refuted` |
 | [`examples/session-pay/`](examples/session-pay/) | Connected demo: protocol state-safety + verified payment + bounded amount in one `verified` function |
-| [`examples/nested-result/`](examples/nested-result/) | A nested `Result`-variable match (under `let`) reaches `verified` — the COMP-3b-general showcase |
-| [`examples/refined-payload/`](examples/refined-payload/) | A matched `Result[Pos,string]` arm uses its payload's `> 0` (`verified`); a caller forwarding a weaker `Result[int]` is refused — COMP-4 (b) |
-| [`examples/outcome-totality/`](examples/outcome-totality/) | A payload-carrying `Accepted(n)`/`Rejected(n)` outcome with a verified legal→Accepted / illegal→Rejected totality — COMP-4 (a)/(c) |
+| [`examples/nested-result/`](examples/nested-result/) | A nested `Result`-variable match (under `let`) reaches `verified` |
+| [`examples/refined-payload/`](examples/refined-payload/) | A matched `Result[Pos,string]` arm uses its payload's `> 0` (`verified`); a caller forwarding a weaker `Result[int]` is refused |
+| [`examples/outcome-totality/`](examples/outcome-totality/) | A payload-carrying `Accepted(n)`/`Rejected(n)` outcome with a verified legal→Accepted / illegal→Rejected totality |
 | [`examples/banking_ledger/`](examples/banking_ledger/) | Three-level assume-guarantee chain (`transfer → withdraw → safe-subtract`), all verified |
 | [`examples/withdraw-demo/`](examples/withdraw-demo/) | The repair loop (hole → rejected bad fills → accepted fix → verified) + the `return-refine` beat |
 
@@ -188,10 +188,10 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 | `examples/tictactoe_json_verifier/` | JSON-AST | Tic-Tac-Toe with `set-cell` contracts (asserted, not solver-proven) |
 | `examples/conways_life_json_verifier/` | JSON-AST | Conway's Life — `next-cell` verified; `count-neighbors`'s own postcondition discharges too, but reports asserted (depends on asserted `cell-at`/`neighbor-alive`) |
 | `examples/pair_type_test/` | Mixed | TPair type system and do-notation test fixtures |
-| `examples/event_log_test/` | S-expression | v0.3.1 event log codegen validation |
-| `examples/proof_required_test/` | S-expression | v0.3.1 Leanstral proof pipeline validation |
-| `examples/erc20_token/` | JSON-AST | v0.6.0 ERC-20 benchmark — frozen ground truth with verification-scope matrix |
-| `examples/totp_rfc6238/` | JSON-AST | v0.6.1 TOTP RFC 6238 benchmark — crypto builtins, RFC `:source` provenance |
+| `examples/event_log_test/` | S-expression | Event log codegen validation |
+| `examples/proof_required_test/` | S-expression | Leanstral proof pipeline validation |
+| `examples/erc20_token/` | JSON-AST | ERC-20 benchmark — frozen ground truth with verification-scope matrix |
+| `examples/totp_rfc6238/` | JSON-AST | TOTP RFC 6238 benchmark — crypto builtins, RFC `:source` provenance |
 
 ---
 
@@ -205,7 +205,7 @@ compiler/                   ← Haskell compiler (stack project)
     Parser.hs               ← S-expression parser (Megaparsec)
     Lexer.hs                ← Megaparsec lexer (tokens, whitespace, layout)
     ParserJSON.hs           ← JSON-AST parser
-    Syntax.hs               ← AST types (incl. ModulePath, ModuleEnv, ModuleCache, TPair — v0.3)
+    Syntax.hs               ← AST types (incl. ModulePath, ModuleEnv, ModuleCache, TPair)
     TypeCheck.hs            ← Bidirectional type checker
     HoleAnalysis.hs         ← Hole collector (?hole expressions)
     CodegenHs.hs            ← Haskell code emitter
@@ -217,28 +217,28 @@ compiler/                   ← Haskell compiler (stack project)
     Hub.hs                  ← llmll-hub registry fetch, scaffold, and local cache
     Sketch.hs               ← Partial-program type inference (--sketch)
     Serve.hs                ← HTTP endpoint for agent swarms (llmll serve)
-    FixpointIR.hs           ← D4: .fq constraint IR + text emitter
-    FixpointEmit.hs         ← D4: typed AST → .fq + ConstraintTable builder
-    DiagnosticFQ.hs         ← D4: liquid-fixpoint output → [Diagnostic] with JSON Pointers
-    Replay.hs               ← v0.3.1: JSONL event log parser + replay execution
-    LeanTranslate.hs        ← v0.3.1: LLMLL contracts → Lean 4 theorem obligations
-    MCPClient.hs            ← v0.3.1: MCP JSON-RPC client (mock-first)
-    ProofCache.hs           ← v0.3.1: per-file .proof-cache.json sidecar (SHA-256)
-    TrustReport.hs          ← v0.3.2: transitive trust closure analysis (--trust-report)
-    VerifiedCache.hs        ← v0.3: .verified.json sidecar read/write
-    WeaknessCheck.hs        ← v0.3.5: trivial-body spec weakness detection
-    InvariantRegistry.hs    ← v0.4.0: pattern-based invariant suggestion database
-    ObligationMining.hs     ← v0.4.0: downstream postcondition strengthening suggestions
-    ObligationAssembly.hs   ← v0.10.0: structured obligation report assembly + JSON encoding
-    GuardClassifier.hs      ← v0.10.0: shared guard classification (verifier + obligations)
-    SpecCoverage.hs         ← v0.6.0: specification coverage metric + governance guardrails
+    FixpointIR.hs           ← .fq constraint IR + text emitter
+    FixpointEmit.hs         ← typed AST → .fq + ConstraintTable builder
+    DiagnosticFQ.hs         ← liquid-fixpoint output → [Diagnostic] with JSON Pointers
+    Replay.hs               ← JSONL event log parser + replay execution
+    LeanTranslate.hs        ← LLMLL contracts → Lean 4 theorem obligations
+    MCPClient.hs            ← MCP JSON-RPC client (mock-first)
+    ProofCache.hs           ← per-file .proof-cache.json sidecar (SHA-256)
+    TrustReport.hs          ← transitive trust closure analysis (--trust-report)
+    VerifiedCache.hs        ← .verified.json sidecar read/write
+    WeaknessCheck.hs        ← trivial-body spec weakness detection
+    InvariantRegistry.hs    ← pattern-based invariant suggestion database
+    ObligationMining.hs     ← downstream postcondition strengthening suggestions
+    ObligationAssembly.hs   ← structured obligation report assembly + JSON encoding
+    GuardClassifier.hs      ← shared guard classification (verifier + obligations)
+    SpecCoverage.hs         ← specification coverage metric + governance guardrails
     JsonPointer.hs          ← RFC 6901 pointer resolution + descendant hole search
     Checkout.hs             ← Hole checkout with per-file lock management (llmll checkout)
     PatchApply.hs           ← RFC 6902 JSON-Patch application with scope validation + re-verification (llmll patch)
     AgentSpec.hs            ← Compiler-emitted agent spec for LLM system prompts (llmll spec)
     HubQuery.hs             ← Query-by-signature: find hub modules matching a type signature (llmll hub query)
-    CDP.hs                  ← v0.11: LT-CDP contract discriminative power evidence axis (--cdp)
-    ProofArtifact.hs        ← v0.14.0: PROOF-ARTIFACT unified, replayable verification record (--proof-artifact / replay-artifact)
+    CDP.hs                  ← contract discriminative power evidence axis (--cdp)
+    ProofArtifact.hs        ← unified, replayable verification record (--proof-artifact / replay-artifact)
   package.yaml / stack.yaml
 examples/
   hangman_sexp/             ← Full Hangman (S-expression)
@@ -251,24 +251,24 @@ examples/
   hangman_json_verifier/    ← Hangman with verified contracts
   tictactoe_json_verifier/  ← Tic-Tac-Toe with verified contracts
   conways_life_json_verifier/ ← Life with verified contracts
-  erc20_token/              ← v0.6.0 ERC-20 benchmark (frozen ground truth)
-  totp_rfc6238/             ← v0.6.1 TOTP RFC 6238 benchmark
-  benchmarks/               ← v0.10.0 OBLIG-B benchmark suite (B1/B3/B5)
-  payments-core/            ← flagship verified-payments demo: two-account conservation, transfer/debit call chain, COMP-3b settle (see "See it")
+  erc20_token/              ← ERC-20 benchmark (frozen ground truth)
+  totp_rfc6238/             ← TOTP RFC 6238 benchmark
+  benchmarks/               ← benchmark suite (B1/B3/B5)
+  payments-core/            ← flagship verified-payments demo: two-account conservation, transfer/debit call chain, settle (see "See it")
   withdraw-demo/            ← repair-loop demo: holes → checkout/patch → two-axis trust + composition + CDP + proof-artifact
   tcp_rfc793/               ← RFC 793 connection state machine, legal-successor safety
   session-pay/              ← Connected demo: protocol state-safety + verified payment + bounded amount in one verified function
-  nested-result/            ← Nested Result-variable match under let (COMP-3b-general)
-  refined-payload/          ← Matched Result payload refinement + weaker-forward refusal (COMP-4 (b))
-  outcome-totality/         ← Payload-carrying outcome sum, verified legal/illegal totality (COMP-4 (a)/(c))
+  nested-result/            ← Nested Result-variable match under let
+  refined-payload/          ← Matched Result payload refinement + weaker-forward refusal
+  outcome-totality/         ← Payload-carrying outcome sum, verified legal/illegal totality
   banking_ledger/           ← Three-level assume-guarantee chain (transfer → withdraw → safe-subtract)
   pair_type_test/           ← TPair + do-notation test fixtures
   orchestrator_walkthrough/ ← Auth module orchestration exercise
 docs/
-  UPDATE-PROTOCOL.md        ← Doc canonical-sources + per-change update matrix (DOC-CONSOLIDATE D1)
+  UPDATE-PROTOCOL.md        ← Doc canonical-sources + per-change update matrix
   getting-started.md        ← Build guide, known-good patterns, schema versioning
   compiler-team-roadmap.md  ← Engineering backlog and shipped-releases history
-  llmll-ast.schema.json     ← JSON-AST schema v0.7.0 (use with AI agents; CheckoutToken introduced v0.3.0; CheckDecl.subjects introduced v0.5.0)
+  llmll-ast.schema.json     ← JSON-AST schema (use with AI agents)
   orchestrator-walkthrough.md ← End-to-end orchestration walkthrough
   one-pager.md              ← Project overview / pitch document
   design/                   ← Active design proposals (status in design/INDEX.md)
@@ -278,8 +278,8 @@ tools/
   llmll-orchestra/          ← Python orchestrator (pip package)
     llmll_orchestra/
       orchestrator.py       ← Fill-mode orchestrator
-      lead_agent.py         ← v0.4.0: Lead Agent skeleton generation (plan/lead/auto modes)
-      quality.py            ← v0.4.0: Skeleton quality heuristics
+      lead_agent.py         ← Lead Agent skeleton generation (plan/lead/auto modes)
+      quality.py            ← Skeleton quality heuristics
       agent.py              ← LLM agent interface
       compiler.py           ← Compiler CLI wrapper
 ```
@@ -294,7 +294,7 @@ tools/
 | [`docs/getting-started.md`](docs/getting-started.md) | Build guide + known-good patterns + schema versioning (single reference for agents) |
 | [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) | Engineering backlog and shipped-releases history (current version in [CHANGELOG § Latest](CHANGELOG.md#Latest)) |
 | [`docs/llmll-ast.schema.json`](docs/llmll-ast.schema.json) | Machine-readable JSON-AST schema |
-| [`docs/UPDATE-PROTOCOL.md`](docs/UPDATE-PROTOCOL.md) | Doc canonical-sources table and per-change update matrix (DOC-CONSOLIDATE D1) |
+| [`docs/UPDATE-PROTOCOL.md`](docs/UPDATE-PROTOCOL.md) | Doc canonical-sources table and per-change update matrix |
 | [`docs/orchestrator-walkthrough.md`](docs/orchestrator-walkthrough.md) | End-to-end multi-agent orchestration walkthrough with auth module exercise |
 | [`docs/one-pager.md`](docs/one-pager.md) | Project overview — problem, approach, status, related work |
 | [`docs/design/INDEX.md`](docs/design/INDEX.md) | Reading guide for all active design documents |

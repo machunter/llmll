@@ -3,7 +3,7 @@
 > **Artifact:** "Open a connection, then pay — and prove all three safety rules at once."
 > **The integration:** one verified function composes **protocol state-safety** (tcp_rfc793), **verified payment** (payments-core), and a **bounded amount** (return-refine) — proven together on a single trust-report, through the call edges.
 > **Fixtures:** `open-and-pay.llmll` + wrong twins `-bad-step`, `-unsafe`, `-unbounded`.
-> **Verified against:** `llmll 0.14.2`, real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
+> **Requires:** real `liquid-fixpoint` on PATH. Single self-contained module (no cross-module import).
 
 Run from this directory; the climax is one `verify --trust-report`.
 
@@ -15,7 +15,7 @@ Run from this directory; the climax is one `verify --trust-report`.
 - **Payment** — `debit` is the verified payment leaf; `open-and-pay` discharges its precondition at the call site.
 - **Bounded amount** — `amount: Word` supplies `amount >= 0`, which discharges the *other* half of `debit`'s precondition.
 
-The `post` is the legal session-pay relation (`result = Paid(balance - amount)` iff an `ESTABLISHED`-reaching transition **and** sufficient funds; else `result = Rejected(0)`), authored from the spec — not a copy of the body. The outcome sum is **constructed natively** (COMP-4 (a)/(c), v0.13.9): the post discharges by constructor equality / injectivity, into Z3's datatype theory.
+The `post` is the legal session-pay relation (`result = Paid(balance - amount)` iff an `ESTABLISHED`-reaching transition **and** sufficient funds; else `result = Rejected(0)`), authored from the spec — not a copy of the body. The outcome sum is **constructed natively**: the post discharges by constructor equality / injectivity, into Z3's datatype theory.
 
 ## The climax — one trust-report, verified through every edge
 
@@ -85,9 +85,9 @@ Three rules, three twins, three distinct verdicts — a refutation for the state
 
 ## Honest scope
 
-- **Real enum states/events AND a real outcome sum.** `ConnState`/`Event` are real nullary-enum sum types — matched and compared as values, verified (COMP-3c / COMP-3b-general). The multi-outcome RESULT is now a real payload-bearing sum, `PayOutcome` (`Paid(int)` / `Rejected(int)`), **constructed natively** (COMP-4 (a)/(c), v0.13.9) and discharged by constructor equality / injectivity. No int sentinel: `Rejected(0)` is a first-class constructor value, distinct from every `Paid(n)` by Z3's datatype distinctness — not a `-1` posing as a balance.
+- **Real enum states/events AND a real outcome sum.** `ConnState`/`Event` are real nullary-enum sum types — matched and compared as values, verified. The multi-outcome RESULT is now a real payload-bearing sum, `PayOutcome` (`Paid(int)` / `Rejected(int)`), **constructed natively** and discharged by constructor equality / injectivity. No int sentinel: `Rejected(0)` is a first-class constructor value, distinct from every `Paid(n)` by Z3's datatype distinctness — not a `-1` posing as a balance.
 - **Single module.** `step`/`debit` are re-authored here, not cross-module-imported, to keep the whole composition in the body-faithful fragment (cross-module verified composition is a tracked gap).
-- **Everything is `verified`, nothing opaque.** Unlike a crypto-bearing RFC demo, there is no `asserted` core — the bodies are additive/comparison QF-LIA plus the outcome's native datatype construction (COMP-4 (a)/(c)), all in the decidable fragment, so the solver (not a fallback) is the catcher throughout.
+- **Everything is `verified`, nothing opaque.** Unlike a crypto-bearing RFC demo, there is no `asserted` core — the bodies are additive/comparison QF-LIA plus the outcome's native datatype construction, all in the decidable fragment, so the solver (not a fallback) is the catcher throughout.
 
 ## Narration
 

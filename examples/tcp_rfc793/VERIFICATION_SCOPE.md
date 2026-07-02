@@ -24,10 +24,10 @@ Nothing cryptographic or opaque is in scope.
 ## Why it reaches `verified` (fragment-fit)
 
 - States and events are **real nullary-enum sum types**; the compiler internally
-  tags the constructors (`Closed=0 … Established=4`) — the COMP-3b-general feature.
+  tags the constructors (`Closed=0 … Established=4`).
 - The **outcome** is a **real payload-bearing sum**, `StepOutcome`, with two
   payload-carrying variants `Next(int)` / `Rejected(int)`. It is **constructed
-  natively** (COMP-4 (a)/(c), v0.13.9): a constructor application reflects into a
+  natively**: a constructor application reflects into a
   native `FQData` term, the post discharges by **constructor equality**, and a
   wrong-payload body is **refuted by injectivity** (selector mismatch). This is the
   first verification beyond pure QF-LIA — into Z3's **non-recursive datatype
@@ -43,11 +43,8 @@ Nothing cryptographic or opaque is in scope.
 ## What is proven (the full totality — no sentinel)
 
 - **Proven:** the **full transition-table totality** — each legal pair maps to its
-  specific `Next(tag)`, and every other pair maps to `Rejected`. This is **stronger**
-  than the earlier idiomatic-enum re-type, which proved only the *partial*
-  state-safety property (no `Closed`/`Listen → Established`) because a distinct
-  `Rejected` result was not yet expressible. COMP-4 (a)/(c) lifts that: the outcome
-  is now a **real constructor value** (`Rejected(0)`), distinct from any `Next(s)` by
+  specific `Next(tag)`, and every other pair maps to `Rejected`. The outcome is a
+  **real constructor value** (`Rejected(0)`), distinct from any `Next(s)` by
   Z3's datatype distinctness — **no `5 = REJECTED` int sentinel**.
 - **Verify-time, not run-time (yet):** constructor values are discharged by the
   verifier; the runtime / property-test path does not evaluate the constructed

@@ -1,9 +1,9 @@
 # nested-result — Verification Scope
 
 **Claim.** A `Result`-typed **variable** match verifies body-faithfully even when the
-match is **nested under a `let`** (not the top-level body) — the COMP-3b-general
-feature (v0.13.6). The return refinement `Balance = {b : int | b >= 0}` is the
-*entire* specification, discharged **per arm** by the solver, through the `let`.
+match is **nested under a `let`** (not the top-level body). The return refinement
+`Balance = {b : int | b >= 0}` is the *entire* specification, discharged **per arm**
+by the solver, through the `let`.
 
 | # | Function | Types | Spec | Body | Verdict | Basis |
 |---|----------|-------|------|------|---------|-------|
@@ -14,9 +14,8 @@ feature (v0.13.6). The return refinement `Balance = {b : int | b >= 0}` is the
 ## Why it reaches `verified` (fragment-fit)
 
 - The scrutinee `attempt` is a **`Result`-typed variable**; the match is **nested
-  inside the `let` body**, not at the top level. Before v0.13.6 a nested
-  Result-variable match fell back to `asserted`; COMP-3b-general makes it
-  body-faithful at **any** nesting depth (under `let`/`if`, param- or let-bound).
+  inside the `let` body**, not at the top level, and still verifies body-faithfully
+  at any nesting depth (under `let`/`if`, param- or let-bound).
 - The let-bound `guard = (if (>= floor 0) floor 0)` is provably `>= 0`, so each arm
   establishes `b >= 0`: the `Success` arm returns `n` when `n >= guard` (hence
   `>= guard >= 0`) else `guard`; the `Error` arm returns `guard`.
@@ -26,10 +25,9 @@ feature (v0.13.6). The return refinement `Balance = {b : int | b >= 0}` is the
 
 ## Contrast with `payments-core/settle`
 
-`settle` is the **top-level** Result-match (the older v0.13.3 COMP-3b case): the
-function body *is* the match. Here the body is a `let` and the match is **one level
-down**, inside the `let` body — the case COMP-3b-general added. Same return-refinement
-discipline, deeper nesting.
+`settle` is the **top-level** Result-match: the function body *is* the match. Here
+the body is a `let` and the match is **one level down**, inside the `let` body.
+Same return-refinement discipline, deeper nesting.
 
 ## Files
 

@@ -10,7 +10,7 @@ This post walks the whole loop on a tiny four-function program: surveying holes,
 
 A note on formats: LLMLL source comes in two shapes — a human-readable **s-expression** form, and a machine-processable (and mildly human-readable) **JSON-AST**. We'll read the program in s-expression form; the checkout/patch protocol operates on the JSON-AST.
 
-> **Versions.** `llmll 0.14.2`, JSON-AST schema `0.7.0`, `trust_report_version 1.4.0`. The two-axis trust closure and the composition step require v0.13.0 (TRUST-PRE's `caller_obligations` axis + DEMO-COMP); the checkout brief's return type and callable-function menu require v0.13.1 (DEF-RET) and DEMO-COMP; the `withdraw-outcome` sibling and its `Result` construction require v0.13.13+ (COMP-4-RESULT); a *fillable* sum-type hole requires v0.14.1 (a checkout-lock round-trip fix); and the `--cdp` measurement below — genuine scoring of `withdraw-outcome`'s `Result` return and a populated `--json` `discriminative_axis` — requires v0.14.2 (the CDP candidate-basis fix). The AST schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.7.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
+> **Requires.** A current `llmll` build, real `liquid-fixpoint` on PATH. The AST schema version is stamped into the program itself — `demo.ast.json` opens with `"schemaVersion": "0.7.0"` — so any downstream tool or agent can refuse an input it doesn't understand instead of misreading it.
 
 ## The program we're building
 
@@ -144,7 +144,7 @@ jq '{contract_pre, postcondition_goal, expected_return_type,
 }
 ```
 
-`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from the obligation report. The checkout `in_scope` is *wider*, though: the report projected to the contract's free variables (`balance`, `amount`), while checkout returns the full scope — the `PositiveInt` / `Reason` types, the `Insufficient` constructor, and the sibling top-level functions (`double`, `maxi`, `withdraw`, `withdraw-outcome`, each `"source": "let-binding"`) as the agent's callable vocabulary, each with its return type (`expected_return_type`, DEF-RET v0.13.1). The brief also carries a structured `available_functions` menu — each callable function's params, `pre`, `post`, `tier`, and `return_type` (DEMO-COMP) — so an agent that needs to *call* a sibling gets its signature without reading the source.
+`contract_pre` and `postcondition_goal` are exactly the assume/prove pair from the obligation report. The checkout `in_scope` is *wider*, though: the report projected to the contract's free variables (`balance`, `amount`), while checkout returns the full scope — the `PositiveInt` / `Reason` types, the `Insufficient` constructor, and the sibling top-level functions (`double`, `maxi`, `withdraw`, `withdraw-outcome`, each `"source": "let-binding"`) as the agent's callable vocabulary, each with its return type (`expected_return_type`). The brief also carries a structured `available_functions` menu — each callable function's params, `pre`, `post`, `tier`, and `return_type` — so an agent that needs to *call* a sibling gets its signature without reading the source.
 
 This same call also creates a lock file, `demo.llmll-lock.json`. Peeking under the hood:
 
@@ -521,7 +521,7 @@ The report carries **two orthogonal axes**:
 - **The trust axis (`effective`)** — all four are `verified`, `withdraw` included. It proved its Hoare triple `{balance ≥ amount} body {result = balance − amount}`, so it is verified; a function whose body the solver *couldn't* prove would read `asserted` here instead.
 - **The obligation axis (`requires`) — and the sibling contrast lands here as data.** `withdraw` carries a visible caller-obligation, `balance ≥ amount`: the part a *caller* must establish, surfaced explicitly rather than folded into the tier. `withdraw-outcome` carries **none** — it made that same failure case a *value* (`err Insufficient`) instead of a caller obligation. Same operation, two honest designs, and the obligation axis shows exactly the difference. `double` and `maxi` carry none either.
 
-*Is it correct?* and *what must a caller guarantee?* are two questions, answered on two axes — neither collapsed into the other. (Deliberately so: an earlier version of this report *floored* `withdraw` to `asserted` for merely having a precondition, conflating its verification status with its caller's obligation. That was a category error; the precondition now lives on its own axis — see [`precondition-tier-proposal.md`](../../docs/archive/shipped-design-specs/precondition-tier-proposal.md).)
+*Is it correct?* and *what must a caller guarantee?* are two questions, answered on two axes — neither collapsed into the other. (Deliberately so: conflating a function's verification status with its caller's obligation would be a category error — see [`precondition-tier-proposal.md`](../../docs/archive/shipped-design-specs/precondition-tier-proposal.md) for the design rationale behind keeping them on separate axes.)
 
 ## Composition: the obligation flows down
 
@@ -586,9 +586,9 @@ llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp
    withdraw-outcome: [spec-too-tight-for-omega] 0/1 reliable candidates
 ```
 
-All four functions here score `spec-too-tight-for-omega`: zero of the sampled candidates satisfy the contract, so there's no fraction to report — the spec is tighter than this generic basis can discriminate within, which is itself a strong signal (it's exactly why the type-correct-but-wrong fills above got refuted). A looser contract — one a trivial candidate happens to satisfy — gets a genuine numeric `score` instead, the case worth tightening. `withdraw-outcome` (the `Result`-returning function) now gets this same real measurement as its siblings (v0.14.2; earlier builds excluded `Result`-returning contracts from scoring entirely).
+All four functions here score `spec-too-tight-for-omega`: zero of the sampled candidates satisfy the contract, so there's no fraction to report — the spec is tighter than this generic basis can discriminate within, which is itself a strong signal (it's exactly why the type-correct-but-wrong fills above got refuted). A looser contract — one a trivial candidate happens to satisfy — gets a genuine numeric `score` instead, the case worth tightening. `withdraw-outcome` (the `Result`-returning function) gets this same real measurement as its siblings.
 
-This axis is no longer human-readable-only: `--json` now populates it too (fixed v0.14.2 — an earlier build silently dropped `discriminative_axis` to `"not-requested"` under `--strict-verified-core --trust-report --cdp --json` regardless of the flag). Projecting it:
+This axis is not human-readable-only: `--json` populates it too. Projecting it:
 
 ```bash
 llmll verify ./demo.ast.json --strict-verified-core --trust-report --cdp --json 2>/dev/null \
@@ -635,10 +635,10 @@ The full, copy-pasteable command script for this walkthrough lives in [`DEMO-RUN
 
 ## Future work
 
-This demo stayed small on purpose — a few small functions and plain integer math. Several things a richer demo would want have **landed since an earlier draft of this post** and now ride in with the lock:
+This demo stayed small on purpose — a few small functions and plain integer math. A richer demo would lean further on what already rides in with the lock:
 
-- **The return type arrives with the brief** (`expected_return_type`, DEF-RET) — you saw it carry `int` for `withdraw` and `Result[int,Reason]` for `withdraw-outcome`, so an agent filling a `Result` hole is told the shape up front rather than inferring it from the contract.
-- **The callable-function menu is handed over** (`available_functions`, DEMO-COMP) — each sibling's params, `pre`, `post`, `tier`, and `return_type`, so a fill that *calls* a helper gets its signature without reading the source. The `compose.llmll` step above is exactly the composition case this enables.
+- **The return type arrives with the brief** (`expected_return_type`) — you saw it carry `int` for `withdraw` and `Result[int,Reason]` for `withdraw-outcome`, so an agent filling a `Result` hole is told the shape up front rather than inferring it from the contract.
+- **The callable-function menu is handed over** (`available_functions`) — each sibling's params, `pre`, `post`, `tier`, and `return_type`, so a fill that *calls* a helper gets its signature without reading the source. The `compose.llmll` step above is exactly the composition case this enables.
 
 A couple of pieces are still genuinely ahead:
 

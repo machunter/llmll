@@ -1,7 +1,6 @@
 # ERC-20 Token Benchmark — Walkthrough
 
-> **Version:** originally v0.6.0; re-baselined 2026-07-02 against llmll 0.14.2 (see `EXPECTED_RESULTS.json`'s `future_work` note for what's still aspirational)  
-> **Goal:** Demonstrate end-to-end specification-driven development using the ERC-20 token standard as source material.
+> **Goal:** Demonstrate end-to-end specification-driven development using the ERC-20 token standard as source material. See `EXPECTED_RESULTS.json`'s `future_work` note for what's still aspirational.
 
 ---
 
@@ -33,7 +32,7 @@ The transfer conservation postcondition `(= (total-supply result) (total-supply 
 | `allowance` non-negative | **Verified** (QF-LIA) | Integer comparison |
 | `transfer` conservation | **Asserted** (stated, not discharged) | See Honesty Note |
 | `transfer` non-negative amount | **Asserted** (stated, not discharged) | See Honesty Note |
-| `approve` non-negative amount | **No contract** (precondition only) | A precondition alone has no effective post-level under TRUST-PRE — this is current, correct behavior, not a gap |
+| `approve` non-negative amount | **No contract** (precondition only) | A precondition alone has no effective post-level — this is current, correct behavior, not a gap |
 | `transfer-from` conservation | **Asserted** (stated, not discharged) | See Honesty Note |
 | `transfer-from` allowance check | **Asserted** (stated, not discharged) | See Honesty Note |
 | Map key membership / absence | **Asserted** | Outside decidable fragment |
@@ -75,7 +74,7 @@ Spec Coverage Report
 > **Note:** "Asserted: 6" reflects that verification levels come from the `.verified.json` sidecar. Without running `liquid-fixpoint`, all contracts default to Asserted.
 
 > [!IMPORTANT]
-> **Asserted vs. Verified:** The live `--spec-coverage` output above shows all 6 functions as **Asserted** because `--spec-coverage` reads whatever `.verified.json` sidecar already exists on disk, and a bare `--spec-coverage` run doesn't populate one. The genuinely achievable state — confirmed via `llmll verify erc20_filled.ast.json --trust-report`, which does run `liquid-fixpoint` fresh — is **`verified: 3` (`total-supply`, `balance-of`, `allowance`), `asserted: 2` (`transfer`, `transfer-from` — stated but not solver-discharged), `no_contract: 1` (`approve` — precondition-only, no effective post-level under TRUST-PRE)**, matching `EXPECTED_RESULTS.json`'s `expected_trust_report`. This is *not* "6 verified once fixpoint runs" — `transfer`/`transfer-from` structurally cannot reach `verified` with this benchmark's current single-int ledger model; see `EXPECTED_RESULTS.json`'s `future_work` note.
+> **Asserted vs. Verified:** The live `--spec-coverage` output above shows all 6 functions as **Asserted** because `--spec-coverage` reads whatever `.verified.json` sidecar already exists on disk, and a bare `--spec-coverage` run doesn't populate one. The genuinely achievable state — confirmed via `llmll verify erc20_filled.ast.json --trust-report`, which does run `liquid-fixpoint` fresh — is **`verified: 3` (`total-supply`, `balance-of`, `allowance`), `asserted: 2` (`transfer`, `transfer-from` — stated but not solver-discharged), `no_contract: 1` (`approve` — precondition-only, no effective post-level)**, matching `EXPECTED_RESULTS.json`'s `expected_trust_report`. This is *not* "6 verified once fixpoint runs" — `transfer`/`transfer-from` structurally cannot reach `verified` with this benchmark's current single-int ledger model; see `EXPECTED_RESULTS.json`'s `future_work` note.
 
 ### Run weakness check:
 ```bash

@@ -2,13 +2,13 @@
 
 > **Artifact:** "Implement a protocol from the RFC — in idiomatic types, with a real outcome sum — and prove the implementation maps every input to the right outcome."
 > **Fixtures:** `step.llmll` (+ `step-bad`, `step-weak`). See [`VERIFICATION_SCOPE.md`](VERIFICATION_SCOPE.md) for the proven-vs-trusted matrix (read it first — the scope matrix is the headline, not a disclaimer).
-> **Verified against:** `llmll 0.14.2`, real `liquid-fixpoint` on PATH.
+> **Requires:** real `liquid-fixpoint` on PATH.
 
 Run from this directory. This is the flagship "take an RFC and let the system implement it" demo — and unlike the TOTP RFC example (whose crypto core is opaque/`asserted`), a protocol **state machine** lands its core invariant in the verified fragment, so it reaches `verified`.
 
 ## What it proves
 
-`step [state: ConnState, event: Event] -> StepOutcome` encodes an RFC 793 (TCP) connection state-machine subset. **States and events are real sum types** — `(type ConnState (| Closed) (| Listen) (| SynSent) (| SynRcvd) (| Established))` and `(type Event …)` — and **the outcome is a real payload-bearing sum**, `(type StepOutcome (| Next int) (| Rejected int))`: a legal transition yields `Next(tag)` (the next-state tag), an illegal pair yields `Rejected(code)`. The outcome is **constructed natively** (the COMP-4 (a)/(c) feature, v0.13.9): the constructor application reflects into a native datatype term and the post discharges by **constructor equality**, refuting wrong outcomes by **injectivity**. There is **no `5 = REJECTED` int sentinel** — the reject is a first-class constructor value, distinct from every `Next(s)` by Z3's datatype theory.
+`step [state: ConnState, event: Event] -> StepOutcome` encodes an RFC 793 (TCP) connection state-machine subset. **States and events are real sum types** — `(type ConnState (| Closed) (| Listen) (| SynSent) (| SynRcvd) (| Established))` and `(type Event …)` — and **the outcome is a real payload-bearing sum**, `(type StepOutcome (| Next int) (| Rejected int))`: a legal transition yields `Next(tag)` (the next-state tag), an illegal pair yields `Rejected(code)`. The outcome is **constructed natively**: the constructor application reflects into a native datatype term and the post discharges by **constructor equality**, refuting wrong outcomes by **injectivity**. There is **no `5 = REJECTED` int sentinel** — the reject is a first-class constructor value, distinct from every `Next(s)` by Z3's datatype theory.
 
 The `post` is the **full transition-table totality** authored *from* the RFC (`:source "RFC 793 §3.2 …"`): each of the five legal pairs maps to its specific `Next(tag)`, and every other pair maps to `Rejected`. The verified invariant: the implementation provably cannot take an illegal transition (in particular, cannot reach `Established` without the handshake) and provably rejects every non-legal pair.
 

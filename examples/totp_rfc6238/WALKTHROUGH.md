@@ -1,6 +1,5 @@
 # TOTP RFC 6238 Benchmark — Walkthrough
 
-> **Version:** v0.6.1  
 > **RFC:** [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238) — TOTP: Time-Based One-Time Password Algorithm  
 > **Status:** Frozen benchmark with CI gate
 
@@ -40,7 +39,7 @@ Spec Coverage Report
   Effective coverage: 100% (6/6)
 ```
 
-> **Note:** the trust report (as opposed to spec coverage above) splits these 6 differently: `hmac-sha1-wrap` has no `pre`/`post` at all (its contract lives entirely in the `weakness-ok` suppression + `:source` citations, not in a checkable pre/post), so it lands in the trust report's `no_contract` bucket alongside `validate-totp` (which has a `pre` but no `post` — no effective post-level under TRUST-PRE) — `verified: 0, asserted: 4, no_contract: 2`. See `EXPECTED_RESULTS.json`'s `expected_trust_report`.
+> **Note:** the trust report (as opposed to spec coverage above) splits these 6 differently: `hmac-sha1-wrap` has no `pre`/`post` at all (its contract lives entirely in the `weakness-ok` suppression + `:source` citations, not in a checkable pre/post), so it lands in the trust report's `no_contract` bucket alongside `validate-totp` (which has a `pre` but no `post` — no effective post-level) — `verified: 0, asserted: 4, no_contract: 2`. See `EXPECTED_RESULTS.json`'s `expected_trust_report`.
 
 ## Check Blocks (Test Vectors)
 
@@ -55,7 +54,7 @@ The filled implementation includes 4 check blocks from RFC 6238 §A.1:
 
 ### Crypto as Opaque Builtins
 
-Per SC-2 and IN-2, `hmac-sha1` and `sha1` are typed as `TBytes 20 → TBytes 20 → TBytes 20` and `TBytes 20 → TBytes 20` respectively. This is deliberate:
+`hmac-sha1` and `sha1` are typed as `TBytes 20 → TBytes 20 → TBytes 20` and `TBytes 20 → TBytes 20` respectively. This is deliberate:
 
 - RFC 6238 SHA-1 test vectors use 20-byte keys and outputs
 - The concrete length enables the type checker to verify structural correctness
@@ -87,8 +86,8 @@ The gate checks 14 assertions against `EXPECTED_RESULTS.json`:
 
 | File | Purpose |
 |------|---------|
-| `totp.ast.json` | Skeleton with holes (BM2-1) |
-| `totp_filled.ast.json` | Complete implementation (BM2-2) |
-| `EXPECTED_RESULTS.json` | Frozen expected results (BM2-3) |
-| `WALKTHROUGH.md` | This document (BM2-5) |
-| `scripts/benchmark-totp.sh` | CI gate script (BM2-4) |
+| `totp.ast.json` | Skeleton with holes |
+| `totp_filled.ast.json` | Complete implementation |
+| `EXPECTED_RESULTS.json` | Frozen expected results |
+| `WALKTHROUGH.md` | This document |
+| `scripts/benchmark-totp.sh` | CI gate script |
