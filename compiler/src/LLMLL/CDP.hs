@@ -203,17 +203,14 @@ overAnnotationRatio stmts =
   in if total == 0 then 0.0 else fromIntegral intent / fromIntegral total
   where
     mapEntropies = concatMap go
-    go (SDefLogic _ _ _ c _)   = [resolveEntropy c]
-    go (SLetrec   _ _ _ c _ _) = [resolveEntropy c]
+    go (SDefLogic _ _ _ c _)   = [resolveSpecEntropy c]
+    go (SLetrec   _ _ _ c _ _) = [resolveSpecEntropy c]
     -- LT-INV (v0.11)
-    go (SDef      _ _ _ c _)   = [resolveEntropy c]
-    go (SDefShell _ _ _ c _)   = [resolveEntropy c]
+    go (SDef      _ _ _ c _)   = [resolveSpecEntropy c]
+    go (SDefShell _ _ _ c _)   = [resolveSpecEntropy c]
     -- v0.12.1
-    go (SDefInvariant _ _ _ c _) = [resolveEntropy c]
+    go (SDefInvariant _ _ _ c _) = [resolveSpecEntropy c]
     go _ = []
-    resolveEntropy c = case contractSpecEntropy c of
-      Just se -> se
-      Nothing -> SpecEntropyStrict
 
 -- ---------------------------------------------------------------------------
 -- Core computation
@@ -306,9 +303,7 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
 
     -- Out-of-scope result: no score, WarnDefShellOutOfScope, annotation preserved.
     outOfScopeResult contract =
-      let annotation = case contractSpecEntropy contract of
-                         Just se -> se
-                         Nothing -> SpecEntropyStrict
+      let annotation = resolveSpecEntropy contract
       in CDPResult
            { cdpCandidateCount        = 0
            , cdpSatisfyingCount       = 0
@@ -338,9 +333,7 @@ resultFor
   -> [WeaknessCandidate]
   -> IO CDPResult
 resultFor runCandidate functionVerifies contract candidates = do
-  let annotation = case contractSpecEntropy contract of
-                     Just se -> se
-                     Nothing -> SpecEntropyStrict
+  let annotation = resolveSpecEntropy contract
   if null candidates
     then pure CDPResult
       { cdpCandidateCount = 0
@@ -390,14 +383,21 @@ buildWarnings
   -> SpecEntropy           -- ^ spec-entropy annotation
   -> Bool                  -- ^ True when post carries DLVerified / DLContractChecked evidence
   -> [CDPWarning]
-buildWarnings candidates satisfying distinctAll _annotation functionVerifies =
+buildWarnings candidates satisfying distinctAll annotation functionVerifies =
   let identityOk   = any (isIdentity . wcTrivialBody) satisfying
       constOk      = any (isConst    . wcTrivialBody) satisfying
       inconsistent = null satisfying && not (null candidates)
       narrow       = distinctAll <= 1
+      -- §4.4.6: ':strict' raises the low-DP diagnostic; ':intentional' and
+      -- ':unknown' both suppress it (self-attested permissiveness-by-design,
+      -- or spec-in-flux). This gate applies ONLY to the two low-DP warnings
+      -- below — 'WarnSpecInconsistentOrUnproven'/'WarnSpecTooTightForOmega'
+      -- report a possible-inconsistency condition (a different axis) and
+      -- must NOT be suppressible by an annotation never meant to cover it.
+      raises = raiseLowDP annotation
   in concat
-       [ [WarnIdentitySatisfiesPost | identityOk]
-       , [WarnConstSatisfiesPost    | constOk]
+       [ [WarnIdentitySatisfiesPost | identityOk && raises]
+       , [WarnConstSatisfiesPost    | constOk && raises]
        , [if functionVerifies then WarnSpecTooTightForOmega else WarnSpecInconsistentOrUnproven | inconsistent]
        , [WarnEnumerationTooNarrow  | narrow && not inconsistent]
        ]

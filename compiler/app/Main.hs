@@ -40,7 +40,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, raiseLowDP)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -109,7 +109,7 @@ data Command
   | CmdHub      FilePath                                    -- Phase 2a: hub fetch --from-file <tarball>
   | CmdHubScaffold T.Text (Maybe FilePath)                  -- v0.3: hub scaffold <template> [--output DIR]
   | CmdHubQuery T.Text                                      -- v0.6.1: hub query --signature <sig>
-  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool Bool (Maybe FilePath) -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report, --cdp, --proof-artifact (PROOF-ARTIFACT)
+  | CmdVerify   FilePath (Maybe FilePath) LeanstralOpts Bool Bool Bool Bool Bool Bool Bool Bool (Maybe FilePath) -- D4: file, .fq output, leanstral, --trust-report, --weakness-check, --obligations, --spec-coverage, --strict-verified-core, --obligation-report, --cdp, --strict-verify, --proof-artifact (PROOF-ARTIFACT)
   | CmdReplayArtifact FilePath  -- PROOF-ARTIFACT: re-derive + check a recorded artifact (fail-closed)
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
@@ -275,6 +275,8 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
             <> help "Emit structured obligation report (JSON)")
       <*> switch (long "cdp"
             <> help "Compute contract discriminative power per function; emits discriminative_axis block in --trust-report --json")
+      <*> switch (long "strict-verify"
+            <> help "Sugar for --trust-report --weakness-check --spec-coverage --cdp — the recommended serious-verify path")
       <*> optional (strOption
             (long "proof-artifact" <> metavar "FILE"
             <> help "Write a unified, replayable verification record to FILE"))
@@ -356,7 +358,7 @@ main = do
     CmdHub   tarball              -> doHubFetch json tarball
     CmdHubScaffold tmpl mOut      -> doHubScaffold json gm tmpl mOut
     CmdHubQuery sig               -> doHubQuery json GrammarLegacy sig
-    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag mPa -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag mPa
+    CmdVerify fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag strictVerify mPa -> doVerify json gm fp mFqOut lsOpts trustRpt weakCheck obligs specCov strictCore obligReport cdpFlag strictVerify mPa
     CmdReplayArtifact af -> doReplayArtifact json af
     CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
     CmdServe serveOpts            -> runServe serveOpts
@@ -1102,8 +1104,17 @@ fqExitCode FQSafe        = ExitSuccess
 fqExitCode (FQUnsafe _)  = ExitFailure 1
 fqExitCode (FQError _)   = ExitFailure 1
 
-doVerify :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Maybe FilePath -> IO ()
-doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCoverage strictCore obligationReport cdpFlag mProofArtifact = do
+doVerify :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Maybe FilePath -> IO ()
+doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations specCoverageArg strictCore obligationReport cdpFlagArg strictVerify mProofArtifact = do
+  -- --strict-verify is sugar for --trust-report --weakness-check
+  -- --spec-coverage --cdp together (the roadmap's "CDP default-on" recommended
+  -- serious-verify path); shadowing here means every downstream reference to
+  -- these four names by bare identifier picks up the OR'd value without
+  -- touching the ~500 lines of body that already use them.
+  let trustReport  = trustReportArg  || strictVerify
+      weaknessCheck = weaknessCheckArg || strictVerify
+      specCoverage  = specCoverageArg  || strictVerify
+      cdpFlag       = cdpFlagArg       || strictVerify
   -- 1. Parse + type-check
   mResult <- loadStatementsMulti json gm fp
   case mResult of
@@ -1144,8 +1155,15 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)
         exitSuccess
-      -- v0.6: --spec-coverage mode — print coverage report and exit
-      when specCoverage $ do
+      -- v0.6: --spec-coverage mode — print coverage report and exit.
+      -- --strict-verify defers this exit (mirrors the '--trust-report' vs.
+      -- '--cdp'/'--strict-verified-core' deferral above at line ~1147) so the
+      -- solver pipeline still runs and '--weakness-check'/'--cdp' still fire;
+      -- the coverage report prints as a trailing section (below, near the
+      -- final SAFE exit) instead of short-circuiting. Standalone
+      -- '--spec-coverage' (the common case — a fast syntactic check with no
+      -- solver dependency) keeps its existing early-exit behavior unchanged.
+      when (specCoverage && not strictVerify) $ do
         let coverageReport = runCoverage stmts Map.empty  -- TODO: load sidecar in Sprint 3
         if json
           then TIO.putStrLn (formatCoverageJson coverageReport)
@@ -1494,6 +1512,17 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
               pure results
             _ -> pure Map.empty
 
+          -- --strict-verify: the spec-coverage early exit (line ~1159) was
+          -- deferred (specCoverage && strictVerify) so weakness-check/cdp
+          -- could run first on the SAFE result. Print the trailing coverage
+          -- section from whichever exit point below is actually taken —
+          -- '--cdp'/'--trust-report' combinations exit at more than one site.
+          let printDeferredCoverage = when (specCoverage && strictVerify) $ do
+                let coverageReport = runCoverage stmts Map.empty
+                if json
+                  then TIO.putStrLn (formatCoverageJson coverageReport)
+                  else TIO.putStr (formatCoverageText coverageReport)
+
           -- LT-CDP (v0.11): when '--trust-report' was deferred (because '--cdp'
           -- was set), emit the trust report here so 'discriminative_axis' can
           -- be populated from the CDP map. The non-CDP early-exit at line ~1078
@@ -1510,6 +1539,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
             if json
               then TIO.putStrLn (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
+            printDeferredCoverage
             -- VERIFY-RPT-1 (Commit 4): fail closed on a refuted/UNSAFE verdict
             -- instead of the prior unconditional exitSuccess (which re-opened the
             -- Defect-1 fail-open on '--trust-report --cdp'). Keyed identically to
@@ -1566,6 +1596,7 @@ doVerify json gm fp mFqOut lsOpts trustReport weaknessCheck obligations specCove
               -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
               when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
                 runLeanstralPipeline json fp stmts lsOpts
+              printDeferredCoverage
               exitSuccess
             FQUnsafe _ -> exitFailure
             FQError _  -> exitFailure
@@ -1628,13 +1659,17 @@ checkWeaknessCandidate lfBin _json typeDefs wc = do
       (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
       let fqResult = parseFQResult (T.pack out <> T.pack err)
       case fqResult of
-        FQSafe -> do
-          -- The trivial body satisfies the contracts → spec is weak
+        -- The trivial body satisfies the contracts → spec is weak. Per
+        -- §4.4.6, this diagnostic raises only under ':strict' (default);
+        -- ':intentional'/':unknown' suppress it — the annotation is still
+        -- self-attested-visible via the trust report's over-annotation ratio
+        -- (CDP.overAnnotationRatio), just not re-raised here.
+        FQSafe | raiseLowDP (wcSpecEntropy wc) -> do
           let preText  = fmap (T.pack . show) (wcPrecondition wc)
               postText = fmap (T.pack . show) (wcPostcondition wc)
               diag     = mkSpecWeakness (wcFunctionName wc) (wcTrivialLabel wc) preText postText
           pure [diag]
-        _ -> pure []  -- UNSAFE or error → spec is not weak for this body
+        _ -> pure []  -- UNSAFE, error, or suppressed by annotation
 
 -- ---------------------------------------------------------------------------
 -- v0.3.1: Leanstral proof pipeline
