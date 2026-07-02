@@ -41,8 +41,9 @@ import Data.Maybe (mapMaybe, catMaybes, maybeToList)
 import Data.List (nub, sortOn, foldl')
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Aeson (encode, object, (.=), Value(..))
-import qualified Data.ByteString.Lazy.Char8 as BLC
+import Data.Aeson (object, (.=), Value(..))
+import Data.Aeson.Text (encodeToLazyText)
+import qualified Data.Text.Lazy as TL
 
 import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
@@ -533,7 +534,7 @@ collectAllContractStatus cache entryStmts =
     mkER src (EHole (HProofRequired _ (Just pred))) =
       EvidenceRecord DLAsserted False src [] False
         (Just "runtime")
-        (Just (T.pack (BLC.unpack (encode (exprToJson pred)))))
+        (Just (TL.toStrict (encodeToLazyText (exprToJson pred))))
         True
         Nothing
     mkER src _ = EvidenceRecord DLAsserted False src [] False Nothing Nothing False Nothing
@@ -1162,9 +1163,18 @@ formatSuppressions supps =
 
 -- | JSON emit for the trust report. Emit-only — no parser ingests this; round-trip
 -- is JSON-level (re-decode as 'Value'), not Haskell-level.
+--
+-- BUG-5 (v0.14.3): was 'T.pack . BLC.unpack . encode' -- 'encode' produces
+-- UTF-8 bytes, but 'Data.ByteString.Lazy.Char8.unpack' reinterprets each byte
+-- as a Latin-1 codepoint (not a UTF-8 decode), so any multi-byte UTF-8
+-- sequence (e.g. '§' -> 0xC2 0xA7) becomes two separate high codepoints in
+-- the resulting Text; re-encoding that Text as UTF-8 downstream then
+-- double-encodes it into mojibake ('§' -> "Â§"). 'encodeToLazyText' builds
+-- Text directly from the aeson 'Value' with no byte-level round-trip, so it
+-- cannot suffer this class of corruption.
 formatTrustReportJson :: TrustReport -> Text
 formatTrustReportJson report =
-  T.pack . BLC.unpack . encode $ object
+  TL.toStrict . encodeToLazyText $ object
     [ "trust_report_version" .= trustReportEmitVersion
     , "entries"      .= map entryJson (trEntries report)
     , "summary"      .= summaryJson (trSummary report)

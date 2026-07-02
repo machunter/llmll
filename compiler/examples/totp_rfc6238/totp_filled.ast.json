@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "kind": "def",
+      "name": "compute-time-step",
+      "params": [
+        { "name": "t", "param_type": { "kind": "primitive", "name": "int" } }
+      ],
+      "return_type": { "kind": "primitive", "name": "int" },
+      "pre": {
+        "kind": "op", "op": ">=",
+        "args": [ { "kind": "var", "name": "t" }, { "kind": "lit-int", "value": 0 } ]
+      },
+      "pre_source": "RFC 6238 §4.2 — time step computation",
+      "post": {
+        "kind": "op", "op": ">=",
+        "args": [ { "kind": "var", "name": "result" }, { "kind": "lit-int", "value": 0 } ]
+      },
+      "post_source": "RFC 6238 §4.2 — time step is non-negative",
+      "body": { "kind": "var", "name": "t" }
+    }
+  ]
+}

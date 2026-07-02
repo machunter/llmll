@@ -1115,6 +1115,58 @@ main = hspec $ do
       T.isInfixOf "post_source" jsonTxt `shouldBe` True
       T.isInfixOf "cite-post"   jsonTxt `shouldBe` True
 
+    -- -----------------------------------------------------------------------
+    -- BUG-5 (v0.14.3): formatTrustReportJson double-encoded any non-ASCII
+    -- UTF-8 content it emitted (e.g. RFC-citation pre_source/post_source
+    -- strings). Root cause: 'T.pack . BLC.unpack . encode' -- aeson's
+    -- 'encode' produces correct UTF-8 bytes, but
+    -- 'Data.ByteString.Lazy.Char8.unpack' reinterprets each *byte* as a
+    -- Latin-1 codepoint (not a UTF-8 decode), so a multi-byte UTF-8 sequence
+    -- (e.g. '§' -> 0xC2 0xA7) becomes two separate high codepoints in the
+    -- resulting Text; encoding that Text back to UTF-8 downstream (stdout)
+    -- then double-encodes it into mojibake ('§' -> "Â§", em-dash -> "â").
+    -- This never fired before the BUG-4 fix because erSource was always
+    -- Nothing, so pre_source/post_source were never populated with real
+    -- Unicode text on the JSON path. The same antipattern also lived in
+    -- LLMLL.ObligationMining.formatObligationsJson and
+    -- LLMLL.SpecCoverage.formatCoverageJson, and in ~17 call sites in
+    -- app/Main.hs -- all switched to 'Data.Aeson.Text.encodeToLazyText',
+    -- which builds Text directly from the aeson Value with no byte-level
+    -- round-trip and so cannot double-encode.
+    -- -----------------------------------------------------------------------
+    it "BUG-5: formatTrustReportJson round-trips non-ASCII :source text without double-encoding" $ do
+      let stmts = [SDefLogic "f" [("n", TInt)] (Just TInt)
+                     (Contract (Just (EApp ">" [EVar "n", ELit (LitInt 0)]))
+                        (Just "RFC 6238 §4.2 — time step computation")
+                        (Just (EApp ">=" [EVar "result", ELit (LitInt 0)]))
+                        (Just "safety invariant — non-negative")
+                        Nothing)
+                     (EVar "n")]
+          report  = buildTrustReport Map.empty stmts Map.empty
+          jsonTxt = formatTrustReportJson report
+          -- Correct decode: Text -> UTF-8 bytes -> lazy ByteString -> Value.
+          -- (Deliberately NOT 'BLC.pack . T.unpack', which is the same
+          -- byte/codepoint-conflation bug in the opposite direction and
+          -- would corrupt this test's own non-ASCII fixture data.)
+          jsonV   = decode (BL.fromStrict (TE.encodeUtf8 jsonTxt)) :: Maybe Value
+      -- The raw JSON text itself must carry the real characters, not mojibake.
+      T.isInfixOf "RFC 6238 §4.2 — time step computation" jsonTxt `shouldBe` True
+      T.isInfixOf "safety invariant — non-negative"        jsonTxt `shouldBe` True
+      T.isInfixOf "Â§" jsonTxt `shouldBe` False
+      T.isInfixOf "â"  jsonTxt `shouldBe` False
+      -- And it must still be well-formed, parseable JSON whose decoded
+      -- string values equal the original (not just substring-present).
+      case jsonV of
+        Just (Object o) -> case KM.lookup "entries" o of
+          Just (Array entries) -> case [ e | Object e <- foldr (:) [] entries
+                                            , KM.lookup "name" e == Just (String "f") ] of
+            [e] -> do
+              KM.lookup "pre_source"  e `shouldBe` Just (String "RFC 6238 §4.2 — time step computation")
+              KM.lookup "post_source" e `shouldBe` Just (String "safety invariant — non-negative")
+            _ -> expectationFailure "Expected exactly one entry named f"
+          _ -> expectationFailure "Expected entries array"
+        _ -> expectationFailure "Expected top-level JSON object"
+
     -- PPR-CG1: pre-position predicate-carrying PPR emits predicate assertion
     it "PPR-CG1 pre-position predicate-carrying PPR emits runtime predicate assertion" $ do
       let pred  = EApp ">" [EVar "n", ELit (LitInt 0)]

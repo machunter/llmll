@@ -29,8 +29,9 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.List (nub, sortOn)
-import Data.Aeson (encode, object, (.=), Value(..))
-import qualified Data.ByteString.Lazy.Char8 as BLC
+import Data.Aeson (object, (.=))
+import Data.Aeson.Text (encodeToLazyText)
+import qualified Data.Text.Lazy as TL
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..), mkWarning)
@@ -322,9 +323,12 @@ formatCoverageText report =
 -- Formatting (JSON)
 -- ---------------------------------------------------------------------------
 
+-- BUG-5 (v0.14.3): use 'encodeToLazyText' rather than
+-- 'T.pack . BLC.unpack . encode' -- see LLMLL.TrustReport.formatTrustReportJson
+-- for why the latter double-encodes non-ASCII content.
 formatCoverageJson :: CoverageReport -> Text
 formatCoverageJson report =
-  T.pack . BLC.unpack . encode $ object
+  TL.toStrict . encodeToLazyText $ object
     [ "entries"   .= map entryJson (sortOn feName (crEntries report))
     , "summary"   .= summaryJson (crSummary report)
     , "laws"      .= map lawJson (crLaws report)

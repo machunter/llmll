@@ -33,8 +33,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe)
 import qualified Data.List
-import Data.Aeson (encode, object, (.=), Value(..))
-import qualified Data.ByteString.Lazy.Char8 as BLC
+import Data.Aeson (object, (.=))
+import Data.Aeson.Text (encodeToLazyText)
+import qualified Data.Text.Lazy as TL
 
 import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), DisplayLevel(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
@@ -240,9 +241,15 @@ strengthLabel Advisory = "ADVISORY"
 -- ---------------------------------------------------------------------------
 
 -- | Format obligation suggestions as JSON.
+--
+-- BUG-5 (v0.14.3): use 'encodeToLazyText' rather than
+-- 'T.pack . BLC.unpack . encode' -- the latter reinterprets each UTF-8 byte
+-- of aeson's 'encode' output as a Latin-1 codepoint via
+-- 'Data.ByteString.Lazy.Char8.unpack', double-encoding any non-ASCII content
+-- on re-serialization (see LLMLL.TrustReport.formatTrustReportJson).
 formatObligationsJson :: [ObligationSuggestion] -> Text
 formatObligationsJson sugs =
-  T.pack . BLC.unpack . encode $ object
+  TL.toStrict . encodeToLazyText $ object
     [ "obligation_suggestions" .= map sugJson sugs
     , "count"                  .= length sugs
     ]
