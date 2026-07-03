@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+# ─────────────────────────────────────────────────────────────────────────────
+# Thin host wrapper for the zero-install llmll Docker image.
+#
+# Runs the published image against your current directory so `./llmll <cmd>`
+# behaves like a locally-installed compiler — no GHC/Stack/z3 toolchain needed.
+#
+#     ./scripts/llmll verify myfile.llmll
+#     ./scripts/llmll check  myfile.llmll
+#     ./scripts/llmll --help
+#
+# Override the image with LLMLL_IMAGE, e.g. to pin a version:
+#     LLMLL_IMAGE=ghcr.io/machunter/llmll:v0.14.5 ./scripts/llmll verify f.llmll
+#
+# Your cwd is mounted read-write at /work (llmll writes .fq / .verified.json
+# sidecars next to the input, matching a local install). For a read-only
+# mount, pass `--fq-out /work/out.fq` and expect the sidecar write to be skipped.
+# ─────────────────────────────────────────────────────────────────────────────
+set -eu
+
+IMAGE="${LLMLL_IMAGE:-ghcr.io/machunter/llmll:latest}"
+
+exec docker run --rm \
+  -v "$(pwd)":/work \
+  -w /work \
+  "$IMAGE" "$@"

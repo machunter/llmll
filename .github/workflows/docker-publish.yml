@@ -1,0 +1,119 @@
+# docker-publish — zero-install image build + publish.
+#
+# Off-roadmap adoption work (packaging the compiler for distribution). Ships a
+# slim, verify-capable image: llmll + liquid-fixpoint (`fixpoint`) + z3 + the
+# baked demo examples.
+#
+# Two jobs:
+#   build-test  — on PRs / main pushes that touch the image inputs. Builds the
+#                 image (amd64, no push) and runs the container acceptance gate
+#                 (scripts/tests/docker-acceptance.sh): conserve-bad must refute
+#                 (exit 1, NOT 3), conserve must verify (exit 0). A broken image
+#                 (missing z3/fixpoint, wrong lib set) fails the PR here.
+#   publish     — on a vX.Y.Z tag push. Enforces scripts/version_gate.sh, asserts
+#                 the git tag == the LLMLL.md banner (image tag == banner
+#                 version, composing with DRIFT-CI-1), then builds + pushes
+#                 ghcr.io/<owner>/llmll:vX.Y.Z and :latest.
+#
+# Security posture: no run: block interpolates attacker-controllable ${{ }}
+# context into a shell command. github.ref_name is passed via env and compared
+# quoted; the banner is extracted from the checked-in LLMLL.md only.
+
+name: docker-publish
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'compiler/**'
+      - 'examples/payments-core/**'
+      - 'scripts/tests/docker-acceptance.sh'
+      - '.github/workflows/docker-publish.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'compiler/**'
+      - 'examples/payments-core/**'
+      - 'scripts/tests/docker-acceptance.sh'
+      - '.github/workflows/docker-publish.yml'
+    tags:
+      - 'v*'
+
+jobs:
+  build-test:
+    name: build + container acceptance
+    # Skip on tag pushes; the publish job covers those.
+    if: startsWith(github.ref, 'refs/tags/') == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (amd64, load into local daemon)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: llmll:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Container acceptance gate
+        run: bash scripts/tests/docker-acceptance.sh llmll:ci
+
+  publish:
+    name: publish to ghcr.io on tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (version_gate dependency)
+        run: which jq || (sudo apt-get update && sudo apt-get install -y jq)
+
+      - name: Enforce version-gate (DRIFT-CI-1)
+        run: bash scripts/version_gate.sh
+
+      - name: Derive version from banner and assert tag == banner
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          banner=$(head -n 1 LLMLL.md | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          [ -n "$banner" ] || { echo "could not extract vX.Y.Z from LLMLL.md line 1"; exit 1; }
+          if [ "$REF_NAME" != "$banner" ]; then
+            echo "git tag ($REF_NAME) != LLMLL.md banner ($banner) — refusing to publish a mislabelled image"
+            exit 1
+          fi
+          echo "VERSION=$banner" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/llmll:${{ env.VERSION }}
+            ghcr.io/${{ github.repository_owner }}/llmll:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
