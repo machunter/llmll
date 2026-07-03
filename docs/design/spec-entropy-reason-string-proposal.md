@@ -1,11 +1,13 @@
 # SPEC-ENTROPY-REASON — Mandatory-Justification String on `(spec-entropy :intentional …)`
 
-> **Version:** Rev 0.1 — initial proposal + compiler-engineer Slice-1 implementation plan folded as Appendix A; three feasibility corrections applied to the body (W60x locus, `Contract` constructor fan-out, migration test-churn), each verified against source.
+> **Version:** Rev 0.2 — see revision notes.
+> **Rev 0.1:** + compiler-engineer Slice-1 implementation plan (Appendix A); three source-verified feasibility corrections (W60x locus, `Contract` fan-out, migration test-churn).
+> **Rev 0.2:** professor review folded (Appendix B); **decision 3 updated** — Slice-1 soft W-code is now the **terminal** design and the Slice-2 hard-error promotion is **not recommended** (empirically unsupported: FSE 2025 suppression-decay + the Rust Clippy revealed-preference, both verified). The expiring-`:intentional` successor the review recommends is routed to language-team as [`expiring-intentional-proposal.md`](expiring-intentional-proposal.md).
 > **Date:** 2026-07-03
 > **Implements:** Follow-on to `experiments/adv-spec-weaken-0` **F-002** (settled 2026-07-03, `64b8700`). Sits on top of the LT-CDP research-track concept (`spec-entropy` annotation, `LLMLL.md §4.4.6`).
 > **Origin:** Surfaced (and deliberately severed) by both the language-team and compiler-engineer adjudications of F-002. F-002 itself is closed as a design-scope limitation; this is a distinct, elective defense-in-depth proposal.
 > **Prerequisites:** None new. Extends the existing `spec-entropy` clause; leans on the `weakness-ok` mandatory-reason precedent (`LLMLL.md §4.5`).
-> **Status:** Proposed (Rev 0.1) — feasibility-checked (Appendix A); awaiting the build decision.
+> **Status:** Proposed (Rev 0.2) — professor-reviewed (Appendix B). Slice-1 soft W-code is the terminal recommendation; Slice-2 dropped; expiring-`:intentional` successor routed to language-team. Open build decision: does reason-string Slice-1 ship at all, or does the expiring mechanism supersede it? (Gated on whether a machine consumer of `spec_entropy_reason` is committed — professor open question 2.)
 
 ---
 
@@ -64,6 +66,8 @@ Additive → existing ASTs still parse, existing consumers ignore it, `SpecEntro
 
    The migration tradeoff, explicit: hard-required now is a value-dependent grammar (reason mandatory iff the label is `:intentional`, `Parser.hs:559`) plus a breaking change to the ~5 source clauses and the doc examples. The tail is small enough that this is *feasible* pre-v1.0 — the recommendation for soft-first is about reversibility (a hard error is a one-way door) and proportionality, not about migration size.
 
+   > **Update (Rev 0.2, post-professor-review — supersedes the "promotion path" above):** the Slice-2 hard-error promotion is **not recommended**. The professor review (Appendix B) found no controlled evidence that a mandatory justification string reduces unjustified suppressions, and the nearest verified evidence cuts against it: the FSE 2025 mining study shows suppression facilities decay to ~50.8% useless *regardless of the mechanism's presence*, and Rust Clippy's `allow_attributes_without_reason` — the near-exact analogue — ships `restriction`/`allow` (opt-in), never promoted to warn or hard-error. A mandatory string raises the floor of *keystrokes*, not of *justification* (`"by design"` clears W611), and converts F-002's observable *silence* into observable *noise* that defeats the cheap "reason absent" heuristic W610 hands the CI gate for free. **Slice-1 soft W-code is therefore the terminal design.** Slice-2 becomes defensible only if `spec_entropy_reason` gains a machine consumer that scores reason quality (dedup / low-entropy rejection); absent that commitment, it is ceremony on a one-way door. The review's higher-value redirect — an *expiring* `:intentional` keyed on the already-computed CDP score — is routed to language-team as [`expiring-intentional-proposal.md`](expiring-intentional-proposal.md); see Appendix B.
+
 **4. JSON-AST shape.** Covered in Schema delta: **additive `spec_entropy_reason` sibling**, not an in-place object. The trust-report `spec_entropy_annotation` carries it additively so CI and human review see it on the machine-readable surface (this is what makes the artifact *useful* — it rides the same JSON F-002's per-function `discriminative_axis` score already rides).
 
 **5. Governance W-codes.** A new **W61x block**, distinct from `weakness-ok`'s W60x (which governs a different mechanism):
@@ -119,6 +123,8 @@ A **trust-channel advisory surface with zero soundness impact.** It changes noth
 
 One, and it bears directly on decision 3 (is the Slice-2 hard-error promotion worth it?): **does mandatory-justification-string discipline have a studied effect on attestation-abuse rates in audited corpora?** The Rust `#[allow(...)]` / crater audit dataset and Liquid Haskell's `{-@ assume @-}` community practice (both cited in CDP proposal §10 Risk #3 Rev 2) are the obvious empirical anchors. If the literature shows mandatory reasons measurably reduce unjustified-suppression rates, that argues for promoting to hard-required; if the effect is negligible, the Slice-1 W-code is the terminal design and the promotion should be dropped.
 
+> **Answered (Rev 0.2, Appendix B):** the effect is empirically unestablished, and the nearest verified evidence points to negligible — so the Slice-1 W-code is the terminal design and the promotion is dropped. The professor also surfaced a higher-value successor (expiring `:intentional`) routed to language-team.
+
 ---
 
 **Hand-off (Rev 0 → user adjudication).** This is a fresh proposal, not a settlement. If the user approves the direction, the code-track hand-off to `compiler-engineer` is: additive `spec_entropy_reason` field (`Syntax.hs:309`, schema `:70,128`), optional-trailing-string parse in `pSpecEntropyClause` (`Parser.hs:559`), symmetric `ParserJSON`/`AstEmit` emit/decode, W610–W612 governance (new producer in `CDP.hs`, `Diagnostic`-record style per `SpecCoverage.hs:247-271`, wired via `Main.hs`), additive trust-report carry (`TrustReport.hs`, no version bump), and the ~5-site migration plus its ~5-8 diagnostic-test-assertion updates. A `professor` turn on the one empirical question above is warranted before committing to the Slice-2 hard-error promotion, but not before Slice 1.
@@ -157,3 +163,25 @@ One, and it bears directly on decision 3 (is the Slice-2 hard-error promotion wo
 **Effort:** ~1-day patch. **Rollback:** single-revert; additive field + soft W-code, no flag; no `.verified.json`/`.fq` migration — one caveat: retain `0.7.1` in `acceptedSchemaVersions` on any partial rollback so already-emitted artifacts stay readable.
 
 **Open question for the professor (carried, bears on Slice 2 only):** does mandatory-justification discipline measurably reduce unjustified-suppression rates in audited corpora (Rust `#[allow]`/crater, LH `assume`; CDP proposal §10 Risk #3 Rev 2)? If negligible, Slice-1's soft W-code is the terminal design and the Slice-2 hard-error promotion should be dropped.
+
+---
+
+## Appendix B — Professor review (empirical question / Slice-2 gate)
+
+*Folded 2026-07-03. The two load-bearing external citations were independently verified against source (WebSearch/WebFetch) before folding; the SATD citations are well-known but were not re-fetched this pass.*
+
+**Verdict.** There is **no controlled evidence** that a mandatory justification string reduces unjustified suppressions — the claim is unestablished in either direction — and the nearest verifiable evidence cuts *against* building the hard error.
+
+**Verified anchors:**
+- **FSE 2025, "An Empirical Study of Suppressed Static Analysis Warnings"** (mining study; [ACM 10.1145/3715729](https://dl.acm.org/doi/10.1145/3715729), [software-lab.org PDF](https://software-lab.org/publications/fse2025_suppressions.pdf)). 7,357 suppressions across 46 Python (Pylint) projects; **50.8% of suppressions affect no warning — practically useless**; suppression counts grow monotonically over time. The mechanism's *presence* does not induce discipline. **Confirmed verbatim.**
+- **Rust Clippy `allow_attributes_without_reason`** ([clippy index](https://rust-lang.github.io/rust-clippy/master/index.html#allow_attributes_without_reason)) — the near-exact analogue of Slice-1's W610. Ships in the **`restriction` group, default `allow`** (opt-in); never promoted to warn or hard-error. A verification-adjacent community built exactly this feature and chose soft. **Confirmed.**
+- **Rust `#[expect]`** — an *expiring* suppression that warns when the underlying lint no longer fires (self-cleaning). The model for the successor mechanism. Confirmed as a real `#[allow]`-replacement attribute.
+- SATD literature (Potdar & Shihab, ICSME 2014; Bavota & Russo, MSR 2016): developers do self-document intentional shortcuts pervasively, and such comments are long-lived — documentation ≠ resolution. (Well-known; not re-fetched.)
+
+**Mechanism argument.** A parser can check *presence* and *non-emptiness*; it cannot check *justification*. Mandatory free-text is the most trivially-satisfiable obligation in language design; a hard error raises the floor of keystrokes, not of justification, and turns F-002's observable *silence* (which W610 flags for free) into observable *noise* that defeats the cheap "reason-absent" heuristic.
+
+**Recommendation:** make Slice-1 soft W-code the **terminal** design; do not build Slice-2. It flips only if `spec_entropy_reason` gains a machine consumer that scores reason quality (dedup / low-entropy rejection).
+
+**The higher-value redirect (routed to language-team as [`expiring-intentional-proposal.md`](expiring-intentional-proposal.md)):** an **expiring `:intentional`** on the Rust `#[expect]` model — fire a `W61x` when a function still marked `:intentional` no longer has a low DP score (spec later tightened / Ω widened, so the suppression is stale). It dominates the reason-string on three axes the string cannot touch: **automatable** (no free-text quality problem), **not self-attestation** (the DP score is computed, not declared — a genuine, narrow escape from the professor-Gap-5 oracle barrier), and it directly attacks the *accumulation* failure mode the FSE study documents as the real cost. **Scoping precision:** it addresses suppression *staleness*, not F-002's original laundering (weaken-and-mark-intentional produces a genuinely low score, so it reads as justified — F-002 stays settled-as-designed). Secondarily, if the reason string ships at all, add a cheap **W613** (`spec_entropy_reason` duplicated verbatim across ≥N functions) — the one quality signal available without NLP, since the FSE 50.8%-useless result predicts vacuous reasons will cluster.
+
+**Two questions returned to language-team:** (1) is the per-function DP score available at the `CDP.hs` build site where an expiry `W61x` would fire, making "annotated but no longer low-DP" a cheap structural check? (verified yes — the score is computed and emitted every run); (2) is there a committed *machine* consumer of `spec_entropy_reason`, or is it human-review-only? — this decides whether any reason-mandating does work.
