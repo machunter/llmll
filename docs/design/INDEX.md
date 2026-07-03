@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-07-01  
+> **Last updated:** 2026-07-03  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -22,6 +22,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [cross-module-composition-finding.md](cross-module-composition-finding.md) | XMOD-COMP: cross-module verified composition is a 5-layer gap; same-module works | **Finding — partially fixed** — body-VC-emission + callee_tier open |
 | [critique-2026-05-23-triage.md](critique-2026-05-23-triage.md) | 2026-05-23 external-critique triage; four-turn convergence; 17 routing items | **Settled** — routing in progress |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
+| [spec-entropy-reason-string-proposal.md](spec-entropy-reason-string-proposal.md) | Mandatory-justification string on `(spec-entropy :intentional)`; defense-in-depth, not F-002 detection fix | **Proposed (Rev 0)** — awaiting adjudication |
 
 ---
 
