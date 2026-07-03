@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_tictactoe_json_tictactoe_ast_json",
+  "path": "examples/tictactoe_json/tictactoe.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.4985479580000174,
+      0.4291777920000186,
+      0.42270270799986065,
+      0.4356978749999598,
+      0.5028822080000737
+    ],
+    "median_s": 0.4356978749999598,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4553122079998957,
+      0.4073995409999043,
+      0.40665183299984164,
+      0.48929070899998806,
+      0.5189042920001157
+    ],
+    "median_s": 0.4553122079998957,
+    "candidate_count": 0
+  },
+  "overhead_ms": 19.61433299993587,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

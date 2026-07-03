@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_life_json_core_ast_json",
+  "path": "examples/life_json/core.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.4157733749999579,
+      0.37009020900006817,
+      0.366359459000023,
+      0.422806291000029,
+      0.40531366699997307
+    ],
+    "median_s": 0.40531366699997307,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.3965897909999967,
+      0.36711075000005167,
+      0.3379597919999924,
+      0.40262304200007293,
+      0.4566607080000722
+    ],
+    "median_s": 0.3965897909999967,
+    "candidate_count": 0
+  },
+  "overhead_ms": -8.723875999976372,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

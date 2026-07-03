@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_erc20_token_erc20_ast_json",
+  "path": "examples/erc20_token/erc20.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.4231317910000598,
+      0.40639166700009355,
+      0.36910879200002,
+      0.41188533299998653,
+      0.3998477919999459
+    ],
+    "median_s": 0.40639166700009355,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.9867518329999712,
+      0.9843085410000185,
+      0.9711900419999893,
+      0.8823745839999901,
+      0.8352886250000893
+    ],
+    "median_s": 0.9711900419999893,
+    "candidate_count": 15
+  },
+  "overhead_ms": 564.7983749998957,
+  "total_candidate_count": 15,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_nested-result_safe-withdraw-bad_ast_json",
+  "path": "examples/nested-result/safe-withdraw-bad.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.3991293329999053,
+      0.36751649999996516,
+      0.34866308300001947,
+      0.32716575000006287,
+      0.4138204579999183
+    ],
+    "median_s": 0.36751649999996516,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.3580400419999705,
+      0.3554314579999982,
+      0.39280762499993216,
+      0.41380641700004617,
+      0.36662991699995473
+    ],
+    "median_s": 0.36662991699995473,
+    "candidate_count": 0
+  },
+  "overhead_ms": -0.8865830000104324,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

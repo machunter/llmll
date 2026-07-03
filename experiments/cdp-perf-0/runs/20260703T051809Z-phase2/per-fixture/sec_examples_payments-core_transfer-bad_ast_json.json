@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_transfer-bad_ast_json",
+  "path": "examples/payments-core/transfer-bad.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.6810408750000079,
+      0.5888992080000435,
+      0.5291639999999234,
+      0.5983517920000168,
+      0.5933341249999557
+    ],
+    "median_s": 0.5933341249999557,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.5261220829999047,
+      0.532022667000092,
+      0.593302083000026,
+      0.5424436670000432,
+      0.5351005410000198
+    ],
+    "median_s": 0.5351005410000198,
+    "candidate_count": 0
+  },
+  "overhead_ms": -58.233583999935945,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

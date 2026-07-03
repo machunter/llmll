@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_tictactoe_sexp_tictactoe_llmll",
+  "path": "examples/tictactoe_sexp/tictactoe.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.48247495900000104,
+      0.5062252080000462,
+      0.455532000000062,
+      0.46458033400006116,
+      0.4329578329999322
+    ],
+    "median_s": 0.46458033400006116,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4654497919999585,
+      0.46265516599999046,
+      0.40875454199999695,
+      0.43042991599998004,
+      0.48201045799999065
+    ],
+    "median_s": 0.46265516599999046,
+    "candidate_count": 0
+  },
+  "overhead_ms": -1.9251680000706983,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

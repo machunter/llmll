@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_niw-measure_word-pad-bad_ast_json",
+  "path": "examples/niw-measure/word-pad-bad.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.3466108750000103,
+      0.4186201659999824,
+      0.4433408329999793,
+      0.3906530420000536,
+      0.411452334000046
+    ],
+    "median_s": 0.411452334000046,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.3680317079999895,
+      0.31841462500005946,
+      0.3336712499999521,
+      0.306225124999969,
+      0.28767437499993775
+    ],
+    "median_s": 0.31841462500005946,
+    "candidate_count": 0
+  },
+  "overhead_ms": -93.03770899998653,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

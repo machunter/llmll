@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_withdraw-demo_audit_ast_json",
+  "path": "examples/withdraw-demo/audit.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.519214459000068,
+      0.4689408750000439,
+      0.4668040829999427,
+      0.5053317499998684,
+      0.49871341600010055
+    ],
+    "median_s": 0.49871341600010055,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.514499250000199,
+      0.49950295799999367,
+      0.4376339170000847,
+      0.4340802919998623,
+      0.5231055000001561
+    ],
+    "median_s": 0.49950295799999367,
+    "candidate_count": 0
+  },
+  "overhead_ms": 0.7895419998931175,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

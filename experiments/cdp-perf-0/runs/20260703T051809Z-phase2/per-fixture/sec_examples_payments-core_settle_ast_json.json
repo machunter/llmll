@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_settle_ast_json",
+  "path": "examples/payments-core/settle.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.4916243339999937,
+      0.5063582089999272,
+      0.5223750409999184,
+      0.49106287500001145,
+      0.5386669170000005
+    ],
+    "median_s": 0.5063582089999272,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.5315382499999259,
+      0.5182154159999754,
+      0.5937232499999254,
+      0.5871269579999989,
+      0.5236939999999777
+    ],
+    "median_s": 0.5315382499999259,
+    "candidate_count": 0
+  },
+  "overhead_ms": 25.18004099999871,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

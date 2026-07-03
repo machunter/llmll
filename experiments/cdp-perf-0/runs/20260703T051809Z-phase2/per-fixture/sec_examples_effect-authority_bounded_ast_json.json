@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_effect-authority_bounded_ast_json",
+  "path": "examples/effect-authority/bounded.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.46499808399994436,
+      0.39127766699994027,
+      0.4227513750000753,
+      0.43050049999999374,
+      0.3890467080000235
+    ],
+    "median_s": 0.4227513750000753,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4051230410000244,
+      0.3954595000000154,
+      0.38113962499994614,
+      0.41771812500007854,
+      0.39785341600008906
+    ],
+    "median_s": 0.39785341600008906,
+    "candidate_count": 0
+  },
+  "overhead_ms": -24.89795899998626,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

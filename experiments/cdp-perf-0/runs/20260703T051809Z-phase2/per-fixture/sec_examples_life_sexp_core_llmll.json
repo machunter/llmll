@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_life_sexp_core_llmll",
+  "path": "examples/life_sexp/core.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.4084044580000068,
+      0.38104254199998877,
+      0.3740263329999891,
+      0.4265615830000229,
+      0.413645291999984
+    ],
+    "median_s": 0.4084044580000068,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.5623004159999994,
+      0.44221266700000683,
+      0.46642283299999576,
+      0.4158637919999819,
+      0.43432304099999897
+    ],
+    "median_s": 0.44221266700000683,
+    "candidate_count": 0
+  },
+  "overhead_ms": 33.80820900000003,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

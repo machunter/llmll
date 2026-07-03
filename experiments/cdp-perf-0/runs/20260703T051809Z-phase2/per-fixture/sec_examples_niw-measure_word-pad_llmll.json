@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_niw-measure_word-pad_llmll",
+  "path": "examples/niw-measure/word-pad.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.3229430000000093,
+      0.3500510419999898,
+      0.34568866700001877,
+      0.3255187499999863,
+      0.3245518749999974
+    ],
+    "median_s": 0.3255187499999863,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4855471669999929,
+      0.4834384159999843,
+      0.42528824999999415,
+      0.47516350000000784,
+      0.3951954169999965
+    ],
+    "median_s": 0.47516350000000784,
+    "candidate_count": 4
+  },
+  "overhead_ms": 149.64475000002153,
+  "total_candidate_count": 4,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

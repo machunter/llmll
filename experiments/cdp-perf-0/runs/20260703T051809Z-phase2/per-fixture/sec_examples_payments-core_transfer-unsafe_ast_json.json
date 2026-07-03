@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_transfer-unsafe_ast_json",
+  "path": "examples/payments-core/transfer-unsafe.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.6118306250000387,
+      0.5125852500000292,
+      0.5550044159999743,
+      0.6132505829999673,
+      0.6178111250000029
+    ],
+    "median_s": 0.6118306250000387,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.6808487499999956,
+      0.7288933329999736,
+      0.6953212079999957,
+      0.7189456249999466,
+      0.6784720409999636
+    ],
+    "median_s": 0.6953212079999957,
+    "candidate_count": 0
+  },
+  "overhead_ms": 83.49058299995704,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

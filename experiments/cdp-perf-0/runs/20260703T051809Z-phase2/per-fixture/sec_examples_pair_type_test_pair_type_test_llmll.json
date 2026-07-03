@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_pair_type_test_pair_type_test_llmll",
+  "path": "examples/pair_type_test/pair_type_test.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.3160804169999949,
+      0.31410729199998855,
+      0.34099374999999554,
+      0.339542707999982,
+      0.3142162080000048
+    ],
+    "median_s": 0.3160804169999949,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.31524224999998296,
+      0.32642062499999724,
+      0.34015404199999466,
+      0.3264637909999806,
+      0.3149190000000033
+    ],
+    "median_s": 0.32642062499999724,
+    "candidate_count": 0
+  },
+  "overhead_ms": 10.340208000002349,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

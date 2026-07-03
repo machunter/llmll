@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_withdraw-demo_compose-bad_llmll",
+  "path": "examples/withdraw-demo/compose-bad.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.31852629100001195,
+      0.31223066600000493,
+      0.3436026669999137,
+      0.3821303329999637,
+      0.4155620410000438
+    ],
+    "median_s": 0.3436026669999137,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.46899674999997387,
+      0.4850558750000573,
+      0.4046638749999829,
+      0.4102323749999641,
+      0.47736554200002956
+    ],
+    "median_s": 0.46899674999997387,
+    "candidate_count": 0
+  },
+  "overhead_ms": 125.39408300006016,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

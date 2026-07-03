@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_session-pay_open-and-pay-bad-step_ast_json",
+  "path": "examples/session-pay/open-and-pay-bad-step.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      6.646422749999942,
+      8.253218249999918,
+      8.353340417000027,
+      8.64884741700007,
+      8.007655416000034
+    ],
+    "median_s": 8.253218249999918,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      8.259316999999783,
+      6.554464167000106,
+      7.348414000000048,
+      8.250331875000029,
+      9.44060249999984
+    ],
+    "median_s": 8.250331875000029,
+    "candidate_count": 0
+  },
+  "overhead_ms": -2.8863749998890853,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

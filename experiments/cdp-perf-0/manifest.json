@@ -1,0 +1,50 @@
+{
+  "experiment": "cdp-perf-0",
+  "rev": 1,
+  "manifest_version": "1.0.0",
+  "consumer_ref": {
+    "doc": "docs/compiler-team-roadmap.md",
+    "row": "CDP default-on",
+    "gate": "wall-clock characterization of the --cdp candidate-sweep — the stated remaining blocker to the default-flip decision"
+  },
+  "compiler_ref": {
+    "tag": "v0.14.5",
+    "short_sha": "e50b1f1",
+    "branch": "main",
+    "version_string": "llmll 0.14.5"
+  },
+  "primary_corpus": [
+    {"id": "b1",      "path": "examples/benchmarks/b1-withdraw.llmll",        "reason": "OBLIG-B Tier 1; shared with cdp-0 primary corpus"},
+    {"id": "b3",      "path": "examples/benchmarks/b3-safe-first.llmll",      "reason": "OBLIG-B Tier 1; shared with cdp-0 primary corpus"},
+    {"id": "b5",      "path": "examples/benchmarks/b5-double.llmll",          "reason": "OBLIG-B Tier 1; shared with cdp-0 primary corpus"},
+    {"id": "totp",    "path": "examples/totp_rfc6238/totp_filled.ast.json",   "reason": "RFC-anchored real-world spec; shared with cdp-0 primary corpus"},
+    {"id": "erc20",   "path": "examples/erc20_token/erc20_filled.ast.json",   "reason": "Real-world contract surface; shared with cdp-0 primary corpus"},
+    {"id": "banking", "path": "examples/banking_ledger/banking.llmll",        "reason": "LT-INT canonical; shared with cdp-0 primary corpus"}
+  ],
+  "secondary_corpus_discovery": {
+    "include_globs": ["examples/**/*.llmll", "examples/**/*.ast.json"],
+    "exclude_globs": [
+      "examples/proof_required_test/**",
+      "examples/delegate_demo/**"
+    ],
+    "verify_clean_filter": true
+  },
+  "modes": [
+    {"id": "bare", "flags": []},
+    {"id": "cdp",  "flags": ["--cdp", "--trust-report"]}
+  ],
+  "reps": {"measured": 5, "warmup": 1},
+  "reps_phase2_primary": {"measured": 15, "warmup": 2},
+  "reps_phase2_secondary": {"measured": 5, "warmup": 1},
+  "reproducibility": {
+    "cpu_governor_check": "performance-or-equivalent (Mac: lowpowermode 0)",
+    "override_flag": "--no-governor-check",
+    "note": "Not enforced by the driver (informational only) — this is a compile-time latency measurement on small fixtures, not a tight-threshold runtime gate like INT-PRE; noted for anyone re-running for a stricter comparison."
+  },
+  "stop_policy": "log-and-continue",
+  "writes": {
+    "raw_per_fixture_json": "runs/{ts}/per-fixture/{id}.json",
+    "aggregated_json": "runs/{ts}/results.json",
+    "summary_md": "runs/{ts}/summary.md"
+  }
+}

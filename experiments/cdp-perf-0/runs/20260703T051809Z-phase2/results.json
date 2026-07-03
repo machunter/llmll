@@ -1,0 +1,3262 @@
+{
+  "experiment": "cdp-perf-0-phase2",
+  "timestamp_utc": "20260703T051809Z",
+  "compiler_ref": {
+    "tag": "v0.14.5",
+    "short_sha": "e50b1f1",
+    "branch": "main",
+    "version_string": "llmll 0.14.5"
+  },
+  "reps_primary": {
+    "measured": 15,
+    "warmup": 2
+  },
+  "reps_secondary": {
+    "measured": 5,
+    "warmup": 1
+  },
+  "primary": [
+    {
+      "id": "b1",
+      "path": "examples/benchmarks/b1-withdraw.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3990580829999999,
+          0.44259725000000016,
+          0.3798345419999998,
+          0.3680177499999999,
+          0.45679295799999986,
+          0.419435,
+          0.45688799999999974,
+          0.4463640419999999,
+          0.4126185840000005,
+          0.3979397499999999,
+          0.42336033399999984,
+          0.38351824999999984,
+          0.36500737500000024,
+          0.359141041,
+          0.39349612499999953
+        ],
+        "median_s": 0.3990580829999999,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.7081086249999995,
+          0.6397946660000002,
+          0.6839352079999994,
+          0.6832274579999993,
+          0.6513935419999992,
+          0.7478005830000001,
+          0.6304455840000003,
+          0.6639162919999997,
+          0.6556695000000001,
+          0.701632416999999,
+          0.6836379999999984,
+          0.6892905829999982,
+          0.6558412500000017,
+          0.6841796669999987,
+          0.5846923339999996
+        ],
+        "median_s": 0.6832274579999993,
+        "candidate_count": 6
+      },
+      "overhead_ms": 284.1693749999994,
+      "total_candidate_count": 6,
+      "structural_tag": "match-or-hole",
+      "corpus": "primary"
+    },
+    {
+      "id": "b3",
+      "path": "examples/benchmarks/b3-safe-first.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.39772629100000145,
+          0.3740741249999999,
+          0.36145458300000044,
+          0.49280712500000234,
+          0.4033603329999984,
+          0.3771967499999995,
+          0.362597791999999,
+          0.35565737499999983,
+          0.415325499999998,
+          0.40020195900000033,
+          0.3784011249999999,
+          0.3828479169999994,
+          0.43839637499999995,
+          0.4313577080000002,
+          0.3848408329999984
+        ],
+        "median_s": 0.3848408329999984,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.7064012089999991,
+          0.7459317500000004,
+          0.7296871249999981,
+          0.5842329170000014,
+          0.6660477910000004,
+          0.5585807919999972,
+          0.5444597080000015,
+          0.587024833000001,
+          0.5533980419999978,
+          0.5383254169999958,
+          0.5881074159999997,
+          0.5360550839999974,
+          0.5131319999999988,
+          0.6374926250000001,
+          0.5742284999999967
+        ],
+        "median_s": 0.5842329170000014,
+        "candidate_count": 4
+      },
+      "overhead_ms": 199.39208400000297,
+      "total_candidate_count": 4,
+      "structural_tag": "match-or-hole",
+      "corpus": "primary"
+    },
+    {
+      "id": "b5",
+      "path": "examples/benchmarks/b5-double.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.35841962499999624,
+          0.42005379100000084,
+          0.4289170839999983,
+          0.40695312500000114,
+          0.3769959170000021,
+          0.4056172500000059,
+          0.5342497500000007,
+          0.4933672499999986,
+          0.40730800000000045,
+          0.3697939580000025,
+          0.4347391669999965,
+          0.42428037499999505,
+          0.3754275000000007,
+          0.38774899999999946,
+          0.4404400829999986
+        ],
+        "median_s": 0.40730800000000045,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.8937411249999982,
+          0.7623982499999968,
+          0.7473035829999972,
+          0.6607607910000013,
+          0.6158739170000018,
+          0.6994780420000026,
+          0.7405900840000044,
+          0.6422378750000064,
+          0.690357708999997,
+          0.6868933749999968,
+          0.6338300840000031,
+          0.5516499590000024,
+          0.5005419169999996,
+          0.582810000000002,
+          0.5950419170000032
+        ],
+        "median_s": 0.6607607910000013,
+        "candidate_count": 5
+      },
+      "overhead_ms": 253.45279100000084,
+      "total_candidate_count": 5,
+      "structural_tag": "match-or-hole",
+      "corpus": "primary"
+    },
+    {
+      "id": "totp",
+      "path": "examples/totp_rfc6238/totp_filled.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.36902366700000044,
+          0.37260566700000197,
+          0.39704479200000264,
+          0.4839897919999956,
+          0.4635729580000003,
+          0.42348141700000497,
+          0.42873970800000194,
+          0.4182349170000066,
+          0.4415310840000046,
+          0.47047570800000216,
+          0.5072981670000019,
+          0.40180708299999424,
+          0.435483167000001,
+          0.517389124999994,
+          0.45330733300000503
+        ],
+        "median_s": 0.435483167000001,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5281433749999991,
+          0.5133200000000002,
+          0.4395021250000042,
+          0.41344458399998985,
+          0.6352055420000084,
+          0.6469427499999938,
+          0.5717905839999986,
+          0.45966624999999794,
+          0.4210150420000076,
+          0.4016336669999987,
+          0.46511999999999887,
+          0.4461445000000026,
+          0.4313545420000082,
+          0.45097579100000473,
+          0.4743543750000043
+        ],
+        "median_s": 0.45966624999999794,
+        "candidate_count": 0
+      },
+      "overhead_ms": 24.18308299999694,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "primary"
+    },
+    {
+      "id": "erc20",
+      "path": "examples/erc20_token/erc20_filled.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4211950419999937,
+          0.38244479200000114,
+          0.4299266670000037,
+          0.46874225000000536,
+          0.4453805840000058,
+          0.41940483300000153,
+          0.39769941700001255,
+          0.4531723749999941,
+          0.43626429199998995,
+          0.420564916999993,
+          0.387711374999995,
+          0.44099299999999175,
+          0.438516000000007,
+          0.48734179199999517,
+          0.424690291999994
+        ],
+        "median_s": 0.4299266670000037,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          1.0367700420000006,
+          1.1058502500000031,
+          0.982413374999993,
+          1.0738453329999942,
+          1.6416850840000023,
+          1.336539791000007,
+          1.2714775409999959,
+          1.1898293330000058,
+          1.0896425839999893,
+          1.0823317919999909,
+          1.108755207999991,
+          0.9972591249999994,
+          1.0847386669999963,
+          1.1508859580000035,
+          1.1154797500000058
+        ],
+        "median_s": 1.1058502500000031,
+        "candidate_count": 15
+      },
+      "overhead_ms": 675.9235829999994,
+      "total_candidate_count": 15,
+      "structural_tag": "plain",
+      "corpus": "primary"
+    },
+    {
+      "id": "banking",
+      "path": "examples/banking_ledger/banking.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.47903037499999357,
+          0.49050733400000013,
+          0.4985592080000032,
+          0.4739752499999952,
+          0.47558587500000726,
+          0.4844672079999981,
+          0.5089722919999957,
+          0.4604671660000008,
+          0.5069808330000001,
+          0.7868918749999949,
+          0.5878168750000015,
+          0.5702257079999953,
+          0.5024084590000086,
+          0.471426749999992,
+          0.45244645799999716
+        ],
+        "median_s": 0.49050733400000013,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          1.1180370409999938,
+          0.9997048749999919,
+          1.0051511249999976,
+          1.0222394579999872,
+          1.0025287920000068,
+          1.1842732909999967,
+          0.9306683329999998,
+          0.7983291250000093,
+          0.7501567080000058,
+          0.7707904579999934,
+          0.9836937080000041,
+          0.8861053329999891,
+          0.9855379159999984,
+          1.1477918329999994,
+          1.0410816660000108
+        ],
+        "median_s": 0.9997048749999919,
+        "candidate_count": 11
+      },
+      "overhead_ms": 509.1975409999918,
+      "total_candidate_count": 11,
+      "structural_tag": "plain",
+      "corpus": "primary"
+    }
+  ],
+  "secondary": [
+    {
+      "id": "sec_examples_effect-authority_bounded_llmll",
+      "path": "examples/effect-authority/bounded.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.5603852080000138,
+          0.49722912500000405,
+          0.43939358299999753,
+          0.446216917000001,
+          0.48445133299999554
+        ],
+        "median_s": 0.48445133299999554,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4234263339999984,
+          0.4653855839999892,
+          0.48501679199999614,
+          0.440829082999997,
+          0.41197191700000246
+        ],
+        "median_s": 0.440829082999997,
+        "candidate_count": 0
+      },
+      "overhead_ms": -43.62224999999853,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_effect-authority_unbounded_llmll",
+      "path": "examples/effect-authority/unbounded.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.48615133399999877,
+          0.44984287500000164,
+          0.4312083749999829,
+          0.6020661249999932,
+          0.507198332999991
+        ],
+        "median_s": 0.48615133399999877,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4652863749999767,
+          0.4224475000000041,
+          0.44646237499998165,
+          0.4198665000000119,
+          0.43322954200002073
+        ],
+        "median_s": 0.43322954200002073,
+        "candidate_count": 0
+      },
+      "overhead_ms": -52.92179199997804,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_event_log_test_event_log_test_llmll",
+      "path": "examples/event_log_test/event_log_test.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.5072079159999987,
+          0.4839734170000156,
+          0.43674795900000163,
+          0.38378304199997615,
+          0.3692848750000053
+        ],
+        "median_s": 0.43674795900000163,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4316589160000035,
+          0.4470514999999864,
+          0.4121841249999818,
+          0.4612250830000164,
+          0.447983832999995
+        ],
+        "median_s": 0.4470514999999864,
+        "candidate_count": 0
+      },
+      "overhead_ms": 10.303540999984762,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_hangman_sexp_hangman_llmll",
+      "path": "examples/hangman_sexp/hangman.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.36972224999999526,
+          0.40878183399999557,
+          0.4505267090000018,
+          0.4218207080000127,
+          0.40642183399998544
+        ],
+        "median_s": 0.40878183399999557,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.41713774999999487,
+          0.41835854100000347,
+          0.4442799170000171,
+          0.41060070899999346,
+          0.370416917
+        ],
+        "median_s": 0.41713774999999487,
+        "candidate_count": 0
+      },
+      "overhead_ms": 8.355915999999297,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_life_sexp_core_llmll",
+      "path": "examples/life_sexp/core.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4084044580000068,
+          0.38104254199998877,
+          0.3740263329999891,
+          0.4265615830000229,
+          0.413645291999984
+        ],
+        "median_s": 0.4084044580000068,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5623004159999994,
+          0.44221266700000683,
+          0.46642283299999576,
+          0.4158637919999819,
+          0.43432304099999897
+        ],
+        "median_s": 0.44221266700000683,
+        "candidate_count": 0
+      },
+      "overhead_ms": 33.80820900000003,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_life_sexp_main_llmll",
+      "path": "examples/life_sexp/main.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3860855830000105,
+          0.42343049999999494,
+          0.45007879199999934,
+          0.4113257079999926,
+          0.4031217920000074
+        ],
+        "median_s": 0.4113257079999926,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4373609579999993,
+          0.4204817920000039,
+          0.4128707499999962,
+          0.38572912499998324,
+          0.4254293749999931
+        ],
+        "median_s": 0.4204817920000039,
+        "candidate_count": 0
+      },
+      "overhead_ms": 9.156084000011333,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_life_sexp_world_llmll",
+      "path": "examples/life_sexp/world.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4212208330000067,
+          0.40986408399999164,
+          0.37214545800000565,
+          0.3732723749999991,
+          0.4214649580000014
+        ],
+        "median_s": 0.40986408399999164,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.40129508300000793,
+          0.40502354200000923,
+          0.427180624999977,
+          0.42477666700000327,
+          0.4050027499999942
+        ],
+        "median_s": 0.40502354200000923,
+        "candidate_count": 0
+      },
+      "overhead_ms": -4.840541999982406,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_nested-result_safe-withdraw-bad_llmll",
+      "path": "examples/nested-result/safe-withdraw-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.4367932920000044,
+          0.4445079170000099,
+          0.41954849999999055,
+          0.4288720410000053,
+          0.4226309580000134
+        ],
+        "median_s": 0.4288720410000053,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.4181465409999987,
+          0.39153058400000873,
+          0.4140016249999974,
+          0.43395137499999237,
+          0.43309058400001277
+        ],
+        "median_s": 0.4181465409999987,
+        "candidate_count": 0
+      },
+      "overhead_ms": -10.725500000006605,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_nested-result_safe-withdraw_llmll",
+      "path": "examples/nested-result/safe-withdraw.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.40750295800000913,
+          0.4444462499999986,
+          0.4325251669999943,
+          0.3917852079999875,
+          0.4247093750000204
+        ],
+        "median_s": 0.4247093750000204,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4304355840000085,
+          0.4296199999999999,
+          0.5196663749999857,
+          0.5468691660000218,
+          0.4909429589999945
+        ],
+        "median_s": 0.4909429589999945,
+        "candidate_count": 0
+      },
+      "overhead_ms": 66.23358399997414,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_niw-measure_word-pad-bad_llmll",
+      "path": "examples/niw-measure/word-pad-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.37286583299999165,
+          0.3804982089999953,
+          0.3572136660000069,
+          0.3320831249999969,
+          0.35357741600000736
+        ],
+        "median_s": 0.3572136660000069,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.36341454099999737,
+          0.3436032920000116,
+          0.3496498340000187,
+          0.36822112499999093,
+          0.34502133300000537
+        ],
+        "median_s": 0.3496498340000187,
+        "candidate_count": 0
+      },
+      "overhead_ms": -7.563831999988224,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_niw-measure_word-pad_llmll",
+      "path": "examples/niw-measure/word-pad.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3229430000000093,
+          0.3500510419999898,
+          0.34568866700001877,
+          0.3255187499999863,
+          0.3245518749999974
+        ],
+        "median_s": 0.3255187499999863,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4855471669999929,
+          0.4834384159999843,
+          0.42528824999999415,
+          0.47516350000000784,
+          0.3951954169999965
+        ],
+        "median_s": 0.47516350000000784,
+        "candidate_count": 4
+      },
+      "overhead_ms": 149.64475000002153,
+      "total_candidate_count": 4,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_outcome-totality_classify-bad_llmll",
+      "path": "examples/outcome-totality/classify-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.26838145799999324,
+          0.2647040840000159,
+          0.27990766700000336,
+          0.29505491700001585,
+          0.32058433299999933
+        ],
+        "median_s": 0.27990766700000336,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.3518801670000187,
+          0.32513308400001506,
+          0.3223259579999933,
+          0.3630273750000015,
+          0.36305125000001226
+        ],
+        "median_s": 0.3518801670000187,
+        "candidate_count": 0
+      },
+      "overhead_ms": 71.97250000001532,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_outcome-totality_classify_llmll",
+      "path": "examples/outcome-totality/classify.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.36884299999999826,
+          0.3606820840000182,
+          0.4210390000000075,
+          0.4087882910000076,
+          0.37349329200000625
+        ],
+        "median_s": 0.37349329200000625,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3634052080000174,
+          0.3716664589999823,
+          0.3694831669999985,
+          0.35018995900000505,
+          0.3782440420000057
+        ],
+        "median_s": 0.3694831669999985,
+        "candidate_count": 0
+      },
+      "overhead_ms": -4.010125000007747,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_destruct_let_llmll",
+      "path": "examples/pair_type_test/pair_destruct_let.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.35372708399998487,
+          0.31772729099998287,
+          0.33631083299999887,
+          0.34951233300000695,
+          0.34433133300001373
+        ],
+        "median_s": 0.34433133300001373,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.33852483300000813,
+          0.35805637499998966,
+          0.32841950000002385,
+          0.3289171250000038,
+          0.35569699999999216
+        ],
+        "median_s": 0.33852483300000813,
+        "candidate_count": 0
+      },
+      "overhead_ms": -5.806500000005599,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_destruct_nested_llmll",
+      "path": "examples/pair_type_test/pair_destruct_nested.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.34143804199999295,
+          0.3271087499999794,
+          0.3207657920000031,
+          0.3298997500000098,
+          0.3462704160000101
+        ],
+        "median_s": 0.3298997500000098,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3181430000000205,
+          0.32315633300001423,
+          0.34727462499998296,
+          0.3402508750000095,
+          0.34317062499999906
+        ],
+        "median_s": 0.3402508750000095,
+        "candidate_count": 0
+      },
+      "overhead_ms": 10.351124999999683,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_type_test_llmll",
+      "path": "examples/pair_type_test/pair_type_test.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3160804169999949,
+          0.31410729199998855,
+          0.34099374999999554,
+          0.339542707999982,
+          0.3142162080000048
+        ],
+        "median_s": 0.3160804169999949,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.31524224999998296,
+          0.32642062499999724,
+          0.34015404199999466,
+          0.3264637909999806,
+          0.3149190000000033
+        ],
+        "median_s": 0.32642062499999724,
+        "candidate_count": 0
+      },
+      "overhead_ms": 10.340208000002349,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_string_concat_sugar_llmll",
+      "path": "examples/pair_type_test/string_concat_sugar.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3356694160000018,
+          0.33286641600000166,
+          0.32777937500000576,
+          0.3139372079999987,
+          0.3165061660000106
+        ],
+        "median_s": 0.32777937500000576,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.33353058299999816,
+          0.3083090000000084,
+          0.30419816699998137,
+          0.28161954099999775,
+          0.3041617080000094
+        ],
+        "median_s": 0.30419816699998137,
+        "candidate_count": 0
+      },
+      "overhead_ms": -23.58120800002439,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_conserve-bad_llmll",
+      "path": "examples/payments-core/conserve-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.3561427500000036,
+          0.3216184999999996,
+          0.31662933399999815,
+          0.3324327500000095,
+          0.3563395410000112
+        ],
+        "median_s": 0.3324327500000095,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.3193903339999906,
+          0.3141240420000031,
+          0.34626925000000597,
+          0.35258320799999865,
+          0.3234613749999937
+        ],
+        "median_s": 0.3234613749999937,
+        "candidate_count": 0
+      },
+      "overhead_ms": -8.971375000015769,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_conserve_llmll",
+      "path": "examples/payments-core/conserve.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3491048330000126,
+          0.3461401250000051,
+          0.32207991600000696,
+          0.33595704199998977,
+          0.3148244999999861
+        ],
+        "median_s": 0.33595704199998977,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.34497291600001745,
+          0.33940370799999187,
+          0.3152442089999852,
+          0.3116097909999951,
+          0.3467412079999974
+        ],
+        "median_s": 0.33940370799999187,
+        "candidate_count": 0
+      },
+      "overhead_ms": 3.4466660000020966,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_settle-bad_llmll",
+      "path": "examples/payments-core/settle-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.3282313340000087,
+          0.3074283340000079,
+          0.31472266699998386,
+          0.32893325000000573,
+          0.32804095800000255
+        ],
+        "median_s": 0.32804095800000255,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.32976525000000834,
+          0.3358312919999946,
+          0.3227522089999866,
+          0.3053166669999996,
+          0.305699790999995
+        ],
+        "median_s": 0.3227522089999866,
+        "candidate_count": 0
+      },
+      "overhead_ms": -5.288749000015969,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_settle_llmll",
+      "path": "examples/payments-core/settle.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3433990000000051,
+          0.3117627919999961,
+          0.30982045799999014,
+          0.30369550000000345,
+          0.32494712499999423
+        ],
+        "median_s": 0.3117627919999961,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.30831108300000665,
+          0.29701962500001855,
+          0.2956604999999968,
+          0.32764512500000365,
+          0.3377286250000111
+        ],
+        "median_s": 0.30831108300000665,
+        "candidate_count": 0
+      },
+      "overhead_ms": -3.451708999989478,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_transfer-bad_llmll",
+      "path": "examples/payments-core/transfer-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.3096527910000191,
+          0.3341736669999875,
+          0.3447520419999819,
+          0.3267877909999868,
+          0.31747462499998846
+        ],
+        "median_s": 0.3267877909999868,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.32708575000000906,
+          0.33815737500000864,
+          0.322657458000009,
+          0.32263358399998765,
+          0.3397017080000069
+        ],
+        "median_s": 0.32708575000000906,
+        "candidate_count": 0
+      },
+      "overhead_ms": 0.29795900002227427,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_transfer-unsafe_llmll",
+      "path": "examples/payments-core/transfer-unsafe.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.339166917,
+          0.32869470800000045,
+          0.3031419160000155,
+          0.333014750000018,
+          0.3504506660000004
+        ],
+        "median_s": 0.333014750000018,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.31120804100001465,
+          0.3453664580000009,
+          0.34720462499998916,
+          0.33002658300000576,
+          0.3233029579999993
+        ],
+        "median_s": 0.33002658300000576,
+        "candidate_count": 0
+      },
+      "overhead_ms": -2.988167000012254,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_transfer_llmll",
+      "path": "examples/payments-core/transfer.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3411649999999895,
+          0.32582945799998697,
+          0.34376866600001676,
+          0.33609649999999647,
+          0.32894645900000796
+        ],
+        "median_s": 0.33609649999999647,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5487255000000175,
+          0.5295223329999885,
+          0.5473203749999982,
+          0.5150123329999872,
+          0.5379761250000001
+        ],
+        "median_s": 0.5379761250000001,
+        "candidate_count": 6
+      },
+      "overhead_ms": 201.87962500000367,
+      "total_candidate_count": 6,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_refined-payload_refined-payload-bad-elim_llmll",
+      "path": "examples/refined-payload/refined-payload-bad-elim.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.31024004200000377,
+          0.2997034999999926,
+          0.32486462499997515,
+          0.32613487499997973,
+          0.31633608300001015
+        ],
+        "median_s": 0.31633608300001015,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.2957277499999975,
+          0.30027924999998845,
+          0.33665425000000937,
+          0.31096587500002215,
+          0.30354033300000083
+        ],
+        "median_s": 0.30354033300000083,
+        "candidate_count": 0
+      },
+      "overhead_ms": -12.79575000000932,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_refined-payload_refined-payload-bad-forward_llmll",
+      "path": "examples/refined-payload/refined-payload-bad-forward.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.32339254199999345,
+          0.32353200000000015,
+          0.31992504199999416,
+          0.3077412079999817,
+          0.3029125420000014
+        ],
+        "median_s": 0.31992504199999416,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.3163518750000094,
+          0.3170567500000061,
+          0.30004649999997923,
+          0.3172059580000166,
+          0.33785316700002
+        ],
+        "median_s": 0.3170567500000061,
+        "candidate_count": 0
+      },
+      "overhead_ms": -2.8682919999880596,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_refined-payload_refined-payload_llmll",
+      "path": "examples/refined-payload/refined-payload.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3008374579999895,
+          0.2772912080000083,
+          0.27380837499998734,
+          0.26889054099999044,
+          0.25215224999999464
+        ],
+        "median_s": 0.27380837499998734,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.36361354199999596,
+          0.3671206250000125,
+          0.4162986670000066,
+          0.43334479200001397,
+          0.441910125000021
+        ],
+        "median_s": 0.4162986670000066,
+        "candidate_count": 4
+      },
+      "overhead_ms": 142.49029200001928,
+      "total_candidate_count": 4,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay-bad-step_llmll",
+      "path": "examples/session-pay/open-and-pay-bad-step.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          4.482471457999992,
+          4.409016457999968,
+          4.283265041999982,
+          4.26495483299999,
+          4.348798541999997
+        ],
+        "median_s": 4.348798541999997,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          7.2548405,
+          6.479697499999986,
+          5.505633875000001,
+          5.263444541000013,
+          5.279233207999994
+        ],
+        "median_s": 5.505633875000001,
+        "candidate_count": 0
+      },
+      "overhead_ms": 1156.8353330000036,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay-unbounded_llmll",
+      "path": "examples/session-pay/open-and-pay-unbounded.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          5.288615332999996,
+          5.344116874999997,
+          5.245755666000036,
+          6.399127499999963,
+          6.548002500000052
+        ],
+        "median_s": 5.344116874999997,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          5.661237416999995,
+          5.991462209000019,
+          9.561861916999987,
+          7.347886458999994,
+          6.8649460419999855
+        ],
+        "median_s": 6.8649460419999855,
+        "candidate_count": 0
+      },
+      "overhead_ms": 1520.829166999988,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay-unsafe_llmll",
+      "path": "examples/session-pay/open-and-pay-unsafe.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          6.712801500000012,
+          7.203748916999984,
+          6.5105451250000215,
+          8.006017541999995,
+          7.9865732080000384
+        ],
+        "median_s": 7.203748916999984,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          6.521082332999981,
+          5.932675125000003,
+          7.462990208999997,
+          6.746101250000038,
+          6.631360541999982
+        ],
+        "median_s": 6.631360541999982,
+        "candidate_count": 0
+      },
+      "overhead_ms": -572.3883750000027,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay_llmll",
+      "path": "examples/session-pay/open-and-pay.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          5.906926375000012,
+          5.697073833000047,
+          5.654552082999999,
+          5.922956917000022,
+          5.374724125
+        ],
+        "median_s": 5.697073833000047,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          4.678116124999974,
+          6.219920000000002,
+          5.370626750000042,
+          5.756236708000074,
+          5.466760457999953
+        ],
+        "median_s": 5.466760457999953,
+        "candidate_count": 6
+      },
+      "overhead_ms": -230.31337500009386,
+      "total_candidate_count": 6,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tcp_rfc793_step-bad_llmll",
+      "path": "examples/tcp_rfc793/step-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          2.133912083000041,
+          2.2674714170000243,
+          2.1881600409999464,
+          2.201035790999981,
+          2.2315255419999858
+        ],
+        "median_s": 2.201035790999981,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          2.1761601670000346,
+          2.16711516700002,
+          2.3185526670000627,
+          2.4546779589999232,
+          2.3309848339999917
+        ],
+        "median_s": 2.3185526670000627,
+        "candidate_count": 0
+      },
+      "overhead_ms": 117.51687600008154,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tcp_rfc793_step-weak_llmll",
+      "path": "examples/tcp_rfc793/step-weak.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          2.164383333999922,
+          2.2533499159999337,
+          1.9129010410000546,
+          1.7334562919999144,
+          2.237533499999927
+        ],
+        "median_s": 2.164383333999922,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          2.253548666000029,
+          2.3755202080000117,
+          2.3290398749999213,
+          2.367961625000021,
+          2.3585176249999904
+        ],
+        "median_s": 2.3585176249999904,
+        "candidate_count": 0
+      },
+      "overhead_ms": 194.13429100006852,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tcp_rfc793_step_llmll",
+      "path": "examples/tcp_rfc793/step.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          2.63300145900007,
+          2.4330324169999358,
+          2.825129167,
+          2.6375653750000083,
+          2.8412937909999982
+        ],
+        "median_s": 2.6375653750000083,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          3.220287082999903,
+          3.101673374999905,
+          2.9062122909999744,
+          2.9742358339999555,
+          3.055788874999962
+        ],
+        "median_s": 3.055788874999962,
+        "candidate_count": 0
+      },
+      "overhead_ms": 418.2234999999537,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tictactoe_sexp_tictactoe_llmll",
+      "path": "examples/tictactoe_sexp/tictactoe.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.48247495900000104,
+          0.5062252080000462,
+          0.455532000000062,
+          0.46458033400006116,
+          0.4329578329999322
+        ],
+        "median_s": 0.46458033400006116,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4654497919999585,
+          0.46265516599999046,
+          0.40875454199999695,
+          0.43042991599998004,
+          0.48201045799999065
+        ],
+        "median_s": 0.46265516599999046,
+        "candidate_count": 0
+      },
+      "overhead_ms": -1.9251680000706983,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_audit_llmll",
+      "path": "examples/withdraw-demo/audit.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4617230000000063,
+          0.4033894589999818,
+          0.43827150000004167,
+          0.4769000420000111,
+          0.47154179100004967
+        ],
+        "median_s": 0.4617230000000063,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.38833820900003957,
+          0.4320562909999808,
+          0.38737524999999096,
+          0.38050733299996864,
+          0.34648537499992926
+        ],
+        "median_s": 0.38737524999999096,
+        "candidate_count": 0
+      },
+      "overhead_ms": -74.34775000001537,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_compose-bad_llmll",
+      "path": "examples/withdraw-demo/compose-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.31852629100001195,
+          0.31223066600000493,
+          0.3436026669999137,
+          0.3821303329999637,
+          0.4155620410000438
+        ],
+        "median_s": 0.3436026669999137,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.46899674999997387,
+          0.4850558750000573,
+          0.4046638749999829,
+          0.4102323749999641,
+          0.47736554200002956
+        ],
+        "median_s": 0.46899674999997387,
+        "candidate_count": 0
+      },
+      "overhead_ms": 125.39408300006016,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_compose_llmll",
+      "path": "examples/withdraw-demo/compose.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4259930829999803,
+          0.3928142499999012,
+          0.38687783300008505,
+          0.33225029100003667,
+          0.3270756250000204
+        ],
+        "median_s": 0.38687783300008505,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5991187080001055,
+          0.605298709000067,
+          0.5624484159999383,
+          0.5391524579999896,
+          0.5752113329999702
+        ],
+        "median_s": 0.5752113329999702,
+        "candidate_count": 6
+      },
+      "overhead_ms": 188.33349999988513,
+      "total_candidate_count": 6,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_demo_llmll",
+      "path": "examples/withdraw-demo/demo.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4255556669999123,
+          0.40836987500006217,
+          0.41182066700002906,
+          0.36885070899995753,
+          0.3573073339999837
+        ],
+        "median_s": 0.40836987500006217,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          1.0540249169999925,
+          1.252063540999984,
+          0.9911496669999451,
+          0.9412677499999518,
+          0.9258525000000191
+        ],
+        "median_s": 0.9911496669999451,
+        "candidate_count": 17
+      },
+      "overhead_ms": 582.779791999883,
+      "total_candidate_count": 17,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_return-refine-bad_llmll",
+      "path": "examples/withdraw-demo/return-refine-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.3155315410000412,
+          0.320642375000034,
+          0.3058375000000524,
+          0.3042706249999583,
+          0.32695137500002147
+        ],
+        "median_s": 0.3155315410000412,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.30332833299996764,
+          0.30853208299993184,
+          0.3381656249999878,
+          0.32643512499998906,
+          0.3189715419999857
+        ],
+        "median_s": 0.3189715419999857,
+        "candidate_count": 0
+      },
+      "overhead_ms": 3.440000999944459,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_return-refine_llmll",
+      "path": "examples/withdraw-demo/return-refine.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.34563341599994146,
+          0.4256712909999578,
+          0.43473508399995353,
+          0.45249216699994577,
+          0.3871522089999644
+        ],
+        "median_s": 0.4256712909999578,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.40135337499998514,
+          0.7503217080000013,
+          0.6544248339999967,
+          0.36503637500004515,
+          0.4526100419999466
+        ],
+        "median_s": 0.4526100419999466,
+        "candidate_count": 1
+      },
+      "overhead_ms": 26.93875099998877,
+      "total_candidate_count": 1,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_withdraw-outcome-bad_llmll",
+      "path": "examples/withdraw-demo/withdraw-outcome-bad.llmll",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.43448395799998707,
+          0.39829825000003893,
+          0.38377812499993524,
+          0.4121272500000259,
+          0.45342779200007044
+        ],
+        "median_s": 0.4121272500000259,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.4777200419999872,
+          0.41746937499999603,
+          0.44958599999995386,
+          0.41906362500003524,
+          0.4224779999999555
+        ],
+        "median_s": 0.4224779999999555,
+        "candidate_count": 0
+      },
+      "overhead_ms": 10.350749999929576,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_withdraw_llmll",
+      "path": "examples/withdraw-demo/withdraw.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4426207910000812,
+          0.49080208300006234,
+          0.4169565419999799,
+          0.40976512500003537,
+          0.4613169579999976
+        ],
+        "median_s": 0.4426207910000812,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5989429999999629,
+          0.5278214590000516,
+          0.5301053749999483,
+          0.5947802080000884,
+          0.5641369170000416
+        ],
+        "median_s": 0.5641369170000416,
+        "candidate_count": 6
+      },
+      "overhead_ms": 121.51612599996042,
+      "total_candidate_count": 6,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw_llmll",
+      "path": "examples/withdraw.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.33555170900001485,
+          0.30690308299995195,
+          0.3520402499999591,
+          0.37609229200006666,
+          0.3568153749999965
+        ],
+        "median_s": 0.3520402499999591,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.626420875000008,
+          0.5828525409999656,
+          0.5962423329999638,
+          0.6508002079999642,
+          0.6861951250000402
+        ],
+        "median_s": 0.626420875000008,
+        "candidate_count": 6
+      },
+      "overhead_ms": 274.3806250000489,
+      "total_candidate_count": 6,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_auth_module_auth_module_ast_json",
+      "path": "examples/auth_module/auth_module.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.41146537500003433,
+          0.4065792500000498,
+          0.36934229199994206,
+          0.3671463749999475,
+          0.41584758299995883
+        ],
+        "median_s": 0.4065792500000498,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3902659579999863,
+          0.3723341249999521,
+          0.4033244580000428,
+          0.3983352920000698,
+          0.37565445899997485
+        ],
+        "median_s": 0.3902659579999863,
+        "candidate_count": 0
+      },
+      "overhead_ms": -16.313292000063484,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_conways_life_json_verifier_life_ast_json",
+      "path": "examples/conways_life_json_verifier/life.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          10.151917207999986,
+          11.32990612499998,
+          13.099444334000054,
+          11.998292207999953,
+          12.952352041999916
+        ],
+        "median_s": 11.998292207999953,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          11.068036542000073,
+          12.583304375000012,
+          13.129870084000004,
+          14.656204208000077,
+          13.082555500000012
+        ],
+        "median_s": 13.082555500000012,
+        "candidate_count": 6
+      },
+      "overhead_ms": 1084.2632920000597,
+      "total_candidate_count": 6,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_effect-authority_bounded_ast_json",
+      "path": "examples/effect-authority/bounded.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.46499808399994436,
+          0.39127766699994027,
+          0.4227513750000753,
+          0.43050049999999374,
+          0.3890467080000235
+        ],
+        "median_s": 0.4227513750000753,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4051230410000244,
+          0.3954595000000154,
+          0.38113962499994614,
+          0.41771812500007854,
+          0.39785341600008906
+        ],
+        "median_s": 0.39785341600008906,
+        "candidate_count": 0
+      },
+      "overhead_ms": -24.89795899998626,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_effect-authority_unbounded_ast_json",
+      "path": "examples/effect-authority/unbounded.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.41663145799998347,
+          0.41369541599999593,
+          0.34244537500001115,
+          0.3873984169999858,
+          0.42627204199993685
+        ],
+        "median_s": 0.41369541599999593,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3621530000000348,
+          0.40587745900006666,
+          0.40544004200000927,
+          0.3913258750000068,
+          0.36451516700003594
+        ],
+        "median_s": 0.3913258750000068,
+        "candidate_count": 0
+      },
+      "overhead_ms": -22.369540999989113,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_erc20_token_erc20_ast_json",
+      "path": "examples/erc20_token/erc20.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4231317910000598,
+          0.40639166700009355,
+          0.36910879200002,
+          0.41188533299998653,
+          0.3998477919999459
+        ],
+        "median_s": 0.40639166700009355,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.9867518329999712,
+          0.9843085410000185,
+          0.9711900419999893,
+          0.8823745839999901,
+          0.8352886250000893
+        ],
+        "median_s": 0.9711900419999893,
+        "candidate_count": 15
+      },
+      "overhead_ms": 564.7983749998957,
+      "total_candidate_count": 15,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_hangman_json_hangman_ast_json",
+      "path": "examples/hangman_json/hangman.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3036152500000071,
+          0.3025878330000751,
+          0.41601487499997347,
+          0.472779791999983,
+          0.47072112500006824
+        ],
+        "median_s": 0.41601487499997347,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4532473330000357,
+          0.4030350419999422,
+          0.4418825409999272,
+          0.4168757090000099,
+          0.3960997080000652
+        ],
+        "median_s": 0.4168757090000099,
+        "candidate_count": 0
+      },
+      "overhead_ms": 0.8608340000364478,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_hangman_json_verifier_hangman_ast_json",
+      "path": "examples/hangman_json_verifier/hangman.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4578780829999687,
+          0.41736008399993807,
+          0.4078385000000253,
+          0.4217738749999853,
+          0.4058567499999981
+        ],
+        "median_s": 0.41736008399993807,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.42576741700008824,
+          0.47392154200008463,
+          0.46872608400008176,
+          0.45625983299999007,
+          0.4404597499999454
+        ],
+        "median_s": 0.45625983299999007,
+        "candidate_count": 0
+      },
+      "overhead_ms": 38.899749000052,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_life_json_core_ast_json",
+      "path": "examples/life_json/core.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4157733749999579,
+          0.37009020900006817,
+          0.366359459000023,
+          0.422806291000029,
+          0.40531366699997307
+        ],
+        "median_s": 0.40531366699997307,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3965897909999967,
+          0.36711075000005167,
+          0.3379597919999924,
+          0.40262304200007293,
+          0.4566607080000722
+        ],
+        "median_s": 0.3965897909999967,
+        "candidate_count": 0
+      },
+      "overhead_ms": -8.723875999976372,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_life_json_main_ast_json",
+      "path": "examples/life_json/main.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4335740830000532,
+          0.40674316699994506,
+          0.458122249999974,
+          0.4787162920000583,
+          0.47240099999999074
+        ],
+        "median_s": 0.458122249999974,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3944751249999854,
+          0.38102008299995305,
+          0.417819709000014,
+          0.4069851250000056,
+          0.3544547919999559
+        ],
+        "median_s": 0.3944751249999854,
+        "candidate_count": 0
+      },
+      "overhead_ms": -63.64712499998859,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_life_json_world_ast_json",
+      "path": "examples/life_json/world.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.406087750000097,
+          0.3870823749999772,
+          0.36531575000003613,
+          0.4134400000000369,
+          0.39786179200007155
+        ],
+        "median_s": 0.39786179200007155,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3693521249999776,
+          0.45469329200000175,
+          0.42428462500004116,
+          0.38762979099999484,
+          0.3732690829999683
+        ],
+        "median_s": 0.38762979099999484,
+        "candidate_count": 0
+      },
+      "overhead_ms": -10.232001000076707,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_nested-result_safe-withdraw-bad_ast_json",
+      "path": "examples/nested-result/safe-withdraw-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.3991293329999053,
+          0.36751649999996516,
+          0.34866308300001947,
+          0.32716575000006287,
+          0.4138204579999183
+        ],
+        "median_s": 0.36751649999996516,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.3580400419999705,
+          0.3554314579999982,
+          0.39280762499993216,
+          0.41380641700004617,
+          0.36662991699995473
+        ],
+        "median_s": 0.36662991699995473,
+        "candidate_count": 0
+      },
+      "overhead_ms": -0.8865830000104324,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_nested-result_safe-withdraw_ast_json",
+      "path": "examples/nested-result/safe-withdraw.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.41057516700004726,
+          0.4208014160000175,
+          0.39084395800000493,
+          0.42633325000008426,
+          0.4087257910000517
+        ],
+        "median_s": 0.41057516700004726,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3546457500000315,
+          0.4108320000000276,
+          0.4277218750000884,
+          0.3872532499999579,
+          0.3551404580000508
+        ],
+        "median_s": 0.3872532499999579,
+        "candidate_count": 0
+      },
+      "overhead_ms": -23.321917000089343,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_niw-measure_word-pad-bad_ast_json",
+      "path": "examples/niw-measure/word-pad-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.3466108750000103,
+          0.4186201659999824,
+          0.4433408329999793,
+          0.3906530420000536,
+          0.411452334000046
+        ],
+        "median_s": 0.411452334000046,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.3680317079999895,
+          0.31841462500005946,
+          0.3336712499999521,
+          0.306225124999969,
+          0.28767437499993775
+        ],
+        "median_s": 0.31841462500005946,
+        "candidate_count": 0
+      },
+      "overhead_ms": -93.03770899998653,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_niw-measure_word-pad_ast_json",
+      "path": "examples/niw-measure/word-pad.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.27931554199994935,
+          0.28963854099993114,
+          0.3161741669999856,
+          0.38061308299995744,
+          0.4252304169999661
+        ],
+        "median_s": 0.3161741669999856,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5284513749999178,
+          0.6651512089999869,
+          0.6266866669999445,
+          0.609589417000052,
+          0.6222467090000237
+        ],
+        "median_s": 0.6222467090000237,
+        "candidate_count": 4
+      },
+      "overhead_ms": 306.0725420000381,
+      "total_candidate_count": 4,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_orchestrator_walkthrough_auth_module_ast_json",
+      "path": "examples/orchestrator_walkthrough/auth_module.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.362884667000003,
+          0.37923412500003906,
+          0.4152206669999714,
+          0.38389691600002607,
+          0.36297512500004814
+        ],
+        "median_s": 0.37923412500003906,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4042407079999748,
+          0.4211001660000875,
+          0.4028622499999983,
+          0.36456249999991996,
+          0.37136166699997375
+        ],
+        "median_s": 0.4028622499999983,
+        "candidate_count": 0
+      },
+      "overhead_ms": 23.628124999959255,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_orchestrator_walkthrough_auth_module_filled_ast_json",
+      "path": "examples/orchestrator_walkthrough/auth_module_filled.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3683447079999951,
+          0.466882499999997,
+          0.5172535410000592,
+          0.4829525829999284,
+          0.4213700829999425
+        ],
+        "median_s": 0.466882499999997,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5253309999999374,
+          0.5176094590000275,
+          0.4803399999999556,
+          0.4241634999999633,
+          0.5474230419999913
+        ],
+        "median_s": 0.5176094590000275,
+        "candidate_count": 0
+      },
+      "overhead_ms": 50.72695900003055,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_outcome-totality_classify-bad_ast_json",
+      "path": "examples/outcome-totality/classify-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.4683714590000818,
+          0.4550286659999756,
+          0.5287042500000325,
+          0.5363132909999422,
+          0.44230949999996483
+        ],
+        "median_s": 0.4683714590000818,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.41922520800005714,
+          0.4753001660000109,
+          0.5182032499999423,
+          0.4439099170000418,
+          0.4466243749999421
+        ],
+        "median_s": 0.4466243749999421,
+        "candidate_count": 0
+      },
+      "overhead_ms": -21.747084000139694,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_outcome-totality_classify_ast_json",
+      "path": "examples/outcome-totality/classify.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.5138872920000495,
+          0.44265708299997186,
+          0.5329219580000881,
+          0.5493845830000055,
+          0.5112187500000118
+        ],
+        "median_s": 0.5138872920000495,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5084325420000368,
+          0.459000708000076,
+          0.486453417000007,
+          0.535043791000021,
+          0.46188604199994643
+        ],
+        "median_s": 0.486453417000007,
+        "candidate_count": 0
+      },
+      "overhead_ms": -27.433875000042462,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_do_emit_ac_ast_json",
+      "path": "examples/pair_type_test/do_emit_ac.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4292884999999842,
+          0.5249939169999607,
+          0.5073735419999821,
+          0.4008116659999814,
+          0.3859956250000778
+        ],
+        "median_s": 0.4292884999999842,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4956880420000971,
+          0.4747176659999468,
+          0.4200817079999979,
+          0.4672005420000005,
+          0.4986183329999676
+        ],
+        "median_s": 0.4747176659999468,
+        "candidate_count": 0
+      },
+      "overhead_ms": 45.429165999962606,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_destruct_let_ast_json",
+      "path": "examples/pair_type_test/pair_destruct_let.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.41861404200005836,
+          0.40944712499992875,
+          0.47089391700001215,
+          0.5962602910000214,
+          0.49776683400000366
+        ],
+        "median_s": 0.47089391700001215,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.3927701669999806,
+          0.37268537499994636,
+          0.44242974999997386,
+          0.5446037080000679,
+          0.6096062920000804
+        ],
+        "median_s": 0.44242974999997386,
+        "candidate_count": 0
+      },
+      "overhead_ms": -28.464167000038287,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_match_ac4_ast_json",
+      "path": "examples/pair_type_test/pair_match_ac4.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.46426337500008685,
+          0.4837466660000018,
+          0.6496187090000376,
+          0.6624046249999083,
+          0.5999509999999191
+        ],
+        "median_s": 0.5999509999999191,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.516031417000022,
+          0.4816927910000004,
+          0.4252921250000554,
+          0.4568326670000715,
+          0.5198746249999431
+        ],
+        "median_s": 0.4816927910000004,
+        "candidate_count": 0
+      },
+      "overhead_ms": -118.25820899991868,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_pair_type_test_pair_type_test_ast_json",
+      "path": "examples/pair_type_test/pair_type_test.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.679575624999984,
+          0.4610465829999839,
+          0.43031779200009623,
+          0.46267037500001607,
+          0.44628216600006
+        ],
+        "median_s": 0.4610465829999839,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5549623749999455,
+          0.6214744999999766,
+          0.5537516670000286,
+          0.4830234579999342,
+          0.47589062500003365
+        ],
+        "median_s": 0.5537516670000286,
+        "candidate_count": 0
+      },
+      "overhead_ms": 92.70508400004474,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_conserve-bad_ast_json",
+      "path": "examples/payments-core/conserve-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.5360638329999574,
+          0.5056617090000373,
+          0.48016050000001087,
+          0.5180213749999893,
+          0.48853233299996646
+        ],
+        "median_s": 0.5056617090000373,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.4755448329999581,
+          0.5062967909999543,
+          0.4437431659999902,
+          0.4403372499999705,
+          0.4783729170000015
+        ],
+        "median_s": 0.4755448329999581,
+        "candidate_count": 0
+      },
+      "overhead_ms": -30.116876000079174,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_conserve_ast_json",
+      "path": "examples/payments-core/conserve.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.49447029099997053,
+          0.4441356249999444,
+          0.4309872499999301,
+          0.4199578330000122,
+          0.4483496670000022
+        ],
+        "median_s": 0.4441356249999444,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.48265629100001206,
+          0.4059813329999997,
+          0.38417054100000314,
+          0.3562824580000097,
+          0.3459457909999628
+        ],
+        "median_s": 0.38417054100000314,
+        "candidate_count": 0
+      },
+      "overhead_ms": -59.96508399994127,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_settle-bad_ast_json",
+      "path": "examples/payments-core/settle-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.36562258300000394,
+          0.38884379199998875,
+          0.41103324999994584,
+          0.5058345420000023,
+          0.5078394160000244
+        ],
+        "median_s": 0.41103324999994584,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.5201738329999444,
+          0.5012960000000248,
+          0.511586708999971,
+          0.5161611670000639,
+          0.49332879200005664
+        ],
+        "median_s": 0.511586708999971,
+        "candidate_count": 0
+      },
+      "overhead_ms": 100.55345900002521,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_settle_ast_json",
+      "path": "examples/payments-core/settle.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4916243339999937,
+          0.5063582089999272,
+          0.5223750409999184,
+          0.49106287500001145,
+          0.5386669170000005
+        ],
+        "median_s": 0.5063582089999272,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5315382499999259,
+          0.5182154159999754,
+          0.5937232499999254,
+          0.5871269579999989,
+          0.5236939999999777
+        ],
+        "median_s": 0.5315382499999259,
+        "candidate_count": 0
+      },
+      "overhead_ms": 25.18004099999871,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_transfer-bad_ast_json",
+      "path": "examples/payments-core/transfer-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.6810408750000079,
+          0.5888992080000435,
+          0.5291639999999234,
+          0.5983517920000168,
+          0.5933341249999557
+        ],
+        "median_s": 0.5933341249999557,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.5261220829999047,
+          0.532022667000092,
+          0.593302083000026,
+          0.5424436670000432,
+          0.5351005410000198
+        ],
+        "median_s": 0.5351005410000198,
+        "candidate_count": 0
+      },
+      "overhead_ms": -58.233583999935945,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_transfer-unsafe_ast_json",
+      "path": "examples/payments-core/transfer-unsafe.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.6118306250000387,
+          0.5125852500000292,
+          0.5550044159999743,
+          0.6132505829999673,
+          0.6178111250000029
+        ],
+        "median_s": 0.6118306250000387,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.6808487499999956,
+          0.7288933329999736,
+          0.6953212079999957,
+          0.7189456249999466,
+          0.6784720409999636
+        ],
+        "median_s": 0.6953212079999957,
+        "candidate_count": 0
+      },
+      "overhead_ms": 83.49058299995704,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_payments-core_transfer_ast_json",
+      "path": "examples/payments-core/transfer.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.5829575000000204,
+          0.6647853330000544,
+          0.6417201670000168,
+          0.6608587919999991,
+          0.6612767909999775
+        ],
+        "median_s": 0.6608587919999991,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.9427707080000118,
+          1.1786655000000792,
+          1.2514409579999892,
+          1.0650615419999667,
+          1.0096009580000782
+        ],
+        "median_s": 1.0650615419999667,
+        "candidate_count": 6
+      },
+      "overhead_ms": 404.20274999996764,
+      "total_candidate_count": 6,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_refined-payload_refined-payload-bad-elim_ast_json",
+      "path": "examples/refined-payload/refined-payload-bad-elim.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.607197458000087,
+          0.6300150000000713,
+          0.5761201669999991,
+          0.5647532080000701,
+          0.5080494999999701
+        ],
+        "median_s": 0.5761201669999991,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.6437900409999884,
+          0.5381703750000497,
+          0.5080286669999623,
+          0.4931335420000096,
+          0.5632896249999249
+        ],
+        "median_s": 0.5381703750000497,
+        "candidate_count": 0
+      },
+      "overhead_ms": -37.94979199994941,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_refined-payload_refined-payload-bad-forward_ast_json",
+      "path": "examples/refined-payload/refined-payload-bad-forward.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.5379330839999739,
+          0.5029911670000047,
+          0.5061159589999988,
+          0.5267897500000345,
+          0.4461677089999512
+        ],
+        "median_s": 0.5061159589999988,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.38598129100000733,
+          0.4080206249999492,
+          0.4983463329999722,
+          0.5007686249999779,
+          0.4268954159999794
+        ],
+        "median_s": 0.4268954159999794,
+        "candidate_count": 0
+      },
+      "overhead_ms": -79.22054300001946,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_refined-payload_refined-payload_ast_json",
+      "path": "examples/refined-payload/refined-payload.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4110273329999927,
+          0.4769700000000512,
+          0.5593920420000131,
+          0.5381326250000029,
+          0.4367270830000507
+        ],
+        "median_s": 0.4769700000000512,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.6935926669999617,
+          0.7449530420000201,
+          0.6218513329999951,
+          0.723125624999966,
+          0.7164368749999994
+        ],
+        "median_s": 0.7164368749999994,
+        "candidate_count": 4
+      },
+      "overhead_ms": 239.46687499994823,
+      "total_candidate_count": 4,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay-bad-step_ast_json",
+      "path": "examples/session-pay/open-and-pay-bad-step.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          6.646422749999942,
+          8.253218249999918,
+          8.353340417000027,
+          8.64884741700007,
+          8.007655416000034
+        ],
+        "median_s": 8.253218249999918,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          8.259316999999783,
+          6.554464167000106,
+          7.348414000000048,
+          8.250331875000029,
+          9.44060249999984
+        ],
+        "median_s": 8.250331875000029,
+        "candidate_count": 0
+      },
+      "overhead_ms": -2.8863749998890853,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay-unbounded_ast_json",
+      "path": "examples/session-pay/open-and-pay-unbounded.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          8.13866879200009,
+          8.263725209000086,
+          7.940333124999825,
+          7.004512499999919,
+          8.292355084000064
+        ],
+        "median_s": 8.13866879200009,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          7.919895334000103,
+          7.9312587919998805,
+          8.409068415999855,
+          8.212551332999965,
+          8.303933375000042
+        ],
+        "median_s": 8.212551332999965,
+        "candidate_count": 0
+      },
+      "overhead_ms": 73.88254099987535,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay-unsafe_ast_json",
+      "path": "examples/session-pay/open-and-pay-unsafe.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          8.449840167000048,
+          8.595366541000203,
+          8.35447787499993,
+          10.637179832999891,
+          8.004238499999929
+        ],
+        "median_s": 8.449840167000048,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          6.64532250000002,
+          7.459559665999905,
+          8.929659750000155,
+          9.96847695800011,
+          10.062806624999894
+        ],
+        "median_s": 8.929659750000155,
+        "candidate_count": 0
+      },
+      "overhead_ms": 479.81958300010774,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_session-pay_open-and-pay_ast_json",
+      "path": "examples/session-pay/open-and-pay.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          7.950678416000073,
+          7.515561875000003,
+          7.1261690829999225,
+          8.031293417000143,
+          7.87312299999985
+        ],
+        "median_s": 7.87312299999985,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          7.344946958000037,
+          6.891962625000133,
+          6.636619916999962,
+          6.70605920800017,
+          5.787130417000071
+        ],
+        "median_s": 6.70605920800017,
+        "candidate_count": 6
+      },
+      "overhead_ms": -1167.0637919996807,
+      "total_candidate_count": 6,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tcp_rfc793_step-bad_ast_json",
+      "path": "examples/tcp_rfc793/step-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          2.6670031250000648,
+          2.789482542000087,
+          2.7484941250002066,
+          2.6299098750000667,
+          2.612188500000002
+        ],
+        "median_s": 2.6670031250000648,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          2.717195583000148,
+          2.843972458000053,
+          2.8638911670000198,
+          2.761535834000142,
+          2.6243302500001846
+        ],
+        "median_s": 2.761535834000142,
+        "candidate_count": 0
+      },
+      "overhead_ms": 94.53270900007738,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tcp_rfc793_step-weak_ast_json",
+      "path": "examples/tcp_rfc793/step-weak.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          3.0260823329999766,
+          3.108024749999913,
+          2.7376158330000635,
+          3.496713916999852,
+          4.282950834000076
+        ],
+        "median_s": 3.108024749999913,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          3.1917803750000076,
+          2.752231832999996,
+          2.9513091670000904,
+          3.9644176249998964,
+          4.19692262500007
+        ],
+        "median_s": 3.1917803750000076,
+        "candidate_count": 0
+      },
+      "overhead_ms": 83.75562500009437,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tcp_rfc793_step_ast_json",
+      "path": "examples/tcp_rfc793/step.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          4.013195875000065,
+          3.6632712089999586,
+          3.0931137080001463,
+          3.133176125000091,
+          3.288504833000161
+        ],
+        "median_s": 3.288504833000161,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          3.0570527499999116,
+          3.2302577909999854,
+          2.9950003749997904,
+          2.832257500000196,
+          2.711097125000151
+        ],
+        "median_s": 2.9950003749997904,
+        "candidate_count": 0
+      },
+      "overhead_ms": -293.5044580003705,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tictactoe_json_tictactoe_ast_json",
+      "path": "examples/tictactoe_json/tictactoe.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.4985479580000174,
+          0.4291777920000186,
+          0.42270270799986065,
+          0.4356978749999598,
+          0.5028822080000737
+        ],
+        "median_s": 0.4356978749999598,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4553122079998957,
+          0.4073995409999043,
+          0.40665183299984164,
+          0.48929070899998806,
+          0.5189042920001157
+        ],
+        "median_s": 0.4553122079998957,
+        "candidate_count": 0
+      },
+      "overhead_ms": 19.61433299993587,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_tictactoe_json_verifier_tictactoe_ast_json",
+      "path": "examples/tictactoe_json_verifier/tictactoe.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.43238429100006215,
+          0.5031728750000184,
+          0.49797291699997004,
+          0.4385231250000743,
+          0.5102443749999566
+        ],
+        "median_s": 0.49797291699997004,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.42657437499997286,
+          0.3913174589999926,
+          0.39138054099998953,
+          0.34994462500003465,
+          0.33481558299990866
+        ],
+        "median_s": 0.3913174589999926,
+        "candidate_count": 0
+      },
+      "overhead_ms": -106.65545799997744,
+      "total_candidate_count": 0,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_totp_rfc6238_totp_ast_json",
+      "path": "examples/totp_rfc6238/totp.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3754898750000848,
+          0.4198662910000621,
+          0.44562333399994714,
+          0.4730093749999469,
+          0.42427862500017
+        ],
+        "median_s": 0.42427862500017,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          1.1314652080000087,
+          1.1681544160001067,
+          1.1623298340000474,
+          1.2010069580001073,
+          1.1728571250000641
+        ],
+        "median_s": 1.1681544160001067,
+        "candidate_count": 14
+      },
+      "overhead_ms": 743.8757909999367,
+      "total_candidate_count": 14,
+      "structural_tag": "match-or-hole",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_audit_ast_json",
+      "path": "examples/withdraw-demo/audit.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.519214459000068,
+          0.4689408750000439,
+          0.4668040829999427,
+          0.5053317499998684,
+          0.49871341600010055
+        ],
+        "median_s": 0.49871341600010055,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.514499250000199,
+          0.49950295799999367,
+          0.4376339170000847,
+          0.4340802919998623,
+          0.5231055000001561
+        ],
+        "median_s": 0.49950295799999367,
+        "candidate_count": 0
+      },
+      "overhead_ms": 0.7895419998931175,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_demo_ast_json",
+      "path": "examples/withdraw-demo/demo.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.42718104200002927,
+          0.47833379099984086,
+          0.5270753340000738,
+          0.4752363329998843,
+          0.6213304580001022
+        ],
+        "median_s": 0.47833379099984086,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          1.466158958000051,
+          1.357309541999939,
+          1.3951510419999522,
+          1.368029541999931,
+          1.1768689170000926
+        ],
+        "median_s": 1.368029541999931,
+        "candidate_count": 17
+      },
+      "overhead_ms": 889.6957510000902,
+      "total_candidate_count": 17,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_return-refine_ast_json",
+      "path": "examples/withdraw-demo/return-refine.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.46436945799996465,
+          0.475228209000079,
+          0.5905751249999867,
+          0.5345577499999763,
+          0.49067012499995144
+        ],
+        "median_s": 0.49067012499995144,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.5683642920000693,
+          0.5020629999999073,
+          0.4652776249999988,
+          0.4703449170001477,
+          0.6103872910000518
+        ],
+        "median_s": 0.5020629999999073,
+        "candidate_count": 1
+      },
+      "overhead_ms": 11.392874999955893,
+      "total_candidate_count": 1,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_withdraw-outcome-bad_ast_json",
+      "path": "examples/withdraw-demo/withdraw-outcome-bad.ast.json",
+      "bare": {
+        "ok": false,
+        "timings_s": [
+          0.5183242079999673,
+          0.5038354579999123,
+          0.6750966249999237,
+          0.5969782920001308,
+          0.5395954579998943
+        ],
+        "median_s": 0.5395954579998943,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": false,
+        "timings_s": [
+          0.4761007080001036,
+          0.5549693749999278,
+          0.5669368329999998,
+          0.5761036670000976,
+          0.5576100420000785
+        ],
+        "median_s": 0.5576100420000785,
+        "candidate_count": 0
+      },
+      "overhead_ms": 18.014584000184186,
+      "total_candidate_count": 0,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    },
+    {
+      "id": "sec_examples_withdraw-demo_withdraw_ast_json",
+      "path": "examples/withdraw-demo/withdraw.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.5036781669998618,
+          0.4933471249999002,
+          0.4460369579999224,
+          0.45993145899979027,
+          0.6897393749998173
+        ],
+        "median_s": 0.4933471249999002,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.94820787499998,
+          1.153711166999983,
+          0.8338699590001397,
+          0.8988201659999504,
+          0.9445016669999404
+        ],
+        "median_s": 0.9445016669999404,
+        "candidate_count": 6
+      },
+      "overhead_ms": 451.15454200004024,
+      "total_candidate_count": 6,
+      "structural_tag": "plain",
+      "corpus": "secondary"
+    }
+  ],
+  "fit_all_fixtures": {
+    "a": -51.62412282446866,
+    "b": 46.28763300447279,
+    "r_squared": 0.26376366915168215
+  },
+  "n_fixtures_in_fit": 24,
+  "per_candidate_cost_by_structural_tag": {
+    "match-or-hole": {
+      "n": 10,
+      "median_ms_per_candidate": 48.60479175000032
+    },
+    "plain": {
+      "n": 14,
+      "median_ms_per_candidate": 41.23637985000268
+    }
+  }
+}

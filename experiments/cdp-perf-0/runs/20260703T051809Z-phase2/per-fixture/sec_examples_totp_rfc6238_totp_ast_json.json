@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_totp_rfc6238_totp_ast_json",
+  "path": "examples/totp_rfc6238/totp.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.3754898750000848,
+      0.4198662910000621,
+      0.44562333399994714,
+      0.4730093749999469,
+      0.42427862500017
+    ],
+    "median_s": 0.42427862500017,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      1.1314652080000087,
+      1.1681544160001067,
+      1.1623298340000474,
+      1.2010069580001073,
+      1.1728571250000641
+    ],
+    "median_s": 1.1681544160001067,
+    "candidate_count": 14
+  },
+  "overhead_ms": 743.8757909999367,
+  "total_candidate_count": 14,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_event_log_test_event_log_test_llmll",
+  "path": "examples/event_log_test/event_log_test.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.5072079159999987,
+      0.4839734170000156,
+      0.43674795900000163,
+      0.38378304199997615,
+      0.3692848750000053
+    ],
+    "median_s": 0.43674795900000163,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4316589160000035,
+      0.4470514999999864,
+      0.4121841249999818,
+      0.4612250830000164,
+      0.447983832999995
+    ],
+    "median_s": 0.4470514999999864,
+    "candidate_count": 0
+  },
+  "overhead_ms": 10.303540999984762,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

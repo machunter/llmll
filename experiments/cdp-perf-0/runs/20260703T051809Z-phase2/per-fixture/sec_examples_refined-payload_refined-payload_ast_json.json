@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_refined-payload_refined-payload_ast_json",
+  "path": "examples/refined-payload/refined-payload.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.4110273329999927,
+      0.4769700000000512,
+      0.5593920420000131,
+      0.5381326250000029,
+      0.4367270830000507
+    ],
+    "median_s": 0.4769700000000512,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.6935926669999617,
+      0.7449530420000201,
+      0.6218513329999951,
+      0.723125624999966,
+      0.7164368749999994
+    ],
+    "median_s": 0.7164368749999994,
+    "candidate_count": 4
+  },
+  "overhead_ms": 239.46687499994823,
+  "total_candidate_count": 4,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

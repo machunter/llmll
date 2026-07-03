@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_hangman_json_hangman_ast_json",
+  "path": "examples/hangman_json/hangman.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.3036152500000071,
+      0.3025878330000751,
+      0.41601487499997347,
+      0.472779791999983,
+      0.47072112500006824
+    ],
+    "median_s": 0.41601487499997347,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4532473330000357,
+      0.4030350419999422,
+      0.4418825409999272,
+      0.4168757090000099,
+      0.3960997080000652
+    ],
+    "median_s": 0.4168757090000099,
+    "candidate_count": 0
+  },
+  "overhead_ms": 0.8608340000364478,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

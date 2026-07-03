@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_withdraw-demo_return-refine_llmll",
+  "path": "examples/withdraw-demo/return-refine.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.34563341599994146,
+      0.4256712909999578,
+      0.43473508399995353,
+      0.45249216699994577,
+      0.3871522089999644
+    ],
+    "median_s": 0.4256712909999578,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.40135337499998514,
+      0.7503217080000013,
+      0.6544248339999967,
+      0.36503637500004515,
+      0.4526100419999466
+    ],
+    "median_s": 0.4526100419999466,
+    "candidate_count": 1
+  },
+  "overhead_ms": 26.93875099998877,
+  "total_candidate_count": 1,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

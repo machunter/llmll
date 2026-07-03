@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_outcome-totality_classify-bad_llmll",
+  "path": "examples/outcome-totality/classify-bad.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.26838145799999324,
+      0.2647040840000159,
+      0.27990766700000336,
+      0.29505491700001585,
+      0.32058433299999933
+    ],
+    "median_s": 0.27990766700000336,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.3518801670000187,
+      0.32513308400001506,
+      0.3223259579999933,
+      0.3630273750000015,
+      0.36305125000001226
+    ],
+    "median_s": 0.3518801670000187,
+    "candidate_count": 0
+  },
+  "overhead_ms": 71.97250000001532,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

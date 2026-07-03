@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_pair_type_test_string_concat_sugar_llmll",
+  "path": "examples/pair_type_test/string_concat_sugar.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.3356694160000018,
+      0.33286641600000166,
+      0.32777937500000576,
+      0.3139372079999987,
+      0.3165061660000106
+    ],
+    "median_s": 0.32777937500000576,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.33353058299999816,
+      0.3083090000000084,
+      0.30419816699998137,
+      0.28161954099999775,
+      0.3041617080000094
+    ],
+    "median_s": 0.30419816699998137,
+    "candidate_count": 0
+  },
+  "overhead_ms": -23.58120800002439,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

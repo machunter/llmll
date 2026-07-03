@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_conserve_ast_json",
+  "path": "examples/payments-core/conserve.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.49447029099997053,
+      0.4441356249999444,
+      0.4309872499999301,
+      0.4199578330000122,
+      0.4483496670000022
+    ],
+    "median_s": 0.4441356249999444,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.48265629100001206,
+      0.4059813329999997,
+      0.38417054100000314,
+      0.3562824580000097,
+      0.3459457909999628
+    ],
+    "median_s": 0.38417054100000314,
+    "candidate_count": 0
+  },
+  "overhead_ms": -59.96508399994127,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

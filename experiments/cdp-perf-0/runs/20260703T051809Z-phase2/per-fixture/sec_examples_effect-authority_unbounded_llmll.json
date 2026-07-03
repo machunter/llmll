@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_effect-authority_unbounded_llmll",
+  "path": "examples/effect-authority/unbounded.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.48615133399999877,
+      0.44984287500000164,
+      0.4312083749999829,
+      0.6020661249999932,
+      0.507198332999991
+    ],
+    "median_s": 0.48615133399999877,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4652863749999767,
+      0.4224475000000041,
+      0.44646237499998165,
+      0.4198665000000119,
+      0.43322954200002073
+    ],
+    "median_s": 0.43322954200002073,
+    "candidate_count": 0
+  },
+  "overhead_ms": -52.92179199997804,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

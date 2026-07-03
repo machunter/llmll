@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_withdraw_llmll",
+  "path": "examples/withdraw.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.33555170900001485,
+      0.30690308299995195,
+      0.3520402499999591,
+      0.37609229200006666,
+      0.3568153749999965
+    ],
+    "median_s": 0.3520402499999591,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.626420875000008,
+      0.5828525409999656,
+      0.5962423329999638,
+      0.6508002079999642,
+      0.6861951250000402
+    ],
+    "median_s": 0.626420875000008,
+    "candidate_count": 6
+  },
+  "overhead_ms": 274.3806250000489,
+  "total_candidate_count": 6,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

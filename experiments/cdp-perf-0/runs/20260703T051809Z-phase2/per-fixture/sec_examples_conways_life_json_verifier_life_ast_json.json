@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_conways_life_json_verifier_life_ast_json",
+  "path": "examples/conways_life_json_verifier/life.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      10.151917207999986,
+      11.32990612499998,
+      13.099444334000054,
+      11.998292207999953,
+      12.952352041999916
+    ],
+    "median_s": 11.998292207999953,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      11.068036542000073,
+      12.583304375000012,
+      13.129870084000004,
+      14.656204208000077,
+      13.082555500000012
+    ],
+    "median_s": 13.082555500000012,
+    "candidate_count": 6
+  },
+  "overhead_ms": 1084.2632920000597,
+  "total_candidate_count": 6,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

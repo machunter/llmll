@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_session-pay_open-and-pay-unsafe_llmll",
+  "path": "examples/session-pay/open-and-pay-unsafe.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      6.712801500000012,
+      7.203748916999984,
+      6.5105451250000215,
+      8.006017541999995,
+      7.9865732080000384
+    ],
+    "median_s": 7.203748916999984,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      6.521082332999981,
+      5.932675125000003,
+      7.462990208999997,
+      6.746101250000038,
+      6.631360541999982
+    ],
+    "median_s": 6.631360541999982,
+    "candidate_count": 0
+  },
+  "overhead_ms": -572.3883750000027,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

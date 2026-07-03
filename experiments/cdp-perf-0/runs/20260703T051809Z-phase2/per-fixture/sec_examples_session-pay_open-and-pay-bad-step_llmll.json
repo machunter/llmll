@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_session-pay_open-and-pay-bad-step_llmll",
+  "path": "examples/session-pay/open-and-pay-bad-step.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      4.482471457999992,
+      4.409016457999968,
+      4.283265041999982,
+      4.26495483299999,
+      4.348798541999997
+    ],
+    "median_s": 4.348798541999997,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      7.2548405,
+      6.479697499999986,
+      5.505633875000001,
+      5.263444541000013,
+      5.279233207999994
+    ],
+    "median_s": 5.505633875000001,
+    "candidate_count": 0
+  },
+  "overhead_ms": 1156.8353330000036,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

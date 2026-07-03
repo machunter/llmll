@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_pair_type_test_pair_destruct_let_ast_json",
+  "path": "examples/pair_type_test/pair_destruct_let.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.41861404200005836,
+      0.40944712499992875,
+      0.47089391700001215,
+      0.5962602910000214,
+      0.49776683400000366
+    ],
+    "median_s": 0.47089391700001215,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.3927701669999806,
+      0.37268537499994636,
+      0.44242974999997386,
+      0.5446037080000679,
+      0.6096062920000804
+    ],
+    "median_s": 0.44242974999997386,
+    "candidate_count": 0
+  },
+  "overhead_ms": -28.464167000038287,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

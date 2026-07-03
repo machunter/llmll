@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_transfer_ast_json",
+  "path": "examples/payments-core/transfer.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.5829575000000204,
+      0.6647853330000544,
+      0.6417201670000168,
+      0.6608587919999991,
+      0.6612767909999775
+    ],
+    "median_s": 0.6608587919999991,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.9427707080000118,
+      1.1786655000000792,
+      1.2514409579999892,
+      1.0650615419999667,
+      1.0096009580000782
+    ],
+    "median_s": 1.0650615419999667,
+    "candidate_count": 6
+  },
+  "overhead_ms": 404.20274999996764,
+  "total_candidate_count": 6,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

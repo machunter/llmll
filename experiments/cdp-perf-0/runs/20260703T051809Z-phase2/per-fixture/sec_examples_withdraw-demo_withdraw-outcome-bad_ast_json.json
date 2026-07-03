@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_withdraw-demo_withdraw-outcome-bad_ast_json",
+  "path": "examples/withdraw-demo/withdraw-outcome-bad.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.5183242079999673,
+      0.5038354579999123,
+      0.6750966249999237,
+      0.5969782920001308,
+      0.5395954579998943
+    ],
+    "median_s": 0.5395954579998943,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.4761007080001036,
+      0.5549693749999278,
+      0.5669368329999998,
+      0.5761036670000976,
+      0.5576100420000785
+    ],
+    "median_s": 0.5576100420000785,
+    "candidate_count": 0
+  },
+  "overhead_ms": 18.014584000184186,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

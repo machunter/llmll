@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_nested-result_safe-withdraw_llmll",
+  "path": "examples/nested-result/safe-withdraw.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.40750295800000913,
+      0.4444462499999986,
+      0.4325251669999943,
+      0.3917852079999875,
+      0.4247093750000204
+    ],
+    "median_s": 0.4247093750000204,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4304355840000085,
+      0.4296199999999999,
+      0.5196663749999857,
+      0.5468691660000218,
+      0.4909429589999945
+    ],
+    "median_s": 0.4909429589999945,
+    "candidate_count": 0
+  },
+  "overhead_ms": 66.23358399997414,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

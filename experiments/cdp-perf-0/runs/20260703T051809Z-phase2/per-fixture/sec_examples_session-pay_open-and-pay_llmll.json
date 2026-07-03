@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_session-pay_open-and-pay_llmll",
+  "path": "examples/session-pay/open-and-pay.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      5.906926375000012,
+      5.697073833000047,
+      5.654552082999999,
+      5.922956917000022,
+      5.374724125
+    ],
+    "median_s": 5.697073833000047,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      4.678116124999974,
+      6.219920000000002,
+      5.370626750000042,
+      5.756236708000074,
+      5.466760457999953
+    ],
+    "median_s": 5.466760457999953,
+    "candidate_count": 6
+  },
+  "overhead_ms": -230.31337500009386,
+  "total_candidate_count": 6,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

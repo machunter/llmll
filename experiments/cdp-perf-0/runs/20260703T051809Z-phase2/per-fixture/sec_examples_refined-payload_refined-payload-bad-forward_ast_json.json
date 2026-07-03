@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_refined-payload_refined-payload-bad-forward_ast_json",
+  "path": "examples/refined-payload/refined-payload-bad-forward.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.5379330839999739,
+      0.5029911670000047,
+      0.5061159589999988,
+      0.5267897500000345,
+      0.4461677089999512
+    ],
+    "median_s": 0.5061159589999988,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.38598129100000733,
+      0.4080206249999492,
+      0.4983463329999722,
+      0.5007686249999779,
+      0.4268954159999794
+    ],
+    "median_s": 0.4268954159999794,
+    "candidate_count": 0
+  },
+  "overhead_ms": -79.22054300001946,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

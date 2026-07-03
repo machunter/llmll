@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_outcome-totality_classify-bad_ast_json",
+  "path": "examples/outcome-totality/classify-bad.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.4683714590000818,
+      0.4550286659999756,
+      0.5287042500000325,
+      0.5363132909999422,
+      0.44230949999996483
+    ],
+    "median_s": 0.4683714590000818,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.41922520800005714,
+      0.4753001660000109,
+      0.5182032499999423,
+      0.4439099170000418,
+      0.4466243749999421
+    ],
+    "median_s": 0.4466243749999421,
+    "candidate_count": 0
+  },
+  "overhead_ms": -21.747084000139694,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

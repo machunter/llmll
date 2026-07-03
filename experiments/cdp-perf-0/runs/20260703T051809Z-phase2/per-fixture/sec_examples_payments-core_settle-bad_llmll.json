@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_settle-bad_llmll",
+  "path": "examples/payments-core/settle-bad.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.3282313340000087,
+      0.3074283340000079,
+      0.31472266699998386,
+      0.32893325000000573,
+      0.32804095800000255
+    ],
+    "median_s": 0.32804095800000255,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.32976525000000834,
+      0.3358312919999946,
+      0.3227522089999866,
+      0.3053166669999996,
+      0.305699790999995
+    ],
+    "median_s": 0.3227522089999866,
+    "candidate_count": 0
+  },
+  "overhead_ms": -5.288749000015969,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

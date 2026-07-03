@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_refined-payload_refined-payload-bad-elim_ast_json",
+  "path": "examples/refined-payload/refined-payload-bad-elim.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.607197458000087,
+      0.6300150000000713,
+      0.5761201669999991,
+      0.5647532080000701,
+      0.5080494999999701
+    ],
+    "median_s": 0.5761201669999991,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.6437900409999884,
+      0.5381703750000497,
+      0.5080286669999623,
+      0.4931335420000096,
+      0.5632896249999249
+    ],
+    "median_s": 0.5381703750000497,
+    "candidate_count": 0
+  },
+  "overhead_ms": -37.94979199994941,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

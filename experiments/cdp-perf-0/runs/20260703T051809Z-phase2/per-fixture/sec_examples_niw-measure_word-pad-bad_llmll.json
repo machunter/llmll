@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_niw-measure_word-pad-bad_llmll",
+  "path": "examples/niw-measure/word-pad-bad.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.37286583299999165,
+      0.3804982089999953,
+      0.3572136660000069,
+      0.3320831249999969,
+      0.35357741600000736
+    ],
+    "median_s": 0.3572136660000069,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.36341454099999737,
+      0.3436032920000116,
+      0.3496498340000187,
+      0.36822112499999093,
+      0.34502133300000537
+    ],
+    "median_s": 0.3496498340000187,
+    "candidate_count": 0
+  },
+  "overhead_ms": -7.563831999988224,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

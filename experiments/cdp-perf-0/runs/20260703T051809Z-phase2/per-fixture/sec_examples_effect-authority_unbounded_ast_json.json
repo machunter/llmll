@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_effect-authority_unbounded_ast_json",
+  "path": "examples/effect-authority/unbounded.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.41663145799998347,
+      0.41369541599999593,
+      0.34244537500001115,
+      0.3873984169999858,
+      0.42627204199993685
+    ],
+    "median_s": 0.41369541599999593,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.3621530000000348,
+      0.40587745900006666,
+      0.40544004200000927,
+      0.3913258750000068,
+      0.36451516700003594
+    ],
+    "median_s": 0.3913258750000068,
+    "candidate_count": 0
+  },
+  "overhead_ms": -22.369540999989113,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

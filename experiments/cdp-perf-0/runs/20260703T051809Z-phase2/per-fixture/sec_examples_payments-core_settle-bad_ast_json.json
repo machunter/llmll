@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_settle-bad_ast_json",
+  "path": "examples/payments-core/settle-bad.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.36562258300000394,
+      0.38884379199998875,
+      0.41103324999994584,
+      0.5058345420000023,
+      0.5078394160000244
+    ],
+    "median_s": 0.41103324999994584,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.5201738329999444,
+      0.5012960000000248,
+      0.511586708999971,
+      0.5161611670000639,
+      0.49332879200005664
+    ],
+    "median_s": 0.511586708999971,
+    "candidate_count": 0
+  },
+  "overhead_ms": 100.55345900002521,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

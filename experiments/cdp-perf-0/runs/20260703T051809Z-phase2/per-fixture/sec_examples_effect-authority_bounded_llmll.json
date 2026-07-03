@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_effect-authority_bounded_llmll",
+  "path": "examples/effect-authority/bounded.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.5603852080000138,
+      0.49722912500000405,
+      0.43939358299999753,
+      0.446216917000001,
+      0.48445133299999554
+    ],
+    "median_s": 0.48445133299999554,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4234263339999984,
+      0.4653855839999892,
+      0.48501679199999614,
+      0.440829082999997,
+      0.41197191700000246
+    ],
+    "median_s": 0.440829082999997,
+    "candidate_count": 0
+  },
+  "overhead_ms": -43.62224999999853,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

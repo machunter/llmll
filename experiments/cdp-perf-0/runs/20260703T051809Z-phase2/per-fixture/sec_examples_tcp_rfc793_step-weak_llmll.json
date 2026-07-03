@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_tcp_rfc793_step-weak_llmll",
+  "path": "examples/tcp_rfc793/step-weak.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      2.164383333999922,
+      2.2533499159999337,
+      1.9129010410000546,
+      1.7334562919999144,
+      2.237533499999927
+    ],
+    "median_s": 2.164383333999922,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      2.253548666000029,
+      2.3755202080000117,
+      2.3290398749999213,
+      2.367961625000021,
+      2.3585176249999904
+    ],
+    "median_s": 2.3585176249999904,
+    "candidate_count": 0
+  },
+  "overhead_ms": 194.13429100006852,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

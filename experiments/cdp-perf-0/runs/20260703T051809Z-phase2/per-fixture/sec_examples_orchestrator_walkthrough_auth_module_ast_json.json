@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_orchestrator_walkthrough_auth_module_ast_json",
+  "path": "examples/orchestrator_walkthrough/auth_module.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.362884667000003,
+      0.37923412500003906,
+      0.4152206669999714,
+      0.38389691600002607,
+      0.36297512500004814
+    ],
+    "median_s": 0.37923412500003906,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4042407079999748,
+      0.4211001660000875,
+      0.4028622499999983,
+      0.36456249999991996,
+      0.37136166699997375
+    ],
+    "median_s": 0.4028622499999983,
+    "candidate_count": 0
+  },
+  "overhead_ms": 23.628124999959255,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

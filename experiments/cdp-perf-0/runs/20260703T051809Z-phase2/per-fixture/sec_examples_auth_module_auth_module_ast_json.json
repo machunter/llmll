@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_auth_module_auth_module_ast_json",
+  "path": "examples/auth_module/auth_module.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.41146537500003433,
+      0.4065792500000498,
+      0.36934229199994206,
+      0.3671463749999475,
+      0.41584758299995883
+    ],
+    "median_s": 0.4065792500000498,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.3902659579999863,
+      0.3723341249999521,
+      0.4033244580000428,
+      0.3983352920000698,
+      0.37565445899997485
+    ],
+    "median_s": 0.3902659579999863,
+    "candidate_count": 0
+  },
+  "overhead_ms": -16.313292000063484,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

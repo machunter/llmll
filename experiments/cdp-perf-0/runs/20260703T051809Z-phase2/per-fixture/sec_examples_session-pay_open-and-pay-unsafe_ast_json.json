@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_session-pay_open-and-pay-unsafe_ast_json",
+  "path": "examples/session-pay/open-and-pay-unsafe.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      8.449840167000048,
+      8.595366541000203,
+      8.35447787499993,
+      10.637179832999891,
+      8.004238499999929
+    ],
+    "median_s": 8.449840167000048,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      6.64532250000002,
+      7.459559665999905,
+      8.929659750000155,
+      9.96847695800011,
+      10.062806624999894
+    ],
+    "median_s": 8.929659750000155,
+    "candidate_count": 0
+  },
+  "overhead_ms": 479.81958300010774,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

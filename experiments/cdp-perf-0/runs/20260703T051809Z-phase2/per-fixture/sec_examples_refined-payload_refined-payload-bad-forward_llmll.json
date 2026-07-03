@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_refined-payload_refined-payload-bad-forward_llmll",
+  "path": "examples/refined-payload/refined-payload-bad-forward.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.32339254199999345,
+      0.32353200000000015,
+      0.31992504199999416,
+      0.3077412079999817,
+      0.3029125420000014
+    ],
+    "median_s": 0.31992504199999416,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.3163518750000094,
+      0.3170567500000061,
+      0.30004649999997923,
+      0.3172059580000166,
+      0.33785316700002
+    ],
+    "median_s": 0.3170567500000061,
+    "candidate_count": 0
+  },
+  "overhead_ms": -2.8682919999880596,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

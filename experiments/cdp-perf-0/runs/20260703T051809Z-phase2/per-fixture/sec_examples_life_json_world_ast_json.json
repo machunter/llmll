@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_life_json_world_ast_json",
+  "path": "examples/life_json/world.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.406087750000097,
+      0.3870823749999772,
+      0.36531575000003613,
+      0.4134400000000369,
+      0.39786179200007155
+    ],
+    "median_s": 0.39786179200007155,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.3693521249999776,
+      0.45469329200000175,
+      0.42428462500004116,
+      0.38762979099999484,
+      0.3732690829999683
+    ],
+    "median_s": 0.38762979099999484,
+    "candidate_count": 0
+  },
+  "overhead_ms": -10.232001000076707,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

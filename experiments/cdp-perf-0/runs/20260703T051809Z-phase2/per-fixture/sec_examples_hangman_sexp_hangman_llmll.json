@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_hangman_sexp_hangman_llmll",
+  "path": "examples/hangman_sexp/hangman.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.36972224999999526,
+      0.40878183399999557,
+      0.4505267090000018,
+      0.4218207080000127,
+      0.40642183399998544
+    ],
+    "median_s": 0.40878183399999557,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.41713774999999487,
+      0.41835854100000347,
+      0.4442799170000171,
+      0.41060070899999346,
+      0.370416917
+    ],
+    "median_s": 0.41713774999999487,
+    "candidate_count": 0
+  },
+  "overhead_ms": 8.355915999999297,
+  "total_candidate_count": 0,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

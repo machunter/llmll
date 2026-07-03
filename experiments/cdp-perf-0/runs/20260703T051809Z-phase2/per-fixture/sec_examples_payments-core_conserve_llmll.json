@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_conserve_llmll",
+  "path": "examples/payments-core/conserve.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.3491048330000126,
+      0.3461401250000051,
+      0.32207991600000696,
+      0.33595704199998977,
+      0.3148244999999861
+    ],
+    "median_s": 0.33595704199998977,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.34497291600001745,
+      0.33940370799999187,
+      0.3152442089999852,
+      0.3116097909999951,
+      0.3467412079999974
+    ],
+    "median_s": 0.33940370799999187,
+    "candidate_count": 0
+  },
+  "overhead_ms": 3.4466660000020966,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_refined-payload_refined-payload_llmll",
+  "path": "examples/refined-payload/refined-payload.llmll",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.3008374579999895,
+      0.2772912080000083,
+      0.27380837499998734,
+      0.26889054099999044,
+      0.25215224999999464
+    ],
+    "median_s": 0.27380837499998734,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.36361354199999596,
+      0.3671206250000125,
+      0.4162986670000066,
+      0.43334479200001397,
+      0.441910125000021
+    ],
+    "median_s": 0.4162986670000066,
+    "candidate_count": 4
+  },
+  "overhead_ms": 142.49029200001928,
+  "total_candidate_count": 4,
+  "structural_tag": "match-or-hole",
+  "corpus": "secondary"
+}

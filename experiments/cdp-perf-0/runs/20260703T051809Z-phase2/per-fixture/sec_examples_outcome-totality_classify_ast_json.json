@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_outcome-totality_classify_ast_json",
+  "path": "examples/outcome-totality/classify.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.5138872920000495,
+      0.44265708299997186,
+      0.5329219580000881,
+      0.5493845830000055,
+      0.5112187500000118
+    ],
+    "median_s": 0.5138872920000495,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.5084325420000368,
+      0.459000708000076,
+      0.486453417000007,
+      0.535043791000021,
+      0.46188604199994643
+    ],
+    "median_s": 0.486453417000007,
+    "candidate_count": 0
+  },
+  "overhead_ms": -27.433875000042462,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

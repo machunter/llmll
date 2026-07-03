@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_tcp_rfc793_step_ast_json",
+  "path": "examples/tcp_rfc793/step.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      4.013195875000065,
+      3.6632712089999586,
+      3.0931137080001463,
+      3.133176125000091,
+      3.288504833000161
+    ],
+    "median_s": 3.288504833000161,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      3.0570527499999116,
+      3.2302577909999854,
+      2.9950003749997904,
+      2.832257500000196,
+      2.711097125000151
+    ],
+    "median_s": 2.9950003749997904,
+    "candidate_count": 0
+  },
+  "overhead_ms": -293.5044580003705,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

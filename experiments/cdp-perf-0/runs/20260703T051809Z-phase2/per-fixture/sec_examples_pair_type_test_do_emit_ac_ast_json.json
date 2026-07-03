@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_pair_type_test_do_emit_ac_ast_json",
+  "path": "examples/pair_type_test/do_emit_ac.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      0.4292884999999842,
+      0.5249939169999607,
+      0.5073735419999821,
+      0.4008116659999814,
+      0.3859956250000778
+    ],
+    "median_s": 0.4292884999999842,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      0.4956880420000971,
+      0.4747176659999468,
+      0.4200817079999979,
+      0.4672005420000005,
+      0.4986183329999676
+    ],
+    "median_s": 0.4747176659999468,
+    "candidate_count": 0
+  },
+  "overhead_ms": 45.429165999962606,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

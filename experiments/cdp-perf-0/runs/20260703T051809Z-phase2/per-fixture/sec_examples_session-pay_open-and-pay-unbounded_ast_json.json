@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_session-pay_open-and-pay-unbounded_ast_json",
+  "path": "examples/session-pay/open-and-pay-unbounded.ast.json",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      8.13866879200009,
+      8.263725209000086,
+      7.940333124999825,
+      7.004512499999919,
+      8.292355084000064
+    ],
+    "median_s": 8.13866879200009,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      7.919895334000103,
+      7.9312587919998805,
+      8.409068415999855,
+      8.212551332999965,
+      8.303933375000042
+    ],
+    "median_s": 8.212551332999965,
+    "candidate_count": 0
+  },
+  "overhead_ms": 73.88254099987535,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

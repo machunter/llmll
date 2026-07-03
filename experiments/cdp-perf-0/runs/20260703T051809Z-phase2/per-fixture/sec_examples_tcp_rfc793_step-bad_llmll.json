@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_tcp_rfc793_step-bad_llmll",
+  "path": "examples/tcp_rfc793/step-bad.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      2.133912083000041,
+      2.2674714170000243,
+      2.1881600409999464,
+      2.201035790999981,
+      2.2315255419999858
+    ],
+    "median_s": 2.201035790999981,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      2.1761601670000346,
+      2.16711516700002,
+      2.3185526670000627,
+      2.4546779589999232,
+      2.3309848339999917
+    ],
+    "median_s": 2.3185526670000627,
+    "candidate_count": 0
+  },
+  "overhead_ms": 117.51687600008154,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

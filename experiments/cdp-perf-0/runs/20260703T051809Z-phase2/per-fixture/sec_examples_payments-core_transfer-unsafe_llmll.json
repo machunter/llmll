@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_payments-core_transfer-unsafe_llmll",
+  "path": "examples/payments-core/transfer-unsafe.llmll",
+  "bare": {
+    "ok": false,
+    "timings_s": [
+      0.339166917,
+      0.32869470800000045,
+      0.3031419160000155,
+      0.333014750000018,
+      0.3504506660000004
+    ],
+    "median_s": 0.333014750000018,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": false,
+    "timings_s": [
+      0.31120804100001465,
+      0.3453664580000009,
+      0.34720462499998916,
+      0.33002658300000576,
+      0.3233029579999993
+    ],
+    "median_s": 0.33002658300000576,
+    "candidate_count": 0
+  },
+  "overhead_ms": -2.988167000012254,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}

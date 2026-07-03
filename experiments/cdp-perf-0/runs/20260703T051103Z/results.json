@@ -1,0 +1,202 @@
+{
+  "experiment": "cdp-perf-0",
+  "timestamp_utc": "20260703T051103Z",
+  "compiler_ref": {
+    "tag": "v0.14.5",
+    "short_sha": "e50b1f1",
+    "branch": "main",
+    "version_string": "llmll 0.14.5"
+  },
+  "reps": {
+    "measured": 5,
+    "warmup": 1
+  },
+  "per_fixture": [
+    {
+      "id": "b1",
+      "path": "examples/benchmarks/b1-withdraw.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.449875209,
+          0.37939349999999994,
+          0.38297241699999995,
+          0.43608187499999973,
+          0.49045854199999983
+        ],
+        "median_s": 0.43608187499999973,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.6125331250000006,
+          0.7120063749999996,
+          0.7995817089999999,
+          0.8859558750000005,
+          1.3026317499999998
+        ],
+        "median_s": 0.7995817089999999,
+        "candidate_count": 6
+      },
+      "overhead_ms": 363.4998340000002,
+      "total_candidate_count": 6
+    },
+    {
+      "id": "b3",
+      "path": "examples/benchmarks/b3-safe-first.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.5519362500000007,
+          0.5121108329999995,
+          0.5797191249999987,
+          0.5044027500000006,
+          0.8202242920000007
+        ],
+        "median_s": 0.5519362500000007,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          1.2768542920000012,
+          1.387174041999998,
+          2.2904872920000017,
+          1.4019362499999986,
+          1.0270726249999989
+        ],
+        "median_s": 1.387174041999998,
+        "candidate_count": 4
+      },
+      "overhead_ms": 835.2377919999974,
+      "total_candidate_count": 4
+    },
+    {
+      "id": "b5",
+      "path": "examples/benchmarks/b5-double.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.6949788330000004,
+          0.5738822500000005,
+          0.5788804160000005,
+          0.5766568329999977,
+          0.745040582999998
+        ],
+        "median_s": 0.5788804160000005,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.9137515839999999,
+          0.7940034580000024,
+          0.641552291,
+          0.6276664170000004,
+          0.8045472499999988
+        ],
+        "median_s": 0.7940034580000024,
+        "candidate_count": 5
+      },
+      "overhead_ms": 215.12304200000187,
+      "total_candidate_count": 5
+    },
+    {
+      "id": "totp",
+      "path": "examples/totp_rfc6238/totp_filled.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.3703709999999987,
+          0.41607495799999583,
+          0.491796082999997,
+          0.4139398330000006,
+          0.369594541000005
+        ],
+        "median_s": 0.4139398330000006,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.4188728330000018,
+          0.4271043330000026,
+          0.40712879200000174,
+          0.43349170799999825,
+          0.38172429200000124
+        ],
+        "median_s": 0.4188728330000018,
+        "candidate_count": 0
+      },
+      "overhead_ms": 4.933000000001186,
+      "total_candidate_count": 0
+    },
+    {
+      "id": "erc20",
+      "path": "examples/erc20_token/erc20_filled.ast.json",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.44128129200000643,
+          0.4057044999999988,
+          0.4323709170000001,
+          0.38984254100000015,
+          0.36298091599999793
+        ],
+        "median_s": 0.4057044999999988,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.923434958999998,
+          1.1811258749999993,
+          1.3424572080000061,
+          1.4105866250000005,
+          1.1018623750000032
+        ],
+        "median_s": 1.1811258749999993,
+        "candidate_count": 15
+      },
+      "overhead_ms": 775.4213750000006,
+      "total_candidate_count": 15
+    },
+    {
+      "id": "banking",
+      "path": "examples/banking_ledger/banking.llmll",
+      "bare": {
+        "ok": true,
+        "timings_s": [
+          0.5767979999999966,
+          0.5389242919999973,
+          0.48810412500000666,
+          0.5364602089999977,
+          0.4352533340000022
+        ],
+        "median_s": 0.5364602089999977,
+        "candidate_count": null
+      },
+      "cdp": {
+        "ok": true,
+        "timings_s": [
+          0.7731900420000031,
+          0.7821217499999946,
+          0.9507300419999964,
+          1.001648375000002,
+          1.0871740840000044
+        ],
+        "median_s": 0.9507300419999964,
+        "candidate_count": 11
+      },
+      "overhead_ms": 414.26983299999875,
+      "total_candidate_count": 11
+    }
+  ],
+  "fit": {
+    "a": 197.3968279789967,
+    "b": 34.73424166161024,
+    "r_squared": 0.3346598819321802
+  },
+  "n_fixtures_in_fit": 6
+}

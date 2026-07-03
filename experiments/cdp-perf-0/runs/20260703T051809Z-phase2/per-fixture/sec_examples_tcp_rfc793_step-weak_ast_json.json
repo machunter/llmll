@@ -1,0 +1,32 @@
+{
+  "id": "sec_examples_tcp_rfc793_step-weak_ast_json",
+  "path": "examples/tcp_rfc793/step-weak.ast.json",
+  "bare": {
+    "ok": true,
+    "timings_s": [
+      3.0260823329999766,
+      3.108024749999913,
+      2.7376158330000635,
+      3.496713916999852,
+      4.282950834000076
+    ],
+    "median_s": 3.108024749999913,
+    "candidate_count": null
+  },
+  "cdp": {
+    "ok": true,
+    "timings_s": [
+      3.1917803750000076,
+      2.752231832999996,
+      2.9513091670000904,
+      3.9644176249998964,
+      4.19692262500007
+    ],
+    "median_s": 3.1917803750000076,
+    "candidate_count": 0
+  },
+  "overhead_ms": 83.75562500009437,
+  "total_candidate_count": 0,
+  "structural_tag": "plain",
+  "corpus": "secondary"
+}
