@@ -1,15 +1,39 @@
 # EXPIRING-INTENTIONAL — Staleness detection for `(spec-entropy :intentional)` via the computed CDP diagnostic
 
-> **Version:** Rev 0.1 — initial proposal + compiler-engineer feasibility read folded as Appendix A. Central cost claim confirmed against source (one constructor + one label + one guard clause; partial rebuild, not `Syntax.hs`-wide); one correction applied — the `CDPWarning` exhaustiveness is **not** compiler-enforced (`-Wincomplete-patterns` off), though `cdpWarningLabel` is a single wildcard-free choke point that makes the omission loud-at-runtime and covers both render surfaces.
+> **Version:** Rev 0.2 — see revision notes.
+> **Rev 0.1:** compiler-engineer feasibility folded as Appendix A; central *cost* claim confirmed against source (one constructor + one label + one guard clause).
+> **Rev 0.2 (BLOCKED at implementation):** the W614 *predicate itself is unsatisfiable* — it can never fire (proof + empirical confirmation below). Rev 0.1's "build-ready" verdict is **retracted**. All three prior passes (language-team, compiler-engineer, and the parent's own crux check) verified the guard's inputs were computed-and-in-scope but not that the guard was *satisfiable*. No code shipped; implementation reverted.
 > **Date:** 2026-07-03
 > **Implements:** Successor to [`spec-entropy-reason-string-proposal.md`](spec-entropy-reason-string-proposal.md) (Rev 0.2), per the professor review folded there as Appendix B. Descends from settled `experiments/adv-spec-weaken-0` **F-002**.
 > **Origin:** Professor-recommended reallocation of the reason-string's Slice-2 budget. Models Rust `#[expect]` (an *expiring* suppression) on LLMLL's existing CDP machinery.
 > **Prerequisites:** None. No new surface syntax, no schema change, no `Contract`-record change — purely a governance diagnostic computed from values `buildWarnings` already produces.
-> **Status:** Proposed (Rev 0.1) — **feasibility-confirmed** (Appendix A: build-ready, ~half-day, one constructor + one label + one guard clause). Recommended to **supersede** the reason-string as the primary F-002 follow-on (dominates on value *and* cost; see decision 5). Awaiting the build greenlight.
+> **Status:** **BLOCKED (Rev 0.2)** — the core predicate is unsatisfiable (below). Reopened as a language-team redesign question, not build-ready. The Restatement/Design/Appendix-A below are preserved as the (flawed) Rev 0.1 record; read the blocking finding first.
 
 ---
 
-## Restatement
+## ⚠ BLOCKING FINDING (Rev 0.2, found at implementation) — the W614 predicate can never fire
+
+The guard specified throughout (Design §, Appendix A, Routing) —
+`annotation == :intentional && isJust (computeScore (length satisfying) distinctAll) && not (identityOk || constOk)` —
+**is unsatisfiable.** Proof, from source:
+
+- `isConst` (`CDP.hs:430-431`) is `True` for *every* non-identity trivial body (`isConst (TrivIdentity _) = False; isConst _ = True`). Every `TrivialBody` is `TrivIdentity` or a `TrivConst*`, so for each satisfying candidate exactly one of `isIdentity`/`isConst` holds.
+- Hence `identityOk || constOk = any (isIdentity ∨ isConst) satisfying = not (null satisfying) = satCount > 0`.
+- But `isJust (computeScore satCount _)` *also* requires `satCount > 0` (`computeScore s _ | s <= 0 = Nothing`, `CDP.hs:414`).
+- So the guard reduces to `… && satCount > 0 && satCount == 0` — **always False.**
+
+**Empirically confirmed** (two diagnostic tests, both green, then reverted with the rest of the implementation): `:intentional` + loose (every trivial body satisfies) → score `Just 0.0` but W614 absent (`constOk` true); `:intentional` + tightened (nothing satisfies) → score `Nothing` so W614 absent — the state fires `spec-inconsistent-or-unproven` instead. W614 is dead code.
+
+**Why every prior pass missed it:** language-team (author), compiler-engineer (feasibility), and the parent's own "crux" verification all confirmed `identityOk`/`constOk` were *computed and in scope* — none checked the predicate was *satisfiable*. The `isConst`-matches-all-non-identity collapse is invisible at the values-in-scope level.
+
+**What the real "stale" state actually is.** In this CDP model, "no trivial body satisfies the post" ⟺ `satCount = 0` ⟺ the `inconsistent` branch — which already emits `WarnSpecTooTightForOmega` (verified) or `WarnSpecInconsistentOrUnproven` (not), *ungated by the annotation*, and which the proposal's own **decision 2 explicitly excluded** ("null-score → don't fire"). Consequences for any redesign:
+- A stale `:intentional` (tightened until no trivial body passes, verified) **already** emits `spec-too-tight-for-omega` next to `spec_entropy_annotation: intentional` — the staleness is *already inferable* from the two emitted fields.
+- A corrected predicate would be `:intentional && inconsistent && functionVerifies` — but that **reverses decision 2**, **co-fires with** `WarnSpecTooTightForOmega`, and only catches the *fully-tightened, verified* endpoint (at intermediate tightening the annotation still suppresses a real identity/const warning, so it is genuinely *not* stale).
+- Net: on contact with the actual model, "expiring `:intentional`" largely collapses into "read `spec_entropy_annotation` + the existing too-tight warning." Whether the narrowed, mostly-already-inferable signal earns a new warning is a **language-team redesign question** (reverse decision 2? new label vs. annotating the existing warning? is the value worth it at all?), possibly a professor turn (the value is now as thin as the reason-string's was). Reopened, not build-ready. **No code shipped.**
+
+---
+
+## Restatement (Rev 0.1 — preserved; superseded by the blocking finding above)
 
 Detect a `(spec-entropy :intentional)` annotation that has gone **stale** — i.e., the low-DP diagnostic it suppresses would no longer fire, because the spec was later tightened or Ω changed so that no trivial candidate satisfies the post anymore. The annotation is then suppressing nothing; it is dead weight that should be flagged for removal. This is the LLMLL instance of Rust's `#[expect]` (a suppression that warns when the expectation is unfulfilled) and a direct counter to the accumulation failure mode the professor review's FSE 2025 anchor documents (50.8% of suppressions affect no warning; suppression counts grow monotonically).
 
