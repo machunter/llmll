@@ -13,6 +13,7 @@ module LLMLL.TrustReport
   , TrustDependency(..)
   , TrustSummary(..)
   , TierProfile(..)
+  , OverAnnotationInfo(..)      -- F-001 (adv-spec-weaken-0): module-level over-annotation JSON surface
   , CallerObligation(..)        -- TRUST-PRE (Part 2): per-function caller-obligation axis
   , callerObligationJson        -- TRUST-PRE: shared JSON shape (report + sidecar persistence)
   , renderRequiresPredicate     -- TRUST-PRE: s-expr rendering of a 'requires' predicate
@@ -49,7 +50,7 @@ import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
 import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap)  -- DEF-RET Unit 2
-import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel)
+import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotationRatio, overAnnotationThreshold)
 import LLMLL.AstEmit (exprToJson)
 
 -- ---------------------------------------------------------------------------
@@ -151,6 +152,24 @@ data TrustReport = TrustReport
   -- 'DisplayLevel' diamond — refutation is negative evidence, off the
   -- evidence-strength axis (verified-contract-refuted-status-proposal §3.2).
   , trRefutedFns       :: Set Name
+  -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
+  -- density, mirroring the text-only diagnostic at Main.hs's CDP branch
+  -- ('over-annotation-warning', CDP.hs Risk #3). Computed here (pure
+  -- function of 'entryStmts', no solver dependency) so every trust-report
+  -- JSON emit carries it regardless of which flag (--cdp, --weakness-check,
+  -- --strict-verify) triggered the report — previously this ratio was only
+  -- ever printed as a stdout line under 'unless json', so no JSON consumer
+  -- could observe it. Never persisted to '.verified.json' (verify-time-only,
+  -- like 'trRefutedFns').
+  , trOverAnnotation   :: OverAnnotationInfo
+  } deriving (Show, Eq)
+
+-- | F-001 (adv-spec-weaken-0): module-level over-annotation ratio + the
+-- fixed threshold it's compared against (CDP proposal §10 Risk #3).
+data OverAnnotationInfo = OverAnnotationInfo
+  { oaiRatio     :: Double
+  , oaiThreshold :: Double
+  , oaiFired     :: Bool
   } deriving (Show, Eq)
 
 data TrustSummary = TrustSummary
@@ -289,6 +308,15 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- OBLIG-PBT-3: parallel per-clause aggregates (proposal §9)
       tierProfilePre  = aggregateTiersPre  markedEntries
       tierProfilePost = aggregateTiersPost markedEntries
+      -- F-001 (adv-spec-weaken-0): entry-module-only scope, matching the
+      -- ratio's sole pre-existing call site (Main.hs's CDP branch, which
+      -- also passes entry-module 'stmts' only — not cache-module statements).
+      oaiRatio'  = overAnnotationRatio entryStmts
+      overAnnotation = OverAnnotationInfo
+        { oaiRatio     = oaiRatio'
+        , oaiThreshold = overAnnotationThreshold
+        , oaiFired     = oaiRatio' > overAnnotationThreshold
+        }
   in TrustReport
        { trEntries         = markedEntries
        , trSummary         = summary
@@ -300,6 +328,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trJointWitnesses  = jointGroups
        , trCDP             = cdpMap
        , trRefutedFns      = Set.empty  -- VERIFY-RPT-1: populated by markRefuted post-solver
+       , trOverAnnotation  = overAnnotation
        }
 
 -- | VERIFY-RPT-1 (Commit 4): refusal set for '--strict-verified-core' conjunct
@@ -1201,8 +1230,18 @@ formatTrustReportJson report =
     -- VERIFY-RPT-1 (1.3.0): top-level list of refuted functions (body VC the
     -- solver reported UNSAFE). Verify-time only; empty on a solver-less render.
     , "refuted_fns" .= Set.toList (trRefutedFns report)
+    -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
+    -- density + threshold + fired flag. No 'trust_report_version' bump, same
+    -- additive-field precedent as 'joint_pbt_witnesses'/'overflow_tainted_fns'
+    -- above — existing consumers ignore the new key.
+    , "over_annotation" .= overAnnotationJson (trOverAnnotation report)
     ]
   where
+    overAnnotationJson oai = object
+      [ "ratio"     .= oaiRatio oai
+      , "threshold" .= oaiThreshold oai
+      , "warning"   .= oaiFired oai
+      ]
     -- INT-1: an entry is overflow-tainted at the report level iff any of its
     -- evidence records carries the flag. Today the flag only lives on the
     -- DLVerified body-faithful post (the only site that emits it in Main.hs);
