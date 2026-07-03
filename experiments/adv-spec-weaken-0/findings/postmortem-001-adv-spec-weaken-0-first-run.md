@@ -2,7 +2,7 @@
 
 ## Headline finding
 
-Across n=8 fixtures × 4 CLI configs (32 cells, 0 errors, definitive run `runs/20260703T001150Z/`), every pre-registered adversarial prediction confirmed and zero null results occurred. The self-attestation mitigation (`over-annotation-warning`) was structurally absent from `--json` output regardless of `:intentional` ratio (F-001) — **fixed in this session**, commit pending on branch `fix/trust-report-over-annotation-json`, `compiler/src/LLMLL/TrustReport.hs`. The closed candidate set Ω cannot detect a surgically-narrow contract weakening on either an arithmetic or a measure-class (`list-length`) quantity (F-003, unfixed by design) — a genuinely wrong, refuted-against-the-honest-spec implementation reports `verified (liquid-fixpoint)` with a diagnostic profile byte-identical to the honest baseline. The module-level ratio guardrail has a floor a targeted single-function attack clears for free once diluted below 30% (F-002, unfixed — a design-scope limitation, not a coding defect).
+Across n=8 fixtures × 4 CLI configs (32 cells, 0 errors, definitive run `runs/20260703T001150Z/`), every pre-registered adversarial prediction confirmed and zero null results occurred. The self-attestation mitigation (`over-annotation-warning`) was structurally absent from `--json` output regardless of `:intentional` ratio (F-001) — **fixed in this session**, commit pending on branch `fix/trust-report-over-annotation-json`, `compiler/src/LLMLL/TrustReport.hs`. The closed candidate set Ω cannot detect a surgically-narrow contract weakening on either an arithmetic or a measure-class (`list-length`) quantity (F-003, unfixed by design) — a genuinely wrong, refuted-against-the-honest-spec implementation reports `verified (liquid-fixpoint)` with a diagnostic profile byte-identical to the honest baseline. The module-level ratio guardrail has a floor a targeted single-function attack clears for free once diluted below 30% (F-002, **settled** as a design-scope limitation, not a coding defect — `LLMLL.md §4.4.6` clarified; no second automated signal, per the self-attestation framing the CDP proposal and professor review already established).
 
 ## Self-correction note (read before citing run `20260702T232009Z`)
 
@@ -58,7 +58,7 @@ Any programmatic consumer of `--json` output (CI gate, agent, trust-report tooli
 
 **Priority:** High
 **Consumer:** compiler-engineer, language-team
-**Status:** Open — design-scope limitation, not a coding defect.
+**Status:** **Settled** — design-scope limitation, not a coding defect; `LLMLL.md §4.4.6` clarified (abuse-rate-vs-per-instance framing + external-policy path). Adjudicated jointly by language-team (settle-as-designed — no automated per-instance oracle exists on a self-attestation channel) and compiler-engineer (defer-to-CI — per-function score + annotation are already machine-readable, so no compiler change). No second automated signal added; the optional `:intentional`-reason-string enhancement is a separate, user-elected proposal, not part of this close-out.
 
 #### Evidence
 `ax1-04-diluted-below-threshold` (5-fn module, 1 laundered contract, ratio 20%, `runs/20260703T001150Z/per-fixture/ax1-04-diluted-below-threshold.json`): per-function `withdraw` entry shows `entropy=intentional` with an empty per-function `warnings` list (suppressed, as designed for `:intentional`), and the now-visible module-level `over_annotation` field correctly reports `ratio=0.2, warning=False` — genuinely below threshold, not a bug in the F-001 fix. Contrast `ax1-01-loud-naked` (same weakening, no annotation, no dilution): `weakness-check-diag x2`, `cdp:withdraw:identity-satisfies-post,const-satisfies-post`, `score=0.10175559829607284`.
@@ -114,7 +114,7 @@ None. Both pre-registered null conditions — H1 (self-attestation) failing to r
 | # | Finding | Consumer | Priority | Status |
 |---|---|---|---|---|
 | F-001 | `over-annotation-warning` absent from all `--json` output | compiler-engineer | Blocker | **Fixed** (branch `fix/trust-report-over-annotation-json`, uncommitted) |
-| F-002 | Module-ratio guardrail has a trivial-to-clear floor | compiler-engineer, language-team | High | Open — design question |
+| F-002 | Module-ratio guardrail has a trivial-to-clear floor | compiler-engineer, language-team | High | **Settled** — design-scope limitation; §4.4.6 clarified, no compiler change |
 | F-003 | Ω blind spot confirmed on 2 type-classes | language-team, documentation-lead | High (descriptive) | Open — awareness only |
 | minor | `if`-guard-over-raw-measure body-fallback | compiler-engineer | Low | Open — unscoped, workaround exists |
 

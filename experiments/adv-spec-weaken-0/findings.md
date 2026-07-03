@@ -19,7 +19,7 @@
 ### F-002. Single-function `:intentional` laundering has zero detection once diluted below the 30% module ratio
 
 **Priority:** High
-**Status:** Open — routed for joint engineer/language-team judgment (see also `## Language-team` below).
+**Status:** **Settled** — design-scope limitation, not a coding defect; `LLMLL.md §4.4.6` clarified. Adjudicated jointly: no second *automated* signal is added, because `:intentional` is a self-attestation channel with no independent oracle (CDP proposal §10 Risk #3 Rev 2; professor review Gap #5). Diff-awareness needs VCS context the single-file verifier does not hold (out of compiler scope → CI layer); a second built-in threshold is the same channel with a different constant (no defense-in-depth). Premise correction: the `--cdp --trust-report --json` claim "zero signal in any mode" overstates the gap — the laundered function's own `discriminative_axis` score (0.10) and `spec_entropy_annotation` are already emitted per-function alongside the module `over_annotation` ratio (F-001); only the *warning* is suppressed, not the *data*, so a genuinely per-instance external policy is already possible. See also `## Language-team` below.
 
 `ax1-04-diluted-below-threshold` (5-fn module, 1 laundered contract via `(spec-entropy :intentional)`, ratio 20%) is `silent` across all four CLI configs — no per-function diagnostic (suppressed by `raiseLowDP`, `Syntax.hs:362-364`), no module-level ratio warning (below `overAnnotationThreshold`). This is a design-scope limitation of the ratio check as specified, not a coding defect: the CDP proposal (§10 Risk #3 Rev 2) explicitly frames the 30% threshold as "an *abuse-rate* check, not a *per-instance-justification* check." The data confirms the abuse-rate check's floor: one laundered function in any module of ≥4 contracted functions clears it for free, with zero remaining signal in any output mode. See [`findings/postmortem-001-adv-spec-weaken-0-first-run.md` §F-002](findings/postmortem-001-adv-spec-weaken-0-first-run.md).
 
@@ -35,7 +35,7 @@ Observed constructing `ax2-02-list-length-trapdoor.llmll`: `(if (= (list-length 
 ### F-002 (mirror). Ratio-based self-attestation guardrail has no per-instance backstop
 
 **Priority:** High
-**Status:** Open.
+**Status:** **Settled** — no per-instance *automated* backstop is achievable on a self-attestation channel by construction (Gap #5 supplies the outside-PL adjudication; not re-opened to the professor). Resolution is a `LLMLL.md §4.4.6` spec clarification (abuse-rate-not-per-instance framing + the external-policy path F-001 enables), no spec-model change. Optional, separately-elected (NOT part of this close-out): a mandatory reason-string on `(spec-entropy :intentional …)` mirroring `weakness-ok` (§4.5) — a defense-in-depth increment that raises the marginal cost of laundering and gives human review a per-site artifact, but not a detection fix; its own proposal turn with a `:intentional`-fixture migration tail.
 
 Same evidence as the compiler-engineer F-002 entry above. Implication for language-team: `LLMLL.md §4.4.6` documents `:intentional` as a self-attestation channel with the ratio threshold as the automated backstop; this run shows the backstop is defeated by construction (dilution) for any module with ≥4 contracted functions, with no remaining signal. Whether the design should acquire a second, non-ratio-based signal (e.g., diff-aware: "was this annotation added in the same change that weakened the contract") is a language-team-scope question — not adjudicated here.
 
