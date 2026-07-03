@@ -1,11 +1,11 @@
 # SPEC-ENTROPY-REASON — Mandatory-Justification String on `(spec-entropy :intentional …)`
 
-> **Version:** Rev 0 — initial proposal.
+> **Version:** Rev 0.1 — initial proposal + compiler-engineer Slice-1 implementation plan folded as Appendix A; three feasibility corrections applied to the body (W60x locus, `Contract` constructor fan-out, migration test-churn), each verified against source.
 > **Date:** 2026-07-03
 > **Implements:** Follow-on to `experiments/adv-spec-weaken-0` **F-002** (settled 2026-07-03, `64b8700`). Sits on top of the LT-CDP research-track concept (`spec-entropy` annotation, `LLMLL.md §4.4.6`).
 > **Origin:** Surfaced (and deliberately severed) by both the language-team and compiler-engineer adjudications of F-002. F-002 itself is closed as a design-scope limitation; this is a distinct, elective defense-in-depth proposal.
 > **Prerequisites:** None new. Extends the existing `spec-entropy` clause; leans on the `weakness-ok` mandatory-reason precedent (`LLMLL.md §4.5`).
-> **Status:** Proposed (Rev 0) — awaiting user adjudication.
+> **Status:** Proposed (Rev 0.1) — feasibility-checked (Appendix A); awaiting the build decision.
 
 ---
 
@@ -99,13 +99,13 @@ A **trust-channel advisory surface with zero soundness impact.** It changes noth
 *Not an implementation plan — the seam where `compiler-engineer` takes over.*
 
 - `LLMLL.md §4.4.6` (spec-entropy surface) and the `§4.5`-adjacent governance table (new W61x rows) — **doc-lead's slot**, after the engineer ships.
-- `docs/llmll-ast.schema.json:70,128` — additive `spec_entropy_reason` on `DefCore` + `DefShell`; minor schema-version bump.
-- `compiler/src/LLMLL/Syntax.hs:309` — `contractSpecEntropyReason :: Maybe Text` on `Contract`; `SpecEntropy` sum (line 326) unchanged.
-- `compiler/src/LLMLL/Parser.hs:558-565` — `pSpecEntropyClause` accepts an optional trailing string literal.
-- `compiler/src/LLMLL/ParserJSON.hs:224,238,298` + the AST emitter — decode/encode `spec_entropy_reason` **symmetrically**.
-- `compiler/src/LLMLL/CDP.hs` / `WeaknessCheck.hs` / `app/Main.hs` — emit W610/W611/W612; `overAnnotationRatio` (CDP.hs:189-213) unchanged.
+- `docs/llmll-ast.schema.json:70,128` — additive `spec_entropy_reason` on `DefCore` + `DefShell`; schema-version bump `0.7.0 → 0.7.1` (four sites move in lockstep: `ParserJSON.hs:44` `expectedSchemaVersion`, `:51` `acceptedSchemaVersions`, the AstEmit emitted-version, and the `schema.json` doc string).
+- `compiler/src/LLMLL/Syntax.hs:304-309` — `contractSpecEntropyReason :: Maybe Text` as a 6th field on the **positional** `Contract` constructor; `SpecEntropy` sum (line 326) unchanged. *Correction to the Rev 0 "localized additive" framing:* because `Contract` is positional (5 fields today), this fans out to ~8 construct/destructure sites (`Parser.hs:193/221/244`, `ParserJSON.hs:227/241/282/301`, `Contracts.hs:227` `noContract`, `AstEmit.hs:78/92/106`, `CDP.hs:319` `hasContracts`) plus a `Syntax.hs`-wide recompilation — each a GHC arity error, so discoverable and safe, but not "one field." See Appendix A.
+- `compiler/src/LLMLL/Parser.hs:558-565` — `pSpecEntropyClause` accepts an optional trailing string literal (type becomes `Parser (SpecEntropy, Maybe Text)`).
+- `compiler/src/LLMLL/ParserJSON.hs:224,238,298` + `compiler/src/LLMLL/AstEmit.hs:78,92,106` — decode/encode `spec_entropy_reason` **symmetrically**.
+- **W610/W611/W612 governance** — new producer in `compiler/src/LLMLL/CDP.hs` (mechanism cohesion), following the `Diagnostic`-record style of the *actual* W60x precedent at `SpecCoverage.hs:247-271` (**correction to Rev 0, which mis-located W60x in `CDP.hs`/`WeaknessCheck.hs`**), wired into the report path via `app/Main.hs` (text + `--json`, F-001 parity); `overAnnotationRatio` (CDP.hs:189-213) unchanged.
 - `compiler/src/LLMLL/TrustReport.hs` — carry the reason into the `spec_entropy_annotation` surface (additive; no `trust_report_version` bump).
-- **Migration tail (~5 source sites + doc examples):** `experiments/adv-spec-weaken-0/fixtures/ax1-0{2,3,4}.llmll`, `compiler/test/fixtures/cdp/intentional.llmll:7`, `compiler/test/Spec.hs:8714`, plus the `§4.4.6` and `docs/getting-started.md` doc examples. Under Slice-1 W-code these keep compiling (W610-flagged); a Slice-2 hard-error promotion requires reasons added to each. Test plan is the engineer's slot.
+- **Migration tail (~5 source sites + doc examples):** `experiments/adv-spec-weaken-0/fixtures/ax1-0{2,3,4}.llmll`, `compiler/test/fixtures/cdp/intentional.llmll:7`, `compiler/test/Spec.hs:8714`, plus the `§4.4.6` and `docs/getting-started.md` doc examples. **Correction to Rev 0:** soft-W-code keeps these **compiling**, but W610 now fires on every reason-less `:intentional`, so ~5-8 existing **diagnostic-set test assertions change** in Slice 1 (`Spec.hs:8714`, the `cdp/intentional.llmll` test, the `C21` over-annotation test, the `ax1` fixtures) — real Slice-1 work, not deferred to Slice 2. See Appendix A.
 
 ## Risks and open questions
 
@@ -121,4 +121,39 @@ One, and it bears directly on decision 3 (is the Slice-2 hard-error promotion wo
 
 ---
 
-**Hand-off (Rev 0 → user adjudication).** This is a fresh proposal, not a settlement. If the user approves the direction, the code-track hand-off to `compiler-engineer` is: additive `spec_entropy_reason` field (`Syntax.hs:309`, schema `:70,128`), optional-trailing-string parse in `pSpecEntropyClause` (`Parser.hs:559`), symmetric `ParserJSON` emit/decode, W610–W612 governance in `CDP.hs`/`WeaknessCheck.hs`, additive trust-report carry (`TrustReport.hs`, no version bump), and the ~5-site migration. A `professor` turn on the one empirical question above is warranted before committing to the Slice-2 hard-error promotion, but not before Slice 1.
+**Hand-off (Rev 0 → user adjudication).** This is a fresh proposal, not a settlement. If the user approves the direction, the code-track hand-off to `compiler-engineer` is: additive `spec_entropy_reason` field (`Syntax.hs:309`, schema `:70,128`), optional-trailing-string parse in `pSpecEntropyClause` (`Parser.hs:559`), symmetric `ParserJSON`/`AstEmit` emit/decode, W610–W612 governance (new producer in `CDP.hs`, `Diagnostic`-record style per `SpecCoverage.hs:247-271`, wired via `Main.hs`), additive trust-report carry (`TrustReport.hs`, no version bump), and the ~5-site migration plus its ~5-8 diagnostic-test-assertion updates. A `professor` turn on the one empirical question above is warranted before committing to the Slice-2 hard-error promotion, but not before Slice 1.
+
+---
+
+## Appendix A — Implementation plan (compiler-engineer, Slice 1)
+
+*Folded 2026-07-03 from the compiler-engineer feasibility pass. Every anchor below was verified against source; the three corrections it surfaced are also applied inline in the body above. Nothing is built — this is the patch plan for the build decision.*
+
+**Shape.** Parser + schema + governance only. **Zero verification surface:** nothing reaches liquid-fixpoint, the `Σ_auto` boundary (`§5.3.3`) and the QF-LIA/nonlinear/Lean partition (`§5.3.5`) are untouched, no `.fq`/VerifiedCache change, no `trust_report_version` bump. W610–W612 are non-blocking `SevWarning` advisories.
+
+**Patch, by flow (parse → AST → emit → govern → schema):**
+
+| Site (verified) | Change |
+|---|---|
+| `Syntax.hs:304-309` | `Contract` gains 6th field `contractSpecEntropyReason :: Maybe Text` — root of the positional-constructor fan-out |
+| `Parser.hs:558-565` | `pSpecEntropyClause :: Parser (SpecEntropy, Maybe Text)`, parsing `optional pStringLit`; call sites `:193/:221/:244` split the pair |
+| `ParserJSON.hs:224/238/298` (+ builds `:227/:241/:282/:301`) | decode `spec_entropy_reason`; bump `expectedSchemaVersion → 0.7.1`, extend `acceptedSchemaVersions → ["0.7.1","0.7.0","0.6.0"]` (`:44/:51`) |
+| `AstEmit.hs:78/92/106` | emit the sibling field symmetrically; move stamped `schemaVersion` to 0.7.1 — **the round-trip half** |
+| `Contracts.hs:227` (`noContract`), `CDP.hs:319` (`hasContracts`) | positional-constructor updates |
+| `CDP.hs` (new `specEntropyGovernance :: [Statement] → [Diagnostic]`) | W610/W611/W612 in the `SpecCoverage.hs:247-271` `Diagnostic`-record style; wired via `Main.hs` (~`:1479-1488`), text + `--json` |
+| `TrustReport.hs` | reason onto `spec_entropy_annotation`, additive |
+| `llmll-ast.schema.json:16,70,128` | additive `spec_entropy_reason` on `DefCore`+`DefShell`; `schemaVersion` doc bump |
+
+**Two load-bearing realities (both corrections to the Rev 0 body, applied above):**
+1. **`Contract` fan-out.** Positional 5-field constructor → ~8 mechanical construct/destructure sites + a `Syntax.hs`-wide recompilation. Every site is a GHC arity error (discoverable, cannot silently break); `FixpointEmit`'s `augmentContractPre/Post` use record-update syntax and are insulated. Not "one field," but fully tractable.
+2. **Migration has teeth.** Soft-W-code keeps the ~5 clauses compiling, but W610 fires on every reason-less `:intentional`, so ~5-8 existing diagnostic-set assertions change (`Spec.hs:8714`, `cdp/intentional.llmll` test, the `C21` over-annotation test, the `ax1` fixtures). Real Slice-1 work.
+
+**The one place correctness can silently slip:** `AstEmit` ↔ `ParserJSON` round-trip symmetry (the datatype-node ToJSON/FromJSON asymmetry that has bitten this project before). Mitigation: treat emit+decode as one commit, gated by a `parse ∘ emit = id` test on a reason-bearing clause.
+
+**Test plan.** Baseline **1019 H + 45 Py** (roadmap; the README "570 H" figure is stale — doc-lead flag, unverified). Target **≈ +9 H → ~1028 H**, +0 Py: 3 round-trip (reason preserved / bare omits field / `:strict` unaffected), 4 governance (W610/W611/W612 fire-and-don't-fire), 1 JSON decode (both `def`/`def-shell`), 1 schema-version accept/back-compat; end-to-end `llmll verify --cdp --json` shows the reason on `spec_entropy_annotation` and W610 in the diagnostic JSON. Plus the ~5-8 migration assertion updates.
+
+**Performance.** GHC: one near-full recompile from the `Syntax.hs` field (one-time dev cost, zero runtime impact). Runtime: one `optional stringLiteral` per contract + an O(#contracts) structural governance pass, no solver — no measurable `llmll verify` delta. `.fq`/cache: identical (field never enters the fixpoint IR).
+
+**Effort:** ~1-day patch. **Rollback:** single-revert; additive field + soft W-code, no flag; no `.verified.json`/`.fq` migration — one caveat: retain `0.7.1` in `acceptedSchemaVersions` on any partial rollback so already-emitted artifacts stay readable.
+
+**Open question for the professor (carried, bears on Slice 2 only):** does mandatory-justification discipline measurably reduce unjustified-suppression rates in audited corpora (Rust `#[allow]`/crater, LH `assume`; CDP proposal §10 Risk #3 Rev 2)? If negligible, Slice-1's soft W-code is the terminal design and the Slice-2 hard-error promotion should be dropped.

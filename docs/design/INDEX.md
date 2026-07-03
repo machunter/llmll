@@ -22,7 +22,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [cross-module-composition-finding.md](cross-module-composition-finding.md) | XMOD-COMP: cross-module verified composition is a 5-layer gap; same-module works | **Finding — partially fixed** — body-VC-emission + callee_tier open |
 | [critique-2026-05-23-triage.md](critique-2026-05-23-triage.md) | 2026-05-23 external-critique triage; four-turn convergence; 17 routing items | **Settled** — routing in progress |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
-| [spec-entropy-reason-string-proposal.md](spec-entropy-reason-string-proposal.md) | Mandatory-justification string on `(spec-entropy :intentional)`; defense-in-depth, not F-002 detection fix | **Proposed (Rev 0)** — awaiting adjudication |
+| [spec-entropy-reason-string-proposal.md](spec-entropy-reason-string-proposal.md) | Mandatory-justification string on `(spec-entropy :intentional)`; defense-in-depth, not F-002 detection fix | **Proposed (Rev 0.1)** — feasibility-checked (Appendix A); awaiting build decision |
 
 ---
 
