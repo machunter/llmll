@@ -23,7 +23,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [critique-2026-05-23-triage.md](critique-2026-05-23-triage.md) | 2026-05-23 external-critique triage; four-turn convergence; 17 routing items | **Settled** — routing in progress |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
 | [spec-entropy-reason-string-proposal.md](spec-entropy-reason-string-proposal.md) | Mandatory-justification string on `(spec-entropy :intentional)`; defense-in-depth, not F-002 detection fix | **Proposed (Rev 0.2)** — professor-reviewed (Appendix B); Slice-1 soft terminal, Slice-2 dropped; may be superseded by expiring-`:intentional` |
-| [expiring-intentional-proposal.md](expiring-intentional-proposal.md) | Expiring `:intentional` (Rust `#[expect]` model): W614 when the suppressed CDP diagnostic no longer fires | **Proposed (Rev 0)** — recommended to supersede the reason-string |
+| [expiring-intentional-proposal.md](expiring-intentional-proposal.md) | Expiring `:intentional` (Rust `#[expect]` model): W614 when the suppressed CDP diagnostic no longer fires | **Proposed (Rev 0.1)** — feasibility-confirmed (Appendix A), build-ready; recommended to supersede the reason-string |
 
 ---
 

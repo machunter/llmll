@@ -1,11 +1,11 @@
 # EXPIRING-INTENTIONAL — Staleness detection for `(spec-entropy :intentional)` via the computed CDP diagnostic
 
-> **Version:** Rev 0 — initial proposal.
+> **Version:** Rev 0.1 — initial proposal + compiler-engineer feasibility read folded as Appendix A. Central cost claim confirmed against source (one constructor + one label + one guard clause; partial rebuild, not `Syntax.hs`-wide); one correction applied — the `CDPWarning` exhaustiveness is **not** compiler-enforced (`-Wincomplete-patterns` off), though `cdpWarningLabel` is a single wildcard-free choke point that makes the omission loud-at-runtime and covers both render surfaces.
 > **Date:** 2026-07-03
 > **Implements:** Successor to [`spec-entropy-reason-string-proposal.md`](spec-entropy-reason-string-proposal.md) (Rev 0.2), per the professor review folded there as Appendix B. Descends from settled `experiments/adv-spec-weaken-0` **F-002**.
 > **Origin:** Professor-recommended reallocation of the reason-string's Slice-2 budget. Models Rust `#[expect]` (an *expiring* suppression) on LLMLL's existing CDP machinery.
 > **Prerequisites:** None. No new surface syntax, no schema change, no `Contract`-record change — purely a governance diagnostic computed from values `buildWarnings` already produces.
-> **Status:** Proposed (Rev 0) — awaiting user adjudication. Recommended to **supersede** the reason-string as the primary F-002 follow-on (dominates on value *and* cost; see decision 5).
+> **Status:** Proposed (Rev 0.1) — **feasibility-confirmed** (Appendix A: build-ready, ~half-day, one constructor + one label + one guard clause). Recommended to **supersede** the reason-string as the primary F-002 follow-on (dominates on value *and* cost; see decision 5). Awaiting the build greenlight.
 
 ---
 
@@ -89,7 +89,7 @@ A **trust-channel advisory with zero soundness impact.** It changes nothing abou
 *Not an implementation plan — the seam where `compiler-engineer` takes over.*
 
 - `compiler/src/LLMLL/CDP.hs:386-403` — one clause in `buildWarnings`'s `concat` list; a new `CDPWarning` constructor (`WarnIntentionalStale`). The predicate's inputs are already bound at this site.
-- The `CDPWarning` → text/JSON render path (wherever the existing constructors are rendered) — add the W614 rendering; **exhaustiveness check is the engineer's feasibility question** (risk 4).
+- `compiler/src/LLMLL/CDP.hs:173-183` — `cdpWarningLabel`, the **single** per-constructor render site (11 equations, no wildcard); add `cdpWarningLabel WarnIntentionalStale = "intentional-annotation-stale"`. `TrustReport.hs` (`:1359/:1380/:1383`) and `Main.hs:1505` render warnings opaquely via `map cdpWarningLabel`, so this one equation covers both `--json` (warnings array + headline) and text (Appendix A).
 - `compiler/src/LLMLL/TrustReport.hs` — *optional* additive `intentional_stale` boolean on the `discriminative_axis` block (decision 4); no `trust_report_version` bump.
 - **Doc-lead's slot (after the engineer ships):** `LLMLL.md §4.4.6` (document the expiry semantics in the `:intentional` bullet + the W614 governance code), `docs/compiler-team-roadmap.md` (LT-CDP row / CHANGELOG).
 - **No change to:** `docs/llmll-ast.schema.json`, `Syntax.hs` `Contract`, `Parser.hs`, `ParserJSON.hs`, `AstEmit.hs`. This is the cost asymmetry versus the reason-string (decision 5).
@@ -98,7 +98,7 @@ A **trust-channel advisory with zero soundness impact.** It changes nothing abou
 
 1. **The staleness verdict is Ω-relative.** Classify: verification-ergonomics / scope. Cite: `§4.4.6:661,669`. Bite: only matters when Ω changes between runs; the `basis` field discloses it, and the relativity is identical to the DP score the mechanism reads. Complicates cross-version reading, does not block.
 2. **Does not catch F-002 laundering — by design.** Classify: scope. Cite: edge case 1; F-002 settled. Bite: a reader may expect an "intentional-abuse detector" to catch laundering; it does not, because a laundered spec is genuinely low-DP. This must be stated in the doc so the mechanism is not oversold (the same honesty discipline the reason-string proposal holds).
-3. **`CDPWarning` constructor exhaustiveness.** Classify: scope (engineer). Cite: `CDP.hs:386` + render sites. Bite: small, mechanical — adding a constructor forces GHC pattern-completeness errors at every consumer, which is discoverable and safe; route to engineer.
+3. **`CDPWarning` constructor exhaustiveness.** Classify: build (engineer). Cite: `CDP.hs:173-183`; `package.yaml:9-16`. **Correction (Appendix A):** a missing label case is *not* compiler-caught — `-Wincomplete-patterns` is not enabled (only `-Wincomplete-uni-patterns`/`-record-updates` are), so it would be a runtime `Non-exhaustive patterns` exception, not a build failure. Bite: still low — `cdpWarningLabel` is the single match site with no wildcard, so the omission is loud (crashes the first render test), not a silent mislabel. Mitigation: add the label equation in the same commit as the constructor + a render test; optionally add `-Wincomplete-patterns` as one-line hardening (verify it surfaces no pre-existing gaps first).
 4. **W61x numbering coordination.** Classify: spec-drift / DX. Cite: reason-string proposal W610–W613. Bite: minor; resolved by decision 4 (W614, or W610 if reason-string is dropped).
 5. **Marginal noise if `:intentional` is used for a genuinely tight spec deliberately.** Classify: verification-ergonomics. Bite: low — a `:intentional` on a discriminative spec *is* the stale case W614 is meant to surface; the author's recourse is to drop the now-pointless annotation, which is the intended nudge. Not a false positive.
 
@@ -108,4 +108,35 @@ A **trust-channel advisory with zero soundness impact.** It changes nothing abou
 
 ---
 
-**Hand-off (Rev 0 → user adjudication).** This is a fresh proposal recommending it *supersede* the reason-string as the F-002 follow-on. If the user approves the direction, the **code-track hand-off to `compiler-engineer`** is: add `WarnIntentionalStale` to the `CDPWarning` sum and one predicate clause to `buildWarnings` (`CDP.hs:386-403`) gated on `annotation ≡ :intentional ∧ computeScore ≡ Just _ ∧ ¬(identityOk ∨ constOk)`; render W614 on the existing CDP text/JSON path; optionally add the additive `intentional_stale` boolean to `discriminative_axis` (`TrustReport.hs`, no version bump). Feasibility question for the engineer: is `CDPWarning` consumed exhaustively so the new constructor is compiler-caught at every render site, and is the score/`identityOk`/`constOk` triple in scope at the single emit site (CDP.hs:386-388 says yes)? No parser, schema, or `Contract`-record change. `documentation-lead` follows after the engineer ships (`LLMLL.md §4.4.6` + the W614 code).
+**Hand-off (Rev 0 → user adjudication).** This is a fresh proposal recommending it *supersede* the reason-string as the F-002 follow-on. If the user approves the direction, the **code-track hand-off to `compiler-engineer`** is: add `WarnIntentionalStale` to the `CDPWarning` sum and one predicate clause to `buildWarnings` (`CDP.hs:386-403`) gated on `annotation ≡ :intentional ∧ computeScore ≡ Just _ ∧ ¬(identityOk ∨ constOk)`; add the one `cdpWarningLabel` equation (CDP.hs:173-183) which covers text + JSON; optionally add the additive `intentional_stale` boolean to `discriminative_axis` (`TrustReport.hs`, no version bump — recommended by the engineer so CI gates on a boolean rather than string-matching). Feasibility (answered, Appendix A): the score/`identityOk`/`constOk` triple is in scope at the single emit site (CDP.hs:386-388 ✓); `CDPWarning` is *not* compiler-enforced-exhaustive (no `-Wincomplete-patterns`), but `cdpWarningLabel` is the single wildcard-free render choke point, so the one label equation is the whole render change. No parser, schema, or `Contract`-record change. `documentation-lead` follows after the engineer ships (`LLMLL.md §4.4.6` + the W614 code).
+
+---
+
+## Appendix A — Compiler-engineer feasibility read
+
+*Folded 2026-07-03. Anchors verified against source; the one correction (exhaustiveness) is also applied inline above.*
+
+**Verdict: build-ready. The central cost claim holds.** The change is one `CDPWarning` constructor (`WarnIntentionalStale`, `CDP.hs:113-170` — a 12th on an 11-constructor sum), one `cdpWarningLabel` equation (`CDP.hs:173-183` → `"intentional-annotation-stale"`), and one guard element in `buildWarnings`'s `concat` (`CDP.hs:398-403`):
+
+```haskell
+[WarnIntentionalStale | annotation == SpecEntropyIntentional
+                        && isJust (computeScore (length satisfying) distinctAll)
+                        && not (identityOk || constOk)]
+```
+
+Everything the guard reads is already bound at that site. No grammar, schema, parser, `ParserJSON`, `AstEmit`, or `Contract`-record change — none of the reason-string's ~8-site fan-out. Rebuild is `CDP.hs` + its importers (`TrustReport.hs`, `Main.hs`, `Spec.hs`), a partial rebuild, not the `Syntax.hs`-wide recompile the reason-string forced.
+
+**The render surface is free.** `TrustReport.hs:1359/1380/1383` and `Main.hs:1505` both reach CDP warnings only through `map cdpWarningLabel` — they treat warnings as opaque. So the single label equation propagates to `--json` (warnings array + headline) and text with no further edits.
+
+**The one correction (risk 3, applied above).** The proposal assumed a new constructor forces GHC completeness errors at every consumer. It does not: `package.yaml:9-16` enables `-Wincomplete-uni-patterns` and `-Wincomplete-record-updates` but **not `-Wincomplete-patterns`**, so a missing `cdpWarningLabel` case is a runtime `Non-exhaustive patterns` exception, not a build failure. Low bite because `cdpWarningLabel` is the *only* per-constructor match site and has no wildcard — the omission crashes the first render test rather than silently mislabelling. Mitigate by updating the label in the same commit + a render test; optional one-line hardening is adding `-Wincomplete-patterns` (check for pre-existing gaps first).
+
+**Design confirms / recommendations:**
+- **Ship decision-4's additive `intentional_stale` boolean** on `discriminative_axis` (no `trust_report_version` bump — `over_annotation` precedent) — a CI consumer gating on a boolean beats string-matching the warnings array.
+- **Headline capture (confirm intended):** when W614 fires it is the sole score-warning (its `computeScore≡Just ∧ ¬narrow ∧ ¬inconsistent` guard is mutually exclusive with the identity/const/tight/narrow warnings), so it becomes the trust-report `headline` (`TrustReport.hs:1383`). Arguably correct — staleness is the salient fact — but it changes the headline for an otherwise-clean function; a headline-asserting test would flag it.
+- **`def-shell` / `--cdp`-absent are auto-excluded** by the `computeScore ≡ Just _` gate (both yield `Nothing`) — decision 2 is self-enforcing at the guard, no special-casing.
+
+**Verification impact: none.** Trust channel, no fragment, no VC, no liquid-fixpoint, no `.fq` — a `Bool` conjunction over already-computed values. Non-blocking by construction (CDP warnings carry no severity/exit-code gate).
+
+**Test plan:** +6 Haskell (clone `C23`–`C25`, `Spec.hs:8851-8879`): W614 fires (`:intentional` + discriminative post — needs one new tightened-spec fixture); quiet on the F-002 laundered/loose shape (reuse `cdp/intentional.llmll` — the test that proves F-002 isn't reopened); quiet on `:strict`, `:unknown`, null-score/too-tight, and no-annotation. +0 Python. **Baseline-count flag (raised twice now, independently):** the gate cites `README.md:7` "570 H + 37 Py" but `roadmap:226` cites **1019 H + 45 Py** — a stale-README drift to confirm with `stack test`, doc-lead's to fix.
+
+**Effort:** trivial (~half-day incl. tests). **Rollback:** single revert; additive constructor + guard + label; no schema pin, no cache/`.fq` migration. **Professor questions:** none — buildability, not soundness.
