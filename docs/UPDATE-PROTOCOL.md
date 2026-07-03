@@ -33,6 +33,14 @@ When a change does not appear in the matrix, the actor pauses and asks `language
 
 > **Banner-pin authority (reconciled 2026-06-12).** The "Version banner" row (P1) and the banner detail in the "Engineer ships a release" row (D1) were reconciled to the **DRIFT-CI-1** gate ([`scripts/version_gate.sh`](../scripts/version_gate.sh), C1–C4), which post-dates the DOC-CONSOLIDATE §3 verbatim lift and is executable ground truth. The gate enforces `vX.Y.Z` equality across `compiler/package.yaml`, `compiler/llmll.cabal`, `README.md` line 1, `LLMLL.md` line 1, and the `CHANGELOG.md` `## vX.Y.Z` top heading; a release that bumps any one without the others fails CI. (Origin: the v0.11.2 release `22c6aa8` bumped the README banner but not LLMLL.md's, tripping C1; `6bf3f89` reconciled LLMLL.md and this protocol now records the full pin set so the gap cannot recur.)
 
+## Proposal authoring discipline (D2)
+
+A design proposal that introduces a **boolean guard or predicate over computed values** (a warning that fires when a condition holds, a gate, an admissibility check) must include a **positive-witness row** in its edge-case enumeration: the minimal *concrete* input — an actual `def` + contract + candidate set, not an abstract description — that makes the guard fire. The `compiler-engineer` feasibility pass must **construct that witness**, not merely trace that the guard's inputs are computed and in scope.
+
+Rationale: a firing predicate with no constructible witness is unsatisfiable by inspection. Input-availability ("are the values in scope at the emit site?") is not satisfiability ("can the guard be simultaneously true?"), and the gap between them is where a dead-code predicate hides — the design-workflow analogue of "write the failing test first." Precedent: [`expiring-intentional-proposal.md`](design/expiring-intentional-proposal.md) (Rev 0.3, Meta-lesson) — a `W614` guard cleared three passes (language-team, compiler-engineer, a crux verification) on input-availability, then proved unsatisfiable at implementation because every *quiet* edge case was enumerated but the *firing* case was left abstract.
+
+Enforcement is behavioral: `language-team` authors the witness row; `compiler-engineer` constructs it during the feasibility pass. This section binds proposal content, not a doc; it extends the working contract to the upstream authoring step so the same miss cannot recur.
+
 ## Archive policy
 
 - `docs/archive/shipped-design-specs/` — proposals whose feature has shipped and is not actively referenced
