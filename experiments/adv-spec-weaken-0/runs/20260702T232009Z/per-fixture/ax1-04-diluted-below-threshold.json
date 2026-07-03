@@ -1,0 +1,56 @@
+{
+  "fixture_id": "ax1-04-diluted-below-threshold",
+  "axis": "AX1",
+  "control_for": "ax1-00-honest-baseline",
+  "configs": {
+    "weakness-check-json": {
+      "raw": {
+        "status": "ok",
+        "returncode": 1,
+        "stdout_raw": "error: def 'double-it': body contains non-core syntax \u2014 lambda, do, await, non-linear arithmetic, or unrestricted match; use def-shell for permissive bodies\n  suggestion: Replace (def double-it ...) with (def-shell double-it ...)\n",
+        "stderr_raw": "",
+        "json_lines": []
+      },
+      "summary": {
+        "signal": "silent"
+      }
+    },
+    "cdp-json": {
+      "raw": {
+        "status": "ok",
+        "returncode": 1,
+        "stdout_raw": "error: def 'double-it': body contains non-core syntax \u2014 lambda, do, await, non-linear arithmetic, or unrestricted match; use def-shell for permissive bodies\n  suggestion: Replace (def double-it ...) with (def-shell double-it ...)\n",
+        "stderr_raw": "",
+        "json_lines": []
+      },
+      "summary": {
+        "signal": "silent"
+      }
+    },
+    "strict-verify-json": {
+      "raw": {
+        "status": "ok",
+        "returncode": 1,
+        "stdout_raw": "error: def 'double-it': body contains non-core syntax \u2014 lambda, do, await, non-linear arithmetic, or unrestricted match; use def-shell for permissive bodies\n  suggestion: Replace (def double-it ...) with (def-shell double-it ...)\n",
+        "stderr_raw": "",
+        "json_lines": []
+      },
+      "summary": {
+        "signal": "silent"
+      }
+    },
+    "strict-verify-text": {
+      "raw": {
+        "status": "ok",
+        "returncode": 1,
+        "stdout_raw": "error: def 'double-it': body contains non-core syntax \u2014 lambda, do, await, non-linear arithmetic, or unrestricted match; use def-shell for permissive bodies\n  suggestion: Replace (def double-it ...) with (def-shell double-it ...)\n",
+        "stderr_raw": "",
+        "over_annotation_warning_present": false,
+        "spec_weakness_lines": []
+      },
+      "summary": {
+        "signal": "silent"
+      }
+    }
+  }
+}

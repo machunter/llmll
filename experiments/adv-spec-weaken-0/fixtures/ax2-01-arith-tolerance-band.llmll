@@ -1,0 +1,23 @@
+;; AX2-01 — surgical weakening, no annotation needed at all.
+;; The honest post `(= result (- balance amount))` is widened to a +/-1
+;; tolerance band. The implementation is genuinely wrong: it returns one more
+;; than the correct value exactly when balance == amount (the boundary case),
+;; and the exact correct value everywhere else. This wrong implementation
+;; would be REFUTED against the honest AX1-00 contract, but it satisfies the
+;; widened band for every valid input, since the band is only as wide as the
+;; single-input bug it exists to admit.
+;;
+;; None of the closed candidate-set Omega members (identity-over-balance,
+;; identity-over-amount, consts {0,1,-1,42}) satisfy this band for generic
+;; balance/amount (they're off by amount/balance/etc., far outside +/-1), so
+;; --weakness-check / --cdp cannot distinguish this from the honest baseline
+;; via the closed-candidate mechanism.
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (and (<= result (+ (- balance amount) 1))
+             (>= result (- (- balance amount) 1))))
+  (if (= balance amount)
+      (+ (- balance amount) 1)
+      (- balance amount)))

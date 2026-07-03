@@ -1,0 +1,236 @@
+{
+  "experiment": "adv-spec-weaken-0",
+  "rev": 1,
+  "timestamp_utc": "20260703T001150Z",
+  "compiler_ref": {
+    "short_sha": "4d104c5",
+    "branch": "main",
+    "version_string": "llmll 0.14.4"
+  },
+  "cells": [
+    {
+      "fixture_id": "ax1-00-honest-baseline",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    {
+      "fixture_id": "ax1-00-honest-baseline",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:withdraw:spec-too-tight-for-omega; cdp:withdraw:score=None; cdp:withdraw:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-00-honest-baseline",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:withdraw:spec-too-tight-for-omega; cdp:withdraw:score=None; cdp:withdraw:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-00-honest-baseline",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "silent"
+      }
+    },
+    {
+      "fixture_id": "ax1-01-loud-naked",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True; weakness-check-diag x2"
+      }
+    },
+    {
+      "fixture_id": "ax1-01-loud-naked",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:withdraw:identity-satisfies-post,const-satisfies-post; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-01-loud-naked",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; weakness-check-diag x2; over_annotation:ratio=0,warning=False; cdp:withdraw:identity-satisfies-post,const-satisfies-post; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-01-loud-naked",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "spec-weakness x2"
+      }
+    },
+    {
+      "fixture_id": "ax1-02-loud-laundered-singlefn",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    {
+      "fixture_id": "ax1-02-loud-laundered-singlefn",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=1,warning=True; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=intentional"
+      }
+    },
+    {
+      "fixture_id": "ax1-02-loud-laundered-singlefn",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=1,warning=True; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=intentional"
+      }
+    },
+    {
+      "fixture_id": "ax1-02-loud-laundered-singlefn",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "over-annotation-warning"
+      }
+    },
+    {
+      "fixture_id": "ax1-03-diluted-above-threshold",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    {
+      "fixture_id": "ax1-03-diluted-above-threshold",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0.5,warning=True; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=intentional; cdp:deposit:spec-too-tight-for-omega; cdp:deposit:score=None; cdp:deposit:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-03-diluted-above-threshold",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0.5,warning=True; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=intentional; cdp:deposit:spec-too-tight-for-omega; cdp:deposit:score=None; cdp:deposit:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-03-diluted-above-threshold",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "over-annotation-warning"
+      }
+    },
+    {
+      "fixture_id": "ax1-04-diluted-below-threshold",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    {
+      "fixture_id": "ax1-04-diluted-below-threshold",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0.2,warning=False; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=intentional; cdp:deposit:spec-too-tight-for-omega; cdp:deposit:score=None; cdp:deposit:entropy=strict; cdp:double-it:spec-too-tight-for-omega; cdp:double-it:score=None; cdp:double-it:entropy=strict; cdp:negate-it:spec-too-tight-for-omega; cdp:negate-it:score=None; cdp:negate-it:entropy=strict; cdp:increment:spec-too-tight-for-omega; cdp:increment:score=None; cdp:increment:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-04-diluted-below-threshold",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0.2,warning=False; cdp:withdraw:score=0.10175559829607284; cdp:withdraw:entropy=intentional; cdp:deposit:spec-too-tight-for-omega; cdp:deposit:score=None; cdp:deposit:entropy=strict; cdp:double-it:spec-too-tight-for-omega; cdp:double-it:score=None; cdp:double-it:entropy=strict; cdp:negate-it:spec-too-tight-for-omega; cdp:negate-it:score=None; cdp:negate-it:entropy=strict; cdp:increment:spec-too-tight-for-omega; cdp:increment:score=None; cdp:increment:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax1-04-diluted-below-threshold",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "silent"
+      }
+    },
+    {
+      "fixture_id": "ax2-00-list-honest-baseline",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    {
+      "fixture_id": "ax2-00-list-honest-baseline",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:list-len-after-append:spec-too-tight-for-omega; cdp:list-len-after-append:score=None; cdp:list-len-after-append:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax2-00-list-honest-baseline",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:list-len-after-append:spec-too-tight-for-omega; cdp:list-len-after-append:score=None; cdp:list-len-after-append:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax2-00-list-honest-baseline",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "silent"
+      }
+    },
+    {
+      "fixture_id": "ax2-01-arith-tolerance-band",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    {
+      "fixture_id": "ax2-01-arith-tolerance-band",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:withdraw:spec-too-tight-for-omega; cdp:withdraw:score=None; cdp:withdraw:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax2-01-arith-tolerance-band",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:withdraw:spec-too-tight-for-omega; cdp:withdraw:score=None; cdp:withdraw:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax2-01-arith-tolerance-band",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "silent"
+      }
+    },
+    {
+      "fixture_id": "ax2-02-list-length-trapdoor",
+      "config_id": "weakness-check-json",
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    {
+      "fixture_id": "ax2-02-list-length-trapdoor",
+      "config_id": "cdp-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:list-len-after-append:spec-too-tight-for-omega; cdp:list-len-after-append:score=None; cdp:list-len-after-append:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax2-02-list-length-trapdoor",
+      "config_id": "strict-verify-json",
+      "summary": {
+        "signal": "effective:True; over_annotation:ratio=0,warning=False; cdp:list-len-after-append:spec-too-tight-for-omega; cdp:list-len-after-append:score=None; cdp:list-len-after-append:entropy=strict"
+      }
+    },
+    {
+      "fixture_id": "ax2-02-list-length-trapdoor",
+      "config_id": "strict-verify-text",
+      "summary": {
+        "signal": "silent"
+      }
+    }
+  ]
+}

@@ -1,0 +1,282 @@
+{
+  "fixture_id": "ax1-00-honest-baseline",
+  "axis": "control",
+  "control_for": null,
+  "configs": {
+    "weakness-check-json": {
+      "raw": {
+        "status": "ok",
+        "returncode": 0,
+        "stdout_raw": "{\"diagnostics\":[],\"phase\":\"lh-fixpoint\",\"success\":true,\"body_faithful\":[\"withdraw\"],\"body_fallback\":[]}\n",
+        "stderr_raw": "",
+        "json_lines": [
+          {
+            "kind": "fixpoint_result",
+            "data": {
+              "diagnostics": [],
+              "phase": "lh-fixpoint",
+              "success": true,
+              "body_faithful": [
+                "withdraw"
+              ],
+              "body_fallback": []
+            }
+          }
+        ]
+      },
+      "summary": {
+        "signal": "effective:True"
+      }
+    },
+    "cdp-json": {
+      "raw": {
+        "status": "ok",
+        "returncode": 0,
+        "stdout_raw": "{\"diagnostics\":[],\"phase\":\"lh-fixpoint\",\"success\":true,\"body_faithful\":[\"withdraw\"],\"body_fallback\":[]}\n{\"entries\":[{\"caller_obligations\":[{\"fn\":\"withdraw\",\"requires\":\"(>= balance amount)\"}],\"carries_caller_obligations\":true,\"dependencies\":[],\"discriminative_axis\":{\"basis\":\"observational-candidate-set\",\"candidate_count\":6,\"distinct_observed_behavior_count\":0,\"distinguishing_inputs\":[\"(lambda [balance] balance)\",\"(lambda [amount] amount)\",\"(lambda [...] 0)\",\"(lambda [...] 1)\"],\"excluded_candidate_count\":0,\"headline\":\"spec-too-tight-for-omega\",\"satisfying_candidate_count\":0,\"score\":null,\"spec_entropy_annotation\":\"strict\",\"warnings\":[\"spec-too-tight-for-omega\"]},\"drifts\":[],\"effective_level\":\"verified (liquid-fixpoint)\",\"name\":\"withdraw\",\"post_level\":\"verified (liquid-fixpoint)\",\"pre_level\":\"asserted\"}],\"joint_pbt_witnesses\":[],\"overflow_tainted_fns\":[],\"refuted_fns\":[],\"stale_downgrades\":[],\"summary\":{\"asserted\":0,\"contract_checked\":0,\"drifts\":0,\"no_contract\":0,\"tested\":0,\"verified\":1},\"suppressions\":[],\"tier_profile\":{\"asserted\":0,\"contract_checked\":0,\"no_contract\":0,\"proved\":0,\"tested\":0,\"verified\":1},\"tier_profile_post\":{\"asserted\":0,\"contract_checked\":0,\"no_contract\":0,\"proved\":0,\"tested\":0,\"verified\":1},\"tier_profile_pre\":{\"asserted\":1,\"contract_checked\":0,\"no_contract\":0,\"proved\":0,\"tested\":0,\"verified\":0},\"trust_report_version\":\"1.4.0\"}\n",
+        "stderr_raw": "",
+        "json_lines": [
+          {
+            "kind": "fixpoint_result",
+            "data": {
+              "diagnostics": [],
+              "phase": "lh-fixpoint",
+              "success": true,
+              "body_faithful": [
+                "withdraw"
+              ],
+              "body_fallback": []
+            }
+          },
+          {
+            "kind": "cdp_trust_report",
+            "data": {
+              "entries": [
+                {
+                  "caller_obligations": [
+                    {
+                      "fn": "withdraw",
+                      "requires": "(>= balance amount)"
+                    }
+                  ],
+                  "carries_caller_obligations": true,
+                  "dependencies": [],
+                  "discriminative_axis": {
+                    "basis": "observational-candidate-set",
+                    "candidate_count": 6,
+                    "distinct_observed_behavior_count": 0,
+                    "distinguishing_inputs": [
+                      "(lambda [balance] balance)",
+                      "(lambda [amount] amount)",
+                      "(lambda [...] 0)",
+                      "(lambda [...] 1)"
+                    ],
+                    "excluded_candidate_count": 0,
+                    "headline": "spec-too-tight-for-omega",
+                    "satisfying_candidate_count": 0,
+                    "score": null,
+                    "spec_entropy_annotation": "strict",
+                    "warnings": [
+                      "spec-too-tight-for-omega"
+                    ]
+                  },
+                  "drifts": [],
+                  "effective_level": "verified (liquid-fixpoint)",
+                  "name": "withdraw",
+                  "post_level": "verified (liquid-fixpoint)",
+                  "pre_level": "asserted"
+                }
+              ],
+              "joint_pbt_witnesses": [],
+              "overflow_tainted_fns": [],
+              "refuted_fns": [],
+              "stale_downgrades": [],
+              "summary": {
+                "asserted": 0,
+                "contract_checked": 0,
+                "drifts": 0,
+                "no_contract": 0,
+                "tested": 0,
+                "verified": 1
+              },
+              "suppressions": [],
+              "tier_profile": {
+                "asserted": 0,
+                "contract_checked": 0,
+                "no_contract": 0,
+                "proved": 0,
+                "tested": 0,
+                "verified": 1
+              },
+              "tier_profile_post": {
+                "asserted": 0,
+                "contract_checked": 0,
+                "no_contract": 0,
+                "proved": 0,
+                "tested": 0,
+                "verified": 1
+              },
+              "tier_profile_pre": {
+                "asserted": 1,
+                "contract_checked": 0,
+                "no_contract": 0,
+                "proved": 0,
+                "tested": 0,
+                "verified": 0
+              },
+              "trust_report_version": "1.4.0"
+            }
+          }
+        ]
+      },
+      "summary": {
+        "signal": "effective:True; cdp:withdraw:spec-too-tight-for-omega; cdp:withdraw:score=None; cdp:withdraw:entropy=strict"
+      }
+    },
+    "strict-verify-json": {
+      "raw": {
+        "status": "ok",
+        "returncode": 0,
+        "stdout_raw": "{\"diagnostics\":[],\"phase\":\"lh-fixpoint\",\"success\":true,\"body_faithful\":[\"withdraw\"],\"body_fallback\":[]}\n{\"entries\":[{\"caller_obligations\":[{\"fn\":\"withdraw\",\"requires\":\"(>= balance amount)\"}],\"carries_caller_obligations\":true,\"dependencies\":[],\"discriminative_axis\":{\"basis\":\"observational-candidate-set\",\"candidate_count\":6,\"distinct_observed_behavior_count\":0,\"distinguishing_inputs\":[\"(lambda [balance] balance)\",\"(lambda [amount] amount)\",\"(lambda [...] 0)\",\"(lambda [...] 1)\"],\"excluded_candidate_count\":0,\"headline\":\"spec-too-tight-for-omega\",\"satisfying_candidate_count\":0,\"score\":null,\"spec_entropy_annotation\":\"strict\",\"warnings\":[\"spec-too-tight-for-omega\"]},\"drifts\":[],\"effective_level\":\"verified (liquid-fixpoint)\",\"name\":\"withdraw\",\"post_level\":\"verified (liquid-fixpoint)\",\"pre_level\":\"asserted\"}],\"joint_pbt_witnesses\":[],\"overflow_tainted_fns\":[],\"refuted_fns\":[],\"stale_downgrades\":[],\"summary\":{\"asserted\":0,\"contract_checked\":0,\"drifts\":0,\"no_contract\":0,\"tested\":0,\"verified\":1},\"suppressions\":[],\"tier_profile\":{\"asserted\":0,\"contract_checked\":0,\"no_contract\":0,\"proved\":0,\"tested\":0,\"verified\":1},\"tier_profile_post\":{\"asserted\":0,\"contract_checked\":0,\"no_contract\":0,\"proved\":0,\"tested\":0,\"verified\":1},\"tier_profile_pre\":{\"asserted\":1,\"contract_checked\":0,\"no_contract\":0,\"proved\":0,\"tested\":0,\"verified\":0},\"trust_report_version\":\"1.4.0\"}\n{\"entries\":[{\"class\":\"contracted\",\"name\":\"withdraw\",\"post_level\":null,\"pre_level\":null,\"reason\":null}],\"laws\":[],\"summary\":{\"asserted\":1,\"contract_checked\":0,\"contracted\":1,\"effective_coverage\":1,\"spec_coverage\":1,\"suppressed\":0,\"suppression_debt\":0,\"tested\":0,\"total\":1,\"unspecified\":0,\"verified\":0},\"warnings\":[]}\n",
+        "stderr_raw": "",
+        "json_lines": [
+          {
+            "kind": "fixpoint_result",
+            "data": {
+              "diagnostics": [],
+              "phase": "lh-fixpoint",
+              "success": true,
+              "body_faithful": [
+                "withdraw"
+              ],
+              "body_fallback": []
+            }
+          },
+          {
+            "kind": "cdp_trust_report",
+            "data": {
+              "entries": [
+                {
+                  "caller_obligations": [
+                    {
+                      "fn": "withdraw",
+                      "requires": "(>= balance amount)"
+                    }
+                  ],
+                  "carries_caller_obligations": true,
+                  "dependencies": [],
+                  "discriminative_axis": {
+                    "basis": "observational-candidate-set",
+                    "candidate_count": 6,
+                    "distinct_observed_behavior_count": 0,
+                    "distinguishing_inputs": [
+                      "(lambda [balance] balance)",
+                      "(lambda [amount] amount)",
+                      "(lambda [...] 0)",
+                      "(lambda [...] 1)"
+                    ],
+                    "excluded_candidate_count": 0,
+                    "headline": "spec-too-tight-for-omega",
+                    "satisfying_candidate_count": 0,
+                    "score": null,
+                    "spec_entropy_annotation": "strict",
+                    "warnings": [
+                      "spec-too-tight-for-omega"
+                    ]
+                  },
+                  "drifts": [],
+                  "effective_level": "verified (liquid-fixpoint)",
+                  "name": "withdraw",
+                  "post_level": "verified (liquid-fixpoint)",
+                  "pre_level": "asserted"
+                }
+              ],
+              "joint_pbt_witnesses": [],
+              "overflow_tainted_fns": [],
+              "refuted_fns": [],
+              "stale_downgrades": [],
+              "summary": {
+                "asserted": 0,
+                "contract_checked": 0,
+                "drifts": 0,
+                "no_contract": 0,
+                "tested": 0,
+                "verified": 1
+              },
+              "suppressions": [],
+              "tier_profile": {
+                "asserted": 0,
+                "contract_checked": 0,
+                "no_contract": 0,
+                "proved": 0,
+                "tested": 0,
+                "verified": 1
+              },
+              "tier_profile_post": {
+                "asserted": 0,
+                "contract_checked": 0,
+                "no_contract": 0,
+                "proved": 0,
+                "tested": 0,
+                "verified": 1
+              },
+              "tier_profile_pre": {
+                "asserted": 1,
+                "contract_checked": 0,
+                "no_contract": 0,
+                "proved": 0,
+                "tested": 0,
+                "verified": 0
+              },
+              "trust_report_version": "1.4.0"
+            }
+          },
+          {
+            "kind": "spec_coverage",
+            "data": {
+              "entries": [
+                {
+                  "class": "contracted",
+                  "name": "withdraw",
+                  "post_level": null,
+                  "pre_level": null,
+                  "reason": null
+                }
+              ],
+              "laws": [],
+              "summary": {
+                "asserted": 1,
+                "contract_checked": 0,
+                "contracted": 1,
+                "effective_coverage": 1,
+                "spec_coverage": 1,
+                "suppressed": 0,
+                "suppression_debt": 0,
+                "tested": 0,
+                "total": 1,
+                "unspecified": 0,
+                "verified": 0
+              },
+              "warnings": []
+            }
+          }
+        ]
+      },
+      "summary": {
+        "signal": "effective:True; cdp:withdraw:spec-too-tight-for-omega; cdp:withdraw:score=None; cdp:withdraw:entropy=strict"
+      }
+    },
+    "strict-verify-text": {
+      "raw": {
+        "status": "ok",
+        "returncode": 0,
+        "stdout_raw": "   .fq written to /tmp/ax1-00-honest-baseline.fq\n   body-faithful: withdraw\n   Running liquid-fixpoint ...\n\u2705 /Users/burcsahinoglu/Documents/llmll/experiments/adv-spec-weaken-0/fixtures/ax1-00-honest-baseline.llmll \u2014 SAFE (liquid-fixpoint)\n   .verified.json written to /Users/burcsahinoglu/Documents/llmll/experiments/adv-spec-weaken-0/fixtures/ax1-00-honest-baseline.llmll.verified.json\n   Running weakness check ...\n   No spec weaknesses detected.\n   Running CDP measurement (LT-CDP v0.11) ...\n   CDP measured 1 function(s):\n   withdraw: [spec-too-tight-for-omega] 0/6 reliable candidates\nTrust Report\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  withdraw:\n    pre:  asserted  |  post: verified (liquid-fixpoint)\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nSummary:\n  verified:         1\n  contract-checked: 0\n  tested:           0\n  asserted:         0\n  no contract:      0\nSpec Coverage Report\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Functions with contracts:     1 / 1   (100%)\n    Verified:                   0\n    Contract-checked:            0\n    Tested:                     0\n    Asserted:                   1\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Effective coverage: 100% (1/1)\n",
+        "stderr_raw": "",
+        "over_annotation_warning_present": false,
+        "spec_weakness_lines": []
+      },
+      "summary": {
+        "signal": "silent"
+      }
+    }
+  }
+}

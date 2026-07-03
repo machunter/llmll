@@ -1,0 +1,12 @@
+;; AX1-02 — same loud weakening as AX1-01, laundered with (spec-entropy
+;; :intentional) in a single-function module (ratio = 100%, trivially above
+;; the 30% over-annotation threshold). Tests whether the annotation suppresses
+;; the per-function diagnostic under --weakness-check and --cdp regardless of
+;; module ratio.
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (>= result 0))
+  (spec-entropy :intentional)
+  (- balance amount))

@@ -1,0 +1,5 @@
+;; AX2-00 — honest control for AX2-02. Same signature and tight post as the
+;; wrong implementation in ax2-02-list-length-trapdoor.llmll, correct body.
+(def list-len-after-append [xs: list[int]]
+  (post (= result (+ (list-length xs) 1)))
+  (+ (list-length xs) 1))
