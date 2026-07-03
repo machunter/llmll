@@ -1,0 +1,25 @@
+{
+  "experiment": "adv-spec-weaken-0",
+  "rev": 1,
+  "compiler_ref": {
+    "short_sha": "4d104c5",
+    "branch": "main",
+    "version_string": "llmll 0.14.4"
+  },
+  "cli_configs": [
+    {"id": "weakness-check-json", "flags": ["--weakness-check"], "json": true},
+    {"id": "cdp-json",            "flags": ["--cdp", "--trust-report"], "json": true},
+    {"id": "strict-verify-json",  "flags": ["--strict-verify"], "json": true},
+    {"id": "strict-verify-text",  "flags": ["--strict-verify"], "json": false}
+  ],
+  "fixtures": [
+    {"id": "ax1-00-honest-baseline",          "path": "experiments/adv-spec-weaken-0/fixtures/ax1-00-honest-baseline.llmll",          "axis": "control",  "control_for": null},
+    {"id": "ax1-01-loud-naked",                "path": "experiments/adv-spec-weaken-0/fixtures/ax1-01-loud-naked.llmll",                "axis": "AX1",      "control_for": "ax1-00-honest-baseline"},
+    {"id": "ax1-02-loud-laundered-singlefn",   "path": "experiments/adv-spec-weaken-0/fixtures/ax1-02-loud-laundered-singlefn.llmll",   "axis": "AX1",      "control_for": "ax1-00-honest-baseline"},
+    {"id": "ax1-03-diluted-above-threshold",   "path": "experiments/adv-spec-weaken-0/fixtures/ax1-03-diluted-above-threshold.llmll",   "axis": "AX1",      "control_for": "ax1-00-honest-baseline"},
+    {"id": "ax1-04-diluted-below-threshold",   "path": "experiments/adv-spec-weaken-0/fixtures/ax1-04-diluted-below-threshold.llmll",   "axis": "AX1",      "control_for": "ax1-00-honest-baseline"},
+    {"id": "ax2-00-list-honest-baseline",      "path": "experiments/adv-spec-weaken-0/fixtures/ax2-00-list-honest-baseline.llmll",      "axis": "control",  "control_for": null},
+    {"id": "ax2-01-arith-tolerance-band",      "path": "experiments/adv-spec-weaken-0/fixtures/ax2-01-arith-tolerance-band.llmll",      "axis": "AX2",      "control_for": "ax1-00-honest-baseline"},
+    {"id": "ax2-02-list-length-trapdoor",      "path": "experiments/adv-spec-weaken-0/fixtures/ax2-02-list-length-trapdoor.llmll",      "axis": "AX2",      "control_for": "ax2-00-list-honest-baseline"}
+  ]
+}

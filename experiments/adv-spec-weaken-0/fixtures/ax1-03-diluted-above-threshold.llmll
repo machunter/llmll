@@ -1,0 +1,16 @@
+;; AX1-03 — same laundered weakening as AX1-02, embedded in a 2-function
+;; module. :intentional ratio = 1/2 = 50%, above the 30% over-annotation
+;; threshold (CDP.hs overAnnotationThreshold). Tests whether the module-level
+;; over-annotation-warning fires, and in which output modes (--json vs. text).
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (>= result 0))
+  (spec-entropy :intentional)
+  (- balance amount))
+
+(def deposit [balance: int amount: PositiveInt]
+  (pre (>= balance 0))
+  (post (= result (+ balance amount)))
+  (+ balance amount))

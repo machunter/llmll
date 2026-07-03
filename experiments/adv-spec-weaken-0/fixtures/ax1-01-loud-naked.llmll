@@ -1,0 +1,11 @@
+;; AX1-01 — loud weakening, no annotation.
+;; Post is weakened from equality to a near-vacuous non-negativity check, wide
+;; enough to admit the closed candidate-set's trivial bodies (identity,
+;; const-0). No (spec-entropy ...) annotation — this is the "naked" attack:
+;; does the diagnostic surface catch a loud weakening on its own?
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (>= result 0))
+  (- balance amount))

@@ -45,7 +45,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -4919,14 +4919,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -4938,7 +4938,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -4951,7 +4951,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -4964,7 +4964,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -4976,7 +4976,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -8889,6 +8889,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- absent annotation resolves to the ':strict' default (proposal §3), not left unresolved
         map wcSpecEntropy (generateCDPCandidates GrammarCoreInversion stmtsAbsent)
           `shouldSatisfy` (all (== SpecEntropyStrict))
+
+    -- C27: F-001 (adv-spec-weaken-0) — 'over-annotation-warning' reachable via
+    -- '--trust-report --json'. Previously computed (overAnnotationRatio) but
+    -- only ever printed as a stdout line gated 'unless json' (Main.hs), so no
+    -- JSON consumer could observe it. Fixed: 'TrustReport.trOverAnnotation'
+    -- + the 'over_annotation' key in 'formatTrustReportJson'.
+    describe "C27 over-annotation JSON emit (F-001)" $ do
+      let mkContract se = Contract Nothing Nothing
+                            (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing se
+          -- Same 1/3 ratio fixture as C21, reused so the JSON-emit test and the
+          -- pure-ratio-computation test (C21) stay in lockstep.
+          stmtsAboveThreshold =
+            [ SDefLogic "f1" [] (Just TInt) (mkContract (Just SpecEntropyIntentional)) (ELit (LitInt 0))
+            , SDefLogic "f2" [] (Just TInt) (mkContract Nothing)                       (ELit (LitInt 0))
+            , SDefLogic "f3" [] (Just TInt) (mkContract (Just SpecEntropyStrict))      (ELit (LitInt 0))
+            ]
+          stmtsBelowThreshold =
+            [ SDefLogic "f1" [] (Just TInt) (mkContract (Just SpecEntropyIntentional)) (ELit (LitInt 0))
+            , SDefLogic "f2" [] (Just TInt) (mkContract Nothing)                       (ELit (LitInt 0))
+            , SDefLogic "f3" [] (Just TInt) (mkContract Nothing)                       (ELit (LitInt 0))
+            , SDefLogic "f4" [] (Just TInt) (mkContract Nothing)                       (ELit (LitInt 0))
+            , SDefLogic "f5" [] (Just TInt) (mkContract Nothing)                       (ELit (LitInt 0))
+            ]
+
+      it "C27a trOverAnnotation reflects ratio/threshold/fired above threshold" $ do
+        let report = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
+            oai    = trOverAnnotation report
+        oaiRatio oai `shouldBe` (1.0 / 3.0)
+        oaiThreshold oai `shouldBe` overAnnotationThreshold
+        oaiFired oai `shouldBe` True
+
+      it "C27b trOverAnnotation does not fire below threshold" $ do
+        let report = buildTrustReport Map.empty stmtsBelowThreshold Map.empty
+            oai    = trOverAnnotation report
+        oaiRatio oai `shouldBe` (1.0 / 5.0)
+        oaiFired oai `shouldBe` False
+
+      it "C27c formatTrustReportJson emits over_annotation with warning:true above threshold" $ do
+        let report  = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"over_annotation\":{" jsonTxt `shouldBe` True
+        T.isInfixOf "\"warning\":true" jsonTxt `shouldBe` True
+
+      it "C27d formatTrustReportJson emits over_annotation with warning:false below threshold" $ do
+        let report  = buildTrustReport Map.empty stmtsBelowThreshold Map.empty
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"over_annotation\":{" jsonTxt `shouldBe` True
+        T.isInfixOf "\"warning\":false" jsonTxt `shouldBe` True
+
+      it "C27e trust_report_version unchanged at 1.4.0 (no bump for this additive field)" $ do
+        let report  = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"trust_report_version\":\"1.4.0\"" jsonTxt `shouldBe` True
 
     -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
     describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do

@@ -4,6 +4,15 @@
 
 <a id="Latest"></a>
 
+## v0.14.5 — trust-report over-annotation-warning JSON gap (2026-07-03)
+
+### Compiler — Trust report
+
+- **`fix(trust-report)`: the module-level `over-annotation-warning` diagnostic (`LLMLL.md §4.4.6`, the guardrail against bulk `(spec-entropy :intentional)` self-attestation gaming) was computed correctly but never reachable via any `--json` output, at any ratio.** `overAnnotationRatio`/`overAnnotationThreshold` (`CDP.hs`) were compared correctly in `Main.hs`, but the emission was a stdout line gated `unless json` — no JSON consumer could ever see it. Found by the new `experiments/adv-spec-weaken-0/` adversarial benchmark (F-001), which showed a single laundered contract in a module of ≥4 honestly-contracted functions produces zero signal in any output mode. Fixed: new `TrustReport.trOverAnnotation` field, emitted as a top-level `over_annotation: {ratio, threshold, warning}` object in `--trust-report --json`, populated whenever a trust report is built (via `--cdp`, `--weakness-check`, or `--strict-verify`). No `trust_report_version` bump (stays `1.4.0`), following the `joint_pbt_witnesses`/`overflow_tainted_fns`/`refuted_fns` additive-field precedent — existing consumers ignore the new key. `--weakness-check --json` alone and `--cdp --json` alone (both without `--trust-report`) remain out of scope; neither had a comparable module-level JSON object before this fix.
+- **New benchmark: `experiments/adv-spec-weaken-0/`** — the roadmap's "Adversarial spec-weakening benchmark" (experiment-lead-owned), testing whether `--weakness-check`/`--cdp`/`--spec-coverage` catch a contract deliberately weakened until wrong code verifies. Confirms the closed candidate-set Ω's documented observational-vs-semantic limit (`LLMLL.md §4.4.6`) on two type-classes (arithmetic, list-length), and that the module-ratio guardrail above has a dilution floor a single-function attack clears for free in any module of ordinary size — a design-scope limitation, not a defect, per the CDP proposal's own Risk #3 framing.
+
+**Tests: 1019 → 1024 Haskell, 45 Python (unchanged).** Five new: `C27a`–`C27e` (`over_annotation` reflects ratio/threshold/fired above and below the 30% threshold; JSON-emit shape; `trust_report_version` unchanged).
+
 ## v0.14.4 — CDP spec-entropy suppression fix + --strict-verify (2026-07-02)
 
 ### Compiler — CDP

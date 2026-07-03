@@ -27,6 +27,10 @@ examples/**/*.verified.json
 !examples/erc20_token/erc20_filled.ast.json.verified.json
 !examples/totp_rfc6238/totp_filled.ast.json.verified.json
 
+# Experiment fixture .verified.json sidecars — same rationale, no canonical
+# exceptions in experiments/ (run artifacts under runs/ are the tracked record).
+experiments/**/*.verified.json
+
 # Local toolchain path overrides (machine-specific)
 .env
 tools/llmll-orchestra/.env

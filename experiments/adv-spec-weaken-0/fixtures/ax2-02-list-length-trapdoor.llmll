@@ -1,0 +1,28 @@
+;; AX2-02 — surgical weakening on a different type-class: a list-length
+;; measure (EUF/local-theory-extension quantity, LLMLL.md §5.3 measure class)
+;; instead of AX2-01's plain int arithmetic. Honest post would be
+;; `(= result (+ (list-length xs) 1))`. The implementation has a trapdoor bug:
+;; it returns one too many exactly when the input list has length 3, and the
+;; correct value otherwise. The post is widened to a one-sided tolerance band
+;; that admits both behaviors uniformly.
+;;
+;; Because the band tracks list-length xs (an unbounded quantity per input),
+;; no fixed-value candidate in the closed set Omega (consts {0,1,-1,42},
+;; identity-over-an-int-param) can satisfy it for all xs — same root cause as
+;; AX2-01 (narrow band around an unbounded quantity escapes any finite
+;; candidate set), demonstrated here on a measure-class quantity rather than
+;; a two-param arithmetic expression, to check the blind spot isn't an
+;; arithmetic-only artifact.
+;;
+;; Note: an `if` guarded directly on a raw `(list-length xs)` call falls back
+;; to body_fallback (effective_level downgrades to `asserted`, no SMT check
+;; at all) rather than translating — the guard must be over a `let`-bound
+;; int first. Worth a compiler-engineer note; not a blocker, routed via a
+;; workaround here.
+(def list-len-after-append [xs: list[int]]
+  (post (and (<= result (+ (list-length xs) 2))
+             (>= result (+ (list-length xs) 1))))
+  (let [(n (list-length xs))]
+    (if (= n 3)
+        (+ n 2)
+        (+ n 1))))

@@ -1,0 +1,30 @@
+;; AX1-04 — same laundered weakening as AX1-02/03, diluted across a 5-function
+;; module. :intentional ratio = 1/5 = 20%, below the 30% over-annotation
+;; threshold. Tests whether an adversary can evade the module-level ratio
+;; guardrail entirely by laundering one contract in a module large enough to
+;; dilute the ratio, while every other function is honestly (tightly)
+;; contracted.
+(type PositiveInt (where [x: int] (> x 0)))
+
+(def withdraw [balance: int amount: PositiveInt]
+  (pre  (>= balance amount))
+  (post (>= result 0))
+  (spec-entropy :intentional)
+  (- balance amount))
+
+(def deposit [balance: int amount: PositiveInt]
+  (pre (>= balance 0))
+  (post (= result (+ balance amount)))
+  (+ balance amount))
+
+(def double-it [x: int]
+  (post (= result (+ x x)))
+  (+ x x))
+
+(def negate-it [x: int]
+  (post (= result (- 0 x)))
+  (- 0 x))
+
+(def increment [x: int]
+  (post (= result (+ x 1)))
+  (+ x 1))

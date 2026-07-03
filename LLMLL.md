@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.4)
+# LLMLL: Large Language Model Logical Language (v0.14.5)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.4.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.5.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -686,7 +686,7 @@ where `B_{T,U,Ω}` is the finite set of observable behaviors of functions `T →
 ```
 
 - **`:strict`** (default; can be elided) — low DP raises a diagnostic via `--cdp` / `--weakness-check`.
-- **`:intentional`** — low DP is the design (caches admit any eviction; schedulers admit any ready thread; hash-map iteration order is unspecified). The annotation is the agent's explicit declaration; CDP is still computed and reported, but the diagnostic is suppressed. Self-attestation discipline: agents may over-annotate to silence warnings, so the trust report surfaces the annotation in `spec_entropy_annotation` and a module-level `over-annotation-warning` fires when the ratio of `:intentional` contracts exceeds 30% (configurable later).
+- **`:intentional`** — low DP is the design (caches admit any eviction; schedulers admit any ready thread; hash-map iteration order is unspecified). The annotation is the agent's explicit declaration; CDP is still computed and reported, but the diagnostic is suppressed. Self-attestation discipline: agents may over-annotate to silence warnings, so the trust report surfaces the annotation in `spec_entropy_annotation` and a module-level `over-annotation-warning` fires when the ratio of `:intentional` contracts exceeds 30% (configurable later). Under `--trust-report --json`, this is the top-level `over_annotation` object (`ratio`, `threshold`, `warning`) — populated whenever a trust report is built, independent of which flag (`--cdp`, `--weakness-check`, `--strict-verify`) requested it.
 - **`:unknown`** — CDP is computed and reported but does not raise. For spec-development workflows where the contract is in flux.
 
 **CLI.** `llmll verify <file> --cdp` runs the closed candidate-set sweep per §4.3.1 of the proposal after the SAFE result and emits one `discriminative_axis` block per contracted function. Combined with `--trust-report --json`, the score is paired with the diamond-lattice evidence level in the trust-report JSON (`trust_report_version 1.4.0`, additive — existing consumers ignore `discriminative_axis`).
