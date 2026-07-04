@@ -43,7 +43,7 @@ import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVe
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
-import LLMLL.MCPClient (MCPResult(..), mockProofResult, callLeanstral, defaultMCPConfig, MCPConfig(..))
+import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.ProofArtifact
@@ -3573,10 +3573,33 @@ main = hspec $ do
         LeanTheorem thm -> T.isInfixOf ".length" thm `shouldBe` True
         Unsupported reason -> expectationFailure $ "Expected theorem, got: " ++ T.unpack reason
 
-    -- MCPClient (2)
-    it "mockProofResult returns ProofFound" $ do
-      let result = mockProofResult "some obligation"
-      result `shouldBe` ProofFound "by sorry"
+    -- MCPClient — anti-laundering guard (PROOF-ARTIFACT §4.1 LCF)
+    it "sanitizeProof accepts a genuine proof term (ProofFound survives)" $
+      sanitizeProof "by decide" `shouldBe` ProofFound "by decide"
+
+    it "sanitizeProof rejects 'by sorry' as degenerate → ProofError" $
+      case sanitizeProof "by sorry" of
+        ProofError _ -> pure ()
+        other        -> expectationFailure $ "Expected ProofError, got: " ++ show other
+
+    it "sanitizeProof rejects whitespace-only proof → ProofError" $
+      case sanitizeProof "  " of
+        ProofError _ -> pure ()
+        other        -> expectationFailure $ "Expected ProofError, got: " ++ show other
+
+    it "sanitizeProof rejects a proof using 'admit' → ProofError" $
+      case sanitizeProof "by admit" of
+        ProofError _ -> pure ()
+        other        -> expectationFailure $ "Expected ProofError, got: " ++ show other
+
+    it "sanitizeProof is word-boundary aware (identifier substrings pass)" $ do
+      sanitizeProof "by exact admittance"  `shouldBe` ProofFound "by exact admittance"
+      sanitizeProof "exact Nat.sorry_free" `shouldBe` ProofFound "exact Nat.sorry_free"
+
+    it "mockProofResult 'by sorry' is now rejected as degenerate → ProofError" $
+      case mockProofResult "some obligation" of
+        ProofError _ -> pure ()
+        other        -> expectationFailure $ "Expected ProofError from mock, got: " ++ show other
 
     it "callLeanstral with unavailable binary → LeanstralUnavailable" $ do
       let config = defaultMCPConfig { mcpMock = False }
@@ -3626,8 +3649,10 @@ main = hspec $ do
       T.isInfixOf "complexity" json `shouldBe` True
       T.isInfixOf ":inductive" json `shouldBe` True
 
-    -- End-to-end mock pipeline (1)
-    it "Mock pipeline: translate → mock-prove → cache → verify" $ do
+    -- End-to-end pipeline (1): the mock's "by sorry" is degenerate and is
+    -- rejected (covered above), so a genuine guard-surviving proof term stands
+    -- in for a real prover result to exercise the cache roundtrip.
+    it "Pipeline: translate → prove (genuine term) → cache → verify" $ do
       let contract = Contract
             { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
             , contractPreSource = Nothing
@@ -3636,8 +3661,8 @@ main = hspec $ do
             , contractSpecEntropy = Nothing
             }
       case translateObligation "pipeline-test" contract of
-        LeanTheorem thm -> do
-          let proofResult = mockProofResult thm
+        LeanTheorem _thm -> do
+          let proofResult = sanitizeProof "by decide"
           case proofResult of
             ProofFound proof -> do
               let entry = ProofEntry "hash123" proof "leanstral" "2026-04-11"
@@ -3756,8 +3781,11 @@ replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
 
 verifyIntegrationTests :: Spec
 verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
-    it "LeanstralOpts mock pipeline resolves proof-required holes" $ do
-      -- Simulate the pipeline: scan statements → translate → mock prove → cache
+    it "LeanstralOpts pipeline resolves proof-required holes" $ do
+      -- Simulate the pipeline: scan statements → translate → prove → cache.
+      -- The mock's "by sorry" is degenerate and rejected by 'sanitizeProof'
+      -- (see the anti-laundering tests), so a genuine guard-surviving proof
+      -- term stands in for a real prover result here.
       let stmts = [ SDefLogic "test-fn" [("x", TInt)] Nothing
                       (Contract
                          (Just (EOp ">" [EVar "x", ELit (LitInt 0)]))
@@ -3774,14 +3802,14 @@ verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
         [(name, contract)] -> do
           case translateObligation name contract of
             LeanTheorem thm -> do
-              let mockResult = mockProofResult thm
-              case mockResult of
+              let proofResult = sanitizeProof "by decide"
+              case proofResult of
                 ProofFound proof -> do
                   let entry = ProofEntry thm proof "leanstral" ""
                       cache = insertProof ("/post/" <> name) entry Map.empty
                   -- Verify cache lookup works
                   lookupProof ("/post/" <> name) thm cache `shouldBe` Just entry
-                _ -> expectationFailure "Expected ProofFound from mock"
+                _ -> expectationFailure "Expected ProofFound"
             Unsupported reason -> expectationFailure $ "Expected LeanTheorem: " ++ T.unpack reason
         _ -> expectationFailure "Expected exactly one proof hole"
 
