@@ -1,0 +1,3 @@
+(def dec [n: int]
+  (post (= result (- n 1)))
+  ?body)

@@ -1,0 +1,47 @@
+{
+  "llmll_version": "0.14.6",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "kind": "hole-named",
+        "name": "body"
+      },
+      "kind": "def",
+      "name": "dec",
+      "params": [
+        {
+          "name": "n",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "n"
+              },
+              {
+                "kind": "lit-int",
+                "value": 1
+              }
+            ],
+            "kind": "op",
+            "op": "-"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      }
+    }
+  ]
+}

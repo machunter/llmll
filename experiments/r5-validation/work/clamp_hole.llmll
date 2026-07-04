@@ -1,0 +1,3 @@
+(def clamp-lo [x: int lo: int]
+  (post (>= result lo))
+  ?body)

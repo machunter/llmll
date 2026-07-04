@@ -1,0 +1,3 @@
+(def maxi [a: int b: int]
+  (post (and (>= result a) (>= result b)))
+  (if (< a b) b a))

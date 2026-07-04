@@ -1,0 +1,3 @@
+(def clamp-sib [x: int lo: int]
+  (post (>= result lo))
+  lo)

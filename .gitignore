@@ -36,3 +36,10 @@ experiments/**/*.verified.json
 tools/llmll-orchestra/.env
 .vscode/
 .claude/
+
+# transient llmll checkout/verify runtime artifacts (R5 divergence sessions, locks, scratches)
+*.llmll-lock.json
+*.llmll-diverge.json
+*.scratch.ast.json
+*.scratch.llmll
+*.sess-*

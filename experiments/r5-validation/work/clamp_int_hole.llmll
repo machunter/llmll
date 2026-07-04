@@ -1,0 +1,4 @@
+(def clamp-lo [x: int lo: int]
+  (post (>= result lo))
+  (spec-entropy :intentional)
+  ?body)

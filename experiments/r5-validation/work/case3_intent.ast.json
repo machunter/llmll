@@ -1,0 +1,45 @@
+{
+  "llmll_version": "0.14.6",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "kind": "hole-named",
+        "name": "body"
+      },
+      "kind": "def",
+      "name": "clamp-lo",
+      "params": [
+        {
+          "name": "x",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "lo",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "var",
+            "name": "lo"
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "spec_entropy": "intentional"
+    }
+  ]
+}
