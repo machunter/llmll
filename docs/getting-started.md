@@ -15,6 +15,19 @@
 | GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
 | `fixpoint` + `z3` | any stable | **Optional** (`verify` command only): `stack install liquid-fixpoint` then `brew install z3` |
 
+### Run without a toolchain (Docker)
+
+If you only want to *run* `llmll` (not develop the compiler), the published image bundles `llmll` + `z3` + `liquid-fixpoint` — no GHC/Stack required:
+
+```bash
+# headline demo — the SMT refutation, no local files needed:
+docker run --rm ghcr.io/machunter/llmll verify /opt/llmll/examples/payments-core/conserve-bad.llmll
+# your own file (mounts the current directory at /work):
+docker run --rm -v "$PWD":/work ghcr.io/machunter/llmll verify myfile.llmll
+```
+
+Because the solver is bundled, the container never hits the `SOLVER NOT FOUND` (exit 3) path. Build from source (below) only if you are developing the compiler.
+
 **Install Stack:** <https://docs.haskellstack.org/en/stable/install_and_upgrade/>
 
 ```bash

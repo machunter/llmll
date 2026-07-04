@@ -4,6 +4,18 @@
 
 <a id="Latest"></a>
 
+## v0.14.6 — zero-install Docker image (2026-07-03)
+
+### Packaging — distribution
+
+- **`feat(packaging)`: a slim (~229 MB) verify-capable Docker image** so a user with no Haskell toolchain can run `llmll verify` and see the SMT refutation. Two-stage build (`haskell:9.6.6` builder → `debian:bookworm-slim` runtime, new `Dockerfile`) bundling the `llmll` binary, the liquid-fixpoint `fixpoint` binary (pinned `0.9.6.3.1`, with `smtlib-backends`/`smtlib-backends-process` extra-deps absent from `lts-22.43`), `z3`, and the baked demo examples. `ENV LANG=C.UTF-8` so GHC's text IO reads non-ASCII sources under the slim base. Because the solver is bundled, the container never reaches the `SOLVER NOT FOUND` (exit 3) path. This is distribution packaging of the compiler only — unrelated to the Docker sandbox that isolates untrusted agent code.
+- **`.github/workflows/docker-publish.yml`** — builds the image and runs the container acceptance gate (`scripts/tests/docker-acceptance.sh`: `conserve-bad` → refuted exit 1, `conserve` → SAFE exit 0, never exit 3) on every PR touching the image inputs; on a `vX.Y.Z` tag it enforces `scripts/version_gate.sh`, asserts the tag equals the `LLMLL.md` line-1 banner, then pushes `ghcr.io/machunter/llmll:<version>` + `:latest`.
+- **`scripts/llmll`** — thin host wrapper (`./scripts/llmll verify myfile.llmll`); mounts the cwd at `/work`, image overridable via `LLMLL_IMAGE`.
+
+No `compiler/src` change; no schema change; no `LLMLL.md` language surface change (packaging adds no construct, subcommand, or flag). Off-roadmap adoption work; closes the "zero-install/Docker packaging" item flagged in `docs/compiler-team-roadmap.md`'s Active-Items header.
+
+**Tests: 1024 Haskell, 45 Python (unchanged).** Packaging change; the new acceptance coverage is the CI container gate (`scripts/tests/docker-acceptance.sh`), not a Haskell/pytest suite.
+
 ## v0.14.5 — trust-report over-annotation-warning JSON gap (2026-07-03)
 
 ### Compiler — Trust report

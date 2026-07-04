@@ -1,4 +1,4 @@
-# LLMLL — v0.14.5
+# LLMLL — v0.14.6
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -34,7 +34,18 @@ Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/paym
 
 ## Try it
 
-The full repair loop (hole → rejected bad fills → accepted fix → verified) is the copy-pasteable [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md). Build first:
+The full repair loop (hole → rejected bad fills → accepted fix → verified) is the copy-pasteable [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md).
+
+**Zero-install (Docker).** No Haskell toolchain — the image bundles `llmll`, `z3`, and `liquid-fixpoint`:
+
+```bash
+# see the SMT refutation of a conservation-breaking fill (no local files needed):
+docker run --rm ghcr.io/machunter/llmll verify /opt/llmll/examples/payments-core/conserve-bad.llmll
+# verify your own file (mounts the current directory at /work):
+docker run --rm -v "$PWD":/work ghcr.io/machunter/llmll verify myfile.llmll
+```
+
+**From source.** Build first:
 
 ```bash
 cd compiler && stack build
@@ -43,7 +54,7 @@ stack exec llmll -- --help
 
 Requires GHC ≥ 9.4 + Stack ≥ 2.9. The proof step also needs `z3` + `liquid-fixpoint`.
 
-> **`verify` is loud without the solver.** With `z3`/`liquid-fixpoint` absent it prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and exits `3` (not a silent pass) — install both to see the refutation. See [`docs/getting-started.md`](docs/getting-started.md).
+> **`verify` is loud without the solver.** On the from-source path, with `z3`/`liquid-fixpoint` absent it prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and exits `3` (not a silent pass) — install both to see the refutation. (The Docker image bundles both, so it never hits this.) See [`docs/getting-started.md`](docs/getting-started.md).
 
 ---
 
