@@ -1,0 +1,22 @@
+;; Leanstral demo — the single end-to-end obligation (leanstral-demo-spec.md §2).
+;;
+;; `n*n` is NONLINEAR: Z3 cannot discharge `result >= 0` inside the decidable
+;; QF-LIA fragment, so without --leanstral this post lands at `asserted`
+;; (honest "not proven"). With --leanstral, LLMLL states the faithful,
+;; result-bound theorem, Leanstral proves it (`rw [h_body]; nlinarith`), and the
+;; Lean kernel + Mathlib check it → `verified-lean` with a re-checkable
+;; certificate. That delta is the C-property demo.
+;;
+;;   llmll verify examples/leanstral-demo/square.llmll                      -> asserted
+;;   LLMLL_LEANSTRAL_API_KEY=... llmll verify examples/leanstral-demo/square.llmll \
+;;     --leanstral --leanstral-lean-project <mathlib-project>               -> verified-lean
+;;
+;; NOTE: `def-shell` (permissive), not `def`. The strict-core `def` keyword
+;; forbids nonlinear arithmetic in the body at the typecheck gate (LT-INV) —
+;; `(def square ... (* n n))` errors before verification. `def-shell` admits the
+;; nonlinear body so it legitimately lands in `erBodyFallback` (asserted) — which
+;; IS the obligation class Leanstral exists to discharge.
+
+(def-shell square [n: int] -> int
+  (post (>= result 0))
+  (* n n))

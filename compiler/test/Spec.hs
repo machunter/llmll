@@ -43,7 +43,7 @@ import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVe
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
-import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..))
+import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.ProofArtifact
@@ -3556,44 +3556,108 @@ main = hspec $ do
 
   describe "Leanstral MCP (v0.3.1)" $ do
 
-    -- LeanTranslate (3)
-    it "translateObligation on linear arithmetic → valid Lean 4" $ do
-      let contract = Contract
-            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
-            , contractPreSource = Nothing
-            , contractPost = Just (EOp ">" [EVar "result", ELit (LitInt 0)])
-            , contractPostSource = Nothing
-            , contractSpecEntropy = Nothing
-            }
-      case translateObligation "test-func" contract of
-        LeanTheorem thm -> do
-          T.isInfixOf "theorem test_func" thm `shouldBe` True
-          T.isInfixOf "sorry" thm `shouldBe` True
-        Unsupported reason -> expectationFailure $ "Expected theorem, got: " ++ T.unpack reason
+    -- Layer-1-lite: translate the OBLIGATION (result bound to the body)
+    it "Layer-1: translateObligation on square emits the exact h_body-bound theorem" $ do
+      let contract = Contract Nothing Nothing
+                       (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+          body     = EOp "*" [EVar "n", EVar "n"]
+          expected = "import Mathlib.Tactic\n\n"
+                  <> "theorem square (n : Int) (result : Int) "
+                  <> "(h_body : result = (n * n)) : (result >= 0) := by\n  sorry"
+      case translateObligation "square" [("n", TInt)] (Just TInt) contract body of
+        LeanTheorem thm    -> thm `shouldBe` expected
+        Unsupported reason -> expectationFailure $ "Expected theorem, got Unsupported: " ++ T.unpack reason
 
-    it "translateObligation on unsupported predicate → Unsupported" $ do
-      let contract = Contract
-            { contractPre  = Nothing
-            , contractPreSource = Nothing
-            , contractPost = Just (EApp "fold" [EVar "xs"])
-            , contractPostSource = Nothing
-            , contractSpecEntropy = Nothing
-            }
-      case translateObligation "fold-test" contract of
-        Unsupported reason -> T.isInfixOf "fold" reason `shouldBe` True
-        LeanTheorem _ -> expectationFailure "Expected Unsupported for fold"
+    it "Layer-1: Unsupported for a `/` body (fail-closed)" $ do
+      let contract = Contract Nothing Nothing
+                       (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+          body     = EOp "/" [EVar "n", ELit (LitInt 2)]
+      case translateObligation "divf" [("n", TInt)] (Just TInt) contract body of
+        Unsupported _   -> pure ()
+        LeanTheorem thm -> expectationFailure $ "Expected Unsupported for `/` body: " ++ T.unpack thm
 
-    it "translateObligation on list induction → List syntax" $ do
-      let contract = Contract
-            { contractPre  = Nothing
-            , contractPreSource = Nothing
-            , contractPost = Just (EOp ">" [EApp "list-length" [EVar "xs"], ELit (LitInt 0)])
-            , contractPostSource = Nothing
-            , contractSpecEntropy = Nothing
-            }
-      case translateObligation "list-test" contract of
-        LeanTheorem thm -> T.isInfixOf ".length" thm `shouldBe` True
-        Unsupported reason -> expectationFailure $ "Expected theorem, got: " ++ T.unpack reason
+    it "Layer-1: Unsupported for a `mod` body (fail-closed)" $ do
+      let contract = Contract Nothing Nothing
+                       (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+          body     = EOp "mod" [EVar "n", ELit (LitInt 2)]
+      case translateObligation "modf" [("n", TInt)] (Just TInt) contract body of
+        Unsupported _   -> pure ()
+        LeanTheorem thm -> expectationFailure $ "Expected Unsupported for `mod` body: " ++ T.unpack thm
+
+    it "Layer-1: Unsupported for a list body (fail-closed, .head! killed)" $ do
+      let contract = Contract Nothing Nothing
+                       (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+          body     = EApp "list-head" [EVar "n"]
+      case translateObligation "headf" [("n", TInt)] (Just TInt) contract body of
+        Unsupported _   -> pure ()
+        LeanTheorem thm -> expectationFailure $ "Expected Unsupported for a list body: " ++ T.unpack thm
+
+    it "Layer-1: Unsupported for a residual free variable in the body (fail-closed)" $ do
+      let contract = Contract Nothing Nothing
+                       (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+          body     = EOp "*" [EVar "n", EVar "m"]  -- m is not a parameter
+      case translateObligation "freevar" [("n", TInt)] (Just TInt) contract body of
+        Unsupported reason -> T.isInfixOf "free variable" reason `shouldBe` True
+        LeanTheorem thm    -> expectationFailure $ "Expected Unsupported for a free var: " ++ T.unpack thm
+
+    -- Layer-2-lite: the --leanstral route selects the nonlinear erBodyFallback fn
+    it "Layer-2: the --leanstral route selects the nonlinear erBodyFallback function" $ do
+      let post   = Just (EOp ">=" [EVar "result", ELit (LitInt 0)])
+          square = SDefShell "square" [("n", TInt)] (Just TInt)
+                     (Contract Nothing Nothing post Nothing Nothing)
+                     (EOp "*" [EVar "n", EVar "n"])      -- nonlinear
+          inc    = SDefShell "inc" [("n", TInt)] (Just TInt)
+                     (Contract Nothing Nothing post Nothing Nothing)
+                     (EOp "+" [EVar "n", ELit (LitInt 1)])  -- linear
+          stmts         = [square, inc]
+          fallbackNames = Set.fromList ["square"]  -- erBodyFallback: only the nonlinear body
+          -- Mirrors runLeanstralPipeline's nonlinearFallback comprehension.
+          selected = [ n
+                     | s <- stmts
+                     , Just (n, _, _, _, b) <- [normalizeDefStmt s]
+                     , n `Set.member` fallbackNames
+                     , isNonLinear b ]
+      selected `shouldBe` ["square"]
+
+    -- Layer-3: parse the model response (fence extraction) + anti-laundering
+    it "Layer-3: extractLeanFence pulls the ```lean block out of a prose+fence response" $ do
+      let content = T.unlines
+            [ "Here is the completed proof:"
+            , ""
+            , "```lean"
+            , "import Mathlib.Tactic"
+            , ""
+            , "theorem square (n : Int) (result : Int) (h_body : result = (n * n)) : (result >= 0) := by"
+            , "  rw [h_body]; nlinarith"
+            , "```"
+            , ""
+            , "Let me know if you need anything else."
+            ]
+      case extractLeanFence content of
+        Right block -> do
+          T.isInfixOf "theorem square" block `shouldBe` True
+          T.isInfixOf "nlinarith"      block `shouldBe` True
+          T.isInfixOf "```"            block `shouldBe` False  -- fences stripped
+          T.isInfixOf "Here is"        block `shouldBe` False  -- prose stripped
+        Left e -> expectationFailure $ "Expected a fenced block: " ++ T.unpack e
+
+    it "Layer-3: extractLeanFence fails closed when there is no ```lean block" $
+      case extractLeanFence "no fenced code here at all" of
+        Left _  -> pure ()
+        Right b -> expectationFailure $ "Expected Left, got: " ++ T.unpack b
+
+    it "Layer-3: a fenced proof still containing `sorry` is rejected by sanitizeProof" $
+      case extractLeanFence "```lean\ntheorem t : True := by\n  sorry\n```" of
+        Right block -> case sanitizeProof block of
+          ProofError _ -> pure ()
+          other        -> expectationFailure $ "Expected ProofError, got: " ++ show other
+        Left e -> expectationFailure $ "Expected a fenced block: " ++ T.unpack e
+
+    it "Layer-3: parseChatContent extracts choices[0].message.content" $ do
+      let resp = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"```lean\\ntheorem t : True := trivial\\n```\"}}]}"
+      case parseChatContent (BLC.pack resp) of
+        Right c -> T.isInfixOf "theorem t" c `shouldBe` True
+        Left e  -> expectationFailure $ "Expected content, got: " ++ T.unpack e
 
     -- MCPClient — anti-laundering guard (PROOF-ARTIFACT §4.1 LCF)
     it "sanitizeProof accepts a genuine proof term (ProofFound survives)" $
@@ -3682,7 +3746,7 @@ main = hspec $ do
             , contractPostSource = Nothing
             , contractSpecEntropy = Nothing
             }
-      case translateObligation "pipeline-test" contract of
+      case translateObligation "pipeline-test" [("x", TInt)] (Just TInt) contract (EOp "*" [EVar "x", EVar "x"]) of
         LeanTheorem _thm -> do
           let proofResult = sanitizeProof "by decide"
           case proofResult of
@@ -3803,37 +3867,37 @@ replayExecutionTests = describe "Replay Execution (v0.3.1)" $ do
 
 verifyIntegrationTests :: Spec
 verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
-    it "LeanstralOpts pipeline resolves proof-required holes" $ do
-      -- Simulate the pipeline: scan statements → translate → prove → cache.
-      -- The mock's "by sorry" is degenerate and rejected by 'sanitizeProof'
-      -- (see the anti-laundering tests), so a genuine guard-surviving proof
-      -- term stands in for a real prover result here.
-      let stmts = [ SDefLogic "test-fn" [("x", TInt)] Nothing
-                      (Contract
-                         (Just (EOp ">" [EVar "x", ELit (LitInt 0)]))
-                         Nothing
-                         (Just (EOp ">" [EVar "result", ELit (LitInt 0)]))
+    it "LeanstralOpts pipeline: nonlinear-fallback obligation → translate → cache" $ do
+      -- Simulate the Layer-2 worklist: a nonlinear body-fallback function, with
+      -- its REAL body, is translated (Layer-1) and its proof cached. The mock's
+      -- "by sorry" is degenerate and rejected by 'sanitizeProof' (see the
+      -- anti-laundering tests), so a genuine guard-surviving proof term stands
+      -- in for a real prover result here.
+      let stmts = [ SDefShell "square" [("n", TInt)] (Just TInt)
+                      (Contract Nothing Nothing
+                         (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
                          Nothing Nothing)
-                      (EHole (HProofRequired "complex-decreases" Nothing))
+                      (EOp "*" [EVar "n", EVar "n"])
                   ]
-          proofHoles = [ (n, c)
-                       | SDefLogic n _ _ c (EHole (HProofRequired _ _)) <- stmts
-                       ]
-      length proofHoles `shouldBe` 1
-      case proofHoles of
-        [(name, contract)] -> do
-          case translateObligation name contract of
-            LeanTheorem thm -> do
-              let proofResult = sanitizeProof "by decide"
-              case proofResult of
+          fallbackNames = Set.fromList ["square"]   -- as reported in erBodyFallback
+          worklist = [ (n, p, r, c, b)
+                     | s <- stmts
+                     , Just (n, p, r, c, b) <- [normalizeDefStmt s]
+                     , n `Set.member` fallbackNames
+                     , isNonLinear b ]
+      length worklist `shouldBe` 1
+      case worklist of
+        [(name, params, ret, contract, body)] ->
+          case translateObligation name params ret contract body of
+            LeanTheorem thm ->
+              case sanitizeProof "by decide" of
                 ProofFound proof -> do
                   let entry = ProofEntry thm proof "leanstral" ""
                       cache = insertProof ("/post/" <> name) entry Map.empty
-                  -- Verify cache lookup works
                   lookupProof ("/post/" <> name) thm cache `shouldBe` Just entry
                 _ -> expectationFailure "Expected ProofFound"
             Unsupported reason -> expectationFailure $ "Expected LeanTheorem: " ++ T.unpack reason
-        _ -> expectationFailure "Expected exactly one proof hole"
+        _ -> expectationFailure "Expected exactly one obligation"
 
     it "Verify without leanstral opts has no effect (structural)" $ do
       -- When lsMock is False and lsCmd is Nothing, the pipeline guard
@@ -3907,51 +3971,44 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
   -- ---------------------------------------------------------------
 
   describe "LeanTranslate coverage" $ do
-    it "translateObligation on empty contract → Unsupported" $ do
+    it "translateObligation with no postcondition → Unsupported (nothing to prove)" $ do
       let contract = Contract Nothing Nothing Nothing Nothing Nothing
-      case translateObligation "empty-test" contract of
-        Unsupported reason -> T.isInfixOf "empty" reason `shouldBe` True
-        LeanTheorem _      -> expectationFailure "Expected Unsupported for empty contract"
+      case translateObligation "empty-test" [("n", TInt)] (Just TInt) contract (EOp "*" [EVar "n", EVar "n"]) of
+        Unsupported reason -> T.isInfixOf "postcondition" reason `shouldBe` True
+        LeanTheorem _      -> expectationFailure "Expected Unsupported for a missing postcondition"
 
-    it "translateObligation with pre-only (no post) → valid theorem with True goal" $ do
+    it "translateObligation with no return type → Unsupported (cannot bind result)" $ do
+      let contract = Contract Nothing Nothing
+                       (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+      case translateObligation "no-ret" [("n", TInt)] Nothing contract (EOp "*" [EVar "n", EVar "n"]) of
+        Unsupported reason -> T.isInfixOf "return type" reason `shouldBe` True
+        LeanTheorem _      -> expectationFailure "Expected Unsupported for a missing return type"
+
+    it "translateObligation with a precondition → h_pre hypothesis" $ do
       let contract = Contract
-            { contractPre  = Just (EOp ">" [EVar "x", ELit (LitInt 0)])
-            , contractPreSource = Nothing
-            , contractPost = Nothing
-            , contractPostSource = Nothing
-            , contractSpecEntropy = Nothing
-            }
-      case translateObligation "pre-only" contract of
+            (Just (EOp ">" [EVar "n", ELit (LitInt 0)])) Nothing
+            (Just (EOp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+      case translateObligation "with-pre" [("n", TInt)] (Just TInt) contract (EOp "*" [EVar "n", EVar "n"]) of
         LeanTheorem thm -> do
-          T.isInfixOf "True" thm `shouldBe` True
-          T.isInfixOf "(h :" thm `shouldBe` True
+          T.isInfixOf "(h_pre : (n > 0))" thm `shouldBe` True
+          T.isInfixOf "(h_body : result = (n * n))" thm `shouldBe` True
         Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
 
-    it "translateObligation with for-all → quantified Lean 4" $ do
-      let contract = Contract
-            { contractPre  = Nothing
-            , contractPreSource = Nothing
-            , contractPost = Just (EApp "for-all" [EVar "i", EOp ">" [EVar "i", ELit (LitInt 0)]])
-            , contractPostSource = Nothing
-            , contractSpecEntropy = Nothing
-            }
-      case translateObligation "forall-test" contract of
-        LeanTheorem thm -> do
-          T.isInfixOf "∀" thm `shouldBe` True
-          T.isInfixOf "i" thm `shouldBe` True
-        Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+    it "translateObligation with a for-all postcondition → Unsupported (killed)" $ do
+      let contract = Contract Nothing Nothing
+                       (Just (EApp "for-all" [EVar "i", EOp ">" [EVar "i", ELit (LitInt 0)]]))
+                       Nothing Nothing
+      case translateObligation "forall-test" [("n", TInt)] (Just TInt) contract (EOp "*" [EVar "n", EVar "n"]) of
+        Unsupported _   -> pure ()
+        LeanTheorem thm -> expectationFailure $ "Expected Unsupported for for-all: " ++ T.unpack thm
 
-    it "translateObligation with boolean ops (and/or/not)" $ do
-      let contract = Contract
-            { contractPre  = Nothing
-            , contractPreSource = Nothing
-            , contractPost = Just (EOp "and" [ EOp ">" [EVar "x", ELit (LitInt 0)]
-                                             , EOp "not" [EOp "<" [EVar "y", ELit (LitInt 0)]]
-                                             ])
-            , contractPostSource = Nothing
-            , contractSpecEntropy = Nothing
-            }
-      case translateObligation "bool-test" contract of
+    it "translateObligation with boolean ops (and/or/not) in the post" $ do
+      let contract = Contract Nothing Nothing
+            (Just (EOp "and" [ EOp ">" [EVar "x", ELit (LitInt 0)]
+                             , EOp "not" [EOp "<" [EVar "y", ELit (LitInt 0)]]
+                             ]))
+            Nothing Nothing
+      case translateObligation "bool-test" [("x", TInt), ("y", TInt)] (Just TInt) contract (EOp "*" [EVar "x", EVar "y"]) of
         LeanTheorem thm -> do
           T.isInfixOf "∧" thm `shouldBe` True
           T.isInfixOf "¬" thm `shouldBe` True
@@ -4038,29 +4095,28 @@ coverageGapTests = describe "Coverage Gaps (v0.3.1)" $ do
   -- ---------------------------------------------------------------
 
   describe "runLeanstralPipeline SLetrec scan" $ do
-    it "SLetrec with HProofRequired body is detected by pattern match" $ do
-      let stmts = [ SLetrec
-                      { letrecName     = "fib"
-                      , letrecParams   = [("n", TInt)]
-                      , letrecReturn   = Just TInt
-                      , letrecContract = Contract
-                          (Just (EOp ">=" [EVar "n", ELit (LitInt 0)]))
-                          Nothing
-                          (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
-                          Nothing Nothing
-                      , letrecDecreases = EVar "n"
-                      , letrecBody     = EHole (HProofRequired "complex-decreases" Nothing)
-                      }
-                  ]
-          -- Same pattern used by runLeanstralPipeline
-          proofHoles = [ (n, c)
-                       | SLetrec n _ _ c _ (EHole (HProofRequired _ _)) <- stmts
-                       ]
-      length proofHoles `shouldBe` 1
-      fst (head proofHoles) `shouldBe` "fib"
-      case translateObligation "fib" (snd (head proofHoles)) of
-        LeanTheorem thm -> T.isInfixOf "theorem fib" thm `shouldBe` True
-        Unsupported r   -> expectationFailure $ "Expected theorem: " ++ T.unpack r
+    it "SLetrec nonlinear body → bound theorem (worklist covers letrec)" $ do
+      let letrec = SLetrec
+                     { letrecName      = "sqrec"
+                     , letrecParams    = [("n", TInt)]
+                     , letrecReturn    = Just TInt
+                     , letrecContract  = Contract
+                         (Just (EOp ">=" [EVar "n", ELit (LitInt 0)]))
+                         Nothing
+                         (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
+                         Nothing Nothing
+                     , letrecDecreases = EVar "n"
+                     , letrecBody      = EOp "*" [EVar "n", EVar "n"]  -- nonlinear
+                     }
+      -- Mirrors runLeanstralPipeline's letrec extraction (normalizeDefOrLetrec).
+      case letrec of
+        SLetrec n p r c _ b ->
+          case translateObligation n p r c b of
+            LeanTheorem thm -> do
+              T.isInfixOf "theorem sqrec" thm `shouldBe` True
+              T.isInfixOf "(h_body : result = (n * n))" thm `shouldBe` True
+            Unsupported reason -> expectationFailure $ "Expected theorem: " ++ T.unpack reason
+        _ -> expectationFailure "not a letrec"
 
 -- =====================================================================
 -- v0.3.3 tests: Agent Orchestration

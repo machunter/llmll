@@ -22,6 +22,7 @@ import Paths_llmll (version)
 import System.Exit (exitFailure, exitSuccess, exitWith, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
+import System.Environment (lookupEnv)
 import Data.Maybe (fromMaybe, isJust, mapMaybe, listToMaybe)
 import System.Process (readProcessWithExitCode)
 import Control.Monad (unless, forM_, when, foldM)
@@ -50,7 +51,7 @@ import LLMLL.HoleAnalysis
   , totalHoles, blockingHoles, holeEntries
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
-  , formatHoleReportJson, holeDensityWarnings)
+  , formatHoleReportJson, holeDensityWarnings, isNonLinear)
 import LLMLL.PBT (runPropertyTests, assembleTestStatements, pbtTrustWriteback, canonicalDefEvidenceHash, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName)
@@ -73,7 +74,7 @@ import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMo
 import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, loadVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
-import LLMLL.MCPClient (MCPResult(..), callLeanstral, defaultMCPConfig, MCPConfig(..))
+import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
 import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson)
 import LLMLL.ProofArtifact
@@ -127,11 +128,18 @@ data Command
   | CmdVersion                                               -- v0.11: version
   deriving (Show)
 
--- | Leanstral MCP options for the verify command (v0.3.1).
+-- | Leanstral options for the verify command.
+--   v0.3.1: --leanstral-mock / --leanstral-cmd (legacy MCP mock).
+--   Leanstral demo (Layer-3): --leanstral (direct chat-completions + kernel check),
+--   --leanstral-model, --leanstral-lean-project. The API key is read from the
+--   environment (LLMLL_LEANSTRAL_API_KEY), never a flag.
 data LeanstralOpts = LeanstralOpts
-  { lsMock    :: Bool           -- ^ --leanstral-mock: use mock prover
-  , lsCmd     :: Maybe FilePath -- ^ --leanstral-cmd: path to lean-lsp-mcp
-  , lsTimeout :: Int            -- ^ --leanstral-timeout: seconds (default 30)
+  { lsMock        :: Bool           -- ^ --leanstral-mock: use mock prover
+  , lsCmd         :: Maybe FilePath -- ^ --leanstral-cmd: path to lean-lsp-mcp
+  , lsTimeout     :: Int            -- ^ --leanstral-timeout: seconds (default 30)
+  , lsLeanstral   :: Bool           -- ^ --leanstral: direct Leanstral chat-completions + kernel check
+  , lsModel       :: T.Text         -- ^ --leanstral-model (default labs-leanstral-1-5)
+  , lsLeanProject :: Maybe FilePath -- ^ --leanstral-lean-project: Lean 4 + Mathlib project for checking
   } deriving (Show)
 
 data Options = Options
@@ -297,6 +305,14 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <*> option auto
             (long "leanstral-timeout" <> value 30 <> metavar "SECS"
             <> help "Leanstral timeout in seconds (default: 30)")
+      <*> switch (long "leanstral"
+            <> help "Discharge nonlinear-fallback obligations via a live Leanstral proof + Lean kernel check (needs LLMLL_LEANSTRAL_API_KEY + --leanstral-lean-project)")
+      <*> (T.pack <$> strOption
+            (long "leanstral-model" <> value "labs-leanstral-1-5" <> metavar "MODEL"
+            <> help "Leanstral model id (default: labs-leanstral-1-5)"))
+      <*> optional (strOption
+            (long "leanstral-lean-project" <> metavar "DIR"
+            <> help "Lean 4 + Mathlib project used to kernel-check generated proofs"))
 
     typecheckCmd = CmdTypecheck
       <$> fileArg
@@ -1609,9 +1625,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- Placed after the SAFE sidecar write above so SAFE still persists.
           case fqResult of
             FQSafe -> do
-              -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint)
-              when (lsMock lsOpts || isJust (lsCmd lsOpts)) $
-                runLeanstralPipeline json fp stmts lsOpts
+              -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint).
+              -- Leanstral demo (Layer-2): --leanstral also routes nonlinear
+              -- 'erBodyFallback' functions (real bodies) into the pipeline.
+              when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $
+                runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
               printDeferredCoverage
               exitSuccess
             FQUnsafe _ -> exitFailure
@@ -1688,40 +1706,67 @@ checkWeaknessCandidate lfBin _json typeDefs wc = do
         _ -> pure []  -- UNSAFE, error, or suppressed by annotation
 
 -- ---------------------------------------------------------------------------
--- v0.3.1: Leanstral proof pipeline
+-- v0.3.1 / Leanstral demo: proof pipeline
 -- ---------------------------------------------------------------------------
 
--- | Scan statements for ?proof-required holes and run the Leanstral pipeline.
---   Professor flag E1: scan [Statement] directly, not HoleReport.
-runLeanstralPipeline :: Bool -> FilePath -> [Statement] -> LeanstralOpts -> IO ()
-runLeanstralPipeline json fp stmts lsOpts = do
-  let proofHoles = [ (n, c)
-                   | SDefLogic n _ _ c (EHole (HProofRequired _ _)) <- stmts
-                   ] ++ [ (n, c)
-                   | SLetrec n _ _ c _ (EHole (HProofRequired _ _)) <- stmts
-                   ] ++ [ (n, c)
-                   | SDef n _ _ c (EHole (HProofRequired _ _)) <- stmts
-                   ] ++ [ (n, c)
-                   | SDefShell n _ _ c (EHole (HProofRequired _ _)) <- stmts
-                   ]
-  if null proofHoles
-    then unless json $ putStrLn "   No proof-required holes found."
+-- | Build the Leanstral obligation worklist and run the pipeline.
+--
+-- Two sources (Professor flag E1: scan [Statement] directly, not HoleReport):
+--
+--   * Layer-2 demo route: a function in 'erBodyFallback' whose body is
+--     nonlinear arithmetic ('isNonLinear'). Its post escaped QF-LIA → landed at
+--     'asserted'; under @--leanstral@ we hand its REAL body
+--     @(name, params, ret, contract, body)@ to Layer-1 to state a faithful,
+--     @result@-bound theorem for Leanstral to discharge + the kernel to check.
+--   * Legacy proof-required holes (body-position). These have a hole body, so
+--     under the faithful (result-bound) translator they resolve 'Unsupported'
+--     (you cannot bind @result@ to a hole) — reported honestly, never laundered.
+runLeanstralPipeline :: Bool -> FilePath -> [Statement] -> [T.Text] -> LeanstralOpts -> IO ()
+runLeanstralPipeline json fp stmts fallbackNames lsOpts = do
+  let fallbackSet = Set.fromList fallbackNames
+      -- Layer-2: nonlinear body-fallback functions, with their real bodies.
+      nonlinearFallback =
+        [ (n, p, r, c, b)
+        | s <- stmts
+        , Just (n, p, r, c, b) <- [normalizeDefOrLetrec s]
+        , n `Set.member` fallbackSet
+        , isNonLinear b
+        ]
+      -- Legacy: body-position ?proof-required holes (resolve Unsupported now).
+      proofHoles =
+        [ (n, p, r, c, b)
+        | s <- stmts
+        , Just (n, p, r, c, b) <- [normalizeDefOrLetrec s]
+        , EHole (HProofRequired _ _) <- [b]
+        ]
+      worklist = nonlinearFallback ++ proofHoles
+  if null worklist
+    then unless json $ putStrLn "   No obligations for Leanstral."
     else do
-      unless json $ putStrLn $ "   " ++ show (length proofHoles) ++ " proof-required hole(s) found."
-      cache <- loadProofCache fp
-      let config = if lsMock lsOpts
-                     then defaultMCPConfig { mcpMock = True }
-                     else defaultMCPConfig
-                            { mcpMock = False
-                            , mcpCommand = T.pack (fromMaybe "lean-lsp-mcp" (lsCmd lsOpts))
-                            , mcpTimeout = lsTimeout lsOpts
-                            }
-      updatedCache <- foldM (processPH config json) cache proofHoles
+      unless json $ putStrLn $ "   " ++ show (length worklist) ++ " obligation(s) for Leanstral."
+      cache   <- loadProofCache fp
+      mApiKey <- fmap (fmap T.pack) (lookupEnv "LLMLL_LEANSTRAL_API_KEY")
+      let config
+            | lsMock lsOpts = defaultMCPConfig { mcpMock = True }
+            | lsLeanstral lsOpts = defaultMCPConfig
+                { mcpMock        = False
+                , mcpLeanstral   = True
+                , mcpModel       = lsModel lsOpts
+                , mcpEndpoint    = "https://api.mistral.ai/v1/chat/completions"
+                , mcpLeanProject = lsLeanProject lsOpts
+                , mcpTimeout     = lsTimeout lsOpts
+                }
+            | otherwise = defaultMCPConfig
+                { mcpMock     = False
+                , mcpCommand  = T.pack (fromMaybe "lean-lsp-mcp" (lsCmd lsOpts))
+                , mcpTimeout  = lsTimeout lsOpts
+                }
+      updatedCache <- foldM (processPH config mApiKey json) cache worklist
       saveProofCache fp updatedCache
       unless json $ putStrLn $ "   .proof-cache.json written to " ++ fp ++ ".proof-cache.json"
   where
-    processPH config isJson cache (name, contract) = do
-      case translateObligation name contract of
+    processPH config mApiKey isJson cache (name, params, ret, contract, body) = do
+      case translateObligation name params ret contract body of
         LeanTheorem thm -> do
           let hash = computeObligationHash thm  -- v0.3.1 Phase F: real SHA-256
           case lookupProof ("/post/" <> name) hash cache of
@@ -1729,19 +1774,38 @@ runLeanstralPipeline json fp stmts lsOpts = do
               unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": cached proof (skip)"
               pure cache
             Nothing -> do
-              result <- callLeanstral config thm
+              result <- if mcpLeanstral config
+                          then case mApiKey of
+                                 Nothing  -> pure (LeanstralUnavailable
+                                               "LLMLL_LEANSTRAL_API_KEY not set")
+                                 Just key -> proveWithLeanstral config key name thm
+                          else callLeanstral config thm
               case result of
                 ProofFound proof -> do
-                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": proof found"
-                  -- v0.6.3: tag mock proofs correctly (BUG-7)
-                  let proverName = if lsMock lsOpts then "mock" else "leanstral"
-                      entry = ProofEntry hash proof proverName ""
+                  -- Layer-3 record: on a clean kernel check, persist the checked
+                  -- .lean as the certificate and mark verified-lean. (Mock mode
+                  -- never reaches here — sanitizeProof rejects 'by sorry'.)
+                  let proverName = if lsLeanstral lsOpts then "leanstral" else "mock"
+                      entry      = ProofEntry hash proof proverName ""
+                  cert <- if lsLeanstral lsOpts
+                            then do
+                              let certPath = takeDirectory fp </> (T.unpack name ++ ".verified.lean")
+                              TIO.writeFile certPath proof
+                              pure (Just certPath)
+                            else pure Nothing
+                  unless isJson $ do
+                    putStrLn $ "   " ++ T.unpack name ++ ": Leanstral proof found, Lean kernel + Mathlib CHECKED"
+                    case cert of
+                      Just cp -> putStrLn $ "   " ++ T.unpack name
+                                   ++ ": verified-lean   (certificate: " ++ cp ++ ")"
+                      Nothing -> pure ()
                   pure (insertProof ("/post/" <> name) entry cache)
                 ProofTimeout -> do
                   unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": timeout"
                   pure cache
                 ProofError e -> do
-                  unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": error: " ++ T.unpack e
+                  unless isJson $ putStrLn $ "   " ++ T.unpack name
+                    ++ ": not verified (fail-closed): " ++ T.unpack e
                   pure cache
                 LeanstralUnavailable e -> do
                   unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": unavailable: " ++ T.unpack e
@@ -1749,6 +1813,14 @@ runLeanstralPipeline json fp stmts lsOpts = do
         Unsupported reason -> do
           unless isJson $ putStrLn $ "   " ++ T.unpack name ++ ": unsupported (" ++ T.unpack reason ++ ")"
           pure cache
+
+-- | Normalize a def-like or letrec statement to @(name, params, ret, contract,
+-- body)@. Extends 'normalizeDefStmt' (which omits 'SLetrec') with the letrec
+-- case so the Leanstral worklist covers recursive functions too.
+normalizeDefOrLetrec :: Statement -> Maybe (Name, [(Name, Type)], Maybe Type, Contract, Expr)
+normalizeDefOrLetrec s@SLetrec{} =
+  Just (letrecName s, letrecParams s, letrecReturn s, letrecContract s, letrecBody s)
+normalizeDefOrLetrec s = normalizeDefStmt s
 
 -- ---------------------------------------------------------------------------
 -- Phase 2c: typecheck [--sketch]
