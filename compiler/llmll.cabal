@@ -52,6 +52,7 @@ library
       LLMLL.ObligationMining
       LLMLL.SpecCoverage
       LLMLL.ObligationAssembly
+      LLMLL.DivergenceCheck
   other-modules:
       Paths_llmll
   hs-source-dirs:

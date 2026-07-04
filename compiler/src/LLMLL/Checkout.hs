@@ -32,6 +32,19 @@ module LLMLL.Checkout
   , expireStale
   , lockFilePath
   , normalizePointer
+  -- R5: divergence sessions (checkout --multi N) — isolated scratch copies
+  , DivergenceSession(..)
+  , DivergenceMember(..)
+  , MultiCheckoutResult(..)
+  , checkoutHoleMulti
+  , divergeSessionPath
+  , loadSessions
+  , saveSessions
+  , expireStaleSessions
+  , sessionMembers
+  , scratchPathFor
+  , promoteDivergenceWinner
+  , emptyCheckoutContext
   -- v0.3.5 C4-C6: Context building utilities
   , collectTypeDefinitions
   , monomorphizeFunctions
@@ -41,7 +54,7 @@ module LLMLL.Checkout
   , sourceLabel
   ) where
 
-import Data.Aeson (Value(..), FromJSON(..), ToJSON(..), withObject, (.:), (.:?), (.=), object)
+import Data.Aeson (Value(..), FromJSON(..), ToJSON(..), withObject, (.:), (.:?), (.!=), (.=), object)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
@@ -52,7 +65,7 @@ import Data.Text (Text)
 import Data.Time.Clock (UTCTime, NominalDiffTime, getCurrentTime, diffUTCTime, addUTCTime)
 import GHC.Generics (Generic)
 import Numeric (showHex)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, copyFile, removeFile)
 import System.FilePath (replaceExtension, takeExtension)
 import System.Random (randomRIO)
 import Data.List (isSuffixOf)
@@ -430,12 +443,22 @@ checkoutHoleWithContext fp astVal rawPointer ctx = do
           let lock = maybe (CheckoutLock fp []) id mLock
               cleanLock = expireStale now lock
 
-          -- 5. Check for existing lock on this pointer
-          let conflict = filter (\ct -> ctPointer ct == pointer) (lockTokens cleanLock)
-          case conflict of
-            (_:_) -> pure $ Left $ mkDiag fp $
+          -- 5. Check for existing lock on this pointer. An exclusive checkout is
+          -- refused both by another exclusive token AND by an open R5 divergence
+          -- session on the same pointer (the two mechanisms are mutually
+          -- exclusive on a pointer: a session must be torn down / promoted before
+          -- an exclusive checkout can proceed).
+          sessions0 <- loadSessions fp
+          let sessions   = expireStaleSessions now sessions0
+              sessConflict = any (\ds -> dsPointer ds == pointer) sessions
+              conflict = filter (\ct -> ctPointer ct == pointer) (lockTokens cleanLock)
+          case (conflict, sessConflict) of
+            (_, True) -> pure $ Left $ mkDiag fp $
+              "hole at " <> pointer <> " has an open divergence session; "
+              <> "promote a winner or tear it down before an exclusive checkout"
+            ((_:_), _) -> pure $ Left $ mkDiag fp $
               "hole at " <> pointer <> " is already checked out"
-            [] -> do
+            ([], False) -> do
               -- 6. Generate token, append to lock
               tok <- generateCheckoutToken
               let ct = CheckoutToken
@@ -499,6 +522,276 @@ checkoutStatus fp token = do
           let elapsed = diffUTCTime now (ctTimestamp ct)
               remaining = ctTTL ct - elapsed
           pure $ Right (max 0 remaining)
+
+-- ---------------------------------------------------------------------------
+-- R5: Divergence sessions (checkout --multi N)
+-- ---------------------------------------------------------------------------
+--
+-- The exclusive checkout lock refuses a second token on a pointer. A divergence
+-- session RELAXES that for one pointer: up to N concurrent tokens, EACH bound
+-- to its own isolated SCRATCH COPY of the source. The isolation invariant is
+-- non-negotiable — multi-fills write only to their scratch copy (and its own
+-- scratch lock, so the standard `patch` flow works against it), never to the
+-- shared tree. The shared file is overwritten only by an explicit
+-- 'promoteDivergenceWinner'.
+--
+-- Session state lives in its OWN sidecar (@.llmll-diverge.json@), disjoint from
+-- the exclusive @.llmll-lock.json@, so neither mechanism perturbs the other's
+-- schema. Exclusivity across the two is enforced at both entry points:
+-- 'checkoutHoleWithContext' refuses a pointer with an open session, and
+-- 'checkoutHoleMulti' refuses a pointer already held by an exclusive token.
+
+-- | One participant in a divergence session: its bearer token and the isolated
+-- scratch copy it edits.
+data DivergenceMember = DivergenceMember
+  { dmToken   :: Text      -- ^ bearer token (also the scratch's own lock token)
+  , dmScratch :: FilePath  -- ^ isolated scratch copy path
+  , dmCreated :: UTCTime   -- ^ creation time (for stale-session expiry)
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON DivergenceMember where
+  toJSON dm = object
+    [ "token"   .= dmToken dm
+    , "scratch" .= dmScratch dm
+    , "created" .= dmCreated dm
+    ]
+
+instance FromJSON DivergenceMember where
+  parseJSON = withObject "DivergenceMember" $ \o ->
+    DivergenceMember <$> o .: "token" <*> o .: "scratch" <*> o .: "created"
+
+-- | A divergence session: N concurrent scratch-isolated tokens on ONE pointer.
+data DivergenceSession = DivergenceSession
+  { dsSession  :: Text               -- ^ session id
+  , dsPointer  :: Text               -- ^ the shared hole pointer
+  , dsCapacity :: Int                -- ^ N — max concurrent members
+  , dsTTL      :: NominalDiffTime    -- ^ session duration (default 3600s)
+  , dsMembers  :: [DivergenceMember] -- ^ live participants
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON DivergenceSession where
+  toJSON ds = object
+    [ "session"  .= dsSession ds
+    , "pointer"  .= dsPointer ds
+    , "capacity" .= dsCapacity ds
+    , "ttl"      .= (round (dsTTL ds) :: Int)
+    , "members"  .= dsMembers ds
+    ]
+
+instance FromJSON DivergenceSession where
+  parseJSON = withObject "DivergenceSession" $ \o -> do
+    s   <- o .: "session"
+    p   <- o .: "pointer"
+    cap <- o .: "capacity"
+    ttl <- o .:? "ttl" .!= (3600 :: Int)
+    ms  <- o .: "members"
+    pure DivergenceSession
+      { dsSession = s, dsPointer = p, dsCapacity = cap
+      , dsTTL = fromIntegral ttl, dsMembers = ms }
+
+-- | The result of a successful @checkout --multi@: the bearer token, the
+-- session it joined, the isolated scratch copy to edit, and the slot occupancy.
+data MultiCheckoutResult = MultiCheckoutResult
+  { mcToken    :: CheckoutToken  -- ^ bearer token (also the scratch's lock token)
+  , mcSession  :: Text           -- ^ session id
+  , mcScratch  :: FilePath       -- ^ isolated scratch copy to patch/fill
+  , mcSlot     :: Int            -- ^ 1-based slot occupied
+  , mcCapacity :: Int            -- ^ session capacity N
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON MultiCheckoutResult where
+  toJSON mc = object
+    [ "token"          .= mcToken mc
+    , "session"        .= mcSession mc
+    , "scratch"        .= mcScratch mc
+    , "slot"           .= mcSlot mc
+    , "capacity"       .= mcCapacity mc
+    -- The scratch copy is the ONLY file this token may edit; the shared tree is
+    -- untouched until a winner is promoted (isolation invariant).
+    , "isolated_scratch" .= True
+    ]
+
+-- | Session sidecar path (disjoint from the exclusive lock file).
+-- @program.ast.json → program.llmll-diverge.json@.
+divergeSessionPath :: FilePath -> FilePath
+divergeSessionPath fp
+  | ".ast.json" `isSuffixOf` fp = take (length fp - 9) fp ++ ".llmll-diverge.json"
+  | otherwise                   = replaceExtension fp ".llmll-diverge.json"
+
+-- | Load the divergence-session sidecar (empty when absent / unparseable).
+loadSessions :: FilePath -> IO [DivergenceSession]
+loadSessions fp = do
+  let sp = divergeSessionPath fp
+  exists <- doesFileExist sp
+  if exists
+    then maybe [] id <$> A.decodeFileStrict sp
+    else pure []
+
+-- | Persist the divergence-session sidecar.
+saveSessions :: FilePath -> [DivergenceSession] -> IO ()
+saveSessions fp sessions = BL.writeFile (divergeSessionPath fp) (A.encode sessions)
+
+-- | Drop members older than their session TTL; drop sessions left empty.
+expireStaleSessions :: UTCTime -> [DivergenceSession] -> [DivergenceSession]
+expireStaleSessions now = filter (not . null . dsMembers) . map dropStale
+  where
+    dropStale ds = ds { dsMembers = filter (live ds) (dsMembers ds) }
+    live ds dm = diffUTCTime now (dmCreated dm) <= dsTTL ds
+
+-- | Members of a named session (stale members filtered against the clock).
+sessionMembers :: FilePath -> Text -> IO [DivergenceMember]
+sessionMembers fp session = do
+  now <- getCurrentTime
+  sessions <- expireStaleSessions now <$> loadSessions fp
+  pure $ case filter ((== session) . dsSession) sessions of
+    (ds:_) -> dsMembers ds
+    []     -> []
+
+-- | Derive an isolated scratch-copy path for a (session, token) pair.
+-- @program.ast.json → program.<sess8>-<tok8>.scratch.ast.json@.
+scratchPathFor :: FilePath -> Text -> Text -> FilePath
+scratchPathFor fp session tok =
+  let tag = T.unpack (T.take 8 session <> "-" <> T.take 8 tok)
+  in if ".ast.json" `isSuffixOf` fp
+       then take (length fp - 9) fp ++ "." ++ tag ++ ".scratch.ast.json"
+       else replaceExtension fp (tag ++ ".scratch.json")
+
+-- | Open or join a divergence session on a pointer, allocating an isolated
+-- scratch copy for a fresh token. Never writes the shared source file.
+checkoutHoleMulti
+  :: FilePath
+  -> Value            -- ^ JSON-AST (used only for hole validation)
+  -> Text             -- ^ pointer (user-supplied, will be normalized)
+  -> Int              -- ^ N — session capacity (must be ≥ 2)
+  -> CheckoutContext  -- ^ bundled context (same brief as an exclusive checkout)
+  -> IO (Either Diagnostic MultiCheckoutResult)
+checkoutHoleMulti fp astVal rawPointer n ctx
+  | n < 2 = pure $ Left $ mkDiag fp $
+      "checkout --multi N requires N >= 2 (a divergence session needs at least "
+      <> "two concurrent fills); use a plain checkout for exclusive editing"
+  | otherwise = do
+      let pointer = normalizePointer rawPointer
+      case resolvePointer pointer astVal of
+        Nothing -> pure $ Left $ mkDiag fp $
+          "pointer " <> pointer <> " does not resolve to any node in the JSON-AST"
+        Just node
+          | not (isHoleNode node) -> do
+              let hints = findDescendantHoles pointer astVal
+                  hintMsg = case hints of { [] -> ""; (h:_) -> "; did you mean " <> h <> "?" }
+              pure $ Left $ mkDiag fp $
+                "pointer " <> pointer <> " does not target a hole node" <> hintMsg
+          | otherwise -> do
+              now <- getCurrentTime
+              -- Exclusive-lock conflict: refuse if an exclusive token holds the pointer.
+              mLock <- loadLock fp
+              let cleanLock = expireStale now (maybe (CheckoutLock fp []) id mLock)
+                  exclusiveHolds = any (\ct -> ctPointer ct == pointer) (lockTokens cleanLock)
+              sessions0 <- loadSessions fp
+              let sessions = expireStaleSessions now sessions0
+                  holeKind = case node of
+                    Object o -> case KM.lookup "kind" o of
+                      Just (String k) -> k
+                      _               -> "hole-unknown"
+                    _ -> "hole-unknown"
+              if exclusiveHolds
+                then pure $ Left $ mkDiag fp $
+                  "hole at " <> pointer <> " is held by an exclusive checkout; "
+                  <> "release it before opening a divergence session"
+                else case filter ((== pointer) . dsPointer) sessions of
+                  (existing:_)
+                    | length (dsMembers existing) >= dsCapacity existing ->
+                        pure $ Left $ mkDiag fp $
+                          "divergence session " <> dsSession existing <> " on " <> pointer
+                          <> " is full (" <> T.pack (show (dsCapacity existing)) <> " tokens)"
+                    | otherwise ->
+                        joinSession fp astVal pointer holeKind now ctx sessions existing
+                  [] -> do
+                    sid <- generateCheckoutToken
+                    let fresh = DivergenceSession
+                          { dsSession  = "sess-" <> T.take 12 sid
+                          , dsPointer  = pointer
+                          , dsCapacity = n
+                          , dsTTL      = 3600
+                          , dsMembers  = []
+                          }
+                    joinSession fp astVal pointer holeKind now ctx sessions fresh
+
+-- | Allocate a token + isolated scratch copy and add it to (a possibly new)
+-- session. Writes the scratch copy, its own scratch lock, and the session
+-- sidecar — but never the shared source file.
+joinSession
+  :: FilePath -> Value -> Text -> Text -> UTCTime -> CheckoutContext
+  -> [DivergenceSession] -> DivergenceSession
+  -> IO (Either Diagnostic MultiCheckoutResult)
+joinSession fp _astVal pointer holeKind now ctx allSessions session = do
+  tok <- generateCheckoutToken
+  let scratch = scratchPathFor fp (dsSession session) tok
+      -- The token that patches the scratch. Staleness hashes are Nothing so the
+      -- standard `patch` flow (PatchApply.checkStaleness) does not gate on the
+      -- shared file's hash — the scratch is a self-contained edit surface.
+      ct = CheckoutToken
+        { ctPointer   = pointer
+        , ctHoleKind  = holeKind
+        , ctExpected  = Nothing
+        , ctTimestamp = now
+        , ctToken     = tok
+        , ctTTL       = dsTTL session
+        , ctInScope           = ccScope ctx
+        , ctExpectedReturn    = ccExpectedReturn ctx
+        , ctAvailableFunctions = ccFunctions ctx
+        , ctTypeDefinitions   = ccTypeDefs ctx
+        , ctScopeTruncated    = False
+        , ctHubSuggestions    = Nothing
+        , ctContractPre       = ccContractPre ctx
+        , ctPostconditionGoal = ccPostGoal ctx
+        , ctPathCondition     = ccPathCondition ctx
+        , ctAssumptions       = ccAssumptions ctx
+        , ctObligationId      = ccObligationId ctx
+        , ctSourceHash        = Nothing
+        , ctVerifiedHash      = Nothing
+        , ctConsumedGuarantees = ccConsumedGuarantees ctx
+        }
+      member = DivergenceMember { dmToken = tok, dmScratch = scratch, dmCreated = now }
+      session' = session { dsMembers = dsMembers session ++ [member] }
+      others   = filter ((/= dsSession session) . dsSession) allSessions
+  -- Isolated scratch copy = byte-for-byte snapshot of the shared source.
+  copyFile fp scratch
+  -- Per-scratch lock so `llmll patch <scratch>` authenticates with this token.
+  saveLock scratch (CheckoutLock scratch [ct])
+  -- Persist the session sidecar (NOT the shared exclusive lock).
+  saveSessions fp (others ++ [session'])
+  pure $ Right MultiCheckoutResult
+    { mcToken    = ct
+    , mcSession  = dsSession session
+    , mcScratch  = scratch
+    , mcSlot     = length (dsMembers session')
+    , mcCapacity = dsCapacity session
+    }
+
+-- | Explicitly promote one member's scratch copy to the shared source — the
+-- ONLY sanctioned write of a multi-fill back into the shared tree. Copies the
+-- winning scratch over the shared file, then tears the whole session down
+-- (removing every scratch copy + its scratch lock + the session record).
+promoteDivergenceWinner :: FilePath -> Text -> Text -> IO (Either Diagnostic ())
+promoteDivergenceWinner fp session winnerTok = do
+  sessions <- loadSessions fp
+  case filter ((== session) . dsSession) sessions of
+    [] -> pure $ Left $ mkDiag fp $ "no divergence session " <> session
+    (ds:_) -> case filter ((== winnerTok) . dmToken) (dsMembers ds) of
+      [] -> pure $ Left $ mkDiag fp $
+        "token " <> winnerTok <> " is not a member of session " <> session
+      (winner:_) -> do
+        -- Promote the winner into the shared tree.
+        copyFile (dmScratch winner) fp
+        -- Tear the session down: remove every scratch copy + its scratch lock.
+        mapM_ (safeRemove . dmScratch) (dsMembers ds)
+        mapM_ (safeRemove . lockFilePath . dmScratch) (dsMembers ds)
+        saveSessions fp (filter ((/= session) . dsSession) sessions)
+        pure $ Right ()
+  where
+    safeRemove path = do
+      exists <- doesFileExist path
+      if exists then removeFile path else pure ()
 
 -- ---------------------------------------------------------------------------
 -- Helpers

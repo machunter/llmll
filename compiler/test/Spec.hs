@@ -67,7 +67,12 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), FuncEntry(..), checkoutHole)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), FuncEntry(..), checkoutHole, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), loadSessions, sessionMembers, promoteDivergenceWinner, emptyCheckoutContext)
+import LLMLL.DivergenceCheck
+  ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
+  , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
+  , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson
+  , verdictLabel, probeSet )
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, hasContracts)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
@@ -87,6 +92,12 @@ runTCPure :: TC a -> ([Diagnostic], a)
 runTCPure action =
   let (result, diags) = runTC GrammarCoreInversion emptyEnv action
   in (diags, result)
+
+-- | R5 test helper: parse an S-expression fill body into an 'Expr'.
+peR5 :: T.Text -> Expr
+peR5 src = case parseExpr "<r5-test>" src of
+  Right e  -> e
+  Left err -> error ("R5 test parse failed: " ++ show err)
 
 main :: IO ()
 main = hspec $ do
@@ -10341,6 +10352,202 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           let result = generateHaskell "cleanname" stmts
           T.isInfixOf "name: cleanname" (cgPackageYaml result) `shouldBe` True
         Left err -> expectationFailure $ "Parse failed: " ++ show err
+
+  -- =========================================================================
+  -- R5: Differential Implementation Pressure (observational increment, stages 1–2)
+  -- =========================================================================
+  describe "R5 DivergenceCheck: observational divergence witness (stages 1–2)" $ do
+
+    -- Shared clamp-lo positive witness: post (>= result lo). Fill A is the
+    -- intended clamp; fill B (constant lo) ALSO satisfies the post (lo >= lo)
+    -- yet diverges from A whenever x > lo — the spec is under-constrained.
+    let clampParams = [("x", TInt), ("lo", TInt)]
+        fillA = Fill "fillA" (peR5 "(if (< x lo) lo x)")
+        fillB = Fill "fillB" (peR5 "lo")
+        clampCtx se = DivergenceContext
+          { dcSession     = "sess-clamp"
+          , dcHole        = "/statements/0/body"
+          , dcParams      = clampParams
+          , dcSpecEntropy = se
+          , dcFuncEnv     = Map.empty
+          }
+
+    it "positive witness: two verified fills diverge on Ω → under-constraint-witness" $ do
+      let rep = buildDivergenceReport (clampCtx SpecEntropyStrict)
+                  [ClassifiedFill fillA FSVerified, ClassifiedFill fillB FSVerified]
+      drVerdict rep `shouldBe` VUnderConstraintWitness
+      length (drVerifiedBuckets rep) `shouldBe` 2
+      drSpecEntropySuppressed rep `shouldBe` False
+      drStatusVerified rep `shouldBe` ["fillA", "fillB"]
+      -- The distinguishing witness names two buckets whose outputs differ.
+      case drWitness rep of
+        Nothing -> expectationFailure "expected a distinguishing witness"
+        Just w  -> do
+          length (dwOutputs w) `shouldBe` 2
+          (snd (dwOutputs w !! 0) == snd (dwOutputs w !! 1)) `shouldBe` False
+
+    it "positive witness: (x=5, lo=0) is a concrete divergence point" $ do
+      -- Documents the narrative: A computes max(x,lo)=5, B computes lo=0.
+      let env = Map.fromList [("x", ELit (LitInt 5)), ("lo", ELit (LitInt 0))]
+      evalExprStaticWith Map.empty maxFuel env (peR5 "(if (< x lo) lo x)")
+        `shouldBe` Just (ELit (LitInt 5))
+      evalExprStaticWith Map.empty maxFuel env (peR5 "lo")
+        `shouldBe` Just (ELit (LitInt 0))
+
+    it "tight contract: two verified fills agree on Ω → no-divergence-observed" $ do
+      -- double: post (= result (* 2 x)). (* 2 x) and (+ x x) are observationally
+      -- identical on every probe → one bucket → NO spec-tightness claim, just
+      -- 'no divergence observed'.
+      let ctx = DivergenceContext "sess-double" "/statements/0/body"
+                  [("x", TInt)] SpecEntropyStrict Map.empty
+          fa  = Fill "twoX"   (peR5 "(* 2 x)")
+          fb  = Fill "xPlusX" (peR5 "(+ x x)")
+          rep = buildDivergenceReport ctx
+                  [ClassifiedFill fa FSVerified, ClassifiedFill fb FSVerified]
+      drVerdict rep `shouldBe` VNoDivergenceObserved
+      length (drVerifiedBuckets rep) `shouldBe` 1
+      drWitness rep `shouldBe` Nothing
+      drSpecEntropySuppressed rep `shouldBe` False
+
+    it "spec-entropy :intentional: divergence is suppressed → suppressed-intentional" $ do
+      let rep = buildDivergenceReport (clampCtx SpecEntropyIntentional)
+                  [ClassifiedFill fillA FSVerified, ClassifiedFill fillB FSVerified]
+      drVerdict rep `shouldBe` VSuppressedIntentional
+      drSpecEntropySuppressed rep `shouldBe` True
+      -- The divergence is still WITNESSED (two buckets), just self-attested.
+      length (drVerifiedBuckets rep) `shouldBe` 2
+      isJust (drWitness rep) `shouldBe` True
+
+    it "N=1 submitted → insufficient-fills" $ do
+      let rep = buildDivergenceReport (clampCtx SpecEntropyStrict)
+                  [ClassifiedFill fillA FSVerified]
+      drVerdict rep `shouldBe` VInsufficientFills
+      drWitness rep `shouldBe` Nothing
+
+    it "only verified fills carry the signal: refuted/type-error are partitioned out" $ do
+      -- fillA + fillB diverge (both verified) but a third refuted fill and a
+      -- fourth ill-typed fill must not enter the observational bucketing.
+      let fillC = Fill "fillC" (peR5 "(+ x lo)")   -- refuted (does not satisfy post)
+          fillD = Fill "fillD" (peR5 "hd")          -- type-error (unbound)
+          rep = buildDivergenceReport (clampCtx SpecEntropyStrict)
+                  [ ClassifiedFill fillA FSVerified
+                  , ClassifiedFill fillB FSVerified
+                  , ClassifiedFill fillC FSRefuted
+                  , ClassifiedFill fillD FSTypeError ]
+      drNSubmitted rep `shouldBe` 4
+      drStatusVerified rep  `shouldBe` ["fillA", "fillB"]
+      drStatusRefuted rep   `shouldBe` ["fillC"]
+      drStatusTypeError rep `shouldBe` ["fillD"]
+      drVerdict rep `shouldBe` VUnderConstraintWitness
+      -- The refuted/ill-typed fills never appear in a verified bucket.
+      concatMap vbFills (drVerifiedBuckets rep) `shouldBe` ["fillA", "fillB"]
+
+    it "emits a standalone divergence_witness JSON record (not the CDP block)" $ do
+      let rep = buildDivergenceReport (clampCtx SpecEntropyStrict)
+                  [ClassifiedFill fillA FSVerified, ClassifiedFill fillB FSVerified]
+      case divergenceReportJson rep of
+        Object o -> do
+          KM.member "divergence_witness" o `shouldBe` True
+          KM.member "discriminative_axis" o `shouldBe` False  -- never overloaded onto CDP
+          case KM.lookup "divergence_witness" o of
+            Just (Object dw) -> do
+              KM.lookup "verdict" dw `shouldBe` Just (String (verdictLabel VUnderConstraintWitness))
+              KM.member "status_partition" dw       `shouldBe` True
+              KM.member "verified_buckets" dw       `shouldBe` True
+              KM.member "distinguishing_witness" dw  `shouldBe` True
+              KM.member "spec_entropy_suppressed" dw `shouldBe` True
+            _ -> expectationFailure "divergence_witness is not an object"
+        _ -> expectationFailure "top-level record is not an object"
+
+    it "Ω probe set includes the (x=5, lo=0) point for two int params" $ do
+      let probes = probeSet clampParams
+      elem [("x", ELit (LitInt 5)), ("lo", ELit (LitInt 0))] probes `shouldBe` True
+
+  -- =========================================================================
+  -- R5: checkout --multi divergence session — isolated scratch copies
+  -- =========================================================================
+  describe "R5 checkout --multi: N concurrent tokens, isolated scratch copies" $ do
+
+    it "opens a session with N scratch-isolated tokens; shared file is untouched" $ do
+      let tmpDir = "test/_tmp_r5_multi"
+      createDirectoryIfMissing True tmpDir
+      BL.readFile "../examples/withdraw-demo/withdraw.ast.json"
+        >>= BL.writeFile (tmpDir </> "withdraw.ast.json")
+      let fp = tmpDir </> "withdraw.ast.json"
+      original <- BL.readFile fp
+      let Just astVal = decode original
+      -- Two multi checkouts on ONE pointer join one session, capacity 2.
+      r1 <- checkoutHoleMulti fp astVal "/statements/1/body" 2 emptyCheckoutContext
+      r2 <- checkoutHoleMulti fp astVal "/statements/1/body" 2 emptyCheckoutContext
+      case (r1, r2) of
+        (Right mc1, Right mc2) -> do
+          -- Same session, distinct isolated scratch copies.
+          mcSession mc1 `shouldBe` mcSession mc2
+          (mcScratch mc1 == mcScratch mc2) `shouldBe` False
+          mcSlot mc1 `shouldBe` 1
+          mcSlot mc2 `shouldBe` 2
+          mcCapacity mc2 `shouldBe` 2
+          -- Each scratch is a byte-for-byte snapshot of the shared source ...
+          s1 <- BL.readFile (mcScratch mc1)
+          s2 <- BL.readFile (mcScratch mc2)
+          s1 `shouldBe` original
+          s2 `shouldBe` original
+          -- ... and the SHARED file was never written (isolation invariant).
+          afterShared <- BL.readFile fp
+          afterShared `shouldBe` original
+          -- The session now has two members.
+          members <- sessionMembers fp (mcSession mc1)
+          length members `shouldBe` 2
+          -- Capacity is enforced: a third token is refused.
+          r3 <- checkoutHoleMulti fp astVal "/statements/1/body" 2 emptyCheckoutContext
+          isLeft r3 `shouldBe` True
+          -- An exclusive checkout on the same pointer is refused while the
+          -- session is open.
+          rEx <- checkoutHole fp astVal "/statements/1/body"
+          isLeft rEx `shouldBe` True
+        _ -> expectationFailure $ "expected two successful multi checkouts, got: "
+                                ++ show (r1, r2)
+      removeDirectoryRecursive tmpDir
+
+    it "--multi 1 is refused (a session needs >= 2 concurrent fills)" $ do
+      let tmpDir = "test/_tmp_r5_multi1"
+      createDirectoryIfMissing True tmpDir
+      BL.readFile "../examples/withdraw-demo/withdraw.ast.json"
+        >>= BL.writeFile (tmpDir </> "withdraw.ast.json")
+      let fp = tmpDir </> "withdraw.ast.json"
+      raw <- BL.readFile fp
+      let Just astVal = decode raw
+      r <- checkoutHoleMulti fp astVal "/statements/1/body" 1 emptyCheckoutContext
+      isLeft r `shouldBe` True
+      removeDirectoryRecursive tmpDir
+
+    it "promote copies the winning scratch to the shared tree and tears the session down" $ do
+      let tmpDir = "test/_tmp_r5_promote"
+      createDirectoryIfMissing True tmpDir
+      BL.readFile "../examples/withdraw-demo/withdraw.ast.json"
+        >>= BL.writeFile (tmpDir </> "withdraw.ast.json")
+      let fp = tmpDir </> "withdraw.ast.json"
+      original <- BL.readFile fp
+      let Just astVal = decode original
+      r1 <- checkoutHoleMulti fp astVal "/statements/1/body" 2 emptyCheckoutContext
+      _  <- checkoutHoleMulti fp astVal "/statements/1/body" 2 emptyCheckoutContext
+      case r1 of
+        Right mc1 -> do
+          -- The winner edits ONLY its scratch (simulate a fill).
+          BL.writeFile (mcScratch mc1) "{\"winner\":true}"
+          -- Before promotion the shared file is still the original.
+          preShared <- BL.readFile fp
+          preShared `shouldBe` original
+          promoted <- promoteDivergenceWinner fp (mcSession mc1) (ctToken (mcToken mc1))
+          isRight promoted `shouldBe` True
+          -- Now the shared tree carries the winner ...
+          postShared <- BL.readFile fp
+          postShared `shouldBe` "{\"winner\":true}"
+          -- ... and the session is gone.
+          remaining <- loadSessions fp
+          any ((== mcSession mc1) . dsSession) remaining `shouldBe` False
+        Left diag -> expectationFailure $ T.unpack (diagMessage diag)
+      removeDirectoryRecursive tmpDir
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

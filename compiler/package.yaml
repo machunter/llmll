@@ -108,6 +108,8 @@ library:
     - LLMLL.SpecCoverage
     # v0.10: obligation report assembly
     - LLMLL.ObligationAssembly
+    # R5: differential implementation pressure (observational divergence witness)
+    - LLMLL.DivergenceCheck
 
 executables:
   llmll:

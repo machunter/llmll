@@ -22,7 +22,7 @@ import Paths_llmll (version)
 import System.Exit (exitFailure, exitSuccess, exitWith, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
 import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
-import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe, listToMaybe)
 import System.Process (readProcessWithExitCode)
 import Control.Monad (unless, forM_, when, foldM)
 import Numeric (showFFloat)
@@ -40,7 +40,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, raiseLowDP)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -64,9 +64,12 @@ import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, F
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
-import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, collectTypeDefinitions, normalizePointer)
+import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
 import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
-import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode)
+import LLMLL.DivergenceCheck
+  ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
+  , buildDivergenceReport, divergenceReportJson )
+import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode, buildFuncEnv)
 import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, loadVerified, verifiedPath)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
@@ -114,8 +117,10 @@ data Command
   | CmdTypecheck FilePath Bool                              -- Phase 2c: file, --sketch
   | CmdServe    ServeOptions                                -- D5: HTTP serve on localhost:7777
   | CmdCheckout       FilePath String                       -- v0.3: checkout <file.ast.json> <pointer>
+  | CmdCheckoutMulti  FilePath String Int                   -- R5: checkout --multi N <file> <pointer> (divergence session)
   | CmdCheckoutRelease FilePath String                      -- v0.3: checkout --release <file> <token>
   | CmdCheckoutStatus  FilePath String                      -- v0.3: checkout --status <file> <token>
+  | CmdDivergeReport  FilePath String                       -- R5: diverge-report <file> <session-id>
   | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
   | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
   | CmdSpec     Bool                                         -- v0.3.4: spec [--json]
@@ -174,7 +179,9 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <> command "serve" (info (helper <*> serveCmd)
           (progDesc "Start HTTP server on 127.0.0.1:7777 for AI agent integration"))
       <> command "checkout" (info (helper <*> checkoutCmd)
-          (progDesc "Lock a hole for exclusive editing (checkout/release/status)"))
+          (progDesc "Lock a hole for exclusive editing (checkout/release/status; --multi N opens a divergence session)"))
+      <> command "diverge-report" (info (helper <*> divergeReportCmd)
+          (progDesc "R5: collect a divergence session's fills and emit the divergence_witness record"))
       <> command "patch" (info (helper <*> patchCmd)
           (progDesc "Apply an RFC 6902 JSON-Patch to a checked-out hole"))
       <> command "replay" (info (helper <*> replayCmd)
@@ -310,12 +317,19 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <$> strArgument (metavar "FILE" <> help "Path to .ast.json file")
       <*> optional (strOption (long "release" <> metavar "TOKEN" <> help "Release a checkout lock"))
       <*> optional (strOption (long "status" <> metavar "TOKEN" <> help "Query remaining TTL for a token"))
+      <*> optional (option auto (long "multi" <> metavar "N" <> help "Open/join an R5 divergence session: N concurrent scratch-isolated tokens on ONE pointer"))
       <*> optional (strArgument (metavar "POINTER" <> help "RFC 6901 pointer to hole (e.g. /statements/2/body)"))
 
-    mkCheckout fp (Just tok) _ _          = CmdCheckoutRelease fp tok
-    mkCheckout fp _ (Just tok) _          = CmdCheckoutStatus fp tok
-    mkCheckout fp _ _ (Just ptr)          = CmdCheckout fp ptr
-    mkCheckout fp _ _ Nothing             = CmdCheckout fp ""  -- will error in handler
+    mkCheckout fp (Just tok) _ _ _        = CmdCheckoutRelease fp tok
+    mkCheckout fp _ (Just tok) _ _        = CmdCheckoutStatus fp tok
+    mkCheckout fp _ _ (Just n) (Just ptr) = CmdCheckoutMulti fp ptr n
+    mkCheckout fp _ _ (Just _) Nothing    = CmdCheckout fp ""  -- --multi without pointer: error in handler
+    mkCheckout fp _ _ Nothing (Just ptr)  = CmdCheckout fp ptr
+    mkCheckout fp _ _ Nothing Nothing     = CmdCheckout fp ""  -- will error in handler
+
+    divergeReportCmd = CmdDivergeReport
+      <$> strArgument (metavar "FILE" <> help "Path to .ast.json file")
+      <*> strArgument (metavar "SESSION" <> help "Divergence session id (from checkout --multi)")
 
     patchCmd = CmdPatch
       <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
@@ -363,8 +377,10 @@ main = do
     CmdTypecheck fp sketch        -> doTypecheck json gm fp sketch
     CmdServe serveOpts            -> runServe serveOpts
     CmdCheckout fp ptr            -> doCheckout json gm fp (T.pack ptr)
+    CmdCheckoutMulti fp ptr n     -> doCheckoutMulti json gm fp (T.pack ptr) n
     CmdCheckoutRelease fp tok     -> doCheckoutRelease json fp (T.pack tok)
     CmdCheckoutStatus fp tok      -> doCheckoutStatusCmd json fp (T.pack tok)
+    CmdDivergeReport fp session   -> doDivergeReport json gm fp (T.pack session)
     CmdPatch fp patchFp           -> doPatch json gm fp patchFp
     CmdReplay fp logFp            -> doReplay json gm fp logFp
     CmdSpec jsonOut               -> doSpec jsonOut
@@ -1773,6 +1789,87 @@ guardJsonFile fp = do
       hPutStrLn stderr $ "  Got: " ++ fp
       pure False
 
+-- | OBLIG-1 (population): assemble the per-hole checkout brief from parse +
+-- sketch type-check. No constraint emission, no solver — checkout stays at
+-- typecheck cost. On parse/load failure the brief is empty. Shared by the
+-- exclusive checkout ('doCheckout') and the R5 divergence-session checkout
+-- ('doCheckoutMulti') so both hand the agent the same context.
+assembleCheckoutContext :: Bool -> GrammarMode -> FilePath -> T.Text -> IO CheckoutContext
+assembleCheckoutContext json gm fp pointer = do
+  -- v0.10 OBLIG-1: Compute staleness hashes
+  sourceHash <- hashFile fp
+  let verifiedFp = verifiedPath fp
+  verifiedExists <- doesFileExist verifiedFp
+  mVerifiedHash <- if verifiedExists
+    then Just <$> hashFile verifiedFp
+    else pure Nothing
+  let normPtr = normalizePointer pointer
+  (mScope, mTypeDefs, mPre, mPost, mPath, mFuncs, mConsumed, mExpRet) <- do
+    mStmts <- loadStatementsMulti json gm fp
+    case mStmts of
+      Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
+      Right (stmts, _cache, _) -> do
+        let sketch = runSketch gm builtinEnv stmts defaultPatterns
+            mHole  = case [ h | h <- sketchHoles sketch
+                              , normalizePointer (shPointer h) == normPtr ] of
+                       (h:_) -> Just h
+                       []    -> Nothing
+            scope  = fmap (buildScopeEntries . shEnv) mHole
+            expRet = mHole >>= (inferredTypeLabel . shStatus)
+            holeNm = maybe "" shName mHole
+            (pre, post, path) = holeContractBrief stmts normPtr holeNm
+            tdefs  = case mHole of
+              Nothing -> Nothing
+              Just h  ->
+                let scopeTypes = Map.map sbType (shEnv h)
+                    defs = collectTypeDefinitions scopeTypes Nothing
+                             (buildAliasMap stmts)
+                in if null defs then Nothing else Just defs
+            trustRpt = buildTrustReport _cache stmts Map.empty
+            trustMap = Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+            cenv     = buildContractEnv stmts
+            recNames = recursiveNames stmts
+            funcs = [ FuncEntry
+                        { feName   = fname
+                        , feParams = map (\(n,t) -> (n, typeLabel t)) ps
+                        , feReturn = maybe "?" typeLabel mRet
+                        , feStatus = "filled"
+                        , fePre    = fmap exprToSExpr (contractPre c)
+                        , fePost   = fmap exprToSExpr (contractPost c)
+                        , feTier   = Just (trustLabel trustMap fname)
+                        }
+                    | stmt <- stmts
+                    , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
+                    , contractPre c /= Nothing || contractPost c /= Nothing
+                    ]
+            mEnclosing = enclosingFunc normPtr stmts
+            consumed = case mEnclosing of
+              Just fn -> assembleConsumedGuarantees stmts cenv trustMap recNames fn
+              Nothing -> []
+        pure ( scope
+             , tdefs
+             , pre
+             , post
+             , if null path then Nothing else Just path
+             , if null funcs then Nothing else Just funcs
+             , if null consumed then Nothing else Just consumed
+             , expRet
+             )
+  pure CheckoutContext
+    { ccScope          = mScope
+    , ccExpectedReturn = mExpRet
+    , ccFunctions      = mFuncs
+    , ccTypeDefs       = mTypeDefs
+    , ccContractPre    = mPre
+    , ccPostGoal       = mPost
+    , ccPathCondition  = mPath
+    , ccAssumptions    = Nothing
+    , ccObligationId   = Nothing
+    , ccSourceHash     = Just sourceHash
+    , ccVerifiedHash   = mVerifiedHash
+    , ccConsumedGuarantees = mConsumed
+    }
+
 doCheckout :: Bool -> GrammarMode -> FilePath -> T.Text -> IO ()
 doCheckout json gm fp pointer = do
   ok <- guardJsonFile fp
@@ -1784,95 +1881,7 @@ doCheckout json gm fp pointer = do
       hPutStrLn stderr $ "Error: cannot parse " ++ fp ++ " as JSON"
       exitFailure
     Just astVal -> do
-      -- v0.10 OBLIG-1: Compute staleness hashes
-      sourceHash <- hashFile fp
-      let verifiedFp = verifiedPath fp
-      verifiedExists <- doesFileExist verifiedFp
-      mVerifiedHash <- if verifiedExists
-        then Just <$> hashFile verifiedFp
-        else pure Nothing
-      -- OBLIG-1 (population): assemble the per-hole brief from parse + sketch
-      -- type-check. No constraint emission, no solver — checkout stays at
-      -- typecheck cost. On parse/load failure we proceed with an empty brief;
-      -- checkout still acquires the lock.
-      let normPtr = normalizePointer pointer
-      (mScope, mTypeDefs, mPre, mPost, mPath, mFuncs, mConsumed, mExpRet) <- do
-        mStmts <- loadStatementsMulti json gm fp
-        case mStmts of
-          Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
-          Right (stmts, _cache, _) -> do
-            let sketch = runSketch gm builtinEnv stmts defaultPatterns
-                mHole  = case [ h | h <- sketchHoles sketch
-                                  , normalizePointer (shPointer h) == normPtr ] of
-                           (h:_) -> Just h
-                           []    -> Nothing
-                scope  = fmap (buildScopeEntries . shEnv) mHole
-                -- DEF-RET / OBLIG-1-FOLLOWON: the hole's inferred type (now carrying
-                -- the declared return for a bare body hole) → expected_return_type.
-                expRet = mHole >>= (inferredTypeLabel . shStatus)
-                holeNm = maybe "" shName mHole
-                (pre, post, path) = holeContractBrief stmts normPtr holeNm
-                tdefs  = case mHole of
-                  Nothing -> Nothing
-                  Just h  ->
-                    let scopeTypes = Map.map sbType (shEnv h)
-                        defs = collectTypeDefinitions scopeTypes Nothing
-                                 (buildAliasMap stmts)
-                    in if null defs then Nothing else Just defs
-                -- DEMO-COMP (seam 5): wire the two previously-deferred Nothings.
-                -- Checkout stays at typecheck cost (no solver): the trust report
-                -- here carries default tiers, sourced honestly via trustLabel.
-                trustRpt = buildTrustReport _cache stmts Map.empty
-                trustMap = Map.fromList [(teName e, e) | e <- trEntries trustRpt]
-                cenv     = buildContractEnv stmts
-                recNames = recursiveNames stmts
-                -- ccFunctions: contracted user vocabulary with pre/post/tier (§3.2).
-                funcs = [ FuncEntry
-                            { feName   = fname
-                            , feParams = map (\(n,t) -> (n, typeLabel t)) ps
-                            , feReturn = maybe "?" typeLabel mRet
-                            , feStatus = "filled"
-                            , fePre    = fmap exprToSExpr (contractPre c)
-                            , fePost   = fmap exprToSExpr (contractPost c)
-                            , feTier   = Just (trustLabel trustMap fname)
-                            }
-                        | stmt <- stmts
-                        , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
-                        , contractPre c /= Nothing || contractPost c /= Nothing
-                        ]
-                -- ccConsumedGuarantees: discharged callee posts the hole's
-                -- enclosing function consumes (§3.1, §5 edge 3 sourcing).
-                mEnclosing = enclosingFunc normPtr stmts
-                consumed = case mEnclosing of
-                  Just fn -> assembleConsumedGuarantees stmts cenv trustMap recNames fn
-                  Nothing -> []
-            pure ( scope
-                 , tdefs
-                 , pre
-                 , post
-                 , if null path then Nothing else Just path
-                 , if null funcs then Nothing else Just funcs
-                 , if null consumed then Nothing else Just consumed
-                 , expRet
-                 )
-      let ctx = CheckoutContext
-            { ccScope          = mScope
-            , ccExpectedReturn = mExpRet  -- DEF-RET: hole's inferred/declared return type
-            -- DEMO-COMP (seam 5): contracted-user vocabulary with pre/post/tier.
-            , ccFunctions      = mFuncs
-            , ccTypeDefs       = mTypeDefs
-            -- OBLIG-1 (population): contract context now filled (was deferred to OBLIG-2)
-            , ccContractPre    = mPre
-            , ccPostGoal       = mPost
-            , ccPathCondition  = mPath
-            , ccAssumptions    = Nothing  -- deferred (follow-on: trust-entry labels)
-            , ccObligationId   = Nothing
-            -- v0.10: staleness hashes
-            , ccSourceHash     = Just sourceHash
-            , ccVerifiedHash   = mVerifiedHash
-            -- DEMO-COMP (seam 5): consumed callee guarantees.
-            , ccConsumedGuarantees = mConsumed
-            }
+      ctx <- assembleCheckoutContext json gm fp pointer
       result <- checkoutHoleWithContext fp astVal pointer ctx
       case result of
         Left diag -> do
@@ -1880,6 +1889,33 @@ doCheckout json gm fp pointer = do
           exitFailure
         Right ct -> do
           BLC.putStrLn (encode ct)
+          exitSuccess
+
+-- | R5: open or join a divergence session — N concurrent scratch-isolated
+-- tokens on ONE pointer. The shared source is never written; each token edits
+-- its own scratch copy (patchable via the standard `patch` flow against that
+-- scratch). The response carries the token, session id, and scratch path.
+doCheckoutMulti :: Bool -> GrammarMode -> FilePath -> T.Text -> Int -> IO ()
+doCheckoutMulti json gm fp pointer n = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  when (T.null pointer) $ do
+    hPutStrLn stderr "Error: checkout --multi requires a POINTER argument"
+    exitFailure
+  raw <- BL.readFile fp
+  case A.decode raw of
+    Nothing -> do
+      hPutStrLn stderr $ "Error: cannot parse " ++ fp ++ " as JSON"
+      exitFailure
+    Just astVal -> do
+      ctx <- assembleCheckoutContext json gm fp pointer
+      result <- checkoutHoleMulti fp astVal pointer n ctx
+      case result of
+        Left diag -> do
+          hPutStrLn stderr $ T.unpack (diagMessage diag)
+          exitFailure
+        Right mc -> do
+          BLC.putStrLn (encode mc)
           exitSuccess
 
 doCheckoutRelease :: Bool -> FilePath -> T.Text -> IO ()
@@ -1907,6 +1943,134 @@ doCheckoutStatusCmd _json fp token = do
     Right remaining -> do
       BLC.putStrLn (encode (object ["remaining_ttl" .= (round remaining :: Int)]))
       exitSuccess
+
+-- ---------------------------------------------------------------------------
+-- R5: diverge-report handler
+-- ---------------------------------------------------------------------------
+
+-- | Collect a divergence session's fills (one per isolated scratch copy),
+-- classify each by verify outcome (Stage 1), and emit the standalone
+-- 'divergence_witness' record after observational bucketing over Ω (Stage 2).
+doDivergeReport :: Bool -> GrammarMode -> FilePath -> T.Text -> IO ()
+doDivergeReport json gm fp session = do
+  ok <- guardJsonFile fp
+  unless ok exitFailure
+  members  <- sessionMembers fp session
+  sessions <- loadSessions fp
+  case listToMaybe (filter ((== session) . dsSession) sessions) of
+    Nothing -> do
+      hPutStrLn stderr $ "Error: no divergence session " ++ T.unpack session ++ " for " ++ fp
+      exitFailure
+    Just ds -> do
+      let pointer = dsPointer ds
+      mShared <- loadStatementsMulti json gm fp
+      case mShared of
+        Left () -> exitFailure
+        Right (sharedStmts, _cache, _) ->
+          case enclosingDefTemplate pointer sharedStmts of
+            Nothing -> do
+              hPutStrLn stderr $ "Error: cannot locate enclosing function for pointer "
+                              ++ T.unpack pointer
+              exitFailure
+            Just (fname, params, mRet, contract) -> do
+              -- The solver is needed to identify which fills are verified (the
+              -- signal-carrying set). Absent → the analysis cannot run.
+              mLF <- do
+                a <- findExecutable "liquid-fixpoint"
+                case a of { Just _ -> pure a; Nothing -> findExecutable "fixpoint" }
+              let typeDefs = [s | s@STypeDef{} <- sharedStmts]
+              classified <- mapM
+                (classifyMember gm mLF typeDefs fname params mRet contract)
+                members
+              let ctx = DivergenceContext
+                    { dcSession     = session
+                    , dcHole        = pointer
+                    , dcParams      = params
+                    , dcSpecEntropy = resolveSpecEntropy contract
+                    , dcFuncEnv     = buildFuncEnv sharedStmts
+                    }
+                  report = buildDivergenceReport ctx classified
+              BLC.putStrLn (encode (divergenceReportJson report))
+              exitSuccess
+
+-- | Parse the top-level statement index from an RFC 6901 pointer
+-- @/statements/<i>/...@ (the enclosing def's position in the program).
+pointerStmtIndex :: T.Text -> Maybe Int
+pointerStmtIndex ptr =
+  case T.splitOn "/" (normalizePointer ptr) of
+    (_ : "statements" : ixT : _) ->
+      case reads (T.unpack ixT) of { [(i, "")] -> Just i; _ -> Nothing }
+    _ -> Nothing
+
+-- | Recover the enclosing function template (name, params, return, contract)
+-- for a hole pointer, from the shared program.
+enclosingDefTemplate
+  :: T.Text -> [Statement] -> Maybe (Name, [(Name, Type)], Maybe Type, Contract)
+enclosingDefTemplate pointer stmts = do
+  i <- pointerStmtIndex pointer
+  s <- listToMaybe (drop i stmts)
+  (n, ps, mRet, c, _) <- normalizeDefStmt s
+  pure (n, ps, mRet, c)
+
+-- | Extract the body of the def named @fname@ from a (scratch) program — the
+-- fill an agent wrote into that scratch copy.
+extractFillBody :: Name -> [Statement] -> Maybe Expr
+extractFillBody fname stmts =
+  listToMaybe
+    [ body | s <- stmts, Just (n, _, _, _, body) <- [normalizeDefStmt s], n == fname ]
+
+-- | Read one member's fill from its scratch copy and classify it (Stage 1).
+classifyMember
+  :: GrammarMode -> Maybe FilePath -> [Statement]
+  -> Name -> [(Name, Type)] -> Maybe Type -> Contract
+  -> DivergenceMember -> IO ClassifiedFill
+classifyMember gm mLF typeDefs fname params mRet contract m = do
+  let fid = T.take 12 (dmToken m)
+  parsed <- loadStatements False gm (dmScratch m)
+  case parsed of
+    Left () -> pure (ClassifiedFill (Fill fid (EHole (HNamed "unparsed"))) FSTypeError)
+    Right scratchStmts ->
+      case extractFillBody fname scratchStmts of
+        Nothing   -> pure (ClassifiedFill (Fill fid (EHole (HNamed "missing"))) FSTypeError)
+        Just body
+          | isUnfilledHole body ->
+              pure (ClassifiedFill (Fill fid body) FSTypeError)
+          | otherwise -> do
+              status <- classifyFillStatus gm mLF typeDefs fname params mRet contract body
+              pure (ClassifiedFill (Fill fid body) status)
+  where
+    isUnfilledHole (EHole _) = True
+    isUnfilledHole _         = False
+
+-- | Classify one fill body: type-check then solve an isolated synthetic
+-- @def@. Mirrors the CDP/weakness candidate classification (isolated emission,
+-- body-fallback excluded). A fill referencing user-defined siblings is out of
+-- scope for this observational increment (isolated emission resolves builtins
+-- + type-defs only) and classifies as 'FSTypeError'.
+classifyFillStatus
+  :: GrammarMode -> Maybe FilePath -> [Statement]
+  -> Name -> [(Name, Type)] -> Maybe Type -> Contract -> Expr -> IO FillStatus
+classifyFillStatus gm mLF typeDefs fname params mRet contract body = do
+  let synthetic = SDef fname params mRet contract body
+      report    = typeCheck gm builtinEnv (typeDefs ++ [synthetic])
+      hasErr    = any (\d -> diagSeverity d == SevError) (reportDiagnostics report)
+  if hasErr
+    then pure FSTypeError
+    else case mLF of
+      Nothing    -> pure FSTypeError  -- no solver: verified status is undetermined
+      Just lfBin -> do
+        let emitOpts = defaultEmitOptions { emitBodyVCs = True }
+        emitR <- emitFixpointWith emitOpts "<diverge-fill>" (typeDefs ++ [synthetic])
+        if fname `elem` erBodyFallback emitR
+          then pure FSRefuted  -- outside QF-LIA fragment: not a verified competitor
+          else do
+            let fqText = erFQText emitR
+                fqPath = "/tmp/llmll-diverge-" <> T.unpack fname <> ".fq"
+            TIO.writeFile fqPath fqText
+            (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+            case parseFQResult (T.pack out <> T.pack err) of
+              FQSafe -> pure FSVerified
+              _      -> pure FSRefuted
 
 -- ---------------------------------------------------------------------------
 -- v0.3: Patch handler
