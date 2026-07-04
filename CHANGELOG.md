@@ -4,6 +4,24 @@
 
 <a id="Latest"></a>
 
+## v0.14.7 — R5 differential-implementation-pressure (obs) + anti-laundering guard (2026-07-04)
+
+### Compiler — verify (R5, observational stages 1-2)
+
+- **`feat(verify)`: differential implementation pressure — multi-agent divergence as an existential spec-adequacy witness.** `N` agents fill one hole via the new `llmll checkout --multi N <file> <pointer>`, and among the fills that *all* verify, observational divergence over a shared probe set `Ω` is reported by the new `llmll diverge-report <file> <session>` as an `under-constraint-witness` (the contract admits >1 verified behavior — the spec is under-constrained), `no-divergence-observed` on agreement (no spec-tightness claim is made), or `suppressed-intentional` under `(spec-entropy :intentional)`. This turns agent hallucination-diversity into a signal about the *contract*, not the code: if two independently-verified fills disagree on `Ω`, the specification—not either implementation—is the thing under-specified.
+- **New `LLMLL.DivergenceCheck` module** — status partition (verified / type-error / refuted) plus `Ω`-replay bucketing via `evalExprStaticWith`, emitting a standalone `divergence_witness` JSON record (verdict label, verified-fill buckets, a distinguishing witness on divergence). Stage-3 *semantic* equivalence is a marked stub, deferred: no counterexample-model extraction exists yet (see the design's Appendix B).
+- **Session isolation.** `checkoutHoleMulti` / `promoteDivergenceWinner` (`Checkout.hs`) run the divergence session on a **disjoint `.llmll-diverge.json` sidecar** with an **isolated scratch copy per token** — the shared working tree is never written and the `CheckoutToken` schema is untouched (no schema-version change). `diverge-report`'s per-fill classification uses isolated synthetic emission, so a fill that calls a sibling hole classifies as `type-error` (a documented bound, design Appendix B).
+- Design of record: `docs/design/differential-implementation-pressure-proposal.md` (Rev 2).
+
+### Compiler — verify (anti-laundering guard)
+
+- **`fix(verify)`: degenerate proof terms can no longer launder a proof hole to a verified tier (PROOF-ARTIFACT `§4.1` LCF invariant).** New `MCPClient.sanitizeProof` chokepoint routes every `ProofFound` construction and rejects an empty/whitespace-only proof term, or one using the `sorry` / `admit` tactic, to a `ProofError` instead of accepting it. Matching is **word-boundary aware** — identifiers like `admittance` or `sorry_free` still pass. The `--leanstral-mock` prover emits the degenerate term `by sorry`, which now maps to `ProofError` and **writes an empty cache instead of laundering** a `verified`/`leanstral`-tier entry. The real MCP protocol path is documented as `STUBBED` (matching the code), correcting prior docstring drift that read "implemented but untested".
+- Design: `docs/design/leanstral-integration-scope.md §5`.
+
+No `schemaVersion` change (R5 adds no AST-node schema change; the `CheckoutToken` schema is unchanged) and no `trust_report_version` change (the divergence witness is a standalone `divergence_witness` record, not a trust-report field).
+
+**Tests: 1024 → 1040 Haskell, 45 Python (unchanged).** Sixteen new: eleven `R5 DivergenceCheck` cases (positive `under-constraint-witness`, `no-divergence-observed` on agreement, `:intentional` suppression, status partitioning, `Ω`-bucketing, sidecar/session isolation) and five `MCPClient` anti-laundering cases (a genuine `by decide` proof survives; `by sorry` / `by admit` / whitespace-only rejected; word-boundary identifiers pass). Full suite green at HEAD.
+
 ## v0.14.6 — zero-install Docker image (2026-07-03)
 
 ### Packaging — distribution
