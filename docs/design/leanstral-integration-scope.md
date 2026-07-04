@@ -101,3 +101,21 @@ Both major escape classes the QF-LIA core firewalls out — **nonlinear arithmet
 **The one open risk (not closed by Step-0):** proofs were *generated*, not *kernel-checked* (no Lean+Mathlib toolchain in the test environment). The demo's Layer-3 check loop closes it; the pre-build validation ([`leanstral-demo-spec.md §7`](leanstral-demo-spec.md)) closes it *first*.
 
 **Decision: the demo is greenlit.** Spec: [`leanstral-demo-spec.md`](leanstral-demo-spec.md).
+
+### 8.1 Kernel-check + retry validation (2026-07-04)
+
+The Step-0 proofs were kernel-checked in a real Lean 4 + Mathlib project (`lake env lean`):
+
+| Proof | One-shot kernel-check |
+|---|---|
+| `square` (`result = n*n ⇒ result ≥ 0`) | ✅ checked |
+| `sq2` (`(a-b)² ≥ 0`, via `pow_two_nonneg`) | ✅ checked — Leanstral's Mathlib lemma choice is current (no name drift) |
+| `len_app` (list length) | ❌ one-shot near-miss — correct `induction`; `simp` left a trivial residual `a+b+1 = a+1+b` |
+
+**Retry-with-error loop — validated.** One round of feeding Lean's `unsolved goals` error back to `labs-leanstral-1-5` produced a correct fix: it diagnosed "an arithmetic equality that needs `omega` or `ring`" and returned `… simp [List.length, ih] ; omega` (383 tok), where `omega` decides the residual linear-integer goal.
+
+**Net:** nonlinear arithmetic (**the demo class**) kernel-checks **2/2 one-shot**; the inductive/list class is **one-shot-miss → one-retry-fix**.
+
+**Implications:**
+- The **demo class needs no retry** — generation + kernel-check both one-shot. Build the demo as specced.
+- The **broader/production classes (inductive/list) require the Layer-3 retry-with-error loop**, now validated to converge in one round (Leanstral's stated strength — iterating against the compiler). Required for production, not for the demo.

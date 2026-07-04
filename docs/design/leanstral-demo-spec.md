@@ -77,3 +77,7 @@ This is experiment-lead/infra; it de-risks Layer-3 before a line of compiler cod
 2. **Mathlib in the trusted base.** The certificate is checkable, but the checker is Lean kernel **+ Mathlib**, not a bare kernel. Auditable, but state it — it's the honest trusted base for the C-property claim.
 3. **Data privacy (Labs endpoint).** Labs models carry different data-usage terms; fine for toy demo theorems, a governance decision before real obligations. Flagged in `leanstral-integration-scope.md §8`.
 4. **Direct-API vs MCP.** The demo uses the chat endpoint for generation + a local Lean project for checking — which *is* the trust-correct T-B split (untrusted model searches; kernel checks). The `lean-lsp-mcp` route is a later refinement.
+
+### 3.1 Retry-with-error loop — validated, and NOT needed for the demo
+
+Empirical (`leanstral-integration-scope.md §8.1`): the demo obligation class (nonlinear arithmetic) kernel-checks **2/2 one-shot**, so **the demo needs no retry loop** — Layer-3 step 4's optional retry can be omitted for the demo. The inductive/list class is a one-shot near-miss that **one** round of error-feedback fixes (`; omega`); when the demo is extended to that class (production), Layer-3 MUST add the retry loop: on a failed `lake env lean`, send Lean's diagnostics back to `labs-leanstral-1-5` and re-check, bounded to a small retry count. Validated to converge in one round.
