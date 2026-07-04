@@ -30,7 +30,7 @@ import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, 
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
-import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..))
+import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
@@ -904,6 +904,28 @@ main = hspec $ do
       let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract" Nothing)
                            (holeEntries report)
       length prHoles `shouldBe` 1
+
+    -- Leanstral Gap B: parsers route * / mod ^ to EOp (not EApp), so a
+    -- contract like (* n m) arrives as EOp; isNonLinear must flag it too.
+    it "non-linear contract in EOp form auto-emits non-linear-contract hole" $ do
+      -- pre: (* n m) > 0 in EOp form — the shape the parser actually produces
+      let nlExpr = EOp ">" [EOp "*" [EVar "n", EVar "m"], ELit (LitInt 0)]
+      let stmts = [SDefLogic "f" [("n", TInt), ("m", TInt)] Nothing
+                     (Contract (Just nlExpr) Nothing Nothing Nothing Nothing) (EVar "n")]
+      let report = analyzeHoles stmts
+      let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract" Nothing)
+                           (holeEntries report)
+      -- Pre-fix: 0 (no EOp case → fell to isNonLinear _ = False). Post-fix: 1.
+      length prHoles `shouldBe` 1
+
+    it "isNonLinear flags EOp form and matches EApp form (Gap B, no EApp regression)" $ do
+      let eopMul  = EOp  "*" [EVar "n", EVar "m"]
+      let eappMul = EApp "*" [EVar "n", EVar "m"]
+      -- EApp form unchanged (still flagged); EOp form now flagged identically.
+      isNonLinear eappMul `shouldBe` True
+      isNonLinear eopMul  `shouldBe` True
+      -- linear operator in EOp form stays non-flagged
+      isNonLinear (EOp "+" [EVar "n", EVar "m"]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- LT-PPR (v0.11): predicate-carrying ?proof-required
