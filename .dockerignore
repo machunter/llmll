@@ -1,0 +1,28 @@
+# Build context = repo root (Dockerfile needs compiler/ + examples/).
+# Keep the context small: exclude everything the image build never reads.
+# NOTE: examples/**/*.verified.json is intentionally NOT excluded — the baked
+# demo relies on the canonical sidecars.
+
+.git
+.github
+**/.stack-work
+**/dist-newstyle
+dist-newstyle
+generated
+runtime
+tools
+outreach-workspace
+.claude
+.agents
+.vscode
+.wasm-spike
+.pytest_cache
+experiments/*/runs
+experiments/**/runs
+tags
+**/.DS_Store
+**/*.o
+**/*.hi
+docs
+*.md
+!README.md
