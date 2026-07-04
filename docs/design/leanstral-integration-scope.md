@@ -77,3 +77,27 @@ A *reviewed plan*, not code — Layer 1 is the trust root, so it must not ship u
 
 **Sequencing:** (1) anti-laundering guard **[BUILT, §5]** → (2) Gap B → (3) Layer 1 (gate on professor adequacy review + fixture replay) → (4) Gap A → (5) Layer 3 T-B transport (§4). **Effort Layers 1+2 ≈ 5–8 days, review-dominated** — the code is modest; the faithfulness review is the deliverable's actual cost. Non-negotiable: Layer 1 must not ship without the anti-laundering guard (a bound, faithful theorem still launders on a `sorry` proof).
 
+
+---
+
+## 8. Step-0 empirical validation (2026-07-04)
+
+Before any compiler work, the pivotal unknown — *does Leanstral actually discharge our translated obligations?* — was tested directly against the live `labs-leanstral-1-5` endpoint. **Result: gate cleared, 3/3.**
+
+| Probe | Obligation | Verdict |
+|---|---|---|
+| 1 | `result = n*n ⇒ result ≥ 0` (nonlinear) | ✅ `rw [h]; nlinarith` (269 tok) |
+| 2 | `result = (a-b)² ⇒ result ≥ 0` (nonlinear + substitution) | ✅ `rw [h]; ring; apply pow_two_nonneg` (240 tok) |
+| 3 | `(xs++ys).length = xs.length + ys.length` (inductive/list) | ✅ `induction xs … simp` (136 tok) |
+
+Both major escape classes the QF-LIA core firewalls out — **nonlinear arithmetic and inductive/list** — are covered, cheaply (`finish=stop`, ~130–270 tok each). The inductive/list result is the strategically important one: it reaches the recursive-measure class QF-LIA deliberately excludes.
+
+**Build facts established (feed the demo spec + production):**
+- **Model id is `labs-leanstral-1-5`** — not the launch page's shorthand `leanstral-1-5` (which returns `invalid_model`). It is a **Labs model**: an org admin must enable Labs at `admin.mistral.ai/plateforme/privacy` before it is callable (`400` otherwise). Auth is a standard Mistral API key (`GET /v1/models` → `200`).
+- **Response shape:** prose + a ` ```lean ` fenced block → Layer-3 must **extract the fence**, not consume the raw content.
+- **Every proof uses Mathlib** (`nlinarith`, `pow_two_nonneg`, `ring`, `simp`, `induction`) → the C-property's trusted base is **Lean kernel + Mathlib** (small, auditable — state it in the claim).
+- **Data privacy:** `labs-*` is enabled via a `/privacy` setting — Labs models carry different data-usage terms than the standard API. Fine for toy demo theorems; a governance decision before real proprietary obligations are sent.
+
+**The one open risk (not closed by Step-0):** proofs were *generated*, not *kernel-checked* (no Lean+Mathlib toolchain in the test environment). The demo's Layer-3 check loop closes it; the pre-build validation ([`leanstral-demo-spec.md §7`](leanstral-demo-spec.md)) closes it *first*.
+
+**Decision: the demo is greenlit.** Spec: [`leanstral-demo-spec.md`](leanstral-demo-spec.md).
