@@ -45,7 +45,7 @@ module LLMLL.MCPClient
   , mockProofResult
   ) where
 
-import Control.Exception (bracket_)
+import Control.Exception (bracket_, try, IOException)
 import Data.Aeson (eitherDecode, encode, object, withObject, (.:), (.=))
 import Data.Aeson.Types (parseEither)
 import qualified Data.ByteString.Lazy as BL
@@ -301,19 +301,27 @@ kernelCheck projectDir _timeoutSecs leanSource = do
     then pure (LeanstralUnavailable ("--leanstral-lean-project not found: " <> T.pack projectDir))
     else do
       TIO.writeFile leanFile src
-      (ec, out, err) <- readCreateProcessWithExitCode
-                          ((proc "lake" ["env", "lean", leanFile]) { cwd = Just projectDir })
-                          ""
-      let output      = T.pack (out <> err)
-          hasError    = "error:" `T.isInfixOf` output
-          hasResidual = "sorry" `T.isInfixOf` output || "admit" `T.isInfixOf` output
-      case ec of
-        ExitSuccess
-          | not hasError && not hasResidual -> pure (ProofFound src)
-          | otherwise -> pure (ProofError
-              ("lean kernel check: residual sorry/error — " <> firstDiagLine output))
-        ExitFailure c -> pure (ProofError
-          ("lean kernel check failed (lake exit " <> T.pack (show c) <> "): " <> firstDiagLine output))
+      -- FIX D: 'readCreateProcessWithExitCode' THROWS an IOException
+      -- (execvp: does not exist) when 'lake' is off PATH — that used to crash
+      -- the whole 'verify'. Catch it and fail CLOSED like every other Layer-3
+      -- step, returning 'LeanstralUnavailable' with an actionable message.
+      spawned <- try (readCreateProcessWithExitCode
+                        ((proc "lake" ["env", "lean", leanFile]) { cwd = Just projectDir })
+                        "")
+      case (spawned :: Either IOException (ExitCode, String, String)) of
+        Left _ -> pure (LeanstralUnavailable
+          "lake not found on PATH — install Lean via elan and ensure lake is available")
+        Right (ec, out, err) -> do
+          let output      = T.pack (out <> err)
+              hasError    = "error:" `T.isInfixOf` output
+              hasResidual = "sorry" `T.isInfixOf` output || "admit" `T.isInfixOf` output
+          case ec of
+            ExitSuccess
+              | not hasError && not hasResidual -> pure (ProofFound src)
+              | otherwise -> pure (ProofError
+                  ("lean kernel check: residual sorry/error — " <> firstDiagLine output))
+            ExitFailure c -> pure (ProofError
+              ("lean kernel check failed (lake exit " <> T.pack (show c) <> "): " <> firstDiagLine output))
 
 -- | Ensure the source imports Mathlib.Tactic (idempotent).
 ensureImport :: Text -> Text

@@ -75,7 +75,7 @@ import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, loadVerified, verifi
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
-import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash)
+import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
 import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
@@ -95,6 +95,8 @@ import LLMLL.FixpointEmit (buildContractEnv)
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
 import System.IO (hGetLine)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format.ISO8601 (iso8601Show)
 
 import qualified Data.Map.Strict as Map
 
@@ -1192,7 +1194,13 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- raw reload — otherwise a stale verdict (e.g. a return-annotation or post
         -- edit leaving body/pre identical) renders as live 'verified'. DEF-RET Unit 2
         -- surfaced this pre-existing solver-less-display staleness bypass.
-        let report = buildTrustReport _cache stmts entrySidecar
+        -- Leanstral demo (FIX B, trust surface 2): a '/post/<name>' with an
+        -- untainted 'leanstral' entry in the just-written '.proof-cache.json'
+        -- upgrades that post to 'verified-lean' so the report agrees with the
+        -- kernel-checked certificate. Presence-based + fail-safe (no cache / no
+        -- match → unchanged 'asserted'); applied AFTER the staleness gate.
+        leanCache <- loadProofCache fp
+        let report = buildTrustReport _cache stmts (upgradeLeanstralPosts leanCache entrySidecar)
         if json
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)
@@ -1509,6 +1517,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                 case csPost cs of
                                   Just er -> case erDisplayLevel er of
                                     DLVerified _        -> True
+                                    DLVerifiedLean _    -> True
                                     DLContractChecked _ -> True
                                     _                   -> False
                                   Nothing -> False)
@@ -1638,8 +1647,25 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- v0.3.1: Leanstral proof pipeline (after liquid-fixpoint).
               -- Leanstral demo (Layer-2): --leanstral also routes nonlinear
               -- 'erBodyFallback' functions (real bodies) into the pipeline.
-              when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $
+              when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $ do
                 runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
+                -- Leanstral demo (FIX B, trust surface 1): the '.verified.json'
+                -- sidecar was written above (~:1471) with the fallback post at
+                -- 'asserted', BEFORE the proof cache existed. Now that
+                -- 'runLeanstralPipeline' has written it, re-stamp the sidecar so a
+                -- kernel-checked '/post/<name>' reads 'verified-lean' instead of
+                -- contradicting the certificate. 'caller_obligations' are re-derived
+                -- from the upgraded status so the persisted axis is preserved.
+                -- Fail-safe: no leanstral entry → 'upgraded == provenCS' → no rewrite.
+                leanCache <- loadProofCache fp
+                let upgraded = upgradeLeanstralPosts leanCache provenCS
+                unless (upgraded == provenCS) $ do
+                  let obReport'       = buildTrustReport _cache stmts upgraded
+                      obligationJson' = concatMap (map callerObligationJson . teCallerObligations)
+                                                  (trEntries obReport')
+                  saveVerifiedWith fp upgraded obligationJson'
+                  unless json $ TIO.putStrLn
+                    "   .verified.json re-stamped: leanstral proof(s) → verified-lean"
               printDeferredCoverage
               exitSuccess
             FQUnsafe _ -> exitFailure
@@ -1795,8 +1821,13 @@ runLeanstralPipeline json fp stmts fallbackNames lsOpts = do
                   -- Layer-3 record: on a clean kernel check, persist the checked
                   -- .lean as the certificate and mark verified-lean. (Mock mode
                   -- never reaches here — sanitizeProof rejects 'by sorry'.)
+                  -- FIX C: stamp 'verified_at' with the current UTC instant
+                  -- (ISO-8601) at ProofEntry construction — the cache used to
+                  -- persist an empty timestamp.
+                  now <- getCurrentTime
                   let proverName = if lsLeanstral lsOpts then "leanstral" else "mock"
-                      entry      = ProofEntry hash proof proverName ""
+                      verifiedAt = T.pack (iso8601Show now)
+                      entry      = ProofEntry hash proof proverName verifiedAt
                   cert <- if lsLeanstral lsOpts
                             then do
                               let certPath = takeDirectory fp </> (T.unpack name ++ ".verified.lean")
@@ -2348,6 +2379,7 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
            }
     tierOf Nothing                      = TNoContract
     tierOf (Just (DLVerified _))        = TVerified
+    tierOf (Just (DLVerifiedLean _))    = TVerified  -- peer of verified (proven strength)
     tierOf (Just (DLContractChecked _)) = TContractChecked
     tierOf (Just (DLTested _))          = TTested
     tierOf (Just DLAsserted)            = TAsserted

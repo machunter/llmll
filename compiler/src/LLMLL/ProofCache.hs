@@ -19,6 +19,8 @@ module LLMLL.ProofCache
     -- * Trust Guards (v0.6.3)
   , isTaintedProof
   , proofToLevel
+    -- * Trust surface bridge (Leanstral demo)
+  , upgradeLeanstralPosts
     -- * Hashing
   , computeObligationHash
   ) where
@@ -32,6 +34,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import System.Directory (doesFileExist)
 import Crypto.Hash.SHA256 (hash)
 import qualified Data.ByteString as BS
@@ -39,7 +42,8 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Numeric (showHex)
 
-import LLMLL.Syntax (DisplayLevel(..))
+import LLMLL.Syntax
+  ( DisplayLevel(..), ContractStatus(..), EvidenceRecord(..), Name )
 
 -- | A cached proof entry.
 data ProofEntry = ProofEntry
@@ -140,3 +144,48 @@ proofToLevel :: ProofEntry -> DisplayLevel
 proofToLevel pe
   | isTaintedProof pe = DLAsserted
   | otherwise         = DLContractChecked (peProver pe)
+
+-- | Bridge the proof-cache (the Lean-certificate record) into the trust
+-- surfaces: upgrade every function's POST clause to 'DLVerifiedLean' when its
+-- @/post/<name>@ entry carries an untainted @leanstral@ proof. This is the
+-- single point that reconciles a kernel-checked obligation with the
+-- @.verified.json@ sidecar and the @--trust-report@ render, so a proven post
+-- no longer reads @asserted@.
+--
+-- Fail-safe by construction:
+--
+--   * a function with no matching @/post/<name>@ entry is UNCHANGED (asserted);
+--   * a tainted proof (@sorry@/@admit@/@mock@) does NOT upgrade — it cannot be
+--     "proven" ('isTaintedProof');
+--   * a non-@leanstral@ prover does NOT upgrade (the fixpoint / PBT paths stay
+--     the sole authors of 'DLVerified' / 'DLTested');
+--   * the record is written with @erBodyFaithful = False@ and no
+--     @erVerifiedHash@, so it is INERT to the fixpoint-hash staleness gate
+--     ('TrustReport.downgradeStaleVerifiedSidecar', which only touches
+--     body-faithful entries). Leanstral-proof staleness is governed instead by
+--     the proof-cache @obligation_hash@ invalidation on the next @--leanstral@
+--     run ('lookupProof').
+--
+-- The upgrade preserves any pre clause and existing post metadata (source,
+-- predicate fields); only the display level, body-faithful flag and verified
+-- hash of the post are set. Keys are bare def names, matching the sidecar and
+-- the entry-module trust entries.
+upgradeLeanstralPosts :: Map Text ProofEntry -> Map Name ContractStatus -> Map Name ContractStatus
+upgradeLeanstralPosts pcache statuses = foldr apply statuses (Map.toList pcache)
+  where
+    apply (key, pe) acc
+      | Just name <- T.stripPrefix "/post/" key
+      , peProver pe == "leanstral"
+      , not (isTaintedProof pe)
+      = Map.alter (Just . upgradeCS pe) name acc
+      | otherwise = acc
+
+    upgradeCS pe mcs =
+      let cs   = fromMaybe emptyCS mcs
+          base = fromMaybe emptyER (csPost cs)
+      in cs { csPost = Just base { erDisplayLevel = DLVerifiedLean (peProver pe)
+                                 , erBodyFaithful = False
+                                 , erVerifiedHash = Nothing } }
+
+    emptyCS = ContractStatus Nothing Nothing []
+    emptyER = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing

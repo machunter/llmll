@@ -39,12 +39,12 @@ import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.Module (mergeCS)
-import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation)
+import LLMLL.VerifiedCache (verifiedPath, saveVerified, saveVerifiedWith, loadVerified, sidecarNeedsRevalidation, dlToJSON, dlFromJSON)
 import LLMLL.Hub (scaffoldCacheRoot, resolveScaffold, hubFetchLocal)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
-import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport)
-import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash)
+import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
+import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
 import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
@@ -2463,6 +2463,100 @@ main = hspec $ do
           b = fromJust $ lookup nb levels
       it ("covers(" ++ na ++ ", " ++ nb ++ ") = " ++ show expect) $
         evidenceCovers a b `shouldBe` expect
+
+  -- =========================================================================
+  -- Leanstral demo: verified-lean DisplayLevel (FIX A) + proof-cache → trust
+  -- surface bridge (FIX B) + kernelCheck fail-closed (FIX D). Hermetic — no
+  -- network, no lake, no API key.
+  -- =========================================================================
+  describe "DLVerifiedLean (verified-lean peer tier)" $ do
+    let vl = DLVerifiedLean "leanstral"
+
+    it "serializes to level \"verified-lean\" and round-trips" $ do
+      case dlToJSON vl of
+        Object o -> KM.lookup "level" o `shouldBe` Just (String "verified-lean")
+        other    -> expectationFailure ("expected Object, got " ++ show other)
+      dlFromJSON (dlToJSON vl) `shouldBe` Just vl
+
+    it "human display label is \"verified-lean\"" $
+      dlLabel vl `shouldBe` "verified-lean"
+
+    it "is a verified-strength, solver-backed level (peer of DLVerified)" $ do
+      isVerifiedLevel vl `shouldBe` True
+      isSolverBacked  vl `shouldBe` True
+
+    it "meets like DLVerified (top: glb with a lower level = that level)" $ do
+      evidenceMeet vl DLAsserted            `shouldBe` DLAsserted
+      evidenceMeet vl (DLTested 50)         `shouldBe` DLTested 50
+      evidenceMeet vl (DLContractChecked "z3") `shouldBe` DLContractChecked "z3"
+      evidenceMeet vl vl                    `shouldBe` vl
+      -- mixed proven ⊓ proven stays proven strength (still isVerifiedLevel)
+      isVerifiedLevel (evidenceMeet vl (DLVerified "lf")) `shouldBe` True
+
+    it "covers like DLVerified, and is MUTUALLY covering with DLVerified" $ do
+      evidenceCovers vl (DLContractChecked "z3") `shouldBe` True
+      evidenceCovers vl (DLTested 50)            `shouldBe` True
+      evidenceCovers vl DLAsserted               `shouldBe` True
+      -- peers: each covers the other (assumable exactly where verified is)
+      evidenceCovers vl (DLVerified "lf")        `shouldBe` True
+      evidenceCovers (DLVerified "lf") vl        `shouldBe` True
+      -- only a top covers a top
+      evidenceCovers (DLTested 50) vl            `shouldBe` False
+
+    it "meet stays commutative & associative over {A,T,CC,V,VL}" $ do
+      let levels = [ DLAsserted, DLTested 100, DLContractChecked "z3"
+                   , DLVerified "lf", DLVerifiedLean "leanstral" ]
+      forM_ [(a,b) | a <- levels, b <- levels] $ \(a,b) ->
+        evidenceMeet a b `shouldBe` evidenceMeet b a
+      forM_ [(a,b,c) | a <- levels, b <- levels, c <- levels] $ \(a,b,c) ->
+        evidenceMeet (evidenceMeet a b) c `shouldBe` evidenceMeet a (evidenceMeet b c)
+
+  describe "upgradeLeanstralPosts (proof-cache → trust surface, FIX B)" $ do
+    -- A nonlinear `square` whose post escaped QF-LIA and landed at 'asserted'.
+    let squarePost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
+        squareStmt = SDef "square" [("x", TInt)] (Just TInt)
+                       (Contract Nothing Nothing squarePost Nothing Nothing)
+                       (EApp "*" [EVar "x", EVar "x"])
+        leanEntry  = ProofEntry "deadbeef" "by nlinarith" "leanstral"
+                       "2026-07-05T00:00:00Z"
+        postLevelOf sidecar =
+          let rpt = buildTrustReport Map.empty [squareStmt] sidecar
+          in fmap teEffectivePostLevel (find ((== "square") . teName) (trEntries rpt))
+
+    it "renders 'verified-lean' when /post/square has a leanstral proof entry" $ do
+      let cache    = Map.fromList [("/post/square", leanEntry)]
+          upgraded = upgradeLeanstralPosts cache Map.empty
+      postLevelOf upgraded `shouldBe` Just (Just (DLVerifiedLean "leanstral"))
+
+    it "stays 'asserted' with no proof cache (fail-safe identity)" $ do
+      upgradeLeanstralPosts Map.empty Map.empty `shouldBe` (Map.empty :: Map.Map Name ContractStatus)
+      postLevelOf Map.empty `shouldBe` Just (Just DLAsserted)
+
+    it "does NOT upgrade a tainted ('by sorry') leanstral entry" $ do
+      let tainted  = ProofEntry "deadbeef" "by sorry" "leanstral" ""
+          cache    = Map.fromList [("/post/square", tainted)]
+          upgraded = upgradeLeanstralPosts cache Map.empty
+      postLevelOf upgraded `shouldBe` Just (Just DLAsserted)
+
+    it "does NOT upgrade a non-leanstral (e.g. mock) prover entry" $ do
+      let mockE    = ProofEntry "deadbeef" "by decide" "mock" ""
+          cache    = Map.fromList [("/post/square", mockE)]
+          upgraded = upgradeLeanstralPosts cache Map.empty
+      postLevelOf upgraded `shouldBe` Just (Just DLAsserted)
+
+  describe "kernelCheck fail-closed on missing lake (FIX D)" $
+    it "returns LeanstralUnavailable (not an exception) when lake is off PATH" $ do
+      tmp <- getTemporaryDirectory
+      let projDir = tmp </> "llmll-kernelcheck-nolake"
+      createDirectoryIfMissing True projDir
+      oldPath <- lookupEnv "PATH"
+      -- Point PATH at a dir with no 'lake' so execvp fails with an IOException,
+      -- which the fix must catch and turn into a fail-closed result.
+      result <- (setEnv "PATH" projDir >> kernelCheck projDir 5 "theorem t : True := trivial")
+                  `finally` maybe (unsetEnv "PATH") (setEnv "PATH") oldPath
+      removeDirectoryRecursive projDir
+      let isUnavailable r = case r of LeanstralUnavailable _ -> True; _ -> False
+      isUnavailable result `shouldBe` True
 
   describe "ContractsMode: instrumentStatement" $ do
     let mkDefLogic name preE postE bodyE =

@@ -11,6 +11,8 @@ module LLMLL.VerifiedCache
   , saveVerified
   , saveVerifiedWith   -- TRUST-PRE: variant persisting a top-level caller_obligations array
   , sidecarNeedsRevalidation
+  , dlToJSON           -- DisplayLevel JSON codec (exposed for tests / round-trip)
+  , dlFromJSON
   ) where
 
 import Data.Aeson (Value(..), (.=), object)
@@ -43,6 +45,7 @@ dlToJSON DLAsserted          = object ["level" .= ("asserted" :: Text)]
 dlToJSON (DLTested n)        = object ["level" .= ("tested" :: Text), "samples" .= n]
 dlToJSON (DLContractChecked p) = object ["level" .= ("contract-checked" :: Text), "prover" .= p]
 dlToJSON (DLVerified p)      = object ["level" .= ("verified" :: Text), "prover" .= p]
+dlToJSON (DLVerifiedLean p)  = object ["level" .= ("verified-lean" :: Text), "prover" .= p]
 
 dlFromJSON :: Value -> Maybe DisplayLevel
 dlFromJSON (Object o) =
@@ -63,6 +66,11 @@ dlFromJSON (Object o) =
                 Just (String t) -> t
                 _               -> ""
       in Just (DLVerified p)
+    Just (String "verified-lean") ->
+      let p = case KM.lookup "prover" o of
+                Just (String t) -> t
+                _               -> ""
+      in Just (DLVerifiedLean p)
     _ -> Nothing
 dlFromJSON _ = Nothing
 

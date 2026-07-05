@@ -370,17 +370,23 @@ raiseLowDP _                 = False
 -- | Evidence tier for a contract clause. Partial order, not total.
 -- DLContractChecked and DLTested are incomparable — there is no Ord instance.
 --
--- Lattice structure:
---          DLVerified
---         /          \
--- DLContractChecked  DLTested
---         \          /
---          DLAsserted
+-- Lattice structure. 'DLVerified' and 'DLVerifiedLean' are PEERS at the top —
+-- both mean "the post is proven". 'verified-lean' additionally carries a
+-- Lean-kernel-checked certificate; that kernel-checkability is a QUALITY the
+-- display string records, NOT a strength above 'DLVerified'. The two are
+-- mutually covering ('evidenceCovers') and both 'isVerifiedLevel'.
+--
+--       DLVerified  ≡  DLVerifiedLean   (peers, top)
+--              \        /
+--        DLContractChecked  DLTested    (incomparable)
+--              \        /
+--             DLAsserted                (bottom)
 data DisplayLevel
   = DLAsserted                             -- ^ Runtime assertion only; no evidence
   | DLTested   { dlSamples :: Int }       -- ^ QuickCheck passed N samples
   | DLContractChecked { dlProver :: Text } -- ^ SMT proved contract consistency (not body)
   | DLVerified { dlVerProver :: Text }    -- ^ SMT proved body satisfies contract
+  | DLVerifiedLean { dlLeanProver :: Text } -- ^ Lean-proved + kernel-checked; peer of DLVerified
   deriving (Show, Eq, Generic)
 
 -- | Structured evidence record for a single contract clause.
@@ -448,11 +454,18 @@ evidenceMeet DLAsserted _            = DLAsserted
 evidenceMeet _ DLAsserted            = DLAsserted
 -- Same constructor, different metadata: conservative choice
 evidenceMeet (DLVerified p1) (DLVerified _)               = DLVerified p1
+evidenceMeet (DLVerifiedLean p1) (DLVerifiedLean _)       = DLVerifiedLean p1
 evidenceMeet (DLContractChecked p1) (DLContractChecked _)  = DLContractChecked p1
 evidenceMeet (DLTested n1) (DLTested n2)                   = DLTested (min n1 n2)
--- Verified is top
+-- Verified and verified-lean are PEER tops (both 'proven' strength): the glb
+-- with any lower level is that lower level, and a mixed proven⊓proven stays at
+-- 'proven' strength (the result is still 'isVerifiedLevel'). Ordering the two
+-- top equations after the same-constructor cases keeps the meet commutative and
+-- associative over {A,T,CC,V,VL}.
 evidenceMeet (DLVerified _) b        = b
 evidenceMeet a (DLVerified _)        = a
+evidenceMeet (DLVerifiedLean _) b    = b
+evidenceMeet a (DLVerifiedLean _)    = a
 -- Incomparable: contract-checked ⊓ tested = asserted
 evidenceMeet DLContractChecked{} DLTested{} = DLAsserted
 evidenceMeet DLTested{} DLContractChecked{} = DLAsserted
@@ -461,8 +474,13 @@ evidenceMeet DLTested{} DLContractChecked{} = DLAsserted
 -- a covers b iff a is at least as high in the lattice as b.
 -- For DLTested, sample counts are metadata — DLTested n covers DLTested m for any n, m.
 evidenceCovers :: DisplayLevel -> DisplayLevel -> Bool
+-- Verified and verified-lean are peer tops: each covers everything (incl. the
+-- other), and only a peer top covers a peer top. So V and VL are MUTUALLY
+-- covering — a verified-lean post is assumable exactly where a verified one is.
 evidenceCovers (DLVerified _) _              = True   -- top covers everything
-evidenceCovers _ (DLVerified _)              = False  -- only verified covers verified
+evidenceCovers (DLVerifiedLean _) _          = True   -- peer top covers everything
+evidenceCovers _ (DLVerified _)              = False  -- only a top covers a top
+evidenceCovers _ (DLVerifiedLean _)          = False  -- only a top covers a top
 evidenceCovers _ DLAsserted                  = True   -- everything covers bottom
 evidenceCovers DLAsserted _                  = False  -- bottom covers only bottom
 evidenceCovers (DLContractChecked _) (DLContractChecked _) = True
@@ -471,21 +489,27 @@ evidenceCovers (DLTested _) (DLTested _)     = True
 evidenceCovers DLContractChecked{} DLTested{} = False
 evidenceCovers DLTested{} DLContractChecked{} = False
 
--- | Is this verified-level evidence (body-faithful SMT proof)?
+-- | Is this verified-level (proven-strength) evidence? True for both the SMT
+-- body-faithful tier ('DLVerified') and its Lean-kernel-checked peer
+-- ('DLVerifiedLean') — they are equal strength, so the summary/tier counts
+-- treat a 'verified-lean' post identically to a 'verified' one.
 isVerifiedLevel :: DisplayLevel -> Bool
-isVerifiedLevel DLVerified{} = True
-isVerifiedLevel _            = False
+isVerifiedLevel DLVerified{}     = True
+isVerifiedLevel DLVerifiedLean{} = True
+isVerifiedLevel _                = False
 
--- | True when evidence includes a solver-backed proof (contract or body).
+-- | True when evidence includes a solver-/prover-backed proof (contract or body).
 -- Does NOT imply a total ordering — DLTested is incomparable, not "below".
 isSolverBacked :: DisplayLevel -> Bool
 isSolverBacked DLVerified{}        = True
+isSolverBacked DLVerifiedLean{}    = True
 isSolverBacked DLContractChecked{} = True
 isSolverBacked _                   = False
 
 -- | Extract prover name, if any.
 dlProverName :: DisplayLevel -> Maybe Text
 dlProverName (DLVerified p)        = Just p
+dlProverName (DLVerifiedLean p)    = Just p
 dlProverName (DLContractChecked p) = Just p
 dlProverName _                     = Nothing
 
@@ -495,6 +519,7 @@ dlLabel DLAsserted            = "asserted"
 dlLabel (DLTested n)          = "tested (" <> tshow n <> " samples)"
 dlLabel (DLContractChecked p) = "contract-checked (" <> p <> ")"
 dlLabel (DLVerified p)        = "verified (" <> p <> ")"
+dlLabel (DLVerifiedLean _)    = "verified-lean"
 
 -- | Human display label for an assumption kind.
 akLabel :: AssumptionKind -> Text
