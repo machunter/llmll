@@ -4,6 +4,15 @@
 
 <a id="Latest"></a>
 
+## v0.14.10 — R5: concurrency-safe `diverge-report` classification (2026-07-05)
+
+> **EXPERIMENTAL.** Affects the R5 `diverge-report` classification path only. No change to the mainline `verify`/`checkout`/`patch` paths.
+
+### Compiler — diverge-report
+
+- **Concurrency-safe fill classification.** `classifyFillStatus` wrote its fixpoint query to a fixed `/tmp/llmll-diverge-<fname>.fq`. When multiple `diverge-report` processes classify a fill for the **same function name** concurrently (e.g. two single-hole scaffolds that share a hole-fn name, run in parallel), that file races — one process's `.fq` can be overwritten mid-solve, corrupting the verified/refuted verdict. Each classification now writes to a unique `openTempFile` path (removed after the solve).
+  - Surfaced by the R5-at-scale campaign harness running cells concurrently; a fixed unit test would itself be non-deterministic, so validated via the harness: 10 holes × 4 repeats × concurrency 6 → 100% stable verdicts (serial and concurrent now agree). Full suite 1064/0.
+
 ## v0.14.9 — R5: sibling-calling fills classify honestly (`diverge-report`) (2026-07-05)
 
 > **EXPERIMENTAL.** Affects the R5 divergence pipeline (`checkout --multi` / `diverge-report`), an experimental under-constraint **witness generator**. No change to the mainline `verify`/`checkout`/`patch` paths.

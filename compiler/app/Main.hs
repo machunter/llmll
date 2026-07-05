@@ -16,12 +16,12 @@
 --   patch      — v0.3: apply RFC 6902 JSON-Patch to a checked-out hole
 module Main (main) where
 
-import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
+import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8, openTempFile, hClose)
 import Data.Version (showVersion)
 import Paths_llmll (version)
 import System.Exit (exitFailure, exitSuccess, exitWith, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
-import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist)
+import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist, getTemporaryDirectory, removeFile)
 import System.Environment (lookupEnv)
 import Data.Maybe (fromMaybe, isJust, mapMaybe, listToMaybe)
 import System.Process (readProcessWithExitCode)
@@ -2192,9 +2192,16 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
           then pure FSRefuted  -- outside QF-LIA fragment: not a verified competitor
           else do
             let fqText = erFQText emitR
-                fqPath = "/tmp/llmll-diverge-" <> T.unpack fname <> ".fq"
+            -- Unique temp path per invocation. A fixed /tmp/llmll-diverge-<fname>.fq
+            -- races when concurrent diverge-report processes classify a fill for
+            -- the same function name (e.g. two scaffolds that share a hole-fn
+            -- name, run concurrently) — corrupting each other's .fq mid-solve.
+            tmpDir <- getTemporaryDirectory
+            (fqPath, fqH) <- openTempFile tmpDir ("llmll-diverge-" <> T.unpack fname <> ".fq")
+            hClose fqH
             TIO.writeFile fqPath fqText
             (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+            removeFile fqPath
             case parseFQResult (T.pack out <> T.pack err) of
               FQSafe -> pure FSVerified
               _      -> pure FSRefuted
