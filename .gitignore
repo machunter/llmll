@@ -43,3 +43,8 @@ tools/llmll-orchestra/.env
 *.scratch.ast.json
 *.scratch.llmll
 *.sess-*
+
+# transient Leanstral-demo runtime artifacts (--leanstral proof cache + kernel-check certificate)
+# NOTE: *.verified.json is deliberately NOT ignored here — canonical benchmark sidecars are tracked (see above).
+*.proof-cache.json
+*.verified.lean
