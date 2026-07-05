@@ -1,0 +1,36 @@
+{
+  "divergence_witness": {
+    "distinguishing_witness": null,
+    "hole": "/statements/0/body",
+    "n_submitted": 3,
+    "session": "sess-6bafab99c4c3",
+    "spec_entropy_suppressed": false,
+    "status_partition": {
+      "refuted": [],
+      "type_error": [],
+      "verified": [
+        "1d32aadd80ba",
+        "28781842f1a3",
+        "3da3747724b4"
+      ]
+    },
+    "verdict": "no-divergence-observed",
+    "verified_buckets": [
+      {
+        "fills": [
+          "1d32aadd80ba",
+          "28781842f1a3",
+          "3da3747724b4"
+        ],
+        "output_vector": [
+          "-1",
+          "0",
+          "4",
+          "-2",
+          "41"
+        ],
+        "representative": "1d32aadd80ba"
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+;; Realistic helper-composing hole (unblocked by the v0.14.9 sibling-call fix):
+;; `transfer` may call the verified helper `debit`. Weak-ish post admits two
+;; behaviours in the insufficient-funds region.
+(def debit [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (- balance amount))
+
+(def-shell transfer [balance: int amount: int] -> int
+  (pre  (and (>= balance 0) (>= amount 0)))
+  (post (>= result 0))
+  ?hole)

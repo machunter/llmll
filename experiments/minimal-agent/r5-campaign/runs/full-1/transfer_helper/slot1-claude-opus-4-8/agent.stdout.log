@@ -1,0 +1,7 @@
+Verified. `solution.llmll` is **SAFE** — the postcondition `(>= result 0)` is proven by liquid-fixpoint.
+
+The fill composes the verified sibling `debit`, guarding the call so both branches discharge the obligation:
+- **`(>= balance amount)` branch** → `(debit balance amount)`: the guard plus `amount >= 0` (from `transfer`'s pre) satisfies `debit`'s precondition, and `debit`'s post gives `result >= 0`.
+- **else branch** → `balance`: `balance >= 0` holds directly from `transfer`'s precondition.
+
+The call-pre obligation for `transfer` was checked and both paths satisfy `result >= 0`.

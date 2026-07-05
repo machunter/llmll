@@ -1,0 +1,7 @@
+Done. `solution.llmll` fills the hole with `lo`, and the compiler confirms it:
+
+```
+✅ solution.llmll — SAFE (liquid-fixpoint)
+```
+
+The hole body is `lo`: since `result = lo`, the postcondition `(>= result lo)` reduces to `(>= lo lo)`, which is trivially true. This matches the simplest verified fill in the corpus and satisfies the contract without touching the signature, pre/post, or `spec-entropy` declaration.

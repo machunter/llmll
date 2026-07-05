@@ -1,0 +1,103 @@
+{
+  "divergence_witness": {
+    "distinguishing_witness": {
+      "input": {
+        "lo": -1,
+        "x": 0
+      },
+      "outputs": [
+        {
+          "output": "-1",
+          "representative": "2e007f862799"
+        },
+        {
+          "output": "0",
+          "representative": "0e648c28537b"
+        }
+      ]
+    },
+    "hole": "/statements/0/body",
+    "n_submitted": 3,
+    "session": "sess-7adf1ce3a22e",
+    "spec_entropy_suppressed": true,
+    "status_partition": {
+      "refuted": [],
+      "type_error": [],
+      "verified": [
+        "2e007f862799",
+        "4afeb6523e04",
+        "0e648c28537b"
+      ]
+    },
+    "verdict": "suppressed-intentional",
+    "verified_buckets": [
+      {
+        "fills": [
+          "2e007f862799",
+          "4afeb6523e04"
+        ],
+        "output_vector": [
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42"
+        ],
+        "representative": "2e007f862799"
+      },
+      {
+        "fills": [
+          "0e648c28537b"
+        ],
+        "output_vector": [
+          "0",
+          "1",
+          "5",
+          "0",
+          "42",
+          "1",
+          "1",
+          "5",
+          "1",
+          "42",
+          "5",
+          "5",
+          "5",
+          "5",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "42",
+          "42",
+          "42",
+          "42",
+          "42"
+        ],
+        "representative": "0e648c28537b"
+      }
+    ]
+  }
+}

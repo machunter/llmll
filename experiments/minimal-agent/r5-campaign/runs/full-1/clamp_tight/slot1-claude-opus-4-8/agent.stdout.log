@@ -1,0 +1,5 @@
+Verified: `llmll verify solution.llmll` reports **SAFE** (postcondition proven).
+
+The hole `?hole` in `dec [n: int] -> int` with post `(= result (- n 1))` was filled with the body `(- n 1)`, and the complete program written to `solution.llmll`.
+
+Note: the `AGENT_INSTRUCTIONS.md` describes a `clamp_tight` function taking a `dec` function parameter and a sibling call, but the actual `scaffold.llmll` in this directory defines `dec` itself with the hole as its body (a harness templating mismatch). I filled the real scaffold, which verifies clean.

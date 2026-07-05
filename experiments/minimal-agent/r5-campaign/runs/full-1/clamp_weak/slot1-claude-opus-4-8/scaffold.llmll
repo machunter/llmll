@@ -1,0 +1,6 @@
+;; Weak contract: post pins only a lower bound, not WHICH value >= lo.
+;; Multiple correct implementations diverge (clamp vs constant lo) -> R5 should
+;; emit an under-constraint-witness.
+(def-shell clamp-lo [x: int lo: int] -> int
+  (post (>= result lo))
+  ?hole)

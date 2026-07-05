@@ -1,0 +1,103 @@
+{
+  "divergence_witness": {
+    "distinguishing_witness": {
+      "input": {
+        "lo": -1,
+        "x": 0
+      },
+      "outputs": [
+        {
+          "output": "0",
+          "representative": "73da602c02d7"
+        },
+        {
+          "output": "-1",
+          "representative": "2f04ddf2d3e4"
+        }
+      ]
+    },
+    "hole": "/statements/0/body",
+    "n_submitted": 3,
+    "session": "sess-52eee0b0874b",
+    "spec_entropy_suppressed": false,
+    "status_partition": {
+      "refuted": [],
+      "type_error": [
+        "2a7014999cde"
+      ],
+      "verified": [
+        "73da602c02d7",
+        "2f04ddf2d3e4"
+      ]
+    },
+    "verdict": "under-constraint-witness",
+    "verified_buckets": [
+      {
+        "fills": [
+          "73da602c02d7"
+        ],
+        "output_vector": [
+          "0",
+          "1",
+          "5",
+          "0",
+          "42",
+          "1",
+          "1",
+          "5",
+          "1",
+          "42",
+          "5",
+          "5",
+          "5",
+          "5",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "42",
+          "42",
+          "42",
+          "42",
+          "42"
+        ],
+        "representative": "73da602c02d7"
+      },
+      {
+        "fills": [
+          "2f04ddf2d3e4"
+        ],
+        "output_vector": [
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42",
+          "0",
+          "1",
+          "5",
+          "-1",
+          "42"
+        ],
+        "representative": "2f04ddf2d3e4"
+      }
+    ]
+  }
+}

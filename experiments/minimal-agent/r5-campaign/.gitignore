@@ -1,0 +1,13 @@
+# Build output (regenerable via `llmll build --emit`)
+corpus/generated/
+runs/**/generated/
+# Throwaway validation runs
+runs/mock-validate/
+runs/live-wiring/
+# Console logs
+runs/*.log
+runs/*.stdout.log
+runs/*.stderr.log
+# (global .gitignore already covers *.scratch.*, *.sess-*, *.llmll-diverge.json)
+# Kept as evidence: findings.md, manifest.json, corpus/*.llmll, runs/full-1/**/*.json,
+# runs/full-1/**/solution.llmll, runs/full-1/**/agent.*.log

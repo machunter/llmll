@@ -1,0 +1,103 @@
+{
+  "divergence_witness": {
+    "distinguishing_witness": {
+      "input": {
+        "amount": -1,
+        "balance": 0
+      },
+      "outputs": [
+        {
+          "output": "1",
+          "representative": "70184ae60a9e"
+        },
+        {
+          "output": "0",
+          "representative": "46dbc9f6af18"
+        }
+      ]
+    },
+    "hole": "/statements/1/body",
+    "n_submitted": 3,
+    "session": "sess-2142f0d06b74",
+    "spec_entropy_suppressed": false,
+    "status_partition": {
+      "refuted": [],
+      "type_error": [],
+      "verified": [
+        "70184ae60a9e",
+        "46dbc9f6af18",
+        "4db3f8a88f17"
+      ]
+    },
+    "verdict": "under-constraint-witness",
+    "verified_buckets": [
+      {
+        "fills": [
+          "70184ae60a9e",
+          "4db3f8a88f17"
+        ],
+        "output_vector": [
+          "0",
+          "0",
+          "0",
+          "1",
+          "0",
+          "1",
+          "0",
+          "1",
+          "2",
+          "1",
+          "5",
+          "4",
+          "0",
+          "6",
+          "5",
+          "-1",
+          "-1",
+          "-1",
+          "0",
+          "-1",
+          "42",
+          "41",
+          "37",
+          "43",
+          "0"
+        ],
+        "representative": "70184ae60a9e"
+      },
+      {
+        "fills": [
+          "46dbc9f6af18"
+        ],
+        "output_vector": [
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "5",
+          "5",
+          "5",
+          "5",
+          "5",
+          "-1",
+          "-1",
+          "-1",
+          "-1",
+          "-1",
+          "42",
+          "42",
+          "42",
+          "42",
+          "42"
+        ],
+        "representative": "46dbc9f6af18"
+      }
+    ]
+  }
+}

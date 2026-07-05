@@ -1,0 +1,7 @@
+;; Same weak post as clamp_weak, but the author DECLARES the looseness
+;; intentional -> R5 should still witness the divergence but suppress the
+;; verdict (suppressed-intentional).
+(def-shell clamp-lo [x: int lo: int] -> int
+  (post (>= result lo))
+  (spec-entropy :intentional)
+  (if (>= x lo) x lo))

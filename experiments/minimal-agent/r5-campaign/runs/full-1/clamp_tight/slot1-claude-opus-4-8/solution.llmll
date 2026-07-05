@@ -1,0 +1,5 @@
+;; Tight contract: an equality post fully determines the result.
+;; Every correct fill agrees on all inputs -> R5 should see no divergence.
+(def-shell dec [n: int] -> int
+  (post (= result (- n 1)))
+  (- n 1))

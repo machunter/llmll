@@ -1,0 +1,11 @@
+Verification passed — **SAFE**.
+
+I filled the single `?hole` in `scaffold.llmll` (inside `clamp-lo`, params `x: int`, `lo: int`, post `(>= result lo)`) with a proper clamp:
+
+```
+(if (< x lo) lo x)
+```
+
+Both branches satisfy the postcondition: when `x < lo` it returns `lo` (`lo >= lo`), otherwise it returns `x` (which is `>= lo` by the guard). Written to `solution.llmll` and confirmed with `llmll verify` → SAFE (liquid-fixpoint).
+
+Note: `AGENT_INSTRUCTIONS.md` describes a function `clamp_weak` calling a sibling `clamp-lo`, but the actual `scaffold.llmll` has exactly one hole — inside `clamp-lo` itself, with no sibling to call. I filled the hole that actually exists in the scaffold.
