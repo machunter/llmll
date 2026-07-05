@@ -1177,6 +1177,16 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- render shows 'asserted' (no refuted info) by design — see the refuted
       -- proposal edge case 3.
       when (trustReport && not cdpFlag && not strictCore) $ do
+        -- Leanstral demo: this early-exit otherwise short-circuits BEFORE the
+        -- post-solver path that fires the proof pipeline (line ~1631), so
+        -- '--leanstral --trust-report' silently skipped proving and wrote no
+        -- artifacts. When the pipeline is requested, run it FIRST — same worklist
+        -- as the solver path (the nonlinear body-fallback functions) — THEN render
+        -- the report. In JSON mode 'runLeanstralPipeline' stays quiet (all its
+        -- prints are 'unless isJson'-gated), so the trust-report JSON is uncorrupted.
+        when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $ do
+          emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) fp stmts
+          runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
         -- v0.9.0: the .verified.json sidecar makes the trust report reflect solver
         -- results. Use the staleness-GATED 'entrySidecar' (line ~1108), not a fresh
         -- raw reload — otherwise a stale verdict (e.g. a return-annotation or post

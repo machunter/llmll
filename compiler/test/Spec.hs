@@ -3659,6 +3659,30 @@ main = hspec $ do
         Right c -> T.isInfixOf "theorem t" c `shouldBe` True
         Left e  -> expectationFailure $ "Expected content, got: " ++ T.unpack e
 
+    -- FIX 1: greedy sampling (temperature 0.0) requires top_p = 1, else Mistral
+    -- 400-rejects with code 3054 ("top_p must be 1 when using greedy sampling.").
+    it "Layer-3: buildChatRequest sends top_p = 1 (required for greedy sampling)" $
+      case decode (buildChatRequest "labs-leanstral-1-5" "prove this") :: Maybe Value of
+        Just (Object o) -> KM.lookup "top_p" o `shouldBe` Just (Number 1)
+        other           -> expectationFailure $ "Expected a JSON object, got: " ++ show other
+
+    -- FIX 2: Mistral's error shape is TOP-LEVEL ({"object":"error","message":X}),
+    -- not nested under .error. The real API message must reach the user instead
+    -- of being swallowed into the generic no-content fallback.
+    it "Layer-3: parseChatContent surfaces a top-level Mistral error message" $ do
+      let resp = "{\"object\":\"error\",\"message\":\"top_p must be 1 when using greedy sampling.\",\"code\":\"3054\"}"
+      case parseChatContent (BLC.pack resp) of
+        Left msg -> do
+          T.isInfixOf "top_p must be 1 when using greedy sampling." msg `shouldBe` True
+          T.isInfixOf "had no choices" msg `shouldBe` False  -- NOT the generic fallback
+        Right c  -> expectationFailure $ "Expected Left error, got content: " ++ T.unpack c
+
+    -- FIX 2 (auth-failure shape): {"detail":"Unauthorized"} must also surface.
+    it "Layer-3: parseChatContent surfaces a top-level .detail auth error" $
+      case parseChatContent (BLC.pack "{\"detail\":\"Unauthorized\"}") of
+        Left msg -> T.isInfixOf "Unauthorized" msg `shouldBe` True
+        Right c  -> expectationFailure $ "Expected Left error, got content: " ++ T.unpack c
+
     -- MCPClient — anti-laundering guard (PROOF-ARTIFACT §4.1 LCF)
     it "sanitizeProof accepts a genuine proof term (ProofFound survives)" $
       sanitizeProof "by decide" `shouldBe` ProofFound "by decide"

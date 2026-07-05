@@ -223,24 +223,35 @@ buildPrompt theoremText = T.unlines
   ]
 
 -- | Build the chat-completions request body.
+--
+-- Greedy sampling (@temperature: 0.0@) requires @top_p: 1@ — Mistral
+-- 400-rejects @temperature: 0@ without it (@code 3054@: "top_p must be 1 when
+-- using greedy sampling."). We send both.
 buildChatRequest :: Text -> Text -> BL.ByteString
 buildChatRequest model prompt = encode $ object
   [ "model"       .= model
   , "messages"    .= [ object [ "role" .= ("user" :: Text), "content" .= prompt ] ]
   , "temperature" .= (0.0 :: Double)
+  , "top_p"       .= (1 :: Int)
   ]
 
 -- | Extract @.choices[0].message.content@ from a chat-completions JSON body.
--- On a Mistral error body, surface @.error.message@ as a @Left@.
+--
+-- On a Mistral error body, surface the API's own message as a @Left@ so the real
+-- failure reaches the user. Mistral's error shape is TOP-LEVEL, not nested:
+-- @{"object":"error","message":"..."}@ (message at @.message@), and auth
+-- failures are @{"detail":"Unauthorized"}@. We try, in order: legacy nested
+-- @.error.message@, top-level @.message@, top-level @.detail@ — first hit wins.
 parseChatContent :: BL.ByteString -> Either Text Text
 parseChatContent raw =
   case eitherDecode raw of
     Left e    -> Left ("could not decode Mistral response as JSON: " <> T.pack e)
     Right val -> case parseEither contentP val of
       Right c -> Right c
-      Left _  -> case parseEither errorP val of
-        Right msg -> Left ("Mistral API error: " <> msg)
-        Left _    -> Left "Mistral response had no choices[0].message.content"
+      Left _  ->
+        case [ m | p <- [errorP, topMessageP, detailP], Right m <- [parseEither p val] ] of
+          (msg : _) -> Left ("Mistral API error: " <> msg)
+          []        -> Left "Mistral response had no choices[0].message.content"
   where
     contentP = withObject "response" $ \o -> do
       choices <- o .: "choices"
@@ -249,9 +260,14 @@ parseChatContent raw =
           msg <- co .: "message"
           flip (withObject "message") msg $ \mo -> mo .: "content"
         [] -> fail "empty choices"
+    -- Legacy/nested shape: {"error":{"message":"..."}}
     errorP = withObject "response" $ \o -> do
       err <- o .: "error"
       flip (withObject "error") err $ \eo -> eo .: "message"
+    -- Mistral top-level error: {"object":"error","message":"..."}
+    topMessageP = withObject "response" $ \o -> o .: "message"
+    -- Auth/gateway failure: {"detail":"Unauthorized"}
+    detailP = withObject "response" $ \o -> o .: "detail"
 
 -- | Extract the ` ```lean ` (or ` ```lean4 `) fenced code block from a
 -- prose+fence model response. Fail-closed if absent\/empty.
