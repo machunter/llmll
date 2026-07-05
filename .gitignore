@@ -48,3 +48,6 @@ tools/llmll-orchestra/.env
 # NOTE: *.verified.json is deliberately NOT ignored here — canonical benchmark sidecars are tracked (see above).
 *.proof-cache.json
 *.verified.lean
+
+# asciinema demo recordings (regenerate via examples/leanstral-demo/demo.sh)
+*.cast

@@ -32,6 +32,29 @@ Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/paym
 
 ---
 
+## Prove what the solver can't — kernel-checked
+
+Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside Z3's decidable fragment, so the SMT verifier can only mark the postcondition `asserted` (honest "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
+
+<p align="center"><img src="docs/assets/leanstral.gif" width="760" alt="LLMLL verified-lean demo"></p>
+
+```text
+$ llmll verify examples/leanstral-demo/square.llmll --trust-report
+  square:  post: asserted                       # Z3 gives up on nonlinear arithmetic
+
+$ LLMLL_LEANSTRAL_API_KEY=… llmll verify examples/leanstral-demo/square.llmll \
+    --leanstral --leanstral-lean-project ~/proofcheck --trust-report
+  square: Leanstral proof found, Lean kernel + Mathlib CHECKED
+  square:  post: verified-lean   (certificate: square.verified.lean)
+```
+
+The certificate is a Lean proof term the kernel accepted — checkable by anyone with Lean, without trusting Leanstral *or* LLMLL's compiler. **An AI proved what the SMT solver couldn't, and you don't have to take its word for it.**
+
+> **Experimental (v0.14.8).** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/design/leanstral-demo-spec.md`](docs/design/leanstral-demo-spec.md).
+
+
+---
+
 ## Try it
 
 The full repair loop (hole → rejected bad fills → accepted fix → verified) is the copy-pasteable [`DEMO-RUNBOOK.md`](examples/withdraw-demo/DEMO-RUNBOOK.md).
