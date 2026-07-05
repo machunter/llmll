@@ -2091,9 +2091,8 @@ doDivergeReport json gm fp session = do
               mLF <- do
                 a <- findExecutable "liquid-fixpoint"
                 case a of { Just _ -> pure a; Nothing -> findExecutable "fixpoint" }
-              let typeDefs = [s | s@STypeDef{} <- sharedStmts]
               classified <- mapM
-                (classifyMember gm mLF typeDefs fname params mRet contract)
+                (classifyMember gm mLF sharedStmts fname params mRet contract)
                 members
               let ctx = DivergenceContext
                     { dcSession     = session
@@ -2137,7 +2136,7 @@ classifyMember
   :: GrammarMode -> Maybe FilePath -> [Statement]
   -> Name -> [(Name, Type)] -> Maybe Type -> Contract
   -> DivergenceMember -> IO ClassifiedFill
-classifyMember gm mLF typeDefs fname params mRet contract m = do
+classifyMember gm mLF sharedStmts fname params mRet contract m = do
   let fid = T.take 12 (dmToken m)
   parsed <- loadStatements False gm (dmScratch m)
   case parsed of
@@ -2149,23 +2148,38 @@ classifyMember gm mLF typeDefs fname params mRet contract m = do
           | isUnfilledHole body ->
               pure (ClassifiedFill (Fill fid body) FSTypeError)
           | otherwise -> do
-              status <- classifyFillStatus gm mLF typeDefs fname params mRet contract body
+              status <- classifyFillStatus gm mLF sharedStmts fname params mRet contract body
               pure (ClassifiedFill (Fill fid body) status)
   where
     isUnfilledHole (EHole _) = True
     isUnfilledHole _         = False
 
--- | Classify one fill body: type-check then solve an isolated synthetic
--- @def@. Mirrors the CDP/weakness candidate classification (isolated emission,
--- body-fallback excluded). A fill referencing user-defined siblings is out of
--- scope for this observational increment (isolated emission resolves builtins
--- + type-defs only) and classifies as 'FSTypeError'.
+-- | Classify one fill body: type-check then solve the fill in the context of
+-- the shared program. The hole-fn's body is replaced by this fill within the
+-- shared statement list, so calls to verified sibling helpers resolve — both
+-- for type-checking and for the modular VC. Siblings are pinned to the SHARED
+-- (trusted) definitions, never the scratch's, so a fill cannot weaken a helper
+-- it calls. Property @check@s are dropped: R5 verifies the fill against its
+-- CONTRACT, not the sibling checks (which would add unrelated VCs and tighten
+-- the goal). Non-recursive def-forms + type-defs form the context; SLetrec
+-- helpers are still dropped (recursive-helper support is a later increment).
 classifyFillStatus
   :: GrammarMode -> Maybe FilePath -> [Statement]
   -> Name -> [(Name, Type)] -> Maybe Type -> Contract -> Expr -> IO FillStatus
-classifyFillStatus gm mLF typeDefs fname params mRet contract body = do
-  let synthetic = SDef fname params mRet contract body
-      report    = typeCheck gm builtinEnv (typeDefs ++ [synthetic])
+classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
+  let -- Preserve the hole-fn's def-form. A `def-shell` fill verifies its post
+      -- modularly through sibling calls (each callee's contract discharges the
+      -- call). A strict `def` keeps the strict-core admissibility gate: this
+      -- isolated pass does not run the pipeline's leaf-verification, so a
+      -- sibling-calling strict-def fill stays FSTypeError — a conservative
+      -- bound (never a manufactured witness); R5 hole-fns are `def-shell` by
+      -- convention, so the modular path is the common one.
+      synthetic = case filter (defNamed fname) sharedStmts of
+                    (SDefShell{} : _) -> SDefShell fname params mRet contract body
+                    _                 -> SDef      fname params mRet contract body
+      context   = [ s | s <- sharedStmts, keepAsContext s ]
+      program   = context ++ [synthetic]
+      report    = typeCheck gm builtinEnv program
       hasErr    = any (\d -> diagSeverity d == SevError) (reportDiagnostics report)
   if hasErr
     then pure FSTypeError
@@ -2173,7 +2187,7 @@ classifyFillStatus gm mLF typeDefs fname params mRet contract body = do
       Nothing    -> pure FSTypeError  -- no solver: verified status is undetermined
       Just lfBin -> do
         let emitOpts = defaultEmitOptions { emitBodyVCs = True }
-        emitR <- emitFixpointWith emitOpts "<diverge-fill>" (typeDefs ++ [synthetic])
+        emitR <- emitFixpointWith emitOpts "<diverge-fill>" program
         if fname `elem` erBodyFallback emitR
           then pure FSRefuted  -- outside QF-LIA fragment: not a verified competitor
           else do
@@ -2184,6 +2198,18 @@ classifyFillStatus gm mLF typeDefs fname params mRet contract body = do
             case parseFQResult (T.pack out <> T.pack err) of
               FQSafe -> pure FSVerified
               _      -> pure FSRefuted
+  where
+    -- Context for classifying the fill: sibling helper defs (so their calls
+    -- resolve) + type-defs. Drop the shared copy of the hole-fn — `synthetic`
+    -- replaces it — and drop property checks.
+    keepAsContext (SCheck _) = False
+    keepAsContext STypeDef{} = True
+    keepAsContext s          = case normalizeDefStmt s of
+                                 Just (n, _, _, _, _) -> n /= fname
+                                 Nothing              -> False
+    defNamed nm s = case normalizeDefStmt s of
+                      Just (n, _, _, _, _) -> n == nm
+                      Nothing              -> False
 
 -- ---------------------------------------------------------------------------
 -- v0.3: Patch handler

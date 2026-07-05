@@ -1,0 +1,7 @@
+(def maxi [a: int b: int] -> int
+  (post (and (>= result a) (>= result b)))
+  (if (>= a b) a b))
+
+(def-shell clampS [x: int lo: int] -> int
+  (post (>= result lo))
+  (maxi x lo))

@@ -178,3 +178,33 @@ Sources: `experiments/r5-validation/work/*.llmll`. Driver: `scratchpad/r5drive.s
 ```
 
 Standalone fill checks: `stack exec llmll -- verify <fill>.llmll`.
+
+## Addendum (2026-07-05) — Case 5 sibling-call suppression FIXED (v0.14.9)
+
+The Case-5 / §Common-mode channel (2) false-negative — *any* sibling-calling fill silently
+reclassified `type-error` and dropped before bucketing — is **fixed**. `classifyFillStatus`
+(`app/Main.hs`) no longer classifies fills via isolated synthetic emission; it verifies each
+fill in the **shared program's context** — the hole-fn's body is substituted by the fill,
+sibling defs are kept and pinned to the trusted shared definitions (a fill cannot weaken a
+helper it calls), and property `check`s are dropped. A `def-shell` fill then verifies its post
+**modularly** through helper calls (each callee's contract discharges the call).
+
+Re-validated end-to-end through the real solver (`liquid-fixpoint`):
+- **Sibling-divergence, `def-shell` (the fix)** — `work/sib_shell_{hole,fillA,fillB}.llmll`
+  (`clampS` post `(>= result lo)`, fill A `(maxi x lo)` calling sibling `maxi`, fill B `lo`):
+  both now `verified` → `under-constraint-witness`, distinguishing input `{x:0, lo:-1}` (A→0,
+  B→-1). **Pre-fix this was a spurious `no-divergence-observed`** (A dropped to `type_error`).
+- **Real on-disk datapoint** (`runs/…-payments-core-realfill` transfer, claude-opus-4-8 +
+  gpt-5.5, both call sibling `debit`, `def-shell`): both now `verified` → `no-divergence-observed`
+  (correct — the two fills are byte-identical). **Pre-fix both dropped to `type_error`.**
+
+**Residual (conservative, documented)** — `work/sib_{hole,fillA,fillB}.llmll` (the original
+Case-5 sources: **strict `def clamp-sib`** calling `maxi`): post-fix, fill A `(maxi x lo)` still
+classifies `type-error` and fill B `lo` verifies → `no-divergence-observed` (verdict unchanged
+from the original run). The *mechanism* changed, though: `maxi` is now in scope (a sibling def),
+but the strict-core admissibility gate rejects the call because this isolated pass doesn't run
+the pipeline's leaf-verification pre-pass, so `maxi` isn't marked body-faithful — the error is
+now "callee not body-faithful," not "callee unbound." Conservative — never a manufactured
+witness; R5 hole-fns are `def-shell` by convention, so the modular path is the common one. The
+negative branch's remaining weakness is thus **common-mode correlation alone**. Full suite green
+(1064/0). See `differential-implementation-pressure-proposal.md` Rev 4.

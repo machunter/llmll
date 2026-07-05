@@ -4,6 +4,21 @@
 
 <a id="Latest"></a>
 
+## v0.14.9 — R5: sibling-calling fills classify honestly (`diverge-report`) (2026-07-05)
+
+> **EXPERIMENTAL.** Affects the R5 divergence pipeline (`checkout --multi` / `diverge-report`), an experimental under-constraint **witness generator**. No change to the mainline `verify`/`checkout`/`patch` paths.
+
+### Compiler — diverge-report (R5 stage-1 classification)
+
+- **Sibling-call suppression fixed.** `diverge-report`'s per-fill classification previously used isolated synthetic emission, so any fill calling a user-defined sibling helper classified as `type-error` and was silently dropped from the verified partition — a witness-suppression false-negative (proposal Rev 3; `r5-validation/findings.md` Case 5). Classification now verifies each fill in the **shared program's context**: the hole-fn's body is substituted by the fill, sibling defs are kept and pinned to the trusted shared definitions (a fill cannot weaken a helper it calls), and property `check`s are dropped (R5 grades against the contract, not the checks). A `def-shell` fill's post now verifies **modularly** through helper calls — each callee's contract discharges the call.
+  - **Impact:** helper-composing corpora (payments-core / withdraw) become usable with R5; the negative branch's false-negative channels drop from two to **one** (common-mode correlation alone).
+  - **Residual (conservative):** a strict-`def` hole-fn calling a sibling stays `type-error` — this isolated pass does not run the pipeline's leaf-verification pre-pass. Never a manufactured witness; R5 hole-fns are `def-shell` by convention.
+  - Re-validated end-to-end through the real solver: sibling-divergence (`(maxi x lo)` vs `lo`) → `under-constraint-witness` `{x:0, lo:-1}`; the real payments-core `transfer` datapoint (both fills call `debit`) → both `verified`. Full suite **1064/0**.
+
+### Docs
+
+- `differential-implementation-pressure-proposal.md` → Rev 4 (sibling-call bound → fixed); `experiments/r5-validation/findings.md` dated addendum.
+
 ## v0.14.8 — Leanstral demo: experimental `verified-lean` vertical slice (2026-07-05)
 
 > **EXPERIMENTAL / demo-only.** The `--leanstral` path below is a scoped "three-lite" demo, **not** the production Lean verification path (roadmap `LEAN-GA`). It requires a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) **and** a local Lean 4 + Mathlib project; with either absent it fails closed and records nothing. It discharges one obligation *shape* — a faithfully-translatable nonlinear-arithmetic body — and makes **no** claim of faithful translation across the other QF-LIA escape classes. The production rebuild (translator faithfulness across all escape classes, the retry-with-error loop, hash-revalidated Lean staleness) remains deferred.
