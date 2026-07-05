@@ -1,0 +1,7 @@
+;; Tight: an equality post pins the result on all inputs. Uses `(+ n n)` (linear)
+;; rather than `(* 2 n)` -- the classifier conservatively treats any `*` as
+;; nonlinear (-> body-fallback -> refuted), which would make the hole degenerate
+;; (no verified competitors). `+` stays in QF-LIA, so correct fills verify.
+(def-shell dbl [n: int] -> int
+  (post (= result (+ n n)))
+  ?hole)

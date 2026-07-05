@@ -11,3 +11,10 @@ runs/*.stderr.log
 # (global .gitignore already covers *.scratch.*, *.sess-*, *.llmll-diverge.json)
 # Kept as evidence: findings.md, manifest.json, corpus/*.llmll, runs/full-1/**/*.json,
 # runs/full-1/**/solution.llmll, runs/full-1/**/agent.*.log
+# scale-1: keep aggregate + per-cell result/diverge JSONs; drop bulky per-agent slot dirs
+runs/scale-1/**/slot*/
+runs/scale-1/**/*.llmll
+runs/scale-1/**/diverge_report.json
+runs/mock-*/
+runs/*-fill.stdout.log
+runs/*-fill.stderr.log

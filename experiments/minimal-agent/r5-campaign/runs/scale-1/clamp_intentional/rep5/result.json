@@ -1,0 +1,49 @@
+{
+  "hole": "clamp_intentional",
+  "pointer": "/statements/0/body",
+  "session": "sess-2d988ef33cf9",
+  "n_agents": 3,
+  "fills": [
+    {
+      "agent": "claude-opus-4-8",
+      "status": "ran",
+      "fill": "injected"
+    },
+    {
+      "agent": "gpt-5.5",
+      "status": "ran",
+      "fill": "injected"
+    },
+    {
+      "agent": "gemini-3.1-pro",
+      "status": "ran",
+      "fill": "injected"
+    }
+  ],
+  "verdict": "suppressed-intentional",
+  "status_partition": {
+    "refuted": [],
+    "type_error": [],
+    "verified": [
+      "0f6fefaa576f",
+      "4fd72f4d7f8c",
+      "29a5117f9c4b"
+    ]
+  },
+  "distinguishing_witness": {
+    "input": {
+      "lo": -1,
+      "x": 0
+    },
+    "outputs": [
+      {
+        "output": "-1",
+        "representative": "0f6fefaa576f"
+      },
+      {
+        "output": "0",
+        "representative": "29a5117f9c4b"
+      }
+    ]
+  }
+}

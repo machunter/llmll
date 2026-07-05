@@ -1,0 +1,10 @@
+;; Loose + helper-composing: the natural fill calls the verified sibling `maxi`
+;; (max), but a constant `lo` also satisfies the weak post -> divergence, and
+;; the helper-calling fill must count as a verified competitor (v0.14.9 fix).
+(def maxi [a: int b: int] -> int
+  (post (and (>= result a) (>= result b)))
+  (if (>= a b) a b))
+
+(def-shell clamp-h [x: int lo: int] -> int
+  (post (>= result lo))
+  ?hole)

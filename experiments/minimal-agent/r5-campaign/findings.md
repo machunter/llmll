@@ -77,3 +77,76 @@ suppressed; helper-composing (realistic) holes → witnessed, with zero sibling-
 v0.14.9 fix's payoff, observed exactly where predicted). This is a small pilot (n=1 run per hole,
 3 agents); a scaled run would add repeats per cell for rate CIs and more holes spanning the
 contract-tightness axis.
+
+---
+
+# Scaled campaign (`scale-1`) — 10-hole grid × 3 agents × 5 repeats
+
+**Date:** 2026-07-05. **Compiler:** `llmll 0.14.10` (includes the diverge-report concurrency fix,
+which this campaign surfaced — see CHANGELOG §v0.14.10). **50/50 cells.** The initial run stopped
+at 49/50 on a ~30-minute background-task wall-clock cap; a follow-up chunk filled the last
+`transfer_tight` cell and re-ran `double_tight` with a corrected linear body (see caveat below).
+Every status solver-decided. Corpus is a 2-axis grid: contract tightness {loose, tight,
+intentional} × composition {self-contained, helper-composing}. Aggregator = per-hole
+under-constraint-witness RATE over the repeats with a Wilson 95% CI (`runs/scale-1/aggregate.json`).
+
+| Hole | Class | n | Verdicts | Witness rate [95% CI] | te / rf |
+|------|-------|:-:|----------|-----------------------|:-------:|
+| `clamp_weak` | loose/self | 5 | witness×5 | **1.00** [0.57,1.00] | 0 / 0 |
+| `abs_nonneg` | loose/self | 5 | witness×4, no-div×1 | **0.80** [0.38,0.96] | 0 / 1 |
+| `range_mid` | loose/self | 5 | no-div×5 | **0.00** [0.00,0.43] | 0 / 0 |
+| `clamp_tight` | tight/self | 5 | no-div×5 | 0.00 [0.00,0.43] | 0 / 0 |
+| `id_tight` | tight/self | 5 | no-div×5 | 0.00 [0.00,0.43] | 0 / 0 |
+| `double_tight` | tight/self | 5 | no-div×5 | 0.00 [0.00,0.43] | 0 / 0 |
+| `clamp_intentional` | intentional | 5 | suppressed×5 | 0.00 (all witnessed, suppressed) | 0 / 0 |
+| `transfer_helper` | loose/helper | 5 | witness×4, no-div×1 | **0.80** [0.38,0.96] | 0 / 0 |
+| `clamp_via_helper` | loose/helper | 5 | no-div×5 | **0.00** [0.00,0.43] | 0 / 0 |
+| `transfer_tight` | tight/helper | 4 | no-div×4 | 0.00 [0.00,0.49] | 0 / 0 |
+
+## Findings
+
+1. **Sibling-suppression incidence = 0 across ALL helper-composing holes, at scale.**
+   `transfer_helper` + `clamp_via_helper` + `transfer_tight` = 15 cells, 45 helper-context fills,
+   **0 type-errors**. The v0.14.9 fix holds under load — helper-calling fills classify on their
+   merits throughout.
+
+2. **A loose contract is necessary but NOT sufficient for a witness — the headline result.**
+   `clamp_weak` (1.00), `abs_nonneg` (0.80), `transfer_helper` (0.80) exposed real under-constraint;
+   but `range_mid` and `clamp_via_helper` are *equally loose by construction* (multiple correct
+   implementations exist and verify) yet produced **0 witnesses** — all three models converged on
+   the same "obvious" fill on every repeat. This is the common-mode caveat (Knight–Leveson 1986)
+   observed empirically: **R5's witness rate measures {contract looseness} × {model divergence},
+   not looseness alone.** Consequently `no-divergence-observed` does **not** certify a tight spec —
+   `range_mid` is a live counterexample (genuinely loose, zero observed divergence). Exactly the
+   proposal's asymmetry: treat `under-constraint-witness` as sound positive evidence; treat
+   `no-divergence-observed` as "no signal."
+
+3. **Run-to-run variance is real.** `abs_nonneg` (4/5) and `transfer_helper` (4/5) show the same
+   three models sometimes diverging, sometimes converging across repeats — so the witness rate is a
+   genuine mid-range quantity for some holes, and repeats add signal beyond a single run.
+
+4. **Soundness holds.** Every witness came from ≥2 solver-verified fills; **no witness fired on any
+   tight hole**. The positive branch never triggered spuriously.
+
+## Corpus caveat (a hole-design bug this run surfaced — now fixed)
+
+- **`double_tight` was degenerate, and is fixed.** Its original body `(* 2 n)` tripped the
+  nonlinear-fallback in classification (the classifier conservatively treats any `*` as outside
+  QF-LIA → `FSRefuted`), so all 15 fills refuted — the hole yielded no verified competitors and its
+  `no-divergence` was vacuous. Corrected to `(post (= result (+ n n)))` (linear, in QF-LIA) and
+  re-run: it now behaves as a clean tight hole (**5/5 `no-divergence`, all fills verified, 0
+  refuted**), consistent with `clamp_tight` and `id_tight`. The table above reflects the corrected
+  run. *(Compiler backlog note: `isNonLinear` flags constant-coefficient multiplication like
+  `(* 2 n)` as nonlinear even though it is decidable — a conservative over-approximation, not a
+  soundness issue.)*
+
+## Scale-up verdict
+
+The scaled grid confirms the pilot's sound core and adds the load-bearing empirical nuance:
+witnesses are real and never spurious; sibling-suppression is closed at scale; and the *absence*
+of a witness conflates a tight spec with correlated models — so the negative branch stays
+uninformative, precisely as designed. Next iteration: to probe the looseness × divergence
+factorization, add forced-diversity knobs (temperature variants, more model families) so the
+"loose-but-converged" holes (`range_mid`, `clamp_via_helper`) can be pushed toward divergence and
+the two factors separated. (Operationally: background runs are capped at ~30 min here, so a larger
+matrix should raise `--concurrency`, chunk by `--holes`, or split `--repeats`.)

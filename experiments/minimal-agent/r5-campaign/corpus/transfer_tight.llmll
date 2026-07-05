@@ -1,0 +1,11 @@
+;; Tight + helper-composing: equality post pins the result; every correct fill
+;; (direct or via `debit`) agrees -> no divergence expected.
+(def debit [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (and (= result (- balance amount)) (>= result 0)))
+  (- balance amount))
+
+(def-shell xfer [balance: int amount: int] -> int
+  (pre  (and (>= balance amount) (>= amount 0)))
+  (post (= result (- balance amount)))
+  ?hole)

@@ -1,0 +1,34 @@
+{
+  "hole": "transfer_tight",
+  "pointer": "/statements/1/body",
+  "session": "sess-3b70afe6a05e",
+  "n_agents": 3,
+  "fills": [
+    {
+      "agent": "claude-opus-4-8",
+      "status": "ran",
+      "fill": "injected"
+    },
+    {
+      "agent": "gpt-5.5",
+      "status": "ran",
+      "fill": "injected"
+    },
+    {
+      "agent": "gemini-3.1-pro",
+      "status": "ran",
+      "fill": "injected"
+    }
+  ],
+  "verdict": "no-divergence-observed",
+  "status_partition": {
+    "refuted": [],
+    "type_error": [],
+    "verified": [
+      "0827dc8630cd",
+      "0c2d20bc2874",
+      "7fdd76d85447"
+    ]
+  },
+  "distinguishing_witness": null
+}

@@ -1,0 +1,35 @@
+{
+  "hole": "abs_nonneg",
+  "pointer": "/statements/0/body",
+  "session": "sess-3dcb71d3877e",
+  "n_agents": 3,
+  "fills": [
+    {
+      "agent": "claude-opus-4-8",
+      "status": "ran",
+      "fill": "injected"
+    },
+    {
+      "agent": "gpt-5.5",
+      "status": "ran",
+      "fill": "injected"
+    },
+    {
+      "agent": "gemini-3.1-pro",
+      "status": "ran",
+      "fill": "injected"
+    }
+  ],
+  "verdict": "no-divergence-observed",
+  "status_partition": {
+    "refuted": [
+      "205f44fd362b"
+    ],
+    "type_error": [],
+    "verified": [
+      "0feedbec9300",
+      "7a10b64f4b3f"
+    ]
+  },
+  "distinguishing_witness": null
+}

@@ -1,0 +1,5 @@
+;; Loose: any non-negative result is admissible. abs(n), max(n,0), 0, n*n all
+;; qualify -> divergence expected.
+(def-shell nonneg [n: int] -> int
+  (post (>= result 0))
+  ?hole)

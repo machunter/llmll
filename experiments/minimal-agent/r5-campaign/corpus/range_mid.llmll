@@ -1,0 +1,5 @@
+;; Loose: any value in [lo, hi] is admissible (lo, hi, midpoint all qualify).
+(def-shell in-range [lo: int hi: int] -> int
+  (pre  (<= lo hi))
+  (post (and (>= result lo) (<= result hi)))
+  ?hole)

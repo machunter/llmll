@@ -1,0 +1,149 @@
+{
+  "label": "scale-1",
+  "cells_completed": 50,
+  "note": "50/50 cells. double_tight re-run with linear (+ n n) body (v0.14.10); transfer_tight rep1 filled.",
+  "aggregate": {
+    "clamp_weak": {
+      "class": "loose/self",
+      "repeats": 5,
+      "verdicts": {
+        "under-constraint-witness": 5
+      },
+      "witness_rate": [
+        1.0,
+        0.566,
+        1
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "abs_nonneg": {
+      "class": "loose/self",
+      "repeats": 5,
+      "verdicts": {
+        "under-constraint-witness": 4,
+        "no-divergence-observed": 1
+      },
+      "witness_rate": [
+        0.8,
+        0.376,
+        0.964
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 1
+    },
+    "range_mid": {
+      "class": "loose/self",
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0,
+        0.434
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "clamp_tight": {
+      "class": "tight/self",
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0,
+        0.434
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "id_tight": {
+      "class": "tight/self",
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0,
+        0.434
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "double_tight": {
+      "class": "tight/self",
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0,
+        0.434
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "clamp_intentional": {
+      "class": "intentional",
+      "repeats": 5,
+      "verdicts": {
+        "suppressed-intentional": 5
+      },
+      "witness_rate": [
+        0.0,
+        0,
+        0.434
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "transfer_helper": {
+      "class": "loose/helper",
+      "repeats": 5,
+      "verdicts": {
+        "under-constraint-witness": 4,
+        "no-divergence-observed": 1
+      },
+      "witness_rate": [
+        0.8,
+        0.376,
+        0.964
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "clamp_via_helper": {
+      "class": "loose/helper",
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0,
+        0.434
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    },
+    "transfer_tight": {
+      "class": "tight/helper",
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0,
+        0.434
+      ],
+      "sibling_suppression_type_errors": 0,
+      "refuted_fills": 0
+    }
+  }
+}

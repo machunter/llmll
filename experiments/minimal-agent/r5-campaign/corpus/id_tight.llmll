@@ -1,0 +1,4 @@
+;; Tight: identity is fully determined by the equality post.
+(def-shell ident [n: int] -> int
+  (post (= result n))
+  ?hole)

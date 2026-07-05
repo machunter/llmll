@@ -1,0 +1,390 @@
+{
+  "mode": "LIVE",
+  "repeats": 5,
+  "n_holes": 2,
+  "agents": [
+    "claude-opus-4-8",
+    "gpt-5.5",
+    "gemini-3.1-pro"
+  ],
+  "aggregate": {
+    "double_tight": {
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0.0,
+        0.434
+      ],
+      "divergence_observed_rate": [
+        0.0,
+        0.0,
+        0.434
+      ]
+    },
+    "transfer_tight": {
+      "repeats": 5,
+      "verdicts": {
+        "no-divergence-observed": 5
+      },
+      "witness_rate": [
+        0.0,
+        0.0,
+        0.434
+      ],
+      "divergence_observed_rate": [
+        0.0,
+        0.0,
+        0.434
+      ]
+    }
+  },
+  "cells": {
+    "double_tight": [
+      {
+        "hole": "double_tight",
+        "pointer": "/statements/0/body",
+        "session": "sess-13047a631db2",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "7cb86747590b",
+            "10339e233f68",
+            "696f9ef94d22"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "double_tight",
+        "pointer": "/statements/0/body",
+        "session": "sess-2e50f599a9bc",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "2dd2f6468cd7",
+            "682bb63d596b",
+            "08699f951873"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "double_tight",
+        "pointer": "/statements/0/body",
+        "session": "sess-382006ab6d5d",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "1a1e049d8f98",
+            "4bfe251435eb",
+            "198d62f91608"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "double_tight",
+        "pointer": "/statements/0/body",
+        "session": "sess-624db57eeebe",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "2fc4697ad7cd",
+            "59a4a91394f1",
+            "6e3e8769b620"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "double_tight",
+        "pointer": "/statements/0/body",
+        "session": "sess-162cdd7bc462",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "7be51a01b29d",
+            "6c0d16e401b0",
+            "23ed4b8b778a"
+          ]
+        },
+        "distinguishing_witness": null
+      }
+    ],
+    "transfer_tight": [
+      {
+        "hole": "transfer_tight",
+        "pointer": "/statements/1/body",
+        "session": "sess-2d1b53ae4e55",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "6cbafe36eef3",
+            "15917f828df2",
+            "3e5e2f383235"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "transfer_tight",
+        "pointer": "/statements/1/body",
+        "session": "sess-3b70afe6a05e",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "0827dc8630cd",
+            "0c2d20bc2874",
+            "7fdd76d85447"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "transfer_tight",
+        "pointer": "/statements/1/body",
+        "session": "sess-75c64182aaf5",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "6ecb3220371d",
+            "213a2d1ea53d",
+            "098b0996cc3c"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "transfer_tight",
+        "pointer": "/statements/1/body",
+        "session": "sess-30616c508fe2",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "2f19e79452e0",
+            "1920272e87c7",
+            "4fbd402cc4b1"
+          ]
+        },
+        "distinguishing_witness": null
+      },
+      {
+        "hole": "transfer_tight",
+        "pointer": "/statements/1/body",
+        "session": "sess-44960003e830",
+        "n_agents": 3,
+        "fills": [
+          {
+            "agent": "claude-opus-4-8",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gpt-5.5",
+            "status": "ran",
+            "fill": "injected"
+          },
+          {
+            "agent": "gemini-3.1-pro",
+            "status": "ran",
+            "fill": "injected"
+          }
+        ],
+        "verdict": "no-divergence-observed",
+        "status_partition": {
+          "refuted": [],
+          "type_error": [],
+          "verified": [
+            "7f7942d8ce8e",
+            "70ce2ae04fae",
+            "641ab619540b"
+          ]
+        },
+        "distinguishing_witness": null
+      }
+    ]
+  }
+}

@@ -1,70 +1,79 @@
 #!/usr/bin/env python3
 """R5-at-scale driver — Differential Implementation Pressure at corpus scale.
 
-For each single-hole scaffold in a corpus, open an `llmll checkout --multi N`
-divergence session, have N *forced-diverse* agents each fill that ONE hole into
-its isolated scratch copy, then `llmll diverge-report` classifies observational
-divergence over the probe set Omega among the fills that all verify.
+For each single-hole scaffold, run R independent REPEATS. Each repeat is an
+isolated CELL: its own copy of the scaffold, its own `llmll checkout --multi N`
+divergence session, N forced-diverse agents (claude / codex / agy) each filling
+the ONE hole into its scratch, then `llmll diverge-report`. Cells are isolated
+(own dir + own build output + own session sidecar) so they run concurrently.
 
-This is the campaign extension of the plumbing validated in the smoke driver:
-  checkout --multi  ->  inject each agent's fill over its scratch  ->  diverge-report
-The only added step over the smoke test is that fills are PRODUCED by live agents
-(claude / codex / agy) rather than read off disk.
+Pipeline per cell (validated in the smoke driver):
+  copy scaffold -> build .ast.json -> checkout --multi N (one per agent)
+  -> each agent produces solution.llmll -> build + inject over its scratch
+  -> diverge-report
 
-Fills are produced as complete `.llmll` programs (scaffold with the hole filled),
-built to `.ast.json`, and copied over the agent's scratch slot. `diverge-report`
-reads only the hole node from each scratch and pins siblings/contract to the
-shared (trusted) tree, so a fill that tampers with a sibling or the contract is
-ignored — only the hole body counts (v0.14.9 sibling-call classification).
+Fills are pinned: diverge-report reads only the hole node from each scratch and
+takes siblings/contract from the shared tree, so tampering is ignored (v0.14.9).
+
+The aggregator reports, per hole over the R repeats: the verdict distribution
+and the under-constraint-witness RATE with a Wilson 95% CI.
 
 Modes:
   (default)       run the real agent CLIs (spends API / CLI quota)
-  --mock          deterministic in-process fills, NO agent calls (plumbing check)
-  --prepare-only  set up per-agent dirs + sessions, do not run agents
+  --mock          deterministic in-process fills, NO agent calls (plumbing)
+  --prepare-only  set up one cell's dirs/sessions; do not run agents
 
 Usage:
-  run_multi.py --manifest r5-campaign/manifest.json --out r5-campaign/runs [--mock]
-  run_multi.py --manifest ... --holes clamp_weak,transfer_helper --agents claude-opus-4-8
+  run_multi.py --manifest r5-campaign/manifest.json --label scale-1 --repeats 5 --concurrency 5
+  run_multi.py --manifest ... --mock --repeats 3
+  run_multi.py --manifest ... --holes clamp_weak,transfer_helper --agents claude-opus-4-8,gpt-5.5
+
+Agent cmd templating: a `{DIR}` token in an agent's `cmd` is replaced with the
+absolute path of that agent's working dir (so the prompt can name an absolute
+`{DIR}/AGENT_INSTRUCTIONS.md` — avoids CLIs that don't honour cwd for file search).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
 # Deterministic mock fills (no API) — validate the full pipeline end-to-end.
-# Keyed by corpus file basename. Each list is the fill BODY per slot; enough
-# entries for the largest N you run in --mock (extra slots reuse the last).
+# Keyed by corpus file basename; enough entries for the largest N you --mock.
 # ---------------------------------------------------------------------------
 MOCK_FILLS = {
-    # weak post (>= result lo): clamp vs constant -> divergence
+    # loose: divergence expected
     "clamp_weak":        ["(if (< x lo) lo x)", "lo", "(if (> x lo) x lo)"],
     "clamp_intentional": ["(if (< x lo) lo x)", "lo", "(if (> x lo) x lo)"],
-    # tight equality post: every correct fill agrees -> no divergence
+    "abs_nonneg":        ["(if (< n 0) (- 0 n) n)", "0", "(if (> n 0) n 0)"],
+    "range_mid":         ["lo", "hi", "lo"],
+    "clamp_via_helper":  ["(maxi x lo)", "lo", "(maxi x lo)"],
+    # tight: convergence expected
     "clamp_tight":       ["(- n 1)", "(+ n -1)", "(- n 1)"],
-    # helper-composing: a sibling-calling fill is now a verified competitor
-    "transfer_helper":   ["(if (>= balance amount) (debit balance amount) balance)",
-                          "balance", "0"],
+    "id_tight":          ["n", "n", "n"],
+    "double_tight":      ["(+ n n)", "(+ n n)", "(+ n n)"],
+    "transfer_tight":    ["(debit balance amount)", "(- balance amount)", "(debit balance amount)"],
+    # loose + helper-composing
+    "transfer_helper":   ["(if (>= balance amount) (debit balance amount) balance)", "balance", "0"],
 }
 
 
 def sh(cmd, cwd=None, timeout=None, shell=False):
-    """Run a command, return (returncode, stdout, stderr)."""
-    p = subprocess.run(
-        cmd, cwd=cwd, timeout=timeout, shell=shell,
-        capture_output=True, text=True, check=False,
-    )
+    p = subprocess.run(cmd, cwd=cwd, timeout=timeout, shell=shell,
+                       capture_output=True, text=True, check=False)
     return p.returncode, p.stdout, p.stderr
 
 
 def build_ast(llmll, src: Path) -> Path:
-    """`llmll build --emit <src>` -> generated/<name>/<name>.ast.json (cwd = src.parent)."""
     _, out, err = sh([llmll, "build", "--emit", src.name], cwd=src.parent)
     ast = src.parent / "generated" / src.stem / f"{src.stem}.ast.json"
     if not ast.exists():
@@ -73,7 +82,6 @@ def build_ast(llmll, src: Path) -> Path:
 
 
 def find_hole_pointer(ast_path: Path) -> str:
-    """RFC-6901 pointer to the first body-position hole-named node."""
     d = json.loads(ast_path.read_text())
     for i, s in enumerate(d.get("statements", [])):
         b = s.get("body") if isinstance(s, dict) else None
@@ -83,7 +91,6 @@ def find_hole_pointer(ast_path: Path) -> str:
 
 
 def checkout_multi(llmll, ast_path: Path, pointer: str, n: int) -> dict:
-    """One `checkout --multi N` join; returns the parsed token JSON."""
     _, out, err = sh([llmll, "checkout", str(ast_path), "--multi", str(n), pointer])
     try:
         return json.loads(out)
@@ -92,21 +99,17 @@ def checkout_multi(llmll, ast_path: Path, pointer: str, n: int) -> dict:
 
 
 def write_agent_dir(agent_dir: Path, scaffold_text: str, ctx: dict, hole_name: str):
-    """Prepare a per-agent working dir with the scaffold + fill instructions."""
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "scaffold.llmll").write_text(scaffold_text)
     tok = ctx.get("token", {})
     goal = tok.get("postcondition_goal", "(unknown)")
     pre = tok.get("contract_pre", "(none)")
-    scope = ", ".join(
-        f"{s['name']}: {s['type']}" for s in tok.get("in_scope", [])
-        if isinstance(s, dict) and "name" in s
-    )
+    scope = ", ".join(f"{s['name']}: {s['type']}" for s in tok.get("in_scope", [])
+                      if isinstance(s, dict) and "name" in s)
     avail = "\n".join(
         f"    {f['name']}({', '.join(p['name'] for p in f.get('params', []))}) "
         f"-> {f.get('return_type','?')}   pre {f.get('pre','-')}   post {f.get('post','-')}"
-        for f in tok.get("available_functions", []) if isinstance(f, dict)
-    )
+        for f in tok.get("available_functions", []) if isinstance(f, dict))
     instr = f"""# Task — fill ONE hole in an LLMLL program
 
 `scaffold.llmll` in this directory is a complete LLMLL program with exactly one
@@ -121,25 +124,22 @@ Sibling functions you MAY call (already verified — use their contracts):
 {avail if avail.strip() else "    (none)"}
 
 Rules:
-- Do NOT change the contract (pre/post), the function signature, or any sibling
-  definition. Change ONLY the `?hole` expression.
+- Change ONLY the `?hole` expression. Do NOT change the contract (pre/post), the
+  signature, or any sibling definition.
 - The body must type-check and satisfy the postcondition.
 - Write the COMPLETE resulting program (scaffold with `?hole` replaced) to a new
   file `solution.llmll` in this directory. Output nothing else.
 
-You have the `llmll` compiler on PATH: `llmll verify solution.llmll` checks your
-work (SAFE = the postcondition is proven).
+`llmll verify solution.llmll` checks your work (SAFE = postcondition proven).
 """
     (agent_dir / "AGENT_INSTRUCTIONS.md").write_text(instr)
 
 
 def apply_mock(agent_dir: Path, scaffold_text: str, fill_body: str):
-    """Write solution.llmll by substituting the mock fill body for ?hole."""
     (agent_dir / "solution.llmll").write_text(scaffold_text.replace("?hole", fill_body))
 
 
 def inject(llmll, solution: Path, scratch: str):
-    """Build the agent's solution and copy it over its scratch slot."""
     ast = build_ast(llmll, solution)
     shutil.copyfile(ast, scratch)
 
@@ -152,53 +152,50 @@ def diverge_report(llmll, ast_path: Path, session: str) -> dict:
         raise RuntimeError(f"diverge-report failed:\n{out}\n{err}")
 
 
-def run_hole(hole, agents, out_root: Path, llmll, timeout, mock, prepare_only) -> dict:
+def run_cell(hole, agents, cell_dir: Path, llmll, timeout, mock, prepare_only) -> dict:
+    """One isolated (hole, repeat) cell: own scaffold copy, session, agents."""
     name = hole["name"]
-    src = Path(hole["src"]).resolve()
+    corpus_src = Path(hole["src"]).resolve()
     n = len(agents)
-    hole_out = out_root / name
-    hole_out.mkdir(parents=True, exist_ok=True)
+    cell_dir.mkdir(parents=True, exist_ok=True)
 
-    # Fresh shared ast + clean any prior session sidecars for this base.
-    shared_ast = build_ast(llmll, src)
-    base = str(shared_ast)[: -len(".ast.json")]
-    for p in Path(shared_ast.parent).glob(f"{shared_ast.stem}.sess-*"):
-        p.unlink()
-    diverge_sidecar = Path(base + ".llmll-diverge.json")
-    if diverge_sidecar.exists():
-        diverge_sidecar.unlink()
-
+    # Isolated copy of the scaffold; build + session live entirely in cell_dir.
+    local_src = cell_dir / corpus_src.name
+    scaffold_text = corpus_src.read_text()
+    local_src.write_text(scaffold_text)
+    shared_ast = build_ast(llmll, local_src)
     pointer = hole.get("pointer") or find_hole_pointer(shared_ast)
-    scaffold_text = src.read_text()
 
     session = None
     slots = []
     for i, agent in enumerate(agents):
         ctx = checkout_multi(llmll, shared_ast, pointer, n)
         session = session or ctx["session"]
-        scratch = ctx["scratch"]
-        adir = hole_out / f"slot{i+1}-{agent['name']}"
+        adir = cell_dir / f"slot{i+1}-{agent['name']}"
         write_agent_dir(adir, scaffold_text, ctx, name)
-        slots.append({"agent": agent, "dir": adir, "scratch": scratch, "ctx": ctx})
+        slots.append({"agent": agent, "dir": adir, "scratch": ctx["scratch"]})
 
     if prepare_only:
         return {"hole": name, "pointer": pointer, "session": session,
                 "prepared": [str(s["dir"]) for s in slots]}
 
-    # Produce + inject each fill.
     fill_log = []
     for i, slot in enumerate(slots):
         adir, agent = slot["dir"], slot["agent"]
         sol = adir / "solution.llmll"
         if mock:
-            fills = MOCK_FILLS.get(src.stem, ["?hole"])
+            fills = MOCK_FILLS.get(corpus_src.stem, ["?hole"])
             apply_mock(adir, scaffold_text, fills[min(i, len(fills) - 1)])
             status = "mock"
         else:
-            rc, out, err = sh(agent["cmd"], cwd=adir, timeout=timeout, shell=True)
+            cmd = agent["cmd"].replace("{DIR}", str(adir.resolve()))
+            try:
+                rc, out, err = sh(cmd, cwd=adir, timeout=timeout, shell=True)
+                status = "ran" if rc == 0 else f"exit{rc}"
+            except subprocess.TimeoutExpired:
+                out, err, status = "", "TIMEOUT", "timeout"
             (adir / "agent.stdout.log").write_text(out)
             (adir / "agent.stderr.log").write_text(err)
-            status = "ran" if rc == 0 else f"exit{rc}"
         if not sol.exists():
             fill_log.append({"agent": agent["name"], "status": status, "fill": None})
             continue
@@ -208,30 +205,63 @@ def run_hole(hole, agents, out_root: Path, llmll, timeout, mock, prepare_only) -
         except Exception as e:  # noqa: BLE001
             fill_log.append({"agent": agent["name"], "status": status, "fill": f"build-fail: {e}"})
 
-    assert session is not None, "no divergence session was opened"
+    assert session is not None
     report = diverge_report(llmll, shared_ast, session)
     dw = report.get("divergence_witness", {})
     result = {
-        "hole": name, "pointer": pointer, "session": session,
-        "n_agents": n, "fills": fill_log,
-        "verdict": dw.get("verdict"),
+        "hole": name, "pointer": pointer, "session": session, "n_agents": n,
+        "fills": fill_log, "verdict": dw.get("verdict"),
         "status_partition": dw.get("status_partition"),
         "distinguishing_witness": dw.get("distinguishing_witness"),
     }
-    (hole_out / "diverge_report.json").write_text(json.dumps(report, indent=2))
-    (hole_out / "result.json").write_text(json.dumps(result, indent=2))
+    (cell_dir / "diverge_report.json").write_text(json.dumps(report, indent=2))
+    (cell_dir / "result.json").write_text(json.dumps(result, indent=2))
     return result
+
+
+def wilson(k: int, n: int, z: float = 1.96):
+    """Wilson score 95% CI for a binomial proportion."""
+    if n == 0:
+        return (0.0, 0.0, 0.0)
+    p = k / n
+    denom = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    half = (z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / denom
+    return (round(p, 3), round(max(0.0, center - half), 3), round(min(1.0, center + half), 3))
+
+
+def aggregate(hole_names, cells_by_hole):
+    """Per-hole verdict distribution + under-constraint-witness rate (Wilson CI)."""
+    agg = {}
+    for h in hole_names:
+        cells = cells_by_hole.get(h, [])
+        r = len(cells)
+        dist = {}
+        for c in cells:
+            dist[c.get("verdict")] = dist.get(c.get("verdict"), 0) + 1
+        wk = dist.get("under-constraint-witness", 0)
+        # count cells where a witness was OBSERVED (incl. suppressed-intentional)
+        observed = wk + dist.get("suppressed-intentional", 0)
+        agg[h] = {
+            "repeats": r,
+            "verdicts": dist,
+            "witness_rate": wilson(wk, r),
+            "divergence_observed_rate": wilson(observed, r),
+        }
+    return agg
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="R5-at-scale differential-pressure driver.")
     ap.add_argument("--manifest", required=True, type=Path)
-    ap.add_argument("--out", type=Path, default=None, help="Output root (default: <manifest dir>/runs/<label>).")
-    ap.add_argument("--label", default="run", help="Run label (subdir under --out).")
-    ap.add_argument("--holes", default=None, help="Comma-separated hole names to include (default: all).")
-    ap.add_argument("--agents", default=None, help="Comma-separated agent names to include (default: all).")
-    ap.add_argument("--mock", action="store_true", help="Deterministic in-process fills, no agent calls.")
-    ap.add_argument("--prepare-only", action="store_true", help="Set up dirs/sessions; do not run agents.")
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--label", default="run")
+    ap.add_argument("--repeats", type=int, default=1, help="Independent runs per hole.")
+    ap.add_argument("--concurrency", type=int, default=1, help="Max cells running at once.")
+    ap.add_argument("--holes", default=None, help="Comma-separated hole names (default: all).")
+    ap.add_argument("--agents", default=None, help="Comma-separated agent names (default: all).")
+    ap.add_argument("--mock", action="store_true")
+    ap.add_argument("--prepare-only", action="store_true")
     args = ap.parse_args()
 
     man = json.loads(args.manifest.read_text())
@@ -247,7 +277,6 @@ def main() -> int:
     if args.holes:
         want = set(args.holes.split(","))
         holes = [h for h in holes if h["name"] in want]
-    # Resolve hole src relative to the manifest dir.
     for h in holes:
         if not Path(h["src"]).is_absolute():
             h["src"] = str((mroot / h["src"]).resolve())
@@ -256,23 +285,54 @@ def main() -> int:
     out_root.mkdir(parents=True, exist_ok=True)
 
     mode = "MOCK" if args.mock else ("PREPARE-ONLY" if args.prepare_only else "LIVE")
-    print(f"R5-at-scale [{mode}] — {len(holes)} holes x {len(agents)} agents "
-          f"({', '.join(a['name'] for a in agents)})", file=sys.stderr)
+    reps = 1 if args.prepare_only else args.repeats
+    print(f"R5-at-scale [{mode}] — {len(holes)} holes x {len(agents)} agents x {reps} reps "
+          f"= {len(holes)*reps} cells, concurrency={args.concurrency}", file=sys.stderr)
 
-    results = []
+    # Build the cell work-list: (hole, repeat) -> isolated dir.
+    tasks = []
     for h in holes:
-        r = run_hole(h, agents, out_root, llmll, timeout, args.mock, args.prepare_only)
-        results.append(r)
-        if not args.prepare_only:
-            sp = r.get("status_partition", {}) or {}
-            print(f"  {r['hole']:<20} {r.get('verdict','-'):<26} "
-                  f"verified={len(sp.get('verified',[]))} "
-                  f"type_error={len(sp.get('type_error',[]))} "
-                  f"refuted={len(sp.get('refuted',[]))}", file=sys.stderr)
+        for k in range(reps):
+            cell_dir = out_root / h["name"] / f"rep{k+1}"
+            tasks.append((h, cell_dir))
 
-    summary = {"mode": mode, "n_holes": len(holes), "agents": [a["name"] for a in agents],
-               "results": results}
+    lock = threading.Lock()
+    cells_by_hole = {h["name"]: [] for h in holes}
+    done = [0]
+
+    def work(item):
+        h, cell_dir = item
+        try:
+            return h["name"], run_cell(h, agents, cell_dir, llmll, timeout, args.mock, args.prepare_only)
+        except Exception as e:  # noqa: BLE001
+            return h["name"], {"hole": h["name"], "error": str(e)}
+
+    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+        futs = [ex.submit(work, t) for t in tasks]
+        for fut in as_completed(futs):
+            hname, res = fut.result()
+            with lock:
+                cells_by_hole[hname].append(res)
+                done[0] += 1
+                v = res.get("verdict", res.get("error", "?"))
+                sp = res.get("status_partition") or {}
+                print(f"  [{done[0]}/{len(tasks)}] {hname:<20} {str(v):<26} "
+                      f"v={len(sp.get('verified',[]))} te={len(sp.get('type_error',[]))} "
+                      f"rf={len(sp.get('refuted',[]))}", file=sys.stderr)
+
+    summary = {"mode": mode, "repeats": reps, "n_holes": len(holes),
+               "agents": [a["name"] for a in agents],
+               "aggregate": None if args.prepare_only else aggregate([h["name"] for h in holes], cells_by_hole),
+               "cells": cells_by_hole}
     (out_root / "matrix.json").write_text(json.dumps(summary, indent=2))
+
+    if not args.prepare_only:
+        print("\n=== per-hole aggregate (witness rate, Wilson 95% CI) ===", file=sys.stderr)
+        for h in holes:
+            a = summary["aggregate"][h["name"]]
+            p, lo, hi = a["witness_rate"]
+            print(f"  {h['name']:<20} witness {p:.2f} [{lo:.2f},{hi:.2f}]  "
+                  f"verdicts={a['verdicts']}", file=sys.stderr)
     print(json.dumps(summary, indent=2))
     return 0
 

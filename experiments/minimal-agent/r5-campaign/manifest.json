@@ -1,17 +1,24 @@
 {
-  "_comment": "R5-at-scale campaign. Each hole is a single-hole def-shell scaffold; N forced-diverse agents (distinct model families) each fill the ONE hole into an isolated checkout --multi scratch; diverge-report classifies observational divergence over Omega. Measures: under-constraint-witness rate (weak/intentional holes), convergence rate (tight holes), sibling-suppression incidence (should be 0 for def-shell after v0.14.9), spurious-witness soundness (a witness requires >=2 fills that BOTH verify against the real solver, so it cannot be manufactured). Requires llmll >= 0.14.9 (sibling-call classification fix) — a stale binary false-nulls transfer_helper.",
-  "_cmd_note": "agy replaced the gemini CLI (Antigravity). --model takes the display string from `agy models`. codex gpt-5.5 uses bare `codex exec` (no --model) on ChatGPT-tier. claude model id is claude-opus-4-8. Confirm each CLI is logged in before a LIVE run; use --mock first to validate the pipeline with zero spend.",
+  "_comment": "R5-at-scale campaign. Each hole is a single-hole def-shell scaffold; N forced-diverse agents (distinct model families) each fill the ONE hole into an isolated checkout --multi scratch; diverge-report classifies observational divergence over Omega. Design is a 2-axis grid: contract tightness {loose, tight, intentional} x composition {self-contained, helper-composing}. Measures per hole over R repeats: under-constraint-witness RATE (Wilson 95% CI), convergence rate (tight holes), sibling-suppression incidence (should be 0 for def-shell after v0.14.9), spurious-witness soundness (a witness needs >=2 fills that BOTH verify against the real solver, so it cannot be manufactured). Requires llmll >= 0.14.9 (sibling-call classification fix) -- a stale binary false-nulls the helper-composing holes.",
+  "_design": "loose/self-contained: clamp_weak, abs_nonneg, range_mid. tight/self-contained: clamp_tight(dec), id_tight, double_tight. intentional: clamp_intentional. loose/helper-composing: transfer_helper, clamp_via_helper. tight/helper-composing: transfer_tight.",
+  "_cmd_note": "agy replaced the gemini CLI (Antigravity); --model takes the display string from `agy models`. codex gpt-5.5 uses bare `codex exec` (no --model) on ChatGPT-tier. claude model id is claude-opus-4-8. The {DIR} token in each cmd is replaced by run_multi.py with the agent's absolute working dir, so the prompt names an absolute AGENT_INSTRUCTIONS.md path (avoids the flaky 'file not found' when a CLI does not honour cwd for file search). Confirm each CLI is logged in; use --mock first (zero spend).",
   "llmll_cmd": "llmll",
   "timeout_seconds": 1800,
   "agents": [
-    { "name": "claude-opus-4-8", "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-8 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
-    { "name": "gpt-5.5",         "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox 'Read AGENT_INSTRUCTIONS.md and complete the task.'" },
-    { "name": "gemini-3.1-pro",  "cmd": "agy -p 'Read AGENT_INSTRUCTIONS.md and complete the task.' --model 'Gemini 3.1 Pro (High)' --dangerously-skip-permissions" }
+    { "name": "claude-opus-4-8", "cmd": "claude -p --dangerously-skip-permissions --model claude-opus-4-8 'Read {DIR}/AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gpt-5.5",         "cmd": "codex exec --dangerously-bypass-approvals-and-sandbox 'Read {DIR}/AGENT_INSTRUCTIONS.md and complete the task.'" },
+    { "name": "gemini-3.1-pro",  "cmd": "agy -p 'Read {DIR}/AGENT_INSTRUCTIONS.md and complete the task.' --model 'Gemini 3.1 Pro (High)' --dangerously-skip-permissions" }
   ],
   "holes": [
     { "name": "clamp_weak",        "src": "corpus/clamp_weak.llmll" },
+    { "name": "abs_nonneg",        "src": "corpus/abs_nonneg.llmll" },
+    { "name": "range_mid",         "src": "corpus/range_mid.llmll" },
     { "name": "clamp_tight",       "src": "corpus/clamp_tight.llmll" },
+    { "name": "id_tight",          "src": "corpus/id_tight.llmll" },
+    { "name": "double_tight",      "src": "corpus/double_tight.llmll" },
     { "name": "clamp_intentional", "src": "corpus/clamp_intentional.llmll" },
-    { "name": "transfer_helper",   "src": "corpus/transfer_helper.llmll" }
+    { "name": "transfer_helper",   "src": "corpus/transfer_helper.llmll" },
+    { "name": "clamp_via_helper",  "src": "corpus/clamp_via_helper.llmll" },
+    { "name": "transfer_tight",    "src": "corpus/transfer_tight.llmll" }
   ]
 }
