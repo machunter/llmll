@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-07-03  
+> **Last updated:** 2026-07-06  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -24,6 +24,9 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
 | [spec-entropy-reason-string-proposal.md](spec-entropy-reason-string-proposal.md) | Mandatory-justification string on `(spec-entropy :intentional)`; defense-in-depth, not F-002 detection fix | **Proposed (Rev 0.2)** — professor-reviewed (Appendix B); Slice-1 soft terminal, Slice-2 dropped; may be superseded by expiring-`:intentional` |
 | [expiring-intentional-proposal.md](expiring-intentional-proposal.md) | Expiring `:intentional` (Rust `#[expect]` model): W614 when the suppressed CDP diagnostic no longer fires | **Abandoned (Rev 0.3)** — predicate unsatisfiable; only formulation is redundant with emitted fields; cautionary record |
+| [data-scope-extension.md](data-scope-extension.md) | Didactic multi-post: the data verification boundary (`Σ_auto`) and the array/dependent-length/induction extension levers | **Design / roadmap** — forward-looking; current-state posts describe shipped caps |
+| [match-fragment-widening-proposal.md](match-fragment-widening-proposal.md) | MATCH-WIDEN: mixed-arm / nested matches + scrutinee-constructor posts verify body-faithful (int-tag discriminant, QF-LIA) | **Shipped (v0.14.12)** — Rev 1; +engineer-plan / r1-spike / slice1-impl / stretch-plan supporting docs |
+| [cascading-refinement-proposal.md](cascading-refinement-proposal.md) | Agent-driven recursive hole decomposition: `refine` op + growing tree + CDP/feasibility gates + Option-3 cycles | **Design (Rev 2)** — professor-folded; engineer feasibility in progress |
 
 ---
 

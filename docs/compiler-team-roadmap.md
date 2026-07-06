@@ -159,6 +159,56 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 ---
 
+## Future — Data Scope Extension (unversioned)
+
+> Widening the verification surface (`Σ_auto`) from *integers + non-recursive ADTs + length-measures*
+> to **complex data structures** (lists, arrays, maps, recursive types). Didactic reference and full
+> rationale: [`docs/design/data-scope-extension.md`](design/data-scope-extension.md). **Nothing
+> shipped** — this is the track behind "can LLMLL verify lists / arrays / maps / recursive data?"
+> Today the answer is *no, deliberately*: the boundary is **decidability** (the guarantee that
+> "SAFE" is a decidable predicate on a fixed VC). Motivated by the flagship-example goal — an example
+> where *the data structure itself is the risk* (the data-axis sequel to the Heartbleed length story).
+
+| Lever | Item | Theory / decidability | Unlocks | Status / dependency |
+|---|---|---|---|---|
+| **A** | **Theory of arrays** for `bytes[n]` / `map[k,v]` | QF theory of arrays (`select`/`store` + extensionality) — **decidable**, polite-combines with QF-LIA; **stays in `Σ_auto`** | array index-in-bounds (real memory-safety, not a length proxy); map get-after-put / key-presence | **Proposed — recommended first**; enabling purchase for the first honest data-structure example |
+| **B** | **Dependent lengths** (`list[t]{len=n}`) + widened measure catalog | QF-LIA + EUF (+ arrays) — **decidable** | safe list indexing (bridge from "count a list" to "index a list") | **Proposed**; depends on Lever A; **overlaps R1** (dependent types, `Vect n a`, below) |
+| **C** | **Inductive datatypes + induction** (recursive ADTs, measure unfolding, PLE / refinement reflection) | inductive datatype theory — **undecidable in general**; **leaves `Σ_auto`** → new weaker tier *or* route to the Lean tier | list / tree / stack structural invariants (sortedness, balance, acyclicity, use-after-free) | **Research frontier**; gated on **LEAN-GA** (`verified-lean` discharge) + **R7** (strict descent / termination) |
+
+> **Evaluation-integrity rule** (standing, for every example built on this track): the `checkout`
+> brief is the *sole* information channel to a hole-filling agent — we neither force a failure nor
+> leak hints beyond the returned contract (pre/post goal, expected return type, in-scope bindings,
+> callable contracts). See [`data-scope-extension.md`](design/data-scope-extension.md) Post 8. This
+> is *why* the extension matters: a hint-free data-structure hole is only fillable-and-checkable if
+> the contract alone is expressive enough — which requires a richer data theory (Lever A first).
+
+---
+
+## Future — Cascading Refinement (unversioned)
+
+> Agent-driven **recursive hole decomposition** — the "third track" of the north star. Today a scaffold's
+> decomposition is authored up front (holed out of a full solution); cascading refinement makes it
+> *emergent* — a `refine` op installs a hole's body **and spawns new contracted sub-holes** (new functions
+> with their own contracts), recursively, growing a refinement tree. Design (professor-folded):
+> [`docs/design/cascading-refinement-proposal.md`](design/cascading-refinement-proposal.md) (Rev 2);
+> engineer feasibility in progress. **Not shipped.** The control- and data-side fragment-wideners ship the
+> *bodies*; this ships the *decomposition* — the project's own stated differentiator
+> (`docs/design/strategic-positioning.md:22`), currently only half-built.
+
+| Layer | What | Status |
+|---|---|---|
+| **1 — substrate** | per-step verification = existing assume-guarantee (`cvPreObligation`/`cvPostAssumption`); no new fragment | reuse |
+| **2 — protocol** | a `refine` op (dual of `patch`: install body + spawn sub-holes atomically), growing refinement-tree hole model, compare-and-swap resync | new — **R2/R8**-adjacent |
+| **3 — contract quality** | spawn-time **CDP** vacuity gate + **feasibility** (no-miracle) gate + decomposition-trust **meet** (floored on contract-only cycle members) | new — extends **CDP** (`:224`) |
+
+> **Acyclicity policy — DECIDED (Option 3):** `refine` admits a cycle-creating spawn, detects the cycle,
+> and honestly degrades its members to contract-only (trust meet floored so nothing is laundered) — the
+> `letrec` partial-correctness treatment (`LLMLL.md §5.3.5`). R7 strict-descent is the follow-up
+> total-correctness upgrade. One open design question (per-contract vs composed gating). **Depends-on:**
+> MATCH-WIDEN (shipped v0.14.12 — gives the cascade non-trivial verified leaves), R2 (self-hosted
+> orchestrator), R8 (incremental re-verify). Standing rule: the `checkout` brief is the sole information
+> channel to a hole-filling agent (no forced failures, no hints).
+
 ## Research track (no v0.x targets, no Active Items rows)
 
 | Item | Current Status | Next Action |
@@ -223,6 +273,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 | Version | Headline | Date | Tests | Detail |
 |---------|----------|------|-------|--------|
+| **v0.14.12** | MATCH-WIDEN — mixed nullary/payload two-arm sums, **nested** matches, and **scrutinee-constructor** postconditions now verify body-faithful. The arm discriminant changed from a free boolean guard to a free int-tag equality `(= <scrut>$tag k)` + range fact — a *conservative extension* (every existing sum-match verdict unchanged; stays QF-LIA, no datatype testers) — with a `desugarScrutCtor` pass rewriting `sig = Continue` → `sig$tag = k`, arm-declaration tags threaded so reordered arms don't false-refute, and a constructor post over an un-matched scrutinee falling back (no solver crash). Enables the flagship goto-fail (CVE-2014-1266) verification pipeline as **one body-faithful function** with real `Step`/`Verdict` sum types (`examples/gotofail/`). Remaining: sequential matches (two top-level matches in one body) still fall back — a self-contained follow-on; no schema change | 2026-07-06 | 1064 H + 45 Py | `CHANGELOG.md §v0.14.12` |
 | **v0.14.11** | Body-VC A-normalization — new `aNormalizeBody` pass lifts contracted calls out of argument / pair-component / if-condition positions into fresh `let` bindings before `bodyToPredM`, so nested/argument-position calls verify (`post: verified`) instead of silently falling back to `asserted` (or erroring under `--strict-verified-core`); identity on call-free-argument expressions (no perturbation of already-verified functions); DEMO-COMP §10 withdraw-twice fixture now surfaces its two call-pre origins; unblocks natural agent-written multi-function code for the flagship (`docs/design/flagship-secure-channel-proposal.md`); no schema/`trust_report_version` change | 2026-07-05 | 1064 H + 45 Py | `CHANGELOG.md §v0.14.11` |
 | **v0.14.10** | R5 concurrency-safe `diverge-report` — per-fill classification writes its fixpoint query to a unique `openTempFile` path instead of a fixed `/tmp/llmll-diverge-<fname>.fq`, closing a race when concurrent `diverge-report` processes classify a fill for the same function name (surfaced by the R5-at-scale campaign running cells in parallel; validated via the harness — 10 holes × 4 repeats × concurrency 6 → 100% stable); no schema/`trust_report_version` change | 2026-07-05 | 1064 H + 45 Py | `CHANGELOG.md §v0.14.10` |
 | **v0.14.9** | R5 sibling-call classification fix (`diverge-report`) — per-fill classification now verifies each fill in the **shared program's context** (hole-fn body substituted, sibling defs kept + pinned to the trusted shared definitions, property `check`s dropped) instead of isolated synthetic emission, so a `def-shell` fill calling a verified sibling helper verifies its post **modularly** through the call rather than being dropped as `type-error`. Closes the witness-suppression false-negative channel (proposal Rev 4 / findings Case 5): the negative branch now has one false-negative channel (common-mode) not two. Strict-`def` sibling calls stay `type-error` (conservative residual, no leaf-verification pre-pass). Makes helper-composing corpora usable with R5; re-validated end-to-end (`(maxi x lo)` vs `lo` → `under-constraint-witness`); no schema/`trust_report_version` change | 2026-07-05 | 1064 H + 45 Py | `CHANGELOG.md §v0.14.9` |
