@@ -1360,7 +1360,10 @@ bodyToPredFrom seed sortEnv cenv sccSet expr =
 -- pre-(b) behavior).
 bodyToPredFromR :: Int -> SortEnv -> RefEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
 bodyToPredFromR seed sortEnv refEnv cenv sccSet expr =
-  let (result, finalCounter) = runStateFrom seed (runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr) refEnv)
+  let callNames = Map.keysSet cenv
+      (result, finalCounter) = runStateFrom seed $ do
+        expr' <- aNormalizeBody callNames expr
+        runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') refEnv
   in (finalCounter, result)
   where
     -- Run a State Int computation with a given starting value.
@@ -1376,6 +1379,70 @@ freshName base = do
   n <- get
   put (n + 1)
   return ("_bv_" <> base <> "_" <> T.pack (show n))
+
+-- | A-normalization for the body-VC path. Lift user-function CALLS out of
+-- argument / operator / pair-component / if-condition / match-scrutinee
+-- positions into fresh @let@ bindings, so every call has an enclosing 'ELet'
+-- for the emitter to thread its 'CallVC' continuation. Without this, a nested
+-- call @(f (g x))@ hits 'bodyToPredM'\'s @translateCallArg@, which accepts only
+-- a 'SimpleVC' argument and rejects the @(g x)@ 'CallVC' — falling the whole
+-- call back to @asserted@. Calls in TAIL position (if-branches, let-body, the
+-- final expr) and in let-rhs are left in place; the emitter already handles
+-- those.
+--
+-- Identity on any expression with no call in argument position, so it never
+-- perturbs a function that already verified body-faithfully. Uses the shared
+-- alpha-renaming counter (runs before 'bodyToPredM', which continues it).
+aNormalizeBody :: Set.Set Name -> Expr -> State Int Expr
+aNormalizeBody calls = normTail
+  where
+    isCall f = f `Set.member` calls
+
+    -- Tail context: a call at the head is fine; hoist calls from sub-positions.
+    normTail :: Expr -> State Int Expr
+    normTail e = case e of
+      EApp f args     -> do { (bs, as) <- atomizeArgs args; pure (wrapLets bs (EApp f as)) }
+      EOp  op args    -> do { (bs, as) <- atomizeArgs args; pure (wrapLets bs (EOp op as)) }
+      EPair a b       -> do { (bs, as) <- atomizeArgs [a, b]; pure (wrapLets bs (mkPair as)) }
+      EIf c t f       -> do
+        (bs, c') <- atomize c
+        t' <- normTail t
+        f' <- normTail f
+        pure (wrapLets bs (EIf c' t' f'))
+      EMatch s arms   -> do
+        (bs, s') <- atomize s
+        arms' <- mapM (\(p, rhs) -> (,) p <$> normTail rhs) arms
+        pure (wrapLets bs (EMatch s' arms'))
+      ELet binds body -> do
+        binds' <- mapM (\(p, mt, rhs) -> (\r -> (p, mt, r)) <$> normTail rhs) binds
+        body'  <- normTail body
+        pure (ELet binds' body')
+      _               -> pure e
+
+    -- Atom context: must become atomic; a call here is hoisted to a fresh let.
+    atomize :: Expr -> State Int ([(Pattern, Maybe Type, Expr)], Expr)
+    atomize e = case e of
+      EApp f args | isCall f -> do
+        (bs, as) <- atomizeArgs args
+        t <- freshName "anf"
+        pure (bs ++ [(PVar t, Nothing, EApp f as)], EVar t)
+      EApp op args -> do { (bs, as) <- atomizeArgs args; pure (bs, EApp op as) }
+      EOp  op args -> do { (bs, as) <- atomizeArgs args; pure (bs, EOp op as) }
+      EPair a b    -> do { (bs, as) <- atomizeArgs [a, b]; pure (bs, mkPair as) }
+      _            -> pure ([], e)
+
+    atomizeArgs :: [Expr] -> State Int ([(Pattern, Maybe Type, Expr)], [Expr])
+    atomizeArgs xs = do
+      rs <- mapM atomize xs
+      pure (concatMap fst rs, map snd rs)
+
+    mkPair [a, b] = EPair a b
+    mkPair _      = error "aNormalizeBody: pair arity"
+
+    -- Nested single-binding lets → unambiguous sequential (let*) scoping.
+    wrapLets :: [(Pattern, Maybe Type, Expr)] -> Expr -> Expr
+    wrapLets []     e = e
+    wrapLets (b:bs) e = ELet [b] (wrapLets bs e)
 
 -- | Core body-to-predicate translation. Handles all operators directly
 -- (NOT delegating to exprToPred) to preserve the alpha-renaming environment.

@@ -1,7 +1,7 @@
 # Flagship: Verified Secure-Channel Record Layer — design & status
 
-> **Status:** Substrate validated; **gated on the auto-A-normalization compiler fix** (below) before the large build.
-> **Date:** 2026-07-05. **Compiler:** `llmll 0.14.10`.
+> **Status:** Substrate validated; the auto-A-normalization gate (§6) is **SHIPPED (v0.14.11)** — ready for the large multi-agent build.
+> **Date:** 2026-07-05. **Compiler:** `llmll 0.14.11`.
 > **Purpose:** a *convincing* large example — not a toy. A real subsystem, decomposed into
 > hundreds of contracted holes, built by orchestrated agents, verified as a whole at scale,
 > where famous-bug invariants are load-bearing and the compiler refuses agents who reintroduce them.
@@ -56,7 +56,9 @@ Modular verification is **~linear** (generated verified modules, `llmll 0.14.10`
 
 **Scale is not the bottleneck** — 10k LOC / 2,000 functions verify in ~5s (contrast: seL4 ≈ a decade for 10k LOC of C, because that is interactive theorem proving; this is modular refinement checking). *Caveat:* this measures that **adding functions is cheap (linear/modular)**, not that every function is trivial; per-function cost rises with contract complexity, but the architecture stays linear. The missing ingredient for a *large* artifact is authoring the contracted code — which is exactly what **agent orchestration** supplies.
 
-## 6. GATING PREREQUISITE — auto-A-normalization (build before the big example)
+## 6. GATING PREREQUISITE — auto-A-normalization (✅ SHIPPED v0.14.11)
+
+**SHIPPED (v0.14.11):** `aNormalizeBody` runs before `bodyToPredM` and lifts calls out of argument/pair/if-condition positions into fresh `let`s — nested/argument-position calls now verify (`post: verified`) instead of falling back. Identity on call-free-argument expressions (full suite unchanged 1064/0). `examples/heartbleed/anf-test.llmll` verifies with nested calls written un-`let`-bound; the DEMO-COMP §10 `withdraw-twice` fixture now surfaces its two `call-pre` origins. The record below is retained for provenance.
 
 **Root cause (confirmed empirically):** the body-VC translation handles function calls in **tail/branch** position but **not in argument position** — `(f (g x))`, `(pair (g x) (h y))` fall back to `body-fallback` → post only **asserted** (silent under `verify`) / **hard error** under `--strict-verified-core`. This is *not* about pairs (an earlier mis-diagnosis): `recv-record`'s relational **pair** post over composed calls **verifies** once A-normalized.
 

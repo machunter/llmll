@@ -29,10 +29,10 @@ these famous bugs actually lived.
     #   ERROR: --strict-verified-core: refuted: heartbeat-response
     ```
 
-- **`anf-test.llmll`** — evidence for the auto-A-normalization compiler fix (proposal §6): with
-  `let`-bound (A-normalized) nested calls, both a nested-call composition and a relational
-  **pair** post over composed calls verify (`post: verified`), confirming the fallback is purely
-  a calls-in-argument-position issue with no soundness gap.
+- **`anf-test.llmll`** — the auto-A-normalization fix **shipped (v0.14.11)**: nested calls in
+  argument position and a relational **pair** post over composed calls now verify
+  (`post: verified`) written *naturally* — no manual `let`. The compiler A-normalizes them
+  (`aNormalizeBody`, proposal §6).
 
 ## Famous-bug invariants in `channel.llmll`
 

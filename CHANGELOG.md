@@ -4,6 +4,15 @@
 
 <a id="Latest"></a>
 
+## v0.14.11 — body-VC A-normalization: calls in argument position verify (2026-07-05)
+
+### Compiler — verify (body-VC)
+
+- **Nested / argument-position calls now verify instead of silently falling back.** The body-VC translation (`bodyToPredM`) emits a contracted call's obligation only when the call's *arguments* are already QF-LIA atoms — so a call in **argument position** (`(f (g x))`), as a **pair component** (`(pair (g x) (h y))`), or in an **if-condition** hit `translateCallArg` (which accepts only a `SimpleVC` argument, not a nested `CallVC`) and fell the whole function back to `body-fallback` → its post was only `asserted` (or a hard error under `--strict-verified-core`). A new **A-normalization pass** — `aNormalizeBody`, run before `bodyToPredM` — lifts such calls into fresh `let` bindings, so every call has the enclosing `let` the emitter's `CallVC`-threading already expects. Calls in tail position and let-rhs are unchanged.
+  - The pass is **identity on any expression with no call in argument position**, so it never perturbs a function that already verified body-faithfully (full suite unchanged at 1064/0).
+  - **Impact:** a relational pair post over composed calls, and multi-boundary call chains, now verify (`post: verified`) written *naturally* — no manual `let`. This unblocks natural agent-written code across large multi-function programs (see `docs/design/flagship-secure-channel-proposal.md`).
+  - The DEMO-COMP §10 `withdraw-twice` nested-call fixture now surfaces its two `call-pre:withdraw` origins (previously zero — the documented limitation this closes).
+
 ## v0.14.10 — R5: concurrency-safe `diverge-report` classification (2026-07-05)
 
 > **EXPERIMENTAL.** Affects the R5 `diverge-report` classification path only. No change to the mainline `verify`/`checkout`/`patch` paths.

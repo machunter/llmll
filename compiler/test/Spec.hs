@@ -7148,12 +7148,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- translatable post (else the whole body VC falls back) AND (b) the call's
     -- arguments are themselves QF-LIA-translatable. A *nested* contracted call
     -- as an argument — 'withdraw (withdraw …) …' in the §10 'withdraw-twice'
-    -- fixture — fails argument translation and the whole outer call falls back,
-    -- so withdraw-twice yields ZERO call-pre origins, not the two the proposal
-    -- prose anticipated. Emitting two would require a constraint-generation
-    -- change (nested-call argument support), which DEMO-COMP explicitly excludes
-    -- ("field surfacing only — no constraint-generation change"). The SAFE
-    -- assembler is exercised here against a FLAT call the emitter supports.
+    -- fixture — historically failed argument translation and fell back to ZERO
+    -- call-pre origins. As of the A-normalization pass ('aNormalizeBody'), the
+    -- nested-call argument is lifted into a fresh 'let', so BOTH call sites now
+    -- emit their call-pre origin (the two the proposal prose anticipated). DC-5
+    -- exercises the SAFE assembler against a FLAT call, then confirms the nested
+    -- fixture now surfaces its two origins.
     it "DC-5: SAFE PreconditionObligation surfaces a discharged call-pre origin" $ do
       let flatSrc =
             [ "(type PositiveInt (where [x: int] (> x 0)))"
@@ -7181,11 +7181,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       ooKind (head preObls) `shouldBe` PreconditionObligation
       ooOrigin (head preObls) `shouldBe` "/statements/2/body"
 
-      -- Nested-call fixture (§10 withdraw-twice): ZERO origins (emitter falls
-      -- back on the nested-call argument; documented limitation above).
+      -- Nested-call fixture (§10 withdraw-twice): A-normalization lifts the
+      -- nested-call argument into a let, so BOTH withdraw call sites now emit a
+      -- call-pre origin (the two the proposal prose anticipated).
       wtR <- emitFixpointWith (EmitOptions True) "<test>" (parse withdrawTwiceSrc)
-      length [ () | o <- Map.elems (erConstraintTable wtR)
-                  , "call-pre:" `T.isPrefixOf` coClause o ] `shouldBe` 0
+      let wtOrigins = [ coClause o | o <- Map.elems (erConstraintTable wtR)
+                                   , "call-pre:" `T.isPrefixOf` coClause o ]
+      length wtOrigins `shouldBe` 2
+      all (== "call-pre:withdraw") wtOrigins `shouldBe` True
 
       -- quadruple over pre-free double: zero call-pre obligations (no pre).
       qEmit <- emitFixpointWith (EmitOptions True) "<test>" (parse quadrupleSrc)
