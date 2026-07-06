@@ -1,0 +1,18 @@
+;; Heartbleed (CVE-2014-0160), modeled faithfully.
+;; `copy-bytes` is the memcpy: you may only read `n` bytes from a buffer holding
+;; `src_len`. Its precondition (<= n src_len) is EXACTLY the bound whose absence
+;; was Heartbleed. (Primitive: body returns the count it copied.)
+(def copy-bytes [src_len: int n: int] -> int
+  (pre  (and (>= n 0) (<= n src_len)))
+  (post (= result n))
+  n)
+
+;; TLS heartbeat responder. `claimed_len` = the attacker-controlled
+;; payload_length field; `received_len` = how many payload bytes actually
+;; arrived. It must never echo more than it received.
+(def-shell heartbeat-response [claimed_len: int received_len: int] -> int
+  (pre  (and (>= claimed_len 0) (>= received_len 0)))
+  (post (<= result received_len))
+  (if (<= claimed_len received_len)
+      (copy-bytes received_len claimed_len)
+      (copy-bytes received_len 0)))

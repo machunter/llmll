@@ -1,0 +1,50 @@
+;; ── A secure-channel record layer (protocol logic; crypto primitives are
+;;    axiomatized as opaque contracts). Each function carries a load-bearing
+;;    invariant mapping to a real, famous failure class. Verified as a whole.
+
+;; memcpy: you may only read `n` bytes from a buffer holding `src_len`.
+;; Its precondition (<= n src_len) IS the bound whose absence was Heartbleed.
+(def copy-bytes [src_len: int n: int] -> int
+  (pre  (and (>= n 0) (<= n src_len)))
+  (post (= result n))
+  n)
+
+;; Application payload carried by a record of `record_len` (minus fixed overhead).
+(def payload-avail [record_len: int overhead: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (>= record_len overhead))))
+  (post (and (>= result 0) (= result (- record_len overhead))))
+  (- record_len overhead))
+
+;; TLS heartbeat responder — echoes the payload via memcpy. Must not read past
+;; what was received: copy-bytes' call-precondition is the check. [HEARTBLEED / CVE-2014-0160]
+(def-shell heartbeat-response [claimed_len: int received_len: int] -> int
+  (pre  (and (>= claimed_len 0) (>= received_len 0)))
+  (post (<= result received_len))
+  (if (<= claimed_len received_len)
+      (copy-bytes received_len claimed_len)
+      (copy-bytes received_len 0)))
+
+;; Fragment reassembly — never write past the buffer. [Ping-of-Death class]
+(def reassemble [offset: int frag_len: int capacity: int] -> int
+  (pre  (and (>= offset 0) (and (>= frag_len 0) (and (>= capacity 0)
+             (<= (+ offset frag_len) capacity)))))
+  (post (<= result capacity))
+  (+ offset frag_len))
+
+;; Anti-replay: the accepted sequence number never moves backward. [KRACK class]
+(def accept-seq [last_seq: int incoming_seq: int] -> int
+  (pre  (and (>= last_seq 0) (>= incoming_seq 0)))
+  (post (>= result last_seq))
+  (if (> incoming_seq last_seq) incoming_seq last_seq))
+
+;; Deliver plaintext ONLY if the MAC verified (result>0 -> mac_ok=1). [goto-fail class]
+(def deliver-len [mac_ok: int payload_len: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (>= payload_len 0)))
+  (post (or (<= result 0) (= mac_ok 1)))
+  (if (= mac_ok 1) payload_len 0))
+
+;; Handshake state only advances, never downgrades. [downgrade / state-confusion]
+(def next-state [state: int step: int] -> int
+  (pre  (and (>= state 0) (>= step 0)))
+  (post (>= result state))
+  (+ state step))

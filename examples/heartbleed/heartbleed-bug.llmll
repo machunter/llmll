@@ -1,0 +1,10 @@
+(def copy-bytes [src_len: int n: int] -> int
+  (pre  (and (>= n 0) (<= n src_len)))
+  (post (= result n))
+  n)
+
+(def-shell heartbeat-response [claimed_len: int received_len: int] -> int
+  (pre  (and (>= claimed_len 0) (>= received_len 0)))
+  (post (<= result received_len))
+  ;; THE BUG: echo `claimed_len` bytes with no check against `received_len`.
+  (copy-bytes received_len claimed_len))

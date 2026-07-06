@@ -1,0 +1,31 @@
+(def copy-bytes [src_len: int n: int] -> int
+  (pre (and (>= n 0) (<= n src_len))) (post (= result n)) n)
+(def payload-avail [record_len: int overhead: int] -> int
+  (pre (and (>= record_len 0) (and (>= overhead 0) (>= record_len overhead))))
+  (post (and (>= result 0) (= result (- record_len overhead)))) (- record_len overhead))
+(def-shell heartbeat-response [claimed_len: int received_len: int] -> int
+  (pre (and (>= claimed_len 0) (>= received_len 0))) (post (and (>= result 0) (<= result received_len)))
+  (if (<= claimed_len received_len) (copy-bytes received_len claimed_len) (copy-bytes received_len 0)))
+(def accept-seq [last_seq: int incoming_seq: int] -> int
+  (pre (and (>= last_seq 0) (>= incoming_seq 0))) (post (>= result last_seq))
+  (if (> incoming_seq last_seq) incoming_seq last_seq))
+(def deliver-len [mac_ok: int payload_len: int] -> int
+  (pre (and (or (= mac_ok 0) (= mac_ok 1)) (>= payload_len 0))) (post (or (<= result 0) (= mac_ok 1)))
+  (if (= mac_ok 1) payload_len 0))
+
+;; CASE 1: nested call in argument position, A-normalized with let
+(def-shell serve-heartbeat [claimed_len: int received_len: int buf_len: int] -> int
+  (pre (and (>= claimed_len 0) (and (>= received_len 0) (>= buf_len received_len))))
+  (post (<= result buf_len))
+  (let [[n (heartbeat-response claimed_len received_len)]]
+    (copy-bytes buf_len n)))
+
+;; CASE 2: relational PAIR post over call components, A-normalized with let
+(def-shell recv-record [record_len: int overhead: int last_seq: int incoming_seq: int mac_ok: int] -> (int, int)
+  (pre (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+            (and (>= last_seq 0) (and (>= incoming_seq 0) (or (= mac_ok 0) (= mac_ok 1))))))))
+  (post (and (>= (first result) last_seq) (or (<= (second result) 0) (= mac_ok 1))))
+  (let [[p (payload-avail record_len overhead)]
+        [d (deliver-len mac_ok p)]
+        [s (accept-seq last_seq incoming_seq)]]
+    (pair s d)))
