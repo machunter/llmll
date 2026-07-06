@@ -1,6 +1,9 @@
 # Flagship: Verified Secure-Channel Record Layer — design & status
 
-> **Status:** Substrate validated; the auto-A-normalization gate (§6) is **SHIPPED (v0.14.11)** — ready for the large multi-agent build.
+> **Status: BUILT.** The full **163-hole, seven-module** channel is scaffolded, filled by
+> orchestrated agents, and verified **as one whole program — `SAFE`, all 163 body-faithful**
+> (§11). The delivery gate (§8) and both caught-bug modes hold at scale. Artifact:
+> `examples/heartbleed/secure-channel/`.
 > **Date:** 2026-07-05. **Compiler:** `llmll 0.14.11`.
 > **Purpose:** a *convincing* large example — not a toy. A real subsystem, decomposed into
 > hundreds of contracted holes, built by orchestrated agents, verified as a whole at scale,
@@ -79,9 +82,81 @@ Modular verification is **~linear** (generated verified modules, `llmll 0.14.10`
 - `--strict-verified-core` refuses **any** fallback function up-front (masks other bugs) → every function in a discriminative scaffold must stay body-faithful.
 - `def-shell` for functions that call helpers (strict `def` needs callees body-faithful first).
 
-## 8. Plan (resume here after the ANF fix)
+## 8. The delivery gate — the load-bearing cross-component invariant (✅ validated)
 
-1. **Scaffold** the subsystem — record layer + handshake + connection-state — into **hundreds of contracted holes**.
-2. **Orchestrate** agents to fill them (via `checkout`/`patch`, or whole-scaffold fills); verify the assembled module at scale; **catch the bugs**.
-3. **Experiment (2)** — type-directed refinement *moves* (case-split skeletons + solver-pruned candidate lists) vs the one-shot brief — run on these real, subtle holes.
-4. **goto-fail** as the second famous-bug anchor.
+The spine that makes the flagship more than a pile of independent `clamp`s: **a plaintext
+byte reaches the application only if every upstream condition held.** Validated in
+`examples/heartbleed/slice-gate.llmll` (verifies `SAFE`):
+
+- Four **gate leaves**, each a one-line function whose post carries (a) its own famous-bug
+  implication and (b) the monotonicity `result <= n` that threads a running byte-count down
+  the chain: `gate-mac` (delivered ⇒ MAC verified — goto-fail), `gate-fresh` (⇒ seq advanced
+  — KRACK), `gate-connected` (⇒ handshake connected — downgrade), seeded by `payload-avail`
+  (length discipline — Heartbleed / Ping-of-Death).
+- The composer `deliver-plaintext` chains them by **nested calls in argument position**
+  (`(gate-connected (gate-fresh (gate-mac (payload-avail …) …) …) …)` — the ANF fix in
+  action). Its post is the **four-way conjunction** `result>0 ⇒ (mac ∧ fresh ∧ connected)`,
+  provable *only* because each leaf's contract supplies its piece and the `<= n` monotonicity
+  gives the solver the transitivity.
+
+**Both caught-bug modes validated** (the "convincing" moment, §1.3):
+
+| File | Bug | What fires |
+|---|---|---|
+| `slice-gate-bug.llmll` | `gate-mac`'s **post** weakened (drops the MAC clause) | `gate-mac` stays `SAFE` *in isolation*; `deliver-plaintext` **refutes** — a weakened contract three calls away breaks a whole-channel guarantee. *No unit test could catch this.* |
+| (`gate-mac` body → `(if (= mac_ok 1) n n)`) | goto-fail in the **body**, contract intact | `gate-mac` refutes **locally** (its own post); composer stays `SAFE` (modular — trusts the contract). |
+
+The scaffold form (`slice-gate-scaffold.llmll`, every body `?impl`) enumerates via `llmll holes`
+as 5 non-blocking holes at `/statements/{0..4}/body` — the harness-consumable shape agents fill.
+
+## 9. Module map (as built — 163 holes)
+
+All contracts are **integer-relational (QF-LIA)** — lengths, offsets, sequence numbers, state
+ordinals, credits, byte-budgets, epochs (the honest ceiling, §3). Each module is a family of
+small `def-shell` holes plus a few composers that route facts through callee contracts into the
+delivery gate. Realized in `examples/heartbleed/secure-channel/`.
+
+| Module | Discipline | Famous-bug anchor | holes |
+|---|---|---|---|
+| **M1 Record framing** | record ≤ 2¹⁴; header/body/pad/tag length arithmetic; `copy-bytes` memcpy bound; `reassemble` ≤ capacity | Heartbleed, Ping-of-Death | 20 |
+| **M2 Sequence / anti-replay** | monotone seq; sliding-window floor/in-window/slide; wrap-before-rekey | KRACK / replay | 28 |
+| **M3 Handshake FSM** | state ordinals only advance; `expect-message`; version = highest-common (no downgrade); suite ≤ offered | downgrade / state-confusion | 28 |
+| **M4 Key schedule / usage** | bytes-under-key ≤ AEAD limit before rekey; derive-stage ordering; key-gen counter monotone | rekey-safety | 26 |
+| **M5 Flow control** | credits ≥ 0 ∧ ≤ max; buffered ≤ capacity; consume/grant bounds | resource exhaustion | 26 |
+| **M6 Alert / close** | `deliver-len` (deliver ⇒ MAC); alert level order; fatal ⇒ closed; closed monotone | goto-fail | 22 |
+| **M7 Delivery gate (spine)** | composers routing M1–M6 facts into the delivery gate (§8) | *all four, relationally* | 13 |
+| | | | **163** |
+
+**163 contracted holes**, seven modules, one whole-program `verify`.
+
+## 10. Build result (✅ done)
+
+The §9 decomposition is built and verified. Sequence:
+
+1. **Scaffold** — `scaffold_holeout.py` holes out the verified reference solution
+   (`secure-channel/sc-channel.llmll`) into `sc-channel-scaffold.llmll`: 163 `?impl` bodies,
+   contracts intact, enumerating via `llmll holes` as **163 holes (0 blocking)**. The skeleton
+   passes at the contract level before any body exists.
+2. **Blind fill** — seven independent agents, each given only a module's scaffold plus the
+   `slice-gate.llmll` pattern (**not** the reference). Six filled M1–M6 (150 functions); one
+   filled the M7 spine (13 cross-module composers).
+3. **Assemble & verify whole** — the seven filled modules concatenate into
+   `agent-fill/sc-channel-agentfilled.llmll` and verify as one program: **`SAFE`, all 163
+   body-faithful, 163 `caller_obligations`, ~60 s**. The reference solution verifies too.
+
+**The catch, at scale** (`agent-fill/adversarial/`): the goto-fail fill of `deliver-len`
+(unconditional `payload_len`) is **refuted** — `body verification of 'deliver-len' failed`;
+the guarded fill verifies `SAFE`. Separately observed (n = 1, stochastic): the fill agent,
+*prompted toward* the bug ("MAC already checked, drop the redundant check"), still wrote the
+guarded form. The compiler is the guarantee; the agent behavior is a bonus.
+
+Full write-up: [`examples/heartbleed/secure-channel/README.md`](../../examples/heartbleed/secure-channel/README.md).
+
+## 11. Next
+
+1. **Orchestrator at scale** — this build fanned out one agent per *module*; a genuine
+   hundreds-of-holes run wants a multi-hole loop in `run_multi.py` (`find_hole_pointer` returns
+   only the *first* hole today) doing per-hole `checkout`/`patch`.
+2. **Experiment (2)** — type-directed refinement *moves* (case-split skeletons + solver-pruned
+   candidate lists) vs the one-shot brief — run on these real, subtle holes.
+3. **goto-fail** as a fully developed second anchor (M6 carries the `deliver-len` primitive).

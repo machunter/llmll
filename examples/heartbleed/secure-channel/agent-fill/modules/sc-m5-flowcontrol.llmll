@@ -1,0 +1,169 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M5 — FLOW CONTROL & CONNECTION CREDITS
+;; The resource-safety discipline of a secure-channel record layer. Send/recv
+;; credits never go negative and never exceed their max; buffered bytes never
+;; exceed capacity; congestion/flow windows stay within [0, max]. Every contract
+;; is integer-relational (QF-LIA). A credit that underflows is a use-after-free
+;; primitive; a buffer that overflows its capacity is the classic heap smash.
+;; Credits, windows, buffered-byte counts, watermarks and capacities are int
+;; ordinals — never negative, always bounded.
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── REQUIRED SEAM CHECKER. result=1 ⇒ there is enough credit to send `n`.
+;;    (>= credit n) is the guard whose absence lets a send underflow the credit.
+(def-shell has-credit [credit: int n: int] -> int
+  (pre  (and (>= credit 0) (>= n 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= credit n))))
+  (if (>= credit n) 1 0))
+
+;; ── Spend `n` credit on a send. Never drops below zero (credit underflow bug).
+(def-shell consume-credit [credit: int n: int] -> int
+  (pre  (and (>= credit 0) (and (>= n 0) (<= n credit))))
+  (post (and (>= result 0) (<= result credit)))
+  (- credit n))
+
+;; ── Grant `n` fresh credit from a peer window. Never exceeds the negotiated max.
+(def-shell grant-credit [credit: int n: int max: int] -> int
+  (pre  (and (>= credit 0) (and (>= n 0) (<= (+ credit n) max))))
+  (post (and (>= result credit) (<= result max)))
+  (+ credit n))
+
+;; ── Buffered bytes after receiving `n`. Must stay within the receive capacity.
+;;    (<= result capacity) is the heap-overflow bound.
+(def-shell buffer-after-recv [buffered: int n: int capacity: int] -> int
+  (pre  (and (>= buffered 0) (and (>= n 0) (<= (+ buffered n) capacity))))
+  (post (and (>= result buffered) (<= result capacity)))
+  (+ buffered n))
+
+;; ── Free space left in the receive buffer. Never negative.
+(def-shell buffer-avail [buffered: int capacity: int] -> int
+  (pre  (<= buffered capacity))
+  (post (and (>= result 0) (= result (- capacity buffered))))
+  (- capacity buffered))
+
+;; ── Drain `n` consumed bytes out of the buffer. Never underflows.
+(def-shell drain-buffer [buffered: int n: int] -> int
+  (pre  (and (>= n 0) (<= n buffered)))
+  (post (and (>= result 0) (<= result buffered)))
+  (- buffered n))
+
+;; ── Is a credit value a legal ordinal in [0, max]? result=1 ⇒ it is in range.
+(def-shell credit-in-range [credit: int max: int] -> int
+  (pre  (>= max 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= credit 0) (<= credit max)))))
+  (if (and (>= credit 0) (<= credit max)) 1 0))
+
+;; ── May we put `n` bytes on the wire right now? result=1 ⇒ credit covers `n`.
+(def-shell can-send-bytes [credit: int n: int] -> int
+  (pre  (and (>= credit 0) (>= n 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= credit n))))
+  (if (>= credit n) 1 0))
+
+;; ── Open the flow window by `delta` on an ACK. Capped at the negotiated max.
+(def-shell window-update [window: int delta: int max: int] -> int
+  (pre  (and (>= window 0) (and (>= delta 0) (<= (+ window delta) max))))
+  (post (and (>= result window) (<= result max)))
+  (+ window delta))
+
+;; ── Bytes still permitted before the flow limit. Never negative.
+(def-shell flow-remaining [sent: int limit: int] -> int
+  (pre  (<= sent limit))
+  (post (and (>= result 0) (= result (- limit sent))))
+  (- limit sent))
+
+;; ── Should the reader signal backpressure? result=1 ⇒ buffer at/over high mark.
+(def-shell backpressure [buffered: int high_watermark: int] -> int
+  (pre  (and (>= buffered 0) (>= high_watermark 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= buffered high_watermark))))
+  (if (>= buffered high_watermark) 1 0))
+
+;; ── Safe to resume reading? result=1 ⇒ buffer drained at/under the low mark.
+(def-shell resume-recv [buffered: int low_watermark: int] -> int
+  (pre  (and (>= buffered 0) (>= low_watermark 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= buffered low_watermark))))
+  (if (<= buffered low_watermark) 1 0))
+
+;; ── Outstanding (unacked) bytes after `acked` are acknowledged. Never negative.
+(def-shell credit-after-ack [outstanding: int acked: int] -> int
+  (pre  (and (>= acked 0) (<= acked outstanding)))
+  (post (and (>= result 0) (<= result outstanding)))
+  (- outstanding acked))
+
+;; ── Usable send window = congestion window minus in-flight bytes. Never < 0.
+(def-shell send-window-avail [cwnd: int inflight: int] -> int
+  (pre  (and (>= inflight 0) (<= inflight cwnd)))
+  (post (and (>= result 0) (= result (- cwnd inflight))))
+  (- cwnd inflight))
+
+;; ── Congestion window growth on ACK. Bounded above by the max window.
+(def-shell inflate-window [cwnd: int n: int max: int] -> int
+  (pre  (and (>= cwnd 0) (and (>= n 0) (<= (+ cwnd n) max))))
+  (post (and (>= result cwnd) (<= result max)))
+  (+ cwnd n))
+
+;; ── Congestion window backoff on loss. Never shrinks below zero.
+(def-shell deflate-window [cwnd: int n: int] -> int
+  (pre  (and (>= n 0) (<= n cwnd)))
+  (post (and (>= result 0) (<= result cwnd)))
+  (- cwnd n))
+
+;; ── Advertised receive window still open after `used` bytes. Never negative.
+(def-shell recv-window-avail [rwnd: int used: int] -> int
+  (pre  (and (>= used 0) (<= used rwnd)))
+  (post (and (>= result 0) (= result (- rwnd used))))
+  (- rwnd used))
+
+;; ── Bytes of headroom before the buffer hits its high watermark. Never < 0.
+(def-shell buffer-headroom [buffered: int high_watermark: int capacity: int] -> int
+  (pre  (and (>= buffered 0) (and (<= buffered high_watermark) (<= high_watermark capacity))))
+  (post (and (>= result 0) (<= result capacity)))
+  (- high_watermark buffered))
+
+;; ── Enqueue `n` bytes onto the send queue. Bounded by the queue capacity.
+(def-shell enqueue-bytes [queued: int n: int capacity: int] -> int
+  (pre  (and (>= queued 0) (and (>= n 0) (<= (+ queued n) capacity))))
+  (post (and (>= result queued) (<= result capacity)))
+  (+ queued n))
+
+;; ── Dequeue `n` bytes off the send queue after transmit. Never underflows.
+(def-shell dequeue-bytes [queued: int n: int] -> int
+  (pre  (and (>= n 0) (<= n queued)))
+  (post (and (>= result 0) (<= result queued)))
+  (- queued n))
+
+;; ── Will `n` more bytes still fit the buffer? result=1 ⇒ they fit the capacity.
+(def-shell can-buffer [buffered: int n: int capacity: int] -> int
+  (pre  (and (>= buffered 0) (and (>= n 0) (>= capacity 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ buffered n) capacity))))
+  (if (<= (+ buffered n) capacity) 1 0))
+
+;; ── Does sending `n` stay under the flow limit? result=1 ⇒ within the window.
+(def-shell within-window [sent: int n: int limit: int] -> int
+  (pre  (and (>= sent 0) (and (>= n 0) (>= limit 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ sent n) limit))))
+  (if (<= (+ sent n) limit) 1 0))
+
+;; ── Clamp a credit request into [0, max] — the offered credit can never exceed max.
+(def-shell clamp-credit [credit: int max: int] -> int
+  (pre  (and (>= credit 0) (>= max 0)))
+  (post (and (>= result 0) (<= result max)))
+  (if (<= credit max) credit max))
+
+;; ── Size of the next send: min(credit, remaining). Over-sends neither budget.
+(def-shell next-send-size [credit: int remaining: int] -> int
+  (pre  (and (>= credit 0) (>= remaining 0)))
+  (post (and (>= result 0) (and (<= result credit) (<= result remaining))))
+  (if (<= credit remaining) credit remaining))
+
+;; ── Outstanding bytes after starting a send of `n`. Bounded by the flow limit.
+(def-shell outstanding-after-send [outstanding: int n: int limit: int] -> int
+  (pre  (and (>= outstanding 0) (and (>= n 0) (<= (+ outstanding n) limit))))
+  (post (and (>= result outstanding) (<= result limit)))
+  (+ outstanding n))
+
+;; ── Combined send+recv credit budget. Monotone above each component, never < 0.
+(def-shell total-credit [send_credit: int recv_credit: int] -> int
+  (pre  (and (>= send_credit 0) (>= recv_credit 0)))
+  (post (and (>= result 0) (and (>= result send_credit) (>= result recv_credit))))
+  (+ send_credit recv_credit))

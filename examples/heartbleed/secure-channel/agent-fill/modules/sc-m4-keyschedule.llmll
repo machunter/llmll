@@ -1,0 +1,166 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M4 — KEY SCHEDULE & USAGE ACCOUNTING
+;; The rekey-safety discipline of an AEAD record layer. Every byte/record you
+;; encrypt under a key is charged against that key's AEAD usage limit; once the
+;; limit (or the softer rekey threshold) is reached you MUST rekey. Key epochs
+;; (generations) and derive-stages (early-secret → handshake-secret →
+;; master-secret …) only ever advance — never regress. All contracts are
+;; integer-relational (QF-LIA). A missing usage bound is a nonce/keystream-reuse
+;; catastrophe (the AEAD confidentiality break behind e.g. GCM nonce reuse).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── REQUIRED SEAM CHECKER. result=1 ⇒ we are still within the AEAD usage limit.
+(def-shell within-usage-limit [used: int limit: int] -> int
+  (pre  (and (>= used 0) (>= limit 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= used limit))))
+  (if (<= used limit) 1 0))
+
+;; ── Bytes of headroom left under the usage limit. Never negative.
+(def-shell usage-remaining [used: int limit: int] -> int
+  (pre  (<= used limit))
+  (post (and (>= result 0) (= result (- limit used))))
+  (- limit used))
+
+;; ── Charge n bytes to the usage counter. Usage only grows, never past the limit.
+(def-shell charge-usage [used: int n: int limit: int] -> int
+  (pre  (and (>= n 0) (and (<= (+ used n) limit) (>= used 0))))
+  (post (and (>= result used) (<= result limit)))
+  (+ used n))
+
+;; ── Rekey decision: result=1 ⇒ usage has reached the soft rekey threshold.
+(def-shell must-rekey [used: int threshold: int] -> int
+  (pre  (and (>= used 0) (>= threshold 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= used threshold))))
+  (if (>= used threshold) 1 0))
+
+;; ── Encrypt-guard: result=1 ⇒ encrypting n more bytes stays within the limit.
+(def-shell can-encrypt [used: int n: int limit: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (>= limit 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ used n) limit))))
+  (if (<= (+ used n) limit) 1 0))
+
+;; ── Usage after encrypting n more bytes. Monotone up; exact.
+(def-shell usage-after [used: int n: int] -> int
+  (pre  (and (>= used 0) (>= n 0)))
+  (post (and (>= result used) (= result (+ used n))))
+  (+ used n))
+
+;; ── Key-schedule stage advance: derive stages strictly advance (never regress).
+(def-shell derive-stage-next [stage: int] -> int
+  (pre  (>= stage 0))
+  (post (and (> result stage) (>= result 0)))
+  (+ stage 1))
+
+;; ── Key epoch (generation) counter: strictly monotone increasing.
+(def-shell key-generation-next [gen: int] -> int
+  (pre  (>= gen 0))
+  (post (and (> result gen) (>= result 0)))
+  (+ gen 1))
+
+;; ── Records still sendable under this key before the record-count limit.
+(def-shell records-remaining [count: int limit: int] -> int
+  (pre  (and (>= count 0) (<= count limit)))
+  (post (and (>= result 0) (<= result limit)))
+  (- limit count))
+
+;; ── Bytes of margin left before the soft rekey threshold fires. Never negative.
+(def-shell rekey-margin [used: int threshold: int] -> int
+  (pre  (<= used threshold))
+  (post (and (>= result 0) (= result (- threshold used))))
+  (- threshold used))
+
+;; ── Stage gate: result=1 ⇒ the schedule has reached at least `required`.
+(def-shell stage-at-least [stage: int required: int] -> int
+  (pre  (and (>= stage 0) (>= required 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= stage required))))
+  (if (>= stage required) 1 0))
+
+;; ── Keys-ready gate: result=1 ⇒ master secret (stage 2) has been derived.
+(def-shell keys-ready [stage: int] -> int
+  (pre  (>= stage 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= stage 2))))
+  (if (>= stage 2) 1 0))
+
+;; ── Charge n records to the record counter; only grows, never past the limit.
+(def-shell charge-records [count: int n: int limit: int] -> int
+  (pre  (and (>= n 0) (and (<= (+ count n) limit) (>= count 0))))
+  (post (and (>= result count) (<= result limit)))
+  (+ count n))
+
+;; ── Record count after sending n more records. Monotone up; exact.
+(def-shell records-after [count: int n: int] -> int
+  (pre  (and (>= count 0) (>= n 0)))
+  (post (and (>= result count) (= result (+ count n))))
+  (+ count n))
+
+;; ── Advance the derive-stage by `steps` (>=1); still strictly advances.
+(def-shell stage-advance-by [stage: int steps: int] -> int
+  (pre  (and (>= stage 0) (>= steps 1)))
+  (post (and (> result stage) (>= result 0)))
+  (+ stage steps))
+
+;; ── Advance the key epoch by `epochs` (>=1); still strictly advances.
+(def-shell generation-advance-by [gen: int epochs: int] -> int
+  (pre  (and (>= gen 0) (>= epochs 1)))
+  (post (and (> result gen) (>= result 0)))
+  (+ gen epochs))
+
+;; ── Pre-write rekey trigger: result=1 ⇒ encrypting n more would EXCEED the limit.
+(def-shell is-rekey-due [used: int n: int limit: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (>= limit 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> (+ used n) limit))))
+  (if (> (+ used n) limit) 1 0))
+
+;; ── Epoch-monotonicity gate: result=1 ⇒ the new generation is strictly ahead.
+(def-shell generation-monotone [old: int new: int] -> int
+  (pre  (and (>= old 0) (>= new 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> new old))))
+  (if (> new old) 1 0))
+
+;; ── Stage-monotonicity gate: result=1 ⇒ the new stage does not regress.
+(def-shell stage-monotone [old: int new: int] -> int
+  (pre  (and (>= old 0) (>= new 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= new old))))
+  (if (>= new old) 1 0))
+
+;; ── Merge usage from two directional counters (read+write); must fit the limit.
+(def-shell usage-merge [used_a: int used_b: int limit: int] -> int
+  (pre  (and (>= used_a 0) (and (>= used_b 0) (<= (+ used_a used_b) limit))))
+  (post (and (>= result 0) (<= result limit)))
+  (+ used_a used_b))
+
+;; ── Clamp a reported usage into the legal window [0, limit].
+(def-shell clamp-usage [used: int limit: int] -> int
+  (pre  (>= limit 0))
+  (post (and (>= result 0) (<= result limit)))
+  (if (< used 0) 0 (if (> used limit) limit used)))
+
+;; ── Config sanity: result=1 ⇒ the rekey threshold sits at/below the hard limit.
+(def-shell rekey-threshold-ok [threshold: int limit: int] -> int
+  (pre  (and (>= threshold 0) (>= limit 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= threshold limit))))
+  (if (<= threshold limit) 1 0))
+
+;; ── Send-guard against the soft threshold: result=1 ⇒ used+n stays under it.
+(def-shell record-fits-epoch [used: int n: int threshold: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (>= threshold 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ used n) threshold))))
+  (if (<= (+ used n) threshold) 1 0))
+
+;; ── Bytes charged beyond the limit (a rekey was overdue). Never negative.
+(def-shell usage-overflow [used: int limit: int] -> int
+  (pre  (and (>= used 0) (>= limit 0)))
+  (post (>= result 0))
+  (if (> used limit) (- used limit) 0))
+
+;; ── Headroom remaining after charging n bytes. Never negative; exact.
+(def-shell headroom-after [used: int n: int limit: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (<= (+ used n) limit))))
+  (post (and (>= result 0) (= result (- limit (+ used n)))))
+  (- limit (+ used n)))
+
+;; ── Derive stages still to run to reach the target stage. Never negative; exact.
+(def-shell derive-stages-remaining [stage: int target: int] -> int
+  (pre  (<= stage target))
+  (post (and (>= result 0) (= result (- target stage))))
+  (- target stage))

@@ -1,0 +1,1135 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M1 — RECORD FRAMING & LENGTH DISCIPLINE
+;; The length/offset/capacity arithmetic of a TLS-style record layer. Every
+;; contract is integer-relational (QF-LIA). This is where Heartbleed (a missing
+;; length bound) and Ping-of-Death (a fragment past the buffer) actually lived.
+;; Constants: RECORD_MAX = 16384 (2^14), HEADER = 5, TAG = 16, NONCE = 12.
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── memcpy bound: you may read only `n` bytes from a buffer holding `src_len`.
+;;    (<= n src_len) IS the check whose absence was Heartbleed (CVE-2014-0160).
+(def-shell copy-bytes [src_len: int n: int] -> int
+  (pre  (and (>= n 0) (<= n src_len)))
+  (post (= result n))
+  n)
+
+;; ── memmove within one buffer: source window [src_off, src_off+n) must fit.
+(def-shell move-bytes [buf_len: int src_off: int n: int] -> int
+  (pre  (and (>= src_off 0) (and (>= n 0) (<= (+ src_off n) buf_len))))
+  (post (= result n))
+  n)
+
+;; ── Record body = record minus the 5-byte header. Never negative.
+(def-shell record-body-len [record_len: int] -> int
+  (pre  (and (>= record_len 5) (<= record_len 16384)))
+  (post (and (>= result 0) (= result (- record_len 5))))
+  (- record_len 5))
+
+;; ── Full record = body + 5-byte header. Bounded by the max record.
+(def-shell record-total-len [body_len: int] -> int
+  (pre  (and (>= body_len 0) (<= body_len 16379)))
+  (post (and (>= result 5) (<= result 16384)))
+  (+ body_len 5))
+
+;; ── Clamp a claimed length into the legal record window [0, 16384].
+(def-shell clamp-record-len [len: int] -> int
+  (pre  (>= len 0))
+  (post (and (>= result 0) (<= result 16384)))
+  (if (<= len 16384) len 16384))
+
+;; ── Is a record length legal (0..16384)? Returns 1 iff so; result=1 ⇒ in range.
+(def-shell record-len-ok [len: int] -> int
+  (pre  (>= len 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (<= len 16384))))
+  (if (<= len 16384) 1 0))
+
+;; ── AEAD ciphertext = plaintext + 16-byte tag. Grows by exactly the tag.
+(def-shell ciphertext-len [pt_len: int] -> int
+  (pre  (and (>= pt_len 0) (<= pt_len 16368)))
+  (post (and (>= result pt_len) (= result (+ pt_len 16))))
+  (+ pt_len 16))
+
+;; ── AEAD plaintext = ciphertext - 16-byte tag. Must carry a full tag.
+(def-shell plaintext-len [ct_len: int] -> int
+  (pre  (>= ct_len 16))
+  (post (and (>= result 0) (= result (- ct_len 16))))
+  (- ct_len 16))
+
+;; ── Application payload = record body minus a fixed overhead field.
+(def-shell payload-avail [record_len: int overhead: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (>= record_len overhead))))
+  (post (and (>= result 0) (= result (- record_len overhead))))
+  (- record_len overhead))
+
+;; ── Add TLS padding: content + pad bytes. Never shrinks the buffer.
+(def-shell pad-len [content_len: int pad: int] -> int
+  (pre  (and (>= content_len 0) (>= pad 0)))
+  (post (and (>= result content_len) (= result (+ content_len pad))))
+  (+ content_len pad))
+
+;; ── Strip padding: total - pad. The pad can never exceed the total (else
+;;    you'd read before the buffer — a classic padding-oracle-adjacent bug).
+(def-shell unpad-len [total_len: int pad: int] -> int
+  (pre  (and (>= pad 0) (<= pad total_len)))
+  (post (and (>= result 0) (<= result total_len)))
+  (- total_len pad))
+
+;; ── Fragment reassembly: writing [offset, offset+frag_len) must fit capacity.
+;;    (<= result capacity) is the Ping-of-Death bound.
+(def-shell reassemble [offset: int frag_len: int capacity: int] -> int
+  (pre  (and (>= offset 0) (and (>= frag_len 0) (and (>= capacity 0)
+             (<= (+ offset frag_len) capacity)))))
+  (post (and (>= result 0) (<= result capacity)))
+  (+ offset frag_len))
+
+;; ── Does a fragment fit? Returns 1 iff [offset,offset+frag_len) ⊆ capacity.
+(def-shell fragment-fits [offset: int frag_len: int capacity: int] -> int
+  (pre  (and (>= offset 0) (and (>= frag_len 0) (>= capacity 0))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (<= (+ offset frag_len) capacity))))
+  (if (<= (+ offset frag_len) capacity) 1 0))
+
+;; ── Remaining buffer capacity after `used` bytes. Never negative.
+(def-shell remaining-capacity [used: int capacity: int] -> int
+  (pre  (and (>= used 0) (<= used capacity)))
+  (post (and (>= result 0) (<= result capacity)))
+  (- capacity used))
+
+;; ── Advance a write cursor by `n`, staying within capacity.
+(def-shell advance-cursor [cursor: int n: int capacity: int] -> int
+  (pre  (and (>= cursor 0) (and (>= n 0) (<= (+ cursor n) capacity))))
+  (post (and (>= result cursor) (<= result capacity)))
+  (+ cursor n))
+
+;; ── Coalesce two adjacent fragments; combined length must fit capacity.
+(def-shell coalesce-len [a_len: int b_len: int capacity: int] -> int
+  (pre  (and (>= a_len 0) (and (>= b_len 0) (<= (+ a_len b_len) capacity))))
+  (post (and (>= result 0) (<= result capacity)))
+  (+ a_len b_len))
+
+;; ── Split a buffer at `at`; both pieces are within the total.
+(def-shell split-point [total_len: int at: int] -> int
+  (pre  (and (>= at 0) (<= at total_len)))
+  (post (and (>= result 0) (<= result total_len)))
+  at)
+
+;; ── Bytes still expected for a partially-received record.
+(def-shell bytes-outstanding [expected: int received: int] -> int
+  (pre  (and (>= received 0) (<= received expected)))
+  (post (and (>= result 0) (<= result expected)))
+  (- expected received))
+
+;; ── Nonce counter advance for a record (bounded below by the previous).
+(def-shell next-record-offset [offset: int length: int] -> int
+  (pre  (and (>= offset 0) (>= length 0)))
+  (post (>= result offset))
+  (+ offset length))
+
+;; ── Chunk size to read next: min(remaining, max_chunk), never over-reads.
+(def-shell next-chunk [remaining: int max_chunk: int] -> int
+  (pre  (and (>= remaining 0) (>= max_chunk 0)))
+  (post (and (>= result 0) (and (<= result remaining) (<= result max_chunk))))
+  (if (<= remaining max_chunk) remaining max_chunk))
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M2 — SEQUENCE NUMBERS & ANTI-REPLAY
+;; The monotonicity/window discipline of a secure-channel record layer. Every
+;; record carries a sequence number; a receiver must (a) reject anything at or
+;; below the accepted floor (replay), (b) accept only inside the sliding window,
+;; and (c) reset the counter and bump the epoch on rekey. This is exactly the
+;; discipline KRACK (CVE-2017-13077) broke by forcing nonce/seq reuse. Every
+;; contract below is integer-relational (QF-LIA): seq numbers, window floors,
+;; epochs and thresholds are all int ordinals.
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── The accepted sequence never moves backward — it is the running max of the
+;;    last accepted and the newly accepted incoming (monotone anti-rollback).
+(def-shell accept-seq [last: int incoming: int] -> int
+  (pre  (and (>= last 0) (>= incoming 0)))
+  (post (and (>= result 0) (>= result last)))
+  (if (> incoming last) incoming last))
+
+;; ── REQUIRED SEAM CHECKER (the spine composes this; contract is fixed).
+;;    result=1 ⇒ incoming is strictly ahead of the floor (i.e. genuinely fresh).
+(def-shell seq-fresh [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (>= incoming 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> incoming floor))))
+  (if (> incoming floor) 1 0))
+
+;; ── Replay detector: result=1 ⇒ incoming is at or below the floor (an old /
+;;    replayed packet that must be dropped). [KRACK / replay]
+(def-shell replay-detected [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (>= incoming 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= incoming floor))))
+  (if (<= incoming floor) 1 0))
+
+;; ── Slide the window forward: the new floor is max(floor, incoming); it can
+;;    only ever increase, so the floor is monotone non-decreasing.
+(def-shell window-slide [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (>= incoming 0)))
+  (post (and (>= result 0) (>= result floor)))
+  (if (> incoming floor) incoming floor))
+
+;; ── In-window test: result=1 ⇒ seq is strictly above the floor AND no more
+;;    than `width` beyond it (the two edges of the anti-replay window).
+(def-shell in-window [floor: int width: int seq: int] -> int
+  (pre  (and (>= floor 0) (and (>= width 0) (>= seq 0))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (> seq floor) (<= seq (+ floor width))))))
+  (if (and (> seq floor) (<= seq (+ floor width))) 1 0))
+
+;; ── Successor: the next sequence number is strictly greater than this one.
+(def-shell next-seq [seq: int] -> int
+  (pre  (>= seq 0))
+  (post (and (>= result 0) (> result seq)))
+  (+ seq 1))
+
+;; ── Records remaining before the counter reaches its limit (before wrap).
+(def-shell seq-remaining [seq: int limit: int] -> int
+  (pre  (and (>= seq 0) (<= seq limit)))
+  (post (and (>= result 0) (= result (- limit seq))))
+  (- limit seq))
+
+;; ── Rekey-due checker: result=1 ⇒ seq has reached the rekey threshold.
+(def-shell rekey-due [seq: int threshold: int] -> int
+  (pre  (and (>= seq 0) (>= threshold 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= seq threshold))))
+  (if (>= seq threshold) 1 0))
+
+;; ── The next epoch strictly advances (epochs are a monotone outer counter).
+(def-shell epoch-next [epoch: int] -> int
+  (pre  (>= epoch 0))
+  (post (and (>= result 0) (> result epoch)))
+  (+ epoch 1))
+
+;; ── On a new epoch the record sequence resets to exactly 0.
+(def-shell epoch-reset-seq [epoch: int] -> int
+  (pre  (>= epoch 0))
+  (post (= result 0))
+  0)
+
+;; ── The higher of two seqs: at least `a` AND at least `b` (nested bounds).
+(def-shell highest-seq [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (>= result a) (>= result b))))
+  (if (> a b) a b))
+
+;; ── Gap between the floor and an incoming seq known to be ahead of it.
+(def-shell seq-gap [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (<= floor incoming)))
+  (post (and (>= result 0) (= result (- incoming floor))))
+  (- incoming floor))
+
+;; ── Advance the window floor by a non-negative step; never regresses.
+(def-shell advance-window [floor: int step: int] -> int
+  (pre  (and (>= floor 0) (>= step 0)))
+  (post (and (>= result 0) (>= result floor)))
+  (+ floor step))
+
+;; ── Records left until the mandatory rekey count limit; bounded in [0,limit].
+(def-shell records-until-rekey [count: int limit: int] -> int
+  (pre  (and (>= count 0) (<= count limit)))
+  (post (and (>= result 0) (<= result limit)))
+  (- limit count))
+
+;; ── Top edge of the anti-replay window = floor + width; at least the floor.
+(def-shell window-hi [floor: int width: int] -> int
+  (pre  (and (>= floor 0) (>= width 0)))
+  (post (and (>= result floor) (= result (+ floor width))))
+  (+ floor width))
+
+;; ── Monotonicity guard checker: result=1 ⇒ next is strictly after prev.
+(def-shell is-monotone [prev: int next: int] -> int
+  (pre  (and (>= prev 0) (>= next 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> next prev))))
+  (if (> next prev) 1 0))
+
+;; ── Bump a seq by a non-negative amount; the result never drops below it.
+(def-shell bump-seq [seq: int n: int] -> int
+  (pre  (and (>= seq 0) (>= n 0)))
+  (post (and (>= result seq) (= result (+ seq n))))
+  (+ seq n))
+
+;; ── Within-limit checker: result=1 ⇒ seq has not exceeded the limit.
+(def-shell seq-within-limit [seq: int limit: int] -> int
+  (pre  (and (>= seq 0) (>= limit 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= seq limit))))
+  (if (<= seq limit) 1 0))
+
+;; ── Clamp a seq up to the floor: an out-of-window-low seq is pinned to floor,
+;;    so the result is never below the floor.
+(def-shell clamp-seq-floor [seq: int floor: int] -> int
+  (pre  (and (>= seq 0) (>= floor 0)))
+  (post (and (>= result 0) (>= result floor)))
+  (if (> seq floor) seq floor))
+
+;; ── Distance from the current seq to the rekey threshold (seq at/below it).
+(def-shell distance-to-rekey [seq: int threshold: int] -> int
+  (pre  (and (>= seq 0) (<= seq threshold)))
+  (post (and (>= result 0) (= result (- threshold seq))))
+  (- threshold seq))
+
+;; ── Advance the epoch by n ≥ 1; a genuine epoch bump strictly increases it.
+(def-shell epoch-advance-by [epoch: int n: int] -> int
+  (pre  (and (>= epoch 0) (>= n 1)))
+  (post (and (>= result 0) (> result epoch)))
+  (+ epoch n))
+
+;; ── Not-wrapped checker: result=1 ⇒ seq is still strictly below the wrap cap.
+(def-shell seq-not-wrapped [seq: int cap: int] -> int
+  (pre  (and (>= seq 0) (>= cap 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (< seq cap))))
+  (if (< seq cap) 1 0))
+
+;; ── The lower of two seqs: at most `a` AND at most `b`, never negative.
+(def-shell min-seq [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (<= result a) (<= result b))))
+  (if (< a b) a b))
+
+;; ── Free slots left in a window of `width` after `used` accepted; in [0,width].
+(def-shell slots-free-in-window [used: int width: int] -> int
+  (pre  (and (>= used 0) (<= used width)))
+  (post (and (>= result 0) (<= result width)))
+  (- width used))
+
+;; ── Record one more received packet; the received count strictly increases.
+(def-shell mark-received [count: int] -> int
+  (pre  (>= count 0))
+  (post (and (>= result 0) (> result count)))
+  (+ count 1))
+
+;; ── Oldest still-acceptable seq = max(floor - width, 0); in [0, floor]. Below
+;;    this base everything is a replay and must be dropped.
+(def-shell replay-window-base [floor: int width: int] -> int
+  (pre  (and (>= floor 0) (>= width 0)))
+  (post (and (>= result 0) (<= result floor)))
+  (if (> floor width) (- floor width) 0))
+
+;; ── Jump-limit checker: result=1 ⇒ incoming is no further than maxjump beyond
+;;    the floor (rejects an implausible forward leap that would skip the window).
+(def-shell within-jump [floor: int incoming: int maxjump: int] -> int
+  (pre  (and (>= floor 0) (and (>= incoming 0) (>= maxjump 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= incoming (+ floor maxjump)))))
+  (if (<= incoming (+ floor maxjump)) 1 0))
+
+;; ── Freshness GATE — pass the running count `n` downstream ONLY IF incoming is
+;;    strictly ahead of the last accepted seq. Monotone (result ≤ n) so it can
+;;    be threaded through a delivery spine; result>0 ⇒ incoming>last. [KRACK]
+(def-shell accept-forward-count [n: int last: int incoming: int] -> int
+  (pre  (and (>= n 0) (and (>= last 0) (>= incoming 0))))
+  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (> incoming last)))))
+  (if (> incoming last) n 0))
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M3 — HANDSHAKE STATE MACHINE & VERSION/SUITE NEGOTIATION
+;; The downgrade / state-confusion discipline of a TLS-style handshake. Every
+;; contract is integer-relational (QF-LIA). Two invariants run through the
+;; module: (1) handshake state only ever ADVANCES (monotone FSM — no rollback,
+;; no state confusion), and (2) a negotiated version can never DROP below the
+;; agreed floor (anti-downgrade — the discipline whose absence was FREAK /
+;; Logjam / POODLE-downgrade). Sibling of M1 (record framing) and M2 (crypto).
+;;
+;; State ordinals:   0=start 1=hello-sent 2=hello-recv 3=key-derived
+;;                   4=finished 5=connected
+;; Version ordinals: small ints, higher = newer (e.g. 3=TLS1.2, 4=TLS1.3).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── FSM step: fold a non-negative step into the state. State only advances.
+(def-shell next-state [state: int step: int] -> int
+  (pre  (and (>= state 0) (>= step 0)))
+  (post (and (>= result 0) (>= result state)))
+  (+ state step))
+
+;; ── Advance to a target milestone: max(state,target). Never regresses.
+(def-shell advance-to [state: int target: int] -> int
+  (pre  (and (>= state 0) (>= target 0)))
+  (post (and (>= result 0) (and (>= result state) (>= result target))))
+  (if (>= state target) state target))
+
+;; ── REQUIRED SEAM CHECKER — result=1 iff the handshake reached CONNECTED (5).
+;;    The cross-module spine composes exactly this; contract must not change.
+(def-shell handshake-connected [state: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state 5))))
+  (if (>= state 5) 1 0))
+
+;; ── Generic FSM gate: result=1 implies the state reached `threshold`.
+(def-shell state-at-least [state: int threshold: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state threshold))))
+  (if (>= state threshold) 1 0))
+
+;; ── Finished-message gate: result=1 implies state has reached FINISHED (4).
+(def-shell is-finished [state: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state 4))))
+  (if (>= state 4) 1 0))
+
+;; ── ANTI-DOWNGRADE CORE: negotiated version = highest COMMON = min of the two
+;;    maxima. Result can never exceed either party's ceiling. [FREAK / Logjam.]
+(def-shell negotiate-version [client_max: int server_max: int] -> int
+  (pre  (and (>= client_max 0) (>= server_max 0)))
+  (post (and (>= result 0) (and (<= result client_max) (<= result server_max))))
+  (if (<= client_max server_max) client_max server_max))
+
+;; ── Downgrade guard: result=1 implies the offered version is at/above the floor.
+(def-shell version-acceptable [offered: int floor: int] -> int
+  (pre  (and (>= offered 0) (>= floor 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= offered floor))))
+  (if (>= offered floor) 1 0))
+
+;; ── Downgrade alarm: result=1 implies the chosen version is BELOW the floor.
+(def-shell downgrade-detected [chosen: int floor: int] -> int
+  (pre  (and (>= chosen 0) (>= floor 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (< chosen floor))))
+  (if (< chosen floor) 1 0))
+
+;; ── Pick a cipher suite: the chosen index stays inside the offered set.
+(def-shell select-suite [preferred: int count: int] -> int
+  (pre  (and (>= preferred 0) (< preferred count)))
+  (post (and (>= result 0) (< result count)))
+  preferred)
+
+;; ── Transcript hash accumulates: feeding a chunk only ever grows the input.
+(def-shell transcript-extend [len: int chunk: int] -> int
+  (pre  (and (>= len 0) (>= chunk 0)))
+  (post (and (>= result 0) (>= result len)))
+  (+ len chunk))
+
+;; ── Message-permission gate: result=1 implies the state permits sending.
+(def-shell can-send-in-state [state: int required: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state required))))
+  (if (>= state required) 1 0))
+
+;; ── The next state a peer may legally expect: one step up, capped at CONNECTED.
+(def-shell expect-next [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result state) (<= result 5)))
+  (if (>= state 5) 5 (+ state 1)))
+
+;; ── Progress the handshake by `step` transitions, saturating at CONNECTED (5).
+(def-shell handshake-progress [state: int step: int] -> int
+  (pre  (and (>= state 0) (and (<= state 5) (>= step 0))))
+  (post (and (>= result state) (<= result 5)))
+  (if (>= (+ state step) 5) 5 (+ state step)))
+
+;; ── ClientHello: advance to at least HELLO-SENT (1), never regressing.
+(def-shell send-client-hello [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 1) (and (>= result state) (<= result 5))))
+  (if (>= state 1) state 1))
+
+;; ── ServerHello received: advance to at least HELLO-RECV (2).
+(def-shell recv-server-hello [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 2) (and (>= result state) (<= result 5))))
+  (if (>= state 2) state 2))
+
+;; ── Key schedule derived: advance to at least KEY-DERIVED (3).
+(def-shell derive-keys [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 3) (and (>= result state) (<= result 5))))
+  (if (>= state 3) state 3))
+
+;; ── Finished sent: advance to at least FINISHED (4).
+(def-shell send-finished [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 4) (and (>= result state) (<= result 5))))
+  (if (>= state 4) state 4))
+
+;; ── Handshake completes: land on CONNECTED (5); never below the current state.
+(def-shell mark-connected [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (= result 5) (>= result state)))
+  5)
+
+;; ── Version-window gate: result=1 implies lo <= version <= hi.
+(def-shell version-in-range [version: int lo: int hi: int] -> int
+  (pre  (>= version 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= version lo) (<= version hi)))))
+  (if (and (>= version lo) (<= version hi)) 1 0))
+
+;; ── Clamp a proposed version into the supported [floor,ceil] window.
+(def-shell clamp-version [version: int floor: int ceil: int] -> int
+  (pre  (and (>= floor 0) (<= floor ceil)))
+  (post (and (>= result 0) (and (>= result floor) (<= result ceil))))
+  (if (< version floor) floor (if (> version ceil) ceil version)))
+
+;; ── Pick the newer of two versions: max(a,b), at or above both.
+(def-shell higher-version [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (>= result a) (>= result b))))
+  (if (>= a b) a b))
+
+;; ── Pick the safest common version: min(a,b), at or below both (downgrade-safe).
+(def-shell lower-version [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (<= result a) (<= result b))))
+  (if (<= a b) a b))
+
+;; ── Suite-list sanity gate: result=1 implies at least one suite was offered.
+(def-shell suite-count-ok [count: int] -> int
+  (pre  (>= count 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> count 0))))
+  (if (> count 0) 1 0))
+
+;; ── Suite-index bounds gate: result=1 implies 0 <= index < count.
+(def-shell suite-index-valid [index: int count: int] -> int
+  (pre  (>= count 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= index 0) (< index count)))))
+  (if (and (>= index 0) (< index count)) 1 0))
+
+;; ── Handshake-record counter: folds in a non-negative delta, monotone.
+(def-shell records-processed [count: int delta: int] -> int
+  (pre  (and (>= count 0) (>= delta 0)))
+  (post (and (>= result 0) (>= result count)))
+  (+ count delta))
+
+;; ── Handshake sequence number advances strictly (freshness of each message).
+(def-shell seq-advance [seq: int] -> int
+  (pre  (>= seq 0))
+  (post (and (>= result 0) (> result seq)))
+  (+ seq 1))
+
+;; ── Completion guard: result=1 implies CONNECTED (5) AND no version downgrade.
+;;    This is the two-invariant seam: state-confusion AND downgrade both refuted.
+(def-shell handshake-complete-guard [state: int version: int floor: int] -> int
+  (pre  (and (>= state 0) (and (>= version 0) (>= floor 0))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= state 5) (>= version floor)))))
+  (if (and (>= state 5) (>= version floor)) 1 0))
+
+;; ── Renegotiation guard: result=1 implies the proposed state is not below the
+;;    current one (monotone FSM — blocks a rollback / state-confusion attack).
+(def-shell no-renegotiate-below [current: int proposed: int] -> int
+  (pre  (and (>= current 0) (>= proposed 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= proposed current))))
+  (if (>= proposed current) 1 0))
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M4 — KEY SCHEDULE & USAGE ACCOUNTING
+;; The rekey-safety discipline of an AEAD record layer. Every byte/record you
+;; encrypt under a key is charged against that key's AEAD usage limit; once the
+;; limit (or the softer rekey threshold) is reached you MUST rekey. Key epochs
+;; (generations) and derive-stages (early-secret → handshake-secret →
+;; master-secret …) only ever advance — never regress. All contracts are
+;; integer-relational (QF-LIA). A missing usage bound is a nonce/keystream-reuse
+;; catastrophe (the AEAD confidentiality break behind e.g. GCM nonce reuse).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── REQUIRED SEAM CHECKER. result=1 ⇒ we are still within the AEAD usage limit.
+(def-shell within-usage-limit [used: int limit: int] -> int
+  (pre  (and (>= used 0) (>= limit 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= used limit))))
+  (if (<= used limit) 1 0))
+
+;; ── Bytes of headroom left under the usage limit. Never negative.
+(def-shell usage-remaining [used: int limit: int] -> int
+  (pre  (<= used limit))
+  (post (and (>= result 0) (= result (- limit used))))
+  (- limit used))
+
+;; ── Charge n bytes to the usage counter. Usage only grows, never past the limit.
+(def-shell charge-usage [used: int n: int limit: int] -> int
+  (pre  (and (>= n 0) (and (<= (+ used n) limit) (>= used 0))))
+  (post (and (>= result used) (<= result limit)))
+  (+ used n))
+
+;; ── Rekey decision: result=1 ⇒ usage has reached the soft rekey threshold.
+(def-shell must-rekey [used: int threshold: int] -> int
+  (pre  (and (>= used 0) (>= threshold 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= used threshold))))
+  (if (>= used threshold) 1 0))
+
+;; ── Encrypt-guard: result=1 ⇒ encrypting n more bytes stays within the limit.
+(def-shell can-encrypt [used: int n: int limit: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (>= limit 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ used n) limit))))
+  (if (<= (+ used n) limit) 1 0))
+
+;; ── Usage after encrypting n more bytes. Monotone up; exact.
+(def-shell usage-after [used: int n: int] -> int
+  (pre  (and (>= used 0) (>= n 0)))
+  (post (and (>= result used) (= result (+ used n))))
+  (+ used n))
+
+;; ── Key-schedule stage advance: derive stages strictly advance (never regress).
+(def-shell derive-stage-next [stage: int] -> int
+  (pre  (>= stage 0))
+  (post (and (> result stage) (>= result 0)))
+  (+ stage 1))
+
+;; ── Key epoch (generation) counter: strictly monotone increasing.
+(def-shell key-generation-next [gen: int] -> int
+  (pre  (>= gen 0))
+  (post (and (> result gen) (>= result 0)))
+  (+ gen 1))
+
+;; ── Records still sendable under this key before the record-count limit.
+(def-shell records-remaining [count: int limit: int] -> int
+  (pre  (and (>= count 0) (<= count limit)))
+  (post (and (>= result 0) (<= result limit)))
+  (- limit count))
+
+;; ── Bytes of margin left before the soft rekey threshold fires. Never negative.
+(def-shell rekey-margin [used: int threshold: int] -> int
+  (pre  (<= used threshold))
+  (post (and (>= result 0) (= result (- threshold used))))
+  (- threshold used))
+
+;; ── Stage gate: result=1 ⇒ the schedule has reached at least `required`.
+(def-shell stage-at-least [stage: int required: int] -> int
+  (pre  (and (>= stage 0) (>= required 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= stage required))))
+  (if (>= stage required) 1 0))
+
+;; ── Keys-ready gate: result=1 ⇒ master secret (stage 2) has been derived.
+(def-shell keys-ready [stage: int] -> int
+  (pre  (>= stage 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= stage 2))))
+  (if (>= stage 2) 1 0))
+
+;; ── Charge n records to the record counter; only grows, never past the limit.
+(def-shell charge-records [count: int n: int limit: int] -> int
+  (pre  (and (>= n 0) (and (<= (+ count n) limit) (>= count 0))))
+  (post (and (>= result count) (<= result limit)))
+  (+ count n))
+
+;; ── Record count after sending n more records. Monotone up; exact.
+(def-shell records-after [count: int n: int] -> int
+  (pre  (and (>= count 0) (>= n 0)))
+  (post (and (>= result count) (= result (+ count n))))
+  (+ count n))
+
+;; ── Advance the derive-stage by `steps` (>=1); still strictly advances.
+(def-shell stage-advance-by [stage: int steps: int] -> int
+  (pre  (and (>= stage 0) (>= steps 1)))
+  (post (and (> result stage) (>= result 0)))
+  (+ stage steps))
+
+;; ── Advance the key epoch by `epochs` (>=1); still strictly advances.
+(def-shell generation-advance-by [gen: int epochs: int] -> int
+  (pre  (and (>= gen 0) (>= epochs 1)))
+  (post (and (> result gen) (>= result 0)))
+  (+ gen epochs))
+
+;; ── Pre-write rekey trigger: result=1 ⇒ encrypting n more would EXCEED the limit.
+(def-shell is-rekey-due [used: int n: int limit: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (>= limit 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> (+ used n) limit))))
+  (if (> (+ used n) limit) 1 0))
+
+;; ── Epoch-monotonicity gate: result=1 ⇒ the new generation is strictly ahead.
+(def-shell generation-monotone [old: int new: int] -> int
+  (pre  (and (>= old 0) (>= new 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> new old))))
+  (if (> new old) 1 0))
+
+;; ── Stage-monotonicity gate: result=1 ⇒ the new stage does not regress.
+(def-shell stage-monotone [old: int new: int] -> int
+  (pre  (and (>= old 0) (>= new 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= new old))))
+  (if (>= new old) 1 0))
+
+;; ── Merge usage from two directional counters (read+write); must fit the limit.
+(def-shell usage-merge [used_a: int used_b: int limit: int] -> int
+  (pre  (and (>= used_a 0) (and (>= used_b 0) (<= (+ used_a used_b) limit))))
+  (post (and (>= result 0) (<= result limit)))
+  (+ used_a used_b))
+
+;; ── Clamp a reported usage into the legal window [0, limit].
+(def-shell clamp-usage [used: int limit: int] -> int
+  (pre  (>= limit 0))
+  (post (and (>= result 0) (<= result limit)))
+  (if (< used 0) 0 (if (> used limit) limit used)))
+
+;; ── Config sanity: result=1 ⇒ the rekey threshold sits at/below the hard limit.
+(def-shell rekey-threshold-ok [threshold: int limit: int] -> int
+  (pre  (and (>= threshold 0) (>= limit 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= threshold limit))))
+  (if (<= threshold limit) 1 0))
+
+;; ── Send-guard against the soft threshold: result=1 ⇒ used+n stays under it.
+(def-shell record-fits-epoch [used: int n: int threshold: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (>= threshold 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ used n) threshold))))
+  (if (<= (+ used n) threshold) 1 0))
+
+;; ── Bytes charged beyond the limit (a rekey was overdue). Never negative.
+(def-shell usage-overflow [used: int limit: int] -> int
+  (pre  (and (>= used 0) (>= limit 0)))
+  (post (>= result 0))
+  (if (> used limit) (- used limit) 0))
+
+;; ── Headroom remaining after charging n bytes. Never negative; exact.
+(def-shell headroom-after [used: int n: int limit: int] -> int
+  (pre  (and (>= used 0) (and (>= n 0) (<= (+ used n) limit))))
+  (post (and (>= result 0) (= result (- limit (+ used n)))))
+  (- limit (+ used n)))
+
+;; ── Derive stages still to run to reach the target stage. Never negative; exact.
+(def-shell derive-stages-remaining [stage: int target: int] -> int
+  (pre  (<= stage target))
+  (post (and (>= result 0) (= result (- target stage))))
+  (- target stage))
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M5 — FLOW CONTROL & CONNECTION CREDITS
+;; The resource-safety discipline of a secure-channel record layer. Send/recv
+;; credits never go negative and never exceed their max; buffered bytes never
+;; exceed capacity; congestion/flow windows stay within [0, max]. Every contract
+;; is integer-relational (QF-LIA). A credit that underflows is a use-after-free
+;; primitive; a buffer that overflows its capacity is the classic heap smash.
+;; Credits, windows, buffered-byte counts, watermarks and capacities are int
+;; ordinals — never negative, always bounded.
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── REQUIRED SEAM CHECKER. result=1 ⇒ there is enough credit to send `n`.
+;;    (>= credit n) is the guard whose absence lets a send underflow the credit.
+(def-shell has-credit [credit: int n: int] -> int
+  (pre  (and (>= credit 0) (>= n 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= credit n))))
+  (if (>= credit n) 1 0))
+
+;; ── Spend `n` credit on a send. Never drops below zero (credit underflow bug).
+(def-shell consume-credit [credit: int n: int] -> int
+  (pre  (and (>= credit 0) (and (>= n 0) (<= n credit))))
+  (post (and (>= result 0) (<= result credit)))
+  (- credit n))
+
+;; ── Grant `n` fresh credit from a peer window. Never exceeds the negotiated max.
+(def-shell grant-credit [credit: int n: int max: int] -> int
+  (pre  (and (>= credit 0) (and (>= n 0) (<= (+ credit n) max))))
+  (post (and (>= result credit) (<= result max)))
+  (+ credit n))
+
+;; ── Buffered bytes after receiving `n`. Must stay within the receive capacity.
+;;    (<= result capacity) is the heap-overflow bound.
+(def-shell buffer-after-recv [buffered: int n: int capacity: int] -> int
+  (pre  (and (>= buffered 0) (and (>= n 0) (<= (+ buffered n) capacity))))
+  (post (and (>= result buffered) (<= result capacity)))
+  (+ buffered n))
+
+;; ── Free space left in the receive buffer. Never negative.
+(def-shell buffer-avail [buffered: int capacity: int] -> int
+  (pre  (<= buffered capacity))
+  (post (and (>= result 0) (= result (- capacity buffered))))
+  (- capacity buffered))
+
+;; ── Drain `n` consumed bytes out of the buffer. Never underflows.
+(def-shell drain-buffer [buffered: int n: int] -> int
+  (pre  (and (>= n 0) (<= n buffered)))
+  (post (and (>= result 0) (<= result buffered)))
+  (- buffered n))
+
+;; ── Is a credit value a legal ordinal in [0, max]? result=1 ⇒ it is in range.
+(def-shell credit-in-range [credit: int max: int] -> int
+  (pre  (>= max 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= credit 0) (<= credit max)))))
+  (if (and (>= credit 0) (<= credit max)) 1 0))
+
+;; ── May we put `n` bytes on the wire right now? result=1 ⇒ credit covers `n`.
+(def-shell can-send-bytes [credit: int n: int] -> int
+  (pre  (and (>= credit 0) (>= n 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= credit n))))
+  (if (>= credit n) 1 0))
+
+;; ── Open the flow window by `delta` on an ACK. Capped at the negotiated max.
+(def-shell window-update [window: int delta: int max: int] -> int
+  (pre  (and (>= window 0) (and (>= delta 0) (<= (+ window delta) max))))
+  (post (and (>= result window) (<= result max)))
+  (+ window delta))
+
+;; ── Bytes still permitted before the flow limit. Never negative.
+(def-shell flow-remaining [sent: int limit: int] -> int
+  (pre  (<= sent limit))
+  (post (and (>= result 0) (= result (- limit sent))))
+  (- limit sent))
+
+;; ── Should the reader signal backpressure? result=1 ⇒ buffer at/over high mark.
+(def-shell backpressure [buffered: int high_watermark: int] -> int
+  (pre  (and (>= buffered 0) (>= high_watermark 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= buffered high_watermark))))
+  (if (>= buffered high_watermark) 1 0))
+
+;; ── Safe to resume reading? result=1 ⇒ buffer drained at/under the low mark.
+(def-shell resume-recv [buffered: int low_watermark: int] -> int
+  (pre  (and (>= buffered 0) (>= low_watermark 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= buffered low_watermark))))
+  (if (<= buffered low_watermark) 1 0))
+
+;; ── Outstanding (unacked) bytes after `acked` are acknowledged. Never negative.
+(def-shell credit-after-ack [outstanding: int acked: int] -> int
+  (pre  (and (>= acked 0) (<= acked outstanding)))
+  (post (and (>= result 0) (<= result outstanding)))
+  (- outstanding acked))
+
+;; ── Usable send window = congestion window minus in-flight bytes. Never < 0.
+(def-shell send-window-avail [cwnd: int inflight: int] -> int
+  (pre  (and (>= inflight 0) (<= inflight cwnd)))
+  (post (and (>= result 0) (= result (- cwnd inflight))))
+  (- cwnd inflight))
+
+;; ── Congestion window growth on ACK. Bounded above by the max window.
+(def-shell inflate-window [cwnd: int n: int max: int] -> int
+  (pre  (and (>= cwnd 0) (and (>= n 0) (<= (+ cwnd n) max))))
+  (post (and (>= result cwnd) (<= result max)))
+  (+ cwnd n))
+
+;; ── Congestion window backoff on loss. Never shrinks below zero.
+(def-shell deflate-window [cwnd: int n: int] -> int
+  (pre  (and (>= n 0) (<= n cwnd)))
+  (post (and (>= result 0) (<= result cwnd)))
+  (- cwnd n))
+
+;; ── Advertised receive window still open after `used` bytes. Never negative.
+(def-shell recv-window-avail [rwnd: int used: int] -> int
+  (pre  (and (>= used 0) (<= used rwnd)))
+  (post (and (>= result 0) (= result (- rwnd used))))
+  (- rwnd used))
+
+;; ── Bytes of headroom before the buffer hits its high watermark. Never < 0.
+(def-shell buffer-headroom [buffered: int high_watermark: int capacity: int] -> int
+  (pre  (and (>= buffered 0) (and (<= buffered high_watermark) (<= high_watermark capacity))))
+  (post (and (>= result 0) (<= result capacity)))
+  (- high_watermark buffered))
+
+;; ── Enqueue `n` bytes onto the send queue. Bounded by the queue capacity.
+(def-shell enqueue-bytes [queued: int n: int capacity: int] -> int
+  (pre  (and (>= queued 0) (and (>= n 0) (<= (+ queued n) capacity))))
+  (post (and (>= result queued) (<= result capacity)))
+  (+ queued n))
+
+;; ── Dequeue `n` bytes off the send queue after transmit. Never underflows.
+(def-shell dequeue-bytes [queued: int n: int] -> int
+  (pre  (and (>= n 0) (<= n queued)))
+  (post (and (>= result 0) (<= result queued)))
+  (- queued n))
+
+;; ── Will `n` more bytes still fit the buffer? result=1 ⇒ they fit the capacity.
+(def-shell can-buffer [buffered: int n: int capacity: int] -> int
+  (pre  (and (>= buffered 0) (and (>= n 0) (>= capacity 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ buffered n) capacity))))
+  (if (<= (+ buffered n) capacity) 1 0))
+
+;; ── Does sending `n` stay under the flow limit? result=1 ⇒ within the window.
+(def-shell within-window [sent: int n: int limit: int] -> int
+  (pre  (and (>= sent 0) (and (>= n 0) (>= limit 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= (+ sent n) limit))))
+  (if (<= (+ sent n) limit) 1 0))
+
+;; ── Clamp a credit request into [0, max] — the offered credit can never exceed max.
+(def-shell clamp-credit [credit: int max: int] -> int
+  (pre  (and (>= credit 0) (>= max 0)))
+  (post (and (>= result 0) (<= result max)))
+  (if (<= credit max) credit max))
+
+;; ── Size of the next send: min(credit, remaining). Over-sends neither budget.
+(def-shell next-send-size [credit: int remaining: int] -> int
+  (pre  (and (>= credit 0) (>= remaining 0)))
+  (post (and (>= result 0) (and (<= result credit) (<= result remaining))))
+  (if (<= credit remaining) credit remaining))
+
+;; ── Outstanding bytes after starting a send of `n`. Bounded by the flow limit.
+(def-shell outstanding-after-send [outstanding: int n: int limit: int] -> int
+  (pre  (and (>= outstanding 0) (and (>= n 0) (<= (+ outstanding n) limit))))
+  (post (and (>= result outstanding) (<= result limit)))
+  (+ outstanding n))
+
+;; ── Combined send+recv credit budget. Monotone above each component, never < 0.
+(def-shell total-credit [send_credit: int recv_credit: int] -> int
+  (pre  (and (>= send_credit 0) (>= recv_credit 0)))
+  (post (and (>= result 0) (and (>= result send_credit) (>= result recv_credit))))
+  (+ send_credit recv_credit))
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M6 — ALERT & CLOSE DISCIPLINE  (the goto-fail class)
+;; A plaintext byte is delivered ONLY IF its MAC verified (goto-fail /
+;; CVE-2014-1266); a FATAL alert forces the connection closed; once closed the
+;; connection STAYS closed (no silent reopen). Every contract is
+;; integer-relational (QF-LIA). Booleans are int flags in {0,1}; alert levels
+;; are int ordinals (0=none, 1=warning, 2=fatal).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── REQUIRED seam checker: the MAC flag, normalized. result=1 ⇒ mac_ok=1.
+(def-shell mac-verified [mac_ok: int] -> int
+  (pre  (or (= mac_ok 0) (= mac_ok 1)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= mac_ok 1))))
+  (if (= mac_ok 1) 1 0))
+
+;; ── THE goto-fail primitive: a positive delivered length ⇒ the MAC verified.
+;;    Monotone (result <= payload_len) so it threads through the deliver gates.
+(def-shell deliver-len [mac_ok: int payload_len: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (>= payload_len 0)))
+  (post (and (>= result 0)
+             (and (<= result payload_len) (or (<= result 0) (= mac_ok 1)))))
+  (if (= mac_ok 1) payload_len 0))
+
+;; ── Nothing is delivered on a closed connection. result>0 ⇒ closed=0.
+;;    Monotone (result <= payload_len) so it composes over deliver-len.
+(def-shell deliver-if-open [payload_len: int closed: int] -> int
+  (pre  (and (>= payload_len 0) (or (= closed 0) (= closed 1))))
+  (post (and (>= result 0)
+             (and (<= result payload_len) (or (<= result 0) (= closed 0)))))
+  (if (= closed 0) payload_len 0))
+
+;; ── Length discipline (Heartbleed): clamp a payload to the buffer capacity.
+;;    result is bounded by BOTH the claimed length and the real capacity.
+(def-shell bound-payload [payload_len: int cap: int] -> int
+  (pre  (and (>= payload_len 0) (>= cap 0)))
+  (post (and (>= result 0) (and (<= result payload_len) (<= result cap))))
+  (if (<= payload_len cap) payload_len cap))
+
+;; ── Deliver only if the MAC verified AND the connection is open. result=1 ⇒ both.
+(def-shell can-deliver [mac_ok: int closed: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (or (= closed 0) (= closed 1))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (= mac_ok 1) (= closed 0)))))
+  (if (and (= mac_ok 1) (= closed 0)) 1 0))
+
+;; ── Is the connection still open? result=1 ⇒ closed=0.
+(def-shell still-open [closed: int] -> int
+  (pre  (or (= closed 0) (= closed 1)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= closed 0))))
+  (if (= closed 0) 1 0))
+
+;; ── Alert level in the legal band [0,2]? result=1 ⇒ 0 <= level <= 2.
+(def-shell alert-level-ok [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= level 0) (<= level 2)))))
+  (if (<= level 2) 1 0))
+
+;; ── Is this alert FATAL? result=1 ⇒ level >= 2.  (drives the forced close.)
+(def-shell is-fatal [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= level 2))))
+  (if (>= level 2) 1 0))
+
+;; ── Is this alert a WARNING (recoverable)? result=1 ⇒ level = 1.
+(def-shell is-warning [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= level 1))))
+  (if (= level 1) 1 0))
+
+;; ── Is this alert BENIGN (non-fatal, connection may survive)? result=1 ⇒ level < 2.
+(def-shell is-benign [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (< level 2))))
+  (if (< level 2) 1 0))
+
+;; ── No alert pending? result=1 ⇒ level = 0.
+(def-shell alert-none [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= level 0))))
+  (if (= level 0) 1 0))
+
+;; ── Clamp a claimed alert level into the legal band [0,2].
+(def-shell clamp-alert-level [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (>= result 0) (<= result 2)))
+  (if (>= level 2) 2 level))
+
+;; ── Must we raise an alert at least `threshold`? result=1 ⇒ level >= threshold.
+(def-shell must-alert [level: int threshold: int] -> int
+  (pre  (and (>= level 0) (>= threshold 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= level threshold))))
+  (if (>= level threshold) 1 0))
+
+;; ── Effective alert severity = max(warning, fatal). Never below either input.
+(def-shell alert-severity [warning: int fatal: int] -> int
+  (pre  (and (>= warning 0) (>= fatal 0)))
+  (post (and (>= result 0) (and (>= result warning) (>= result fatal))))
+  (if (>= warning fatal) warning fatal))
+
+;; ── Escalate: a new level never de-escalates below either, and stays in [0,2].
+(def-shell escalate-alert [current: int incoming: int] -> int
+  (pre  (and (and (>= current 0) (<= current 2)) (and (>= incoming 0) (<= incoming 2))))
+  (post (and (>= result current)
+             (and (>= result incoming) (and (>= result 0) (<= result 2)))))
+  (if (>= current incoming) current incoming))
+
+;; ── A FATAL alert forces the connection closed. result=1 whenever level>=2
+;;    (or it was already closed). result in {0,1}.
+(def-shell close-on-fatal [level: int closed: int] -> int
+  (pre  (and (or (= closed 0) (= closed 1)) (>= level 0)))
+  (post (and (or (= result 0) (= result 1)) (or (< level 2) (= result 1))))
+  (if (>= level 2) 1 closed))
+
+;; ── Once closed, STAYS closed. A close `event` may close it; nothing reopens it.
+(def-shell closed-monotone [closed: int event: int] -> int
+  (pre  (and (or (= closed 0) (= closed 1)) (or (= event 0) (= event 1))))
+  (post (and (or (= result 0) (= result 1)) (or (= closed 0) (= result 1))))
+  (if (= closed 1) 1 event))
+
+;; ── Merge two close signals: closed if EITHER side is closed. Monotone in both.
+(def-shell merge-close [a: int b: int] -> int
+  (pre  (and (or (= a 0) (= a 1)) (or (= b 0) (= b 1))))
+  (post (and (or (= result 0) (= result 1))
+             (and (or (= a 0) (= result 1)) (or (= b 0) (= result 1)))))
+  (if (= a 1) 1 b))
+
+;; ── Full close decision after an alert: fatal forces close AND once closed stays
+;;    closed. result=1 whenever level>=2 OR the connection was already closed.
+(def-shell close-after-alert [level: int closed: int] -> int
+  (pre  (and (or (= closed 0) (= closed 1)) (>= level 0)))
+  (post (and (or (= result 0) (= result 1))
+             (and (or (< level 2) (= result 1)) (or (= closed 0) (= result 1)))))
+  (if (>= level 2) 1 closed))
+
+;; ── A reopen request on a closed connection is refused: closed stays closed.
+(def-shell refuse-reopen [closed: int] -> int
+  (pre  (or (= closed 0) (= closed 1)))
+  (post (and (or (= result 0) (= result 1)) (or (= closed 0) (= result 1))))
+  (if (= closed 1) 1 0))
+
+;; ── COMPOSER: deliver only if MAC verified AND connection open. Nested calls
+;;    (arg position) thread the monotone counts so a positive delivery proves
+;;    BOTH upstream conditions — a cross-function goto-fail refutation.
+(def-shell deliver-checked [mac_ok: int closed: int payload_len: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1))
+             (and (or (= closed 0) (= closed 1)) (>= payload_len 0))))
+  (post (and (>= result 0)
+             (and (or (<= result 0) (= mac_ok 1)) (or (<= result 0) (= closed 0)))))
+  (deliver-if-open (deliver-len mac_ok payload_len) closed))
+
+;; ── COMPOSER: bound the payload to capacity, then apply the MAC-then-open gate.
+;;    Positive delivery ⇒ MAC verified AND open AND within capacity (Heartbleed).
+(def-shell deliver-window [mac_ok: int closed: int payload_len: int cap: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1))
+             (and (or (= closed 0) (= closed 1))
+                  (and (>= payload_len 0) (>= cap 0)))))
+  (post (and (>= result 0)
+             (and (<= result cap)
+                  (and (or (<= result 0) (= mac_ok 1)) (or (<= result 0) (= closed 0))))))
+  (deliver-if-open (deliver-len mac_ok (bound-payload payload_len cap)) closed))
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M7 — THE DELIVERY SPINE (cross-component composers)
+;; These tie M1–M6 together. Each composer routes facts through the modules'
+;; CHECKER contracts (seq-fresh, mac-verified, handshake-connected,
+;; within-usage-limit, has-credit) into a single guarded delivery. The
+;; top-level `recv-and-deliver` post is a conjunction provable ONLY because each
+;; module's checker supplies its piece — the load-bearing whole-channel
+;; invariant. Verified only as part of the assembled channel (references M1–M6).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── Gate a running byte-count on a precomputed boolean flag {0,1}.
+;;    result>0 ⇒ flag was 1; monotone (result <= n); lower bound threaded.
+(def-shell gate-on-flag [n: int ok: int] -> int
+  (pre  (and (>= n 0) (or (= ok 0) (= ok 1))))
+  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (= ok 1)))))
+  (if (= ok 1) n 0))
+
+;; ── Single-condition delivery gates (each names one module's checker).
+(def-shell deliver-if-mac [n: int mac_ok: int] -> int
+  (pre  (and (>= n 0) (or (= mac_ok 0) (= mac_ok 1))))
+  (post (and (>= result 0) (or (<= result 0) (= mac_ok 1))))
+  (gate-on-flag n (mac-verified mac_ok)))
+
+(def-shell deliver-if-fresh [n: int floor: int incoming: int] -> int
+  (pre  (and (>= n 0) (and (>= floor 0) (>= incoming 0))))
+  (post (and (>= result 0) (or (<= result 0) (> incoming floor))))
+  (gate-on-flag n (seq-fresh floor incoming)))
+
+(def-shell deliver-if-connected [n: int state: int] -> int
+  (pre  (and (>= n 0) (>= state 0)))
+  (post (and (>= result 0) (or (<= result 0) (>= state 5))))
+  (gate-on-flag n (handshake-connected state)))
+
+(def-shell deliver-if-under-limit [n: int used: int limit: int] -> int
+  (pre  (and (>= n 0) (and (>= used 0) (>= limit 0))))
+  (post (and (>= result 0) (or (<= result 0) (<= used limit))))
+  (gate-on-flag n (within-usage-limit used limit)))
+
+;; ── THE FULL DELIVERY GATE. A plaintext byte is delivered ONLY IF the MAC
+;;    verified AND the sequence is fresh AND the handshake is connected AND the
+;;    key is within its usage limit. Nested calls (ANF); post = the conjunction.
+(def-shell recv-and-deliver
+    [record_len: int overhead: int floor: int incoming: int state: int mac_ok: int used: int limit: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= floor 0) (and (>= incoming 0) (and (>= state 0)
+             (and (or (= mac_ok 0) (= mac_ok 1)) (and (>= used 0) (>= limit 0))))))))))
+  (post (and (>= result 0)
+        (and (or (<= result 0) (= mac_ok 1))
+        (and (or (<= result 0) (> incoming floor))
+        (and (or (<= result 0) (>= state 5))
+             (or (<= result 0) (<= used limit)))))))
+  (gate-on-flag
+    (gate-on-flag
+      (gate-on-flag
+        (gate-on-flag (payload-avail record_len overhead) (mac-verified mac_ok))
+        (seq-fresh floor incoming))
+      (handshake-connected state))
+    (within-usage-limit used limit)))
+
+;; ── The three-condition core (MAC ∧ fresh ∧ connected), for the common path.
+(def-shell recv-and-deliver-core
+    [record_len: int overhead: int floor: int incoming: int state: int mac_ok: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= floor 0) (and (>= incoming 0) (and (>= state 0)
+             (or (= mac_ok 0) (= mac_ok 1)))))))))
+  (post (and (>= result 0)
+        (and (or (<= result 0) (= mac_ok 1))
+        (and (or (<= result 0) (> incoming floor))
+             (or (<= result 0) (>= state 5))))))
+  (gate-on-flag
+    (gate-on-flag
+      (gate-on-flag (payload-avail record_len overhead) (mac-verified mac_ok))
+      (seq-fresh floor incoming))
+    (handshake-connected state)))
+
+;; ── Record intake: accept the sequence AND deliver, as a pair. Relational post
+;;    over composed calls (accept-seq from M2, deliver-len from M6). [KRACK+goto-fail]
+(def-shell recv-record
+    [record_len: int overhead: int last_seq: int incoming_seq: int mac_ok: int] -> (int, int)
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= last_seq 0) (and (>= incoming_seq 0) (or (= mac_ok 0) (= mac_ok 1))))))))
+  (post (and (>= (first result) last_seq) (or (<= (second result) 0) (= mac_ok 1))))
+  (pair (accept-seq last_seq incoming_seq)
+        (deliver-len mac_ok (payload-avail record_len overhead))))
+
+;; ── TLS heartbeat responder — echoes the payload via the memcpy bound. Must
+;;    never read past what was received. [HEARTBLEED / CVE-2014-0160]
+(def-shell heartbeat-response [claimed_len: int received_len: int] -> int
+  (pre  (and (>= claimed_len 0) (>= received_len 0)))
+  (post (and (>= result 0) (<= result received_len)))
+  (if (<= claimed_len received_len) (copy-bytes received_len claimed_len) (copy-bytes received_len 0)))
+
+;; ── Heartbeat served into a send buffer — nested calls (ANF). [HEARTBLEED]
+(def-shell serve-heartbeat [claimed_len: int received_len: int buf_len: int] -> int
+  (pre  (and (>= claimed_len 0) (and (>= received_len 0) (>= buf_len received_len))))
+  (post (<= result buf_len))
+  (copy-bytes buf_len (heartbeat-response claimed_len received_len)))
+
+;; ── Admit a raw record: clamp its length, then expose the app payload. [Heartbleed/PoD]
+(def-shell admit-record [claimed_len: int overhead: int] -> int
+  (pre  (and (>= claimed_len 0) (and (>= overhead 0) (<= overhead 16384))))
+  (post (and (>= result 0) (<= result 16384)))
+  (payload-clamped (clamp-record-len claimed_len) overhead))
+
+;; ── Payload of a validated record, floored at 0 when overhead dominates.
+(def-shell payload-clamped [record_len: int overhead: int] -> int
+  (pre  (and (>= record_len 0) (>= overhead 0)))
+  (post (and (>= result 0) (<= result record_len)))
+  (if (>= record_len overhead) (- record_len overhead) 0))
+
+;; ── Full acceptance gate: only deliver on a fresh, MAC'd record over an open,
+;;    connected channel with credit. Composes has-credit (M5) into the core. [all classes]
+(def-shell accept-and-deliver
+    [record_len: int overhead: int floor: int incoming: int state: int mac_ok: int credit: int cost: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= floor 0) (and (>= incoming 0) (and (>= state 0)
+             (and (or (= mac_ok 0) (= mac_ok 1)) (and (>= credit 0) (>= cost 0))))))))))
+  (post (and (>= result 0)
+        (and (or (<= result 0) (= mac_ok 1))
+        (and (or (<= result 0) (> incoming floor))
+        (and (or (<= result 0) (>= state 5))
+             (or (<= result 0) (>= credit cost)))))))
+  (gate-on-flag
+    (gate-on-flag
+      (gate-on-flag
+        (gate-on-flag (payload-avail record_len overhead) (mac-verified mac_ok))
+        (seq-fresh floor incoming))
+      (handshake-connected state))
+    (has-credit credit cost)))

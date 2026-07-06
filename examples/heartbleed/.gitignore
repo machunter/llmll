@@ -1,0 +1,6 @@
+# Generated verification records (regenerable via `llmll verify`).
+# Ignore them all EXCEPT the two headline records, which are committed as
+# inspectable, replayable evidence of the flagship result.
+*.verified.json
+!secure-channel/sc-channel.llmll.verified.json
+!secure-channel/agent-fill/sc-channel-agentfilled.llmll.verified.json

@@ -1,0 +1,188 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M3 — HANDSHAKE STATE MACHINE & VERSION/SUITE NEGOTIATION
+;; The downgrade / state-confusion discipline of a TLS-style handshake. Every
+;; contract is integer-relational (QF-LIA). Two invariants run through the
+;; module: (1) handshake state only ever ADVANCES (monotone FSM — no rollback,
+;; no state confusion), and (2) a negotiated version can never DROP below the
+;; agreed floor (anti-downgrade — the discipline whose absence was FREAK /
+;; Logjam / POODLE-downgrade). Sibling of M1 (record framing) and M2 (crypto).
+;;
+;; State ordinals:   0=start 1=hello-sent 2=hello-recv 3=key-derived
+;;                   4=finished 5=connected
+;; Version ordinals: small ints, higher = newer (e.g. 3=TLS1.2, 4=TLS1.3).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── FSM step: fold a non-negative step into the state. State only advances.
+(def-shell next-state [state: int step: int] -> int
+  (pre  (and (>= state 0) (>= step 0)))
+  (post (and (>= result 0) (>= result state)))
+  (+ state step))
+
+;; ── Advance to a target milestone: max(state,target). Never regresses.
+(def-shell advance-to [state: int target: int] -> int
+  (pre  (and (>= state 0) (>= target 0)))
+  (post (and (>= result 0) (and (>= result state) (>= result target))))
+  (if (>= state target) state target))
+
+;; ── REQUIRED SEAM CHECKER — result=1 iff the handshake reached CONNECTED (5).
+;;    The cross-module spine composes exactly this; contract must not change.
+(def-shell handshake-connected [state: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state 5))))
+  (if (>= state 5) 1 0))
+
+;; ── Generic FSM gate: result=1 implies the state reached `threshold`.
+(def-shell state-at-least [state: int threshold: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state threshold))))
+  (if (>= state threshold) 1 0))
+
+;; ── Finished-message gate: result=1 implies state has reached FINISHED (4).
+(def-shell is-finished [state: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state 4))))
+  (if (>= state 4) 1 0))
+
+;; ── ANTI-DOWNGRADE CORE: negotiated version = highest COMMON = min of the two
+;;    maxima. Result can never exceed either party's ceiling. [FREAK / Logjam.]
+(def-shell negotiate-version [client_max: int server_max: int] -> int
+  (pre  (and (>= client_max 0) (>= server_max 0)))
+  (post (and (>= result 0) (and (<= result client_max) (<= result server_max))))
+  (if (<= client_max server_max) client_max server_max))
+
+;; ── Downgrade guard: result=1 implies the offered version is at/above the floor.
+(def-shell version-acceptable [offered: int floor: int] -> int
+  (pre  (and (>= offered 0) (>= floor 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= offered floor))))
+  (if (>= offered floor) 1 0))
+
+;; ── Downgrade alarm: result=1 implies the chosen version is BELOW the floor.
+(def-shell downgrade-detected [chosen: int floor: int] -> int
+  (pre  (and (>= chosen 0) (>= floor 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (< chosen floor))))
+  (if (< chosen floor) 1 0))
+
+;; ── Pick a cipher suite: the chosen index stays inside the offered set.
+(def-shell select-suite [preferred: int count: int] -> int
+  (pre  (and (>= preferred 0) (< preferred count)))
+  (post (and (>= result 0) (< result count)))
+  preferred)
+
+;; ── Transcript hash accumulates: feeding a chunk only ever grows the input.
+(def-shell transcript-extend [len: int chunk: int] -> int
+  (pre  (and (>= len 0) (>= chunk 0)))
+  (post (and (>= result 0) (>= result len)))
+  (+ len chunk))
+
+;; ── Message-permission gate: result=1 implies the state permits sending.
+(def-shell can-send-in-state [state: int required: int] -> int
+  (pre  (>= state 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= state required))))
+  (if (>= state required) 1 0))
+
+;; ── The next state a peer may legally expect: one step up, capped at CONNECTED.
+(def-shell expect-next [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result state) (<= result 5)))
+  (if (>= state 5) 5 (+ state 1)))
+
+;; ── Progress the handshake by `step` transitions, saturating at CONNECTED (5).
+(def-shell handshake-progress [state: int step: int] -> int
+  (pre  (and (>= state 0) (and (<= state 5) (>= step 0))))
+  (post (and (>= result state) (<= result 5)))
+  (if (>= (+ state step) 5) 5 (+ state step)))
+
+;; ── ClientHello: advance to at least HELLO-SENT (1), never regressing.
+(def-shell send-client-hello [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 1) (and (>= result state) (<= result 5))))
+  (if (>= state 1) state 1))
+
+;; ── ServerHello received: advance to at least HELLO-RECV (2).
+(def-shell recv-server-hello [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 2) (and (>= result state) (<= result 5))))
+  (if (>= state 2) state 2))
+
+;; ── Key schedule derived: advance to at least KEY-DERIVED (3).
+(def-shell derive-keys [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 3) (and (>= result state) (<= result 5))))
+  (if (>= state 3) state 3))
+
+;; ── Finished sent: advance to at least FINISHED (4).
+(def-shell send-finished [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (>= result 4) (and (>= result state) (<= result 5))))
+  (if (>= state 4) state 4))
+
+;; ── Handshake completes: land on CONNECTED (5); never below the current state.
+(def-shell mark-connected [state: int] -> int
+  (pre  (and (>= state 0) (<= state 5)))
+  (post (and (= result 5) (>= result state)))
+  5)
+
+;; ── Version-window gate: result=1 implies lo <= version <= hi.
+(def-shell version-in-range [version: int lo: int hi: int] -> int
+  (pre  (>= version 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= version lo) (<= version hi)))))
+  (if (and (>= version lo) (<= version hi)) 1 0))
+
+;; ── Clamp a proposed version into the supported [floor,ceil] window.
+(def-shell clamp-version [version: int floor: int ceil: int] -> int
+  (pre  (and (>= floor 0) (<= floor ceil)))
+  (post (and (>= result 0) (and (>= result floor) (<= result ceil))))
+  (if (< version floor) floor (if (> version ceil) ceil version)))
+
+;; ── Pick the newer of two versions: max(a,b), at or above both.
+(def-shell higher-version [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (>= result a) (>= result b))))
+  (if (>= a b) a b))
+
+;; ── Pick the safest common version: min(a,b), at or below both (downgrade-safe).
+(def-shell lower-version [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (<= result a) (<= result b))))
+  (if (<= a b) a b))
+
+;; ── Suite-list sanity gate: result=1 implies at least one suite was offered.
+(def-shell suite-count-ok [count: int] -> int
+  (pre  (>= count 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> count 0))))
+  (if (> count 0) 1 0))
+
+;; ── Suite-index bounds gate: result=1 implies 0 <= index < count.
+(def-shell suite-index-valid [index: int count: int] -> int
+  (pre  (>= count 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= index 0) (< index count)))))
+  (if (and (>= index 0) (< index count)) 1 0))
+
+;; ── Handshake-record counter: folds in a non-negative delta, monotone.
+(def-shell records-processed [count: int delta: int] -> int
+  (pre  (and (>= count 0) (>= delta 0)))
+  (post (and (>= result 0) (>= result count)))
+  (+ count delta))
+
+;; ── Handshake sequence number advances strictly (freshness of each message).
+(def-shell seq-advance [seq: int] -> int
+  (pre  (>= seq 0))
+  (post (and (>= result 0) (> result seq)))
+  (+ seq 1))
+
+;; ── Completion guard: result=1 implies CONNECTED (5) AND no version downgrade.
+;;    This is the two-invariant seam: state-confusion AND downgrade both refuted.
+(def-shell handshake-complete-guard [state: int version: int floor: int] -> int
+  (pre  (and (>= state 0) (and (>= version 0) (>= floor 0))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= state 5) (>= version floor)))))
+  (if (and (>= state 5) (>= version floor)) 1 0))
+
+;; ── Renegotiation guard: result=1 implies the proposed state is not below the
+;;    current one (monotone FSM — blocks a rollback / state-confusion attack).
+(def-shell no-renegotiate-below [current: int proposed: int] -> int
+  (pre  (and (>= current 0) (>= proposed 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= proposed current))))
+  (if (>= proposed current) 1 0))

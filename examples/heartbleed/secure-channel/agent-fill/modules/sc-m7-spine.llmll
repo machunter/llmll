@@ -1,0 +1,129 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M7 — THE DELIVERY SPINE (cross-component composers)
+;; These tie M1–M6 together. Each composer routes facts through the modules'
+;; CHECKER contracts (seq-fresh, mac-verified, handshake-connected,
+;; within-usage-limit, has-credit) into a single guarded delivery. The
+;; top-level `recv-and-deliver` post is a conjunction provable ONLY because each
+;; module's checker supplies its piece — the load-bearing whole-channel
+;; invariant. Verified only as part of the assembled channel (references M1–M6).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── Gate a running byte-count on a precomputed boolean flag {0,1}.
+;;    result>0 ⇒ flag was 1; monotone (result <= n); lower bound threaded.
+(def-shell gate-on-flag [n: int ok: int] -> int
+  (pre  (and (>= n 0) (or (= ok 0) (= ok 1))))
+  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (= ok 1)))))
+  (if (= ok 1) n 0))
+
+;; ── Single-condition delivery gates (each names one module's checker).
+(def-shell deliver-if-mac [n: int mac_ok: int] -> int
+  (pre  (and (>= n 0) (or (= mac_ok 0) (= mac_ok 1))))
+  (post (and (>= result 0) (or (<= result 0) (= mac_ok 1))))
+  (gate-on-flag n (mac-verified mac_ok)))
+
+(def-shell deliver-if-fresh [n: int floor: int incoming: int] -> int
+  (pre  (and (>= n 0) (and (>= floor 0) (>= incoming 0))))
+  (post (and (>= result 0) (or (<= result 0) (> incoming floor))))
+  (gate-on-flag n (seq-fresh floor incoming)))
+
+(def-shell deliver-if-connected [n: int state: int] -> int
+  (pre  (and (>= n 0) (>= state 0)))
+  (post (and (>= result 0) (or (<= result 0) (>= state 5))))
+  (gate-on-flag n (handshake-connected state)))
+
+(def-shell deliver-if-under-limit [n: int used: int limit: int] -> int
+  (pre  (and (>= n 0) (and (>= used 0) (>= limit 0))))
+  (post (and (>= result 0) (or (<= result 0) (<= used limit))))
+  (gate-on-flag n (within-usage-limit used limit)))
+
+;; ── THE FULL DELIVERY GATE. A plaintext byte is delivered ONLY IF the MAC
+;;    verified AND the sequence is fresh AND the handshake is connected AND the
+;;    key is within its usage limit. Nested calls (ANF); post = the conjunction.
+(def-shell recv-and-deliver
+    [record_len: int overhead: int floor: int incoming: int state: int mac_ok: int used: int limit: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= floor 0) (and (>= incoming 0) (and (>= state 0)
+             (and (or (= mac_ok 0) (= mac_ok 1)) (and (>= used 0) (>= limit 0))))))))))
+  (post (and (>= result 0)
+        (and (or (<= result 0) (= mac_ok 1))
+        (and (or (<= result 0) (> incoming floor))
+        (and (or (<= result 0) (>= state 5))
+             (or (<= result 0) (<= used limit)))))))
+  (gate-on-flag
+    (gate-on-flag
+      (gate-on-flag
+        (gate-on-flag (payload-avail record_len overhead) (mac-verified mac_ok))
+        (seq-fresh floor incoming))
+      (handshake-connected state))
+    (within-usage-limit used limit)))
+
+;; ── The three-condition core (MAC ∧ fresh ∧ connected), for the common path.
+(def-shell recv-and-deliver-core
+    [record_len: int overhead: int floor: int incoming: int state: int mac_ok: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= floor 0) (and (>= incoming 0) (and (>= state 0)
+             (or (= mac_ok 0) (= mac_ok 1)))))))))
+  (post (and (>= result 0)
+        (and (or (<= result 0) (= mac_ok 1))
+        (and (or (<= result 0) (> incoming floor))
+             (or (<= result 0) (>= state 5))))))
+  (gate-on-flag
+    (gate-on-flag
+      (gate-on-flag (payload-avail record_len overhead) (mac-verified mac_ok))
+      (seq-fresh floor incoming))
+    (handshake-connected state)))
+
+;; ── Record intake: accept the sequence AND deliver, as a pair. Relational post
+;;    over composed calls (accept-seq from M2, deliver-len from M6). [KRACK+goto-fail]
+(def-shell recv-record
+    [record_len: int overhead: int last_seq: int incoming_seq: int mac_ok: int] -> (int, int)
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= last_seq 0) (and (>= incoming_seq 0) (or (= mac_ok 0) (= mac_ok 1))))))))
+  (post (and (>= (first result) last_seq) (or (<= (second result) 0) (= mac_ok 1))))
+  (pair (accept-seq last_seq incoming_seq)
+        (deliver-len mac_ok (payload-avail record_len overhead))))
+
+;; ── TLS heartbeat responder — echoes the payload via the memcpy bound. Must
+;;    never read past what was received. [HEARTBLEED / CVE-2014-0160]
+(def-shell heartbeat-response [claimed_len: int received_len: int] -> int
+  (pre  (and (>= claimed_len 0) (>= received_len 0)))
+  (post (and (>= result 0) (<= result received_len)))
+  (if (<= claimed_len received_len) (copy-bytes received_len claimed_len) (copy-bytes received_len 0)))
+
+;; ── Heartbeat served into a send buffer — nested calls (ANF). [HEARTBLEED]
+(def-shell serve-heartbeat [claimed_len: int received_len: int buf_len: int] -> int
+  (pre  (and (>= claimed_len 0) (and (>= received_len 0) (>= buf_len received_len))))
+  (post (<= result buf_len))
+  (copy-bytes buf_len (heartbeat-response claimed_len received_len)))
+
+;; ── Admit a raw record: clamp its length, then expose the app payload. [Heartbleed/PoD]
+(def-shell admit-record [claimed_len: int overhead: int] -> int
+  (pre  (and (>= claimed_len 0) (and (>= overhead 0) (<= overhead 16384))))
+  (post (and (>= result 0) (<= result 16384)))
+  (payload-clamped (clamp-record-len claimed_len) overhead))
+
+;; ── Payload of a validated record, floored at 0 when overhead dominates.
+(def-shell payload-clamped [record_len: int overhead: int] -> int
+  (pre  (and (>= record_len 0) (>= overhead 0)))
+  (post (and (>= result 0) (<= result record_len)))
+  (if (>= record_len overhead) (- record_len overhead) 0))
+
+;; ── Full acceptance gate: only deliver on a fresh, MAC'd record over an open,
+;;    connected channel with credit. Composes has-credit (M5) into the core. [all classes]
+(def-shell accept-and-deliver
+    [record_len: int overhead: int floor: int incoming: int state: int mac_ok: int credit: int cost: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= floor 0) (and (>= incoming 0) (and (>= state 0)
+             (and (or (= mac_ok 0) (= mac_ok 1)) (and (>= credit 0) (>= cost 0))))))))))
+  (post (and (>= result 0)
+        (and (or (<= result 0) (= mac_ok 1))
+        (and (or (<= result 0) (> incoming floor))
+        (and (or (<= result 0) (>= state 5))
+             (or (<= result 0) (>= credit cost)))))))
+  (gate-on-flag
+    (gate-on-flag
+      (gate-on-flag
+        (gate-on-flag (payload-avail record_len overhead) (mac-verified mac_ok))
+        (seq-fresh floor incoming))
+      (handshake-connected state))
+    (has-credit credit cost)))

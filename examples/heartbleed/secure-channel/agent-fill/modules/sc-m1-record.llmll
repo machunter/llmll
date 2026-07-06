@@ -1,0 +1,133 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M1 — RECORD FRAMING & LENGTH DISCIPLINE
+;; The length/offset/capacity arithmetic of a TLS-style record layer. Every
+;; contract is integer-relational (QF-LIA). This is where Heartbleed (a missing
+;; length bound) and Ping-of-Death (a fragment past the buffer) actually lived.
+;; Constants: RECORD_MAX = 16384 (2^14), HEADER = 5, TAG = 16, NONCE = 12.
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── memcpy bound: you may read only `n` bytes from a buffer holding `src_len`.
+;;    (<= n src_len) IS the check whose absence was Heartbleed (CVE-2014-0160).
+(def-shell copy-bytes [src_len: int n: int] -> int
+  (pre  (and (>= n 0) (<= n src_len)))
+  (post (= result n))
+  n)
+
+;; ── memmove within one buffer: source window [src_off, src_off+n) must fit.
+(def-shell move-bytes [buf_len: int src_off: int n: int] -> int
+  (pre  (and (>= src_off 0) (and (>= n 0) (<= (+ src_off n) buf_len))))
+  (post (= result n))
+  n)
+
+;; ── Record body = record minus the 5-byte header. Never negative.
+(def-shell record-body-len [record_len: int] -> int
+  (pre  (and (>= record_len 5) (<= record_len 16384)))
+  (post (and (>= result 0) (= result (- record_len 5))))
+  (- record_len 5))
+
+;; ── Full record = body + 5-byte header. Bounded by the max record.
+(def-shell record-total-len [body_len: int] -> int
+  (pre  (and (>= body_len 0) (<= body_len 16379)))
+  (post (and (>= result 5) (<= result 16384)))
+  (+ body_len 5))
+
+;; ── Clamp a claimed length into the legal record window [0, 16384].
+(def-shell clamp-record-len [len: int] -> int
+  (pre  (>= len 0))
+  (post (and (>= result 0) (<= result 16384)))
+  (if (<= len 16384) len 16384))
+
+;; ── Is a record length legal (0..16384)? Returns 1 iff so; result=1 ⇒ in range.
+(def-shell record-len-ok [len: int] -> int
+  (pre  (>= len 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (<= len 16384))))
+  (if (<= len 16384) 1 0))
+
+;; ── AEAD ciphertext = plaintext + 16-byte tag. Grows by exactly the tag.
+(def-shell ciphertext-len [pt_len: int] -> int
+  (pre  (and (>= pt_len 0) (<= pt_len 16368)))
+  (post (and (>= result pt_len) (= result (+ pt_len 16))))
+  (+ pt_len 16))
+
+;; ── AEAD plaintext = ciphertext - 16-byte tag. Must carry a full tag.
+(def-shell plaintext-len [ct_len: int] -> int
+  (pre  (>= ct_len 16))
+  (post (and (>= result 0) (= result (- ct_len 16))))
+  (- ct_len 16))
+
+;; ── Application payload = record body minus a fixed overhead field.
+(def-shell payload-avail [record_len: int overhead: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (>= record_len overhead))))
+  (post (and (>= result 0) (= result (- record_len overhead))))
+  (- record_len overhead))
+
+;; ── Add TLS padding: content + pad bytes. Never shrinks the buffer.
+(def-shell pad-len [content_len: int pad: int] -> int
+  (pre  (and (>= content_len 0) (>= pad 0)))
+  (post (and (>= result content_len) (= result (+ content_len pad))))
+  (+ content_len pad))
+
+;; ── Strip padding: total - pad. The pad can never exceed the total (else
+;;    you'd read before the buffer — a classic padding-oracle-adjacent bug).
+(def-shell unpad-len [total_len: int pad: int] -> int
+  (pre  (and (>= pad 0) (<= pad total_len)))
+  (post (and (>= result 0) (<= result total_len)))
+  (- total_len pad))
+
+;; ── Fragment reassembly: writing [offset, offset+frag_len) must fit capacity.
+;;    (<= result capacity) is the Ping-of-Death bound.
+(def-shell reassemble [offset: int frag_len: int capacity: int] -> int
+  (pre  (and (>= offset 0) (and (>= frag_len 0) (and (>= capacity 0)
+             (<= (+ offset frag_len) capacity)))))
+  (post (and (>= result 0) (<= result capacity)))
+  (+ offset frag_len))
+
+;; ── Does a fragment fit? Returns 1 iff [offset,offset+frag_len) ⊆ capacity.
+(def-shell fragment-fits [offset: int frag_len: int capacity: int] -> int
+  (pre  (and (>= offset 0) (and (>= frag_len 0) (>= capacity 0))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (<= (+ offset frag_len) capacity))))
+  (if (<= (+ offset frag_len) capacity) 1 0))
+
+;; ── Remaining buffer capacity after `used` bytes. Never negative.
+(def-shell remaining-capacity [used: int capacity: int] -> int
+  (pre  (and (>= used 0) (<= used capacity)))
+  (post (and (>= result 0) (<= result capacity)))
+  (- capacity used))
+
+;; ── Advance a write cursor by `n`, staying within capacity.
+(def-shell advance-cursor [cursor: int n: int capacity: int] -> int
+  (pre  (and (>= cursor 0) (and (>= n 0) (<= (+ cursor n) capacity))))
+  (post (and (>= result cursor) (<= result capacity)))
+  (+ cursor n))
+
+;; ── Coalesce two adjacent fragments; combined length must fit capacity.
+(def-shell coalesce-len [a_len: int b_len: int capacity: int] -> int
+  (pre  (and (>= a_len 0) (and (>= b_len 0) (<= (+ a_len b_len) capacity))))
+  (post (and (>= result 0) (<= result capacity)))
+  (+ a_len b_len))
+
+;; ── Split a buffer at `at`; both pieces are within the total.
+(def-shell split-point [total_len: int at: int] -> int
+  (pre  (and (>= at 0) (<= at total_len)))
+  (post (and (>= result 0) (<= result total_len)))
+  at)
+
+;; ── Bytes still expected for a partially-received record.
+(def-shell bytes-outstanding [expected: int received: int] -> int
+  (pre  (and (>= received 0) (<= received expected)))
+  (post (and (>= result 0) (<= result expected)))
+  (- expected received))
+
+;; ── Nonce counter advance for a record (bounded below by the previous).
+(def-shell next-record-offset [offset: int length: int] -> int
+  (pre  (and (>= offset 0) (>= length 0)))
+  (post (>= result offset))
+  (+ offset length))
+
+;; ── Chunk size to read next: min(remaining, max_chunk), never over-reads.
+(def-shell next-chunk [remaining: int max_chunk: int] -> int
+  (pre  (and (>= remaining 0) (>= max_chunk 0)))
+  (post (and (>= result 0) (and (<= result remaining) (<= result max_chunk))))
+  (if (<= remaining max_chunk) remaining max_chunk))

@@ -1,0 +1,161 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M6 — ALERT & CLOSE DISCIPLINE  (the goto-fail class)
+;; A plaintext byte is delivered ONLY IF its MAC verified (goto-fail /
+;; CVE-2014-1266); a FATAL alert forces the connection closed; once closed the
+;; connection STAYS closed (no silent reopen). Every contract is
+;; integer-relational (QF-LIA). Booleans are int flags in {0,1}; alert levels
+;; are int ordinals (0=none, 1=warning, 2=fatal).
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── REQUIRED seam checker: the MAC flag, normalized. result=1 ⇒ mac_ok=1.
+(def-shell mac-verified [mac_ok: int] -> int
+  (pre  (or (= mac_ok 0) (= mac_ok 1)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= mac_ok 1))))
+  (if (= mac_ok 1) 1 0))
+
+;; ── THE goto-fail primitive: a positive delivered length ⇒ the MAC verified.
+;;    Monotone (result <= payload_len) so it threads through the deliver gates.
+(def-shell deliver-len [mac_ok: int payload_len: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (>= payload_len 0)))
+  (post (and (>= result 0)
+             (and (<= result payload_len) (or (<= result 0) (= mac_ok 1)))))
+  (if (= mac_ok 1) payload_len 0))
+
+;; ── Nothing is delivered on a closed connection. result>0 ⇒ closed=0.
+;;    Monotone (result <= payload_len) so it composes over deliver-len.
+(def-shell deliver-if-open [payload_len: int closed: int] -> int
+  (pre  (and (>= payload_len 0) (or (= closed 0) (= closed 1))))
+  (post (and (>= result 0)
+             (and (<= result payload_len) (or (<= result 0) (= closed 0)))))
+  (if (= closed 0) payload_len 0))
+
+;; ── Length discipline (Heartbleed): clamp a payload to the buffer capacity.
+;;    result is bounded by BOTH the claimed length and the real capacity.
+(def-shell bound-payload [payload_len: int cap: int] -> int
+  (pre  (and (>= payload_len 0) (>= cap 0)))
+  (post (and (>= result 0) (and (<= result payload_len) (<= result cap))))
+  (if (<= payload_len cap) payload_len cap))
+
+;; ── Deliver only if the MAC verified AND the connection is open. result=1 ⇒ both.
+(def-shell can-deliver [mac_ok: int closed: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (or (= closed 0) (= closed 1))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (= mac_ok 1) (= closed 0)))))
+  (if (and (= mac_ok 1) (= closed 0)) 1 0))
+
+;; ── Is the connection still open? result=1 ⇒ closed=0.
+(def-shell still-open [closed: int] -> int
+  (pre  (or (= closed 0) (= closed 1)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= closed 0))))
+  (if (= closed 0) 1 0))
+
+;; ── Alert level in the legal band [0,2]? result=1 ⇒ 0 <= level <= 2.
+(def-shell alert-level-ok [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (>= level 0) (<= level 2)))))
+  (if (<= level 2) 1 0))
+
+;; ── Is this alert FATAL? result=1 ⇒ level >= 2.  (drives the forced close.)
+(def-shell is-fatal [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= level 2))))
+  (if (>= level 2) 1 0))
+
+;; ── Is this alert a WARNING (recoverable)? result=1 ⇒ level = 1.
+(def-shell is-warning [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= level 1))))
+  (if (= level 1) 1 0))
+
+;; ── Is this alert BENIGN (non-fatal, connection may survive)? result=1 ⇒ level < 2.
+(def-shell is-benign [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (< level 2))))
+  (if (< level 2) 1 0))
+
+;; ── No alert pending? result=1 ⇒ level = 0.
+(def-shell alert-none [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (= level 0))))
+  (if (= level 0) 1 0))
+
+;; ── Clamp a claimed alert level into the legal band [0,2].
+(def-shell clamp-alert-level [level: int] -> int
+  (pre  (>= level 0))
+  (post (and (>= result 0) (<= result 2)))
+  (if (>= level 2) 2 level))
+
+;; ── Must we raise an alert at least `threshold`? result=1 ⇒ level >= threshold.
+(def-shell must-alert [level: int threshold: int] -> int
+  (pre  (and (>= level 0) (>= threshold 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= level threshold))))
+  (if (>= level threshold) 1 0))
+
+;; ── Effective alert severity = max(warning, fatal). Never below either input.
+(def-shell alert-severity [warning: int fatal: int] -> int
+  (pre  (and (>= warning 0) (>= fatal 0)))
+  (post (and (>= result 0) (and (>= result warning) (>= result fatal))))
+  (if (>= warning fatal) warning fatal))
+
+;; ── Escalate: a new level never de-escalates below either, and stays in [0,2].
+(def-shell escalate-alert [current: int incoming: int] -> int
+  (pre  (and (and (>= current 0) (<= current 2)) (and (>= incoming 0) (<= incoming 2))))
+  (post (and (>= result current)
+             (and (>= result incoming) (and (>= result 0) (<= result 2)))))
+  (if (>= current incoming) current incoming))
+
+;; ── A FATAL alert forces the connection closed. result=1 whenever level>=2
+;;    (or it was already closed). result in {0,1}.
+(def-shell close-on-fatal [level: int closed: int] -> int
+  (pre  (and (or (= closed 0) (= closed 1)) (>= level 0)))
+  (post (and (or (= result 0) (= result 1)) (or (< level 2) (= result 1))))
+  (if (>= level 2) 1 closed))
+
+;; ── Once closed, STAYS closed. A close `event` may close it; nothing reopens it.
+(def-shell closed-monotone [closed: int event: int] -> int
+  (pre  (and (or (= closed 0) (= closed 1)) (or (= event 0) (= event 1))))
+  (post (and (or (= result 0) (= result 1)) (or (= closed 0) (= result 1))))
+  (if (= closed 1) 1 event))
+
+;; ── Merge two close signals: closed if EITHER side is closed. Monotone in both.
+(def-shell merge-close [a: int b: int] -> int
+  (pre  (and (or (= a 0) (= a 1)) (or (= b 0) (= b 1))))
+  (post (and (or (= result 0) (= result 1))
+             (and (or (= a 0) (= result 1)) (or (= b 0) (= result 1)))))
+  (if (= a 1) 1 b))
+
+;; ── Full close decision after an alert: fatal forces close AND once closed stays
+;;    closed. result=1 whenever level>=2 OR the connection was already closed.
+(def-shell close-after-alert [level: int closed: int] -> int
+  (pre  (and (or (= closed 0) (= closed 1)) (>= level 0)))
+  (post (and (or (= result 0) (= result 1))
+             (and (or (< level 2) (= result 1)) (or (= closed 0) (= result 1)))))
+  (if (>= level 2) 1 closed))
+
+;; ── A reopen request on a closed connection is refused: closed stays closed.
+(def-shell refuse-reopen [closed: int] -> int
+  (pre  (or (= closed 0) (= closed 1)))
+  (post (and (or (= result 0) (= result 1)) (or (= closed 0) (= result 1))))
+  (if (= closed 1) 1 0))
+
+;; ── COMPOSER: deliver only if MAC verified AND connection open. Nested calls
+;;    (arg position) thread the monotone counts so a positive delivery proves
+;;    BOTH upstream conditions — a cross-function goto-fail refutation.
+(def-shell deliver-checked [mac_ok: int closed: int payload_len: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1))
+             (and (or (= closed 0) (= closed 1)) (>= payload_len 0))))
+  (post (and (>= result 0)
+             (and (or (<= result 0) (= mac_ok 1)) (or (<= result 0) (= closed 0)))))
+  (deliver-if-open (deliver-len mac_ok payload_len) closed))
+
+;; ── COMPOSER: bound the payload to capacity, then apply the MAC-then-open gate.
+;;    Positive delivery ⇒ MAC verified AND open AND within capacity (Heartbleed).
+(def-shell deliver-window [mac_ok: int closed: int payload_len: int cap: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1))
+             (and (or (= closed 0) (= closed 1))
+                  (and (>= payload_len 0) (>= cap 0)))))
+  (post (and (>= result 0)
+             (and (<= result cap)
+                  (and (or (<= result 0) (= mac_ok 1)) (or (<= result 0) (= closed 0))))))
+  (deliver-if-open (deliver-len mac_ok (bound-payload payload_len cap)) closed))

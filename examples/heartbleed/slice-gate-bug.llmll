@@ -1,0 +1,56 @@
+;; ─────────────────────────────────────────────────────────────────────────
+;; DELIVERY GATE — the CROSS-COMPONENT caught-bug moment.
+;;
+;; This is the bug no unit test could catch. `gate-mac`'s BODY is correct and it
+;; verifies in isolation — every test you write against gate-mac passes. But an
+;; agent (or a careless refactor) WEAKENED its post-condition: it dropped the
+;; "delivered => MAC verified" clause (goto-fail). Locally, gate-mac is still
+;; SAFE. The failure surfaces at a DISTANT caller: `deliver-plaintext` can no
+;; longer prove its delivery gate, because gate-mac's contract stopped supplying
+;; the fact the composer relied on.
+;;
+;;   $ llmll verify examples/heartbleed/slice-gate-bug.llmll
+;;   error: body verification of 'deliver-plaintext' failed
+;;          — implementation does not satisfy postcondition
+;;
+;; The bug is in gate-mac; the refutation fires in deliver-plaintext. That
+;; non-local coupling — a weakened contract three calls away breaking a
+;; whole-channel guarantee — is exactly what the flagship demonstrates.
+;; ─────────────────────────────────────────────────────────────────────────
+
+(def payload-avail [record_len: int overhead: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (>= record_len overhead))))
+  (post (and (>= result 0) (= result (- record_len overhead))))
+  (- record_len overhead))
+
+(def gate-mac [n: int mac_ok: int] -> int
+  (pre  (and (>= n 0) (or (= mac_ok 0) (= mac_ok 1))))
+  ;; THE BUG: contract weakened — the "delivered => MAC verified" clause is gone.
+  ;; The body below still satisfies THIS post, so gate-mac verifies in isolation.
+  (post (and (>= result 0) (<= result n)))
+  (if (= mac_ok 1) n 0))
+
+(def gate-fresh [n: int last_seq: int incoming_seq: int] -> int
+  (pre  (and (>= n 0) (and (>= last_seq 0) (>= incoming_seq 0))))
+  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (> incoming_seq last_seq)))))
+  (if (> incoming_seq last_seq) n 0))
+
+(def gate-connected [n: int state: int] -> int
+  (pre  (and (>= n 0) (>= state 0)))
+  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (>= state 5)))))
+  (if (>= state 5) n 0))
+
+(def-shell deliver-plaintext
+    [record_len: int overhead: int last_seq: int incoming_seq: int mac_ok: int state: int] -> int
+  (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
+             (and (>= last_seq 0) (and (>= incoming_seq 0)
+             (and (or (= mac_ok 0) (= mac_ok 1)) (>= state 0))))))))
+  (post (and (>= result 0)
+        (and (or (<= result 0) (= mac_ok 1))
+        (and (or (<= result 0) (> incoming_seq last_seq))
+             (or (<= result 0) (>= state 5))))))
+  (gate-connected
+    (gate-fresh
+      (gate-mac (payload-avail record_len overhead) mac_ok)
+      last_seq incoming_seq)
+    state))

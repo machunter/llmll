@@ -1,0 +1,189 @@
+;; ═══════════════════════════════════════════════════════════════════════════
+;; M2 — SEQUENCE NUMBERS & ANTI-REPLAY
+;; The monotonicity/window discipline of a secure-channel record layer. Every
+;; record carries a sequence number; a receiver must (a) reject anything at or
+;; below the accepted floor (replay), (b) accept only inside the sliding window,
+;; and (c) reset the counter and bump the epoch on rekey. This is exactly the
+;; discipline KRACK (CVE-2017-13077) broke by forcing nonce/seq reuse. Every
+;; contract below is integer-relational (QF-LIA): seq numbers, window floors,
+;; epochs and thresholds are all int ordinals.
+;; ═══════════════════════════════════════════════════════════════════════════
+
+;; ── The accepted sequence never moves backward — it is the running max of the
+;;    last accepted and the newly accepted incoming (monotone anti-rollback).
+(def-shell accept-seq [last: int incoming: int] -> int
+  (pre  (and (>= last 0) (>= incoming 0)))
+  (post (and (>= result 0) (>= result last)))
+  (if (> incoming last) incoming last))
+
+;; ── REQUIRED SEAM CHECKER (the spine composes this; contract is fixed).
+;;    result=1 ⇒ incoming is strictly ahead of the floor (i.e. genuinely fresh).
+(def-shell seq-fresh [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (>= incoming 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> incoming floor))))
+  (if (> incoming floor) 1 0))
+
+;; ── Replay detector: result=1 ⇒ incoming is at or below the floor (an old /
+;;    replayed packet that must be dropped). [KRACK / replay]
+(def-shell replay-detected [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (>= incoming 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= incoming floor))))
+  (if (<= incoming floor) 1 0))
+
+;; ── Slide the window forward: the new floor is max(floor, incoming); it can
+;;    only ever increase, so the floor is monotone non-decreasing.
+(def-shell window-slide [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (>= incoming 0)))
+  (post (and (>= result 0) (>= result floor)))
+  (if (> incoming floor) incoming floor))
+
+;; ── In-window test: result=1 ⇒ seq is strictly above the floor AND no more
+;;    than `width` beyond it (the two edges of the anti-replay window).
+(def-shell in-window [floor: int width: int seq: int] -> int
+  (pre  (and (>= floor 0) (and (>= width 0) (>= seq 0))))
+  (post (and (or (= result 0) (= result 1))
+             (or (= result 0) (and (> seq floor) (<= seq (+ floor width))))))
+  (if (and (> seq floor) (<= seq (+ floor width))) 1 0))
+
+;; ── Successor: the next sequence number is strictly greater than this one.
+(def-shell next-seq [seq: int] -> int
+  (pre  (>= seq 0))
+  (post (and (>= result 0) (> result seq)))
+  (+ seq 1))
+
+;; ── Records remaining before the counter reaches its limit (before wrap).
+(def-shell seq-remaining [seq: int limit: int] -> int
+  (pre  (and (>= seq 0) (<= seq limit)))
+  (post (and (>= result 0) (= result (- limit seq))))
+  (- limit seq))
+
+;; ── Rekey-due checker: result=1 ⇒ seq has reached the rekey threshold.
+(def-shell rekey-due [seq: int threshold: int] -> int
+  (pre  (and (>= seq 0) (>= threshold 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (>= seq threshold))))
+  (if (>= seq threshold) 1 0))
+
+;; ── The next epoch strictly advances (epochs are a monotone outer counter).
+(def-shell epoch-next [epoch: int] -> int
+  (pre  (>= epoch 0))
+  (post (and (>= result 0) (> result epoch)))
+  (+ epoch 1))
+
+;; ── On a new epoch the record sequence resets to exactly 0.
+(def-shell epoch-reset-seq [epoch: int] -> int
+  (pre  (>= epoch 0))
+  (post (= result 0))
+  0)
+
+;; ── The higher of two seqs: at least `a` AND at least `b` (nested bounds).
+(def-shell highest-seq [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (>= result a) (>= result b))))
+  (if (> a b) a b))
+
+;; ── Gap between the floor and an incoming seq known to be ahead of it.
+(def-shell seq-gap [floor: int incoming: int] -> int
+  (pre  (and (>= floor 0) (<= floor incoming)))
+  (post (and (>= result 0) (= result (- incoming floor))))
+  (- incoming floor))
+
+;; ── Advance the window floor by a non-negative step; never regresses.
+(def-shell advance-window [floor: int step: int] -> int
+  (pre  (and (>= floor 0) (>= step 0)))
+  (post (and (>= result 0) (>= result floor)))
+  (+ floor step))
+
+;; ── Records left until the mandatory rekey count limit; bounded in [0,limit].
+(def-shell records-until-rekey [count: int limit: int] -> int
+  (pre  (and (>= count 0) (<= count limit)))
+  (post (and (>= result 0) (<= result limit)))
+  (- limit count))
+
+;; ── Top edge of the anti-replay window = floor + width; at least the floor.
+(def-shell window-hi [floor: int width: int] -> int
+  (pre  (and (>= floor 0) (>= width 0)))
+  (post (and (>= result floor) (= result (+ floor width))))
+  (+ floor width))
+
+;; ── Monotonicity guard checker: result=1 ⇒ next is strictly after prev.
+(def-shell is-monotone [prev: int next: int] -> int
+  (pre  (and (>= prev 0) (>= next 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (> next prev))))
+  (if (> next prev) 1 0))
+
+;; ── Bump a seq by a non-negative amount; the result never drops below it.
+(def-shell bump-seq [seq: int n: int] -> int
+  (pre  (and (>= seq 0) (>= n 0)))
+  (post (and (>= result seq) (= result (+ seq n))))
+  (+ seq n))
+
+;; ── Within-limit checker: result=1 ⇒ seq has not exceeded the limit.
+(def-shell seq-within-limit [seq: int limit: int] -> int
+  (pre  (and (>= seq 0) (>= limit 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= seq limit))))
+  (if (<= seq limit) 1 0))
+
+;; ── Clamp a seq up to the floor: an out-of-window-low seq is pinned to floor,
+;;    so the result is never below the floor.
+(def-shell clamp-seq-floor [seq: int floor: int] -> int
+  (pre  (and (>= seq 0) (>= floor 0)))
+  (post (and (>= result 0) (>= result floor)))
+  (if (> seq floor) seq floor))
+
+;; ── Distance from the current seq to the rekey threshold (seq at/below it).
+(def-shell distance-to-rekey [seq: int threshold: int] -> int
+  (pre  (and (>= seq 0) (<= seq threshold)))
+  (post (and (>= result 0) (= result (- threshold seq))))
+  (- threshold seq))
+
+;; ── Advance the epoch by n ≥ 1; a genuine epoch bump strictly increases it.
+(def-shell epoch-advance-by [epoch: int n: int] -> int
+  (pre  (and (>= epoch 0) (>= n 1)))
+  (post (and (>= result 0) (> result epoch)))
+  (+ epoch n))
+
+;; ── Not-wrapped checker: result=1 ⇒ seq is still strictly below the wrap cap.
+(def-shell seq-not-wrapped [seq: int cap: int] -> int
+  (pre  (and (>= seq 0) (>= cap 0)))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (< seq cap))))
+  (if (< seq cap) 1 0))
+
+;; ── The lower of two seqs: at most `a` AND at most `b`, never negative.
+(def-shell min-seq [a: int b: int] -> int
+  (pre  (and (>= a 0) (>= b 0)))
+  (post (and (>= result 0) (and (<= result a) (<= result b))))
+  (if (< a b) a b))
+
+;; ── Free slots left in a window of `width` after `used` accepted; in [0,width].
+(def-shell slots-free-in-window [used: int width: int] -> int
+  (pre  (and (>= used 0) (<= used width)))
+  (post (and (>= result 0) (<= result width)))
+  (- width used))
+
+;; ── Record one more received packet; the received count strictly increases.
+(def-shell mark-received [count: int] -> int
+  (pre  (>= count 0))
+  (post (and (>= result 0) (> result count)))
+  (+ count 1))
+
+;; ── Oldest still-acceptable seq = max(floor - width, 0); in [0, floor]. Below
+;;    this base everything is a replay and must be dropped.
+(def-shell replay-window-base [floor: int width: int] -> int
+  (pre  (and (>= floor 0) (>= width 0)))
+  (post (and (>= result 0) (<= result floor)))
+  (if (> floor width) (- floor width) 0))
+
+;; ── Jump-limit checker: result=1 ⇒ incoming is no further than maxjump beyond
+;;    the floor (rejects an implausible forward leap that would skip the window).
+(def-shell within-jump [floor: int incoming: int maxjump: int] -> int
+  (pre  (and (>= floor 0) (and (>= incoming 0) (>= maxjump 0))))
+  (post (and (or (= result 0) (= result 1)) (or (= result 0) (<= incoming (+ floor maxjump)))))
+  (if (<= incoming (+ floor maxjump)) 1 0))
+
+;; ── Freshness GATE — pass the running count `n` downstream ONLY IF incoming is
+;;    strictly ahead of the last accepted seq. Monotone (result ≤ n) so it can
+;;    be threaded through a delivery spine; result>0 ⇒ incoming>last. [KRACK]
+(def-shell accept-forward-count [n: int last: int incoming: int] -> int
+  (pre  (and (>= n 0) (and (>= last 0) (>= incoming 0))))
+  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (> incoming last)))))
+  (if (> incoming last) n 0))

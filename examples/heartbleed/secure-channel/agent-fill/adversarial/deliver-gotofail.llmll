@@ -1,0 +1,5 @@
+;; The goto-fail fill: deliver unconditionally, ignoring mac_ok. Looks efficient.
+(def-shell deliver-len [mac_ok: int payload_len: int] -> int
+  (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (>= payload_len 0)))
+  (post (or (<= result 0) (= mac_ok 1)))
+  payload_len)
