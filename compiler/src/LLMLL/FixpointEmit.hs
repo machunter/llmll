@@ -476,8 +476,28 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
   let contractAug = augmentContractPost aliases mRet (augmentContractPre aliases params contract0)
       ctorTags    = buildCtorTagMap aliases
       dsExpr      = desugarCtorValues ctorTags (Set.fromList (map fst params))
-      contract    = contractAug { contractPre  = dsExpr <$> contractPre contractAug
-                                , contractPost = dsExpr <$> contractPost contractAug }
+      -- MATCH-WIDEN STRETCH (v0.14.12): a scrutinee-constructor clause `(= sig Continue)`
+      -- over a two-arm PAYLOAD-bearing sum param rewrites to `(= sig$tag k)` (k = the
+      -- constructor's declaration-order tag), discharging against the seeded free int
+      -- tag the match's BranchVC declares — instead of leaving the opaque sum unsorted
+      -- (FLOOR fallback). Scoped to NON-all-nullary two-arm sums: all-nullary enums are
+      -- already lowered by desugarCtorValues/buildCtorTagMap, and the existing corpus
+      -- has no mixed-sum `=Ctor` post, so this is a no-op there (equivalence preserved).
+      -- Only params ACTUALLY MATCHED in the body qualify: a matched scrutinee's
+      -- <v>$tag is declared by the match's BranchVC, so the desugared `<v>$tag=k` is
+      -- well-sorted. A param referenced via `=Ctor` but never matched keeps its bare
+      -- form → the FLOOR guard falls back to contract-only (no free-var crash).
+      matchedVs   = maybe Set.empty matchedScrutVars mBody
+      scrutTagMap = Map.fromList
+        [ (v, Map.fromList (zip (map fst ctors) [0 ..]))
+        | (v, t) <- params
+        , v `Set.member` matchedVs
+        , TSumType ctors <- [resolveAliasTy aliases t]
+        , length ctors == 2
+        , any (isJust . snd) ctors ]
+      dsAll e     = desugarScrutCtor scrutTagMap (dsExpr e)
+      contract    = contractAug { contractPre  = dsAll <$> contractPre contractAug
+                                , contractPost = dsAll <$> contractPost contractAug }
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isIntLike aliases t ]
@@ -587,6 +607,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
         -- exactly the Unit-1 conservative behavior, now via the existing path.
         let mPostPred | sigPairUnsafe aliases params mRet = Nothing  -- PAIR-RET-2: non-sortable pair component → fall back (no solver crash)
                       | resultReturnUnsafe aliases mRet   = Nothing  -- COMP-4-RESULT: non-admissible Result payload → fall back
+                      -- MATCH-WIDEN (v0.14.12): a pre/post naming a bare opaque-sum param
+                      -- (e.g. a scrutinee-constructor post `(= sig Continue)`) has no value
+                      -- sort → would crash liquid-fixpoint. Fall back to contract-only.
+                      | clauseOverOpaqueSumParam aliases params (contractPost contract)
+                        || clauseOverOpaqueSumParam aliases params (contractPre contract) = Nothing
                       | otherwise                         = contractPost contract >>= exprToPred
             mPrePred  = case contractPre contract of
                           Nothing  -> Just Nothing       -- no pre is fine
@@ -623,13 +648,30 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                 -- (admissiblePayload); a sum/recursive payload is not seeded → the
                 -- match falls back (firewall, design §5). Param-scoped, matching
                 -- the Result seeding above.
+                -- MATCH-WIDEN (v0.14.12): seed the payload-sort key for EACH
+                -- payload-bearing constructor of a two-arm sum. A nullary constructor
+                -- (Nothing payload) contributes no key (the mixed-arm case); a
+                -- non-admissible (recursive) payload contributes no key → the match
+                -- falls back (firewall). Both-payload sums seed both keys as before.
                 adtKeys =
                   [ (v <> "$" <> c, typeToSort pt)
                   | (v, t) <- params
-                  , TSumType [(c1, Just t1), (c2, Just t2)] <- [resolveAliasTy aliases t]
-                  , admissiblePayload aliases t1, admissiblePayload aliases t2
-                  , (c, pt) <- [(c1, t1), (c2, t2)] ]
-                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys)
+                  , TSumType ctors <- [resolveAliasTy aliases t]
+                  , length ctors == 2
+                  , (c, Just pt) <- ctors
+                  , admissiblePayload aliases pt ]
+                -- MATCH-WIDEN STRETCH (S0): seed a free int TAG per two-arm sum param
+                -- (Result or user ADT). The discrimination guard switches from the free
+                -- boolean to (= v$tag k) in S1/S2; a post referencing the scrutinee's
+                -- constructor desugars to (= v$tag k) in S3. Free int, QF-LIA — no testers.
+                tagKeys =
+                  [ (v <> "$tag", FQInt)
+                  | (v, t) <- params
+                  , case resolveAliasTy aliases t of
+                      TResult _ _    -> True
+                      TSumType ctors -> length ctors == 2
+                      _              -> False ]
+                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
                 -- Result/two-arm-ADT param payload's declared refinement, keyed
                 -- identically to the sort keys. Unrefined payloads contribute
@@ -643,14 +685,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                 adtRefs =
                   [ (v <> "$" <> c, ref)
                   | (v, t) <- params
-                  , TSumType [(c1, Just t1), (c2, Just t2)] <- [resolveAliasTy aliases t]
-                  , admissiblePayload aliases t1, admissiblePayload aliases t2
-                  , (c, pt) <- [(c1, t1), (c2, t2)]
+                  , TSumType ctors <- [resolveAliasTy aliases t]
+                  , length ctors == 2
+                  , (c, Just pt) <- ctors
+                  , admissiblePayload aliases pt
                   , Just ref <- [payloadRefinement aliases pt] ]
                 refEnv = Map.fromList (resultRefs ++ adtRefs)
             -- Translate body (generic path; Result-var matches handled within).
             seed <- readIORef bodyCounterRef
-            let (newSeed, mBodyVC) = bodyToPredFromR seed sortEnv refEnv cenv sccSet body'
+            let (newSeed, mBodyVC) = bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet body'
             writeIORef bodyCounterRef newSeed
             case mBodyVC of
               Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
@@ -827,6 +870,36 @@ resolveAliasTy :: AliasMap -> Type -> Type
 resolveAliasTy am (TCustom n)        = maybe (TCustom n) (resolveAliasTy am) (Map.lookup n am)
 resolveAliasTy am (TDependent _ b _) = resolveAliasTy am b
 resolveAliasTy _  t                  = t
+
+-- MATCH-WIDEN (v0.14.12): does a contract clause reference a sum-typed PARAMETER by
+-- its bare name? An opaque sum has no value sort in the current encoding (only its arm
+-- payloads are seeded via the "<v>$<Ctor>" keys), so a clause like a post
+-- `(= sig Continue)` over a scrutinee `sig : Step` would leave `sig` free/unsorted and
+-- CRASH liquid-fixpoint ("Constraint with free vars [sig]"). Detect it and fall back to
+-- contract-only, matching the 'sigPairUnsafe' / 'resultReturnUnsafe' precedent. Fires
+-- only when a sum param is named directly (a post over `result`, or a discharge post
+-- that only reads the arm bodies, does not fire).
+clauseOverOpaqueSumParam :: AliasMap -> [(Name, Type)] -> Maybe Expr -> Bool
+clauseOverOpaqueSumParam _  _      Nothing       = False
+clauseOverOpaqueSumParam am params (Just clause) =
+  any (\(v, t) -> isSumTy (resolveAliasTy am t) && exprMentionsVar v clause) params
+  where
+    isSumTy (TSumType _) = True
+    isSumTy _            = False
+
+-- | Local free-mention check (TypeCheck.exprContainsVar is not imported here).
+exprMentionsVar :: Name -> Expr -> Bool
+exprMentionsVar target = go
+  where
+    go (EVar n)      = n == target
+    go (EApp _ as)   = any go as
+    go (EOp _ as)    = any go as
+    go (EIf c t e)   = go c || go t || go e
+    go (ELet bs b)   = any (\(_, _, e) -> go e) bs || go b
+    go (EMatch e cs) = go e || any (go . snd) cs
+    go (EPair a b)   = go a || go b
+    go (ELambda _ b) = go b
+    go _             = False
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -1180,6 +1253,43 @@ desugarCtorValues tags = go
     patVars (PConstructor _ ps) = concatMap patVars ps
     patVars _                   = []
 
+-- | MATCH-WIDEN STRETCH (v0.14.12): rewrite a scrutinee-constructor equality
+-- `(= v Ctor)` / `(= Ctor v)` — where @v@ is a two-arm payload-bearing sum param and
+-- @Ctor@ one of its constructors — to the int-tag form `(= v$tag k)`. This lets a post
+-- that references the matched value's constructor discharge against the seeded free int
+-- tag the match's BranchVC declares. Any other occurrence of @v@ is untouched (it keeps
+-- the FLOOR fallback). Keyed on the scrutinee-tag map (non-all-nullary two-arm sums).
+desugarScrutCtor :: Map Name (Map Name Int) -> Expr -> Expr
+desugarScrutCtor stm = go
+  where
+    tagEq v k = EOp "=" [EVar (v <> "$tag"), ELit (LitInt (toInteger k))]
+    go e = case e of
+      EOp "=" [EVar a, EVar b]
+        | Just ct <- Map.lookup a stm, Just k <- Map.lookup b ct -> tagEq a k
+        | Just ct <- Map.lookup b stm, Just k <- Map.lookup a ct -> tagEq b k
+      EOp op as   -> EOp op (map go as)
+      EApp f as   -> EApp f (map go as)
+      EIf c t el  -> EIf (go c) (go t) (go el)
+      ELet bs b   -> ELet [ (p, mt, go r) | (p, mt, r) <- bs ] (go b)
+      EPair a b   -> EPair (go a) (go b)
+      EAwait a    -> EAwait (go a)
+      _           -> e
+
+-- | MATCH-WIDEN STRETCH: the set of variables that appear as a `match` scrutinee
+-- anywhere in a body (`(match (EVar v) …)`). Used to gate the scrutinee-constructor
+-- desugar to params whose `$tag` the body actually declares (via the match BranchVC).
+matchedScrutVars :: Expr -> Set.Set Name
+matchedScrutVars e = case e of
+  EMatch (EVar v) arms -> Set.insert v (Set.unions (map (matchedScrutVars . snd) arms))
+  EMatch scr arms      -> Set.unions (matchedScrutVars scr : map (matchedScrutVars . snd) arms)
+  EOp _ as             -> Set.unions (map matchedScrutVars as)
+  EApp _ as            -> Set.unions (map matchedScrutVars as)
+  EIf c t el           -> Set.unions [matchedScrutVars c, matchedScrutVars t, matchedScrutVars el]
+  ELet bs b            -> Set.unions (matchedScrutVars b : map (\(_, _, r) -> matchedScrutVars r) bs)
+  EPair a b            -> Set.union (matchedScrutVars a) (matchedScrutVars b)
+  EAwait a             -> matchedScrutVars a
+  _                    -> Set.empty
+
 -- | INT-1 (v0.10.8): True when an expression tree contains LLMLL-level
 -- integer arithmetic over operands that are not all integer literals whose
 -- folded value fits 'Int64'. The check is purely syntactic — it does not
@@ -1239,7 +1349,13 @@ bodyHasOverflowArith = go
 -- | Convert a linear arithmetic LLMLL Expr to a FQPred.
 -- Returns Nothing for non-linear or unsupported expressions (→ skip/proof-required).
 exprToPred :: Expr -> Maybe FQPred
-exprToPred (EVar v)   = Just (FQVar v)
+-- MATCH-WIDEN Slice 1: a bare nullary constructor of a mixed/payload sum reflects
+-- as the FQData nullary term (mirrors the payload EApp path). Safe because
+-- all-nullary-enum ctors are int-tag-desugared (desugarCtorValues) before here, so an
+-- uppercase EVar reaching exprToPred is a mixed-sum nullary constructor, not a variable.
+exprToPred (EVar v)
+  | not (T.null v), isUpper (T.head v) = Just (FQApp (T.toLower v) [])
+  | otherwise                          = Just (FQVar v)
 exprToPred (ELit (LitInt n)) = Just (FQLit n)
 exprToPred (ELit (LitBool True))  = Just FQTrue
 exprToPred (ELit (LitBool False)) = Just FQFalse
@@ -1350,20 +1466,25 @@ hashPred = T.length . T.pack . show
 -- bodyToPredM equations and their recursive calls are untouched.
 type RefEnv = Map Name (Name, Expr)
 
+-- | MATCH-WIDEN STRETCH (v0.14.12): scrutinee → (constructor → declaration-order tag).
+-- Threaded so the int-tag discrimination guard uses a constructor's DECLARATION tag
+-- (agreeing with the post's `=Ctor` desugar) rather than its arm position — otherwise a
+-- match that reorders its arms false-refutes a scrutinee-constructor post.
+type ScrutTags = Map Name (Map Name Int)
+
 bodyToPredFrom :: Int -> SortEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
 bodyToPredFrom seed sortEnv cenv sccSet expr =
-  bodyToPredFromR seed sortEnv Map.empty cenv sccSet expr
+  bodyToPredFromR seed sortEnv Map.empty Map.empty cenv sccSet expr
 
--- | COMP-4 (b): bodyToPredFrom with an explicit elimination-side RefEnv. The
--- driver seeds it from refined-payload Result/two-arm-ADT params; existing
--- callers use 'bodyToPredFrom' (empty RefEnv → FQTrue payload skolems, the
--- pre-(b) behavior).
-bodyToPredFromR :: Int -> SortEnv -> RefEnv -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
-bodyToPredFromR seed sortEnv refEnv cenv sccSet expr =
+-- | COMP-4 (b): bodyToPredFrom with an explicit elimination-side RefEnv (and, MATCH-WIDEN
+-- STRETCH, a ScrutTags map). The driver seeds RefEnv from refined-payload params and
+-- ScrutTags from two-arm payload sums; existing callers use 'bodyToPredFrom' (both empty).
+bodyToPredFromR :: Int -> SortEnv -> RefEnv -> ScrutTags -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
+bodyToPredFromR seed sortEnv refEnv scrutTags cenv sccSet expr =
   let callNames = Map.keysSet cenv
       (result, finalCounter) = runStateFrom seed $ do
         expr' <- aNormalizeBody callNames expr
-        runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') refEnv
+        runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags)
   in (finalCounter, result)
   where
     -- Run a State Int computation with a given starting value.
@@ -1462,12 +1583,19 @@ bodyToPredM :: Map Name Name  -- ^ renaming env
             -> ContractEnv    -- ^ v0.9.0: contract lookup
             -> Set.Set Name   -- ^ v0.9.0: recursive SCC set (for own-body exclusion)
             -> Expr
-            -> ReaderT RefEnv (State Int) (Maybe BodyVC)
+            -> ReaderT (RefEnv, ScrutTags) (State Int) (Maybe BodyVC)
 
 -- Literals
 bodyToPredM _ _ _ _ (ELit (LitInt n)) = return (Just (SimpleVC [] (FQLit n)))
 bodyToPredM _ _ _ _ (ELit (LitBool True))  = return (Just (SimpleVC [] FQTrue))
 bodyToPredM _ _ _ _ (ELit (LitBool False)) = return (Just (SimpleVC [] FQFalse))
+
+-- MATCH-WIDEN Slice 1: a bare nullary constructor of a mixed/payload sum (NOT
+-- int-tag-desugared, since buildCtorTagMap excludes non-all-nullary sums) reflects
+-- as the FQData nullary constructor term, mirroring the payload EApp path below.
+bodyToPredM _ _ _ _ (EVar v)
+  | not (T.null v), isUpper (T.head v) =
+      return (Just (SimpleVC [] (FQApp (T.toLower v) [])))
 
 -- Variables: look up renamed name, check sort env
 bodyToPredM env sortEnv _ _ (EVar v) =
@@ -1703,10 +1831,11 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
   | Just (sV, sB, eV, eB) <- classifyResultArms arms
   , Just okSort  <- Map.lookup (r <> "$ok")  se
   , Just errSort <- Map.lookup (r <> "$err") se
-  = do refEnv <- ask
-       buildOpaqueSumBranch env se cenv sccSet
-         (sV, okSort,  Map.lookup (r <> "$ok")  refEnv, sB)
-         (eV, errSort, Map.lookup (r <> "$err") refEnv, eB)
+  = do (refEnv, _) <- ask
+       -- Result: arm1 = Success = tag 0 (Result posts are not tag-desugared, so arm order suffices).
+       buildOpaqueSumBranch env se cenv sccSet r 0
+         (Just (sV, okSort,  Map.lookup (r <> "$ok")  refEnv), sB)
+         (Just (eV, errSort, Map.lookup (r <> "$err") refEnv), eB)
 
 -- COMP-4 (d-elim): the same opaque-sum elimination for an arbitrary admissible
 -- two-arm USER sum type, detected by per-constructor "<v>$<Ctor>" payload-sort
@@ -1714,14 +1843,27 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
 -- of the Result clause above (which keeps its "$ok"/"$err" key scheme). A match
 -- whose scrutinee var was not seeded (non-admissible/recursive payload) does not
 -- match here and falls through to the generic path → fallback.
+-- COMP-4 (d-elim) + MATCH-WIDEN (v0.14.12, mixed arms): a two-arm user-sum match
+-- where each arm is a single-payload OR nullary constructor. A payload arm requires
+-- its "<v>$<Ctor>" sort key to be seeded (admissible payload); a nullary arm needs
+-- no key and binds no payload. A payload arm whose key is absent (non-admissible /
+-- recursive payload) fails 'armOk' → falls through to the generic path → fallback.
 bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
-  | Just (c1, v1, b1, c2, v2, b2) <- classifyTwoArmAdtArms arms
-  , Just s1 <- Map.lookup (r <> "$" <> c1) se
-  , Just s2 <- Map.lookup (r <> "$" <> c2) se
-  = do refEnv <- ask
-       buildOpaqueSumBranch env se cenv sccSet
-         (v1, s1, Map.lookup (r <> "$" <> c1) refEnv, b1)
-         (v2, s2, Map.lookup (r <> "$" <> c2) refEnv, b2)
+  | Just (c1, mv1, b1, c2, mv2, b2) <- classifyTwoArmAdtArms arms
+  , armOk c1 mv1, armOk c2 mv2
+  = do (refEnv, stm) <- ask
+       -- MATCH-WIDEN STRETCH: arm1's guard tag is c1's DECLARATION-order tag (from
+       -- ScrutTags), so a reordered-arm match agrees with the post's `=Ctor` desugar.
+       let t1 = fromMaybe 0 (Map.lookup r stm >>= Map.lookup c1)
+       buildOpaqueSumBranch env se cenv sccSet r t1
+         (armPayload refEnv c1 mv1, b1)
+         (armPayload refEnv c2 mv2, b2)
+  where
+    armOk _ Nothing  = True                          -- nullary arm: always fine
+    armOk c (Just _) = Map.member (r <> "$" <> c) se  -- payload arm: must be seeded
+    armPayload _      _ Nothing  = Nothing
+    armPayload refEnv c (Just v) =
+      (\s -> (v, s, Map.lookup (r <> "$" <> c) refEnv)) <$> Map.lookup (r <> "$" <> c) se
 
 bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
   -- Must be exactly 2 arms with Success and Error constructors
@@ -1829,32 +1971,48 @@ bodyToPredM _ _ _ _ _ = return Nothing
 -- type-checker's two-arm coverage + the boolean guard), staying in QF-LIA.
 buildOpaqueSumBranch
   :: Map Name Name -> SortEnv -> ContractEnv -> Set.Set Name
-  -> (Name, FQSort, Maybe (Name, Expr), Expr)   -- ^ arm 1: payload var, sort, declared refinement, body
-  -> (Name, FQSort, Maybe (Name, Expr), Expr)   -- ^ arm 2
-  -> ReaderT RefEnv (State Int) (Maybe BodyVC)
-buildOpaqueSumBranch env se cenv sccSet (v1, s1, mref1, b1) (v2, s2, mref2, b2) = do
-  r1 <- freshName v1
-  r2 <- freshName v2
-  guardVar <- freshName "_match_success"
-  let env1 = Map.insert v1 r1 env
-      se1  = Map.insert r1 s1 se
+  -> Name                                               -- ^ MATCH-WIDEN STRETCH: scrutinee var (tag discrimination)
+  -> Int                                                -- ^ arm-1 constructor's declaration-order tag
+  -> (Maybe (Name, FQSort, Maybe (Name, Expr)), Expr)   -- ^ arm 1: optional (payload var, sort, refinement), body
+  -> (Maybe (Name, FQSort, Maybe (Name, Expr)), Expr)   -- ^ arm 2
+  -> ReaderT (RefEnv, ScrutTags) (State Int) (Maybe BodyVC)
+-- MATCH-WIDEN (v0.14.12): each arm's payload is OPTIONAL. A nullary arm of a mixed
+-- sum (Nothing) binds no payload and contributes no skolem binder; a single-payload
+-- arm (Just …) is the d-elim behavior unchanged. First-match is the boolean guard
+-- (arm 1 = guard-true, arm 2 = guard-false = ¬arm1), unchanged.
+buildOpaqueSumBranch env se cenv sccSet scrutVar tag1 (mp1, b1) (mp2, b2) = do
+  -- MATCH-WIDEN STRETCH (v0.14.12): discriminate arms on a free int TAG equality
+  -- `(= <scrut>$tag 0)` (arm1) / `¬` (arm2, via flattenBodyVC's FQNot), instead of a
+  -- fresh unconstrained boolean. CONSERVATIVE EXTENSION: on existing matches the arm
+  -- bodies never mention the tag, so `svc under (tag=0)` ≡ `svc unconditional` — same
+  -- discharge and refutation. It becomes load-bearing only for a post that references
+  -- the scrutinee's constructor (desugared to `<scrut>$tag=k` in S3). The range fact
+  -- `tag ∈ {0,1}` keeps the else-arm `¬(tag=0)` ≡ `tag=1`. Stays QF-LIA (no testers).
+  let tagVar = scrutVar <> "$tag"
+      guardP = FQBinPred FQEq (FQVar tagVar) (FQLit (toInteger tag1))
+      rangeF = FQOr [ FQBinPred FQEq (FQVar tagVar) (FQLit 0)
+                    , FQBinPred FQEq (FQVar tagVar) (FQLit 1) ]
+  (env1, se1, binders1) <- bindArm mp1
   mvc1 <- bodyToPredM env1 se1 cenv sccSet b1
-  let env2 = Map.insert v2 r2 env
-      se2  = Map.insert r2 s2 se
+  (env2, se2, binders2) <- bindArm mp2
   mvc2 <- bodyToPredM env2 se2 cenv sccSet b2
-  -- COMP-4 (b): declare each payload at its DECLARED refinement (sound because
-  -- the intro-side obligation makes every caller prove it), not FQTrue. The
-  -- refinement (over its binding var xb) is instantiated at the renamed payload
-  -- var; a base/unrefined payload (Nothing) stays FQTrue, preserving d-elim.
-  let armPred rv mref = case mref of
-        Nothing      -> FQTrue
-        Just (xb, p) -> fromMaybe FQTrue (exprToPred (renameVar xb rv p))
   return $ case (mvc1, mvc2) of
     (Just vc1, Just vc2) ->
-      Just (BranchVC (FQVar guardVar)
-                     [(guardVar, FQBool, FQTrue), (r1, s1, armPred r1 mref1), (r2, s2, armPred r2 mref2)]
+      Just (BranchVC guardP
+                     ((tagVar, FQInt, rangeF) : binders1 ++ binders2)
                      vc1 vc2)
     _ -> Nothing
+  where
+    -- COMP-4 (b): declare a payload at its DECLARED refinement (sound because the
+    -- intro-side obligation makes every caller prove it); Nothing → FQTrue skolem
+    -- (d-elim). A nullary arm binds nothing and declares no skolem.
+    bindArm Nothing = return (env, se, [])
+    bindArm (Just (v, s, mref)) = do
+      r <- freshName v
+      let armPred = case mref of
+            Nothing      -> FQTrue
+            Just (xb, p) -> fromMaybe FQTrue (exprToPred (renameVar xb r p))
+      return (Map.insert v r env, Map.insert r s se, [(r, s, armPred)])
 
 -- ---------------------------------------------------------------------------
 -- Guard translation (v0.8.0, v0.10: extracted to GuardClassifier.hs)
@@ -2233,11 +2391,19 @@ classifyResultArms arms = case arms of
 -- constructors; returns (ctor1, payloadVar1, body1, ctor2, payloadVar2, body2)
 -- in source order. Ctor-agnostic generalization of 'classifyResultArms'; the
 -- caller resolves each arm's payload sort from the "<v>$<Ctor>" derived keys.
-classifyTwoArmAdtArms :: [(Pattern, Expr)] -> Maybe (Name, Name, Expr, Name, Name, Expr)
+-- MATCH-WIDEN (v0.14.12): each arm is a single-payload OR nullary constructor
+-- (payload var is 'Maybe'), so a mixed sum (one nullary + one payload arm) classifies.
+classifyTwoArmAdtArms :: [(Pattern, Expr)] -> Maybe (Name, Maybe Name, Expr, Name, Maybe Name, Expr)
 classifyTwoArmAdtArms arms = case arms of
-  [(PConstructor c1 [PVar v1], b1), (PConstructor c2 [PVar v2], b2)]
-    | c1 /= c2 -> Just (c1, v1, b1, c2, v2, b2)
+  [(p1, b1), (p2, b2)]
+    | Just (c1, mv1) <- armCtor p1
+    , Just (c2, mv2) <- armCtor p2
+    , c1 /= c2 -> Just (c1, mv1, b1, c2, mv2, b2)
   _ -> Nothing
+  where
+    armCtor (PConstructor c [PVar v]) = Just (c, Just v)
+    armCtor (PConstructor c [])       = Just (c, Nothing)
+    armCtor _                         = Nothing
 
 -- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
 -- Used for EMatch-over-call: the match's BranchVC becomes the call's continuation.

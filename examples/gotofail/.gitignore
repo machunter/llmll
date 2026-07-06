@@ -1,0 +1,2 @@
+# generated verification records (regenerable via `llmll verify`)
+*.verified.json

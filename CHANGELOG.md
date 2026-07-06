@@ -4,6 +4,15 @@
 
 <a id="Latest"></a>
 
+## v0.14.12 — MATCH-WIDEN: mixed-arm & nested matches, scrutinee-constructor posts verify (2026-07-06)
+
+### Compiler — verify (body-VC / EMatch)
+
+- **Mixed nullary+payload two-arm sums now verify body-faithful.** A user sum with one nullary and one single-payload arm (e.g. `Verdict = (| Verified) (| Rejected int)`) — both construction (`(if c Verified (Rejected n))`) and a two-arm `match` on it — previously fell to `body-fallback`; it now discharges. **Nested** matches (a match inside an arm body) discharge at depth.
+- **Scrutinee-constructor posts now discharge.** A post that references the *matched value's* constructor (`result = Verified ⇒ sig = Continue`, `sig : Step`) previously left the scrutinee unsorted (`body-fallback`). The arm discriminant changed from a free boolean guard to a **free int-tag equality** `(= scrut$tag k)` + a range fact, with a `desugarScrutCtor` pass rewriting `sig = Continue` → `sig$tag = k`. This is a **conservative extension** — every existing sum-match verdict is unchanged (`settle` / `withdraw-outcome` / `classify` and their `-bad` twins) — and stays in **QF-LIA** (no datatype testers). Arm *declaration* tags are threaded so reordered arms do not false-refute; an un-matched-scrutinee constructor post falls back cleanly.
+- **Enables the flagship goto-fail (CVE-2014-1266) pipeline** as one body-faithful function with real `Step` / `Verdict` sum types — `examples/gotofail/` (`pipeline.llmll` verifies; `pipeline-bad.llmll` refutes the skip; `nested.llmll` verifies at depth).
+- **Not yet:** sequential matches (two top-level matches in one body) fall back (`asserted`, safe); `> 2`-arm mixed matches; recursive sums (firewall). No JSON-AST schema change.
+
 ## v0.14.11 — body-VC A-normalization: calls in argument position verify (2026-07-05)
 
 ### Compiler — verify (body-VC)

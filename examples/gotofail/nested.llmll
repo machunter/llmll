@@ -1,0 +1,16 @@
+;; The full pipeline: multiple error-propagation stages threaded through NESTED
+;; matches, delivering Verified only if every stage — including the final signature
+;; check `sig` — Continued. Note the inner match reorders its arms (Abort first): the
+;; guard uses the constructor's DECLARATION tag, not arm position, so the post over
+;; `sig`'s constructor still discharges.
+;;
+;;   llmll verify examples/gotofail/nested.llmll   -> SAFE (body-faithful: finalize3)
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def finalize3 [a: Step b: Step sig: Step] -> Verdict
+  (post (or (not (= result Verified)) (= sig Continue)))
+  (match a ((Abort c) (Rejected c))
+           ((Continue) (match b ((Abort c) (Rejected c))
+                                 ((Continue) (match sig ((Abort c) (Rejected c))
+                                                        ((Continue) Verified)))))))

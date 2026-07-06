@@ -1,0 +1,12 @@
+;; Apple "goto fail" (CVE-2014-1266), the RIGHT way: the verification outcome is a
+;; VALUE (a sum), the signature-check status is a VALUE (a sum), and the invariant
+;; "report Verified only if the signature check actually passed" is a post over the
+;; scrutinee's constructor — discharged body-faithfully by MATCH-WIDEN (v0.14.12).
+;;
+;;   llmll verify examples/gotofail/pipeline.llmll     -> SAFE (body-faithful: finalize)
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def finalize [sig: Step payload: int] -> Verdict
+  (post (or (not (= result Verified)) (= sig Continue)))
+  (match sig ((Continue) Verified) ((Abort c) (Rejected c))))

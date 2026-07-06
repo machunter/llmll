@@ -1,0 +1,12 @@
+;; THE goto-fail bug: report Verified regardless of the signature-check status
+;; (both arms return Verified, ignoring sig). The post `result=Verified => sig=Continue`
+;; is violated on the Abort arm — the verifier REFUTES it.
+;;
+;;   llmll verify examples/gotofail/pipeline-bad.llmll
+;;     -> error: body verification of 'finalize' failed (does not satisfy postcondition)
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def finalize [sig: Step payload: int] -> Verdict
+  (post (or (not (= result Verified)) (= sig Continue)))
+  (match sig ((Continue) Verified) ((Abort c) Verified)))

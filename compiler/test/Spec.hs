@@ -6320,14 +6320,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "clamp-result"
         erBodyFallback er    `shouldSatisfy` not . elem "clamp-result"
 
-      it "C3B-2: the synthetic match guard is declared as a bool binder (no free var)" $ do
+      it "C3B-2: the match guard is a declared int TAG binder with a range fact (no free var)" $ do
         er <- emitSrc clampSrc
         let fq = erFQText er
-        -- COMP-3b-general subsumed the top-level special-case into the generic
-        -- path, so the guard is the generic "_bv__match_success_N" (the old
-        -- "_flat_" marker is retired); it is still declared as a bool binder.
-        fq `shouldSatisfy` T.isInfixOf "_bv__match_success"
-        fq `shouldSatisfy` T.isInfixOf "{ v : bool | true }"
+        -- MATCH-WIDEN STRETCH (v0.14.12): the arm discriminant is now an int TAG
+        -- equality (= <scrut>$tag 0), and <scrut>$tag is DECLARED (no free var) as an
+        -- int binder carrying the range fact — replacing the old free bool guard.
+        fq `shouldSatisfy` T.isInfixOf "r_tag"
+        fq `shouldSatisfy` T.isInfixOf "(r_tag = 0) || (r_tag = 1)"
 
       it "C3B-3: the Error payload binds at its real Str sort (not the int default)" $ do
         er <- emitSrc clampSrc
@@ -6392,9 +6392,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("attempt$ok", FQInt), ("attempt$err", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
-          Just (BranchVC (FQVar gn) binders _ _) -> do
-            T.isPrefixOf "_bv__match_success" gn `shouldBe` True
-            map (\(_, s, _) -> s) binders `shouldBe` [FQBool, FQInt, FQInt]
+          -- MATCH-WIDEN STRETCH: guard is now the int-tag equality; the tag binder is
+          -- FQInt (with a range fact) followed by the two payload binders.
+          Just (BranchVC g binders _ _) -> do
+            g `shouldBe` FQBinPred FQEq (FQVar "attempt$tag") (FQLit 0)
+            map (\(_, s, _) -> s) binders `shouldBe` [FQInt, FQInt, FQInt]
           other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
 
       it "C3BG-5: a caller's assumed callee post desugars nullary-enum ctors across the call edge (cenv)" $ do
@@ -6453,9 +6455,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("o$Ok", FQInt), ("o$Bad", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         case result of
-          Just (BranchVC (FQVar gn) binders _ _) -> do
-            T.isPrefixOf "_bv__match_success" gn `shouldBe` True
-            map (\(_, s, _) -> s) binders `shouldBe` [FQBool, FQInt, FQInt]
+          -- MATCH-WIDEN STRETCH: int-tag equality guard; tag binder FQInt then payloads.
+          Just (BranchVC g binders _ _) -> do
+            g `shouldBe` FQBinPred FQEq (FQVar "o$tag") (FQLit 0)
+            map (\(_, s, _) -> s) binders `shouldBe` [FQInt, FQInt, FQInt]
           other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
 
     -- COMP-4 (b): a matched arm consumes its payload's DECLARED refinement
@@ -6484,12 +6487,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                      , (PConstructor "Error" [PVar "e"], ELit (LitInt 0)) ]
             se = Map.fromList [("attempt$ok", FQInt), ("attempt$err", FQInt)] :: SortEnv
             refEnv = Map.fromList [("attempt$ok", ("n", EOp ">" [EVar "n", ELit (LitInt 0)]))]
-            (_, result) = bodyToPredFromR 0 se refEnv Map.empty Set.empty body
+            (_, result) = bodyToPredFromR 0 se refEnv Map.empty Map.empty Set.empty body
         case result of
           Just (BranchVC _ binders _ _) ->
-            -- exactly the Success payload binder carries a non-trivial refinement;
-            -- the Error payload (unrefined) and the guard stay FQTrue (d-elim).
-            length [ p | (_, _, p) <- binders, p /= FQTrue ] `shouldBe` 1
+            -- exactly the Success PAYLOAD binder carries a non-trivial refinement;
+            -- the Error payload (unrefined) stays FQTrue (d-elim). The MATCH-WIDEN
+            -- tag binder carries a range fact and is excluded from this payload check.
+            length [ p | (n, _, p) <- binders, not (T.isSuffixOf "$tag" n), p /= FQTrue ] `shouldBe` 1
           other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
 
       it "C4B-4: an empty RefEnv preserves the FQTrue payload skolems (d-elim unaffected)" $ do
@@ -6497,10 +6501,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                      [ (PConstructor "Success" [PVar "n"], EVar "n")
                      , (PConstructor "Error" [PVar "e"], ELit (LitInt 0)) ]
             se = Map.fromList [("attempt$ok", FQInt), ("attempt$err", FQInt)] :: SortEnv
-            (_, result) = bodyToPredFromR 0 se Map.empty Map.empty Set.empty body
+            (_, result) = bodyToPredFromR 0 se Map.empty Map.empty Map.empty Set.empty body
         case result of
           Just (BranchVC _ binders _ _) ->
-            all (\(_, _, p) -> p == FQTrue) binders `shouldBe` True
+            -- payload skolems stay FQTrue (d-elim); the MATCH-WIDEN tag binder carries
+            -- its range fact and is excluded.
+            all (\(n, _, p) -> T.isSuffixOf "$tag" n || p == FQTrue) binders `shouldBe` True
           other -> expectationFailure $ "Expected BranchVC, got: " ++ show other
 
     -- COMP-4 (a): native FQData construction — admissibility firewall +
