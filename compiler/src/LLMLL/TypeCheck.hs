@@ -86,6 +86,8 @@ builtinEnv = Map.fromList $
   , ("and", TFn [TBool, TBool] TBool)
   , ("or",  TFn [TBool, TBool] TBool)
   , ("not", TFn [TBool] TBool)
+  , ("=>",  TFn [TBool, TBool] TBool)   -- IMPL-SUGAR: implication (bool → bool → bool)
+  , ("<=>", TFn [TBool, TBool] TBool)   -- IMPL-SUGAR: biconditional
   -- §13.4 Pair / record
   -- U2-lite (v0.4): first/second retyped to require TPair argument.
   -- Before U-lite, these used TVar "p" (any type) because the checker couldn't

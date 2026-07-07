@@ -610,7 +610,7 @@ emitApp "pair"   [a,b] = "(" <> emitExpr a <> ", " <> emitExpr b <> ")"
 -- emitOp, otherwise we emit `(/ (i) (width))` which GHC parses as a section.
 emitApp op args
   | op `elem` ["/", "mod", "%", "+", "-", "*", "=", "!=",
-               "<", ">", "<=", ">=", "and", "or", "not"]
+               "<", ">", "<=", ">=", "and", "or", "not", "=>", "<=>"]
   = emitOp op args
 -- LT-INT (v0.11): Class A indexing primitives keep concrete `Int` Haskell
 -- signatures per int-2-boundary-shims.md §3.1; codegen wraps `int`-typed
@@ -637,6 +637,9 @@ emitOp "!="  [a,b] = "(" <> emitExpr a <> " /= " <> emitExpr b <> ")"
 emitOp "and" [a,b] = "(" <> emitExpr a <> " && " <> emitExpr b <> ")"
 emitOp "or"  [a,b] = "(" <> emitExpr a <> " || " <> emitExpr b <> ")"
 emitOp "not" [a]   = "(not " <> emitExpr a <> ")"
+-- IMPL-SUGAR: implication (not a || b) and biconditional (Bool ==)
+emitOp "=>"  [a,b] = "(not " <> emitExpr a <> " || " <> emitExpr b <> ")"
+emitOp "<=>" [a,b] = "(" <> emitExpr a <> " == " <> emitExpr b <> ")"
 -- P4 fix: LLMLL `/` is integer division (spec §13.1); emit `div`, not `/`.
 -- `/` as a bare Haskell infix requires Fractional, which Int does not satisfy.
 emitOp "/"   [a,b] = "(" <> emitExpr a <> " `div` " <> emitExpr b <> ")"

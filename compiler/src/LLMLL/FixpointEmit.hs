@@ -1394,6 +1394,12 @@ exprToPred (EApp op [l, r])
 exprToPred (EApp "and" args) = FQAnd <$> mapM exprToPred args
 exprToPred (EApp "or"  args) = FQOr  <$> mapM exprToPred args
 exprToPred (EApp "not" [a])  = FQNot <$> exprToPred a
+-- IMPL-SUGAR: (=> p q) and (<=> p q) are pure sugar. Desugar here (VC-emission
+-- only) to the or/not/and forms; the resulting FQ is byte-identical to writing
+-- the expansion by hand. The AST retains =>/<=> (round-trip + schema).
+exprToPred (EApp "=>"  [p, q]) = exprToPred (EApp "or" [EApp "not" [p], q])
+exprToPred (EApp "<=>" [p, q]) =
+  exprToPred (EApp "and" [EApp "or" [EApp "not" [p], q], EApp "or" [EApp "not" [q], p]])
 -- NIW (v0.12): measure-class applications → uninterpreted-function terms.
 -- The argument is a WF base term (REF-META-3 M3); exprToPred (EVar v) = FQVar v
 -- carries it through unconditionally. Range facts (m t >= 0) are injected
@@ -1741,6 +1747,13 @@ bodyToPredM env se cenv sccSet (EApp "or" args) = do
   if length preds == length args
     then return . Just $ SimpleVC [] (FQOr preds)
     else return Nothing
+
+-- IMPL-SUGAR: (=> p q) / (<=> p q) desugar to or/not/and (byte-identical .fq).
+bodyToPredM env se cenv sccSet (EApp "=>" [p, q]) =
+  bodyToPredM env se cenv sccSet (EApp "or" [EApp "not" [p], q])
+bodyToPredM env se cenv sccSet (EApp "<=>" [p, q]) =
+  bodyToPredM env se cenv sccSet
+    (EApp "and" [EApp "or" [EApp "not" [p], q], EApp "or" [EApp "not" [q], p]])
 
 -- NIW (v0.12): measure-class application in a body → uninterpreted-function term.
 -- The argument is a bare base-typed binding (Phase 1, REF-META-3 M3); we translate

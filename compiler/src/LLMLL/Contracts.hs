@@ -666,6 +666,9 @@ evalOp :: Name -> [Expr] -> Maybe Expr
 evalOp "not" [ELit (LitBool b)] = Just (ELit (LitBool (not b)))
 evalOp "and" [ELit (LitBool a), ELit (LitBool b)] = Just (ELit (LitBool (a && b)))
 evalOp "or"  [ELit (LitBool a), ELit (LitBool b)] = Just (ELit (LitBool (a || b)))
+-- IMPL-SUGAR: implication / biconditional constant folding
+evalOp "=>"  [ELit (LitBool a), ELit (LitBool b)] = Just (ELit (LitBool (not a || b)))
+evalOp "<=>" [ELit (LitBool a), ELit (LitBool b)] = Just (ELit (LitBool (a == b)))
 evalOp "="   [ELit (LitInt  a), ELit (LitInt b)]  = Just (ELit (LitBool (a == b)))
 evalOp "!="  [ELit (LitInt  a), ELit (LitInt b)]  = Just (ELit (LitBool (a /= b)))
 evalOp "="   [ELit (LitBool a), ELit (LitBool b)]  = Just (ELit (LitBool (a == b)))

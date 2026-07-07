@@ -897,7 +897,8 @@ pSExprApp = parens $ do
 -- Recognises both ASCII operators and their Unicode aliases (see LLMLL.md §2.4).
 pFuncName :: Parser Name
 pFuncName = lexeme' $ choice
-  [ try (string ">=") , try (string "<=") , try (string "!=") , try (string "->")
+  [ try (string "<=>") , try (string "=>")  -- IMPL-SUGAR: maximal munch before "<=" and single "="
+  , try (string ">=") , try (string "<=") , try (string "!=") , try (string "->")
   -- Unicode comparison aliases
   , try (string "\x2265") -- ≥
   , try (string "\x2264") -- ≤
@@ -917,7 +918,7 @@ pFuncName = lexeme' $ choice
 isOperator :: Name -> Bool
 isOperator n = n `elem`
   ["+", "-", "*", "/", "=", "!=", "<", ">", "<=", ">=",
-   "and", "or", "not", "regex-match", "is-valid?",
+   "and", "or", "not", "=>", "<=>", "regex-match", "is-valid?",
    -- Unicode aliases map to the same operator semantics:
    "\x2265", "\x2264", "\x2260",  -- ≥ ≤ ≠
    "\x2227", "\x2228", "\x00AC"   -- ∧ ∨ ¬

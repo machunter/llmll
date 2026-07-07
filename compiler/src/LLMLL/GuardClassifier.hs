@@ -88,6 +88,12 @@ classifyGuardM env se (EApp "or" args) = do
   ps <- mapM (classifyGuardM env se) args
   return $ if all isJust ps then Just (FQOr (catMaybes ps)) else Nothing
 
+-- IMPL-SUGAR: desugar =>/<=> before classifying (byte-identical to or/not/and)
+classifyGuardM env se (EApp "=>" [p, q]) =
+  classifyGuardM env se (EApp "or" [EApp "not" [p], q])
+classifyGuardM env se (EApp "<=>" [p, q]) =
+  classifyGuardM env se (EApp "and" [EApp "or" [EApp "not" [p], q], EApp "or" [EApp "not" [q], p]])
+
 -- Normalize EOp
 classifyGuardM env se (EOp name args) = classifyGuardM env se (EApp name args)
 

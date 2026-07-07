@@ -4,6 +4,20 @@
 
 <a id="Latest"></a>
 
+## v0.14.16 — implication sugar =>/<=> (2026-07-07)
+
+### Surface — implication sugar
+
+- **Symbolic `=>` (implication) and `<=>` (biconditional).** A contract invariant "result = 1
+  exactly when C" now reads as `(<=> (= result 1) C)` instead of the nested
+  `(and (or (not …) …) (or (not …) …))`. Both are binary `bool → bool → bool`.
+- **Pure sugar, zero verification change.** `(=> p q)` ≡ `(or (not p) q)` and
+  `(<=> p q)` ≡ `(and (or (not p) q) (or (not q) p))`, desugared at VC emission — the emitted `.fq`
+  is byte-identical to the `or`/`not` form, so nothing in the decidable fragment changes.
+- **First-class in both surfaces.** S-expr `(=> p q)` and JSON-AST `{"op": "=>"}` / `"<=>"`; the AST
+  retains them through round-trip. The JSON-AST schema op enum was extended additively —
+  `schemaVersion` stays `0.7.0` (compiler-validated; a bump would reject existing files).
+
 ## v0.14.15 — fix: bool value-op in body-return position (2026-07-07)
 
 ### Verification — bug fix

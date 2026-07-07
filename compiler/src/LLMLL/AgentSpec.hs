@@ -62,7 +62,7 @@ operatorNames :: Set Name
 operatorNames = Set.fromList
   [ "+", "-", "*", "/", "mod"          -- arithmetic
   , "=", "!=", "<", ">", "<=", ">="    -- comparison
-  , "and", "or", "not"                  -- logic
+  , "and", "or", "not", "=>", "<=>"     -- logic (IMPL-SUGAR: implication/biconditional)
   ]
 
 -- ---------------------------------------------------------------------------

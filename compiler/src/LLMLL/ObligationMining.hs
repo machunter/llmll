@@ -186,6 +186,9 @@ isQfLia expr = case expr of
   EApp "and" args -> all isQfLia args
   EApp "or"  args -> all isQfLia args
   EApp "not" [a]  -> isQfLia a
+  -- IMPL-SUGAR: implication / biconditional of QF-LIA atoms stays QF-LIA
+  EApp "=>"  args -> all isQfLia args
+  EApp "<=>" args -> all isQfLia args
   -- Anything else: not in fragment
   _ -> False
 

@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.15)
+# LLMLL: Large Language Model Logical Language (v0.14.16)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.15.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.16.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -70,8 +70,16 @@ A curated set of Unicode mathematical symbols are accepted everywhere their ASCI
 | `and` | `∧` | U+2227 | Logical conjunction |
 | `or` | `∨` | U+2228 | Logical disjunction |
 | `not` | `¬` | U+00AC | Logical negation |
+| `=>` | `⇒` | U+21D2 | Logical implication — sugar for `(or (not p) q)` |
+| `<=>` | `⇔` | U+21D4 | Biconditional — sugar for `(and (=> p q) (=> q p))` |
 | `for-all` | `∀` | U+2200 | Universal quantifier |
 | `fn` | `λ` | U+03BB | Lambda / anonymous function |
+
+**Implication sugar.** `=>` and `<=>` are binary `bool → bool → bool` operators, desugared at
+verification-condition emission to the `or`/`not` forms above — the emitted `.fq` is byte-identical,
+so nothing in the decidable fragment (§5.3.3) changes. Both are first-class in the S-expr surface and
+the JSON-AST (op values `"=>"` / `"<=>"`, retained through round-trip); the schema op enum was
+extended additively, with `schemaVersion` unchanged.
 
 **What is NOT allowed:** Unicode-encoded variable names, function names, type names, or module names. Identifiers must be ASCII. This restriction prevents homoglyph attacks and invisible-character exploits in multi-agent AST merging (see `analysis/unicode_decision.md` for full rationale).
 

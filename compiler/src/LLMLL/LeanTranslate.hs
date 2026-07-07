@@ -141,6 +141,11 @@ opAppToLean scope op [l, r]
 opAppToLean scope "not" [a] = do
   a' <- exprToLeanScoped scope a
   Right ("¬" <> a')
+-- IMPL-SUGAR: desugar =>/<=> to or/not/and (Lean already handles ∨/¬/∧ via binOps)
+opAppToLean scope "=>" [p, q] =
+  exprToLeanScoped scope (EApp "or" [EApp "not" [p], q])
+opAppToLean scope "<=>" [p, q] =
+  exprToLeanScoped scope (EApp "and" [EApp "or" [EApp "not" [p], q], EApp "or" [EApp "not" [q], p]])
 opAppToLean _ op args =
   Left ("unsupported application `" <> op <> "`/" <> T.pack (show (length args)))
 

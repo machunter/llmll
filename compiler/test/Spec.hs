@@ -5703,6 +5703,39 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f = FQFile [] [] [] [] []
         emitFQFile f `shouldNotSatisfy` T.isInfixOf "constant "
 
+    -- IMPL-SUGAR: `=>` / `<=>` are pure syntactic sugar. The AST retains them
+    -- (parse + round-trip + schema); the VC-emission path desugars to or/not/and
+    -- so the emitted .fq is byte-identical to the hand expansion (zero verification
+    -- change). Both operands are bool (TypeCheck rejects non-bool).
+    describe "IMPL-SUGAR (=> / <=> implication sugar)" $ do
+      let emitS src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "IMPL-1: (=> p q) emits byte-identical .fq to (or (not p) q)" $ do
+        a <- emitS "(def f [x: int] -> int (post (=> (> x 0) (>= result 0))) (if (> x 0) x 0))"
+        b <- emitS "(def f [x: int] -> int (post (or (not (> x 0)) (>= result 0))) (if (> x 0) x 0))"
+        erFQText a `shouldBe` erFQText b
+
+      it "IMPL-2: (<=> p q) emits byte-identical .fq to its two-implication expansion" $ do
+        a <- emitS "(def g [x: int] -> int (post (<=> (>= result 0) (>= x 0))) (if (>= x 0) x 0))"
+        b <- emitS "(def g [x: int] -> int (post (and (or (not (>= result 0)) (>= x 0)) (or (not (>= x 0)) (>= result 0)))) (if (>= x 0) x 0))"
+        erFQText a `shouldBe` erFQText b
+
+      it "IMPL-3: a => post verifies body-faithful (with a bool param)" $ do
+        er <- emitS "(def gate [n: int mac_ok: bool] -> int (pre (>= n 0)) (post (and (>= result 0) (=> (> result 0) mac_ok))) (if mac_ok n 0))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "gate"
+
+      it "IMPL-4: => is retained in the AST (parses to EOp, not desugared at parse time)" $ do
+        case parseStatements GrammarCoreInversion "test" "(def-shell f [a: bool b: bool] -> bool (post (=> a b)) (if a b true))" of
+          Left err    -> expectationFailure (show err)
+          Right stmts -> T.pack (show stmts) `shouldSatisfy` T.isInfixOf "\"=>\""
+
+      it "IMPL-5: (=> p q) with non-bool operands is a type error" $ do
+        case parseStatements GrammarCoreInversion "test" "(def-shell h [x: int] -> int (post (=> x result)) x)" of
+          Left err    -> expectationFailure (show err)
+          Right stmts -> reportSuccess (typeCheck GrammarCoreInversion emptyEnv stmts) `shouldBe` False
+
     -- NIW (v0.12, Commit B): measure predicates in contracts/bodies translate to
     -- UF terms, get an opaque carrier binder + ground range fact, and discharge
     -- body-faithfully. Structural assertions on the emitted .fq (suite convention:
