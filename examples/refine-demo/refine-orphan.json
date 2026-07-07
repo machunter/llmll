@@ -1,0 +1,93 @@
+{
+ "token": "<TOKEN-from-checkout>",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "args": [
+     {
+      "kind": "var",
+      "name": "sig_ok"
+     },
+     {
+      "kind": "var",
+      "name": "payload"
+     }
+    ],
+    "fn": "final-verdict",
+    "kind": "app"
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "orphan",
+    "params": [
+     {
+      "name": "ok",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "pay",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "ok"
+        },
+        {
+         "kind": "var",
+         "name": "pay"
+        }
+       ],
+       "kind": "op",
+       "op": "+"
+      }
+     ],
+     "kind": "op",
+     "op": "="
+    },
+    "pre": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "pay"
+      },
+      {
+       "kind": "lit-int",
+       "value": 0
+      }
+     ],
+     "kind": "op",
+     "op": ">="
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "int"
+    }
+   }
+  }
+ ]
+}

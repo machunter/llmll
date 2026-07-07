@@ -1,0 +1,72 @@
+{
+  "llmll_version": "0.14.12",
+  "schemaVersion": "0.7.0",
+  "statements": [
+    {
+      "body": {
+        "kind": "hole-named",
+        "name": "body"
+      },
+      "kind": "def-shell",
+      "name": "verify-exchange",
+      "params": [
+        {
+          "name": "sig_ok",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "payload",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "sig_ok"
+              },
+              {
+                "kind": "var",
+                "name": "payload"
+              }
+            ],
+            "kind": "op",
+            "op": "+"
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      },
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "payload"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

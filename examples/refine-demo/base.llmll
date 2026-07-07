@@ -1,0 +1,2 @@
+(def-shell verify-exchange [sig_ok: int payload: int] -> int
+  (pre  (>= payload 0)) (post (= result (+ sig_ok payload))) ?body)

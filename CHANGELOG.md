@@ -4,6 +4,38 @@
 
 <a id="Latest"></a>
 
+## v0.14.13 — Cascading refine op + CDP vacuity gate; cycle-verification spec reconciliation (2026-07-06)
+
+### Orchestration — the `refine` op (cascading decomposition)
+
+- **`llmll refine` — fill a hole AND spawn the contracted sub-holes it calls, atomically.** The dual of
+  `patch` (which fills a leaf): a `refine` request installs a hole `H`'s body and adds new top-level
+  contracted defs `Gᵢ` (each with a `?body`) that the body references, in one operation reusing the
+  whole `applyPatch` lifecycle (staleness compare-and-swap + assume-guarantee re-verify → zero new
+  verify code). `H` verifies **modulo** each `Gᵢ`'s contract; each `Gᵢ` becomes a new frontier hole.
+  This makes decomposition *emergent* — agents grow a refinement tree top-down — rather than filling a
+  human's pre-authored blanks. Demo: `examples/refine-demo/`.
+- **Scope-relaxation safety predicate** bounds the op so it cannot become an arbitrary-write escape: a
+  `refine` may add a def only if it is (1) introduced by exactly one body-replace + additive
+  `PatchAdd /statements/-` ops (no clobbering a sibling), (2) **fresh** (name unbound — enforced
+  explicitly, since the type-checker does not reject duplicate top-level defs), (3) **body-referenced**
+  by the fill, and (4) hole-bodied.
+- **CDP vacuity gate** rejects a spawn whose invented sub-contract a trivial identity / constant /
+  projection body already satisfies (it "verifies" nothing). Uses the `WarnIdentity/ConstSatisfiesPost`
+  CDP signal (an unfilled `?body` lacks the verification status a satisfying-fraction would need). Not
+  yet: the feasibility (no-miracle) gate and a per-instance θ are follow-ons.
+
+### Spec — cycle-verification reconciliation (`§0.1`)
+
+- **`§0.1` corrected: recursive cycles are verified compositionally at *partial* correctness, not
+  "contract-only".** `§0.1` previously claimed recursive call cycles fall back to contract-only, which
+  contradicted `§4.3` and the compiler: since the "Issue 4" SCC-guard removal, a recursive `def-shell`
+  cycle is verified by the **mutual-recursion assume-guarantee rule** (each member assumes its callees'
+  posts, proves its own body) — sound at partial correctness (Hoare 1971; Apt 1981). Termination is
+  unverified (R7 strict descent would upgrade partial→total); the partial-correctness auto-flag on the
+  `def-shell` recursive path (`§4.3`) remains a follow-on. Stale `FixpointEmit.hs` comment fixed. No
+  behavior change — documentation + a compiler comment only.
+
 ## v0.14.12 — MATCH-WIDEN: mixed-arm & nested matches, scrutinee-constructor posts verify (2026-07-06)
 
 ### Compiler — verify (body-VC / EMatch)

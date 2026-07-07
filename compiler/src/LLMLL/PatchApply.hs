@@ -19,6 +19,9 @@ module LLMLL.PatchApply
   , PatchResult(..)
   , CalleePreUnmet(..)   -- DEMO-COMP (§3.3)
   , applyPatch
+  , applyPatchWithMode    -- cascading: refine reuses the patch lifecycle with a relaxed scope
+  , PatchScopeMode(..)
+  , validateRefineScope   -- cascading: the bounded scope-relaxation safety predicate
   , applyOp
   , applyOps
   , validateScope
@@ -51,7 +54,9 @@ import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWith, EmitOptions(..), defaultEmitOptions, EmitResult(..))
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
-import Data.List (find)
+import qualified Data.Vector as V
+import Data.List (find, nub)
+import Data.Foldable (toList)
 
 import Data.Time.Clock (getCurrentTime)
 import System.Directory (doesFileExist, findExecutable)
@@ -212,6 +217,108 @@ validateScope checkoutPtr ops = mapM_ checkOp ops
     isPrefixOf' (x:xs) (y:ys) = x == y && isPrefixOf' xs ys
 
 -- ---------------------------------------------------------------------------
+-- Cascading refinement: the `refine` scope mode + its safety predicate
+-- ---------------------------------------------------------------------------
+
+-- | Scope discipline for a patch-lifecycle apply. 'ScopeNormal' is the existing
+-- descendant-or-self containment ('validateScope'). 'ScopeRefine' is the bounded
+-- relaxation that lets a fill of hole H additionally SPAWN fresh contracted
+-- sub-holes (new top-level defs) that the fill body references — the `refine` op.
+data PatchScopeMode = ScopeNormal | ScopeRefine
+  deriving (Show, Eq)
+
+-- | The bounded scope-relaxation safety predicate for a `refine` op-set on hole
+-- H at @checkoutPtr@, over the current module @astVal@. Admissible iff:
+--   (1) exactly one PatchReplace, at H's body (the checkout pointer);
+--   (2) every other op is a PatchAdd \/statements\/- (additive-only; no
+--       replace\/remove of any sibling — never overwrites a verified def);
+--   (3) each spawned def has a FRESH name (not already bound — enforced HERE,
+--       because re-typecheck does NOT reject a duplicate top-level def);
+--   (4) each spawned def is BODY-REFERENCED (called by the fill body);
+--   (5) each spawned def's body is a hole (refine spawns frontier holes).
+-- See docs/design/cascading-refine-protocol-spike.md §D2.
+validateRefineScope :: Text -> [PatchOp] -> Value -> Either Text ()
+validateRefineScope checkoutPtr ops astVal = do
+  -- (1) exactly one replace, at the checkout hole
+  eH <- case [ (p, v) | PatchReplace p v <- ops ] of
+          [(p, v)] | p == checkoutPtr -> Right v
+                   | otherwise -> Left $ "refine: the fill (replace) op must target the checkout hole "
+                                         <> checkoutPtr <> " (got " <> p <> ")"
+          []       -> Left "refine: expected exactly one replace op (the fill of the refined hole)"
+          _        -> Left "refine: expected exactly one replace op (the fill of the refined hole)"
+  -- (2) every other op is a PatchAdd /statements/-
+  let others = [ op | op <- ops, not (isFill op) ]
+      isFill (PatchReplace p _) = p == checkoutPtr
+      isFill _                  = False
+  addedDefs <- mapM requireStmtAdd others
+  -- (3) freshness — spawned names not already bound, and distinct among themselves
+  addedNames <- mapM (\d -> maybe (Left "refine: a spawned statement is not a named def/def-shell")
+                                  Right (objName d)) addedDefs
+  let existing = moduleDefNames astVal
+  mapM_ (\n -> if n `elem` existing
+                 then Left $ "refine: spawned def '" <> n <> "' shadows an existing definition (freshness)"
+                 else Right ()) addedNames
+  if length addedNames /= length (nub addedNames)
+    then Left "refine: spawned defs have duplicate names"
+    else Right ()
+  -- (4) body-referenced — each spawned name is called by the fill body
+  let refs = collectRefNames eH
+  mapM_ (\n -> if n `elem` refs then Right ()
+               else Left $ "refine: spawned def '" <> n <> "' is not referenced by the fill body") addedNames
+  -- (5) each spawned def's body is a hole
+  mapM_ (\d -> if bodyIsHole d then Right ()
+               else Left "refine: a spawned def's body must be a hole (?body); fills are `patch`, not `refine`")
+        addedDefs
+  where
+    requireStmtAdd (PatchAdd "/statements/-" v) = Right v
+    requireStmtAdd op = Left $ "refine: aside from the fill, every op must be an additive PatchAdd "
+                              <> "/statements/- (got " <> opDesc op <> ")"
+    opDesc (PatchReplace p _) = "replace " <> p
+    opDesc (PatchAdd p _)     = "add " <> p
+    opDesc (PatchRemove p)    = "remove " <> p
+    opDesc (PatchTest p _)    = "test " <> p
+
+-- | Names of every top-level def in a module JSON-AST Value (the @statements@ array).
+moduleDefNames :: Value -> [Text]
+moduleDefNames (Object o) = case KM.lookup (K.fromText "statements") o of
+  Just (Array arr) -> [ n | s <- toList arr, Just n <- [objName s] ]
+  _                -> []
+moduleDefNames _ = []
+
+-- | The @name@ field of a def/statement object, if present.
+objName :: Value -> Maybe Text
+objName (Object o) = case KM.lookup (K.fromText "name") o of
+  Just (String s) -> Just s
+  _               -> Nothing
+objName _ = Nothing
+
+-- | Whether a def object's @body@ is a hole node (@kind@ prefixed "hole").
+bodyIsHole :: Value -> Bool
+bodyIsHole (Object o) = case KM.lookup (K.fromText "body") o of
+  Just (Object b) -> case KM.lookup (K.fromText "kind") b of
+    Just (String k) -> "hole" `T.isPrefixOf` k
+    _               -> False
+  _               -> False
+bodyIsHole _ = False
+
+-- | Every identifier referenced (as a call target @fn@ or a @var@ node's @name@)
+-- anywhere in an expression JSON-AST Value. Used to check a spawned def is
+-- actually called by the fill body.
+collectRefNames :: Value -> [Text]
+collectRefNames = go
+  where
+    go (Object o) =
+      let hereFn  = case KM.lookup (K.fromText "fn") o of
+                      Just (String s) -> [s]
+                      _               -> []
+          hereVar = case (KM.lookup (K.fromText "kind") o, KM.lookup (K.fromText "name") o) of
+                      (Just (String "var"), Just (String s)) -> [s]
+                      _                                      -> []
+      in hereFn ++ hereVar ++ concatMap go (KM.elems o)
+    go (Array a) = concatMap go (toList a)
+    go _         = []
+
+-- ---------------------------------------------------------------------------
 -- Single Op Application
 -- ---------------------------------------------------------------------------
 
@@ -221,9 +328,17 @@ applyOp (PatchReplace path newVal) root =
   case resolvePointer path root of
     Nothing -> Left $ "replace: path " <> path <> " does not exist"
     Just _  -> setAtPointer path newVal root
-applyOp (PatchAdd path newVal) root =
+applyOp (PatchAdd path newVal) root
+  -- RFC 6902 array-append: a path ending in "/-" appends to the array at the
+  -- parent path (used by `refine` to spawn top-level defs: /statements/-).
+  | Just parent <- T.stripSuffix "/-" path =
+      let parentPtr = if T.null parent then "" else parent
+      in case resolvePointer parentPtr root of
+           Just (Array a) -> setAtPointer parentPtr (Array (V.snoc a newVal)) root
+           Just _         -> Left $ "add: append target " <> path <> " is not an array"
+           Nothing        -> Left $ "add: append parent of " <> path <> " does not exist"
   -- For existing paths: set. For new keys in objects: insert.
-  setAtPointer path newVal root
+  | otherwise = setAtPointer path newVal root
 applyOp (PatchRemove path) root =
   removeAtPointer path root
 applyOp (PatchTest path expected) root =
@@ -252,7 +367,15 @@ applyOps (o:os) val = case applyOp o val of
 -- 4. Re-parse and re-typecheck
 -- 5. On success: write file, clear lock
 applyPatch :: GrammarMode -> FilePath -> PatchRequest -> IO PatchResult
-applyPatch mode fp pr = do
+applyPatch = applyPatchWithMode ScopeNormal
+
+-- | The patch lifecycle, parameterized by scope discipline. 'ScopeNormal' is
+-- `patch` (descendant-or-self containment). 'ScopeRefine' is `refine` — the
+-- bounded additive relaxation of 'validateRefineScope' that lets a fill spawn
+-- fresh contracted sub-holes. Everything else (staleness resync, apply,
+-- re-typecheck, assume-guarantee re-verify, write) is shared verbatim.
+applyPatchWithMode :: PatchScopeMode -> GrammarMode -> FilePath -> PatchRequest -> IO PatchResult
+applyPatchWithMode scopeMode mode fp pr = do
   now <- getCurrentTime
 
   -- 1. Load and validate lock
@@ -272,15 +395,18 @@ applyPatch mode fp pr = do
       case staleResult of
         Just err -> pure $ PatchAuthError err
         Nothing -> do
-          -- 2. Scope check
-          case validateScope (ctPointer ct) (prPatch pr) of
-            Left err -> pure $ PatchAuthError err
-            Right () -> do
-              -- 3. Load source JSON
-              raw <- BL.readFile fp
-              case A.decode raw of
-                Nothing -> pure $ PatchApplyError "cannot parse source file as JSON"
-                Just astVal -> do
+          -- 2/3. Load the module, then scope-check (mode-dependent — refine's
+          -- additive relaxation needs the current def set for the freshness clause).
+          raw <- BL.readFile fp
+          case A.decode raw of
+            Nothing -> pure $ PatchApplyError "cannot parse source file as JSON"
+            Just astVal -> do
+              let scopeOk = case scopeMode of
+                    ScopeNormal -> validateScope (ctPointer ct) (prPatch pr)
+                    ScopeRefine -> validateRefineScope (ctPointer ct) (prPatch pr) astVal
+              case scopeOk of
+                Left err -> pure $ PatchAuthError err
+                Right () -> do
                   -- 4. Apply ops
                   case applyOps (prPatch pr) astVal of
                     Left err -> pure $ PatchApplyError err

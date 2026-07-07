@@ -1607,8 +1607,10 @@ bodyToPredM env sortEnv _ _ (EVar v) =
 -- v0.9.0: User-defined function call with contract (COMP-0 §2, §3)
 -- Issue 4 resolution: SCC guard REMOVED. Callers of recursive functions
 -- may use assume-guarantee against the recursive function's contract.
--- The recursive function's own body VC remains excluded (§4.1).
--- Trust degrades via evidenceMeet — see §4.4.
+-- A recursive function's OWN body VC is emitted and discharged too: the cycle
+-- is verified by the mutual-recursion assume-guarantee rule (each member assumes
+-- its callees' posts, proves its own body) — sound at PARTIAL correctness
+-- (termination unverified; R7). See LLMLL.md §0.1 / §4.3.
 bodyToPredM env se cenv _sccSet (EApp fname args)
   | fname `Map.member` cenv
   , lookupArithOp fname == Nothing   -- not a builtin operator

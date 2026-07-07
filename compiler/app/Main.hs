@@ -39,7 +39,7 @@ import Options.Applicative
 import qualified Data.Set as Set
 
 import LLMLL.Parser (parseTopLevel)
-import LLMLL.ParserJSON (parseJSONAST)
+import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
@@ -66,7 +66,7 @@ import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
-import LLMLL.PatchApply (applyPatch, parsePatchRequest, PatchResult(..), hashFile)
+import LLMLL.PatchApply (applyPatch, applyPatchWithMode, PatchScopeMode(..), parsePatchRequest, PatchResult(..), PatchRequest(..), PatchOp(..), applyOps, hashFile)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , buildDivergenceReport, divergenceReportJson )
@@ -82,7 +82,7 @@ import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
 import Numeric (showHex)
 import LLMLL.CDP
-  ( CDPResult(..), CDPScope(..)
+  ( CDPResult(..), CDPScope(..), CDPWarning(..)
   , computeCDPFor
   , overAnnotationRatio, overAnnotationThreshold
   , cdpWarningLabel )
@@ -125,6 +125,7 @@ data Command
   | CmdCheckoutStatus  FilePath String                      -- v0.3: checkout --status <file> <token>
   | CmdDivergeReport  FilePath String                       -- R5: diverge-report <file> <session-id>
   | CmdPatch    FilePath FilePath                            -- v0.3: patch <source.ast.json> <patch-request.json>
+  | CmdRefine   FilePath FilePath                            -- cascading: refine <source.ast.json> <refine-request.json>
   | CmdReplay   FilePath FilePath                            -- v0.3.1: replay <source.llmll> <event-log.jsonl>
   | CmdSpec     Bool                                         -- v0.3.4: spec [--json]
   | CmdVersion                                               -- v0.11: version
@@ -194,6 +195,8 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
           (progDesc "R5: collect a divergence session's fills and emit the divergence_witness record"))
       <> command "patch" (info (helper <*> patchCmd)
           (progDesc "Apply an RFC 6902 JSON-Patch to a checked-out hole"))
+      <> command "refine" (info (helper <*> refineCmd)
+          (progDesc "Fill a checked-out hole AND spawn new contracted sub-holes it calls (cascading decomposition)"))
       <> command "replay" (info (helper <*> replayCmd)
           (progDesc "Replay an event log against a compiled program"))
       <> command "replay-artifact" (info (helper <*> (CmdReplayArtifact <$> strArgument (metavar "ARTIFACT" <> help "Path to a proof-artifact JSON file")))
@@ -353,6 +356,10 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
       <*> strArgument (metavar "PATCH" <> help "Path to patch-request.json")
 
+    refineCmd = CmdRefine
+      <$> strArgument (metavar "FILE" <> help "Path to .ast.json source file")
+      <*> strArgument (metavar "REFINE" <> help "Path to refine-request.json (fill H + spawn contracted sub-holes)")
+
     replayCmd = CmdReplay
       <$> strArgument (metavar "FILE" <> help "Path to .llmll source file")
       <*> strArgument (metavar "LOG" <> help "Path to .event-log.jsonl file")
@@ -400,6 +407,7 @@ main = do
     CmdCheckoutStatus fp tok      -> doCheckoutStatusCmd json fp (T.pack tok)
     CmdDivergeReport fp session   -> doDivergeReport json gm fp (T.pack session)
     CmdPatch fp patchFp           -> doPatch json gm fp patchFp
+    CmdRefine fp patchFp          -> doRefine json gm fp patchFp
     CmdReplay fp logFp            -> doReplay json gm fp logFp
     CmdSpec jsonOut               -> doSpec jsonOut
     CmdVersion                    -> doVersion json
@@ -2223,7 +2231,15 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
 -- ---------------------------------------------------------------------------
 
 doPatch :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
-doPatch _json gm fp patchFp = do
+doPatch = doPatchWith ScopeNormal
+
+-- | cascading: `refine` runs the patch lifecycle under the relaxed refine scope
+-- (fill H + spawn fresh contracted sub-holes the fill references).
+doRefine :: Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
+doRefine = doPatchWith ScopeRefine
+
+doPatchWith :: PatchScopeMode -> Bool -> GrammarMode -> FilePath -> FilePath -> IO ()
+doPatchWith scopeMode _json gm fp patchFp = do
   ok <- guardJsonFile fp
   unless ok exitFailure
   -- Read and parse patch request
@@ -2238,11 +2254,71 @@ doPatch _json gm fp patchFp = do
           hPutStrLn stderr $ "Error parsing patch request: " ++ T.unpack err
           exitFailure
         Right pr -> do
-          result <- applyPatch gm fp pr
-          BLC.putStrLn (encode result)
-          case result of
-            PatchSuccess _ -> exitSuccess
-            _              -> exitFailure
+          -- cascading Stage 4: gate the spawned sub-contracts before applying (refine only).
+          gate <- case scopeMode of
+                    ScopeRefine -> refineGate gm fp pr
+                    ScopeNormal -> pure (Right ())
+          case gate of
+            Left gerr -> do
+              BLC.putStrLn (encode (PatchApplyError gerr))
+              exitFailure
+            Right () -> do
+              result <- applyPatchWithMode scopeMode gm fp pr
+              BLC.putStrLn (encode result)
+              case result of
+                PatchSuccess _ -> exitSuccess
+                _              -> exitFailure
+
+-- | cascading Stage 4: the contract-quality GATE run before a `refine` applies.
+-- Rejects a refine whose spawned sub-contract is vacuous — a contract most generic
+-- candidates satisfy discriminates nothing, so the invented decomposition would be
+-- hollow. CDP is contract-based (it scores a CONTRACT by synthesizing candidate
+-- bodies), so it runs on an unfilled `?body` G. Graceful skip when no solver is
+-- installed, matching 'reVerify'.
+refineGate :: GrammarMode -> FilePath -> PatchRequest -> IO (Either T.Text ())
+refineGate gm fp pr = do
+  raw <- BL.readFile fp
+  case A.decode raw of
+    Nothing     -> pure (Right ())
+    Just srcVal ->
+      case (parseJSONASTValue gm srcVal, applyOps (prPatch pr) srcVal) of
+        (Right srcStmts, Right patchedVal) ->
+          case parseJSONASTValue gm patchedVal of
+            Left _      -> pure (Right ())   -- parse/type errors surface later in re-typecheck
+            Right stmts -> do
+              let nameOf s     = fmap (\(n,_,_,_,_) -> n) (normalizeDefStmt s)
+                  srcNames     = [ n | s <- srcStmts, Just n <- [nameOf s] ]
+                  spawnedNames = [ n | s <- stmts, Just n <- [nameOf s], n `notElem` srcNames ]
+                  isTypeDefS s = case s of STypeDef{} -> True; _ -> False
+                  gateStmts    = [ s | s <- stmts
+                                     , isTypeDefS s || maybe False (`elem` spawnedNames) (nameOf s) ]
+              if null spawnedNames then pure (Right ()) else do
+                mLF <- do a <- findExecutable "liquid-fixpoint"
+                          maybe (findExecutable "fixpoint") (pure . Just) a
+                case mLF of
+                  Nothing    -> pure (Right ())   -- no solver → skip (graceful)
+                  Just lfBin -> do
+                    results <- computeCDPFor gm CDPScopeAllDefLogic
+                                 (checkCDPCandidate lfBin [ s | s <- gateStmts, isTypeDefS s ])
+                                 Map.empty gateStmts
+                    -- Vacuity signal: a TRIVIAL (identity/constant) body satisfies the
+                    -- invented contract → it discriminates no real implementation. This is
+                    -- the principled CDP signal (WarnIdentity/ConstSatisfiesPost); the raw
+                    -- satisfying-fraction is unreliable on an unfilled G (CDP needs the
+                    -- function's own verification status to disambiguate tight-vs-inconsistent).
+                    let isTrivialSat WarnIdentitySatisfiesPost = True
+                        isTrivialSat WarnConstSatisfiesPost    = True
+                        isTrivialSat _                          = False
+                        vac = [ n | (n, r) <- Map.toList results
+                                  , n `elem` spawnedNames
+                                  , any isTrivialSat (cdpWarnings r) ]
+                    case vac of
+                      (n:_) -> pure $ Left $
+                        "refine gate: spawned sub-contract '" <> n <> "' is vacuous \8212 a "
+                        <> "trivial (identity/constant) body already satisfies it, so it "
+                        <> "discriminates no real implementation; strengthen the contract"
+                      [] -> pure (Right ())
+        _ -> pure (Right ())
 
 -- ---------------------------------------------------------------------------
 -- v0.3: contract extraction helper (used by doVerify)
