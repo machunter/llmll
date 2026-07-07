@@ -51,7 +51,8 @@ classifyGuardM env sortEnv (EVar v) =
   let renamed = fromMaybe v (Map.lookup v env)
   in case Map.lookup renamed sortEnv of
        Just FQInt  -> return (Just (FQVar renamed))
-       _           -> return Nothing  -- non-int or unknown → fallback
+       Just FQBool -> return (Just (FQVar renamed))  -- BOOL-FRAG: bool var as a guard atom (path-split on b / ¬b)
+       _           -> return Nothing  -- non-scalar or unknown → fallback
 
 classifyGuardM _ _ (ELit (LitBool True))  = return (Just FQTrue)
 classifyGuardM _ _ (ELit (LitBool False)) = return (Just FQFalse)

@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.13)
+# LLMLL: Large Language Model Logical Language (v0.14.14)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.13.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.14.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -271,7 +271,7 @@ All four preconditions are load-bearing:
 3. **No trusted FFI or opaque primitive.** Functions reaching crypto stubs (§13.11) or other `asserted`-tier dependencies do not satisfy the precondition.
 4. **`erBodyFallback` and `erOverflowTainted` are not set, and the body VC is not refuted.** The overflow-taint mechanism (`Syntax.hs`) marks overflow-tainted verified evidence; a body-faithful function whose VC the solver reports UNSAFE is *refuted* (§4.4) and assigns no `verified` evidence. `--strict-verified-core` refuses all three.
 
-**Operational enforcement.** `--strict-verified-core` is the operational embodiment of this statement. The strict-tier admissibility set is the *closure under composition*: a function fails admission if any callee in its transitive call graph has `erBodyFallback = True`, `erOverflowTainted = True`, a **refuted** body VC (solver UNSAFE), or an `asserted`-tier dependency. The solver-verdict conjunct is a *side condition*, not a quantifier over solver runs, precisely because body-faithful VCs are confined to `Σ_auto` — QF-LIA, the measure class (a decidable local theory extension, §5.3.3), and the **acyclic datatype theory** (decidable per Barrett–Shikanian–Tinelli; combined with QF-LIA by polite-theory combination) — each of which is decidable, so "SAFE" is a decidable predicate on the fixed VC. The clean formulation degrades to run-dependence only if a VC outside `Σ_auto` (e.g. a recursive datatype, were the `admissibleDatatype` firewall bypassed) were admitted to the body-faithful tier. The formal derivation of the compositional closure is the erasure theorem (§3.4.5, Theorem B); its standing hypothesis is the discharged-VC-set ("all body VCs SAFE") in the VCgen/Hoare sense.
+**Operational enforcement.** `--strict-verified-core` is the operational embodiment of this statement. The strict-tier admissibility set is the *closure under composition*: a function fails admission if any callee in its transitive call graph has `erBodyFallback = True`, `erOverflowTainted = True`, a **refuted** body VC (solver UNSAFE), or an `asserted`-tier dependency. The solver-verdict conjunct is a *side condition*, not a quantifier over solver runs, precisely because body-faithful VCs are confined to `Σ_auto` — QF-LIA, the measure class (a decidable local theory extension, §5.3.3), the **acyclic datatype theory** (decidable per Barrett–Shikanian–Tinelli; combined with QF-LIA by polite-theory combination), and the **Bool sort** (a native `bool` value — parameter, result, refinement atom, or `if`-condition — for which `QF-LIA + Bool` is decidable; `float`/`string`/`unit` stay outside, `float` rejected inside int predicates and `string` measure-only) — each of which is decidable, so "SAFE" is a decidable predicate on the fixed VC. The clean formulation degrades to run-dependence only if a VC outside `Σ_auto` (e.g. a recursive datatype, were the `admissibleDatatype` firewall bypassed) were admitted to the body-faithful tier. The formal derivation of the compositional closure is the erasure theorem (§3.4.5, Theorem B); its standing hypothesis is the discharged-VC-set ("all body VCs SAFE") in the VCgen/Hoare sense.
 
 **Out-of-process-agent carve-out.** Values introduced by `?delegate` / `?delegate-async` / `?scaffold` holes are not checked-introduction sites — they arrive from out-of-process agents and fall under the trust tier per §4.4. The soundness statement does not extend to them.
 
@@ -941,7 +941,7 @@ For an obligation whose predicate uses only `Σ_auto` symbols, liquid-fixpoint/Z
 
 #### 5.3.4 Body-Faithful Verification
 
-The `.fq` emitter now encodes function bodies as verification conditions for functions in the decidable `Σ_auto` fragment (QF-LIA + measure + acyclic-datatype, §5.3.3). For a function with postcondition Q, precondition P, and body B, the emitter generates constraints of the form:
+The `.fq` emitter now encodes function bodies as verification conditions for functions in the decidable `Σ_auto` fragment (QF-LIA + measure + acyclic-datatype + Bool, §5.3.3). For a function with postcondition Q, precondition P, and body B, the emitter generates constraints of the form:
 
 ```
 P ∧ (result = ⟦B⟧) ⟹ Q

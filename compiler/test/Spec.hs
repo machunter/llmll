@@ -5614,11 +5614,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           _ -> expectationFailure "expected second call to use counter 1"
 
     describe "SortEnv rejection" $ do
-      it "EVar for non-int param returns Nothing" $ do
+      it "EVar for a carrier (non-scalar) param returns Nothing (BOOL-FRAG: bool is now a scalar)" $ do
         let body = EVar "s"
-            se = Map.fromList [("s", FQBool)]
+            se = Map.fromList [("s", FQStr)]  -- opaque string carrier stays out of the fragment
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Nothing
+
+      it "EVar for a bool param returns the bool atom (BOOL-FRAG)" $ do
+        let body = EVar "b"
+            se = Map.fromList [("b", FQBool)]
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        result `shouldBe` Just (SimpleVC [] (FQVar "b"))
 
       it "EVar for unknown param returns Nothing" $ do
         let body = EVar "unknown"
@@ -5753,6 +5759,39 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFallback er `shouldSatisfy` elem "f"
         let fq = erFQText er
         fq `shouldSatisfy` T.isInfixOf "constant listLen : (func(0 , [Lst; int]))"
+
+    -- BOOL-FRAG: `bool` is a native SMT sort (FQBool) admitted to the body-faithful
+    -- fragment (Σ_auto) as a translatable scalar alongside int — a bool param, a
+    -- bool-conditioned `if`, and a bool atom in a predicate verify body-faithful
+    -- instead of falling back to contract-only. Emission-based (solver not invoked;
+    -- refute is probe-verified against the binary).
+    describe "BOOL-FRAG (bool in the body-faithful fragment)" $ do
+      let emitB src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "BOOL-1 bool param + bool-if + bool-atom-mixed-with-int post is body-faithful" $ do
+        er <- emitB "(def gate-mac [n: int mac_ok: bool] -> int (pre (>= n 0)) (post (and (>= result 0) (and (<= result n) (or (<= result 0) mac_ok)))) (if mac_ok n 0))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "gate-mac"
+        erBodyFallback er    `shouldNotSatisfy` elem "gate-mac"
+        erFQText er          `shouldSatisfy` T.isInfixOf "mac_ok"  -- bool threaded, not skolem-dropped
+
+      it "BOOL-2 the (= b true) surface form is body-faithful" $ do
+        er <- emitB "(def gate-mac [n: int mac_ok: bool] -> int (pre (>= n 0)) (post (and (>= result 0) (and (<= result n) (or (<= result 0) (= mac_ok true))))) (if (= mac_ok true) n 0))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "gate-mac"
+
+      it "BOOL-3 bool return type with a bare bool-var body is body-faithful" $ do
+        er <- emitB "(def verified? [mac_ok: bool] -> bool (post (or (not result) mac_ok)) mac_ok)"
+        erBodyFaithfulFns er `shouldSatisfy` elem "verified?"
+
+      it "BOOL-4 a body ignoring the bool param stays body-faithful (in-fragment → solver refutes, not vacuous)" $ do
+        er <- emitB "(def gate-mac [n: int mac_ok: bool] -> int (pre (>= n 0)) (post (and (>= result 0) (and (<= result n) (or (<= result 0) mac_ok)))) n)"
+        erBodyFaithfulFns er `shouldSatisfy` elem "gate-mac"
+        erFQText er          `shouldSatisfy` T.isInfixOf "mac_ok"
+
+      it "BOOL-5 int-0/1 gate stays body-faithful (no regression from admitting bool)" $ do
+        er <- emitB "(def gate-mac [n: int mac_ok: int] -> int (pre (and (>= n 0) (or (= mac_ok 0) (= mac_ok 1)))) (post (and (>= result 0) (and (<= result n) (or (<= result 0) (= mac_ok 1))))) (if (= mac_ok 1) n 0))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "gate-mac"
 
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
@@ -6812,10 +6851,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let result = evalState (classifyGuardM emptyRename intEnv (EVar "x")) 0
       result `shouldBe` Just (FQVar "x")
 
-    it "GC-2: rejects non-int variable" $ do
-      let se = Map.fromList [("s", FQBool)] :: Map.Map T.Text FQSort
+    it "GC-2: rejects a carrier (non-scalar) variable (BOOL-FRAG: bool is now accepted)" $ do
+      let se = Map.fromList [("s", FQStr)] :: Map.Map T.Text FQSort
       let result = evalState (classifyGuardM emptyRename se (EVar "s")) 0
       result `shouldBe` Nothing
+
+    it "GC-2b: classifies a bool variable as its atom (BOOL-FRAG)" $ do
+      let se = Map.fromList [("b", FQBool)] :: Map.Map T.Text FQSort
+      let result = evalState (classifyGuardM emptyRename se (EVar "b")) 0
+      result `shouldBe` Just (FQVar "b")
 
     it "GC-3: rejects unknown variable" $ do
       let result = evalState (classifyGuardM emptyRename intEnv (EVar "unknown")) 0

@@ -4,6 +4,31 @@
 
 <a id="Latest"></a>
 
+## v0.14.14 — bool in the body-faithful fragment (2026-07-07)
+
+### Verification — `bool` admitted to `Σ_auto`
+
+- **A native `bool` value now verifies body-faithful** — a `bool` parameter, result, refinement atom,
+  or `if`-condition — instead of dropping the carrying function to contract-only (`erBodyFallback`).
+  The root was `isIntLike` returning `False` for `TBool`, so a `bool` param never entered the sort
+  environment and any body/contract reference to it fell out of the fragment; the sort infrastructure
+  (`FQBool`, `emitSort`, `typeToSort TBool`) already existed.
+- **Fix:** `isScalarLike = isIntLike ∨ isBoolLike` at the two sort-env sites, plus a `bool`-atom case
+  in `classifyGuardM` (a bare `bool` `if`-guard) and in `bodyToPredM`'s bare-`EVar` clause. The
+  contract/post translator already mapped `EVar → FQVar` and `LitBool → FQTrue/FQFalse`, so no new
+  atom-emission code was required. `QF-LIA + Bool` is decidable — a fourth `Σ_auto` component alongside
+  QF-LIA / the measure class / the acyclic-datatype theory (§5.3.3).
+- **Scope boundary unchanged:** `float`/`string`/`unit` remain outside the body-faithful fragment —
+  `float` is TypeCheck-rejected inside integer predicates, `string` stays measure-only; `(+ b 1)` on a
+  `bool` is a TypeCheck error, not a VC coercion.
+- **Follow-on:** the flagship gate examples and the cascade leaves can now drop the `int`-0/1 boolean
+  disguise (and the `(or (= x 0) (= x 1))` domain preconditions) for real `bool`.
+
+**Tests: 1064 → 1071 Haskell, 45 Python (unchanged).** Seven new `BOOL-FRAG` cases: the positive
+witness (a `bool`-gated function goes body-faithful), the refute (a body ignoring its `bool` param
+fails — `bool` is reasoned about, not skolem-dropped), the `(= b true)` surface form, a `bool` return,
+a `bool` `let`-binding, and the scope-boundary assertions (`FQBool` accepted, `FQStr` still `Nothing`).
+
 ## v0.14.13 — Cascading refine op + CDP vacuity gate; cycle-verification spec reconciliation (2026-07-06)
 
 ### Orchestration — the `refine` op (cascading decomposition)

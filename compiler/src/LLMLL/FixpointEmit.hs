@@ -500,7 +500,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                                 , contractPost = dsAll <$> contractPost contractAug }
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
-  let intParams = [ (n, t) | (n, t) <- params, isIntLike aliases t ]
+  let intParams = [ (n, t) | (n, t) <- params, isScalarLike aliases t ]
   -- NIW (v0.12): non-int params used as measure arguments get an opaque carrier
   -- binder so (strLen s) / (listLen xs) resolve to an in-scope symbol. Scoped to
   -- genuinely-used measure args (scan of contract + body) so measure-free
@@ -927,6 +927,20 @@ isIntLike am (TCustom n)           = case Map.lookup n am of
 -- env as FQInt. Payload-bearing sum types stay non-int (→ asserted fallback).
 isIntLike _  (TSumType ctors)      = all (\(_, mp) -> case mp of Nothing -> True; Just _ -> False) ctors
 isIntLike _  _                     = False
+
+-- | Is a type a bool after resolving aliases? (BOOL-FRAG: bool is a native SMT sort.)
+isBoolLike :: AliasMap -> Type -> Bool
+isBoolLike _  TBool                 = True
+isBoolLike am (TDependent _ base _) = isBoolLike am base
+isBoolLike am (TCustom n)           = maybe False (isBoolLike am) (Map.lookup n am)
+isBoolLike _  _                     = False
+
+-- | Translatable SCALAR types in the body-faithful fragment (Σ_auto): int-like OR bool.
+-- BOOL-FRAG: a bool param/binder gets FQBool via typeToSort and is reasoned about
+-- natively (QF-LIA + Bool, decidable). Used only at the sort-env sites; isIntLike stays
+-- pure for the int-only decisions (measure carriers, etc.).
+isScalarLike :: AliasMap -> Type -> Bool
+isScalarLike am t = isIntLike am t || isBoolLike am t
 
 -- | PAIR-RET: does the module use pairs anywhere a Pair2 sort/term would be emitted?
 -- Checks each def-form's signature for a (transitive) pair type AND walks its contract
@@ -1601,8 +1615,9 @@ bodyToPredM _ _ _ _ (EVar v)
 bodyToPredM env sortEnv _ _ (EVar v) =
   let renamed = fromMaybe v (Map.lookup v env)
   in case Map.lookup renamed sortEnv of
-       Just FQInt -> return (Just (SimpleVC [] (FQVar renamed)))
-       _          -> return Nothing  -- non-int or unknown sort → fallback
+       Just FQInt  -> return (Just (SimpleVC [] (FQVar renamed)))
+       Just FQBool -> return (Just (SimpleVC [] (FQVar renamed)))  -- BOOL-FRAG: bare bool var body
+       _           -> return Nothing  -- non-scalar or unknown sort → fallback
 
 -- v0.9.0: User-defined function call with contract (COMP-0 §2, §3)
 -- Issue 4 resolution: SCC guard REMOVED. Callers of recursive functions
@@ -2433,7 +2448,7 @@ predSortOf (FQApp _ _)       = FQInt  -- NIW: measures are integer-valued
 -- v0.8.0: uses isIntLike with alias map to resolve type aliases.
 buildSortEnv :: AliasMap -> [(Name, Type)] -> SortEnv
 buildSortEnv aliases params = Map.fromList
-  [ (n, typeToSort t) | (n, t) <- params, isIntLike aliases t ]
+  [ (n, typeToSort t) | (n, t) <- params, isScalarLike aliases t ]
 
 -- ---------------------------------------------------------------------------
 -- Operator lookup tables (v0.8.0, v0.10: moved to GuardClassifier.hs)
