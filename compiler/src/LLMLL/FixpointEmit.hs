@@ -530,8 +530,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     let envIds = map bindId paramBinds
 
     -- Emit qualifiers extracted from pre/post
-    let preQuals  = maybe [] (extractQualifiers "pre"  name) (contractPre contract)
-        postQuals = maybe [] (extractQualifiers "post" name) (contractPost contract)
+    -- BOOL-FRAG (v0.14.15): qualifier params must carry their REAL sort. A bool
+    -- var emitted as `int` makes `(not b)` an ill-sorted `not` over int, which
+    -- crashes liquid-fixpoint ("free vars [not]"); and/or survive by coercion but
+    -- not does not. Sort result + params from the signature; others default int.
+    let qualSortMap = Map.fromList $
+          ("result", maybe FQInt (typeToSortA aliases) mRet)
+          : [ (pn, typeToSortA aliases pt) | (pn, pt) <- params ]
+        preQuals  = maybe [] (extractQualifiers qualSortMap "pre"  name) (contractPre contract)
+        postQuals = maybe [] (extractQualifiers qualSortMap "post" name) (contractPost contract)
     addQuals (preQuals ++ postQuals)
 
     -- Emit standalone pre-condition constraint (legacy, non-body-VC mode only)
@@ -1418,8 +1425,8 @@ exprToPred _ = Nothing  -- lambda, let, match, etc. → not in QF linear arith
 
 -- | Extract qualifiers from an expression (auto-synthesis from pre/post).
 -- Each atomic comparison at the top level becomes a qualifier template.
-extractQualifiers :: Text -> Name -> Expr -> [FQQualifier]
-extractQualifiers clause fnName expr =
+extractQualifiers :: Map Text FQSort -> Text -> Name -> Expr -> [FQQualifier]
+extractQualifiers sortMap clause fnName expr =
   case exprToPred expr of
     Nothing   -> []  -- non-linear, no qualifiers
     Just pred
@@ -1428,18 +1435,20 @@ extractQualifiers clause fnName expr =
       -- ("Qualifier with free vars"). Qualifiers are optional inference hints;
       -- skipping is sound (the constraint still checks the post).
       | not (Set.null (appNames pred `Set.difference` Set.fromList ["strLen", "listLen"])) -> []
-      | otherwise -> atomicQualifiers fnName clause pred
+      | otherwise -> atomicQualifiers sortMap fnName clause pred
 
-atomicQualifiers :: Name -> Text -> FQPred -> [FQQualifier]
-atomicQualifiers fn clause pred =
+-- BOOL-FRAG (v0.14.15): sortMap carries each var's real FQSort (result + params);
+-- a var absent from it defaults to FQInt (unchanged behavior for int-only preds).
+atomicQualifiers :: Map Text FQSort -> Name -> Text -> FQPred -> [FQQualifier]
+atomicQualifiers sortMap fn clause pred =
   case pred of
     FQBinPred op l r ->
       let vars = nubT (predVars l ++ predVars r)
-          params = map (\v -> (v, FQInt)) ("v" : vars)
+          params = map (\v -> (v, Map.findWithDefault FQInt v sortMap)) ("v" : vars)
           qname  = "Q_" <> fn <> "_" <> clause <> "_" <> T.pack (show (hashPred pred))
       in [FQQualifier qname params pred]
-    FQAnd ps -> concatMap (atomicQualifiers fn clause) ps
-    FQOr  ps -> concatMap (atomicQualifiers fn clause) ps
+    FQAnd ps -> concatMap (atomicQualifiers sortMap fn clause) ps
+    FQOr  ps -> concatMap (atomicQualifiers sortMap fn clause) ps
     _ -> []
 
 predVars :: FQPred -> [Text]

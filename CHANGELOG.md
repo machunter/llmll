@@ -4,6 +4,21 @@
 
 <a id="Latest"></a>
 
+## v0.14.15 — fix: bool value-op in body-return position (2026-07-07)
+
+### Verification — bug fix
+
+- **`(not b)` (and any `not` applied to a `bool` value) in a body/return position no longer crashes
+  liquid-fixpoint** — a regression introduced by v0.14.14. `not` is valid only in *predicate* position
+  in the fixpoint grammar (unlike `&&`/`||`, which are tolerated as expression operands), so
+  `result = (not b)` leaked `not` as a free symbol (`Constraint with free vars [not]`).
+- **Fix:** `emitPred` rewrites `X = ¬Y` to `X ≠ Y` — a valid two-valued-boolean equivalence, sound
+  because `not` on an `int` is TypeCheck-rejected so an `FQNot` operand of `=`/`≠` is always `bool` —
+  collapsing nested `not`. Qualifier parameters now also carry their real sorts instead of a hardcoded
+  `int`. `not`-value bodies and two-bool-variable equality `(= b1 b2)` now verify body-faithful.
+
+**Tests:** 1073 Haskell, 0 failures.
+
 ## v0.14.14 — bool in the body-faithful fragment (2026-07-07)
 
 ### Verification — `bool` admitted to `Σ_auto`

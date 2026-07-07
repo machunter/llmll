@@ -5793,6 +5793,29 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         er <- emitB "(def gate-mac [n: int mac_ok: int] -> int (pre (and (>= n 0) (or (= mac_ok 0) (= mac_ok 1)))) (post (and (>= result 0) (and (<= result n) (or (<= result 0) (= mac_ok 1))))) (if (= mac_ok 1) n 0))"
         erBodyFaithfulFns er `shouldSatisfy` elem "gate-mac"
 
+      -- BOOL-6/7 (v0.14.15): fixpoint accepts `not` only in predicate position; `result
+      -- = (not b)` emitted `(result = ((not b)))` — `not` as an operand of `=` — which
+      -- liquid-fixpoint rejected as a free var ("Constraint with free vars [not]"), a
+      -- CRASH (not a false-SAFE) that emission tests miss because they don't run fixpoint.
+      -- The fix pushes the negation through the (dis)equality (X = ¬Y ⟺ X ≠ Y), so the
+      -- emitted .fq must carry no `(not ` inside an equality operand. `and`/`or` values
+      -- were tolerated by fixpoint and are unaffected.
+      it "BOOL-6 (not b) bool-value body is body-faithful and emits no `not` in an equality operand (was a fixpoint crash pre-v0.14.15)" $ do
+        er <- emitB "(def negate-bit [b: bool] -> bool (post (= result (not b))) (not b))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "negate-bit"
+        erBodyFallback er    `shouldNotSatisfy` elem "negate-bit"
+        -- straight-line body (no `if` path guard) → the ONLY `not` was the `=` operand,
+        -- now pushed through to `/=`; a regression reintroduces `(not ` and the crash.
+        erFQText er          `shouldNotSatisfy` T.isInfixOf "(not "  -- the crashing form is gone
+        erFQText er          `shouldSatisfy`    T.isInfixOf "/="      -- flipped to disequality (FQNeq)
+
+      it "BOOL-7 (= b1 b2) two-bool-var equality is body-faithful (professor's flagged shape)" $ do
+        er <- emitB "(def bools-equal [a: bool b: bool] -> bool (post (= result (= a b))) (if a b (not b)))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "bools-equal"
+        -- the else-branch body `(not b)` in a result-equation flips to `/=`; the surviving
+        -- `(not a)` is the `if` PATH GUARD (predicate position — fixpoint accepts it).
+        erFQText er          `shouldSatisfy`    T.isInfixOf "/="
+
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
     -- an uppercase identifier) and whose constructors use `| ctor { }` syntax.

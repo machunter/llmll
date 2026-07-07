@@ -224,6 +224,15 @@ emitPred FQTrue               = "true"
 emitPred FQFalse              = "false"
 emitPred (FQVar v)            = sanitizeFQId v
 emitPred (FQLit n)            = T.pack (show n)
+-- BOOL-FRAG (v0.14.15): fixpoint accepts `not` only in predicate position, not as an
+-- operand of (=)/(!=) — `result = (not b)` crashes ("free vars [not]") while &&/|| are
+-- tolerated there. For bools, X = ¬Y ⟺ X ≠ Y, so push the negation through the
+-- (dis)equality; this recurses, so nested `not`s collapse. `not` on an int is ill-typed
+-- (TypeCheck rejects), so a FQNot operand of (=)/(!=) is always bool → the flip is sound.
+emitPred (FQBinPred FQEq  l (FQNot r)) = emitPred (FQBinPred FQNeq l r)
+emitPred (FQBinPred FQEq  (FQNot l) r) = emitPred (FQBinPred FQNeq l r)
+emitPred (FQBinPred FQNeq l (FQNot r)) = emitPred (FQBinPred FQEq  l r)
+emitPred (FQBinPred FQNeq (FQNot l) r) = emitPred (FQBinPred FQEq  l r)
 emitPred (FQBinPred op l r)   = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
 emitPred (FQBinArith op l r)  = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
 emitPred (FQAnd [])           = "true"
