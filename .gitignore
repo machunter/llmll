@@ -51,3 +51,6 @@ tools/llmll-orchestra/.env
 
 # asciinema demo recordings (regenerate via examples/leanstral-demo/demo.sh)
 *.cast
+
+# ctags index (editor-local, regenerated)
+tags
