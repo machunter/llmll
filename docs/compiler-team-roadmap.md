@@ -211,34 +211,24 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 > orchestrator), R8 (incremental re-verify). Standing rule: the `checkout` brief is the sole information
 > channel to a hole-filling agent (no forced failures, no hints).
 
-## Future — Cross-Module Assume-Guarantee (unversioned)
+## Cross-Module Assume-Guarantee — SHIPPED v0.14.17
 
-> **Body-faithful verification across `import` boundaries.** Today a function that calls an
-> **imported** contracted function falls back to contract-only (`erBodyFallback`) — it loses the
-> `verified` tier — while the identical same-file call stays body-faithful (spike, v0.14.16: the
-> identical `deliver-plaintext` is body-faithful in one file, `body-fallback` across modules;
-> `--strict-verified-core` passes the concatenated 163-fn flagship but hard-errors the module
-> split). Root cause is a **plumbing gap**: the imported contracts (`ModuleEnv.meContracts`) exist
-> in the exact `ContractEnv` shape and are used for type-checking, but never reach the body-VC
-> emitter (`emitFixpointWith` gets entry-file statements only, `Main.hs` `doVerify`). Seed `cenv`
-> from the import cache and the *identical* assume-guarantee VC discharges across the boundary — no
-> new obligation, no new fragment; tier rides the §5.3.4 meet instead of collapsing to fallback.
-> **Consequence:** a program can be split into real `(import)`-linked modules **and** stay
-> `verified` — the prerequisite for a *modular flagship* (the 163-fn secure-channel is
-> concatenated-into-one-file precisely because splitting it downgrades every cross-module composer
-> and breaks `--strict-verified-core`). Design (settled, professor-reviewed):
-> [`docs/design/cross-module-assume-guarantee-proposal.md`](design/cross-module-assume-guarantee-proposal.md)
-> (Rev 1). **Not shipped.** `[LT→CT]` ready for compiler-engineer.
-
-> **Soundness — clean corollary (professor-confirmed):** module import cycles are a hard error
-> (`Module.hs:147`), so the import graph is always acyclic → cross-module assume-guarantee is the
-> canonical modular-verification composition (topological, no fixpoint argument — contrast the
-> intra-module function-cycle case, [`cycle-verification-finding.md`](design/cycle-verification-finding.md),
-> where `def-shell` permits cycles → partial correctness). **One BLOCKING acceptance criterion:**
-> transitive imported-sidecar **staleness validation** ships in the same change (a `verified` caller
-> on a *stale* imported `verified` would be false); open sub-decision — hard-error vs silent
-> tier-downgrade on a stale import. The refinement-aliased-param case (`xmod-alias`) is a fail-closed
-> second cause (alias map must also seed from imports) — completeness follow-on, not a blocker.
+> Body-faithful verification across `import` boundaries. A function calling an **imported**
+> contracted function now verifies body-faithful (assume-guarantee against the imported contract;
+> the imported *body* is never re-verified) and stays `verified` under `--strict-verified-core`,
+> instead of falling back to contract-only — the prerequisite for a *modular flagship*. Shipped by
+> seeding the body-VC `ContractEnv` from the module cache (`emitFixpointWithCache`, dual-keyed bare
+> + qualified, desugared against one merged alias map for cross-boundary ctor-tag coherence). The
+> cross-module tier meet and the transitive imported-sidecar staleness check were already in place
+> (XMOD-TIER, v0.10-era); this added only the body-VC side. Import cycles are a hard error, so the
+> composition is acyclic (topological, no fixpoint argument). Design of record:
+> [`cross-module-assume-guarantee-proposal.md`](design/cross-module-assume-guarantee-proposal.md)
+> (Rev 1, settled + shipped); see [`CHANGELOG.md §v0.14.17`](../CHANGELOG.md).
+>
+> **Follow-ons (not blockers):** the refinement-aliased-param case (`xmod-alias`, edge case 5 —
+> the alias map must also seed refinement aliases from imports) is a fail-closed completeness
+> follow-on; cross-module ADT identity is nominal-by-name (inherited **MOD-5** limitation — the
+> structural interface check remains unshipped).
 
 ## Research track (no v0.x targets, no Active Items rows)
 
@@ -304,6 +294,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 
 | Version | Headline | Date | Tests | Detail |
 |---------|----------|------|-------|--------|
+| **v0.14.17** | Body-faithful cross-module assume-guarantee (XMOD-AG) — a caller of an `import`-ed contracted function verifies body-faithful (assume-guarantee against the imported contract; the imported body is never re-verified) instead of falling back to contract-only, so a program can be split into `import`-linked modules and stay `verified` under `--strict-verified-core`. Body-VC `ContractEnv` seeded from the module cache (`emitFixpointWithCache`, dual-keyed bare + qualified; imported contracts desugared against one merged local-wins alias map so nullary-ctor tags stay coherent across the boundary — retires dead `buildContractEnvWithImports`). The cross-module tier meet + transitive imported-sidecar staleness were already in place (XMOD-TIER, v0.10-era); this adds only the body-VC side. MOD-5 nominal ADT identity inherited (unshipped structural check); `xmod-alias` refinement-param case a fail-closed follow-on; no schema change | 2026-07-08 | 1084 H + 45 Py | `CHANGELOG.md §v0.14.17` |
 | **v0.14.12** | MATCH-WIDEN — mixed nullary/payload two-arm sums, **nested** matches, and **scrutinee-constructor** postconditions now verify body-faithful. The arm discriminant changed from a free boolean guard to a free int-tag equality `(= <scrut>$tag k)` + range fact — a *conservative extension* (every existing sum-match verdict unchanged; stays QF-LIA, no datatype testers) — with a `desugarScrutCtor` pass rewriting `sig = Continue` → `sig$tag = k`, arm-declaration tags threaded so reordered arms don't false-refute, and a constructor post over an un-matched scrutinee falling back (no solver crash). Enables the flagship goto-fail (CVE-2014-1266) verification pipeline as **one body-faithful function** with real `Step`/`Verdict` sum types (`examples/gotofail/`). Remaining: sequential matches (two top-level matches in one body) still fall back — a self-contained follow-on; no schema change | 2026-07-06 | 1064 H + 45 Py | `CHANGELOG.md §v0.14.12` |
 | **v0.14.11** | Body-VC A-normalization — new `aNormalizeBody` pass lifts contracted calls out of argument / pair-component / if-condition positions into fresh `let` bindings before `bodyToPredM`, so nested/argument-position calls verify (`post: verified`) instead of silently falling back to `asserted` (or erroring under `--strict-verified-core`); identity on call-free-argument expressions (no perturbation of already-verified functions); DEMO-COMP §10 withdraw-twice fixture now surfaces its two call-pre origins; unblocks natural agent-written multi-function code for the flagship (`docs/design/flagship-secure-channel-proposal.md`); no schema/`trust_report_version` change | 2026-07-05 | 1064 H + 45 Py | `CHANGELOG.md §v0.14.11` |
 | **v0.14.10** | R5 concurrency-safe `diverge-report` — per-fill classification writes its fixpoint query to a unique `openTempFile` path instead of a fixed `/tmp/llmll-diverge-<fname>.fq`, closing a race when concurrent `diverge-report` processes classify a fill for the same function name (surfaced by the R5-at-scale campaign running cells in parallel; validated via the harness — 10 holes × 4 repeats × concurrency 6 → 100% stable); no schema/`trust_report_version` change | 2026-07-05 | 1064 H + 45 Py | `CHANGELOG.md §v0.14.10` |

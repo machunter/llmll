@@ -217,3 +217,20 @@ This completes verification plumbing only.
   validation must ship *in* this change. → folded as A3 + Soundness §3 + open question 3.
 - Refinement-aliased-param case is fail-closed → completeness follow-on, not a soundness
   blocker; must not hold up the primary fix.
+
+*Reviewed 2026-07-08 (implementation follow-on — cross-module constructor-tag coherence). Verdict: hazard confirmed, clean fix; shipped v0.14.17.*
+
+- **Tag-coherence subtlety (surfaced by the engineer's implementation homework, not in Rev 1).**
+  Desugaring an imported contract's nullary-enum constructor VALUES to int tags with the *imported*
+  module's tag map, while the caller's body uses the *entry* module's map, is unsound when the two
+  modules independently declare a same-named ADT with a different constructor order. It is reachable:
+  cross-module type identity is nominal-by-bare-name with structural checking explicitly deferred
+  (`TypeCheck.hs`, "nominal identity is future work; `compatibleWith` compares constructor names, not
+  structure" — the unshipped MOD-5 item), and alias merge is local-wins. **Fix (adopted):** build ONE
+  cache-aware, local-wins alias map (entry ∪ imported `STypeDef`s, matching `TypeCheck.seedAliases`)
+  and desugar BOTH the caller body and the imported contracts against it — tags coherent by
+  construction, and `buildCtorTagMap`'s "unambiguous only" guard fail-closes any residual clash. Do
+  **not** split the tag map per module (that split is where the unsoundness lives). This also closed
+  the imported-only-ADT crash gap (widen the emitter's alias map from entry-only). Orthogonal to the
+  A2/A3 tier confirmations — a translation-layer concern, upstream of the tier meet. The
+  nominal-by-name residue is a pre-existing MOD-5 limitation the feature inherits but does not widen.

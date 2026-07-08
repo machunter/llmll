@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.16)
+# LLMLL: Large Language Model Logical Language (v0.14.17)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.16.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.17.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -978,11 +978,13 @@ where `Q_{c_i}[r_i]` is callee `cᵢ`'s contract postcondition over its fresh re
 
 Recursive functions (detected via `stronglyConnComp` SCC analysis) are excluded from body VC emission for their own body, but non-recursive callers may still use assume-guarantee against their contracts; the chained rule assumes callee contract posts, never callee bodies, so it introduces no circularity within an SCC. A `let`-bound *non-call* value used in a later call's precondition is threaded into the chain context as its defining equality, filtered to the subset of bindings in scope at the call.
 
+**Cross-module callees.** An imported contracted callee is treated identically to a same-file one: its contract is seeded into the body-VC `ContractEnv` from the module cache (`emitFixpointWithCache`), so the caller proves the imported `pre` and assumes the imported `post` — the imported *body* is never re-verified. The caller is therefore **body-faithful across the `import` boundary**, with its tier riding the meet (§4.4) against the imported callee's tier (an imported `asserted` callee yields an `asserted` caller). Module import cycles are a hard error, so the import graph is acyclic and this is the ordinary compositional Hoare rule under a topological order — no fixpoint argument. Nullary-enum constructor values in an imported contract are desugared against the merged (entry ∪ imported) alias map, so their int tags agree with the caller's own body. Cross-module ADT identity is nominal-by-name (the unshipped MOD-5 structural check); this rides the type checker's resolution and does not widen that gap.
+
 **Path limit:** Functions with >4096 execution paths (from deeply nested `EIf`) fall back to contract-only verification with a diagnostic warning. This prevents solver timeouts while maintaining soundness.
 
 **Contract stripping:** `--contracts=unproven` strips postcondition runtime assertions for functions that are both `DLVerified` and body-faithful (`erBodyFaithful = True`). Preconditions are never stripped — body VCs prove postconditions, not preconditions. Functions that fall back to contract-only verification retain all runtime assertions regardless of proof status.
 
-**Strict verified core:** `--strict-verified-core` hard-errors if any function in the transitive call graph (a) falls back from body-faithful verification (`erBodyFallback`), (b) carries overflow-tainted verified evidence (`erOverflowTainted`), (c) is **refuted** — body-faithful but the solver reported its body VC UNSAFE (§4.4) — or (d) has an `asserted`-tier dependency. Conjunct (c) is transitive by assume-guarantee composition: a caller cannot be admitted on a postcondition the solver disproved, even when the caller's own VC is SAFE. Use this to enforce that all functions in a module are fully verified.
+**Strict verified core:** `--strict-verified-core` hard-errors if any function in the transitive call graph (a) falls back from body-faithful verification (`erBodyFallback`; a genuine `Σ_auto` escape — a merely cross-module call is body-faithful, not a fallback), (b) carries overflow-tainted verified evidence (`erOverflowTainted`), (c) is **refuted** — body-faithful but the solver reported its body VC UNSAFE (§4.4) — or (d) has an `asserted`-tier dependency. Conjunct (c) is transitive by assume-guarantee composition: a caller cannot be admitted on a postcondition the solver disproved, even when the caller's own VC is SAFE. Use this to enforce that all functions in a module are fully verified.
 
 
 
@@ -1001,7 +1003,7 @@ The following matrix documents the verification status of each syntax construct.
 | `ELet` (pattern/non-int RHS) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | `EIf` (int guards, ≤4096 paths) | ✅ | ✅ | ✅ | ✅ (path-split) | ✅ | — |
 | `EIf` (>4096 paths) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only + warning |
-| `EApp` (contracted callee, non-recursive) | ✅ | ✅ | ✅ | ✅ (assume-guarantee) | ✅ | — |
+| `EApp` (contracted callee, non-recursive, same-file or imported) | ✅ | ✅ | ✅ | ✅ (assume-guarantee) | ✅ | — |
 | `EApp` (uncontracted / recursive self) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
 | `EApp` (builtins: `string-length` etc.) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
 | `EMatch` two-arm sum (`Result`, or user ADT both arms single-payload) | ✅ | ✅ | ✅ | ✅ (two-path, any nesting; consumes payload refinement) | ✅ | — |

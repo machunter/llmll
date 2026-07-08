@@ -4,6 +4,35 @@
 
 <a id="Latest"></a>
 
+## v0.14.17 — body-faithful cross-module assume-guarantee (2026-07-08)
+
+### Verification — cross-module assume-guarantee (XMOD-AG)
+
+- **A caller of an `import`-ed contracted function now verifies body-faithful.** Previously a function
+  whose callee was imported fell back to contract-only (`erBodyFallback`) and lost the `verified` tier,
+  while the identical same-file call stayed body-faithful. The body-VC `ContractEnv` is now seeded with
+  the imported callees' contracts (`emitFixpointWithCache`), so the same assume-guarantee VC discharges
+  across the boundary — prove the imported callee's `pre`, assume its `post`; the imported *body* is
+  never re-verified. A program can be split into `import`-linked modules and stay `verified` under
+  `--strict-verified-core`.
+- **Tier still rides the §5.3.4 meet.** A caller of an imported `asserted`/`tested` function is
+  body-faithful but tier-`asserted` (not a fallback, not `verified`). The cross-module tier meet and the
+  transitive imported-sidecar staleness check were already in place (XMOD-TIER, v0.10-era); this release
+  adds only the body-VC side.
+- **Nullary-ctor tags stay coherent across the boundary.** Imported contracts are desugared against a
+  single cache-aware alias map (entry ∪ imported `STypeDef`s, local-wins) that matches the type
+  checker's nominal resolution, so a constructor value in an imported contract and the caller's own body
+  get the same int tag; `buildCtorTagMap`'s unambiguous-only guard fail-closes any residual clash. Dead
+  `buildContractEnvWithImports` retired in favor of `seedImportedContracts` (dual-keyed bare + qualified).
+- **Inherited limitation.** Cross-module ADT identity is nominal-by-name (`compatibleWith` compares
+  constructor names, not structure — the unshipped MOD-5 item); this feature rides the type checker's
+  existing resolution and does not widen that gap.
+- **No surface or schema change.** `import` / `open` / qualified calls already parsed and type-checked;
+  `schemaVersion` stays `0.7.0`. `emitFixpointWith` is now a thin empty-cache wrapper over
+  `emitFixpointWithCache`, so single-file `.fq` output is byte-identical.
+
+**Tests:** 1084 Haskell, 45 Python. (+6 cross-module body-faithful cases; flagship still 163/163 body-faithful.)
+
 ## v0.14.16 — implication sugar =>/<=> (2026-07-07)
 
 ### Surface — implication sugar
