@@ -8,5 +8,5 @@
 (type Verdict (| Verified) (| Rejected int))
 
 (def finalize [sig: Step payload: int] -> Verdict
-  (post (or (not (= result Verified)) (= sig Continue)))
+  (post (=> (= result Verified) (= sig Continue)))
   (match sig ((Continue) Verified) ((Abort c) Verified)))

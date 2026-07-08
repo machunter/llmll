@@ -37,11 +37,11 @@
   (post (>= result last_seq))
   (if (> incoming_seq last_seq) incoming_seq last_seq))
 
-;; Deliver plaintext ONLY if the MAC verified (result>0 -> mac_ok=1). [goto-fail class]
-(def deliver-len [mac_ok: int payload_len: int] -> int
-  (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (>= payload_len 0)))
-  (post (or (<= result 0) (= mac_ok 1)))
-  (if (= mac_ok 1) payload_len 0))
+;; Deliver plaintext ONLY if the MAC verified (result>0 => mac_ok). [goto-fail class]
+(def deliver-len [mac_ok: bool payload_len: int] -> int
+  (pre  (>= payload_len 0))
+  (post (=> (> result 0) mac_ok))
+  (if mac_ok payload_len 0))
 
 ;; Handshake state only advances, never downgrades. [downgrade / state-confusion]
 (def next-state [state: int step: int] -> int

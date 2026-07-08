@@ -23,32 +23,32 @@
   (post (and (>= result 0) (= result (- record_len overhead))))
   (- record_len overhead))
 
-(def gate-mac [n: int mac_ok: int] -> int
-  (pre  (and (>= n 0) (or (= mac_ok 0) (= mac_ok 1))))
+(def gate-mac [n: int mac_ok: bool] -> int
+  (pre  (>= n 0))
   ;; THE BUG: contract weakened — the "delivered => MAC verified" clause is gone.
   ;; The body below still satisfies THIS post, so gate-mac verifies in isolation.
   (post (and (>= result 0) (<= result n)))
-  (if (= mac_ok 1) n 0))
+  (if mac_ok n 0))
 
 (def gate-fresh [n: int last_seq: int incoming_seq: int] -> int
   (pre  (and (>= n 0) (and (>= last_seq 0) (>= incoming_seq 0))))
-  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (> incoming_seq last_seq)))))
+  (post (and (>= result 0) (and (<= result n) (=> (> result 0) (> incoming_seq last_seq)))))
   (if (> incoming_seq last_seq) n 0))
 
 (def gate-connected [n: int state: int] -> int
   (pre  (and (>= n 0) (>= state 0)))
-  (post (and (>= result 0) (and (<= result n) (or (<= result 0) (>= state 5)))))
+  (post (and (>= result 0) (and (<= result n) (=> (> result 0) (>= state 5)))))
   (if (>= state 5) n 0))
 
 (def-shell deliver-plaintext
-    [record_len: int overhead: int last_seq: int incoming_seq: int mac_ok: int state: int] -> int
+    [record_len: int overhead: int last_seq: int incoming_seq: int mac_ok: bool state: int] -> int
   (pre  (and (>= record_len 0) (and (>= overhead 0) (and (>= record_len overhead)
              (and (>= last_seq 0) (and (>= incoming_seq 0)
-             (and (or (= mac_ok 0) (= mac_ok 1)) (>= state 0))))))))
+             (>= state 0)))))))
   (post (and (>= result 0)
-        (and (or (<= result 0) (= mac_ok 1))
-        (and (or (<= result 0) (> incoming_seq last_seq))
-             (or (<= result 0) (>= state 5))))))
+        (and (=> (> result 0) mac_ok)
+        (and (=> (> result 0) (> incoming_seq last_seq))
+             (=> (> result 0) (>= state 5))))))
   (gate-connected
     (gate-fresh
       (gate-mac (payload-avail record_len overhead) mac_ok)

@@ -9,7 +9,7 @@
 (type Verdict (| Verified) (| Rejected int))
 
 (def finalize3 [a: Step b: Step sig: Step] -> Verdict
-  (post (or (not (= result Verified)) (= sig Continue)))
+  (post (=> (= result Verified) (= sig Continue)))
   (match a ((Abort c) (Rejected c))
            ((Continue) (match b ((Abort c) (Rejected c))
                                  ((Continue) (match sig ((Abort c) (Rejected c))
