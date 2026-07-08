@@ -60,7 +60,7 @@ import LLMLL.Diagnostic
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated)
 -- D4: liquid-fixpoint verification backend
-import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost)
+import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
@@ -1195,7 +1195,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- the report. In JSON mode 'runLeanstralPipeline' stays quiet (all its
         -- prints are 'unless isJson'-gated), so the trust-report JSON is uncorrupted.
         when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $ do
-          emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) fp stmts
+          emitR <- emitFixpointWithCache (defaultEmitOptions { emitBodyVCs = True }) fp _cache stmts
           runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
         -- v0.9.0: the .verified.json sidecar makes the trust report reflect solver
         -- results. Use the staleness-GATED 'entrySidecar' (line ~1108), not a fresh
@@ -1229,7 +1229,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         exitSuccess
       -- 2. Emit .fq constraints + build ConstraintTable (v0.8.0: body VCs enabled)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True }
-      emitR <- emitFixpointWith emitOpts fp stmts
+      emitR <- emitFixpointWithCache emitOpts fp _cache stmts
       let fqText = erFQText emitR
           table  = erConstraintTable emitR
           skipped = erSkipped emitR

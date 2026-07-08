@@ -38,6 +38,7 @@ module LLMLL.FixpointEmit
   ( -- * Top-level emitter
     emitFixpoint
   , emitFixpointWith
+  , emitFixpointWithCache         -- xmod-ag: cross-module assume-guarantee body-VC
     -- * Configuration
   , EmitOptions(..)
   , defaultEmitOptions
@@ -55,7 +56,8 @@ module LLMLL.FixpointEmit
     -- * Compositional verification (v0.9.0)
   , ContractEnv
   , buildContractEnv
-  , buildContractEnvWithImports  -- v0.10 MOD-1
+  , buildContractEnvWith         -- xmod-ag: explicit-alias-map variant
+  , seedImportedContracts        -- xmod-ag: dual-keyed imported ContractEnv
   , augmentContractPost          -- DEF-RET Unit 2: return-refinement → effective post
   , buildSortEnv                 -- v0.10 (Language Team Correction 1)
   , applySubst
@@ -183,14 +185,24 @@ type FlatPath = (FQPred, [LetBinding], FQPred)
 -- Return type is needed for EMatch sort derivation (COMP-0 §5.3, Issue 5).
 type ContractEnv = Map Name ([(Name, Type)], Contract, Maybe Type)
 
--- | Build a ContractEnv from top-level statements.
+-- | Build a ContractEnv from top-level statements (alias map derived from the
+-- same statements). Preserved as the single-file entry point.
 buildContractEnv :: [Statement] -> ContractEnv
-buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
+buildContractEnv stmts = buildContractEnvWith (buildAliasMap stmts) stmts
+
+-- | xmod-ag: build a ContractEnv against an EXPLICIT alias map. A caller passes
+-- the cache-aware merged map (entry ∪ imported STypeDefs, local-wins) so an
+-- imported contract's nullary-ctor VALUES get the SAME int tags the entry body
+-- uses (professor review: a split entry/import tag map is the cross-module
+-- unsoundness — one merged map makes tags coherent by construction, and
+-- buildCtorTagMap's "unambiguous only" guard fail-closes any residual clash).
+-- Body is the original buildContractEnv; only 'am' is now a parameter.
+buildContractEnvWith :: AliasMap -> [Statement] -> ContractEnv
+buildContractEnvWith am stmts = Map.fromList $ mapMaybe go stmts
   where
     -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into each
     -- contract's effective precondition, so call-pre obligations prove them at
-    -- call sites (intro-side). Uses the alias map from the same statement set.
-    am = buildAliasMap stmts
+    -- call sites (intro-side).
     -- DEF-RET Unit 2: fold the return refinement into the EXPORTED post (the
     -- caller-assumable guarantee, consumed via assume-guarantee), the dual of
     -- the param-refinement pre fold. Unconditional/syntactic; verdict-gating is
@@ -216,17 +228,26 @@ buildContractEnv stmts = Map.fromList $ mapMaybe go stmts
     go (SDefInvariant name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
     go _ = Nothing
 
--- | v0.10 MOD-1: Build a ContractEnv merging local contracts with imported
--- module contracts from the ModuleCache. Local contracts shadow imports
--- (Map.union has left-bias). This is the entry point for cross-module
--- compositional verification in OBLIG-2.
-buildContractEnvWithImports :: [Statement] -> Map ModulePath ModuleEnv -> ContractEnv
-buildContractEnvWithImports stmts cache =
-  let localContracts    = buildContractEnv stmts
-      importedContracts = Map.foldl' (\acc menv -> Map.union acc (meContracts menv))
-                                     Map.empty cache
-  -- Local contracts shadow imported contracts (name collision resolution).
-  in Map.union localContracts importedContracts
+-- | xmod-ag: build the imported half of a cross-module ContractEnv. For each
+-- cached module, re-derive its contracts from its own statements THROUGH the
+-- merged alias map 'am' (so nullary-ctor tags match the entry body), then key
+-- each contract BOTH bare ('double') and fully-qualified ('lib.double') to
+-- match either call-site form (opened import vs qualified access). 'Map.unions'
+-- is left-biased across modules; a genuine bare-name clash across two imports
+-- resolves arbitrarily but stays sound — the qualified key is always exact, and
+-- the caller only ever looks up the name the type checker resolved.
+--
+-- Supersedes the dead v0.10 'buildContractEnvWithImports', which unioned RAW,
+-- bare-only 'meContracts' (never desugared, never qualified) and was never
+-- called.
+seedImportedContracts :: AliasMap -> ModuleCache -> ContractEnv
+seedImportedContracts am cache =
+  Map.unions
+    [ let bare      = buildContractEnvWith am (meStatements menv)
+          prefix    = T.intercalate "." (mePath menv) <> "."
+          qualified = Map.mapKeys (prefix <>) bare
+      in Map.union bare qualified
+    | menv <- Map.elems cache ]
 
 -- ---------------------------------------------------------------------------
 -- Built-in qualifier safety net
@@ -254,13 +275,32 @@ builtinQualifiers =
 emitFixpoint :: FilePath -> [Statement] -> IO EmitResult
 emitFixpoint = emitFixpointWith defaultEmitOptions
 
--- | Emit constraints with explicit options.
+-- | Emit constraints with explicit options (single-file: empty module cache).
 emitFixpointWith :: EmitOptions -> FilePath -> [Statement] -> IO EmitResult
-emitFixpointWith opts srcFile stmts = do
-  -- v0.8.0: build alias map from STypeDef statements for isIntLike resolution
-  let aliases = buildAliasMap stmts
-  -- v0.9.0: build contract environment and SCC set for compositional verification
-  let cenv = buildContractEnv stmts
+emitFixpointWith opts srcFile = emitFixpointWithCache opts srcFile Map.empty
+
+-- | xmod-ag: emit constraints with an explicit module cache, so a caller of an
+-- IMPORTED contracted function verifies body-faithful (assume-guarantee against
+-- the imported contract) instead of falling back to contract-only. Empty cache
+-- ⇒ identical to the single-file path ⇒ byte-identical .fq (every union below
+-- degenerates to the identity).
+emitFixpointWithCache :: EmitOptions -> FilePath -> ModuleCache -> [Statement] -> IO EmitResult
+emitFixpointWithCache opts srcFile cache stmts = do
+  -- xmod-ag: cache-aware alias map. Local (entry) STypeDefs win over imported
+  -- ones (Map.union left-bias), matching TypeCheck.seedAliases, so buildCtorTagMap
+  -- assigns nullary-ctor tags that agree with the type checker's nominal-by-name
+  -- resolution. Empty cache ⇒ buildAliasMap stmts, unchanged.
+  let aliases = Map.union (buildAliasMap stmts)
+                          (Map.unions [ meAliasMap menv | menv <- Map.elems cache ])
+  -- xmod-ag: the DATATYPE-DECL scan (only) widens to imported statements, so an
+  -- assumed imported post mentioning a Pair2/Result constructor has its decl in
+  -- the .fq. Per-function VC emission below stays entry-only — imported bodies
+  -- are never re-verified (assume-guarantee is against the contract).
+  let dataScanStmts = stmts ++ concatMap meStatements (Map.elems cache)
+  -- xmod-ag: seed the body-VC ContractEnv with imported contracts (dual-keyed,
+  -- desugared against the merged alias map). Entry contracts shadow imports.
+  let cenv = Map.union (buildContractEnvWith aliases stmts)
+                       (seedImportedContracts aliases cache)
       callGraph = buildCallGraph stmts
       sccs = stronglyConnComp
         [(name, name, deps) | (name, deps) <- Map.toList callGraph]
@@ -317,14 +357,14 @@ emitFixpointWith opts srcFile stmts = do
   -- exactly once, only when the module actually uses pairs — so a pair-free module's
   -- .fq stays byte-identical (the NIW byte-inert convention). The single parametric
   -- decl serves every (Pair2 s0 s1) applied sort; no per-sort-pair dedup is needed.
-  when (moduleUsesPairs aliases stmts) $
+  when (moduleUsesPairs aliases dataScanStmts) $
     addData (FQDataDecl "Pair2" 2 [("pair2", [FQTyVar 0, FQTyVar 1])])
 
   -- COMP-4-RESULT: emit the polymorphic Result datatype once, only when the module
   -- CONSTRUCTS a Result (a `-> Result` admissible return or `(ok e)`/`(err e)` in a
   -- body/contract) — an eliminate-only module (Result param, scalar return, e.g.
   -- `settle`) never sorts a Result value (skolem path) and stays byte-identical.
-  when (moduleConstructsResult aliases stmts) $
+  when (moduleConstructsResult aliases dataScanStmts) $
     addData (FQDataDecl "Result" 2 [("ok", [FQTyVar 0]), ("err", [FQTyVar 1])])
 
   -- Process each statement

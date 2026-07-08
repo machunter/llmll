@@ -1,0 +1,9 @@
+;; xmod-ag A1 witness (qualified access): use-double-qual calls the imported
+;; 'double' by its fully-qualified name 'lib.double' (no (open)). Exercises the
+;; dual-keying in seedImportedContracts — the qualified key must be present in
+;; the body-VC ContractEnv, or this call misses cenv and falls back.
+(import lib)
+(def-shell use-double-qual [x: int] -> int
+  (pre (>= x 0))
+  (post (= result (+ x x)))
+  (lib.double x))

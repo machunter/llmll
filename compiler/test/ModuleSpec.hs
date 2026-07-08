@@ -28,6 +28,7 @@ import LLMLL.PBT
   , canonicalDefEvidenceHash
   )
 import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..))
+import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..))
 import LLMLL.VerifiedCache (verifiedPath, saveVerified)
 import Control.Exception (finally)
 import Data.List (find)
@@ -551,3 +552,66 @@ moduleSpec = describe "Module System" $ do
               Just DLAsserted -> pure ()
               other -> expectationFailure $
                 "stale callee must not upgrade caller; expected asserted, got " ++ show other
+
+  -- -----------------------------------------------------------------------
+  -- XMOD-AG (cross-module assume-guarantee): the BODY-VC side of cross-module
+  -- verification. XMOD-TIER above covers the trust TIER (imported evidence +
+  -- staleness). These cases cover the complementary body-faithfulness: a caller
+  -- of an IMPORTED contracted function discharges its body VC via
+  -- assume-guarantee against the imported CONTRACT (seedImportedContracts feeds
+  -- the imported contracts into the body-VC ContractEnv), instead of falling
+  -- back to contract-only. Runs the real CLI emit path:
+  -- loadModule -> ModuleCache -> emitFixpointWithCache.
+  --
+  -- Files: test/fixtures/xmod-ag/{lib,use_double,use_double_qual,lib_gate,use_gate}.llmll.
+  -- -----------------------------------------------------------------------
+  describe "XMOD-AG: cross-module callers verify body-faithful (assume-guarantee across imports)" $ do
+    let srcRoot = "test/fixtures/xmod-ag"
+        -- Load the entry module (+ imports) and emit the body-VC WITH the
+        -- resulting cache; returns the EmitResult. Mirrors doVerify.
+        emitWithCacheOf entry = do
+          result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] [entry]
+          case result of
+            Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
+            Right (cache, _ord, env) ->
+              emitFixpointWithCache (EmitOptions True)
+                (srcRoot ++ "/" ++ T.unpack entry ++ ".llmll") cache (meStatements env)
+
+    it "XMOD-AG-OPEN: opened-import caller (double) is body-faithful, not a fallback" $ do
+      er <- emitWithCacheOf "use_double"
+      erBodyFaithfulFns er `shouldContain` ["use-double"]
+      ("use-double" `elem` erBodyFallback er) `shouldBe` False
+
+    it "XMOD-AG-STRICT: opened-import caller leaves no fallback (--strict-verified-core would pass)" $ do
+      er <- emitWithCacheOf "use_double"
+      erBodyFallback er `shouldBe` []
+
+    it "XMOD-AG-QUAL: qualified-access caller (lib.double) is body-faithful via dual-keying" $ do
+      er <- emitWithCacheOf "use_double_qual"
+      erBodyFaithfulFns er `shouldContain` ["use-double-qual"]
+
+    it "XMOD-AG-CALLPRE: caller emits the imported callee's precondition obligation" $ do
+      -- Soundness: assume-guarantee is not a free pass — the caller must PROVE
+      -- the imported callee's pre (>= x 0) at the call site.
+      er <- emitWithCacheOf "use_double"
+      erCallPreFns er `shouldContain` ["use-double"]
+
+    it "XMOD-AG-CONTRAST: the same caller with an EMPTY cache falls back (seeding is the cause)" $ do
+      -- The pre-fix behavior, and the guard that genuine fallbacks still fire:
+      -- with no cache the imported 'double' is absent from cenv, so the call
+      -- cannot discharge via assume-guarantee and the whole body falls back.
+      result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] ["use_double"]
+      case result of
+        Left diags -> expectationFailure $ "load failed: " ++ show (map diagMessage diags)
+        Right (_cache, _ord, env) -> do
+          er <- emitFixpointWith (EmitOptions True) (srcRoot ++ "/use_double.llmll") (meStatements env)
+          erBodyFallback er `shouldContain` ["use-double"]
+          ("use-double" `elem` erBodyFaithfulFns er) `shouldBe` False
+
+    it "XMOD-AG-CRASHGUARD: imported nullary-ctor post desugars coherently (no solver crash)" $ do
+      -- gate-for's post references the nullary ctor 'Open'; the caller assuming
+      -- it must desugar 'Open' to the SAME int tag its own match uses — one
+      -- merged alias map. Body-faithful (not raw → no "Constraint with free vars").
+      er <- emitWithCacheOf "use_gate"
+      erBodyFaithfulFns er `shouldContain` ["use-gate"]
+      ("use-gate" `elem` erBodyFallback er) `shouldBe` False

@@ -1,0 +1,12 @@
+;; xmod-ag crash-guard caller: assumes gate-for's post (result = Open) across
+;; the module boundary. The imported 'Open' in the assumed post and the local
+;; 'Open'/'Shut' in this match must desugar to the SAME int tags (one merged
+;; alias map). Must verify without a solver crash.
+(import lib_gate)
+(open lib_gate)
+(def-shell use-gate [x: int] -> int
+  (pre (>= x 0))
+  (post (>= result 0))
+  (match (gate-for x)
+    ((Shut) 0)
+    ((Open) 1)))

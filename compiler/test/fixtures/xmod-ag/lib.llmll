@@ -1,0 +1,8 @@
+;; xmod-ag fixture: an independently-verifiable library. 'double' carries a
+;; pre + post and a body that proves its post (result = x + x). Imported by
+;; use_double.llmll (opened) and use_double_qual.llmll (qualified) to exercise
+;; body-faithful cross-module assume-guarantee.
+(def double [x: int] -> int
+  (pre (>= x 0))
+  (post (= result (+ x x)))
+  (+ x x))

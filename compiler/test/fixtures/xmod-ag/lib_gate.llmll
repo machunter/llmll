@@ -1,0 +1,11 @@
+;; xmod-ag crash-guard fixture: an imported contract whose POST references a
+;; nullary-enum constructor value (Open). A cross-module caller that assumes
+;; this post pulls 'Open' into its CallVC; it must be desugared to its int tag
+;; against the MERGED alias map (entry ∪ imported), not left raw — otherwise
+;; liquid-fixpoint crashes with "Constraint with free vars". This is the
+;; professor's tag-coherence obligation.
+(type Gate (| Shut) (| Open))
+(def gate-for [x: int] -> Gate
+  (pre (>= x 0))
+  (post (= result Open))
+  Open)
