@@ -1,67 +1,125 @@
-# Cascading refinement — the `refine` op
+# Cascading refinement — decomposing a hole into a tree, top-down
 
-`patch` fills a leaf. **`refine`** decomposes a hole: it installs a hole's body **and spawns new
-contracted sub-holes the body calls**, atomically — growing a refinement tree top-down. An agent
-doesn't fill in a human's pre-authored blanks; it *invents the decomposition*, and the compiler
-verifies each step.
+`patch` fills a leaf. **`refine`** decomposes a hole: it installs a hole's body **and
+spawns new contracted sub-holes the body calls**, atomically. No agent is handed the whole
+problem — one agent takes a hole, refines it into a couple of *narrower* sub-holes with
+their own contracts, and each of those becomes a hole for the *next* agent. The
+decomposition tree emerges from the work; it is not drawn up front.
 
-Two guardrails keep an invented decomposition honest:
+Every intermediate state verifies `SAFE` — each function proven against the current
+frontier's *contracts* via assume-guarantee — and the finished tree verifies as one program
+with zero holes.
 
-- a **scope-relaxation safety predicate** — a spawned def must be *fresh*, *body-referenced*, and
-  *hole-bodied*, added additively (no clobbering a sibling);
-- a **CDP vacuity gate** — a spawned sub-contract that a trivial identity/constant/projection body
-  already satisfies is rejected at spawn (it "verifies" nothing).
+## The tree — a TLS record-delivery gate
+
+Deliver a plaintext byte only if the record is **authenticated** and **ordered**. That
+splits, and splits again, into four leaf checks:
+
+```
+admit-byte (L1)              true iff authenticated AND ordered
+├── authenticated (L2)       iff MAC matches AND handshake connected
+│   ├── mac-matches (L3)      iff computed = expected
+│   └── handshake-up (L3)     iff hs_state = CONNECTED (2)
+└── ordered (L2)             iff sequence fresh AND length sound
+    ├── seq-fresh (L3)        iff seq > last
+    └── length-sound (L3)     iff claimed ≤ received      ← the Heartbleed bound, reused
+```
+
+Every node returns `bool`, and its contract is an exact biconditional — `(<=> result C)`,
+"the result is true exactly when condition `C` holds". Internal nodes are the `and` of their
+two child calls; leaves are the bare comparison. No contract is a passthrough the vacuity
+gate would reject.
 
 ## The program
 
-`base.llmll` (→ `base.ast.json`, what `refine` operates on) is a single hole:
+`base.llmll` (→ `base.ast.json`, what the ops run on) is a single hole with the L1 contract:
 
 ```lisp
-(def-shell verify-exchange [sig_ok: int payload: int] -> int
-  (pre  (>= payload 0)) (post (= result (+ sig_ok payload))) ?body)
+(def-shell admit-byte
+    [computed: int expected: int hs_state: int seq: int last: int claimed: int received: int] -> bool
+  (post (<=> result (and (and (= computed expected) (= hs_state 2))
+                         (and (> seq last) (<= claimed received)))))
+  ?body)
 ```
 
-## Refine it — fill `verify-exchange` by calling a spawned `final-verdict`
+The contract reads as the specification it is: *deliver exactly when the MAC matched, the
+handshake reached CONNECTED, the sequence was fresh, and the length was sound.* Each leaf is
+the same shape one level down — `length-sound`'s whole contract is `(<=> result (<= claimed received))`.
+
+## The cascade — one agent per hole, applied in sequence
+
+Each step is a different agent taking **one** hole, given only its checkout brief (its
+contract, return type, and in-scope names — never the rest of the tree). Re-checkout
+immediately before each step: the module uses a whole-file compare-and-swap, so any write
+makes an earlier token stale.
+
+Each `NN-*.json` request has a readable `NN-*.sexp` companion showing the same fill body and
+spawned contracts in LLMLL surface syntax — read those to follow the cascade without parsing JSON.
 
 ```bash
-llmll build examples/refine-demo/base.llmll --emit -o .     # regenerate base.ast.json
-TOKEN=$(llmll checkout base.ast.json /statements/0/body --json | jq -r .token)   # lock the hole
-#   splice TOKEN into refine-good.json, then:
-llmll refine base.ast.json refine-good.json
-#   → PatchSuccess
-llmll verify base.ast.json
-#   → body-faithful: verify-exchange, SAFE   (H verifies *modulo* final-verdict's contract)
-llmll holes  base.ast.json
-#   → final-verdict's body is a new frontier hole — the next thing to fill or refine
+# one step, in full — the shape every step follows:
+TOKEN=$(llmll checkout base.ast.json /statements/0/body --json | jq -r .token)
+sed "s/<TOKEN-from-checkout>/$TOKEN/" 01-refine-admit.json > /tmp/step.json
+llmll refine base.ast.json /tmp/step.json      # apply
+llmll verify base.ast.json                     # every state is SAFE
+llmll holes  base.ast.json                     # watch the frontier move
 ```
 
-`refine-good.json` is a `refine` request: one `replace` at `verify-exchange`'s body with the call
-`(final-verdict sig_ok payload)`, plus a `PatchAdd /statements/-` of the `final-verdict` def
-(contract `(= result (+ ok pay))`, body `?impl`). `verify-exchange` verifies *assuming* that
-contract; `final-verdict` becomes the next hole. That is one cascade step.
+Running all seven steps (`refine` for the internal nodes, `patch` for the leaves), the open
+frontier **fans out** as the tree grows, then **contracts** as the leaves fill:
 
-## The guardrails fire
+| # | step | checkout | apply | verify | open holes |
+|---|---|---|---|---|---|
+| — | start | — | — | `SAFE` | **1** (`admit-byte`) |
+| 1 | `refine admit-byte` → spawn `authenticated`, `ordered` | `/statements/0/body` | `PatchSuccess` | `SAFE` | **2** |
+| 2 | `refine authenticated` → spawn `mac-matches`, `handshake-up` | `/statements/1/body` | `PatchSuccess` | `SAFE` | **3** |
+| 3 | `refine ordered` → spawn `seq-fresh`, `length-sound` | `/statements/2/body` | `PatchSuccess` | `SAFE` | **4** |
+| 4 | `patch` fill `mac-matches` | `/statements/3/body` | `PatchSuccess` | `SAFE` | **3** |
+| 5 | `patch` fill `handshake-up` | `/statements/4/body` | `PatchSuccess` | `SAFE` | **2** |
+| 6 | `patch` fill `seq-fresh` | `/statements/5/body` | `PatchSuccess` | `SAFE` | **1** |
+| 7 | `patch` fill `length-sound` | `/statements/6/body` | `PatchSuccess` | `SAFE` | **0** |
+
+Final: `llmll verify` → `SAFE`, `llmll holes` → **0 holes**, seven functions —
+`admit-byte`, `authenticated`, `ordered`, `mac-matches`, `handshake-up`, `seq-fresh`,
+`length-sound` — verified as one program.
+
+At step 1, `admit-byte` verifies **modulo** `authenticated` and `ordered`'s contracts before
+either of those has a body; the guarantee is real at every level, and the leaves only have
+to meet the contracts their parents already relied on.
+
+## The two gates on an invented decomposition
+
+An agent invents both a sub-contract *and* its filling, so two rejections keep a
+decomposition from cheating. Each operates on the base hole:
 
 ```bash
-llmll refine base.ast.json refine-vacuous.json
-#   → refine gate: spawned sub-contract 'final-verdict' is vacuous — a trivial (identity/constant)
-#     body already satisfies it, so it discriminates no real implementation; strengthen the contract
+llmll refine base.ast.json 08-refine-vacuous.json
+#  → refine gate: spawned sub-contract 'authenticated' is vacuous — a trivial
+#    (identity/constant) body already satisfies it … strengthen the contract
 ```
-`refine-vacuous.json` weakens `final-verdict`'s post to `(>= result 0)` — which a constant `0` body
-satisfies. The CDP gate rejects the spawn: an agent cannot decompose `H` into a sub-goal that
-demands nothing. (Its unique value is the *loose-but-plausible* contract; a grossly-empty `(post
-true)` is caught anyway — `H` cannot verify modulo `true`.)
+`08` weakens `authenticated`'s contract from the biconditional to a one-way implication
+(`(=> (and (= computed expected) (= hs_state 2)) result)`) — which a constant `true` body
+already satisfies. The CDP vacuity gate refuses it: you cannot make progress by splitting a
+hard goal into an empty one.
 
 ```bash
-llmll refine base.ast.json refine-orphan.json
-#   → refine gate: spawned def 'orphan' is not referenced by the fill body
+llmll refine base.ast.json 09-refine-orphan.json
+#  → refine: spawned def 'audit-log' is not referenced by the fill body
 ```
-`refine-orphan.json` adds a def the fill body never calls. The safety predicate rejects it — a
-`refine` may only introduce sub-functions the decomposition actually *uses*, so the scope
-relaxation cannot become an arbitrary-write escape.
+`09` adds a function the fill body never calls. The scope predicate refuses it: a `refine`
+may only introduce sub-functions the decomposition actually uses, so the operation cannot
+become a way to write arbitrary code into the module.
 
-## Verified
+## Parallelism
 
-Every command above was run against the built `llmll` (v0.14.13). The request `token` fields show
-`<TOKEN-from-checkout>` — substitute the token `checkout` returns; a real token witnesses the file's
-content hash and goes stale (compare-and-swap) if the file changed under you.
+The steps above are serialized because they write one module file, guarded by a whole-file
+compare-and-swap (once agent A's refine lands, agent B's outstanding token goes stale and B
+re-checks-out). The agents still *reason* independently — each sees only its own hole's
+brief. For agents that write **at the same time**, give each subtree its own module and
+assemble through the cross-module contract system; that is how the 163-function flagship in
+[`../heartbleed/secure-channel/`](../heartbleed/secure-channel/) was built, with agents
+owning modules in parallel.
+
+*Every command here was run against the built `llmll` (v0.14.16). The request `token`
+fields read `<TOKEN-from-checkout>`; substitute the token `checkout` returns — a real token
+witnesses the file's content hash and goes stale if the file changed under you.*

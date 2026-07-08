@@ -1,0 +1,144 @@
+{
+  "token": "<TOKEN-from-checkout>",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/statements/1/body",
+      "value": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "computed"
+              },
+              {
+                "kind": "var",
+                "name": "expected"
+              }
+            ],
+            "fn": "mac-matches",
+            "kind": "app"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "hs_state"
+              }
+            ],
+            "fn": "handshake-up",
+            "kind": "app"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      }
+    },
+    {
+      "op": "add",
+      "path": "/statements/-",
+      "value": {
+        "body": {
+          "kind": "hole-named",
+          "name": "impl"
+        },
+        "kind": "def-shell",
+        "name": "mac-matches",
+        "params": [
+          {
+            "name": "computed",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "name": "expected",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "post": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "result"
+            },
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "computed"
+                },
+                {
+                  "kind": "var",
+                  "name": "expected"
+                }
+              ],
+              "kind": "op",
+              "op": "="
+            }
+          ],
+          "kind": "op",
+          "op": "<=>"
+        },
+        "return_type": {
+          "kind": "primitive",
+          "name": "bool"
+        }
+      }
+    },
+    {
+      "op": "add",
+      "path": "/statements/-",
+      "value": {
+        "body": {
+          "kind": "hole-named",
+          "name": "impl"
+        },
+        "kind": "def-shell",
+        "name": "handshake-up",
+        "params": [
+          {
+            "name": "hs_state",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "post": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "result"
+            },
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "hs_state"
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 2
+                }
+              ],
+              "kind": "op",
+              "op": "="
+            }
+          ],
+          "kind": "op",
+          "op": "<=>"
+        },
+        "return_type": {
+          "kind": "primitive",
+          "name": "bool"
+        }
+      }
+    }
+  ]
+}

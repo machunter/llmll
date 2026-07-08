@@ -1,0 +1,228 @@
+{
+  "token": "<TOKEN-from-checkout>",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/statements/0/body",
+      "value": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "computed"
+              },
+              {
+                "kind": "var",
+                "name": "expected"
+              },
+              {
+                "kind": "var",
+                "name": "hs_state"
+              }
+            ],
+            "fn": "authenticated",
+            "kind": "app"
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "seq"
+              },
+              {
+                "kind": "var",
+                "name": "last"
+              },
+              {
+                "kind": "var",
+                "name": "claimed"
+              },
+              {
+                "kind": "var",
+                "name": "received"
+              }
+            ],
+            "fn": "ordered",
+            "kind": "app"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      }
+    },
+    {
+      "op": "add",
+      "path": "/statements/-",
+      "value": {
+        "body": {
+          "kind": "hole-named",
+          "name": "impl"
+        },
+        "kind": "def-shell",
+        "name": "authenticated",
+        "params": [
+          {
+            "name": "computed",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "name": "expected",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "name": "hs_state",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "post": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "result"
+            },
+            {
+              "args": [
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "computed"
+                    },
+                    {
+                      "kind": "var",
+                      "name": "expected"
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "="
+                },
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "hs_state"
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 2
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "="
+                }
+              ],
+              "kind": "op",
+              "op": "and"
+            }
+          ],
+          "kind": "op",
+          "op": "<=>"
+        },
+        "return_type": {
+          "kind": "primitive",
+          "name": "bool"
+        }
+      }
+    },
+    {
+      "op": "add",
+      "path": "/statements/-",
+      "value": {
+        "body": {
+          "kind": "hole-named",
+          "name": "impl"
+        },
+        "kind": "def-shell",
+        "name": "ordered",
+        "params": [
+          {
+            "name": "seq",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "name": "last",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "name": "claimed",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "name": "received",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "post": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "result"
+            },
+            {
+              "args": [
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "seq"
+                    },
+                    {
+                      "kind": "var",
+                      "name": "last"
+                    }
+                  ],
+                  "kind": "op",
+                  "op": ">"
+                },
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "claimed"
+                    },
+                    {
+                      "kind": "var",
+                      "name": "received"
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "<="
+                }
+              ],
+              "kind": "op",
+              "op": "and"
+            }
+          ],
+          "kind": "op",
+          "op": "<=>"
+        },
+        "return_type": {
+          "kind": "primitive",
+          "name": "bool"
+        }
+      }
+    }
+  ]
+}

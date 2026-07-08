@@ -1,0 +1,23 @@
+{
+  "token": "<TOKEN-from-checkout>",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/statements/5/body",
+      "value": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "seq"
+          },
+          {
+            "kind": "var",
+            "name": "last"
+          }
+        ],
+        "kind": "op",
+        "op": ">"
+      }
+    }
+  ]
+}

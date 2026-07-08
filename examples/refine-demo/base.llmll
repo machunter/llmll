@@ -1,2 +1,13 @@
-(def-shell verify-exchange [sig_ok: int payload: int] -> int
-  (pre  (>= payload 0)) (post (= result (+ sig_ok payload))) ?body)
+;; Cascading refinement — a TLS record-delivery gate, decomposed top-down by agents.
+;;
+;; `admit-byte` starts as ONE hole: deliver the plaintext byte exactly when the record is
+;; authenticated AND ordered — MAC matched, handshake connected, sequence fresh, length
+;; sound. No agent is handed this whole problem; it is refined, level by level, into a tree
+;; of narrower sub-contracts, each becoming its own hole for the next agent. Every state
+;; verifies (SAFE) against the current frontier's contracts; the finished tree verifies as
+;; one program with zero holes. See README.md for the runbook.
+(def-shell admit-byte
+    [computed: int expected: int hs_state: int seq: int last: int claimed: int received: int] -> bool
+  (post (<=> result (and (and (= computed expected) (= hs_state 2))
+                         (and (> seq last) (<= claimed received)))))
+  ?body)

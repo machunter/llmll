@@ -1,0 +1,23 @@
+{
+  "token": "<TOKEN-from-checkout>",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/statements/4/body",
+      "value": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "hs_state"
+          },
+          {
+            "kind": "lit-int",
+            "value": 2
+          }
+        ],
+        "kind": "op",
+        "op": "="
+      }
+    }
+  ]
+}
