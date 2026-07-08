@@ -200,6 +200,7 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 | **1 — substrate** | per-step verification = existing assume-guarantee (`cvPreObligation`/`cvPostAssumption`); no new fragment | reuse |
 | **2 — protocol** | a `refine` op (dual of `patch`: install body + spawn sub-holes atomically), growing refinement-tree hole model, compare-and-swap resync | new — **R2/R8**-adjacent |
 | **3 — contract quality** | spawn-time **CDP** vacuity gate + **feasibility** (no-miracle) gate + decomposition-trust **meet** (floored on contract-only cycle members) | new — extends **CDP** (`:224`) |
+| **4 — reuse gate (REFINE-REUSE)** | spawn-time **redundancy gate**: reject/flag a spawned sub-contract *subsumed* by an existing in-scope def (contract-implication `preₛ⇒pre_D ∧ post_D⇒postₛ`, not name/syntax) — generalizes the D2 freshness check from name-collision to contract-subsumption; advisory `reuse_suggestions` brief channel + equivalence-only fail-closed `--strict-refine` gate; reuses **COMP-4(b)** subtyping-Horn (`:70`) | **PROPOSED (Rev 0 sketch)** `[LT→CT]` — the open follow-on now that stages 1–3 shipped (v0.14.13); design [`refine-reuse-gate-proposal.md`](design/refine-reuse-gate-proposal.md) |
 
 > **Acyclicity policy — DECIDED (Option 3):** `refine` admits a cycle-creating spawn, detects the cycle,
 > and honestly degrades its members to contract-only (trust meet floored so nothing is laundered) — the
@@ -208,6 +209,35 @@ Items from the old v0.8.1 that depend on external availability. Tracked but not 
 > MATCH-WIDEN (shipped v0.14.12 — gives the cascade non-trivial verified leaves), R2 (self-hosted
 > orchestrator), R8 (incremental re-verify). Standing rule: the `checkout` brief is the sole information
 > channel to a hole-filling agent (no forced failures, no hints).
+
+## Future — Cross-Module Assume-Guarantee (unversioned)
+
+> **Body-faithful verification across `import` boundaries.** Today a function that calls an
+> **imported** contracted function falls back to contract-only (`erBodyFallback`) — it loses the
+> `verified` tier — while the identical same-file call stays body-faithful (spike, v0.14.16: the
+> identical `deliver-plaintext` is body-faithful in one file, `body-fallback` across modules;
+> `--strict-verified-core` passes the concatenated 163-fn flagship but hard-errors the module
+> split). Root cause is a **plumbing gap**: the imported contracts (`ModuleEnv.meContracts`) exist
+> in the exact `ContractEnv` shape and are used for type-checking, but never reach the body-VC
+> emitter (`emitFixpointWith` gets entry-file statements only, `Main.hs` `doVerify`). Seed `cenv`
+> from the import cache and the *identical* assume-guarantee VC discharges across the boundary — no
+> new obligation, no new fragment; tier rides the §5.3.4 meet instead of collapsing to fallback.
+> **Consequence:** a program can be split into real `(import)`-linked modules **and** stay
+> `verified` — the prerequisite for a *modular flagship* (the 163-fn secure-channel is
+> concatenated-into-one-file precisely because splitting it downgrades every cross-module composer
+> and breaks `--strict-verified-core`). Design (settled, professor-reviewed):
+> [`docs/design/cross-module-assume-guarantee-proposal.md`](design/cross-module-assume-guarantee-proposal.md)
+> (Rev 1). **Not shipped.** `[LT→CT]` ready for compiler-engineer.
+
+> **Soundness — clean corollary (professor-confirmed):** module import cycles are a hard error
+> (`Module.hs:147`), so the import graph is always acyclic → cross-module assume-guarantee is the
+> canonical modular-verification composition (topological, no fixpoint argument — contrast the
+> intra-module function-cycle case, [`cycle-verification-finding.md`](design/cycle-verification-finding.md),
+> where `def-shell` permits cycles → partial correctness). **One BLOCKING acceptance criterion:**
+> transitive imported-sidecar **staleness validation** ships in the same change (a `verified` caller
+> on a *stale* imported `verified` would be false); open sub-decision — hard-error vs silent
+> tier-downgrade on a stale import. The refinement-aliased-param case (`xmod-alias`) is a fail-closed
+> second cause (alias map must also seed from imports) — completeness follow-on, not a blocker.
 
 ## Research track (no v0.x targets, no Active Items rows)
 
