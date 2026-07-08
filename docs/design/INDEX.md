@@ -28,7 +28,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [match-fragment-widening-proposal.md](match-fragment-widening-proposal.md) | MATCH-WIDEN: mixed-arm / nested matches + scrutinee-constructor posts verify body-faithful (int-tag discriminant, QF-LIA) | **Shipped (v0.14.12)** — Rev 1; +engineer-plan / r1-spike / slice1-impl / stretch-plan supporting docs |
 | [cascading-refinement-proposal.md](cascading-refinement-proposal.md) | Agent-driven recursive hole decomposition: `refine` op + growing tree + CDP/feasibility gates + Option-3 cycles | **Design (Rev 2)** — professor-folded; engineer feasibility in progress |
 | [cross-module-assume-guarantee-proposal.md](cross-module-assume-guarantee-proposal.md) | Body-faithful verification across `import` boundaries: seed the body-VC ContractEnv with imported contracts (plumbing gap, not a boundary); prerequisite for a modular flagship | **Design (Rev 1)** — settled, professor-reviewed, ready for engineer |
-| [refine-reuse-gate-proposal.md](refine-reuse-gate-proposal.md) | REFINE-REUSE: a third `refine` gate rejecting/flagging a spawned sub-contract subsumed by an existing def (contract-implication, not name/syntax) | **Design (Rev 0 sketch)** — pre-professor; generalizes the D2 freshness check |
+| [refine-reuse-gate-proposal.md](refine-reuse-gate-proposal.md) | REFINE-REUSE: reuse-retrieval for `refine` — advisory `reuse_suggestions` + non-blocking `W-REUSE` when a spawned sub-contract is subsumed by an existing def (contract-implication, not name/syntax) | **Design (Rev 1)** — professor-folded; reclassified gate→retrieval facility |
 
 ---
 
