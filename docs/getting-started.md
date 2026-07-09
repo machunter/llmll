@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.14.5)
+  LLMLL — Large Language Model Logical Language Compiler (v0.14.17)
 
 Available options:
   -h,--help                Show this help text
@@ -80,9 +80,6 @@ Available commands:
   spec                     Emit agent specification from compiler builtins
   version                  Print compiler version and exit
 ```
-
-> [!NOTE]
-> The `build` line above literally says "Compile .llmll to Rust" — that's a stale leftover from an early Rust-codegen prototype in the compiler's own `--help` text; actual `build` behavior is Haskell codegen (see [`build`](#build--generate-haskell) below). Tracked as a compiler bug, not a doc error.
 
 ---
 
@@ -496,7 +493,7 @@ EXIT=3
 The `.fq` file is still written and can be checked manually or in CI once the tools are installed, but do not treat exit `0`/no-error as a pass here — check the exit code, not just "did it crash." If `verify` exits `0` with the solver missing, you are not running the current compiler build.
 
 > [!IMPORTANT]
-> `verify` covers the **linear arithmetic fragment** only (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`). Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
+> `verify` discharges the decidable **`Σ_auto` fragment** — linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`), `bool`, non-recursive ADTs, and closed length/list measures. Non-linear constraints (`*`, `/`, `mod`) in `pre`/`post` automatically emit `?proof-required(non-linear-contract)` holes (see §4.11) and are skipped by the solver without error. Use `--leanstral-mock` or `--leanstral-cmd` to resolve these holes via the Leanstral proof pipeline.
 
 #### Proof artifact
 
@@ -515,15 +512,15 @@ Top-level artifact fields: `proof_artifact_version`, `source_path`, `source_hash
 
 #### Body-faithful verification
 
-`llmll verify` encodes function bodies as verification conditions for functions in the decidable QF-LIA fragment. For a function with postcondition Q, precondition P, and body B, the emitter generates:
+`llmll verify` encodes function bodies as verification conditions for functions in the decidable `Σ_auto` fragment (QF-LIA + `bool` + non-recursive ADTs + closed length/list measures). For a function with postcondition Q, precondition P, and body B, the emitter generates:
 
 ```
 P ∧ (result = ⟦B⟧) ⟹ Q
 ```
 
-This means `VLProvenSMT` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent.
+This means `DLVerified` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent.
 
-**Coverage:** `ELet` (with alpha-renaming), `EIf` (path-sensitive), and QF-LIA operators. `EMatch`, recursive `def-shell` bodies, and non-linear expressions fall back to contract-only verification. Functions with >4096 execution paths also fall back with a diagnostic warning.
+**Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**, v0.14.17), a **two-arm sum `EMatch`** (`Result` or a user ADT, nested at any depth) including scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. Falls back to contract-only verification: `EMatch` with more than two arms or a recursive-sum payload, two sequential matches in one body, a recursive `def-shell`'s own body (sound at partial correctness), non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
 
 **JSON output:** `--json verify` includes per-function `body_faithful` and `body_fallback` metadata:
 
@@ -536,7 +533,7 @@ This means `VLProvenSMT` with `body_faithful = true` guarantees the implementati
 }
 ```
 
-**Contract stripping:** `--contracts=unproven` strips postcondition assertions only for functions that are both `VLProvenSMT` and body-faithful. Preconditions are never stripped — body VCs prove postconditions, not preconditions.
+**Contract stripping:** `--contracts=unproven` strips postcondition assertions only for functions that are both `DLVerified` and body-faithful. Preconditions are never stripped — body VCs prove postconditions, not preconditions.
 
 **Spec coverage JSON:** `--spec-coverage --json` includes two additional fields in the summary:
 - `spec_coverage` — contracted / total (excludes suppressions)
@@ -755,7 +752,7 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 ```json
 {
   "schemaVersion": "0.7.0",
-  "llmll_version": "0.14.2",
+  "llmll_version": "0.14.17",
   "statements": [ ... ]
 }
 ```
@@ -1514,7 +1511,7 @@ Pass `--grammar=legacy` to parse older `letrec` programs. `def-logic` is not sup
 
 | Keyword | AST node | Body restriction | When to use |
 |---------|----------|-----------------|-------------|
-| `def` | `SDef` | Strict-core whitelist (QF-LIA, `ELet`, `EIf`, `EMatch` Result 2-arm, admitted `EApp`) | Pure integer-arithmetic functions intended for body-faithful SMT verification |
+| `def` | `SDef` | Strict-core whitelist (QF-LIA, `bool`, `ELet`, `EIf`, two-arm sum `EMatch` — `Result` + user ADTs, admissible datatype construction, admitted `EApp`) | Functions intended for body-faithful SMT verification |
 | `def-shell` | `SDefShell` | None | Functions that use lambdas, IO, non-linear ops, or call unverified code |
 
 **Strict-core example:**
