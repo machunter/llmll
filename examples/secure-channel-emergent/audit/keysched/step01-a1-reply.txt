@@ -1,0 +1,5 @@
+REFINE
+(and (and (epoch-active epoch) (stage-final stage)) (hs-complete hs_state))
+(def-shell epoch-active [epoch: int] -> bool (post (<=> result (>= epoch 1))) ?impl)
+(def-shell stage-final [stage: int] -> bool (post (<=> result (= stage 2))) ?impl)
+(def-shell hs-complete [hs_state: int] -> bool (post (<=> result (= hs_state 4))) ?impl)

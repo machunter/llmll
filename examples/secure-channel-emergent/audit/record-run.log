@@ -1,0 +1,9 @@
+[record] step 1: def-shell frame-accept (/statements/0/body), 2 open
+[record]   accepted (refine, attempt 1)
+[record] step 2: def-shell deliver-count (/statements/1/body), 3 open
+[record]   accepted (patch, attempt 1)
+[record] step 3: def-shell claim-in-window (/statements/2/body), 2 open
+[record]   accepted (patch, attempt 1)
+[record] step 4: def-shell frag-limit-ok (/statements/3/body), 1 open
+[record]   accepted (patch, attempt 1)
+[record] complete after 4 steps

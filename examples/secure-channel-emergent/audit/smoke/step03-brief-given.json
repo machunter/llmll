@@ -1,0 +1,126 @@
+{
+ "assumptions": null,
+ "available_functions": [
+  {
+   "name": "channel-admit",
+   "params": [
+    {
+     "name": "latched",
+     "type": "bool"
+    },
+    {
+     "name": "sev",
+     "type": "int"
+    },
+    {
+     "name": "computed",
+     "type": "int"
+    },
+    {
+     "name": "expected",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2)))) (= computed expected)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "hole",
+   "tier": "asserted"
+  },
+  {
+   "name": "alert-admit",
+   "params": [
+    {
+     "name": "latched",
+     "type": "bool"
+    },
+    {
+     "name": "sev",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2)))))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "alert-worst",
+   "params": [
+    {
+     "name": "prev_worst",
+     "type": "int"
+    },
+    {
+     "name": "sev",
+     "type": "int"
+    }
+   ],
+   "post": "(and (and (>= result prev_worst) (>= result sev)) (or (= result prev_worst) (= result sev)))",
+   "pre": "(and (and (>= prev_worst 0) (<= prev_worst 2)) (and (>= sev 1) (<= sev 2)))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "verified"
+  }
+ ],
+ "brief_version": "0.12.2",
+ "consumed_guarantees": null,
+ "contract_pre": null,
+ "expected_return_type": "bool",
+ "hole_kind": "hole-named",
+ "in_scope": [
+  {
+   "name": "alert-admit",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "alert-worst",
+   "source": "open-import",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "alert.alert-admit",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "alert.alert-worst",
+   "source": "let-binding",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "channel-admit",
+   "source": "let-binding",
+   "type": "fn[4 args] -> bool"
+  },
+  {
+   "name": "computed",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "expected",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "latched",
+   "source": "param",
+   "type": "bool"
+  },
+  {
+   "name": "sev",
+   "source": "param",
+   "type": "int"
+  }
+ ],
+ "obligation_id": null,
+ "path_condition": null,
+ "pointer": "/statements/2/body",
+ "postcondition_goal": "(<=> result (and (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2)))) (= computed expected)))"
+}

@@ -1,0 +1,2 @@
+FILL
+(if ok (+ state 1) 0)

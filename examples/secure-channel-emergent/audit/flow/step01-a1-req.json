@@ -1,0 +1,43 @@
+{
+ "token": "4310c57b7a9eacd211641108ed6f716b00f8283fece1f8a86068ed6d66497b34",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "len"
+       },
+       {
+        "kind": "lit-int",
+        "value": 1
+       }
+      ],
+      "kind": "op",
+      "op": ">="
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "len"
+       },
+       {
+        "kind": "var",
+        "name": "credit"
+       }
+      ],
+      "kind": "op",
+      "op": "<="
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

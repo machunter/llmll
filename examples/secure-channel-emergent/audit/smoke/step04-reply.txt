@@ -1,0 +1,4 @@
+REFINE
+(and (alert-admit latched sev) (and (mac-fresh-ok computed expected seq last) (len-ok claimed received)))
+(def-shell mac-fresh-ok [computed: int expected: int seq: int last: int] -> bool (post (<=> result (and (= computed expected) (> seq last)))) ?impl)
+(def-shell len-ok [claimed: int received: int] -> bool (post (<=> result (and (>= claimed 0) (<= claimed received)))) ?impl)

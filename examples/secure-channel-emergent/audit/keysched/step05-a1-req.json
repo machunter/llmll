@@ -1,0 +1,23 @@
+{
+ "token": "0d1e4b0c894d8387062d2a7c95e925f36ef95bd3c5d83d3138be4a62005978c2",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/4/body",
+   "value": {
+    "args": [
+     {
+      "kind": "var",
+      "name": "hs_state"
+     },
+     {
+      "kind": "lit-int",
+      "value": 4
+     }
+    ],
+    "kind": "op",
+    "op": "="
+   }
+  }
+ ]
+}

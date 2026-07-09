@@ -1,0 +1,21 @@
+;; module: flow — flow-control credit conservation.
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+
+;; May len bytes be sent right now? Positive length, within credit.
+(def-shell send-allow [credit: int len: int] -> bool
+  (post (<=> result (and (>= len 1) (<= len credit))))
+  ?impl)
+
+;; Credit after a send decision: debited exactly when sent, never negative.
+(def-shell credit-after [credit: int len: int sent: bool] -> int
+  (pre  (and (and (>= len 0) (>= credit 0)) (<= len credit)))
+  (post (and (=> sent (= result (- credit len)))
+             (and (=> (not sent) (= result credit)) (>= result 0))))
+  ?impl)
+
+;; Credit after a window grant, clamped to the connection maximum.
+(def-shell credit-granted [credit: int grant: int max_credit: int] -> int
+  (pre  (and (and (>= credit 0) (>= grant 0)) (>= max_credit credit)))
+  (post (and (and (<= result max_credit) (<= result (+ credit grant)))
+             (or (= result max_credit) (= result (+ credit grant)))))
+  ?impl)

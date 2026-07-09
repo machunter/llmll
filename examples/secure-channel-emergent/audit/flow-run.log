@@ -1,0 +1,7 @@
+[flow] step 1: def-shell send-allow (/statements/0/body), 3 open
+[flow]   accepted (patch, attempt 1)
+[flow] step 2: def-shell credit-after (/statements/1/body), 2 open
+[flow]   accepted (patch, attempt 1)
+[flow] step 3: def-shell credit-granted (/statements/2/body), 1 open
+[flow]   accepted (patch, attempt 1)
+[flow] complete after 3 steps

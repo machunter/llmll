@@ -1,0 +1,6 @@
+   .fq written to /tmp/flow.ast.fq
+   body-faithful: send-allow
+   body-fallback: credit-after, credit-granted
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/flow.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/flow.ast.json.verified.json

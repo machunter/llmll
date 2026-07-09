@@ -1,0 +1,33 @@
+{
+ "token": "48129081ced1779d354a481498d5a1362745c5f964e8a5805c5099aa0ede2188",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/2/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "state"
+       },
+       {
+        "kind": "lit-int",
+        "value": 3
+       }
+      ],
+      "kind": "op",
+      "op": "="
+     },
+     {
+      "kind": "var",
+      "name": "sig_ok"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

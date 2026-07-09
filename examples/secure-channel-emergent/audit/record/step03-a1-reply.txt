@@ -1,0 +1,2 @@
+FILL
+(and (>= claimed 0) (<= claimed received))

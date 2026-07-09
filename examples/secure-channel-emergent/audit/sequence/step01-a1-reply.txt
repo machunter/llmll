@@ -1,0 +1,5 @@
+REFINE
+(and (and (seq-newer seq last) (window-valid window)) (within-window seq last window))
+(def-shell seq-newer [seq: int last: int] -> bool (post (<=> result (> seq last))) ?impl)
+(def-shell window-valid [window: int] -> bool (post (<=> result (>= window 1))) ?impl)
+(def-shell within-window [seq: int last: int window: int] -> bool (post (<=> result (<= (- seq last) window))) ?impl)

@@ -1,0 +1,34 @@
+{
+ "token": "7f78c50ebc76426f42f4b52a15921d114135584adfabeb1c2c6e2185e50434a9",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "cond": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "prev_worst"
+      },
+      {
+       "kind": "var",
+       "name": "sev"
+      }
+     ],
+     "kind": "op",
+     "op": ">="
+    },
+    "else_branch": {
+     "kind": "var",
+     "name": "sev"
+    },
+    "kind": "if",
+    "then_branch": {
+     "kind": "var",
+     "name": "prev_worst"
+    }
+   }
+  }
+ ]
+}

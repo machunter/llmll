@@ -1,0 +1,20 @@
+;; module: record — framing / length discipline (the Heartbleed axis).
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+;;   claimed:  the length the peer's header CLAIMS
+;;   received: the payload bytes that actually arrived
+;;   max_frag: the negotiated maximum fragment length
+
+;; May this record be accepted at the framing layer?
+(def-shell frame-accept [claimed: int received: int max_frag: int] -> bool
+  (post (<=> result (and (and (>= claimed 0) (<= claimed received))
+                         (and (<= claimed max_frag) (>= max_frag 1)))))
+  ?impl)
+
+;; The number of payload bytes that may be delivered upward: the claimed
+;; length when it is sound, and never more than what actually arrived.
+(def-shell deliver-count [claimed: int received: int] -> int
+  (pre  (and (>= claimed 0) (>= received 0)))
+  (post (and (and (<= result claimed) (<= result received))
+             (and (>= result 0)
+                  (or (= result claimed) (= result received)))))
+  ?impl)

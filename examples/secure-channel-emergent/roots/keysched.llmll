@@ -1,0 +1,16 @@
+;; module: keysched — key-schedule epoch/stage ordering.
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+;; Stages: 0=none 1=derived 2=installed. Keys usable only when installed,
+;; under a positive epoch, with the handshake established (hs_state = 4).
+
+(def-shell key-ready [epoch: int stage: int hs_state: int] -> bool
+  (post (<=> result (and (and (>= epoch 1) (= stage 2))
+                         (= hs_state 4))))
+  ?impl)
+
+;; Epoch after a (possible) rekey: bumps by one exactly on rekey.
+(def-shell epoch-after [epoch: int rekey: bool] -> int
+  (pre  (>= epoch 0))
+  (post (and (=> rekey (= result (+ epoch 1)))
+             (and (=> (not rekey) (= result epoch)) (>= result epoch))))
+  ?impl)

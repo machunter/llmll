@@ -1,0 +1,4 @@
+REFINE
+(and (claim-in-window claimed received) (frag-limit-ok claimed max_frag))
+(def-shell claim-in-window [claimed: int received: int] -> bool (post (<=> result (and (>= claimed 0) (<= claimed received)))) ?impl)
+(def-shell frag-limit-ok [claimed: int max_frag: int] -> bool (post (<=> result (and (<= claimed max_frag) (>= max_frag 1)))) ?impl)

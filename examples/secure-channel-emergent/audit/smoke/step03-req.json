@@ -1,0 +1,43 @@
+{
+ "token": "20e397a729820142163ce7eae6b9427e36ce4ab9487b22b17316e4a2bd510014",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/2/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "latched"
+       },
+       {
+        "kind": "var",
+        "name": "sev"
+       }
+      ],
+      "fn": "alert-admit",
+      "kind": "app"
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "computed"
+       },
+       {
+        "kind": "var",
+        "name": "expected"
+       }
+      ],
+      "kind": "op",
+      "op": "="
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

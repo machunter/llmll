@@ -1,0 +1,11 @@
+[sequence] step 1: def-shell seq-accept (/statements/0/body), 2 open
+[sequence]   accepted (refine, attempt 1)
+[sequence] step 2: def-shell seq-after (/statements/1/body), 4 open
+[sequence]   accepted (patch, attempt 1)
+[sequence] step 3: def-shell seq-newer (/statements/2/body), 3 open
+[sequence]   accepted (patch, attempt 1)
+[sequence] step 4: def-shell window-valid (/statements/3/body), 2 open
+[sequence]   accepted (patch, attempt 1)
+[sequence] step 5: def-shell within-window (/statements/4/body), 1 open
+[sequence]   accepted (patch, attempt 1)
+[sequence] complete after 5 steps

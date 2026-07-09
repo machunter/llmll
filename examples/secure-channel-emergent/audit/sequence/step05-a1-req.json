@@ -1,0 +1,33 @@
+{
+ "token": "1926ffd5dce1af9a5871183980f2a9553d7f1c31d670f1834bc9af368dddd4a1",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/4/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "seq"
+       },
+       {
+        "kind": "var",
+        "name": "last"
+       }
+      ],
+      "kind": "op",
+      "op": "-"
+     },
+     {
+      "kind": "var",
+      "name": "window"
+     }
+    ],
+    "kind": "op",
+    "op": "<="
+   }
+  }
+ ]
+}

@@ -1,0 +1,74 @@
+{
+ "token": "0e01572c8656d36548d21dbfc1e5b2d5572d4041c14054844f21152667f68b7c",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/13/body",
+   "value": {
+    "cond": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "claimed"
+      },
+      {
+       "kind": "var",
+       "name": "received"
+      },
+      {
+       "kind": "var",
+       "name": "max_frag"
+      },
+      {
+       "kind": "var",
+       "name": "seq"
+      },
+      {
+       "kind": "var",
+       "name": "last"
+      },
+      {
+       "kind": "var",
+       "name": "window"
+      },
+      {
+       "kind": "var",
+       "name": "hs_state"
+      },
+      {
+       "kind": "var",
+       "name": "epoch"
+      },
+      {
+       "kind": "var",
+       "name": "stage"
+      },
+      {
+       "kind": "var",
+       "name": "credit"
+      },
+      {
+       "kind": "var",
+       "name": "latched"
+      },
+      {
+       "kind": "var",
+       "name": "sev"
+      }
+     ],
+     "fn": "channel-admit",
+     "kind": "app"
+    },
+    "else_branch": {
+     "kind": "lit-int",
+     "value": 0
+    },
+    "kind": "if",
+    "then_branch": {
+     "kind": "var",
+     "name": "claimed"
+    }
+   }
+  }
+ ]
+}

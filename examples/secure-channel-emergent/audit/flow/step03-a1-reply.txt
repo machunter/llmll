@@ -1,0 +1,2 @@
+FILL
+(if (<= (+ credit grant) max_credit) (+ credit grant) max_credit)

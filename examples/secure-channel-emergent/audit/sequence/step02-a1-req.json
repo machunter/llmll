@@ -1,0 +1,24 @@
+{
+ "token": "340189e2c48cef9053871ad8535eb00531b33dd212f3063b611a6992a62cee3f",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "cond": {
+     "kind": "var",
+     "name": "accepted"
+    },
+    "else_branch": {
+     "kind": "var",
+     "name": "last"
+    },
+    "kind": "if",
+    "then_branch": {
+     "kind": "var",
+     "name": "seq"
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,11 @@
+[keysched] step 1: def-shell key-ready (/statements/0/body), 2 open
+[keysched]   accepted (refine, attempt 1)
+[keysched] step 2: def-shell epoch-after (/statements/1/body), 4 open
+[keysched]   accepted (patch, attempt 1)
+[keysched] step 3: def-shell epoch-active (/statements/2/body), 3 open
+[keysched]   accepted (patch, attempt 1)
+[keysched] step 4: def-shell stage-final (/statements/3/body), 2 open
+[keysched]   accepted (patch, attempt 1)
+[keysched] step 5: def-shell hs-complete (/statements/4/body), 1 open
+[keysched]   accepted (patch, attempt 1)
+[keysched] complete after 5 steps

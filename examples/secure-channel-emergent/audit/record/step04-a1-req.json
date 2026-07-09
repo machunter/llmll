@@ -1,0 +1,43 @@
+{
+ "token": "60c041888618616120f7e95b0dd667156fdc8393203b94234293943914d996ea",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/3/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "claimed"
+       },
+       {
+        "kind": "var",
+        "name": "max_frag"
+       }
+      ],
+      "kind": "op",
+      "op": "<="
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "max_frag"
+       },
+       {
+        "kind": "lit-int",
+        "value": 1
+       }
+      ],
+      "kind": "op",
+      "op": ">="
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

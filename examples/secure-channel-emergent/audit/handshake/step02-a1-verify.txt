@@ -1,0 +1,6 @@
+   .fq written to /tmp/handshake.ast.fq
+   body-faithful: hs-can-establish, hs-step
+   body-fallback: hs-sig-state-ok, hs-transcript-ok
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/handshake.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/handshake.ast.json.verified.json

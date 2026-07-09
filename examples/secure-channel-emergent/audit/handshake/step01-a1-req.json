@@ -1,0 +1,165 @@
+{
+ "token": "2f5ce2e9a46a27540e871baa07ded951250e6092127452722aeaab2a3ac6d935",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "state"
+       },
+       {
+        "kind": "var",
+        "name": "sig_ok"
+       }
+      ],
+      "fn": "hs-sig-state-ok",
+      "kind": "app"
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "mac_ok"
+       },
+       {
+        "kind": "var",
+        "name": "version_ok"
+       }
+      ],
+      "fn": "hs-transcript-ok",
+      "kind": "app"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "hs-sig-state-ok",
+    "params": [
+     {
+      "name": "state",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "sig_ok",
+      "param_type": {
+       "kind": "primitive",
+       "name": "bool"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "state"
+          },
+          {
+           "kind": "lit-int",
+           "value": 3
+          }
+         ],
+         "kind": "op",
+         "op": "="
+        },
+        {
+         "kind": "var",
+         "name": "sig_ok"
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "hs-transcript-ok",
+    "params": [
+     {
+      "name": "mac_ok",
+      "param_type": {
+       "kind": "primitive",
+       "name": "bool"
+      }
+     },
+     {
+      "name": "version_ok",
+      "param_type": {
+       "kind": "primitive",
+       "name": "bool"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "mac_ok"
+        },
+        {
+         "kind": "var",
+         "name": "version_ok"
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  }
+ ]
+}

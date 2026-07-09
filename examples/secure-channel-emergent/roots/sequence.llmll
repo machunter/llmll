@@ -1,0 +1,16 @@
+;; module: sequence — record freshness / anti-replay.
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+
+;; Accept a record's sequence number iff strictly newer than the high-water
+;; mark and within the replay window.
+(def-shell seq-accept [seq: int last: int window: int] -> bool
+  (post (<=> result (and (and (> seq last) (>= window 1))
+                         (<= (- seq last) window))))
+  ?impl)
+
+;; The high-water mark after processing: advances to seq exactly when the
+;; record was accepted, otherwise unchanged.
+(def-shell seq-after [seq: int last: int accepted: bool] -> int
+  (post (and (=> accepted (= result seq))
+             (=> (not accepted) (= result last))))
+  ?impl)

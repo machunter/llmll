@@ -1,0 +1,180 @@
+
+You are filling one hole in a verified LLMLL module. The JSON at the end is the
+checkout brief for the hole: the contract your code must satisfy and everything
+that is in scope. Reply with EXACTLY one of the two forms below and nothing else
+(no prose, no markdown fences).
+
+Form 1 - fill the hole directly:
+
+FILL
+<one s-expression: the body>
+
+Form 2 - decompose: fill the hole with a body that calls new functions you
+invent, and declare each new function as a contracted hole for a later agent:
+
+REFINE
+<one s-expression: the body, calling the new functions>
+(def-shell <name> [<p>: <type> ...] -> <type> (post <predicate>) ?impl)
+<...one def-shell per new function, each starting on its own line...>
+
+LLMLL s-expression reference:
+- expressions: (+ a b), (- a b), (= a b), (>= a b), (<= a b), (> a b), (< a b),
+  (and p q), (or p q), (not p), (if c t e), (=> p q), (<=> p q);
+  integer literals; bool literals true / false
+- types: int, bool
+- in a post, `result` names the function's return value
+- (and ...) and (or ...) are binary - nest them for more operands
+- param syntax in def-shell: [name: type name: type ...]
+
+Policy:
+- Your body may call any function listed in available_functions (by its listed
+  name), except the one whose status is "hole" (that is the function you are
+  filling). Prefer calling an available function over re-deriving its logic
+  when its contract gives you exactly what you need.
+- If the correct body is one or two atomic operations, use FILL.
+- Otherwise use REFINE: split into 2-4 new functions, each strictly simpler
+  than this hole, and write the body as a composition of calls to them.
+- New function names must be fresh (not already in scope) and every function
+  you declare must be called by your body.
+- Give every new function a contract that pins its result down exactly over
+  its inputs (a one-way implication usually under-specifies; prefer <=> for
+  bool results and equalities/tight bounds for int results). A sub-contract
+  that a trivial constant/identity body already satisfies will be rejected.
+- Add a pre to a new function only if its contract needs it to be satisfiable.
+- The body must NOT call the function whose hole you are filling, directly or
+  through a new function - recursive fills are rejected by the harness.
+
+The brief:
+{
+ "assumptions": null,
+ "available_functions": [
+  {
+   "name": "key-ready",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "stage",
+     "type": "int"
+    },
+    {
+     "name": "hs_state",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (>= epoch 1) (= stage 2)) (= hs_state 4)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "epoch-after",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "rekey",
+     "type": "bool"
+    }
+   ],
+   "post": "(and (=> rekey (= result (+ epoch 1))) (and (=> (not rekey) (= result epoch)) (>= result epoch)))",
+   "pre": "(>= epoch 0)",
+   "return_type": "int",
+   "returns": "int",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "epoch-active",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (>= epoch 1))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "hole",
+   "tier": "asserted"
+  },
+  {
+   "name": "stage-final",
+   "params": [
+    {
+     "name": "stage",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (= stage 2))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "hs-complete",
+   "params": [
+    {
+     "name": "hs_state",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (= hs_state 4))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  }
+ ],
+ "brief_version": "0.12.2",
+ "consumed_guarantees": null,
+ "contract_pre": null,
+ "expected_return_type": "bool",
+ "hole_kind": "hole-named",
+ "in_scope": [
+  {
+   "name": "epoch",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "epoch-active",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "epoch-after",
+   "source": "let-binding",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "hs-complete",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "key-ready",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "stage-final",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  }
+ ],
+ "obligation_id": null,
+ "path_condition": null,
+ "pointer": "/statements/2/body",
+ "postcondition_goal": "(<=> result (>= epoch 1))"
+}

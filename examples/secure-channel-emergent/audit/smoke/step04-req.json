@@ -1,0 +1,237 @@
+{
+ "token": "3b82c28f8caf669c5d4042a0b652165574d73b355ee5c45a3d3f215c188b8d55",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/2/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "latched"
+       },
+       {
+        "kind": "var",
+        "name": "sev"
+       }
+      ],
+      "fn": "alert-admit",
+      "kind": "app"
+     },
+     {
+      "args": [
+       {
+        "args": [
+         {
+          "kind": "var",
+          "name": "computed"
+         },
+         {
+          "kind": "var",
+          "name": "expected"
+         },
+         {
+          "kind": "var",
+          "name": "seq"
+         },
+         {
+          "kind": "var",
+          "name": "last"
+         }
+        ],
+        "fn": "mac-fresh-ok",
+        "kind": "app"
+       },
+       {
+        "args": [
+         {
+          "kind": "var",
+          "name": "claimed"
+         },
+         {
+          "kind": "var",
+          "name": "received"
+         }
+        ],
+        "fn": "len-ok",
+        "kind": "app"
+       }
+      ],
+      "kind": "op",
+      "op": "and"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "mac-fresh-ok",
+    "params": [
+     {
+      "name": "computed",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "expected",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "seq",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "last",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "computed"
+          },
+          {
+           "kind": "var",
+           "name": "expected"
+          }
+         ],
+         "kind": "op",
+         "op": "="
+        },
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "seq"
+          },
+          {
+           "kind": "var",
+           "name": "last"
+          }
+         ],
+         "kind": "op",
+         "op": ">"
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "len-ok",
+    "params": [
+     {
+      "name": "claimed",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "received",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "claimed"
+          },
+          {
+           "kind": "lit-int",
+           "value": 0
+          }
+         ],
+         "kind": "op",
+         "op": ">="
+        },
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "claimed"
+          },
+          {
+           "kind": "var",
+           "name": "received"
+          }
+         ],
+         "kind": "op",
+         "op": "<="
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  }
+ ]
+}

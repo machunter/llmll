@@ -1,0 +1,43 @@
+{
+ "token": "6a0fbc718ccb45ed4bd037ae0b94220d1bfed1a616ba92a2472d1c26df91cfdf",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/4/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "claimed"
+       },
+       {
+        "kind": "lit-int",
+        "value": 0
+       }
+      ],
+      "kind": "op",
+      "op": ">="
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "claimed"
+       },
+       {
+        "kind": "var",
+        "name": "received"
+       }
+      ],
+      "kind": "op",
+      "op": "<="
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

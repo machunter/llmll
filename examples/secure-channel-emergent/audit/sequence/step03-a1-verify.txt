@@ -1,0 +1,6 @@
+   .fq written to /tmp/sequence.ast.fq
+   body-faithful: seq-accept, seq-after, seq-newer
+   body-fallback: window-valid, within-window
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/sequence.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/sequence.ast.json.verified.json

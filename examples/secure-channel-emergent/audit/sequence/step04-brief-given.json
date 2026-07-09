@@ -1,0 +1,149 @@
+{
+ "assumptions": null,
+ "available_functions": [
+  {
+   "name": "seq-accept",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "window",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (> seq last) (>= window 1)) (<= (- seq last) window)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "seq-after",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "accepted",
+     "type": "bool"
+    }
+   ],
+   "post": "(and (=> accepted (= result seq)) (=> (not accepted) (= result last)))",
+   "pre": null,
+   "return_type": "int",
+   "returns": "int",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "seq-newer",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (> seq last))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "window-valid",
+   "params": [
+    {
+     "name": "window",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (>= window 1))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "hole",
+   "tier": "asserted"
+  },
+  {
+   "name": "within-window",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "window",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (<= (- seq last) window))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  }
+ ],
+ "brief_version": "0.12.2",
+ "consumed_guarantees": null,
+ "contract_pre": null,
+ "expected_return_type": "bool",
+ "hole_kind": "hole-named",
+ "in_scope": [
+  {
+   "name": "seq-accept",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "seq-after",
+   "source": "let-binding",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "seq-newer",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "window",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "window-valid",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "within-window",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  }
+ ],
+ "obligation_id": null,
+ "path_condition": null,
+ "pointer": "/statements/3/body",
+ "postcondition_goal": "(<=> result (>= window 1))"
+}

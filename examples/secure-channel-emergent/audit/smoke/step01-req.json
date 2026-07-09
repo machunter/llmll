@@ -1,0 +1,39 @@
+{
+ "token": "411093f9e1dc97e47c93eef89d7ef73f2e720d62dba9fc293fa98e639e7f2f3a",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "sev"
+       },
+       {
+        "kind": "lit-int",
+        "value": 1
+       }
+      ],
+      "kind": "op",
+      "op": "="
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "latched"
+       }
+      ],
+      "kind": "op",
+      "op": "not"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

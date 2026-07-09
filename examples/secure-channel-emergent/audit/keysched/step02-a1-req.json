@@ -1,0 +1,34 @@
+{
+ "token": "184d4833b4c28f2f59ccced8a929198519b67edcfa3fed1f76fb1111b52b5d0b",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "cond": {
+     "kind": "var",
+     "name": "rekey"
+    },
+    "else_branch": {
+     "kind": "var",
+     "name": "epoch"
+    },
+    "kind": "if",
+    "then_branch": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "epoch"
+      },
+      {
+       "kind": "lit-int",
+       "value": 1
+      }
+     ],
+     "kind": "op",
+     "op": "+"
+    }
+   }
+  }
+ ]
+}

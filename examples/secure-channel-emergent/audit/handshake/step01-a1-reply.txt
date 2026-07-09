@@ -1,0 +1,4 @@
+REFINE
+(and (hs-sig-state-ok state sig_ok) (hs-transcript-ok mac_ok version_ok))
+(def-shell hs-sig-state-ok [state: int sig_ok: bool] -> bool (post (<=> result (and (= state 3) sig_ok))) ?impl)
+(def-shell hs-transcript-ok [mac_ok: bool version_ok: bool] -> bool (post (<=> result (and mac_ok version_ok))) ?impl)

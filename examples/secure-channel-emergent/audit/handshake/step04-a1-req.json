@@ -1,0 +1,23 @@
+{
+ "token": "12b676024b6674e632bbe91434e1df8e02504caf9dec44c61cb6bc6c33b7b11b",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/3/body",
+   "value": {
+    "args": [
+     {
+      "kind": "var",
+      "name": "mac_ok"
+     },
+     {
+      "kind": "var",
+      "name": "version_ok"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+{
+ "token": "1201cb7665e9f9ca7db846234d6d5364394c637becda414407544e0360cc29f9",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/3/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "computed"
+       },
+       {
+        "kind": "var",
+        "name": "expected"
+       }
+      ],
+      "kind": "op",
+      "op": "="
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "seq"
+       },
+       {
+        "kind": "var",
+        "name": "last"
+       }
+      ],
+      "kind": "op",
+      "op": ">"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

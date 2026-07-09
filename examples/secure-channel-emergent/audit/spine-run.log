@@ -1,0 +1,5 @@
+[spine] step 1: def-shell channel-admit (/statements/12/body), 2 open
+[spine]   accepted (patch, attempt 1)
+[spine] step 2: def-shell channel-deliver-len (/statements/13/body), 1 open
+[spine]   accepted (patch, attempt 1)
+[spine] complete after 2 steps

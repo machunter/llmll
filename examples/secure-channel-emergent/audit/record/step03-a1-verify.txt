@@ -1,0 +1,6 @@
+   .fq written to /tmp/record.ast.fq
+   body-faithful: frame-accept, deliver-count, claim-in-window
+   body-fallback: frag-limit-ok
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/record.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/record.ast.json.verified.json

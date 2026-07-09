@@ -1,0 +1,54 @@
+{
+ "token": "4e13b12608734de031973a86ad04208a49de48027bc95f3a4666e8eadef4b8bb",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/2/body",
+   "value": {
+    "cond": {
+     "args": [
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "credit"
+        },
+        {
+         "kind": "var",
+         "name": "grant"
+        }
+       ],
+       "kind": "op",
+       "op": "+"
+      },
+      {
+       "kind": "var",
+       "name": "max_credit"
+      }
+     ],
+     "kind": "op",
+     "op": "<="
+    },
+    "else_branch": {
+     "kind": "var",
+     "name": "max_credit"
+    },
+    "kind": "if",
+    "then_branch": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "credit"
+      },
+      {
+       "kind": "var",
+       "name": "grant"
+      }
+     ],
+     "kind": "op",
+     "op": "+"
+    }
+   }
+  }
+ ]
+}

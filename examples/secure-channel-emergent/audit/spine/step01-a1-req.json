@@ -1,0 +1,115 @@
+{
+ "token": "3113c6af387bd2e6249b7900b47560c877c767b5bfd1ac507347e3155325d67a",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/12/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "args": [
+         {
+          "kind": "var",
+          "name": "claimed"
+         },
+         {
+          "kind": "var",
+          "name": "received"
+         },
+         {
+          "kind": "var",
+          "name": "max_frag"
+         }
+        ],
+        "fn": "frame-accept",
+        "kind": "app"
+       },
+       {
+        "args": [
+         {
+          "kind": "var",
+          "name": "seq"
+         },
+         {
+          "kind": "var",
+          "name": "last"
+         },
+         {
+          "kind": "var",
+          "name": "window"
+         }
+        ],
+        "fn": "seq-accept",
+        "kind": "app"
+       }
+      ],
+      "kind": "op",
+      "op": "and"
+     },
+     {
+      "args": [
+       {
+        "args": [
+         {
+          "kind": "var",
+          "name": "epoch"
+         },
+         {
+          "kind": "var",
+          "name": "stage"
+         },
+         {
+          "kind": "var",
+          "name": "hs_state"
+         }
+        ],
+        "fn": "key-ready",
+        "kind": "app"
+       },
+       {
+        "args": [
+         {
+          "args": [
+           {
+            "kind": "var",
+            "name": "credit"
+           },
+           {
+            "kind": "var",
+            "name": "claimed"
+           }
+          ],
+          "fn": "send-allow",
+          "kind": "app"
+         },
+         {
+          "args": [
+           {
+            "kind": "var",
+            "name": "latched"
+           },
+           {
+            "kind": "var",
+            "name": "sev"
+           }
+          ],
+          "fn": "alert-admit",
+          "kind": "app"
+         }
+        ],
+        "kind": "op",
+        "op": "and"
+       }
+      ],
+      "kind": "op",
+      "op": "and"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  }
+ ]
+}

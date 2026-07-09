@@ -1,0 +1,24 @@
+;; secure-channel-emergent, module: alert.
+;; ROOT CONTRACTS ONLY — no bodies were ever written by the author; every body
+;; below the roots is agent-authored via cascading refine (see ../README.md).
+;;
+;; Domain: TLS-style alert handling, int/bool-modeled.
+;;   severity: 1 = warning, 2 = fatal
+;;   latched:  true once a fatal alert has been processed (channel dead)
+
+;; May application data still be admitted after this alert?
+;; Yes exactly when: the severity is well-formed (1..2), the channel was not
+;; already latched dead, and this alert is not itself fatal.
+(def-shell alert-admit [latched: bool sev: int] -> bool
+  (post (<=> result (and (and (>= sev 1) (<= sev 2))
+                         (and (not latched) (not (= sev 2))))))
+  ?impl)
+
+;; Worst severity seen so far, after folding in this alert.
+;; Exactly the max of prev_worst and sev (0 = no alert seen yet).
+(def-shell alert-worst [prev_worst: int sev: int] -> int
+  (pre  (and (and (>= prev_worst 0) (<= prev_worst 2))
+             (and (>= sev 1) (<= sev 2))))
+  (post (and (and (>= result prev_worst) (>= result sev))
+             (or (= result prev_worst) (= result sev))))
+  ?impl)

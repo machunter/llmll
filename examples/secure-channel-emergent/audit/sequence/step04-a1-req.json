@@ -1,0 +1,23 @@
+{
+ "token": "2a2fa291f8967444705f1fae4851e1726df82298339bb81227f0afb86279cba7",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/3/body",
+   "value": {
+    "args": [
+     {
+      "kind": "var",
+      "name": "window"
+     },
+     {
+      "kind": "lit-int",
+      "value": 1
+     }
+    ],
+    "kind": "op",
+    "op": ">="
+   }
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+[handshake] step 1: def-shell hs-can-establish (/statements/0/body), 2 open
+[handshake]   accepted (refine, attempt 1)
+[handshake] step 2: def-shell hs-step (/statements/1/body), 3 open
+[handshake]   accepted (patch, attempt 1)
+[handshake] step 3: def-shell hs-sig-state-ok (/statements/2/body), 2 open
+[handshake]   accepted (patch, attempt 1)
+[handshake] step 4: def-shell hs-transcript-ok (/statements/3/body), 1 open
+[handshake]   accepted (patch, attempt 1)
+[handshake] complete after 4 steps

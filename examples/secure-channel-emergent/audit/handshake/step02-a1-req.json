@@ -1,0 +1,34 @@
+{
+ "token": "036ba55bae00511c78f11c581c294c1c5d511da920142dd95d46e468d891c9de",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "cond": {
+     "kind": "var",
+     "name": "ok"
+    },
+    "else_branch": {
+     "kind": "lit-int",
+     "value": 0
+    },
+    "kind": "if",
+    "then_branch": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "state"
+      },
+      {
+       "kind": "lit-int",
+       "value": 1
+      }
+     ],
+     "kind": "op",
+     "op": "+"
+    }
+   }
+  }
+ ]
+}

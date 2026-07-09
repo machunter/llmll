@@ -1,0 +1,1 @@
+{"token": "693246d8a2ba249d13774b46e8ee8fac4f8ad89a1bf2aa15064e494ae3549fac", "patch": [{"op": "replace", "path": "/statements/0/body", "value": {"kind": "app", "fn": "alert-admit", "args": [{"kind": "var", "name": "latched"}, {"kind": "var", "name": "sev"}]}}]}

@@ -1,0 +1,198 @@
+{
+ "token": "4627a7f03d0ab88a38ac050b238b8c7b27c97ae0249a74c4419e13c261670736",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "args": [
+         {
+          "kind": "var",
+          "name": "epoch"
+         }
+        ],
+        "fn": "epoch-active",
+        "kind": "app"
+       },
+       {
+        "args": [
+         {
+          "kind": "var",
+          "name": "stage"
+         }
+        ],
+        "fn": "stage-final",
+        "kind": "app"
+       }
+      ],
+      "kind": "op",
+      "op": "and"
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "hs_state"
+       }
+      ],
+      "fn": "hs-complete",
+      "kind": "app"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "epoch-active",
+    "params": [
+     {
+      "name": "epoch",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "epoch"
+        },
+        {
+         "kind": "lit-int",
+         "value": 1
+        }
+       ],
+       "kind": "op",
+       "op": ">="
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "stage-final",
+    "params": [
+     {
+      "name": "stage",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "stage"
+        },
+        {
+         "kind": "lit-int",
+         "value": 2
+        }
+       ],
+       "kind": "op",
+       "op": "="
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "hs-complete",
+    "params": [
+     {
+      "name": "hs_state",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "hs_state"
+        },
+        {
+         "kind": "lit-int",
+         "value": 4
+        }
+       ],
+       "kind": "op",
+       "op": "="
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  }
+ ]
+}

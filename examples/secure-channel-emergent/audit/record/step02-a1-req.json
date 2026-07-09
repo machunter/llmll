@@ -1,0 +1,34 @@
+{
+ "token": "5abd65f5bdf35ad724a5e2991333eba83e3c50406a32be926f3a63522f2d1f37",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "cond": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "claimed"
+      },
+      {
+       "kind": "var",
+       "name": "received"
+      }
+     ],
+     "fn": "claim-in-window",
+     "kind": "app"
+    },
+    "else_branch": {
+     "kind": "var",
+     "name": "received"
+    },
+    "kind": "if",
+    "then_branch": {
+     "kind": "var",
+     "name": "claimed"
+    }
+   }
+  }
+ ]
+}

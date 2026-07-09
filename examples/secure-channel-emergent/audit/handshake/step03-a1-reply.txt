@@ -1,0 +1,2 @@
+FILL
+(and (= state 3) sig_ok)

@@ -1,0 +1,2 @@
+FILL
+(and (>= len 1) (<= len credit))

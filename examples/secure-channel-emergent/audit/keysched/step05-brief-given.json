@@ -1,0 +1,133 @@
+{
+ "assumptions": null,
+ "available_functions": [
+  {
+   "name": "key-ready",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "stage",
+     "type": "int"
+    },
+    {
+     "name": "hs_state",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (>= epoch 1) (= stage 2)) (= hs_state 4)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "epoch-after",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "rekey",
+     "type": "bool"
+    }
+   ],
+   "post": "(and (=> rekey (= result (+ epoch 1))) (and (=> (not rekey) (= result epoch)) (>= result epoch)))",
+   "pre": "(>= epoch 0)",
+   "return_type": "int",
+   "returns": "int",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "epoch-active",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (>= epoch 1))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "stage-final",
+   "params": [
+    {
+     "name": "stage",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (= stage 2))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "hs-complete",
+   "params": [
+    {
+     "name": "hs_state",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (= hs_state 4))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "hole",
+   "tier": "asserted"
+  }
+ ],
+ "brief_version": "0.12.2",
+ "consumed_guarantees": null,
+ "contract_pre": null,
+ "expected_return_type": "bool",
+ "hole_kind": "hole-named",
+ "in_scope": [
+  {
+   "name": "epoch-active",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "epoch-after",
+   "source": "let-binding",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "hs-complete",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "hs_state",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "key-ready",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "stage-final",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  }
+ ],
+ "obligation_id": null,
+ "path_condition": null,
+ "pointer": "/statements/4/body",
+ "postcondition_goal": "(<=> result (= hs_state 4))"
+}

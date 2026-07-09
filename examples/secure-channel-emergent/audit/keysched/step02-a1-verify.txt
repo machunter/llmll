@@ -1,0 +1,6 @@
+   .fq written to /tmp/keysched.ast.fq
+   body-faithful: key-ready, epoch-after
+   body-fallback: epoch-active, stage-final, hs-complete
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/keysched.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/secure-channel-emergent/work/keysched.ast.json.verified.json

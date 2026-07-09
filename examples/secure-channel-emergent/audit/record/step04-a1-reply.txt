@@ -1,0 +1,2 @@
+FILL
+(and (<= claimed max_frag) (>= max_frag 1))

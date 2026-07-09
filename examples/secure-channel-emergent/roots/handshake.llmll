@@ -1,0 +1,17 @@
+;; module: handshake — state-machine order (the goto-fail axis).
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+;; States: 0=start 1=hello 2=key-exchange 3=signature-verified 4=established.
+
+;; May the handshake be reported ESTABLISHED? Only from the
+;; signature-verified state with every check actually passed.
+(def-shell hs-can-establish [state: int sig_ok: bool mac_ok: bool version_ok: bool] -> bool
+  (post (<=> result (and (and (= state 3) sig_ok)
+                         (and mac_ok version_ok))))
+  ?impl)
+
+;; One handshake step: advance on success, reset to start on failure.
+(def-shell hs-step [state: int ok: bool] -> int
+  (pre  (and (>= state 0) (<= state 3)))
+  (post (and (=> ok (= result (+ state 1)))
+             (=> (not ok) (= result 0))))
+  ?impl)

@@ -1,0 +1,34 @@
+{
+ "token": "412a8653509a2fb46c5a2434be53cd6e06a63d3f7e22023a7b34d4f0f1d935d0",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "cond": {
+     "kind": "var",
+     "name": "sent"
+    },
+    "else_branch": {
+     "kind": "var",
+     "name": "credit"
+    },
+    "kind": "if",
+    "then_branch": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "credit"
+      },
+      {
+       "kind": "var",
+       "name": "len"
+      }
+     ],
+     "kind": "op",
+     "op": "-"
+    }
+   }
+  }
+ ]
+}

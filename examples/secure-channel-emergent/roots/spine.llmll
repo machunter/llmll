@@ -1,0 +1,68 @@
+;; module: spine — the delivery decision, composing all six modules.
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+(import record)
+(import sequence)
+(import handshake)
+(import keysched)
+(import flow)
+(import alert)
+(open record)
+(open sequence)
+(open handshake)
+(open keysched)
+(open flow)
+(open alert)
+
+;; May this record's payload be delivered to the application?
+;; The whole channel discipline as one predicate: framing sound, sequence
+;; fresh, handshake established with keys installed, within flow credit,
+;; and the alert layer still admitting data.
+(def-shell channel-admit
+    [claimed: int received: int max_frag: int
+     seq: int last: int window: int
+     hs_state: int epoch: int stage: int
+     credit: int
+     latched: bool sev: int] -> bool
+  (post (<=> result
+             (and (and (and (and (>= claimed 0) (<= claimed received))
+                            (and (<= claimed max_frag) (>= max_frag 1)))
+                       (and (and (> seq last) (>= window 1))
+                            (<= (- seq last) window)))
+                  (and (and (= hs_state 4)
+                            (and (>= epoch 1) (= stage 2)))
+                       (and (and (>= claimed 1) (<= claimed credit))
+                            (and (and (>= sev 1) (<= sev 2))
+                                 (and (not latched) (not (= sev 2)))))))))
+  ?impl)
+
+;; The number of bytes actually delivered: the claimed length exactly when
+;; the channel admits the record, and zero otherwise. (The goto-fail-shaped
+;; shortcut — deliver unconditionally — is refutable, not just wrong.)
+(def-shell channel-deliver-len
+    [claimed: int received: int max_frag: int
+     seq: int last: int window: int
+     hs_state: int epoch: int stage: int
+     credit: int
+     latched: bool sev: int] -> int
+  (pre (and (>= claimed 0) (>= received 0)))
+  (post (and (=> (and (and (and (and (>= claimed 0) (<= claimed received))
+                                (and (<= claimed max_frag) (>= max_frag 1)))
+                           (and (and (> seq last) (>= window 1))
+                                (<= (- seq last) window)))
+                      (and (and (= hs_state 4)
+                                (and (>= epoch 1) (= stage 2)))
+                           (and (and (>= claimed 1) (<= claimed credit))
+                                (and (and (>= sev 1) (<= sev 2))
+                                     (and (not latched) (not (= sev 2)))))))
+                 (= result claimed))
+             (=> (not (and (and (and (and (>= claimed 0) (<= claimed received))
+                                     (and (<= claimed max_frag) (>= max_frag 1)))
+                                (and (and (> seq last) (>= window 1))
+                                     (<= (- seq last) window)))
+                           (and (and (= hs_state 4)
+                                     (and (>= epoch 1) (= stage 2)))
+                                (and (and (>= claimed 1) (<= claimed credit))
+                                     (and (and (>= sev 1) (<= sev 2))
+                                          (and (not latched) (not (= sev 2))))))))
+                 (= result 0))))
+  ?impl)

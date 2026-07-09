@@ -1,0 +1,195 @@
+{
+ "token": "65769962299d0c1755814f0c34cd8e84487628205a9a603c4f348017b9afdbc6",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "claimed"
+       },
+       {
+        "kind": "var",
+        "name": "received"
+       }
+      ],
+      "fn": "claim-in-window",
+      "kind": "app"
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "claimed"
+       },
+       {
+        "kind": "var",
+        "name": "max_frag"
+       }
+      ],
+      "fn": "frag-limit-ok",
+      "kind": "app"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "claim-in-window",
+    "params": [
+     {
+      "name": "claimed",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "received",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "claimed"
+          },
+          {
+           "kind": "lit-int",
+           "value": 0
+          }
+         ],
+         "kind": "op",
+         "op": ">="
+        },
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "claimed"
+          },
+          {
+           "kind": "var",
+           "name": "received"
+          }
+         ],
+         "kind": "op",
+         "op": "<="
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "frag-limit-ok",
+    "params": [
+     {
+      "name": "claimed",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "max_frag",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "claimed"
+          },
+          {
+           "kind": "var",
+           "name": "max_frag"
+          }
+         ],
+         "kind": "op",
+         "op": "<="
+        },
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "max_frag"
+          },
+          {
+           "kind": "lit-int",
+           "value": 1
+          }
+         ],
+         "kind": "op",
+         "op": ">="
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "<=>"
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  }
+ ]
+}

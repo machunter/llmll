@@ -1,0 +1,891 @@
+{
+ "assumptions": null,
+ "available_functions": [
+  {
+   "name": "channel-admit",
+   "params": [
+    {
+     "name": "claimed",
+     "type": "int"
+    },
+    {
+     "name": "received",
+     "type": "int"
+    },
+    {
+     "name": "max_frag",
+     "type": "int"
+    },
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "window",
+     "type": "int"
+    },
+    {
+     "name": "hs_state",
+     "type": "int"
+    },
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "stage",
+     "type": "int"
+    },
+    {
+     "name": "credit",
+     "type": "int"
+    },
+    {
+     "name": "latched",
+     "type": "bool"
+    },
+    {
+     "name": "sev",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (and (and (>= claimed 0) (<= claimed received)) (and (<= claimed max_frag) (>= max_frag 1))) (and (and (> seq last) (>= window 1)) (<= (- seq last) window))) (and (and (= hs_state 4) (and (>= epoch 1) (= stage 2))) (and (and (>= claimed 1) (<= claimed credit)) (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2))))))))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "hole",
+   "tier": "asserted"
+  },
+  {
+   "name": "channel-deliver-len",
+   "params": [
+    {
+     "name": "claimed",
+     "type": "int"
+    },
+    {
+     "name": "received",
+     "type": "int"
+    },
+    {
+     "name": "max_frag",
+     "type": "int"
+    },
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "window",
+     "type": "int"
+    },
+    {
+     "name": "hs_state",
+     "type": "int"
+    },
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "stage",
+     "type": "int"
+    },
+    {
+     "name": "credit",
+     "type": "int"
+    },
+    {
+     "name": "latched",
+     "type": "bool"
+    },
+    {
+     "name": "sev",
+     "type": "int"
+    }
+   ],
+   "post": "(and (=> (and (and (and (and (>= claimed 0) (<= claimed received)) (and (<= claimed max_frag) (>= max_frag 1))) (and (and (> seq last) (>= window 1)) (<= (- seq last) window))) (and (and (= hs_state 4) (and (>= epoch 1) (= stage 2))) (and (and (>= claimed 1) (<= claimed credit)) (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2))))))) (= result claimed)) (=> (not (and (and (and (and (>= claimed 0) (<= claimed received)) (and (<= claimed max_frag) (>= max_frag 1))) (and (and (> seq last) (>= window 1)) (<= (- seq last) window))) (and (and (= hs_state 4) (and (>= epoch 1) (= stage 2))) (and (and (>= claimed 1) (<= claimed credit)) (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2)))))))) (= result 0)))",
+   "pre": "(and (>= claimed 0) (>= received 0))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "filled",
+   "tier": "asserted"
+  },
+  {
+   "name": "alert-admit",
+   "params": [
+    {
+     "name": "latched",
+     "type": "bool"
+    },
+    {
+     "name": "sev",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2)))))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "asserted"
+  },
+  {
+   "name": "alert-worst",
+   "params": [
+    {
+     "name": "prev_worst",
+     "type": "int"
+    },
+    {
+     "name": "sev",
+     "type": "int"
+    }
+   ],
+   "post": "(and (and (>= result prev_worst) (>= result sev)) (or (= result prev_worst) (= result sev)))",
+   "pre": "(and (and (>= prev_worst 0) (<= prev_worst 2)) (and (>= sev 1) (<= sev 2)))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "asserted"
+  },
+  {
+   "name": "credit-after",
+   "params": [
+    {
+     "name": "credit",
+     "type": "int"
+    },
+    {
+     "name": "len",
+     "type": "int"
+    },
+    {
+     "name": "sent",
+     "type": "bool"
+    }
+   ],
+   "post": "(and (=> sent (= result (- credit len))) (and (=> (not sent) (= result credit)) (>= result 0)))",
+   "pre": "(and (and (>= len 0) (>= credit 0)) (<= len credit))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "credit-granted",
+   "params": [
+    {
+     "name": "credit",
+     "type": "int"
+    },
+    {
+     "name": "grant",
+     "type": "int"
+    },
+    {
+     "name": "max_credit",
+     "type": "int"
+    }
+   ],
+   "post": "(and (and (<= result max_credit) (<= result (+ credit grant))) (or (= result max_credit) (= result (+ credit grant))))",
+   "pre": "(and (and (>= credit 0) (>= grant 0)) (>= max_credit credit))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "send-allow",
+   "params": [
+    {
+     "name": "credit",
+     "type": "int"
+    },
+    {
+     "name": "len",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (>= len 1) (<= len credit)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "hs-can-establish",
+   "params": [
+    {
+     "name": "state",
+     "type": "int"
+    },
+    {
+     "name": "sig_ok",
+     "type": "bool"
+    },
+    {
+     "name": "mac_ok",
+     "type": "bool"
+    },
+    {
+     "name": "version_ok",
+     "type": "bool"
+    }
+   ],
+   "post": "(<=> result (and (and (= state 3) sig_ok) (and mac_ok version_ok)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "hs-sig-state-ok",
+   "params": [
+    {
+     "name": "state",
+     "type": "int"
+    },
+    {
+     "name": "sig_ok",
+     "type": "bool"
+    }
+   ],
+   "post": "(<=> result (and (= state 3) sig_ok))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "hs-step",
+   "params": [
+    {
+     "name": "state",
+     "type": "int"
+    },
+    {
+     "name": "ok",
+     "type": "bool"
+    }
+   ],
+   "post": "(and (=> ok (= result (+ state 1))) (=> (not ok) (= result 0)))",
+   "pre": "(and (>= state 0) (<= state 3))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "hs-transcript-ok",
+   "params": [
+    {
+     "name": "mac_ok",
+     "type": "bool"
+    },
+    {
+     "name": "version_ok",
+     "type": "bool"
+    }
+   ],
+   "post": "(<=> result (and mac_ok version_ok))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "epoch-active",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (>= epoch 1))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "epoch-after",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "rekey",
+     "type": "bool"
+    }
+   ],
+   "post": "(and (=> rekey (= result (+ epoch 1))) (and (=> (not rekey) (= result epoch)) (>= result epoch)))",
+   "pre": "(>= epoch 0)",
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "hs-complete",
+   "params": [
+    {
+     "name": "hs_state",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (= hs_state 4))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "key-ready",
+   "params": [
+    {
+     "name": "epoch",
+     "type": "int"
+    },
+    {
+     "name": "stage",
+     "type": "int"
+    },
+    {
+     "name": "hs_state",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (>= epoch 1) (= stage 2)) (= hs_state 4)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "stage-final",
+   "params": [
+    {
+     "name": "stage",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (= stage 2))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "claim-in-window",
+   "params": [
+    {
+     "name": "claimed",
+     "type": "int"
+    },
+    {
+     "name": "received",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (>= claimed 0) (<= claimed received)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "deliver-count",
+   "params": [
+    {
+     "name": "claimed",
+     "type": "int"
+    },
+    {
+     "name": "received",
+     "type": "int"
+    }
+   ],
+   "post": "(and (and (<= result claimed) (<= result received)) (and (>= result 0) (or (= result claimed) (= result received))))",
+   "pre": "(and (>= claimed 0) (>= received 0))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "frag-limit-ok",
+   "params": [
+    {
+     "name": "claimed",
+     "type": "int"
+    },
+    {
+     "name": "max_frag",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (<= claimed max_frag) (>= max_frag 1)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "frame-accept",
+   "params": [
+    {
+     "name": "claimed",
+     "type": "int"
+    },
+    {
+     "name": "received",
+     "type": "int"
+    },
+    {
+     "name": "max_frag",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (>= claimed 0) (<= claimed received)) (and (<= claimed max_frag) (>= max_frag 1))))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "seq-accept",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "window",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (and (and (> seq last) (>= window 1)) (<= (- seq last) window)))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "seq-after",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "accepted",
+     "type": "bool"
+    }
+   ],
+   "post": "(and (=> accepted (= result seq)) (=> (not accepted) (= result last)))",
+   "pre": null,
+   "return_type": "int",
+   "returns": "int",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "seq-newer",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (> seq last))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "window-valid",
+   "params": [
+    {
+     "name": "window",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (>= window 1))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  },
+  {
+   "name": "within-window",
+   "params": [
+    {
+     "name": "seq",
+     "type": "int"
+    },
+    {
+     "name": "last",
+     "type": "int"
+    },
+    {
+     "name": "window",
+     "type": "int"
+    }
+   ],
+   "post": "(<=> result (<= (- seq last) window))",
+   "pre": null,
+   "return_type": "bool",
+   "returns": "bool",
+   "status": "imported",
+   "tier": "verified"
+  }
+ ],
+ "brief_version": "0.12.2",
+ "consumed_guarantees": null,
+ "contract_pre": null,
+ "expected_return_type": "bool",
+ "hole_kind": "hole-named",
+ "in_scope": [
+  {
+   "name": "alert-admit",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "alert-worst",
+   "source": "open-import",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "alert.alert-admit",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "alert.alert-worst",
+   "source": "let-binding",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "channel-admit",
+   "source": "let-binding",
+   "type": "fn[12 args] -> bool"
+  },
+  {
+   "name": "channel-deliver-len",
+   "source": "let-binding",
+   "type": "fn[12 args] -> int"
+  },
+  {
+   "name": "claim-in-window",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "claimed",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "credit",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "credit-after",
+   "source": "open-import",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "credit-granted",
+   "source": "open-import",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "deliver-count",
+   "source": "open-import",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "epoch",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "epoch-active",
+   "source": "open-import",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "epoch-after",
+   "source": "open-import",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "flow.credit-after",
+   "source": "let-binding",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "flow.credit-granted",
+   "source": "let-binding",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "flow.send-allow",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "frag-limit-ok",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "frame-accept",
+   "source": "open-import",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "handshake.hs-can-establish",
+   "source": "let-binding",
+   "type": "fn[4 args] -> bool"
+  },
+  {
+   "name": "handshake.hs-sig-state-ok",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "handshake.hs-step",
+   "source": "let-binding",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "handshake.hs-transcript-ok",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "hs-can-establish",
+   "source": "open-import",
+   "type": "fn[4 args] -> bool"
+  },
+  {
+   "name": "hs-complete",
+   "source": "open-import",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "hs-sig-state-ok",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "hs-step",
+   "source": "open-import",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "hs-transcript-ok",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "hs_state",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "key-ready",
+   "source": "open-import",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "keysched.epoch-active",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "keysched.epoch-after",
+   "source": "let-binding",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "keysched.hs-complete",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "keysched.key-ready",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "keysched.stage-final",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "last",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "latched",
+   "source": "param",
+   "type": "bool"
+  },
+  {
+   "name": "max_frag",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "received",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "record.claim-in-window",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "record.deliver-count",
+   "source": "let-binding",
+   "type": "fn[2 args] -> int"
+  },
+  {
+   "name": "record.frag-limit-ok",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "record.frame-accept",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "send-allow",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "seq",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "seq-accept",
+   "source": "open-import",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "seq-after",
+   "source": "open-import",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "seq-newer",
+   "source": "open-import",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "sequence.seq-accept",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "sequence.seq-after",
+   "source": "let-binding",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "sequence.seq-newer",
+   "source": "let-binding",
+   "type": "fn[2 args] -> bool"
+  },
+  {
+   "name": "sequence.window-valid",
+   "source": "let-binding",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "sequence.within-window",
+   "source": "let-binding",
+   "type": "fn[3 args] -> bool"
+  },
+  {
+   "name": "sev",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "stage",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "stage-final",
+   "source": "open-import",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "window",
+   "source": "param",
+   "type": "int"
+  },
+  {
+   "name": "window-valid",
+   "source": "open-import",
+   "type": "fn[1 args] -> bool"
+  },
+  {
+   "name": "within-window",
+   "source": "open-import",
+   "type": "fn[3 args] -> bool"
+  }
+ ],
+ "obligation_id": null,
+ "path_condition": null,
+ "pointer": "/statements/12/body",
+ "postcondition_goal": "(<=> result (and (and (and (and (>= claimed 0) (<= claimed received)) (and (<= claimed max_frag) (>= max_frag 1))) (and (and (> seq last) (>= window 1)) (<= (- seq last) window))) (and (and (= hs_state 4) (and (>= epoch 1) (= stage 2))) (and (and (>= claimed 1) (<= claimed credit)) (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2))))))))"
+}
