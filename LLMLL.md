@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.18)
+# LLMLL: Large Language Model Logical Language (v0.14.19)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.18.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.19.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1820,7 +1820,7 @@ The checkout response includes four optional fields (present when the compiler h
 |-------|------|---------|
 | `in_scope` | `[ScopeEntry]` | Bindings visible at the hole site (Γ delta: `tcEnv \ builtinEnv`). Each entry has `name`, `type` (LLMLL notation), and `source` (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by source priority; truncated at 50 entries with `scope_truncated: true`. |
 | `expected_return_type` | `string` | The expected type at the hole site (τ as a type label). **Populated** for a function-body hole when the enclosing function declares a return type (`-> RetType`, §4.1) — the body hole records `HoleTyped RetType` — and for a sub-expression hole whose type is fixed by local inference (siblings / surrounding context). Absent when neither applies (e.g. a body hole with no declared return and no inferable context). |
-| `available_functions` | `[FuncEntry]` | **Populated** with the contracted-user vocabulary — every same-module `def`/`def-shell` carrying a `pre` or `post`, as `name`, `params` (with types), `returns` / `return_type`, `pre` / `post` / `tier`, and `status`. (The broader vision — the full non-`wasi.*` Σ including builtins, monomorphized against concrete scope types so e.g. `list-head` reads `list[int] → Result[int, string]` when `xs : list[int]` is in scope — is only partly realized: builtins are not yet included.) |
+| `available_functions` | `[FuncEntry]` | **Populated** with the contracted-user vocabulary — every same-module `def`/`def-shell` carrying a `pre` or `post`, plus every **imported** exported contracted function under the name this module calls it by (bare when `(open ...)`-ed, qualified otherwise; `status: "imported"`) — as `name`, `params` (with types), `returns` / `return_type`, `pre` / `post` / `tier`, and `status`. (The broader vision — the full non-`wasi.*` Σ including builtins, monomorphized against concrete scope types so e.g. `list-head` reads `list[int] → Result[int, string]` when `xs : list[int]` is in scope — is only partly realized: builtins are not yet included.) |
 | `type_definitions` | `[TypeDefEntry]` | User-defined types referenced by in-scope bindings. Sum types include constructors; aliases include the base type. Depth-bounded expansion (max 5 levels) with cycle detection (`recursive: true`). |
 | `scope_truncated` | `bool` | `true` if the scope was truncated to the 50-entry limit; absent or `false` otherwise. |
 

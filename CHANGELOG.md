@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.14.19 — imported names in brief scope/function channels (XMOD-SCOPE-BRIEF) (2026-07-09)
+
+### Checkout & obligation report — the callable vocabulary is cache-aware
+
+- **`available_functions` lists imported callables.** The checkout brief's function list was built
+  from same-file statements only, so an `import`-ed contracted function was invisible as a callable
+  even though `consumed_guarantees` (v0.14.18) showed it once called. A new `importedContractedFns`
+  lists every imported **exported** contracted function under the name the entry module calls it by —
+  bare when an `(open ...)` admits it (selective filter honored; a same-named local def shadows the
+  import, which then falls back to its qualified name), qualified otherwise — with `status: "imported"`
+  alongside the existing `"filled"`/`"builtin"` provenance values. Non-exported functions never appear
+  (`meContracts` is unfiltered; the `meExports` gate keeps the brief from suggesting an
+  untypecheckable call).
+- **`in_scope` carries imported names.** The brief's sketch env is now seeded with qualified cache
+  exports (shared `seedCacheEnv`, extracted from `typecheck --sketch`'s seeding), so the walk's
+  existing `SOpen` handler injects bare aliases with the `open-import` source label; the qualified
+  name also appears (default `let-binding` label, matching the shipped `--sketch` path).
+  `type_definitions` resolves against the merged (cache-aware) alias map, so an imported scope
+  type still yields its definition.
+- **The obligation report's per-hole `contracted_functions` gains the same vocabulary.**
+  `assembleFunctionLists` is cache-aware (same naming rules), and its trust map is bare-aliased via
+  `injectOpenedAliases` so an opened import's tier resolves to its qualified trust entry instead of
+  the `"builtin"` fallthrough — the same keying fix v0.14.18 applied to the checkout path.
+- **`brief_version` 0.12.1 → 0.12.2** (additive: `"imported"` status value; imported entries in
+  `in_scope` / `available_functions`). Obligation-report `schema_version` unchanged (new entries,
+  no shape change). No AST schema change (`schemaVersion` stays `0.7.0`).
+
+**Tests:** 1094 Haskell, 45 Python. (+6 XMOD-SCOPE cases: bare/qualified naming, local-shadow,
+export filter, selective open, seeded-scope provenance; e2e-confirmed on a cross-module fixture
+via `checkout` and `verify --obligation-report`.)
+
 ## v0.14.18 — cache-aware checkout brief (XMOD-CG-BRIEF) (2026-07-09)
 
 ### Checkout — consumed_guarantees sees imported callees

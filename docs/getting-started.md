@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.14.18)
+  LLMLL — Large Language Model Logical Language Compiler (v0.14.19)
 
 Available options:
   -h,--help                Show this help text
@@ -471,7 +471,7 @@ Three obligation channels:
 
 **Repair suggestions:** For int-typed holes, the report includes arithmetic candidate expressions synthesized from in-scope variables (O(n²) bounded, cap-8).
 
-**Function lists:** Each obligation includes `contracted_functions` (user-defined with compatible return type and trust labels) and `available_functions` (builtins with compatible signatures). Both lists are capped at 8 entries with truncation signals.
+**Function lists:** Each obligation includes `contracted_functions` (user-defined — same-module and imported-exported, the latter named as this module calls them — with compatible return type and trust labels) and `available_functions` (builtins with compatible signatures). Both lists are capped at 8 entries with truncation signals.
 
 `verify` is **loud, not silent, when the solver is missing**: if `fixpoint` or `z3` is not on `PATH`, it still writes the `.fq` file, but prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and **exits `3`** (distinct from `1` = refuted) — never a silent pass:
 
@@ -649,7 +649,7 @@ $ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /state
   "hole_kind": "hole-delegate",
   "token": "35b582cfbe3a97f8...",
   "ttl": 3600,
-  "brief_version": "0.12.1",
+  "brief_version": "0.12.2",
   "source_hash": "efab8d7013749661e...",
   "timestamp": "2026-07-01T19:22:35.87Z",
   "contract_pre": null, "postcondition_goal": null, "path_condition": null,
@@ -703,7 +703,7 @@ $ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statemen
 | `contract_pre` / `postcondition_goal` | The hole's precondition (assumable) and postcondition (must prove). `null` when the enclosing function has no contract. |
 | `in_scope` | Bindings visible at the hole site, with source provenance (`param`, `let-binding`, `match-arm`, `open-import`). Sorted by priority; truncated at 50 entries if scope is large (`scope_truncated: true`). |
 | `expected_return_type` | The expected type at the hole site (τ). Populated for a function-body hole when the enclosing function declares a return type (`-> RetType`), and for a sub-expression hole whose type is fixed by local inference; absent otherwise. |
-| `available_functions` | Contracted user functions with `params`/`pre`/`post`/`return_type`/`tier`/`status`. |
+| `available_functions` | Contracted user functions — same-module (`status: "filled"`) and imported-exported (`status: "imported"`, bare-named when `(open ...)`-ed, qualified otherwise) — with `params`/`pre`/`post`/`return_type`/`tier`/`status`. |
 | `type_definitions` | User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection. |
 | `consumed_guarantees` | A verified callee's post the body may assume without re-proving (composition only); `null` otherwise. |
 | `scope_truncated` | `true` if the scope was truncated; absent or `false` otherwise. |
@@ -752,7 +752,7 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 ```json
 {
   "schemaVersion": "0.7.0",
-  "llmll_version": "0.14.18",
+  "llmll_version": "0.14.19",
   "statements": [ ... ]
 }
 ```
