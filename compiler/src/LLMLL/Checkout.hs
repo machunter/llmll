@@ -51,6 +51,7 @@ module LLMLL.Checkout
   , truncateScope
   , buildScopeEntries
   , buildFuncEntries
+  , buildCheckoutFuncs   -- HOLE-STATUS: the brief's available_functions list
   , sourceLabel
   ) where
 
@@ -73,8 +74,10 @@ import Data.Maybe (mapMaybe)
 
 import LLMLL.JsonPointer (resolvePointer, isHoleNode, findDescendantHoles)
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..))
-import LLMLL.Syntax (Span(..), Type(..), Name, typeLabel)
+import LLMLL.Syntax (Span(..), Type(..), Name, typeLabel, Statement, ModuleCache, Contract(..), normalizeDefStmt)
 import LLMLL.TypeCheck (ScopeBinding(..), ScopeSource(..))
+import LLMLL.TrustReport (TrustEntry)
+import LLMLL.ObligationAssembly (trustLabel, importedContractedFns, exprToSExpr)
 import LLMLL.HubQuery (QueryResult(..))
 
 -- ---------------------------------------------------------------------------
@@ -1006,6 +1009,46 @@ buildFuncEntries sigs =
       _ -> FuncEntry name [] (typeLabel ty) "builtin" Nothing Nothing Nothing
   | (name, ty) <- Map.toAscList sigs
   , not ("wasi." `T.isPrefixOf` name)  -- Q1: exclude wasi.* builtins
+  ]
+
+-- | The brief's available_functions list (extracted from Main for testability).
+-- Same-file contracted functions, then imported exported contracted functions
+-- (XMOD-SCOPE-BRIEF, named as the entry module calls them, status "imported").
+--
+-- HOLE-STATUS: the function whose hole is being checked out (mEnclosing) gets
+-- status "hole", not "filled" — presenting it as an available filled function
+-- invites a degenerate self-call fill, which type-checks and verifies SAFE at
+-- partial correctness (the nonterminating body discharges its own contract
+-- vacuously). Observed live: a blind fill agent answered the alert-admit brief
+-- with (alert-admit latched sev). "hole" is the documented-but-never-emitted
+-- third enum value of 'feStatus'.
+buildCheckoutFuncs
+  :: [Statement] -> ModuleCache -> Map.Map Name TrustEntry -> Maybe Name -> [FuncEntry]
+buildCheckoutFuncs stmts cache trustMap mEnclosing =
+  [ FuncEntry
+      { feName   = fname
+      , feParams = map (\(n,t) -> (n, typeLabel t)) ps
+      , feReturn = maybe "?" typeLabel mRet
+      , feStatus = if Just fname == mEnclosing then "hole" else "filled"
+      , fePre    = fmap exprToSExpr (contractPre c)
+      , fePost   = fmap exprToSExpr (contractPost c)
+      , feTier   = Just (trustLabel trustMap fname)
+      }
+  | stmt <- stmts
+  , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
+  , contractPre c /= Nothing || contractPost c /= Nothing
+  ]
+  ++
+  [ FuncEntry
+      { feName   = dname
+      , feParams = map (\(n,t) -> (n, typeLabel t)) ps
+      , feReturn = maybe "?" typeLabel mRet
+      , feStatus = "imported"
+      , fePre    = fmap exprToSExpr (contractPre c)
+      , fePost   = fmap exprToSExpr (contractPost c)
+      , feTier   = Just (trustLabel trustMap dname)
+      }
+  | (dname, ps, mRet, c) <- importedContractedFns stmts cache
   ]
 
 -- | Render ScopeSource as JSON-friendly text.

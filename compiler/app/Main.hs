@@ -65,7 +65,7 @@ import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, F
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
-import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
+import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, buildCheckoutFuncs, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
 import LLMLL.PatchApply (applyPatch, applyPatchWithMode, PatchScopeMode(..), parsePatchRequest, PatchResult(..), PatchRequest(..), PatchOp(..), applyOps, hashFile)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
@@ -1960,35 +1960,9 @@ assembleCheckoutContext json gm fp pointer = do
             aliases  = cacheAwareAliasMap stmts _cache
             cenv     = cacheAwareContractEnv aliases stmts _cache
             recNames = recursiveNames stmts
-            funcs = [ FuncEntry
-                        { feName   = fname
-                        , feParams = map (\(n,t) -> (n, typeLabel t)) ps
-                        , feReturn = maybe "?" typeLabel mRet
-                        , feStatus = "filled"
-                        , fePre    = fmap exprToSExpr (contractPre c)
-                        , fePost   = fmap exprToSExpr (contractPost c)
-                        , feTier   = Just (trustLabel trustMap fname)
-                        }
-                    | stmt <- stmts
-                    , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
-                    , contractPre c /= Nothing || contractPost c /= Nothing
-                    ]
-                    ++
-                    -- XMOD-SCOPE-BRIEF: imported exported contracted functions,
-                    -- named as this module calls them (bare when opened,
-                    -- qualified otherwise); status "imported" alongside the
-                    -- existing "filled"/"builtin" provenance values.
-                    [ FuncEntry
-                        { feName   = dname
-                        , feParams = map (\(n,t) -> (n, typeLabel t)) ps
-                        , feReturn = maybe "?" typeLabel mRet
-                        , feStatus = "imported"
-                        , fePre    = fmap exprToSExpr (contractPre c)
-                        , fePost   = fmap exprToSExpr (contractPost c)
-                        , feTier   = Just (trustLabel trustMap dname)
-                        }
-                    | (dname, ps, mRet, c) <- importedContractedFns stmts _cache
-                    ]
+            -- HOLE-STATUS + XMOD-SCOPE-BRIEF: extracted to
+            -- Checkout.buildCheckoutFuncs (see its haddock).
+            funcs = buildCheckoutFuncs stmts _cache trustMap mEnclosing
             mEnclosing = enclosingFunc normPtr stmts
             consumed = case mEnclosing of
               Just fn -> assembleConsumedGuarantees stmts cenv trustMap recNames fn

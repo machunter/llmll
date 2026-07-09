@@ -67,7 +67,7 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, ScopeEntry(..), FuncEntry(..), checkoutHole, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), loadSessions, sessionMembers, promoteDivergenceWinner, emptyCheckoutContext)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, buildCheckoutFuncs, ScopeEntry(..), FuncEntry(..), checkoutHole, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), loadSessions, sessionMembers, promoteDivergenceWinner, emptyCheckoutContext)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
@@ -7278,6 +7278,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           (contracted, _, _, _) =
             assembleFunctionLists stmts Map.empty (buildAliasMap stmts) Map.empty (Just TBool)
       contracted `shouldBe` []
+
+    -- HOLE-STATUS: the checkout brief must not present the function whose hole
+    -- is being checked out as an available "filled" function — a blind fill
+    -- agent answers with a degenerate self-call, which patches cleanly and
+    -- verifies SAFE at partial correctness (observed live, secure-channel-
+    -- emergent smoke). The enclosing function reads the documented "hole"
+    -- enum value instead.
+    it "DC-8 (HOLE-STATUS): the enclosing function's brief entry is status hole, not filled" $ do
+      let stmts = parse quadrupleSrc
+          nameStatus (FuncEntry n _ _ s _ _ _) = (n, s)
+          entries = buildCheckoutFuncs stmts Map.empty Map.empty (Just "quadruple")
+      map nameStatus entries
+        `shouldBe` [("double", "filled"), ("quadruple", "hole")]
+      -- No enclosing function (contract-position hole): everything is "filled".
+      let entries' = buildCheckoutFuncs stmts Map.empty Map.empty Nothing
+      map (snd . nameStatus) entries' `shouldBe` ["filled", "filled"]
 
     -- Test 5: SAFE per-call-site PreconditionObligation surfacing.
     --
