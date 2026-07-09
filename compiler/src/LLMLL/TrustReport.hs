@@ -31,6 +31,7 @@ module LLMLL.TrustReport
   , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
+  , injectOpenedAliases -- XMOD-CG-BRIEF: bare-alias opened imports in any qualified-keyed map
   , trustReportEmitVersion
   ) where
 
@@ -587,7 +588,11 @@ collectAllContractStatus cache entryStmts =
 --     is never overwritten — local evidence shadows the import, matching SOpen.
 -- Cache modules are unaffected (they resolve their own deps by their own keys),
 -- so the same-module / single-file / no-open paths are byte-identical.
-injectOpenedAliases :: [Statement] -> Map Name ContractStatus -> Map Name ContractStatus
+--
+-- Polymorphic in the value (pure key manipulation), so the same discipline
+-- serves any qualified-keyed per-function map — the contract-status map here
+-- and the checkout brief's trust-entry map (XMOD-CG-BRIEF 'callee_tier').
+injectOpenedAliases :: [Statement] -> Map Name a -> Map Name a
 injectOpenedAliases entryStmts allCS =
   foldl' addOpen allCS [ (openPath, mNames) | SOpen openPath mNames <- entryStmts ]
   where

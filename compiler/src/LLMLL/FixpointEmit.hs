@@ -58,6 +58,8 @@ module LLMLL.FixpointEmit
   , buildContractEnv
   , buildContractEnvWith         -- xmod-ag: explicit-alias-map variant
   , seedImportedContracts        -- xmod-ag: dual-keyed imported ContractEnv
+  , cacheAwareAliasMap           -- xmod-cg-brief: merged local-wins alias map
+  , cacheAwareContractEnv        -- xmod-cg-brief: entry ∪ imported ContractEnv
   , augmentContractPost          -- DEF-RET Unit 2: return-refinement → effective post
   , buildSortEnv                 -- v0.10 (Language Team Correction 1)
   , applySubst
@@ -249,6 +251,25 @@ seedImportedContracts am cache =
       in Map.union bare qualified
     | menv <- Map.elems cache ]
 
+-- | xmod-ag: cache-aware alias map. Local (entry) STypeDefs win over imported
+-- ones (Map.union left-bias), matching TypeCheck.seedAliases, so buildCtorTagMap
+-- assigns nullary-ctor tags that agree with the type checker's nominal-by-name
+-- resolution. Empty cache ⇒ buildAliasMap stmts, unchanged.
+cacheAwareAliasMap :: [Statement] -> ModuleCache -> AliasMap
+cacheAwareAliasMap stmts cache =
+  Map.union (buildAliasMap stmts)
+            (Map.unions [ meAliasMap menv | menv <- Map.elems cache ])
+
+-- | Cache-aware ContractEnv: entry contracts (shadowing) ∪ imported contracts
+-- (dual-keyed, desugared against the merged alias map). The single recipe
+-- shared by the verify path ('emitFixpointWithCache') and the checkout brief's
+-- consumed_guarantees channel (XMOD-CG-BRIEF), so both consume the same
+-- contract set. Empty cache ⇒ buildContractEnvWith aliases stmts.
+cacheAwareContractEnv :: AliasMap -> [Statement] -> ModuleCache -> ContractEnv
+cacheAwareContractEnv aliases stmts cache =
+  Map.union (buildContractEnvWith aliases stmts)
+            (seedImportedContracts aliases cache)
+
 -- ---------------------------------------------------------------------------
 -- Built-in qualifier safety net
 -- ---------------------------------------------------------------------------
@@ -286,12 +307,7 @@ emitFixpointWith opts srcFile = emitFixpointWithCache opts srcFile Map.empty
 -- degenerates to the identity).
 emitFixpointWithCache :: EmitOptions -> FilePath -> ModuleCache -> [Statement] -> IO EmitResult
 emitFixpointWithCache opts srcFile cache stmts = do
-  -- xmod-ag: cache-aware alias map. Local (entry) STypeDefs win over imported
-  -- ones (Map.union left-bias), matching TypeCheck.seedAliases, so buildCtorTagMap
-  -- assigns nullary-ctor tags that agree with the type checker's nominal-by-name
-  -- resolution. Empty cache ⇒ buildAliasMap stmts, unchanged.
-  let aliases = Map.union (buildAliasMap stmts)
-                          (Map.unions [ meAliasMap menv | menv <- Map.elems cache ])
+  let aliases = cacheAwareAliasMap stmts cache
   -- xmod-ag: the DATATYPE-DECL scan (only) widens to imported statements, so an
   -- assumed imported post mentioning a Pair2/Result constructor has its decl in
   -- the .fq. Per-function VC emission below stays entry-only — imported bodies
@@ -299,8 +315,7 @@ emitFixpointWithCache opts srcFile cache stmts = do
   let dataScanStmts = stmts ++ concatMap meStatements (Map.elems cache)
   -- xmod-ag: seed the body-VC ContractEnv with imported contracts (dual-keyed,
   -- desugared against the merged alias map). Entry contracts shadow imports.
-  let cenv = Map.union (buildContractEnvWith aliases stmts)
-                       (seedImportedContracts aliases cache)
+  let cenv = cacheAwareContractEnv aliases stmts cache
       callGraph = buildCallGraph stmts
       sccs = stronglyConnComp
         [(name, name, deps) | (name, deps) <- Map.toList callGraph]

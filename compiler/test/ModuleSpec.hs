@@ -27,8 +27,11 @@ import LLMLL.PBT
   , pbtTrustWriteback
   , canonicalDefEvidenceHash
   )
-import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..))
-import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..))
+import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
+import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv)
+import LLMLL.ObligationAssembly (assembleConsumedGuarantees, recursiveNames)
+import Data.Aeson (Value(..))
+import qualified Data.Aeson.KeyMap as KM
 import LLMLL.VerifiedCache (verifiedPath, saveVerified)
 import Control.Exception (finally)
 import Data.List (find)
@@ -615,3 +618,71 @@ moduleSpec = describe "Module System" $ do
       er <- emitWithCacheOf "use_gate"
       erBodyFaithfulFns er `shouldContain` ["use-gate"]
       ("use-gate" `elem` erBodyFallback er) `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- XMOD-CG-BRIEF: the checkout brief's consumed_guarantees channel is
+  -- cache-aware — an IMPORTED contracted callee's guarantee appears in the
+  -- brief (the same-file-only cenv silently dropped it; XMOD-COMP layer 5),
+  -- with callee_tier resolved through the qualified trust entry instead of
+  -- falling through to "builtin". Mirrors Main.assembleCheckoutContext's
+  -- construction 1:1. Files: test/fixtures/xmod-ag/ (reused).
+  -- -----------------------------------------------------------------------
+  describe "XMOD-CG-BRIEF: checkout consumed_guarantees sees imported callees" $ do
+    let srcRoot = "test/fixtures/xmod-ag"
+        -- Main's checkout loader (loadStatementsMulti) caches the entry's
+        -- IMPORTS only, not the entry module itself — drop the entry from
+        -- loadModule's cache so the construction mirrors the shipped path.
+        loadEntry entry = do
+          result <- loadModule GrammarCoreInversion False srcRoot [] Map.empty [] [entry]
+          case result of
+            Left diags -> error $ "load failed: " ++ show (map diagMessage diags)
+            Right (cache, _ord, env) ->
+              pure (Map.delete (mePath env) cache, meStatements env)
+        -- The brief-side construction under test (Main.assembleCheckoutContext).
+        consumedOf cache stmts fn =
+          let trustRpt = buildTrustReport cache stmts Map.empty
+              trustMap = injectOpenedAliases stmts $
+                           Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+              aliases  = cacheAwareAliasMap stmts cache
+              cenv     = cacheAwareContractEnv aliases stmts cache
+          in assembleConsumedGuarantees stmts cenv trustMap (recursiveNames stmts) fn
+        objStr k (Object o) = case KM.lookup k o of
+          Just (String s) -> Just s
+          _               -> Nothing
+        objStr _ _          = Nothing
+
+    it "XMOD-CG-OPEN: opened-import callee (double) reaches the brief with a real tier" $ do
+      (cache, stmts) <- loadEntry "use_double"
+      let guars = consumedOf cache stmts "use-double"
+      map (objStr "callee") guars `shouldBe` [Just "double"]
+      map (objStr "guarantee") guars `shouldBe` [Just "(= result (+ x x))"]
+      map (objStr "instantiated") guars `shouldBe` [Just "(= <call-result> (+ x x))"]
+      -- callee_tier resolves through the qualified 'lib.double' trust entry
+      -- (bare-aliased by injectOpenedAliases) — never the "builtin" fallthrough.
+      map (objStr "callee_tier") guars `shouldBe` [Just "asserted"]
+
+    it "XMOD-CG-QUAL: qualified callee (lib.double) reaches the brief with a real tier" $ do
+      (cache, stmts) <- loadEntry "use_double_qual"
+      let guars = consumedOf cache stmts "use-double-qual"
+      map (objStr "callee") guars `shouldBe` [Just "lib.double"]
+      map (objStr "callee_tier") guars `shouldBe` [Just "asserted"]
+
+    it "XMOD-CG-CONTRAST: the same-file-only cenv drops the imported callee (pre-fix behavior)" $ do
+      -- The pre-fix construction, kept as the causal control: with the
+      -- same-file cenv the imported callee never reaches the channel.
+      (cache, stmts) <- loadEntry "use_double"
+      let trustRpt = buildTrustReport cache stmts Map.empty
+          trustMap = Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+          guars    = assembleConsumedGuarantees stmts (buildContractEnv stmts)
+                       trustMap (recursiveNames stmts) "use-double"
+      guars `shouldBe` []
+
+    it "XMOD-CG-KEYS: the brief cenv = same-file keys ∪ dual-keyed imports" $ do
+      -- Same-file entries are preserved (no regression) and the import is
+      -- seeded under BOTH its bare (opened) and qualified name, matching the
+      -- verify path's dual-keying.
+      (cache, stmts) <- loadEntry "use_double"
+      let aliases = cacheAwareAliasMap stmts cache
+          cenv    = cacheAwareContractEnv aliases stmts cache
+      Map.keys cenv `shouldBe` ["double", "lib.double", "use-double"]
+      Map.keys (buildContractEnv stmts) `shouldBe` ["use-double"]

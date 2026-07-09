@@ -76,7 +76,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -91,7 +91,7 @@ import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), w
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, exprToSExpr)
-import LLMLL.FixpointEmit (buildContractEnv)
+import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
 import System.IO (hGetLine)
@@ -1947,8 +1947,17 @@ assembleCheckoutContext json gm fp pointer = do
                              (buildAliasMap stmts)
                 in if null defs then Nothing else Just defs
             trustRpt = buildTrustReport _cache stmts Map.empty
-            trustMap = Map.fromList [(teName e, e) | e <- trEntries trustRpt]
-            cenv     = buildContractEnv stmts
+            -- XMOD-CG-BRIEF: bare-alias opened imports so 'callee_tier' for a
+            -- bare cross-module callee resolves to the imported (qualified)
+            -- entry's real tier instead of falling through to "builtin".
+            trustMap = injectOpenedAliases stmts $
+                         Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+            -- XMOD-CG-BRIEF: seed the brief's ContractEnv from the module cache
+            -- (the same recipe as the verify path, 'emitFixpointWithCache'), so
+            -- an imported callee's guarantee reaches 'consumed_guarantees'
+            -- instead of being dropped with the same-file-only cenv.
+            aliases  = cacheAwareAliasMap stmts _cache
+            cenv     = cacheAwareContractEnv aliases stmts _cache
             recNames = recursiveNames stmts
             funcs = [ FuncEntry
                         { feName   = fname
