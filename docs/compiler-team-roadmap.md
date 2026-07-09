@@ -63,7 +63,7 @@
 
 > **Retired (shipped v0.12.0):** REF-META-2..5 (metatheory of record complete), Bundle B0 (per-function `effect_summary` + cross-module propagation), Non-int refinement widening Phase 1 (NIW intro+elim), and F-NIW-2/3/4/4b moved to the [Resolved cross-cutting items](#resolved-cross-cutting-items) block; full per-item provenance retained in the [Shipped Releases](#shipped-releases) v0.12.0 line and `CHANGELOG.md`. Bundle B1 (explicit `Command {stdout} a` annotations) was the gated follow-on; its B0-experiment gate was retired (F-B0-3, commit `049a294`) and B1 now awaits a B1-native experiment. NIW Phase 2 (ADT-field refinements) and B2/B3 remain future.
 
-> **Retired (shipped v0.13.x–v0.14.x; full provenance in [Shipped Releases](#shipped-releases) + `CHANGELOG.md`):** PROOF-ARTIFACT (v0.14.0), COMP-3b-general / COMP-4 (v0.13.5–v0.13.9, line complete), PAIR-RET (v0.13.11–v0.13.14, line complete), and R5 differential-implementation-pressure (v0.14.7 + hardening v0.14.9/v0.14.10 — the forced-diversity experimental follow-on is experiment-lead-owned, tracked in `experiments/minimal-agent/r5-campaign/`). Cross-module assume-guarantee shipped v0.14.17 from the former Future section.
+> **Retired (shipped v0.13.x–v0.14.x; full provenance in [Shipped Releases](#shipped-releases) + `CHANGELOG.md`):** PROOF-ARTIFACT (v0.14.0), COMP-3b-general / COMP-4 (v0.13.5–v0.13.9, line complete), PAIR-RET (v0.13.11–v0.13.14, line complete), and R5 differential-implementation-pressure (v0.14.7 + hardening v0.14.9/v0.14.10 — the forced-diversity experimental follow-on is experiment-lead-owned, tracked in `experiments/minimal-agent/r5-campaign/`).
 
 ### Adversarial benchmark (experiment-lead-owned)
 
@@ -198,25 +198,6 @@ Tracked but off the critical path — gated on external availability or a concre
 > MATCH-WIDEN (shipped v0.14.12 — gives the cascade non-trivial verified leaves), R2 (self-hosted
 > orchestrator), R8 (incremental re-verify). Standing rule: the `checkout` brief is the sole information
 > channel to a hole-filling agent (no forced failures, no hints).
-
-## Cross-Module Assume-Guarantee — SHIPPED v0.14.17
-
-> Body-faithful verification across `import` boundaries. A function calling an **imported**
-> contracted function now verifies body-faithful (assume-guarantee against the imported contract;
-> the imported *body* is never re-verified) and stays `verified` under `--strict-verified-core`,
-> instead of falling back to contract-only — the prerequisite for a *modular flagship*. Shipped by
-> seeding the body-VC `ContractEnv` from the module cache (`emitFixpointWithCache`, dual-keyed bare
-> + qualified, desugared against one merged alias map for cross-boundary ctor-tag coherence). The
-> cross-module tier meet and the transitive imported-sidecar staleness check were already in place
-> (XMOD-TIER, v0.10-era); this added only the body-VC side. Import cycles are a hard error, so the
-> composition is acyclic (topological, no fixpoint argument). Design of record:
-> [`cross-module-assume-guarantee-proposal.md`](design/cross-module-assume-guarantee-proposal.md)
-> (Rev 1, settled + shipped); see [`CHANGELOG.md §v0.14.17`](../CHANGELOG.md).
->
-> **Follow-ons (not blockers):** the refinement-aliased-param case (`xmod-alias`, edge case 5 —
-> the alias map must also seed refinement aliases from imports) is a fail-closed completeness
-> follow-on; cross-module ADT identity is nominal-by-name (inherited **MOD-5** limitation — the
-> structural interface check remains unshipped).
 
 ## Research track (no v0.x targets, no Active Items rows)
 
