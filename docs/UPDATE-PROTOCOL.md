@@ -24,7 +24,7 @@
 | A role (or co-authoring pair, e.g. LT + EL) produces a settled prose amendment to a freeform roadmap section (milestone narrative, gate-criterion paragraph, empirical-gate pass-criteria text — not a table-row cell) and the user approves | `docs/compiler-team-roadmap.md` — doc-lead applies the settled text verbatim; no rewording without the originating role's re-authorization | `CHANGELOG.md` (not a release); `LLMLL.md`; `README.md`; table-row acceptance-criteria cells; design-doc frontmatter |
 | Professor reviews a proposal | New standalone `<proposal>-review.md`; nothing else | The proposal file itself (LT folds on revision) |
 | Doc-lead folds a settled review | Append `## Appendix — Professor review log` to proposal; archive `<proposal>-review.md` to `docs/archive/professor-reviews/` | Proposal frontmatter (no change) |
-| Engineer ships a settled proposal's ticket | Roadmap row status; CHANGELOG if user-visible; LLMLL.md §14 if user-visible; INDEX status label | Proposal frontmatter (it's done — archive when superseded, not when shipped) |
+| Engineer ships a settled proposal's ticket | Roadmap row status; CHANGELOG if user-visible; LLMLL.md §14 if user-visible; INDEX status label | Proposal frontmatter (untouched at ship). Batch-archive to `shipped-design-specs/` later — once shipped **and** no longer actively referenced (Archive policy P1) — not immediately on ship, not only on supersession |
 | Experiment-lead closes a run with findings | `experiments/<harness>/findings.md` H2-per-role; new `findings/postmortem-NNN-<slug>.md` if applicable | Anything else — hand off to relevant role |
 | Triage routing item closes | Triage doc routing-table row + roadmap Active Items row | Anywhere else |
 | Doc gets superseded | Archive to `docs/archive/<category>/`; 2-line redirect stub at old path; delete stub after one release cycle | Other docs (redirect stub absorbs links during cycle) |
@@ -48,7 +48,7 @@ Enforcement is behavioral: `language-team` authors the witness row; `compiler-en
 - `docs/archive/wasm-investigations/` *(new — M4)* — `wasm-poc-report.md`, `effectful-wasm-spike.md`
 - `docs/archive/roadmap-shipped-history.md` *(M5 large-cut — DONE 2026-06-21)* — detailed per-version shipped history split out of `compiler-team-roadmap.md`; the live roadmap keeps a compact one-line-per-version `## Shipped Releases` summary that links into this file
 
-When `docs/archive/shipped-design-specs/` crosses ~20 entries (currently 35 — past threshold since the v0.11/v0.12/v0.13 ship cadence; sub-categorization below is now due, not just forward-looking), sub-categorize by version-shipped (`v0.6/`, `v0.8/`, `v0.9/`, `v0.10/`, `v0.11/`) and add `docs/archive/dormant-explorations/` for docs judged stale-but-not-shipped (distinguishes "shipped-and-archived" from "explored-and-dropped" semantics).
+When `docs/archive/shipped-design-specs/` crosses ~20 entries (currently **40**, still flat — the 2026-07-08 batch sweep added the shipped proof-artifact / comp-4 / match-fragment-widening / cross-module-assume-guarantee proposals; sub-categorization is now well overdue), sub-categorize by version-shipped (`v0.6/`, `v0.8/` … `v0.13/`, `v0.14/`) and add `docs/archive/dormant-explorations/` for docs judged stale-but-not-shipped (distinguishes "shipped-and-archived" from "explored-and-dropped" semantics).
 
 ### 3.4 Pre-planned archive moves (gated by ticket-ship or condition)
 
@@ -68,3 +68,5 @@ The following docs are on a natural-archive trajectory. The trigger column state
 | `docs/design/doc-consolidation-2026-05-24-proposal.md` | Next release sweep (shipped at `1a8733f`; audit close-out at `e6eb4b6`; fully closed) | **DONE** — moved to [`shipped-design-specs/`](archive/shipped-design-specs/doc-consolidation-2026-05-24-proposal.md) |
 
 Updates to this list happen alongside any milestone-rename or scope-change commit. If a row's trigger becomes ambiguous, route to language-team to re-adjudicate before archiving.
+
+> **Batch sweep (2026-07-08, ad-hoc — not pre-planned rows above):** archived the shipped-and-unreferenced `proof-artifact-proposal` (v0.14.0), `comp-4-payload-sums-proposal` (v0.13.9), `match-fragment-widening-proposal` + `-engineer-plan` (v0.14.12), and `cross-module-assume-guarantee-proposal` (v0.14.17) to `shipped-design-specs/`, each with a 2-line redirect stub at the old `docs/design/` path (delete after one release cycle). Per Archive policy P1 (shipped **and** no longer actively referenced).
