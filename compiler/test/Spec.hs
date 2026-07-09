@@ -7227,7 +7227,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "DC-3: contracted record carries pre/post/tier; pre-free double → pre:null" $ do
       let stmts    = parse quadrupleSrc
           trustMap = Map.fromList [("double", mkTE "double" (DLVerified "smt"))]
-          (contracted, _, _, _) = assembleFunctionLists stmts (buildAliasMap stmts) trustMap TInt
+          (contracted, _, _, _) = assembleFunctionLists stmts Map.empty (buildAliasMap stmts) trustMap TInt
           dbl = [ c | c <- contracted, objStr "name" c == Just "double" ]
       length dbl `shouldBe` 1
       let c = head dbl

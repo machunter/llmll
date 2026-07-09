@@ -40,6 +40,7 @@ module LLMLL.ObligationAssembly
     -- * DEMO-COMP: compositional trust closure surfacing
   , assembleConsumedGuarantees
   , assembleFunctionLists
+  , importedContractedFns   -- XMOD-SCOPE-BRIEF: imported callables under callable names
   , assembleSafePreObligations
   , ObligationObj(..)
   ) where
@@ -68,7 +69,7 @@ import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap )
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
-import LLMLL.TrustReport (TrustReport(..), TrustEntry(..))
+import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), injectOpenedAliases)
 import LLMLL.HoleAnalysis
   ( HoleReport(..), HoleEntry(..), HoleStatus(..)
   , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc )
@@ -750,11 +751,41 @@ collectContractedCalls cenv = go
     go (EDo steps)            = concatMap (\(DoStep _ e) -> go e) steps
     go _                       = []
 
+-- | XMOD-SCOPE-BRIEF: imported contracted functions visible to the entry
+-- module, each under the name the entry module calls it by — bare when an
+-- '(open ...)' admits it (selective filter honored; a same-named local def
+-- shadows the import, which then falls back to its qualified name),
+-- qualified otherwise. Only EXPORTED names appear (the type checker admits
+-- nothing else), so a brief never suggests a call that cannot type-check —
+-- note 'meContracts' itself is unfiltered, hence the 'meExports' membership
+-- gate here.
+importedContractedFns
+  :: [Statement] -> ModuleCache -> [(Name, [(Name, Type)], Maybe Type, Contract)]
+importedContractedFns stmts cache =
+  [ (displayName, ps, mRet, c)
+  | (path, menv) <- Map.toList cache
+  , (fname, (ps, c, mRet)) <- Map.toList (meContracts menv)
+  , contractPre c /= Nothing || contractPost c /= Nothing
+  , fname `Map.member` meExports menv
+  , let qualified   = T.intercalate "." path <> "." <> fname
+        displayName = if openedBare path fname then fname else qualified
+  ]
+  where
+    localNames = Set.fromList
+      [ n | s <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt s] ]
+    opens = [ (p, ns) | SOpen p ns <- stmts ]
+    openedBare path fname =
+      fname `Set.notMember` localNames
+        && any (\(p, ns) -> p == path && maybe True (fname `elem`) ns) opens
+
 -- | Assemble function lists with cap-8 and truncation signals (spec §8.2).
 -- Ordering: alphabetical (v0.10). Spec §8.2 zonking priority deferred to v0.11 (F8).
-assembleFunctionLists :: [Statement] -> AliasMap -> Map Name TrustEntry -> Type
+-- XMOD-SCOPE-BRIEF: the contracted list is cache-aware — imported exported
+-- contracted functions appear after the same-file ones, under their callable
+-- names ('importedContractedFns'); empty cache ⇒ unchanged.
+assembleFunctionLists :: [Statement] -> ModuleCache -> AliasMap -> Map Name TrustEntry -> Type
                       -> ([Value], Bool, [Value], Bool)
-assembleFunctionLists stmts aliases trustMap expectedTy =
+assembleFunctionLists stmts cache aliases trustMap expectedTy =
   let cap = 8
       -- Contracted: user functions with contracts and compatible return types (C3: + SLetrec)
       allContracted =
@@ -781,6 +812,21 @@ assembleFunctionLists stmts aliases trustMap expectedTy =
           -- function (double, withdraw, quadruple …) from this list. Fall back to
           -- the hole's expected return type when the declaration is unannotated,
           -- which is also the type the compatibility gate compares against.
+        , let ret = fromMaybe expectedTy mRet
+        , isTypeCompatible aliases expectedTy ret
+        ]
+        ++
+        -- XMOD-SCOPE-BRIEF: imported exported contracted functions, same
+        -- record shape and gating, named as the entry module calls them.
+        [ object [ "name"        .= dname
+                 , "params"      .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
+                 , "returns"     .= typeLabel ret
+                 , "return_type" .= typeLabel ret
+                 , "status"      .= trustLabel trustMap dname
+                 , "pre"         .= fmap exprToSExpr (contractPre c)
+                 , "post"        .= fmap exprToSExpr (contractPost c)
+                 , "tier"        .= trustLabel trustMap dname ]
+        | (dname, ps, mRet, c) <- importedContractedFns stmts cache
         , let ret = fromMaybe expectedTy mRet
         , isTypeCompatible aliases expectedTy ret
         ]
@@ -840,8 +886,9 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
       refutedSet = trRefutedFns trustRpt
       holeReport = analyzeHoles stmts
 
-      -- Assemble hole obligations
-      holeObls = assembleHoleObligations stmts table mFqResult trustRpt
+      -- Assemble hole obligations (XMOD-SCOPE-BRIEF: cache-aware, so the
+      -- per-hole contracted-function vocabulary includes imported callables)
+      holeObls = assembleHoleObligations stmts cache table mFqResult trustRpt
                    faithful fallback tainted recNames suppressed holeReport
 
       -- Assemble branch obligations from EMatch (F1: two-pass)
@@ -892,17 +939,17 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
   in encodeReport report
 
 -- | Assemble hole obligations from HoleReport.
-assembleHoleObligations :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
+assembleHoleObligations :: [Statement] -> ModuleCache -> ConstraintTable -> Maybe FQVerifyResult
                         -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
                         -> HoleReport -> [ObligationObj]
-assembleHoleObligations stmts table mFqResult trustRpt faithful fallback tainted recNames suppressed hr =
-  mapMaybe (mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames suppressed)
+assembleHoleObligations stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed hr =
+  mapMaybe (mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed)
            (holeEntries hr)
 
-mkHoleObl :: [Statement] -> ConstraintTable -> Maybe FQVerifyResult
+mkHoleObl :: [Statement] -> ModuleCache -> ConstraintTable -> Maybe FQVerifyResult
           -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
           -> HoleEntry -> Maybe ObligationObj
-mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames suppressed he = do
+mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed he = do
   fnName <- enclosingFunc (holePointer he) stmts
   let (mContract, mParams, mBody) = findFunctionInfo fnName stmts
       params   = fromMaybe [] mParams
@@ -951,9 +998,12 @@ mkHoleObl stmts table mFqResult trustRpt faithful fallback tainted recNames supp
 
       -- Function lists (§8)
       expectedTy = fromMaybe TUnit (holeInferredType he)
-      trustMap = Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+      -- XMOD-SCOPE-BRIEF: bare-alias opened imports so a bare imported
+      -- callable's tier resolves to its qualified trust entry, not "builtin".
+      trustMap = injectOpenedAliases stmts $
+                   Map.fromList [(teName e, e) | e <- trEntries trustRpt]
       (contracted, contractedT, available, availableT) =
-        assembleFunctionLists stmts aliases trustMap expectedTy
+        assembleFunctionLists stmts cache aliases trustMap expectedTy
 
       -- Repair suggestions (OBLIG-4)
       suggestions = case holeInferredType he of

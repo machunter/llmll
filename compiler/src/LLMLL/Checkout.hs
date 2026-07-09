@@ -108,7 +108,7 @@ data FuncEntry = FuncEntry
   { feName   :: Text           -- ^ function name
   , feParams :: [(Text, Text)] -- ^ [(paramName, typeName)]
   , feReturn :: Text           -- ^ return type label
-  , feStatus :: Text           -- ^ "filled" | "hole" | "builtin"
+  , feStatus :: Text           -- ^ "filled" | "hole" | "builtin" | "imported" (XMOD-SCOPE-BRIEF)
   , fePre    :: Maybe Text     -- ^ DEMO-COMP: precondition (rendered), null if pre-free
   , fePost   :: Maybe Text     -- ^ DEMO-COMP: postcondition (rendered), null if absent
   , feTier   :: Maybe Text     -- ^ DEMO-COMP: effective trust tier, null for builtins
@@ -260,8 +260,10 @@ instance ToJSON CheckoutToken where
 -- | DEMO-COMP (§3, engineer F4): schema version for the checkout brief
 -- (CheckoutToken JSON). Previously unversioned. Bumped additively whenever the
 -- brief surface gains fields.
+-- XMOD-SCOPE-BRIEF: 0.12.1 → 0.12.2 (additive: "imported" status value on
+-- available_functions entries; imported names in in_scope / available_functions).
 briefVersion :: Text
-briefVersion = "0.12.1"
+briefVersion = "0.12.2"
 
 hubSugToJson :: QueryResult -> Value
 hubSugToJson qr = object

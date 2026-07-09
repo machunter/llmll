@@ -24,6 +24,7 @@ module LLMLL.TypeCheck
   , TypeEnv
   , builtinEnv
   , emptyEnv
+  , seedCacheEnv   -- XMOD-SCOPE-BRIEF: qualified cache exports into a TypeEnv
   , extendEnv
     -- * Results
   , TypeCheckResult(..)
@@ -149,6 +150,19 @@ builtinEnv = Map.fromList $
 
 emptyEnv :: TypeEnv
 emptyEnv = builtinEnv
+
+-- | Seed a TypeEnv with every cache module's exports under their qualified
+-- names ('lib.double'). The statement walk's SOpen handler then adds bare
+-- aliases (with 'SrcOpenImport' provenance) for '(open ...)'-ed modules —
+-- qualified names must be present FIRST for that injection to find them.
+-- Shared by the sketch paths ('typecheck --sketch' and the checkout brief,
+-- XMOD-SCOPE-BRIEF) so both see the same cross-module scope.
+seedCacheEnv :: TypeEnv -> ModuleCache -> TypeEnv
+seedCacheEnv = Map.foldlWithKey' seedOne
+  where
+    seedOne acc path menv =
+      let prefix = T.intercalate "." path <> "."
+      in Map.union (Map.mapKeys (prefix <>) (meExports menv)) acc
 
 extendEnv :: Name -> Type -> TypeEnv -> TypeEnv
 extendEnv = Map.insert

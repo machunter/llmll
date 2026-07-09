@@ -42,7 +42,7 @@ import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
 import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
 import LLMLL.HubQuery (queryBySignature, QueryResult(..))
@@ -90,7 +90,7 @@ import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), wcSyntheticName)
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
-import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, exprToSExpr)
+import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, exprToSExpr, importedContractedFns)
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
@@ -1884,16 +1884,11 @@ doTypecheck json gm fp True  = do
     Left () -> exitFailure
     Right (ss, cache, _) -> do
       -- Seed env with cross-module names then run sketch inference
-      let seededEnv = Map.foldlWithKey' seedModule emptyEnv cache
-          result    = runSketch gm seededEnv ss defaultPatterns
+      -- (shared with the checkout brief, XMOD-SCOPE-BRIEF)
+      let result = runSketch gm (seedCacheEnv emptyEnv cache) ss defaultPatterns
       -- encodeSketchResult produces schemaVersion + sorted errors + structured fields
       BLC.putStrLn (encodeSketchResult result)
       exitSuccess
-  where
-    seedModule acc path menv =
-      let prefix    = T.intercalate "." path <> "."
-          qualified = Map.mapKeys (prefix <>) (meExports menv)
-      in Map.union qualified acc
 
 -- ---------------------------------------------------------------------------
 -- v0.3: Checkout handlers
@@ -1930,7 +1925,11 @@ assembleCheckoutContext json gm fp pointer = do
     case mStmts of
       Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
       Right (stmts, _cache, _) -> do
-        let sketch = runSketch gm builtinEnv stmts defaultPatterns
+        -- XMOD-SCOPE-BRIEF: seed the sketch env with qualified cache exports
+        -- so the hole's in_scope carries imported names — the walk's SOpen
+        -- handler then adds bare aliases (source "open-import") for opened
+        -- modules. Empty cache ⇒ builtinEnv, unchanged.
+        let sketch = runSketch gm (seedCacheEnv builtinEnv _cache) stmts defaultPatterns
             mHole  = case [ h | h <- sketchHoles sketch
                               , normalizePointer (shPointer h) == normPtr ] of
                        (h:_) -> Just h
@@ -1942,9 +1941,11 @@ assembleCheckoutContext json gm fp pointer = do
             tdefs  = case mHole of
               Nothing -> Nothing
               Just h  ->
+                -- XMOD-SCOPE-BRIEF: resolve against the merged alias map so a
+                -- scope type declared in an imported module still yields its
+                -- definition.
                 let scopeTypes = Map.map sbType (shEnv h)
-                    defs = collectTypeDefinitions scopeTypes Nothing
-                             (buildAliasMap stmts)
+                    defs = collectTypeDefinitions scopeTypes Nothing aliases
                 in if null defs then Nothing else Just defs
             trustRpt = buildTrustReport _cache stmts Map.empty
             -- XMOD-CG-BRIEF: bare-alias opened imports so 'callee_tier' for a
@@ -1971,6 +1972,22 @@ assembleCheckoutContext json gm fp pointer = do
                     | stmt <- stmts
                     , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
                     , contractPre c /= Nothing || contractPost c /= Nothing
+                    ]
+                    ++
+                    -- XMOD-SCOPE-BRIEF: imported exported contracted functions,
+                    -- named as this module calls them (bare when opened,
+                    -- qualified otherwise); status "imported" alongside the
+                    -- existing "filled"/"builtin" provenance values.
+                    [ FuncEntry
+                        { feName   = dname
+                        , feParams = map (\(n,t) -> (n, typeLabel t)) ps
+                        , feReturn = maybe "?" typeLabel mRet
+                        , feStatus = "imported"
+                        , fePre    = fmap exprToSExpr (contractPre c)
+                        , fePost   = fmap exprToSExpr (contractPost c)
+                        , feTier   = Just (trustLabel trustMap dname)
+                        }
+                    | (dname, ps, mRet, c) <- importedContractedFns stmts _cache
                     ]
             mEnclosing = enclosingFunc normPtr stmts
             consumed = case mEnclosing of

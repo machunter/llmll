@@ -18,7 +18,13 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheckStrictWithCache, emptyEnv)
+import LLMLL.Parser (parseTopLevel)
+import LLMLL.TypeCheck
+  ( typeCheckStrictWithCache, emptyEnv
+  , runSketch, seedCacheEnv, builtinEnv, SketchResult(..), SketchHole(..)
+  , ScopeBinding(..), ScopeSource(..)
+  )
+import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
 import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch)
 import LLMLL.PBT
@@ -29,7 +35,7 @@ import LLMLL.PBT
   )
 import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
 import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv)
-import LLMLL.ObligationAssembly (assembleConsumedGuarantees, recursiveNames)
+import LLMLL.ObligationAssembly (assembleConsumedGuarantees, recursiveNames, importedContractedFns)
 import Data.Aeson (Value(..))
 import qualified Data.Aeson.KeyMap as KM
 import LLMLL.VerifiedCache (verifiedPath, saveVerified)
@@ -686,3 +692,72 @@ moduleSpec = describe "Module System" $ do
           cenv    = cacheAwareContractEnv aliases stmts cache
       Map.keys cenv `shouldBe` ["double", "lib.double", "use-double"]
       Map.keys (buildContractEnv stmts) `shouldBe` ["use-double"]
+
+  -- -----------------------------------------------------------------------
+  -- XMOD-SCOPE-BRIEF: the brief's callable-vocabulary channels are
+  -- cache-aware — 'available_functions' lists imported exported contracted
+  -- functions under the name the entry module calls them by, and the hole's
+  -- 'in_scope' (seeded sketch env) carries imported names. Sibling of
+  -- XMOD-CG-BRIEF (which fixed consumed_guarantees).
+  -- -----------------------------------------------------------------------
+  describe "XMOD-SCOPE-BRIEF: brief scope/function channels see imported names" $ do
+    let parseSrc src = case parseTopLevel GrammarCoreInversion "<xmod-scope>" src of
+          Left e      -> error ("parse failed: " ++ show e)
+          Right stmts -> stmts
+        libCache = Map.singleton ["lib"] $
+          buildModuleEnv ["lib"] (parseSrc (T.unlines
+            [ "(def double [x: int] -> int"
+            , "  (pre (>= x 0))"
+            , "  (post (= result (+ x x)))"
+            , "  (+ x x))" ])) emptyEnv
+        names = map (\(n, _, _, _) -> n)
+
+    it "XMOD-SCOPE-OPEN: an opened import is listed under its bare name" $ do
+      let entry = parseSrc "(import lib)\n(open lib)"
+      names (importedContractedFns entry libCache) `shouldBe` ["double"]
+
+    it "XMOD-SCOPE-QUAL: without (open) the import is listed qualified" $ do
+      let entry = parseSrc "(import lib)"
+      names (importedContractedFns entry libCache) `shouldBe` ["lib.double"]
+
+    it "XMOD-SCOPE-SHADOW: a same-named local def pushes the import to its qualified name" $ do
+      let entry = parseSrc (T.unlines
+            [ "(import lib)"
+            , "(open lib)"
+            , "(def double [x: int] -> int (post (= result x)) x)" ])
+      names (importedContractedFns entry libCache) `shouldBe` ["lib.double"]
+
+    it "XMOD-SCOPE-EXPORT: a non-exported contracted function is never listed" $ do
+      -- 'meContracts' is unfiltered; the meExports membership gate must drop
+      -- 'priv' entirely (a brief must not suggest an untypecheckable call).
+      let cache' = Map.singleton ["lib"] $
+            buildModuleEnv ["lib"] (parseSrc (T.unlines
+              [ "(export pub)"
+              , "(def pub [x: int] -> int (post (>= result 0)) x)"
+              , "(def priv [x: int] -> int (post (>= result 0)) x)" ])) emptyEnv
+          entry = parseSrc "(import lib)\n(open lib)"
+      names (importedContractedFns entry cache') `shouldBe` ["pub"]
+
+    it "XMOD-SCOPE-SELECTIVE: (open lib (f)) leaves the unselected name qualified" $ do
+      let cache' = Map.singleton ["lib"] $
+            buildModuleEnv ["lib"] (parseSrc (T.unlines
+              [ "(def f [x: int] -> int (post (>= result 0)) x)"
+              , "(def g [x: int] -> int (post (>= result 0)) x)" ])) emptyEnv
+          entry = parseSrc "(import lib)\n(open lib (f))"
+      names (importedContractedFns entry cache') `shouldMatchList` ["f", "lib.g"]
+
+    it "XMOD-SCOPE-INSCOPE: the hole env carries the opened import (open-import source) and its qualified name" $ do
+      -- The Main.assembleCheckoutContext construction: seed the sketch env
+      -- with qualified cache exports; the walk's SOpen handler adds the bare
+      -- alias with SrcOpenImport provenance.
+      let entry = parseSrc (T.unlines
+            [ "(import lib)"
+            , "(open lib)"
+            , "(def-shell use [x: int] -> int (post (>= result 0)) ?rest)" ])
+          sketch = runSketch GrammarCoreInversion (seedCacheEnv builtinEnv libCache)
+                     entry defaultPatterns
+      case sketchHoles sketch of
+        [h] -> do
+          fmap sbSource (Map.lookup "double" (shEnv h)) `shouldBe` Just SrcOpenImport
+          Map.member "lib.double" (shEnv h) `shouldBe` True
+        hs  -> expectationFailure ("expected exactly one hole, got " ++ show (length hs))
