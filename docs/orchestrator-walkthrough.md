@@ -1199,7 +1199,7 @@ llmll-orchestra examples/orchestrator_walkthrough/auth_module.ast.json -v
 # Full run with Anthropic
 export ANTHROPIC_API_KEY=sk-ant-...
 llmll-orchestra examples/orchestrator_walkthrough/auth_module.ast.json \
-  --provider anthropic --model claude-sonnet-4-20250514 -v
+  --provider anthropic --model claude-sonnet-5 -v
 ```
 
 The filled source files for this tutorial are in
