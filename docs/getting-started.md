@@ -163,12 +163,12 @@ Properties are skipped when they contain `Command`-producing expressions that ca
 The skip message names which case applies.
 
 > [!IMPORTANT]
-> **Stack lock deadlock** — same lock issue as `build`. Use `--emit-only` to generate the QuickCheck Haskell without running `stack test`:
+> **Stack lock deadlock.** `llmll test` and `llmll build` invoke Stack internally, so they deadlock if a long-running `stack exec llmll -- repl` (or any other `stack` process) is holding the Stack project lock. `--emit-only` sidesteps this by emitting the Haskell without running Stack:
 >
-> ```bash
-> stack exec llmll -- test hangman.ast.json --emit-only
-> #    src/Lib.hs -- 10344 chars
-> #    (stack test skipped — --emit-only)
+> ```console
+> $ stack exec llmll -- test hangman.ast.json --emit-only
+>    src/Lib.hs -- 10344 chars
+>    (stack test skipped — --emit-only)
 > ```
 
 ### `build` — generate Haskell
@@ -182,14 +182,14 @@ stack exec llmll -- build ../examples/hangman_json/hangman.ast.json -o ../genera
 ```
 
 > [!IMPORTANT]
-> **Stack lock deadlock** — if you have a long-running `stack exec llmll -- repl` terminal open, `llmll build` will deadlock because both try to hold the Stack project lock. Use `--emit-only` to skip the internal `stack build` and run it separately:
+> **Stack lock deadlock** (same mechanism as under `test` above) — `--emit-only` skips the internal `stack build`; build the emitted package separately:
 >
-> ```bash
+> ```console
 > # Step 1: write Haskell files only (no stack build)
-> stack exec llmll -- build hangman.ast.json -o ../generated/hangman_json --emit-only
+> $ stack exec llmll -- build hangman.ast.json -o ../generated/hangman_json --emit-only
 >
 > # Step 2: build independently
-> cd ../generated/hangman_json && stack build
+> $ cd ../generated/hangman_json && stack build
 > ```
 
 Output layout:
@@ -758,8 +758,6 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 ```
 
 The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted.
-
-> [!IMPORTANT]
 
 | Field | Meaning |
 |-------|---------|
