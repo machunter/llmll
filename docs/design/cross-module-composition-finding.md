@@ -3,7 +3,7 @@
 > **Version:** Rev 1 — finding/scoping doc.
 > **Date:** 2026-06-19
 > **Working handle:** XMOD-COMP. Roadmap tag to be assigned.
-> **Status:** **Finding — partially fixed, deliberately stopped.** Three layers fixed and green on branch `feat/composition-admit-verified`; at least two layers remain open. Tracked here as a scoped project; **not a prerequisite for any demo** (same-module composition works end-to-end).
+> **Status:** **Goal reached (v0.14.17).** Layers 1–4 fixed — layer 4 (body-VC emission) by **XMOD-AG (v0.14.17)**, verified body-faithful end-to-end including the imported refinement-aliased-param case (firsthand CLI on the `xmod-alias` fixture and a `needs-pos` test where the post *requires* the imported refinement). Sole residual: layer 5 (`callee_tier` obligation-report keying), a reporting-surface item that does not block the `verified` tier. The finding below is the original 2026-06-19 record, kept for the layer stack and the process lesson (§4).
 > **Origin:** surfaced 2026-06-19 while re-scripting the withdraw-demo to show verified composition (TRUST-PRE + DEMO-COMP). A cross-module composer (`(import core)(open core)` + a function that calls the imported, verified `withdraw`) does **not** reach trust-tier `verified`, whereas the identical composition **in-module does**. Each fix attempted revealed the next layer.
 
 ---
@@ -21,7 +21,7 @@
 | 1 | **Admission** — a strict-core `def` may *call* an imported verified `def` (type-check `checkCalleeAdmissibility`) | `TypeCheck.hs` | **FIXED** (ADMIT-VERIFIED, `admit-verified-callee-proposal.md`) | green; `core-membership-violation` gone |
 | 2 | **Type resolution** — arithmetic/comparison on an imported refinement-alias-typed value (`>=`/`-` on `PositiveInt`) | `TypeCheck.hs` `tcAliasMap` seed | **FIXED** (XMOD-ALIAS; *pre-existing ~3-month bug*, commit `9931a77a`) | green; `expected int, got PositiveInt` gone |
 | 3 | **Trust-report tier/edge** — the imported callee's verified tier reaches the importer's trust report; the cross-module dependency edge is captured | `TrustReport.hs` (bare-vs-qualified key; `injectOpenedAliases` + cross-module staleness guard) | **FIXED** (XMOD-TIER) | green; `demo.withdraw` reads `verified`, `safe-withdraw depends_on: [withdraw post: verified]` |
-| 4 | **Body-VC emission** — the cross-module caller's *own* body VC: the emission `ContractEnv` must carry the imported callee's contract so the assume-guarantee `EApp`-contracted branch fires (else `body-fallback` → `asserted`) | `FixpointEmit.hs` / `Module.hs` emission `cenv` | **OPEN** | firsthand CLI: `body-fallback: safe-withdraw` cross-module; `verified` same-module |
+| 4 | **Body-VC emission** — the cross-module caller's *own* body VC: the emission `ContractEnv` must carry the imported callee's contract so the assume-guarantee `EApp`-contracted branch fires (else `body-fallback` → `asserted`) | `FixpointEmit.hs` / `Module.hs` emission `cenv` | **FIXED** (XMOD-AG, v0.14.17) | firsthand CLI: `body-faithful: safe-withdraw` cross-module; imported refinement-aliased-param case also body-faithful |
 | 5 | **`consumed_guarantees.callee_tier`** — the obligation-report surface has the same bare-vs-qualified cross-module name miss as layer 3 | `ObligationAssembly.hs` `trustLabel` | **OPEN** (flagged by the XMOD-TIER engineer; out of that scope) | per engineer report |
 
 **The net after layers 1–3 are fixed:** the cross-module composer is *admitted*, *type-checks*, and its dependency edge *shows the callee at `verified*` — but it **still floors to `asserted`**, because **layer 4** leaves its own body VC non-body-faithful. So cross-module verified composition is **not yet reachable**, and at least layers 4–5 (and possibly more below 4) remain.
@@ -39,6 +39,8 @@ The XMOD-ALIAS and XMOD-TIER engineer agents were **sandbox-blocked from running
 
 **Landed (green on `feat/composition-admit-verified`, keep):** ADMIT-VERIFIED (layer 1), XMOD-ALIAS (layer 2 — independently valuable, a pre-existing bug fix), XMOD-TIER (layer 3 — the dropped-edge fix is a real correctness gain even standalone: it also prevented *over-crediting* a caller of a weaker cross-module callee).
 
-**Open (the XMOD-COMP project):** layer 4 (emission `cenv` carries the imported contract → cross-module caller body-faithful) and layer 5 (`callee_tier` bare/qualified keying), plus a verification pass that *no further layer* hides below 4. Recommend a single dedicated effort with a **binary-level end-to-end acceptance test** (`verify` a cross-module composer → `verified`) as the gate, not per-layer unit tests.
+**Closed (v0.14.17):** layer 4 (emission `cenv` carries the imported contract) by XMOD-AG — a cross-module composer verifies body-faithful end-to-end, including the imported refinement-aliased-param case (`xmod-alias`, plus a `needs-pos` test whose post *requires* the imported refinement). No further layer was found hiding below 4.
+
+**Residual:** layer 5 (`callee_tier` bare/qualified keying in `ObligationAssembly.hs`) — a reporting-surface item that does not block the `verified` tier; confirm with a binary-level end-to-end check if picked up.
 
 **Also noted (pre-existing, out of scope):** `buildTrustReport` call sites in `Main.hs` (1126/1226/1260) pass the raw reloaded entry sidecar, not the staleness-validated one — a latent same-file staleness gap flagged by the XMOD-TIER engineer.
