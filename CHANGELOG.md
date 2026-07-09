@@ -4,6 +4,38 @@
 
 <a id="Latest"></a>
 
+## v0.14.20 — obligation-report vocabulary gate fix (OBLIG-VOCAB-GATE) (2026-07-09)
+
+### Obligation report — an unknown-typed hole no longer empties the function lists
+
+- **The return-type gate applies only when the hole's type is known.** The per-hole
+  `contracted_functions` / `available_functions` lists gated every candidate on return-type
+  compatibility against `fromMaybe TUnit (holeInferredType …)` — so an unknown-typed hole (common for
+  expression-position holes, where the report's structural `analyzeHoles` inference is weaker than the
+  checkout brief's sketch inference) behaved as "expects unit": every `-> T`-annotated function and
+  every monomorphic-return builtin was dropped, and the lists silently read as "no callable functions"
+  where the truth was "type unknown". Worse, the filter inverted DEF-RET's incentive — annotating a
+  return type (v0.13.1) made a function *disappear* from unknown-typed holes' vocabulary while
+  unannotated ones stayed (vacuously compatible). `assembleFunctionLists` now takes `Maybe Type`:
+  unknown ⇒ the full (still cap-8) vocabulary; known ⇒ gated exactly as before.
+- **Display:** with an unknown hole type, an annotated function shows its declared `return_type`; an
+  unannotated one shows `"?"` (the checkout brief's existing convention) instead of impersonating the
+  hole's type. The pre-DEF-RET comment claiming surface forms never carry return annotations is retired.
+- **Scope:** `verify --obligation-report` only — the checkout brief has no such gate and is unaffected.
+  No live consumer feeds these lists to agents today (orchestrator and harness read the checkout
+  token's `available_functions`; the harness captures the report for analysis), so this is latent-debt
+  removal on a documented repair-loop surface.
+- **Root-cause follow-on tracked as OBLIG-HOLE-TYPE** (roadmap): give the report path the sketch
+  inference the brief uses, so an expression-position hole reads its real type and gets the correctly
+  *filtered* vocabulary rather than the ungated-full safe default.
+- **No schema change** (`schema_version` 0.12.1 unchanged — values only; `expected_type` already
+  emits `"unknown"`).
+
+**Tests:** 1097 Haskell, 45 Python. (+3 DC-7 cases: ungated contracted list with `"?"` display,
+ungated builtins with cap-8 truncation, known-type gating regression guard; e2e-confirmed — the
+cross-module expression-position hole that surfaced the defect now lists both its same-file and
+imported callables.)
+
 ## v0.14.19 — imported names in brief scope/function channels (XMOD-SCOPE-BRIEF) (2026-07-09)
 
 ### Checkout & obligation report — the callable vocabulary is cache-aware

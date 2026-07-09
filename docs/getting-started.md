@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.14.19)
+  LLMLL — Large Language Model Logical Language Compiler (v0.14.20)
 
 Available options:
   -h,--help                Show this help text
@@ -471,7 +471,7 @@ Three obligation channels:
 
 **Repair suggestions:** For int-typed holes, the report includes arithmetic candidate expressions synthesized from in-scope variables (O(n²) bounded, cap-8).
 
-**Function lists:** Each obligation includes `contracted_functions` (user-defined — same-module and imported-exported, the latter named as this module calls them — with compatible return type and trust labels) and `available_functions` (builtins with compatible signatures). Both lists are capped at 8 entries with truncation signals.
+**Function lists:** Each obligation includes `contracted_functions` (user-defined — same-module and imported-exported, the latter named as this module calls them — with trust labels) and `available_functions` (builtins). Both are filtered by return-type compatibility **only when the hole's type is known**; an unknown-typed hole receives the full vocabulary (an unannotated function then shows `return_type: "?"`). Both lists are capped at 8 entries with truncation signals.
 
 `verify` is **loud, not silent, when the solver is missing**: if `fixpoint` or `z3` is not on `PATH`, it still writes the `.fq` file, but prints a `SOLVER NOT FOUND — NOTHING WAS PROVEN` banner and **exits `3`** (distinct from `1` = refuted) — never a silent pass:
 
@@ -752,7 +752,7 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 ```json
 {
   "schemaVersion": "0.7.0",
-  "llmll_version": "0.14.19",
+  "llmll_version": "0.14.20",
   "statements": [ ... ]
 }
 ```
