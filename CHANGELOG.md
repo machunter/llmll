@@ -4,6 +4,30 @@
 
 <a id="Latest"></a>
 
+## v0.14.21 — checkout brief marks the enclosing function "hole" (HOLE-STATUS) (2026-07-09)
+
+### Checkout — the brief no longer invites a self-call fill
+
+- **The function whose hole is being checked out now reads `status: "hole"` in the brief's
+  `available_functions`, not `"filled"`.** Every same-file entry was hardcoded `"filled"` — including
+  the enclosing function itself, presenting the agent with an "available" function whose contract
+  exactly matches its goal. Observed live (secure-channel-emergent blind-fill run): the agent answered
+  the `alert-admit` brief with `(alert-admit latched sev)` — and that degenerate self-call **patches
+  cleanly and verifies SAFE**, because a nonterminating body discharges its own contract vacuously at
+  partial correctness (the R7/TERM-1 gap; the self-recursive function silently drops out of the
+  body-faithful set, so plain `verify` shows no failure). `"hole"` is the documented-but-never-emitted
+  third value of the `feStatus` enum.
+- **Harness note (for orchestrators):** the enforceable per-fill acceptance bar is *verify SAFE ∧ the
+  filled function appears in `body-faithful`* — a fill that lands recursive/contract-only is not a
+  verified fill even when the whole file reports SAFE. `--strict-verified-core` catches it at
+  whole-program acceptance; the per-step check catches it at fill time.
+- The `available_functions` construction is extracted from `Main.assembleCheckoutContext` to
+  `Checkout.buildCheckoutFuncs` (testable; regression test DC-8). No schema change; `brief_version`
+  stays `0.12.2` (the `"hole"` value was already documented in the enum).
+
+**Tests:** 1098 Haskell, 45 Python. (+1 DC-8; e2e-confirmed — re-briefed, the same blind agent
+produced the real body `(and (= sev 1) (not latched))`, verified body-faithful.)
+
 ## v0.14.20 — obligation-report vocabulary gate fix (OBLIG-VOCAB-GATE) (2026-07-09)
 
 ### Obligation report — an unknown-typed hole no longer empties the function lists
