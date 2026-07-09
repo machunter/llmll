@@ -1,5 +1,5 @@
 name:                llmll
-version:             0.14.17
+version:             0.14.18
 synopsis:            LLMLL compiler - AI-to-AI programming language
 description:         Compiler for the Large Language Model Logical Language
 license:             MIT

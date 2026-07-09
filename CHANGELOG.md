@@ -4,6 +4,34 @@
 
 <a id="Latest"></a>
 
+## v0.14.18 — cache-aware checkout brief (XMOD-CG-BRIEF) (2026-07-09)
+
+### Checkout — consumed_guarantees sees imported callees
+
+- **The checkout brief's `consumed_guarantees` channel now includes imported callees.** The brief
+  assembly built its `ContractEnv` from the entry file's statements only (`Main.assembleCheckoutContext`),
+  so a call to an `import`-ed contracted function was silently dropped from the channel while the
+  identical same-file call appeared — the confirmed layer-5 residual of the XMOD-COMP finding. The brief
+  now seeds its `ContractEnv` from the module cache with the exact recipe the verify path uses
+  (`cacheAwareAliasMap` + `cacheAwareContractEnv`, extracted from `emitFixpointWithCache`), so verify and
+  checkout consume the same contract set. Brief-completeness only — the guarantee was always consumed in
+  the verify VC; no verification behavior changes.
+- **`callee_tier` resolves through the qualified trust entry.** Imported trust entries are keyed by
+  their qualified name (`lib.double`), so a bare (opened-import) callee would have surfaced the
+  `"builtin"` fallthrough tier — the untested keying path the finding doc flagged. XMOD-TIER's
+  `injectOpenedAliases` bare-aliasing discipline (selective `open` honored, a local def shadows the
+  import) is generalized over the map's value type and applied to the brief's trust map, so the callee's
+  real tier surfaces.
+- **Observed residual (tracked as XMOD-SCOPE-BRIEF):** the same brief's `available_functions` and
+  `in_scope` channels remain same-file-only (the sketch env is not cache-seeded), so an imported callable
+  contract still does not appear there. Same family, different channel; untouched by this release.
+- **No surface or schema change.** `brief_version` unchanged — this populates an existing field;
+  `schemaVersion` stays `0.7.0`.
+
+**Tests:** 1088 Haskell, 45 Python. (+4 XMOD-CG-BRIEF cases incl. a pre-fix contrast control;
+e2e-confirmed via `checkout` on a cross-module fixture — the brief carries the imported callee's
+guarantee with its real tier.)
+
 ## v0.14.17 — body-faithful cross-module assume-guarantee (2026-07-08)
 
 ### Verification — cross-module assume-guarantee (XMOD-AG)

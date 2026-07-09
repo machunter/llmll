@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.14.17)
+  LLMLL — Large Language Model Logical Language Compiler (v0.14.18)
 
 Available options:
   -h,--help                Show this help text
@@ -752,7 +752,7 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 ```json
 {
   "schemaVersion": "0.7.0",
-  "llmll_version": "0.14.17",
+  "llmll_version": "0.14.18",
   "statements": [ ... ]
 }
 ```
