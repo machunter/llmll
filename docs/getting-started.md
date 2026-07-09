@@ -89,19 +89,19 @@ All commands run from the `compiler/` directory.
 
 ### `check` — parse and type-check
 
-```bash
-stack exec llmll -- check ../examples/withdraw.llmll
-# ✅ ../examples/withdraw.llmll — OK (4 statements)
+```console
+$ stack exec llmll -- check ../examples/withdraw.llmll
+✅ ../examples/withdraw.llmll — OK (4 statements)
 
-stack exec llmll -- --json check ../examples/withdraw.llmll
-# {"diagnostics":[...],"phase":"typecheck","success":true}
+$ stack exec llmll -- --json check ../examples/withdraw.llmll
+{"diagnostics":[...],"phase":"typecheck","success":true}
 ```
 
 ### `holes` — inspect holes
 
-```bash
-stack exec llmll -- holes ../examples/hangman_json/hangman.ast.json
-# examples/hangman_json/hangman.ast.json — 0 holes (0 blocking)
+```console
+$ stack exec llmll -- holes ../examples/hangman_json/hangman.ast.json
+examples/hangman_json/hangman.ast.json — 0 holes (0 blocking)
 ```
 
 | Label | Meaning |
@@ -151,12 +151,12 @@ Writes the full JSON output (with dependency data) to `deps.json`. Implies `--de
 
 ### `test` — property-based tests
 
-```bash
-stack exec llmll -- test ../examples/hangman_json/hangman.ast.json
-# ../examples/hangman_json/hangman.ast.json — 0 properties
-#   ✅ Passed:  0
-#   ❌ Failed:  0
-#   ⚠️  Skipped: 0
+```console
+$ stack exec llmll -- test ../examples/hangman_json/hangman.ast.json
+../examples/hangman_json/hangman.ast.json — 0 properties
+  ✅ Passed:  0
+  ❌ Failed:  0
+  ⚠️  Skipped: 0
 ```
 
 Properties are skipped when they contain `Command`-producing expressions that cannot be statically evaluated.
@@ -211,9 +211,9 @@ cd generated/hangman_json && stack build && stack exec hangman
 > [!IMPORTANT]
 > **This registry is local-tarball-only.** There is no registry-by-name fetch (`llmll hub fetch <pkg>@<ver>` does not exist); HTTPS registry fetch is not supported. The only supported form is installing a local `.tar.gz`:
 
-```bash
+```console
 # Install a local tarball into the cache (~/.llmll/modules/)
-llmll hub fetch --from-file ./llmll-crypto-0.1.0.tar.gz
+$ llmll hub fetch --from-file ./llmll-crypto-0.1.0.tar.gz
 
 # Intended cache layout after fetch (tarball's top-level <package>-<version>/
 # directory is meant to be stripped on install):
@@ -222,27 +222,27 @@ llmll hub fetch --from-file ./llmll-crypto-0.1.0.tar.gz
 #   hash/bcrypt.llmll
 ```
 
-```bash
+```console
 # Scaffold a new project from a hub skeleton template
-llmll hub scaffold web-api-server --output ./my-project
-# Template 'web-api-server' not found in ~/.llmll/templates/.
-# Install with: llmll hub fetch --from-file <tarball>
+$ llmll hub scaffold web-api-server --output ./my-project
+Template 'web-api-server' not found in ~/.llmll/templates/.
+Install with: llmll hub fetch --from-file <tarball>
 ```
 
 No scaffold templates ship with the compiler — `hub scaffold` only works once you've fetched a template package yourself via `hub fetch --from-file`.
 
 Import fetched packages using the `hub.` prefix (see §4.9).
 
-```bash
+```console
 # Query the hub for functions matching a type signature
-llmll hub query --signature "int -> int -> int"
-# Results:
-#   llmll-math.arithmetic.add : int -> int -> int [contracted]
-#   llmll-math.arithmetic.mul : int -> int -> int [contracted]
+$ llmll hub query --signature "int -> int -> int"
+Results:
+  llmll-math.arithmetic.add : int -> int -> int [contracted]
+  llmll-math.arithmetic.mul : int -> int -> int [contracted]
 
 # JSON output for tooling:
-llmll hub query --signature "list[int] -> int" --json
-# {"query": "list[int] -> int", "results": [{"module": "...", ...}]}
+$ llmll hub query --signature "list[int] -> int" --json
+{"query": "list[int] -> int", "results": [{"module": "...", ...}]}
 ```
 
 > [!NOTE]
@@ -253,49 +253,49 @@ llmll hub query --signature "list[int] -> int" --json
 
 ### `verify` — liquid-fixpoint contract verification
 
-```bash
+```console
 # Verify linear arithmetic pre/post contracts at compile time:
-stack exec llmll -- verify ../examples/hangman_sexp/hangman.llmll
-#    .fq written to /tmp/hangman.fq
-#    Running liquid-fixpoint ...
-# ✅ hangman.llmll — SAFE (liquid-fixpoint)
+$ stack exec llmll -- verify ../examples/hangman_sexp/hangman.llmll
+   .fq written to /tmp/hangman.fq
+   Running liquid-fixpoint ...
+✅ hangman.llmll — SAFE (liquid-fixpoint)
 
 # Emit .fq only, specify output path:
-stack exec llmll -- verify file.llmll --fq-out out.fq
+$ stack exec llmll -- verify file.llmll --fq-out out.fq
 
 # JSON output:
-stack exec llmll -- --json verify file.llmll
+$ stack exec llmll -- --json verify file.llmll
 
 # Run Leanstral proof pipeline on ?proof-required holes (mock mode):
-stack exec llmll -- verify file.llmll --leanstral-mock
+$ stack exec llmll -- verify file.llmll --leanstral-mock
 # Runs liquid-fixpoint first, then scans for ?proof-required holes,
 # translates to Lean 4 obligations, resolves via mock prover,
 # caches results in .proof-cache.json.
 
 # Leanstral with custom command and timeout:
-stack exec llmll -- verify file.llmll --leanstral-cmd /path/to/lean-lsp-mcp --leanstral-timeout 60
+$ stack exec llmll -- verify file.llmll --leanstral-cmd /path/to/lean-lsp-mcp --leanstral-timeout 60
 
 # Trust report — transitive trust closure with epistemic drift detection
 # (run plain `verify` first so the .verified.json sidecar is warm — see NOTE below):
-stack exec llmll -- verify file.llmll
-stack exec llmll -- verify file.llmll --trust-report
-# Trust Report
-# ────────────────────────────────────────────────────────────
-#   withdraw:
-#     pre:  asserted  |  post: verified (liquid-fixpoint)
-#     ↳ calls auth.verify-token (pre: —, post: asserted)
-#     ⚠ withdraw is verified, but depends on auth.verify-token which is asserted
-# ────────────────────────────────────────────────────────────
-# Summary:
-#   verified:         3
-#   contract-checked: 0
-#   tested:           1
-#   asserted:         2
-#   no contract:      5
-#   ⚠ epistemic drifts: 1
+$ stack exec llmll -- verify file.llmll
+$ stack exec llmll -- verify file.llmll --trust-report
+Trust Report
+────────────────────────────────────────────────────────────
+  withdraw:
+    pre:  asserted  |  post: verified (liquid-fixpoint)
+    ↳ calls auth.verify-token (pre: —, post: asserted)
+    ⚠ withdraw is verified, but depends on auth.verify-token which is asserted
+────────────────────────────────────────────────────────────
+Summary:
+  verified:         3
+  contract-checked: 0
+  tested:           1
+  asserted:         2
+  no contract:      5
+  ⚠ epistemic drifts: 1
 
 # JSON trust report (for tooling consumption):
-stack exec llmll -- verify file.llmll --trust-report --json
+$ stack exec llmll -- verify file.llmll --trust-report --json
 
 # NOTE: --trust-report reloads persisted evidence *instead of running fixpoint*.
 # A function the solver would refute therefore renders as `asserted` under
@@ -303,43 +303,43 @@ stack exec llmll -- verify file.llmll --trust-report --json
 # (which runs fixpoint) or `verify --strict-verified-core`.
 
 # Weakness check — detect specs that admit trivial implementations:
-stack exec llmll -- verify file.llmll --weakness-check
-# ✅ hangman.llmll — SAFE (liquid-fixpoint)
-# ⚠ Spec weakness detected for `sort-list`:
-#   Your contract: (post (= (list-length result) (list-length input)))
-#   Trivial valid implementation: (def sort-list [input: list[int]] input)
-#   Consider strengthening the postcondition.
+$ stack exec llmll -- verify file.llmll --weakness-check
+✅ hangman.llmll — SAFE (liquid-fixpoint)
+⚠ Spec weakness detected for `sort-list`:
+  Your contract: (post (= (list-length result) (list-length input)))
+  Trivial valid implementation: (def sort-list [input: list[int]] input)
+  Consider strengthening the postcondition.
 
 # Contract Discriminative Power — counted spec-strength metric:
-stack exec llmll -- verify file.llmll --cdp
-# ✅ file.llmll — SAFE (liquid-fixpoint)
-#    Running CDP measurement ...
-#    CDP measured 3 function(s):
-#    transfer: score=0.823 (3/14 candidates satisfy)
-#    cache-lookup: [identity-satisfies-post, const-satisfies-post] score=0.000 (14/14 candidates satisfy)
-#    increment: score=1.000 (1/12 candidates satisfy)
+$ stack exec llmll -- verify file.llmll --cdp
+✅ file.llmll — SAFE (liquid-fixpoint)
+   Running CDP measurement ...
+   CDP measured 3 function(s):
+   transfer: score=0.823 (3/14 candidates satisfy)
+   cache-lookup: [identity-satisfies-post, const-satisfies-post] score=0.000 (14/14 candidates satisfy)
+   increment: score=1.000 (1/12 candidates satisfy)
 
 # CDP combined with trust-report JSON — pairs DP with the diamond-lattice evidence axis:
-stack exec llmll -- --json verify file.llmll --cdp --trust-report
+$ stack exec llmll -- --json verify file.llmll --cdp --trust-report
 
 # Spec coverage — how much of your module is under contract:
-stack exec llmll -- verify file.llmll --spec-coverage
-# Spec Coverage Report
-# ────────────────────────────────────────────
-#   Functions with contracts:     4 / 7   (57%)
-#     Verified:                   2
-#     Contract-checked:           0
-#     Tested:                     1
-#     Asserted:                   1
-#   Intentional Underspecification:
-#     ⊘ cache-evict — "eviction policy is unspecified by design"
-#   Unspecified:                  2
-#     sort-list, validate-input
-# ────────────────────────────────────────────
-#   Effective coverage: 71% (5/7)
+$ stack exec llmll -- verify file.llmll --spec-coverage
+Spec Coverage Report
+────────────────────────────────────────────
+  Functions with contracts:     4 / 7   (57%)
+    Verified:                   2
+    Contract-checked:           0
+    Tested:                     1
+    Asserted:                   1
+  Intentional Underspecification:
+    ⊘ cache-evict — "eviction policy is unspecified by design"
+  Unspecified:                  2
+    sort-list, validate-input
+────────────────────────────────────────────
+  Effective coverage: 71% (5/7)
 
 # JSON spec coverage (for CI gates / quality.py):
-stack exec llmll -- verify file.llmll --spec-coverage --json
+$ stack exec llmll -- verify file.llmll --spec-coverage --json
 ```
 
 `--weakness-check` runs **after** a SAFE verification result. For each contracted function, it constructs trivial bodies (identity, constant-zero, empty-string, `true`, empty-list) and checks whether they also satisfy the contract. If any trivial body passes, the spec is flagged as potentially weak. This is advisory — it does not affect the verification outcome.
@@ -400,11 +400,11 @@ When multiple `(pre ...)` clauses are combined (via `and`), the `:source` annota
 
 When `llmll verify` reports UNSAFE at a cross-function boundary, the obligation miner extracts the unsatisfied constraint and suggests a postcondition strengthening on the callee:
 
-```bash
-stack exec llmll -- verify program.llmll
-# ✗ Caller requires: uniqueIds(result)
-#   Producer normalizeUsers does not guarantee this.
-#   Candidate strengthening: postcondition uniqueIds(output)
+```console
+$ stack exec llmll -- verify program.llmll
+✗ Caller requires: uniqueIds(result)
+  Producer normalizeUsers does not guarantee this.
+  Candidate strengthening: postcondition uniqueIds(output)
 ```
 
 This leverages existing `TrustReport.hs` transitive closure infrastructure and the new `ObligationMining.hs` module.
@@ -413,48 +413,48 @@ This leverages existing `TrustReport.hs` transitive closure infrastructure and t
 
 `--obligation-report` emits a structured JSON report for every hole, unproven contract, and failed call-site precondition. The report is designed for agent consumption — each obligation includes enough context for a mechanical repair procedure.
 
-```bash
-stack exec llmll -- verify file.llmll --obligation-report --json
-# {
-#   "schema_version": "0.12.1",
-#   "source_file": "./file.llmll",
-#   "cross_module": "single-file",
-#   "obligations": [
-#     {
-#       "kind": "hole-obligation",
-#       "function": "withdraw",
-#       "origin": "/statements/0/body",
-#       "type_channel": {
-#         "expected_type": "unknown",
-#         "in_scope": [
-#           { "name": "balance", "source": "param", "type": "int" },
-#           { "name": "amount", "source": "param", "type": "int" }
-#         ],
-#         "polymorphic": false
-#       },
-#       "contract_channel": {
-#         "preconditions": ["(>= balance amount)"],
-#         "postcondition_goal": "(= result (- balance amount))",
-#         "path_condition": [],
-#         "path_truncated": false,
-#         "body_fragment": "hole_bearing",
-#         "contract_fragment": "non_qf_lia",
-#         "body_faithful_possible": false
-#       },
-#       "trust_channel": {
-#         "effective_level": "asserted",
-#         "body_faithful": false,
-#         "assumptions": []
-#       },
-#       "suggestions": [],
-#       "contracted_functions": [...],
-#       "available_functions": [...]
-#     }
-#   ],
-#   "refuted_fns": [],
-#   "effect_summary": [...],
-#   "summary": { "total": 1, "discharged": 1, "open": 0, "deferred": 0, "asserted": 0, "refuted": 0 }
-# }
+```console
+$ stack exec llmll -- verify file.llmll --obligation-report --json
+{
+  "schema_version": "0.12.1",
+  "source_file": "./file.llmll",
+  "cross_module": "single-file",
+  "obligations": [
+    {
+      "kind": "hole-obligation",
+      "function": "withdraw",
+      "origin": "/statements/0/body",
+      "type_channel": {
+        "expected_type": "unknown",
+        "in_scope": [
+          { "name": "balance", "source": "param", "type": "int" },
+          { "name": "amount", "source": "param", "type": "int" }
+        ],
+        "polymorphic": false
+      },
+      "contract_channel": {
+        "preconditions": ["(>= balance amount)"],
+        "postcondition_goal": "(= result (- balance amount))",
+        "path_condition": [],
+        "path_truncated": false,
+        "body_fragment": "hole_bearing",
+        "contract_fragment": "non_qf_lia",
+        "body_faithful_possible": false
+      },
+      "trust_channel": {
+        "effective_level": "asserted",
+        "body_faithful": false,
+        "assumptions": []
+      },
+      "suggestions": [],
+      "contracted_functions": [...],
+      "available_functions": [...]
+    }
+  ],
+  "refuted_fns": [],
+  "effect_summary": [...],
+  "summary": { "total": 1, "discharged": 1, "open": 0, "deferred": 0, "asserted": 0, "refuted": 0 }
+}
 ```
 
 The three channels below are the three top-level keys on each obligation (`type_channel`, `contract_channel`, `trust_channel`) — `expected_type` is `"unknown"` here because `withdraw` has no `-> RetType` annotation (see §4.25); an annotated function reports the real type instead.
@@ -499,13 +499,13 @@ The `.fq` file is still written and can be checked manually or in CI once the to
 
 `--proof-artifact FILE` writes a single, self-contained, replayable verification record — the trust/obligation/`.fq`/sidecar surfaces plus determinism pins (solver version, codegen semantics version) — to `FILE`. `replay-artifact FILE` re-derives it: recomputes the source hash, re-runs the recorded VC under the pinned solver, and **fails closed** on any source/solver-determinism mismatch.
 
-```bash
-stack exec llmll -- verify file.llmll --proof-artifact ./file.proof.json
-#    proof-artifact written to ./file.proof.json
-# ✅ file.llmll — SAFE (liquid-fixpoint)
+```console
+$ stack exec llmll -- verify file.llmll --proof-artifact ./file.proof.json
+   proof-artifact written to ./file.proof.json
+✅ file.llmll — SAFE (liquid-fixpoint)
 
-stack exec llmll -- replay-artifact ./file.proof.json
-# ✅ replay reproduced verdict: RSafe
+$ stack exec llmll -- replay-artifact ./file.proof.json
+✅ replay reproduced verdict: RSafe
 ```
 
 Top-level artifact fields: `proof_artifact_version`, `source_path`, `source_hash`, `solver`, `solver_result`, `codegen_semantics_version`, `composed_versions`, `functions`, `vc`, `certificate`, `unsat_core` (reserved — deferred; Z3's core isn't cheaply surfaced through liquid-fixpoint). The §4.1 LCF anti-laundering invariant (a positive tier is unconstructible without its supporting qualifiers) is enforced on both emit and parse — hand-editing a refuted function's record to claim a verified tier is rejected on parse, not silently accepted. This is a **replay** guarantee (re-runs the solver under pinned inputs), not a proof checkable without the solver — that stronger property is the future Lean tier.
@@ -541,15 +541,15 @@ This means `DLVerified` with `body_faithful = true` guarantees the implementatio
 
 ### `replay` — deterministic event log replay
 
-```bash
+```console
 # Run a console program — produces .event-log.jsonl automatically:
-stack exec llmll -- build ../examples/event_log_test/event_log_test.llmll
-cd event_log_test && stack exec event_log_test
+$ stack exec llmll -- build ../examples/event_log_test/event_log_test.llmll
+$ cd event_log_test && stack exec event_log_test
 # (interact with program — .event-log.jsonl written on exit)
 
 # Replay: rebuild from source, feed logged inputs, compare outputs:
-stack exec llmll -- replay ../examples/event_log_test/event_log_test.llmll event_log_test.event-log.jsonl
-# Replay: 5/5 events matched
+$ stack exec llmll -- replay ../examples/event_log_test/event_log_test.llmll event_log_test.event-log.jsonl
+Replay: 5/5 events matched
 ```
 
 The replay command:
@@ -581,17 +581,17 @@ The replay command:
 }
 ```
 
-```bash
-stack exec llmll -- typecheck --sketch if_hole.ast.json
-# {
-#   "holes": [ { "name": "?informal_greeting", "inferredType": "string",
-#                "pointer": "/statements/0/body/else",
-#                "scope": [ { "name": "formal", "source": "param", "type": "bool" },
-#                           { "name": "greet", "source": "let-binding", "type": "fn[1 args] -> ?" } ] } ],
-#   "errors": [],
-#   "invariant_suggestions": [],
-#   "schemaVersion": "0.4.0"
-# }
+```console
+$ stack exec llmll -- typecheck --sketch if_hole.ast.json
+{
+  "holes": [ { "name": "?informal_greeting", "inferredType": "string",
+               "pointer": "/statements/0/body/else",
+               "scope": [ { "name": "formal", "source": "param", "type": "bool" },
+                          { "name": "greet", "source": "let-binding", "type": "fn[1 args] -> ?" } ] } ],
+  "errors": [],
+  "invariant_suggestions": [],
+  "schemaVersion": "0.4.0"
+}
 ```
 
 Accepts a partial LLMLL program with holes anywhere. Returns:
@@ -606,17 +606,17 @@ Accepts a partial LLMLL program with holes anywhere. Returns:
 
 When a function’s type signature matches a known pattern, `--sketch` emits invariant suggestions:
 
-```bash
-stack exec llmll -- typecheck --sketch program.ast.json
-# {
-#   "holes": [...],
-#   "errors": [],
-#   "invariant_suggestions": [
-#     { "function": "sort-list",
-#       "pattern": "list[a] → list[a]",
-#       "suggestions": ["(= (list-length result) (list-length input))", "(sorted result)"] }
-#   ]
-# }
+```console
+$ stack exec llmll -- typecheck --sketch program.ast.json
+{
+  "holes": [...],
+  "errors": [],
+  "invariant_suggestions": [
+    { "function": "sort-list",
+      "pattern": "list[a] → list[a]",
+      "suggestions": ["(= (list-length result) (list-length input))", "(sorted result)"] }
+  ]
+}
 ```
 
 The pattern registry is stored as data (not code) — adding new patterns does not require recompilation. See `InvariantRegistry.hs` for the full pattern set.
@@ -642,28 +642,28 @@ Every `POST /sketch` is **stateless** — a fresh type-check context per request
 
 `examples/delegate_demo/program.ast.json` has 2 statements today; its hole (`compute-value`'s `?delegate` body) is at `/statements/1/body`, and — because `compute-value` carries no `pre`/`post` — this particular checkout doesn't populate the contract/typing fields (see "Context-aware fields" below for a hole that does):
 
-```bash
-stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/1/body --json
-# {
-#   "pointer": "/statements/1/body",
-#   "hole_kind": "hole-delegate",
-#   "token": "35b582cfbe3a97f8...",
-#   "ttl": 3600,
-#   "brief_version": "0.12.1",
-#   "source_hash": "efab8d7013749661e...",
-#   "timestamp": "2026-07-01T19:22:35.87Z",
-#   "contract_pre": null, "postcondition_goal": null, "path_condition": null,
-#   "obligation_id": null, "assumptions": null, "consumed_guarantees": null,
-#   "verified_hash": null
-# }
+```console
+$ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json /statements/1/body --json
+{
+  "pointer": "/statements/1/body",
+  "hole_kind": "hole-delegate",
+  "token": "35b582cfbe3a97f8...",
+  "ttl": 3600,
+  "brief_version": "0.12.1",
+  "source_hash": "efab8d7013749661e...",
+  "timestamp": "2026-07-01T19:22:35.87Z",
+  "contract_pre": null, "postcondition_goal": null, "path_condition": null,
+  "obligation_id": null, "assumptions": null, "consumed_guarantees": null,
+  "verified_hash": null
+}
 
 # Check remaining TTL
-stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --status 35b582cfbe3a97f8...
-# { "remaining_ttl": 3600 }
+$ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --status 35b582cfbe3a97f8...
+{ "remaining_ttl": 3600 }
 
 # Explicitly release a lock (don't wait for TTL expiry)
-stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --release 35b582cfbe3a97f8...
-# { "released": true }
+$ stack exec llmll -- checkout ../examples/delegate_demo/program.ast.json --release 35b582cfbe3a97f8...
+{ "released": true }
 ```
 
 > [!IMPORTANT]
@@ -675,27 +675,27 @@ Locks are per-file (`.llmll-lock.json` alongside the source) with a 1-hour TTL. 
 
 **Context-aware fields** — present when the hole's enclosing function carries a contract and/or the compiler has typing/scope data. A `def withdraw` body-hole with a `pre`/`post` and an `-> int` return type (e.g. `examples/withdraw-demo/demo.ast.json`, `/statements/1/body`) populates all of them:
 
-```bash
-stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statements/1/body --json
-# {
-#   ...,
-#   "contract_pre": "(>= balance amount)",
-#   "postcondition_goal": "(= result (- balance amount))",
-#   "expected_return_type": "int",
-#   "in_scope": [
-#     { "name": "amount", "source": "param", "type": "PositiveInt" },
-#     { "name": "balance", "source": "param", "type": "int" },
-#     { "name": "double", "source": "let-binding", "type": "fn[1 args] -> int" }, ...
-#   ],
-#   "available_functions": [
-#     { "name": "withdraw", "params": [...], "pre": "(>= balance amount)",
-#       "post": "(= result (- balance amount))", "return_type": "int",
-#       "tier": "asserted", "status": "filled" }, ...
-#   ],
-#   "type_definitions": [
-#     { "name": "PositiveInt", "kind": "dependent", "base_type": "int" }, ...
-#   ]
-# }
+```console
+$ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statements/1/body --json
+{
+  ...,
+  "contract_pre": "(>= balance amount)",
+  "postcondition_goal": "(= result (- balance amount))",
+  "expected_return_type": "int",
+  "in_scope": [
+    { "name": "amount", "source": "param", "type": "PositiveInt" },
+    { "name": "balance", "source": "param", "type": "int" },
+    { "name": "double", "source": "let-binding", "type": "fn[1 args] -> int" }, ...
+  ],
+  "available_functions": [
+    { "name": "withdraw", "params": [...], "pre": "(>= balance amount)",
+      "post": "(= result (- balance amount))", "return_type": "int",
+      "tier": "asserted", "status": "filled" }, ...
+  ],
+  "type_definitions": [
+    { "name": "PositiveInt", "kind": "dependent", "base_type": "int" }, ...
+  ]
+}
 ```
 
 | Field | Content |
@@ -718,9 +718,9 @@ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statements
 > [!NOTE]
 > The `int-mul`/`int-add` builtin names in the repo's `examples/delegate_demo/patch-request.json` fixture don't exist (LLMLL uses the `*`/`+` operators, not those names) — the example below uses a fresh, working patch instead.
 
-```bash
-stack exec llmll -- patch ../examples/delegate_demo/program.ast.json ../examples/delegate_demo/patch-request.json
-# { "result": "PatchSuccess", "statements": 2 }
+```console
+$ stack exec llmll -- patch ../examples/delegate_demo/program.ast.json ../examples/delegate_demo/patch-request.json
+{ "result": "PatchSuccess", "statements": 2 }
 ```
 
 The patch request is a JSON envelope containing the checkout token and RFC 6902 operations:
