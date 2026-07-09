@@ -33,7 +33,7 @@ Full copy-pasteable walkthrough: [`payments-core/DEMO-RUNBOOK.md`](examples/paym
 
 ## Prove what the solver can't — kernel-checked
 
-Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside Z3's decidable fragment, so the SMT verifier can only mark the postcondition `asserted` (honest "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
+Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside Z3's decidable fragment, so the SMT verifier can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
 
 <p align="center"><img src="docs/assets/leanstral.gif" width="760" alt="LLMLL verified-lean demo"></p>
 
@@ -94,7 +94,7 @@ The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive 
 
 An interactive proof path for the rest (Lean 4 via "Leanstral" MCP) is **designed but not shipped** — it runs in mock mode only (`--leanstral-mock`), blocked on external availability.
 
-[`docs/one-pager.md`](docs/one-pager.md) carries the full **Claim-to-Evidence map** — every claim mapped to a shipped command or an explicit "Planned"/"Not shipped" label. The scope-honesty is deliberate; read it before sharing.
+[`docs/one-pager.md`](docs/one-pager.md) carries the full **Claim-to-Evidence map** — every claim mapped to a shipped command or an explicit "Planned"/"Not shipped" label. The "Planned"/"Not shipped" labels are deliberate; read it before sharing.
 
 ---
 
