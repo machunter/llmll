@@ -34,7 +34,7 @@ LLMLL is a system — a programming language, compiler, and verification pipelin
 
 Inspired by refinement types (Liquid Haskell) and type-driven development, types in LLMLL can carry constraints directly — a `PositiveInt` is not just an `int`, it's an `int` with a declared constraint `x > 0`, which the compiler can verify within the shipped QF-LIA arithmetic fragment via `llmll verify`. For behavioral properties — like "the list is sorted" — the system's **shipped** verification path is an SMT solver (Z3 via liquid-fixpoint) that handles the decidable quantifier-free linear arithmetic fragment automatically. Contracts outside this fragment — those requiring induction or non-linear reasoning — are tracked as `asserted` or `tested` and explicitly flagged with `?proof-required` holes. LLMLL does not have dependent elimination, proof terms, or sigma types — its type annotations are refinement-like predicates, not dependent types in the Idris/Lean sense.
 
-> **Verification scope:** The **shipped** verification path is SMT (Z3 via liquid-fixpoint), covering quantifier-free linear integer arithmetic: `+`, `-`, `=`, `<`, `<=`, `>=`, `>`. This handles ~80% of practical contracts (numeric bounds, conservation invariants, length preservation). An interactive proof path (Lean 4, via Leanstral MCP) is **designed but not shipped** — translation infrastructure exists (`LeanTranslate.hs`, `MCPClient.hs`, `ProofCache.hs`), but real proof integration is blocked on `lean-lsp-mcp` availability and the current pipeline runs in mock mode only (`--leanstral-mock`). Contracts outside the SMT fragment are not silently dropped; they are tracked as `asserted` with explicit verification level propagation through dependencies.
+> **Verification scope:** The **shipped** verification path is SMT (Z3 via liquid-fixpoint), covering the decidable `Σ_auto` fragment — quantifier-free linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`), `bool`, non-recursive ADTs, and closed length/list measures. This handles ~80% of practical contracts (numeric bounds, conservation invariants, length preservation). An interactive Lean 4 proof path (via Leanstral) has a **shipped experimental demo slice** — the opt-in `--leanstral` flag translates a faithfully-translatable nonlinear obligation to a Lean theorem, proves it live, kernel-checks it against Lean 4 + Mathlib, and records a re-checkable `verified-lean` certificate. The full production integration across all obligation classes (including inductive properties) is **deferred** (`LEAN-GA`). Contracts outside the shipped fragment are not silently dropped; they are tracked as `asserted` with explicit verification-level propagation through dependencies.
 
 > Types handle structural guarantees; contracts handle behavioral ones; the SMT solver handles the decidable arithmetic fragment; inductive properties are tracked as open proof obligations.
 
@@ -46,7 +46,7 @@ Inspired by refinement types (Liquid Haskell) and type-driven development, types
 
 Every function carries a typed specification. When Agent B calls Agent A's function, it reads the type signature and contract — never the implementation. The compiler checks compatibility against declared contracts. Agents trust each other's contracts, not each other's code.
 
-*A natural question: can today's AI models actually write good type signatures and contracts?* Current reasoning models (o3, Gemini 2.5 Pro) can produce Haskell type signatures and Liquid Haskell refinements — they've been trained on this material. Whether they produce contracts that are *meaningful enough* to catch real bugs is an open question. But LLMLL has two feedback mechanisms: stratified verification flags unproven contracts as "asserted" rather than "verified," and the weakness checker (`llmll verify --weakness-check`) actively tests whether a trivial implementation (identity function, constant zero, empty string) satisfies the contract — if so, the spec is flagged as under-specified. The system doesn't assume agents write perfect specs — it makes the quality of specs transparent and *actively detects* when a spec is too weak to be useful.
+*A natural question: can today's AI models actually write good type signatures and contracts?* Current frontier reasoning models can produce Haskell type signatures and Liquid Haskell refinements — they've been trained on this material. Whether they produce contracts that are *meaningful enough* to catch real bugs is an open question. But LLMLL has two feedback mechanisms: stratified verification flags unproven contracts as "asserted" rather than "verified," and the weakness checker (`llmll verify --weakness-check`) actively tests whether a trivial implementation (identity function, constant zero, empty string) satisfies the contract — if so, the spec is flagged as under-specified. The system doesn't assume agents write perfect specs — it makes the quality of specs transparent and *actively detects* when a spec is too weak to be useful.
 
 ### Multi-agent orchestration
 
@@ -64,23 +64,25 @@ Agents don't write source code files that get merged with git-style diffs. They 
 
 ## Status
 
-LLMLL currently provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning**: literals, variables, simple let-bindings, conditionals, function calls to contracted functions (assume-guarantee), `Result` pattern matching, and linear arithmetic. Programs outside that fragment fall back to contract-only verification, tests, or runtime assertions with explicit trust labels.
+LLMLL currently provides body-faithful SMT verification for a **non-recursive `Σ_auto` core** with **compositional call-chain reasoning**: literals, variables, `bool`, simple let-bindings, conditionals, function calls to contracted functions (assume-guarantee — **same-file or imported**), two-arm sum pattern matching (`Result` and user ADTs, nested), pair returns, admissible datatype construction, and linear arithmetic. Programs outside that fragment fall back to contract-only verification, tests, or runtime assertions with explicit trust labels.
 
 **Verification boundary:**
 
 | Construct | SMT body-faithful | Fallback |
 |---|---|---|
-| `ELit`, `EVar` (int), linear ops | ✅ | — |
-| `ELet` (PVar, int), `EIf` (≤4096 paths) | ✅ | — |
-| `EApp` (contracted callee) | ✅ assume-guarantee | — |
+| `ELit`, `EVar` (int / `bool`), linear ops | ✅ | — |
+| `ELet` (PVar), `EIf` (≤4096 paths) | ✅ | — |
+| `EApp` (contracted callee, same-file or imported) | ✅ assume-guarantee | — |
 | `EApp` (uncontracted / recursive self) | ❌ | contract-only |
-| `EMatch` on `Result` (2-arm) | ✅ two-path encoding | — |
-| `EMatch` (general ADT), `EPair`, `ELambda`, `EDo` | ❌ | runtime |
+| `EMatch` two-arm sums (`Result` + user ADTs, nested) | ✅ int-tag encoding | — |
+| `EPair` / pair returns (`first` / `second` / `pair`) | ✅ datatype selectors | — |
+| Admissible (non-recursive) datatype construction | ✅ | — |
+| `EMatch` (>2 arms / recursive-sum payload), `ELambda`, `EDo` | ❌ | contract-only / runtime |
 | `letrec` (own body VC) | ❌ | runtime |
-| Non-linear ops (*, /, mod) | ❌ | `?proof-required` |
-| **Int overflow** | ⚠ | Z3 `Int` ≠ Haskell `Int64` |
+| Non-linear ops (*, /, mod) | ❌ | `?proof-required` (→ `--leanstral`) |
+| **Int overflow** | ✅ none | `int` = mathematical `Integer`, both verifier and codegen (LT-INT) |
 
-**Shipped capabilities:** Haskell code generation, formal contract verification (liquid-fixpoint/Z3), compositional assume-guarantee reasoning across function call chains, **obligation-guided agent coding** (structured JSON obligation reports with type/contract/trust channels, `EMatch` branch obligations, repair suggestions, function lists), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report` with `.verified.json` sidecar), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, specification quality layer (`--spec-coverage` gate, `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts), frozen ERC-20 and TOTP benchmarks with verification-scope matrices, algebraic interface laws (`def-interface :laws`), body-faithful VCs for the QF-LIA fragment, and `--strict-verified-core` mode that hard-errors on fallback functions.
+**Shipped capabilities:** Haskell code generation, formal contract verification (liquid-fixpoint/Z3), compositional assume-guarantee reasoning across function call chains, **obligation-guided agent coding** (structured JSON obligation reports with type/contract/trust channels, `EMatch` branch obligations, repair suggestions, function lists), multi-agent checkout/patch with context-aware typing context, trust hardening (`--trust-report` with `.verified.json` sidecar), compiler-emitted agent specifications (`llmll spec`), a Lead Agent (`llmll-orchestra --mode plan|lead|auto`) that architects programs end-to-end, specification quality layer (`--spec-coverage` gate, `(weakness-ok)` suppression governance, `:source` clause-level provenance on contracts), frozen ERC-20 and TOTP benchmarks with verification-scope matrices, algebraic interface laws (`def-interface :laws`), body-faithful VCs for the QF-LIA fragment, and `--strict-verified-core` mode that hard-errors on fallback functions. More recent additions: a zero-install verify-capable Docker image (`ghcr.io/machunter/llmll`), a unified replayable **proof artifact** (`--proof-artifact` / `replay-artifact`, fail-closed), body-faithful **cross-module assume-guarantee** (a program can split into `import`-linked modules and stay `verified`), a widened body-faithful fragment (two-arm user-ADT matches, `bool`, pair returns, non-recursive datatype construction), and the experimental Leanstral `verified-lean` demo slice.
 
 Early stage — the compiler infrastructure works, validation on increasingly complex sample programs is ongoing. Open source (GPLv3). Solo project, supported by AI tools.
 
@@ -119,7 +121,7 @@ See [research-track.md](archive/research-track.md) for additional research items
 |---|---|---|---|
 | "Compiler accepts or rejects code against contracts" | All shipped examples type-check and verify | **Verified** (within QF-LIA) | `llmll check`, `llmll verify` |
 | "Contracts are verified by SMT solver (Z3)" | liquid-fixpoint integration, full test suite | **Verified** (QF-LIA) | `llmll verify examples/hangman_json_verifier/` |
-| "Leanstral handles inductive properties" | Translation infrastructure exists; mock-only | **Not shipped** — mock pipeline | `llmll verify --leanstral-mock` |
+| "Leanstral proves a nonlinear obligation in Lean" | Demo slice: live Lean 4 + Mathlib proof, kernel-checked `verified-lean` certificate | **Shipped (experimental, demo-only)** — inductive + production rebuild deferred (`LEAN-GA`) | `llmll verify --leanstral` |
 | "Trust levels propagate through dependencies" | `--trust-report` emits transitive trust closure, loads `.verified.json` sidecar | **Shipped** | `llmll verify --trust-report` |
 | "Weakness checker detects under-specified contracts" | Trivial-implementation construction | **Shipped** | `llmll verify --weakness-check` |
 | "Lead Agent architects programs end-to-end" | Skeleton generation from intent | **Shipped** | `llmll-orchestra --mode auto` |
@@ -134,7 +136,7 @@ See [research-track.md](archive/research-track.md) for additional research items
 | "Body-faithful verification" | `bodyToPred` encodes bodies as VCs; body-faithful postconditions can be stripped | **Shipped** | `llmll verify` on QF-LIA functions |
 | "Compositional call-chain verification" | Assume-guarantee reasoning, call-pre obligations, `EMatch` on Result | **Shipped** | `llmll verify examples/banking_ledger/banking.llmll --strict-verified-core` |
 | "Obligation-guided agent coding" | Structured JSON reports with type/contract/trust channels, repair suggestions, function lists, branch obligations | **Shipped** | `llmll verify --obligation-report`, `examples/benchmarks/` |
-| "WASM sandboxing" | `effectful` compat spike GO; Docker is current sandbox | **Planned** | `docs/effectful-wasm-spike.md` |
+| "WASM sandboxing" | `effectful` compat spike GO; Docker is current sandbox | **Planned** | `docs/archive/wasm-investigations/effectful-wasm-spike.md` |
 
 > [!NOTE]
 > Items marked **Planned** are not shipped. They are included in this table to prevent overreading — the distinction between "shipped" and "planned" must remain visible.
