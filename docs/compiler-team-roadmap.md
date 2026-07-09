@@ -246,11 +246,10 @@ Tracked but off the critical path — gated on external availability or a concre
 |------|--------|
 | Rust codegen backend | Dropped in v0.1.2; Haskell is the permanent target |
 | Python FFI tier | Breaks WASM compatibility; dynamically typed |
-| Full Lean 4 proof agent from scratch | Replaced by Leanstral MCP integration |
+| Full Lean 4 proof agent built from scratch | Lean discharge goes through Leanstral (LEAN-GA — `--leanstral` demo slice shipped v0.14.8, production rebuild parking-lotted), not a hand-built prover |
 | UI/web frontend | LLMLL's target domains are backend, not UI |
 | IDE plugins (VS Code, etc.) | Premature — stabilize the CLI/HTTP interface first |
-| Lean integration | Externally blocked (parking lot) |
-| Indexed/dependent types | Research track — explicitly excluded from v0.10 (professor consensus, 2026-05-01) |
+| Indexed/dependent types | Research track (R1) — deferred by professor consensus (2026-05-01), not a v0.x target |
 
 > The freeze-era "feature freeze" exclusions (new builtins, new syntax constructs, broader FFI, more WASI surface, compiler-side orchestration, typeclass law machinery) were enforced through v0.10 and are no longer blanket-excluded post-freeze; any addition still requires explicit team consensus with a written soundness argument per the [Feature Freeze Policy](#feature-freeze-policy) freeze-exception discipline.
 
