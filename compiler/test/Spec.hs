@@ -7227,7 +7227,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "DC-3: contracted record carries pre/post/tier; pre-free double → pre:null" $ do
       let stmts    = parse quadrupleSrc
           trustMap = Map.fromList [("double", mkTE "double" (DLVerified "smt"))]
-          (contracted, _, _, _) = assembleFunctionLists stmts Map.empty (buildAliasMap stmts) trustMap TInt
+          (contracted, _, _, _) = assembleFunctionLists stmts Map.empty (buildAliasMap stmts) trustMap (Just TInt)
           dbl = [ c | c <- contracted, objStr "name" c == Just "double" ]
       length dbl `shouldBe` 1
       let c = head dbl
@@ -7245,6 +7245,39 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- builtin (no contract): pre/post/tier all Nothing, still round-trips.
       let bi = FuncEntry "len" [("p0","string")] "int" "builtin" Nothing Nothing Nothing
       (decode (encode bi) :: Maybe FuncEntry) `shouldBe` Just bi
+
+    -- OBLIG-VOCAB-GATE: an unknown-typed hole must receive the FULL (capped)
+    -- vocabulary. The old 'fromMaybe TUnit' default made unknown behave as
+    -- "expects unit": every '-> T'-annotated function and every
+    -- monomorphic-return builtin failed the unit comparison and the lists
+    -- silently read as "no callable functions".
+    it "DC-7a: unknown hole type ⇒ contracted list ungated; returns shows the declared type or ?" $ do
+      let mixedSrc =
+            [ "(def double [x: int] -> int (post (= result (+ x x))) (+ x x))"  -- annotated
+            , "(def triple [x: int] (post (= result (+ x (+ x x)))) (+ x (+ x x)))" ]  -- unannotated
+          stmts = parse mixedSrc
+          (contracted, _, _, _) =
+            assembleFunctionLists stmts Map.empty (buildAliasMap stmts) Map.empty Nothing
+      -- The annotated fn was DROPPED under the TUnit default; both now appear.
+      [ objStr "name" c | c <- contracted ] `shouldBe` [Just "double", Just "triple"]
+      [ objStr "return_type" c | c <- contracted ] `shouldBe` [Just "int", Just "?"]
+
+    it "DC-7b: unknown hole type ⇒ builtins ungated (monomorphic-return builtins appear)" $ do
+      let stmts = parse quadrupleSrc
+          (_, _, available, availableT) =
+            assembleFunctionLists stmts Map.empty (buildAliasMap stmts) Map.empty Nothing
+      -- '+' returns int; under the TUnit default only polymorphic-return
+      -- builtins survived. Cap-8 still applies (alphabetical, '+' is early).
+      [ objStr "name" a | a <- available ] `shouldSatisfy` elem (Just "+")
+      availableT `shouldBe` True
+
+    it "DC-7c: a KNOWN hole type still gates (bool hole drops int-returning fns)" $ do
+      let annotatedSrc =
+            [ "(def double [x: int] -> int (post (= result (+ x x))) (+ x x))" ]
+          stmts = parse annotatedSrc
+          (contracted, _, _, _) =
+            assembleFunctionLists stmts Map.empty (buildAliasMap stmts) Map.empty (Just TBool)
+      contracted `shouldBe` []
 
     -- Test 5: SAFE per-call-site PreconditionObligation surfacing.
     --

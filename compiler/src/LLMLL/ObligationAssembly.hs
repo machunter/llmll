@@ -783,10 +783,28 @@ importedContractedFns stmts cache =
 -- XMOD-SCOPE-BRIEF: the contracted list is cache-aware — imported exported
 -- contracted functions appear after the same-file ones, under their callable
 -- names ('importedContractedFns'); empty cache ⇒ unchanged.
-assembleFunctionLists :: [Statement] -> ModuleCache -> AliasMap -> Map Name TrustEntry -> Type
+-- OBLIG-VOCAB-GATE: the expected type is 'Maybe' — the return-type
+-- compatibility gate applies only when the hole's type is KNOWN. Previously
+-- an unknown type defaulted to 'TUnit', which silently emptied the lists
+-- (every '-> T'-annotated function and every monomorphic-return builtin
+-- failed the unit comparison) — "no callable functions" where the truth was
+-- "type unknown". Unknown now means the full (still capped) vocabulary.
+assembleFunctionLists :: [Statement] -> ModuleCache -> AliasMap -> Map Name TrustEntry -> Maybe Type
                       -> ([Value], Bool, [Value], Bool)
-assembleFunctionLists stmts cache aliases trustMap expectedTy =
+assembleFunctionLists stmts cache aliases trustMap mExpectedTy =
   let cap = 8
+      -- DEMO-COMP fallback, kept per clause: an unannotated declaration
+      -- (mRet = Nothing — the common case before DEF-RET's optional
+      -- '-> RetType', v0.13.1) is gated and displayed as the hole's expected
+      -- type when that is known; with BOTH unknown it passes the gate and
+      -- displays "?" (matching the checkout brief's 'feReturn' convention).
+      retCompatible mRet = case mExpectedTy of
+        Nothing         -> True
+        Just expectedTy -> isTypeCompatible aliases expectedTy (fromMaybe expectedTy mRet)
+      retLabel mRet = case (mRet, mExpectedTy) of
+        (Just r,  _)             -> typeLabel r
+        (Nothing, Just expectedTy) -> typeLabel expectedTy
+        (Nothing, Nothing)       -> "?" :: Text
       -- Contracted: user functions with contracts and compatible return types (C3: + SLetrec)
       allContracted =
         -- DEMO-COMP (§3.2, engineer F2): the contracted-user vocabulary now
@@ -797,8 +815,8 @@ assembleFunctionLists stmts cache aliases trustMap expectedTy =
         -- effective-level trust label (verified / contract-checked / asserted).
         [ object [ "name"        .= fname
                  , "params"      .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
-                 , "returns"     .= typeLabel ret
-                 , "return_type" .= typeLabel ret   -- alias of returns (§3.2)
+                 , "returns"     .= retLabel mRet
+                 , "return_type" .= retLabel mRet   -- alias of returns (§3.2)
                  , "status"      .= trustLabel trustMap fname
                  , "pre"         .= fmap exprToSExpr (contractPre c)
                  , "post"        .= fmap exprToSExpr (contractPost c)
@@ -806,29 +824,21 @@ assembleFunctionLists stmts cache aliases trustMap expectedTy =
         | stmt <- stmts
         , Just (fname, ps, mRet, c, _) <- [normalizeDefStmt stmt]
         , contractPre c /= Nothing || contractPost c /= Nothing
-          -- DEMO-COMP: the surface 'def'/'def-shell' forms never carry a return
-          -- annotation (both the S-expr and JSON parsers fix defReturn = Nothing),
-          -- so requiring 'Just ret' silently excluded EVERY contracted user
-          -- function (double, withdraw, quadruple …) from this list. Fall back to
-          -- the hole's expected return type when the declaration is unannotated,
-          -- which is also the type the compatibility gate compares against.
-        , let ret = fromMaybe expectedTy mRet
-        , isTypeCompatible aliases expectedTy ret
+        , retCompatible mRet
         ]
         ++
         -- XMOD-SCOPE-BRIEF: imported exported contracted functions, same
         -- record shape and gating, named as the entry module calls them.
         [ object [ "name"        .= dname
                  , "params"      .= map (\(n,t) -> [toJSON n, toJSON (typeLabel t)]) ps
-                 , "returns"     .= typeLabel ret
-                 , "return_type" .= typeLabel ret
+                 , "returns"     .= retLabel mRet
+                 , "return_type" .= retLabel mRet
                  , "status"      .= trustLabel trustMap dname
                  , "pre"         .= fmap exprToSExpr (contractPre c)
                  , "post"        .= fmap exprToSExpr (contractPost c)
                  , "tier"        .= trustLabel trustMap dname ]
         | (dname, ps, mRet, c) <- importedContractedFns stmts cache
-        , let ret = fromMaybe expectedTy mRet
-        , isTypeCompatible aliases expectedTy ret
+        , retCompatible mRet
         ]
       contracted = take cap allContracted
       contractedT = length allContracted > cap
@@ -841,7 +851,7 @@ assembleFunctionLists stmts cache aliases trustMap expectedTy =
                  , "status"  .= ("builtin" :: Text) ]
         | (bname, bty) <- builtins
         , not ("wasi." `T.isPrefixOf` bname)
-        , isTypeCompatible aliases expectedTy (returnType bty)
+        , maybe True (\expectedTy -> isTypeCompatible aliases expectedTy (returnType bty)) mExpectedTy
         ]
       available = take cap allAvailable
       availableT = length allAvailable > cap
@@ -997,13 +1007,14 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
         }
 
       -- Function lists (§8)
-      expectedTy = fromMaybe TUnit (holeInferredType he)
       -- XMOD-SCOPE-BRIEF: bare-alias opened imports so a bare imported
       -- callable's tier resolves to its qualified trust entry, not "builtin".
       trustMap = injectOpenedAliases stmts $
                    Map.fromList [(teName e, e) | e <- trEntries trustRpt]
+      -- OBLIG-VOCAB-GATE: pass the hole's inferred type as-is — an unknown
+      -- type must NOT gate the vocabulary (it used to default to TUnit).
       (contracted, contractedT, available, availableT) =
-        assembleFunctionLists stmts cache aliases trustMap expectedTy
+        assembleFunctionLists stmts cache aliases trustMap (holeInferredType he)
 
       -- Repair suggestions (OBLIG-4)
       suggestions = case holeInferredType he of
