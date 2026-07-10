@@ -41,7 +41,7 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
+import LLMLL.Syntax (Statement(..), Span(..), ModuleCache, ModulePath, Import(..), ModuleEnv(..), typeLabel, Type(..), Contract(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), normalizeDefStmt, defFormTag, raiseLowDP, resolveSpecEntropy)
 import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrict, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (loadModule, isBuiltinImport, topoSortedEnvs)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -1451,7 +1451,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                             -- admissible, so it carries no admission hash.
                                             hash = if tainted
                                                    then Nothing
-                                                   else Just (canonicalDefEvidenceHash body (contractPre c) (contractPost cAug))
+                                                   else Just (canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost cAug))
                                         in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash))
                                                 (contractPost cAug)
                                    else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing))

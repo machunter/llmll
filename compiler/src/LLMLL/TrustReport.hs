@@ -454,10 +454,13 @@ downgradeStaleVerifiedSidecar stmts =
     -- sidecar. Must match the write-side basis (Main provenCS). Recompute is
     -- same-module (alias map in scope), so the augmented hash is reproducible.
     am = buildAliasMap stmts
-    -- Live (body, pre, augmented-post) hash per bare def name.
+    -- Live (form, body, pre, augmented-post) hash per bare def name.
+    -- REC-HASH-FORM (b0): the 'defFormTag s' leg makes a def-shell -> def rename
+    -- drift the hash so the stale sidecar is downgraded (probe E), read-side dual
+    -- of the write-side stamp in Main.hs.
     liveHashes :: Map Name Text
     liveHashes = Map.fromList
-      [ (n, canonicalDefEvidenceHash body (contractPre c) (contractPost (augmentContractPost am mRet c)))
+      [ (n, canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost (augmentContractPost am mRet c)))
       | s <- stmts
       , Just (n, _, mRet, c, body) <- [normalizeDefStmt s]
       ]

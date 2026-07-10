@@ -83,6 +83,7 @@ module LLMLL.Syntax
     -- * Grammar Mode (LT-INV v0.11)
   , GrammarMode(..)
   , normalizeDefStmt
+  , defFormTag
   , isCoreBodySyntactic
   ) where
 
@@ -662,6 +663,22 @@ normalizeDefStmt (SDef          n p r c b) = Just (n, p, r, c, b)
 normalizeDefStmt (SDefShell     n p r c b) = Just (n, p, r, c, b)
 normalizeDefStmt (SDefInvariant n p r c b) = Just (n, p, r, c, b)
 normalizeDefStmt _                         = Nothing
+
+-- | REC-HASH-FORM (b0 of REC-BODY-VC): the def-form tag folded into the
+-- ADMIT-VERIFIED evidence hash preimage ('PBT.canonicalDefEvidenceHash'), so a
+-- 'def-shell' -> 'def' rename over an intact '.verified.json' drifts the hash
+-- and the sidecar is downgraded instead of laundering partial-correctness
+-- evidence into the strict-core (total-claim) tier (probe E). 'normalizeDefStmt'
+-- deliberately erases the constructor; this recovers just the admission-relevant
+-- distinction (strict-core 'def' vs permissive 'def-shell'). 'SLetrec' is tagged
+-- for totality though it never reaches the hash sites (letrec emits no body VC).
+defFormTag :: Statement -> Text
+defFormTag SDefShell{}     = "def-shell"
+defFormTag SLetrec{}       = "letrec"
+defFormTag SDef{}          = "def"
+defFormTag SDefLogic{}     = "def"
+defFormTag SDefInvariant{} = "def"
+defFormTag _               = "def"
 
 -- | LT-INV (v0.11): return 'True' if an expression is admissible inside a
 -- strict-core ('SDef') body per the grammar production in the proposal §3.2.

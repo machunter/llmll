@@ -453,7 +453,7 @@ moduleSpec = describe "Module System" $ do
         recoverWithdraw coreEnv =
           case find (\s -> case s of SDef "withdraw" _ _ _ _ -> True; _ -> False)
                     (meStatements coreEnv) of
-            Just (SDef _ _ _ c b) -> (canonicalDefEvidenceHash b (contractPre c) (contractPost c))
+            Just (SDef _ _ _ c b) -> (canonicalDefEvidenceHash "def" b (contractPre c) (contractPost c))
             _                     -> error "core.withdraw def not found in fixture"
         mkER dl bf vh =
           EvidenceRecord dl bf Nothing [] False Nothing Nothing False vh
@@ -464,7 +464,7 @@ moduleSpec = describe "Module System" $ do
           case find (\s -> case s of SDefShell "safe-withdraw" _ _ _ _ -> True; _ -> False)
                     (meStatements composeEnv) of
             Just (SDefShell _ _ _ c b) ->
-              let h = canonicalDefEvidenceHash b (contractPre c) (contractPost c)
+              let h = canonicalDefEvidenceHash "def-shell" b (contractPre c) (contractPost c)
                   v = mkER (DLVerified "liquid-fixpoint") True (Just h)
               in Map.fromList [("safe-withdraw", ContractStatus (Just v) (Just v) [])]
             _ -> Map.empty

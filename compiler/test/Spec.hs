@@ -1562,7 +1562,7 @@ main = hspec $ do
       let parse s = parseStatements GrammarCoreInversion "<test>" (T.pack s)
           hashOf stmts =
             let am = buildAliasMap stmts
-            in [ canonicalDefEvidenceHash body (contractPre c)
+            in [ canonicalDefEvidenceHash "def" body (contractPre c)
                    (contractPost (augmentContractPost am mRet c))
                | SDef _ _ mRet c body <- stmts ]
       case ( parse "(type PositiveInt (where [x: int] (> x 0)))\n(def f [x: int] -> PositiveInt (pre (>= x 0)) (+ x 1))"
@@ -10115,7 +10115,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           dblBody     = EOp "+" [EVar "x", EVar "x"]
           dblPost     = Just (EApp "=" [EVar "result", EOp "+" [EVar "x", EVar "x"]])
           dblContract = Contract Nothing Nothing dblPost Nothing Nothing
-          dblHash     = canonicalDefEvidenceHash dblBody Nothing dblPost
+          dblHash     = canonicalDefEvidenceHash "def" dblBody Nothing dblPost
           -- A fully-verified, hash-valid post EvidenceRecord for 'double'.
           dblVerifiedER = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing []
                             False Nothing Nothing False (Just dblHash)
@@ -10141,7 +10141,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "AV-SF2 stale-hash entry is rejected (callee body changed since verify)" $ do
         -- Persisted evidence keyed to the OLD body hash; live body is dblStmt.
-        let staleHash = canonicalDefEvidenceHash (EOp "+" [EVar "x", ELit (LitInt 99)]) Nothing dblPost
+        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 99)]) Nothing dblPost
             staleER   = dblVerifiedER { erVerifiedHash = Just staleHash }
             rawCS     = DM.fromList [("double", ContractStatus Nothing (Just staleER) [])]
             (validatedCS, _) = downgradeStaleVerifiedSidecar [dblStmt, adStmt] rawCS
@@ -10183,7 +10183,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "AV-XM3 import staleness (hash mismatch) is REJECTED after validation" $ do
         -- The imported module's persisted evidence is hash-stale relative to
         -- its own live body; validating it before seeding demotes it.
-        let staleHash = canonicalDefEvidenceHash (EOp "+" [EVar "x", ELit (LitInt 7)]) Nothing dblPost
+        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 7)]) Nothing dblPost
             staleCS   = ContractStatus Nothing (Just (dblVerifiedER { erVerifiedHash = Just staleHash })) []
             modEnv    = mkCoreModule staleCS
             (validatedModCS, _) = downgradeStaleVerifiedSidecar (meStatements modEnv) (meContractStatus modEnv)
@@ -10193,7 +10193,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       -- ---- staleness guard direct (2) ----
       it "AV-SG1 hash mismatch downgrades body-faithful evidence to asserted" $ do
-        let staleHash = canonicalDefEvidenceHash (EOp "+" [EVar "x", ELit (LitInt 1)]) Nothing dblPost
+        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 1)]) Nothing dblPost
             rawCS     = DM.fromList [("double", ContractStatus Nothing (Just (dblVerifiedER { erVerifiedHash = Just staleHash })) [])]
             (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
             postER    = csPost (out DM.! "double")
@@ -10242,6 +10242,56 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         saveVerified tmp (DM.fromList [("double", cs)])
         loaded <- loadVerified tmp
         fmap (fmap erVerifiedHash . csPost) (DM.lookup "double" loaded) `shouldBe` Just (Just (Just dblHash))
+
+      -- ---- REC-HASH-FORM (b0 of REC-BODY-VC): def-form in the evidence hash ----
+      -- A recursive self-call verified as def-shell (partial correctness) must not
+      -- launder into the strict-core (total) tier via a def-shell -> def rename over
+      -- an intact sidecar (probe E). The def-form now sits in the hash preimage, so
+      -- the flip drifts the hash, the sidecar downgrades, and admission rejects.
+      let recBody     = EApp "f" [EVar "x"]
+          recPre      = Just (EApp ">=" [EVar "x", ELit (LitInt 0)])
+          recPost     = Just (EApp "=" [EVar "result", EVar "x"])
+          recContract = Contract recPre Nothing recPost Nothing Nothing
+          recSDef     = SDef { defName = "f", defParams = [("x", TInt)]
+                             , defReturn = Just TInt, defContract = recContract
+                             , defBody = recBody }
+          -- The hash that was stamped when 'f' was a def-shell.
+          recDsHash   = canonicalDefEvidenceHash "def-shell" recBody recPre recPost
+
+      it "RHF-1 def-shell->def flip over an intact sidecar is REJECTED (probe E closed)" $ do
+        let staleER   = dblVerifiedER { erVerifiedHash = Just recDsHash }
+            rawCS     = DM.fromList [("f", ContractStatus Nothing (Just staleER) [])]
+            (validatedCS, diags) = downgradeStaleVerifiedSidecar [recSDef] rawCS
+            postER    = csPost (validatedCS DM.! "f")
+            report    = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache validatedCS emptyEnv [recSDef]
+        -- The def-shell sidecar is stale under the live def recompute (form drift)...
+        fmap erBodyFaithful postER `shouldBe` Just False
+        fmap erVerifiedHash postER `shouldBe` Just Nothing
+        length diags `shouldSatisfy` (> 0)
+        -- ...and the self-call is refused strict-core admission.
+        kindsOf report `shouldContain` ["core-membership-violation"]
+
+      it "RHF-2 fresh def self-call is rejected with and without a stale sidecar (flip converges to fresh path)" $ do
+        let reportCold = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache DM.empty emptyEnv [recSDef]
+            rawCS      = DM.fromList [("f", ContractStatus Nothing (Just (dblVerifiedER { erVerifiedHash = Just recDsHash })) [])]
+            (validatedCS, _) = downgradeStaleVerifiedSidecar [recSDef] rawCS
+            reportStale = typeCheckStrictWithCacheAndStatus GrammarCoreInversion emptyCache validatedCS emptyEnv [recSDef]
+        kindsOf reportCold  `shouldContain` ["core-membership-violation"]
+        kindsOf reportStale `shouldContain` ["core-membership-violation"]
+
+      it "RHF-3 a non-recursive verified def does not drift under the form tag" $ do
+        -- dblStmt is SDef 'double'; its fresh sidecar hash is stamped \"def\" and the
+        -- live recompute is \"def\" — no drift, evidence stays verified.
+        let rawCS = DM.fromList [("double", ContractStatus Nothing (Just dblVerifiedER) [])]
+            (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
+            postER = csPost (out DM.! "double")
+        fmap erDisplayLevel postER `shouldBe` Just (DLVerified "liquid-fixpoint")
+        fmap erBodyFaithful postER `shouldBe` Just True
+        diags `shouldBe` []
+
+      it "RHF-4 the def-form tag is load-bearing in the hash preimage" $
+        canonicalDefEvidenceHash "def" dblBody Nothing dblPost
+          `shouldNotBe` canonicalDefEvidenceHash "def-shell" dblBody Nothing dblPost
 
     describe "INV-G: isCoreBodySyntactic" $ do
 

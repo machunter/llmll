@@ -580,11 +580,14 @@ canonicalPropBodyHash e =
 -- silently re-admit stale persisted evidence. Bump on any change to the VC
 -- semantics that a persisted 'erBodyFaithful' verdict depends on.
 admitVerifiedSemanticsTag :: Text
-admitVerifiedSemanticsTag = "av1;qf-lia;int=unbounded"
+-- REC-HASH-FORM (b0): bumped av1 -> av2 alongside the def-form addition to the
+-- preimage below, so every pre-REC-HASH-FORM sidecar is invalidated once (the
+-- preimage change already drifts every hash; the tag bump records the reason).
+admitVerifiedSemanticsTag = "av2;qf-lia;int=unbounded"
 
 -- | ADMIT-VERIFIED (Option 2): SHA-256 over the canonical serialization of a
--- def's @(body, pre, post)@ together with 'admitVerifiedSemanticsTag'. This is
--- the staleness primitive for the persisted-evidence admission leg: the
+-- def's @(form, body, pre, post)@ together with 'admitVerifiedSemanticsTag'.
+-- This is the staleness primitive for the persisted-evidence admission leg: the
 -- verifier stamps it on body-faithful SAFE entries ('Main.saveVerified') and
 -- 'TrustReport.downgradeStaleVerifiedSidecar' recomputes it on read against the
 -- live def bodies + contracts. Hashing the contract clauses (not the body
@@ -592,12 +595,18 @@ admitVerifiedSemanticsTag = "av1;qf-lia;int=unbounded"
 -- version tag closes the cross-semantics hole. Absent contract clauses
 -- serialize to the literal @(none)@ so a pre→nothing edit changes the hash.
 --
+-- REC-HASH-FORM (b0 of REC-BODY-VC): the leading @form@ tag ('Syntax.defFormTag')
+-- closes the probe-E laundering hole — a 'def-shell' -> 'def' rename with a
+-- stable @(body, pre, post)@ now drifts the hash, so the stale partial-correctness
+-- sidecar is downgraded rather than admitted into the strict-core total tier.
+--
 -- Output shape matches 'canonicalPropBodyHash': @\"sha256:\" <> 64 hex@.
-canonicalDefEvidenceHash :: Expr -> Maybe Expr -> Maybe Expr -> Text
-canonicalDefEvidenceHash body mPre mPost =
+canonicalDefEvidenceHash :: Text -> Expr -> Maybe Expr -> Maybe Expr -> Text
+canonicalDefEvidenceHash formTag body mPre mPost =
   let clause = maybe "(none)" canonicalExpr
       payload = "(def-evidence "
              <> admitVerifiedSemanticsTag <> " "
+             <> "(form " <> formTag <> ") "
              <> "(body " <> canonicalExpr body <> ") "
              <> "(pre " <> clause mPre <> ") "
              <> "(post " <> clause mPost <> "))"
