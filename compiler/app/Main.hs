@@ -2183,7 +2183,7 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
       -- bound (never a manufactured witness); R5 hole-fns are `def-shell` by
       -- convention, so the modular path is the common one.
       synthetic = case filter (defNamed fname) sharedStmts of
-                    (SDefShell{} : _) -> SDefShell fname params mRet contract body
+                    (SDefShell{} : _) -> SDefShell fname params mRet contract body []
                     _                 -> SDef      fname params mRet contract body
       context   = [ s | s <- sharedStmts, keepAsContext s ]
       program   = context ++ [synthetic]
@@ -2329,7 +2329,7 @@ extractContract :: Statement -> Maybe (Name, Contract)
 extractContract (SDefLogic name _ _ c _)  = Just (name, c)
 extractContract (SLetrec name _ _ c _ _)  = Just (name, c)
 extractContract (SDef      name _ _ c _)  = Just (name, c)
-extractContract (SDefShell name _ _ c _)  = Just (name, c)
+extractContract (SDefShell name _ _ c _ _)  = Just (name, c)
 extractContract _                         = Nothing
 
 -- ---------------------------------------------------------------------------

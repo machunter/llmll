@@ -164,7 +164,7 @@ extractFunctions stmts =
       SLetrec   n _ _ c _ _ -> [(n, c)]
       -- LT-INV (v0.11)
       SDef      n _ _ c _   -> [(n, c)]
-      SDefShell n _ _ c _   -> [(n, c)]
+      SDefShell n _ _ c _ _   -> [(n, c)]
       -- v0.12.1
       SDefInvariant n _ _ c _ -> [(n, c)]
       _                     -> []

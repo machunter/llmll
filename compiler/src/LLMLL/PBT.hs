@@ -738,8 +738,8 @@ pbtTrustWriteback localStmts cache result =
       -- delegation hole inside def makes the return value opaque regardless
       -- of grammar form.
       delegateBodies = Set.fromList $
-        [ n | SDefShell n _ _ _ (EHole (HDelegate _))        <- mergedStmts ]
-        ++ [ n | SDefShell n _ _ _ (EHole (HDelegateAsync _)) <- mergedStmts ]
+        [ n | SDefShell n _ _ _ (EHole (HDelegate _)) _        <- mergedStmts ]
+        ++ [ n | SDefShell n _ _ _ (EHole (HDelegateAsync _)) _ <- mergedStmts ]
         ++ [ n | SDef      n _ _ _ (EHole (HDelegate _))        <- mergedStmts ]
         ++ [ n | SDef      n _ _ _ (EHole (HDelegateAsync _)) <- mergedStmts ]
       processed = map (processRun contractByName qualMap propsByDesc delegateBodies) (pbtResults result)

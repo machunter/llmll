@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.7/ast.schema.json",
+  "$id": "https://llmll.dev/schemas/v0.8/ast.schema.json",
   "title": "LLMLL v0.6 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.7.0'; the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.8.0' (REC-DESCENT: optional decreases array on def-shell; was 0.7.0 for DEF-RET return_type); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "Must be '0.7.0'. The compiler rejects files with an unrecognised version. v0.7.0 is the canonical version (DEF-RET: optional return_type on def/def-shell; was 0.6.0 in v0.11); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default). LT-INV §8 gate confirmed EL-5 2026-05-30; grammar default flipped to GrammarCoreInversion.",
+          "description": "Must be '0.8.0'. The compiler rejects files with an unrecognised version, but reads 0.7.0 and 0.6.0 for backward compatibility (the newer fields are additive-optional). v0.8.0 adds the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "const": "0.7.0"
+          "const": "0.8.0"
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -130,7 +130,8 @@
           "enum": ["strict", "intentional", "unknown"],
           "description": "Optional contract discriminative-power annotation (LT-CDP v0.11). Same semantics as on DefCore."
         },
-        "body":         { "$ref": "#/$defs/Expr" }
+        "body":         { "$ref": "#/$defs/Expr" },
+        "decreases":    { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Expr" }, "description": "REC-DESCENT (v0.8.0): optional termination-measure list, def-shell only. Each element is an int-valued expression over the params (same binding scope as 'pre'; 'result' not in scope). v1 discharges the single-measure (length-1) case; longer lists parse and round-trip (lexicographic discharge deferred). Absent means no declared measure." }
       },
       "examples": [
         {

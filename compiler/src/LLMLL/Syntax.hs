@@ -579,11 +579,15 @@ data Statement
   -- Identical verification semantics to SDefLogic; explicitly marks the
   -- permissive regime at the source level.
   | SDefShell
-    { defShellName     :: Name
-    , defShellParams   :: [(Name, Type)]
-    , defShellReturn   :: Maybe Type
-    , defShellContract :: Contract
-    , defShellBody     :: Expr
+    { defShellName      :: Name
+    , defShellParams    :: [(Name, Type)]
+    , defShellReturn    :: Maybe Type
+    , defShellContract  :: Contract
+    , defShellBody      :: Expr
+    , defShellDecreases :: [Expr]  -- ^ REC-DESCENT (v0.14.24): optional termination
+                                   -- measure list (k=1 discharged in v1); [] = absent.
+                                   -- Phase 1 is verification-inert: parsed + round-tripped
+                                   -- only, no obligation emitted.
     }
   -- | v0.12.1: module-level invariant predicate, promoted out of 'SDefLogic'.
   -- Carries identical verification semantics to 'SDefShell'/'SDefLogic' (a
@@ -660,7 +664,7 @@ data Statement
 normalizeDefStmt :: Statement -> Maybe (Name, [(Name, Type)], Maybe Type, Contract, Expr)
 normalizeDefStmt (SDefLogic     n p r c b) = Just (n, p, r, c, b)
 normalizeDefStmt (SDef          n p r c b) = Just (n, p, r, c, b)
-normalizeDefStmt (SDefShell     n p r c b) = Just (n, p, r, c, b)
+normalizeDefStmt (SDefShell     n p r c b _) = Just (n, p, r, c, b)
 normalizeDefStmt (SDefInvariant n p r c b) = Just (n, p, r, c, b)
 normalizeDefStmt _                         = Nothing
 

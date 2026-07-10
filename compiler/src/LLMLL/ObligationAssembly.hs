@@ -407,7 +407,7 @@ computeEffectSummary cache stmts =
   where
     fnBodies = mapMaybe $ \s -> case s of
       SDef      n _ _ _ b   -> Just (n, b)
-      SDefShell n _ _ _ b   -> Just (n, b)
+      SDefShell n _ _ _ b _   -> Just (n, b)
       SDefLogic n _ _ _ b   -> Just (n, b)
       SLetrec   n _ _ _ _ b -> Just (n, b)
       -- v0.12.1
@@ -1147,7 +1147,7 @@ findFunctionInfo name stmts = case filter (matchesName name) stmts of
   (SLetrec _ params _mRet contract _ body : _) -> (Just contract, Just params, Just body)
   -- LT-INV (v0.11)
   (SDef      _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
-  (SDefShell _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
+  (SDefShell _ params _mRet contract body _ : _) -> (Just contract, Just params, Just body)
   -- v0.12.1
   (SDefInvariant _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
   _ -> (Nothing, Nothing, Nothing)
@@ -1156,7 +1156,7 @@ findFunctionInfo name stmts = case filter (matchesName name) stmts of
     matchesName n (SLetrec nm _ _ _ _ _)    = nm == n
     -- LT-INV (v0.11)
     matchesName n (SDef      nm _ _ _ _)    = nm == n
-    matchesName n (SDefShell nm _ _ _ _)    = nm == n
+    matchesName n (SDefShell nm _ _ _ _ _)    = nm == n
     -- v0.12.1
     matchesName n (SDefInvariant nm _ _ _ _) = nm == n
     matchesName _ _                         = False

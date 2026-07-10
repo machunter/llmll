@@ -274,7 +274,7 @@ buildModuleEnv path stmts _env =
     toExport (SDef name params mRet _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
-    toExport (SDefShell name params mRet _ _) =
+    toExport (SDefShell name params mRet _ _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
     -- v0.12.1: def-invariant exports identically to its prior SDefLogic form.
@@ -291,7 +291,7 @@ buildModuleEnv path stmts _env =
     extractContractStatus (SLetrec name _ _ contract _ _) = mkCS name contract
     -- LT-INV (v0.11)
     extractContractStatus (SDef      name _ _ contract _) = mkCS name contract
-    extractContractStatus (SDefShell name _ _ contract _) = mkCS name contract
+    extractContractStatus (SDefShell name _ _ contract _ _) = mkCS name contract
     extractContractStatus _ = Nothing
 
     mkCS name contract
@@ -311,7 +311,7 @@ buildModuleEnv path stmts _env =
     -- LT-INV (v0.11)
     extractContracts (SDef      name params mRet contract _) =
       Just (name, (params, contract, mRet))
-    extractContracts (SDefShell name params mRet contract _) =
+    extractContracts (SDefShell name params mRet contract _ _) =
       Just (name, (params, contract, mRet))
     -- v0.12.1
     extractContracts (SDefInvariant name params mRet contract _) =

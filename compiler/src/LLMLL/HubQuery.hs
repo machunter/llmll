@@ -166,7 +166,7 @@ extractFunctions = mapMaybe go
           funcType  = TFn (map snd params) retType
           hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing
       in Just (name, funcType, hasCon)
-    go (SDefShell name params mRet contract _) =
+    go (SDefShell name params mRet contract _ _) =
       let retType   = maybe (TVar "?") id mRet
           funcType  = TFn (map snd params) retType
           hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing

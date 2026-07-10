@@ -40,15 +40,16 @@ import LLMLL.Diagnostic (Diagnostic(..), mkError)
 -- constraints on ExprApp.fn and ExprQualApp.qual_fn.
 -- v0.11 LT-INV: bumped from 0.5.0 to 0.6.0; gate confirmed EL-5 2026-05-30.
 -- DEF-RET (v0.13.x): bumped 0.6.0 → 0.7.0 for the optional return_type field on def/def-shell.
+-- REC-DESCENT (v0.14.24): bumped 0.7.0 → 0.8.0 for the optional decreases array on def-shell.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.7.0"
+expectedSchemaVersion = "0.8.0"
 
--- | Versions the reader accepts. DEF-RET's return_type is additive-optional, so a 0.6.0
--- document (return_type absent) is a valid 0.7.0 one — accept both for backward-compatible
--- reads. Emission stamps 'expectedSchemaVersion'. Grammar discipline (e.g. def-logic
--- rejection) is enforced separately by GrammarMode, independent of this set.
+-- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
+-- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
+-- one — accept all for backward-compatible reads. Emission stamps 'expectedSchemaVersion'.
+-- Grammar discipline (e.g. def-logic rejection) is enforced separately by GrammarMode.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -238,7 +239,10 @@ parseDefShellJSON o = do
   mEntropy <- o .:? "spec_entropy" >>= mapM parseSpecEntropyField
   mRet     <- o .:? "return_type" >>= mapM parseType
   body     <- o .: "body"         >>= parseExpr
-  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  -- REC-DESCENT (v0.14.24): optional termination-measure list (schema 0.8.0).
+  -- Absent → []; Phase 1 parses + round-trips only, no obligation.
+  decreases <- o .:? "decreases" >>= maybe (pure []) (mapM parseExpr)
+  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body decreases
 
 -- | LT-CDP (v0.11): decode the optional `spec_entropy` field on a JSON-AST
 -- contract object. Strict — unknown labels are a parse error rather than a

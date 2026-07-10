@@ -571,7 +571,7 @@ collectAllContractStatus cache entryStmts =
     extractCS (SLetrec name _ mRet c _ _)  = mkCS name mRet c
     -- LT-INV (v0.11)
     extractCS (SDef      name _ mRet c _)  = mkCS name mRet c
-    extractCS (SDefShell name _ mRet c _)  = mkCS name mRet c
+    extractCS (SDefShell name _ mRet c _ _)  = mkCS name mRet c
     extractCS _                            = Nothing
     -- DEF-RET Unit 2: fold the return refinement into the effective post so a
     -- bare `-> RetType` function (no explicit `post`) gets a csPost slot for the
@@ -667,7 +667,7 @@ collectDeclaredRequires cache entryStmts =
     contractOf (SDefLogic     name _ _ c _) = Just (name, c)
     contractOf (SLetrec       name _ _ c _ _) = Just (name, c)
     contractOf (SDef          name _ _ c _) = Just (name, c)
-    contractOf (SDefShell     name _ _ c _) = Just (name, c)
+    contractOf (SDefShell     name _ _ c _ _) = Just (name, c)
     contractOf (SDefInvariant name _ _ c _) = Just (name, c)
     contractOf _                            = Nothing
 
@@ -695,7 +695,7 @@ buildEntry prefix allCS stmt = case stmt of
   SDef      name _ _ contract body ->
     let qname = prefix <> name
     in Just (mkEntry qname contract body allCS)
-  SDefShell name _ _ contract body ->
+  SDefShell name _ _ contract body _ ->
     let qname = prefix <> name
     in Just (mkEntry qname contract body allCS)
   -- v0.12.1: def-invariant contributes to trust report identically to SDefLogic.

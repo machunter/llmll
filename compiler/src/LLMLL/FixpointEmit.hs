@@ -225,7 +225,7 @@ buildContractEnvWith am stmts = Map.fromList $ mapMaybe go stmts
     go (SLetrec name params mRet contract _ _) = Just (name, (params, aug params mRet contract, mRet))
     -- LT-INV (v0.11)
     go (SDef      name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
-    go (SDefShell name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
+    go (SDefShell name params mRet contract _ _) = Just (name, (params, aug params mRet contract, mRet))
     -- v0.12.1: def-invariant registers in the VC env identically to SDefLogic.
     go (SDefInvariant name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
     go _ = Nothing
@@ -408,7 +408,7 @@ emitFixpointWithCache opts srcFile cache stmts = do
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
           name params mRet contract (Just body) Nothing idx
 
-      SDefShell name params mRet contract body ->
+      SDefShell name params mRet contract body _ ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
           addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
@@ -1023,7 +1023,7 @@ moduleUsesPairs am = any stmtUsesPairs
     sigOf s = case s of
       SDefLogic _ p r c b     -> Just (p, r, c, Just b)
       SDef _ p r c b          -> Just (p, r, c, Just b)
-      SDefShell _ p r c b     -> Just (p, r, c, Just b)
+      SDefShell _ p r c b _     -> Just (p, r, c, Just b)
       SDefInvariant _ p r c b -> Just (p, r, c, Just b)
       SLetrec _ p r c _ b     -> Just (p, r, c, Just b)
       _                       -> Nothing
@@ -1064,7 +1064,7 @@ moduleConstructsResult am = any stmtConstructs
     sigOf s = case s of
       SDefLogic _ p r c b     -> Just (p, r, c, Just b)
       SDef _ p r c b          -> Just (p, r, c, Just b)
-      SDefShell _ p r c b     -> Just (p, r, c, Just b)
+      SDefShell _ p r c b _     -> Just (p, r, c, Just b)
       SDefInvariant _ p r c b -> Just (p, r, c, Just b)
       SLetrec _ p r c _ b     -> Just (p, r, c, Just b)
       _                       -> Nothing

@@ -242,6 +242,8 @@ pDefShell = do
   preClauses <- many (try pPreClause)
   postClause <- optional (try pPostClause)
   mEntropy <- optional (try pSpecEntropyClause)
+  -- REC-DESCENT (v0.14.24): optional termination-measure clause, def-shell only.
+  mDecreases <- optional (try pDecreasesClause)
   body <- pExpr
   _ <- symbol ")"
   let (mPre, mPreSrc) = case preClauses of
@@ -252,7 +254,7 @@ pDefShell = do
       (mPost, mPostSrc) = case postClause of
                Nothing     -> (Nothing, Nothing)
                Just (p, s) -> (Just p, s)
-  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body
+  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy) body (maybe [] id mDecreases)
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -550,6 +552,15 @@ pPostClause = parens $ do
   expr <- pExpr
   src <- optional (try $ symbol ":source" *> pStringLiteral)
   pure (expr, src)
+
+-- | Parse (decreases e1 e2 … ek) — REC-DESCENT (v0.14.24), def-shell only.
+-- A list of one or more int-valued termination measures over the params. v1
+-- discharges only the k=1 case; k>1 rides through the surface (W-DECREASES-LEX
+-- in a later phase). Phase 1 parses + round-trips only, no obligation.
+pDecreasesClause :: Parser [Expr]
+pDecreasesClause = parens $ do
+  _ <- symbol "decreases"
+  some pExpr
 
 -- | Parse (spec-entropy :strict | :intentional | :unknown) — LT-CDP (v0.11).
 -- Per `contract-discriminative-power-proposal.md` §3, the clause sits at the

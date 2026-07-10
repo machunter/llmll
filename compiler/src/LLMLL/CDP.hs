@@ -207,7 +207,7 @@ overAnnotationRatio stmts =
     go (SLetrec   _ _ _ c _ _) = [resolveSpecEntropy c]
     -- LT-INV (v0.11)
     go (SDef      _ _ _ c _)   = [resolveSpecEntropy c]
-    go (SDefShell _ _ _ c _)   = [resolveSpecEntropy c]
+    go (SDefShell _ _ _ c _ _)   = [resolveSpecEntropy c]
     -- v0.12.1
     go (SDefInvariant _ _ _ c _) = [resolveSpecEntropy c]
     go _ = []
@@ -288,7 +288,7 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
     allContractedFunc (SDefLogic n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
     allContractedFunc (SLetrec   n _ mRet c _ _) | hasContracts c = Just (n, mRet, c)
     allContractedFunc (SDef      n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
-    allContractedFunc (SDefShell n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
+    allContractedFunc (SDefShell n _ mRet c _ _)   | hasContracts c = Just (n, mRet, c)
     allContractedFunc _ = Nothing
 
     -- CDPScopeCoreOnly / CDPScopeFlagGated: only def (strict-core) form.
@@ -298,7 +298,7 @@ computeCDPFor gm scope runCandidate verifMap stmts = do
     -- Contracted forms that are out of scope under CDPScopeCoreOnly.
     nonCoreContractedFunc (SDefLogic n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
     nonCoreContractedFunc (SLetrec   n _ mRet c _ _) | hasContracts c = Just (n, mRet, c)
-    nonCoreContractedFunc (SDefShell n _ mRet c _)   | hasContracts c = Just (n, mRet, c)
+    nonCoreContractedFunc (SDefShell n _ mRet c _ _)   | hasContracts c = Just (n, mRet, c)
     nonCoreContractedFunc _                                           = Nothing
 
     -- Out-of-scope result: no score, WarnDefShellOutOfScope, annotation preserved.

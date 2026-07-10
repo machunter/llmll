@@ -143,7 +143,7 @@ main = hspec $ do
         Right stmts -> do
           length stmts `shouldBe` 1
           case head stmts of
-            SDefShell name params _ contract _ -> do
+            SDefShell name params _ contract _ _ -> do
               name `shouldBe` "withdraw"
               length params `shouldBe` 2
               contractPre contract `shouldNotBe` Nothing
@@ -872,7 +872,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r _)) ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r _)) _ ->
               r `shouldBe` "manual"
             _ -> expectationFailure "Expected EHole (HProofRequired \"manual\")"
 
@@ -939,7 +939,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r mp)) -> do
+            SDefShell _ _ _ _ (EHole (HProofRequired r mp)) _ -> do
               r  `shouldBe` "manual"
               mp `shouldBe` Nothing
             _ -> expectationFailure "Expected SDefLogic with HProofRequired"
@@ -951,7 +951,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) _ ->
               r `shouldBe` "manual"
             _ -> expectationFailure "Expected predicate-carrying HProofRequired"
 
@@ -962,7 +962,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) _ ->
               r `shouldBe` "custom"
             _ -> expectationFailure "Expected custom reason in HProofRequired"
 
@@ -978,7 +978,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired _ (Just _))) -> pure ()
+            SDefShell _ _ _ _ (EHole (HProofRequired _ (Just _))) _ -> pure ()
             _ -> expectationFailure "Expected predicate-carrying HProofRequired from JSON"
 
     -- PPR-T1: valid bool predicate passes typecheck
@@ -1034,7 +1034,7 @@ main = hspec $ do
     -- PPR-A1: leaf form holeToJson emits no predicate field
     it "PPR-A1 leaf HProofRequired holeToJson has no predicate key" $ do
       let stmt = SDefShell "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
-                            (EHole (HProofRequired "manual" Nothing))
+                            (EHole (HProofRequired "manual" Nothing)) []
           json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
       T.isInfixOf "predicate" json `shouldBe` False
 
@@ -1042,7 +1042,7 @@ main = hspec $ do
     it "PPR-A2 predicate-carrying HProofRequired holeToJson includes predicate key" $ do
       let pred = EApp ">" [EVar "n", ELit (LitInt 0)]
           stmt = SDefShell "f" [("n", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing)
-                            (EHole (HProofRequired "manual" (Just pred)))
+                            (EHole (HProofRequired "manual" (Just pred))) []
           json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
       T.isInfixOf "predicate" json `shouldBe` True
 
@@ -1257,7 +1257,7 @@ main = hspec $ do
       let src = "(def-shell f [acc: (int, string)] (first acc))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right [SDefShell _ params _ _ _] ->
+        Right [SDefShell _ params _ _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
@@ -1295,7 +1295,7 @@ main = hspec $ do
             ]
       case parseJSONAST GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right [SDefShell _ params _ _ _] ->
+        Right [SDefShell _ params _ _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
@@ -1496,6 +1496,66 @@ main = hspec $ do
           case findHole "?isolated" result of
             Nothing -> expectationFailure "?isolated hole not recorded"
             Just h  -> shStatus h `shouldBe` HoleUnknown
+
+    -- REC-DESCENT Phase 1 (v0.14.24 / schema 0.8.0): the (decreases …) surface.
+    -- Verification-inert: parses, type-checks the measures, round-trips; no obligation.
+    it "RD1-1: S-expr (decreases x) parses into defShellDecreases and round-trips through JSON" $ do
+      let src = T.pack "(def-shell f [x: int] -> int (pre (>= x 0)) (post (= result x)) (decreases x) (f x))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts@[SDefShell _ _ _ _ _ dec] -> do
+          dec `shouldBe` [EVar "x"]
+          case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST stmts) of
+            Right [SDefShell _ _ _ _ _ dec2] -> dec2 `shouldBe` [EVar "x"]
+            other -> expectationFailure ("JSON round-trip lost the measure: " ++ show other)
+        Right _ -> expectationFailure "expected a single SDefShell with a decreases clause"
+
+    it "RD1-2: (decreases m n p) — a 3-element measure list round-trips (S-expr + JSON)" $ do
+      let src = T.pack "(def-shell f [m: int n: int p: int] -> int (decreases m n p) (f m n p))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts@[SDefShell _ _ _ _ _ dec] -> do
+          dec `shouldBe` [EVar "m", EVar "n", EVar "p"]
+          case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST stmts) of
+            Right [SDefShell _ _ _ _ _ dec2] -> dec2 `shouldBe` [EVar "m", EVar "n", EVar "p"]
+            other -> expectationFailure ("k=3 JSON round-trip failed: " ++ show other)
+        Right _ -> expectationFailure "expected a single SDefShell"
+
+    it "RD1-3: decreases measures are scope/type-checked — 'result' and non-int rejected, int-over-params clean" $ do
+      let diagsFor s = case parseStatements GrammarCoreInversion "<test>" (T.pack s) of
+                         Left err -> error (show err)
+                         Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts)
+          hasErr ds = any (\d -> diagSeverity d == SevError) ds
+      -- 'result' is not in scope in a measure
+      hasErr (diagsFor "(def-shell f [x: int] -> int (post (= result x)) (decreases result) (f x))") `shouldBe` True
+      -- a non-int measure is rejected
+      hasErr (diagsFor "(def-shell f [b: bool] -> int (decreases b) (f b))") `shouldBe` True
+      -- an int measure over params type-checks clean
+      hasErr (diagsFor "(def-shell f [x: int] -> int (decreases x) (f x))") `shouldBe` False
+
+    it "RD1-4: Phase 1 is inert — a recursive def-shell with (decreases x) is still termination_unverified (no discharge yet)" $ do
+      let src = T.pack "(def-shell f [x: int] -> int (pre (>= x 0)) (post (= result x)) (decreases x) (f x))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
+
+    it "RD1-5: emitted AST stamps schemaVersion 0.8.0; a 0.7.0 doc still parses (backward-compat)" $ do
+      let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          T.isInfixOf "0.8.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+      let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
+      case parseJSONAST GrammarCoreInversion "<test>" doc07 of
+        Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
+        Right _ -> pure ()
+
+    it "RD1-6: a decreases-free def-shell emits no 'decreases' key (byte-inert)" $ do
+      let src = T.pack "(def-shell g [x: int] -> int (post (= result x)) x)"
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err -> expectationFailure (show err)
+        Right stmts ->
+          T.isInfixOf "decreases" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` False
 
     -- DEF-RET: optional return-type annotation on def/def-shell (v0.7.0 schema)
     it "DEF-RET: S-expr parses optional '-> T' into mRet" $ do
@@ -2619,26 +2679,26 @@ main = hspec $ do
 
     it "wrapPre-instrumented def-shell gates the body behind EIf, not an unused let" $ do
       let stmt = SDefShell "f" [("x", TInt)] Nothing
-                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body []
           result = instrumentStatement ContractsFull noCS stmt
       case result of
-        SDefShell _ _ _ _ (EIf _ _ elseBranch) -> elseBranch `shouldBe` body
+        SDefShell _ _ _ _ (EIf _ _ elseBranch) _ -> elseBranch `shouldBe` body
         other -> expectationFailure $
           "expected precondition check to strictly gate the body via EIf, got: " ++ show other
 
     it "wrapPost-instrumented def-shell gates 'result' behind EIf, not an unused let" $ do
       let stmt = SDefShell "f" [("x", TInt)] Nothing
-                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body []
           result = instrumentStatement ContractsFull noCS stmt
       case result of
-        SDefShell _ _ _ _ (ELet [(PVar "result", _, boundBody)] (EIf _ _ (EVar "result"))) ->
+        SDefShell _ _ _ _ (ELet [(PVar "result", _, boundBody)] (EIf _ _ (EVar "result"))) _ ->
           boundBody `shouldBe` body
         other -> expectationFailure $
           "expected postcondition check to strictly gate 'result' via EIf, got: " ++ show other
 
     it "generated Haskell for a violated def-shell precondition has no dead _pre_check binding" $ do
       let stmt = SDefShell "check-me" [("x", TInt)] Nothing
-                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing) body []
           instrumented = instrumentStatement ContractsFull noCS stmt
           src = cgHsSource (generateHaskell "test" [instrumented])
       -- regression: the old codegen bound `_pre_check` in a `let` the body
@@ -2651,7 +2711,7 @@ main = hspec $ do
 
     it "generated Haskell for a violated def-shell postcondition has no dead _post_check binding" $ do
       let stmt = SDefShell "double-it" [("x", TInt)] Nothing
-                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing) body []
           instrumented = instrumentStatement ContractsFull noCS stmt
           src = cgHsSource (generateHaskell "test" [instrumented])
       T.isInfixOf "_post_check" src `shouldBe` False
@@ -2694,28 +2754,28 @@ main = hspec $ do
   describe "contract :source annotation (v0.6)" $ do
     it "parses (pre expr :source \"...\") with source" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (>= x 0) :source \"ERC-20 §6.1\") x)" of
-        Right [SDefShell _ _ _ contract _] -> do
+        Right [SDefShell _ _ _ contract _ _] -> do
           contractPreSource contract `shouldBe` Just "ERC-20 §6.1"
           contractPostSource contract `shouldBe` Nothing
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (post expr :source \"...\") with source" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (post (>= result 0) :source \"safety invariant\") x)" of
-        Right [SDefShell _ _ _ contract _] -> do
+        Right [SDefShell _ _ _ contract _ _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Just "safety invariant"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses both pre and post with :source" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (> x 0) :source \"precond\") (post (>= result 0) :source \"postcond\") x)" of
-        Right [SDefShell _ _ _ contract _] -> do
+        Right [SDefShell _ _ _ contract _ _] -> do
           contractPreSource contract `shouldBe` Just "precond"
           contractPostSource contract `shouldBe` Just "postcond"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "backward compat: pre/post without :source still parse" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (>= x 0)) (post (>= result 0)) x)" of
-        Right [SDefShell _ _ _ contract _] -> do
+        Right [SDefShell _ _ _ contract _ _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Nothing
         other -> expectationFailure $ "unexpected: " ++ show other
@@ -3468,7 +3528,7 @@ main = hspec $ do
     -- Parser roundtrip (1)
     it "(await expr) parses to EAwait" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (await (+ 1 2)))" of
-        Right [SDefShell _ _ _ _ (EAwait _)] -> pure ()
+        Right [SDefShell _ _ _ _ (EAwait _) _] -> pure ()
         other -> expectationFailure $ "unexpected: " ++ show other
 
   -- =========================================================================
@@ -3498,7 +3558,7 @@ main = hspec $ do
     -- Parser (2)
     it "(?scaffold todo-app) parses to EHole (HScaffold ...)" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (?scaffold todo-app))" of
-        Right [SDefShell _ _ _ _ (EHole (HScaffold spec))] ->
+        Right [SDefShell _ _ _ _ (EHole (HScaffold spec)) _] ->
           scaffoldTemplate spec `shouldBe` "todo-app"
         other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -3512,7 +3572,7 @@ main = hspec $ do
             , "}"
             ]
       case parseJSONAST GrammarCoreInversion "<test>" jsonSrc of
-        Right [SDefShell _ _ _ _ (EHole (HScaffold spec))] ->
+        Right [SDefShell _ _ _ _ (EHole (HScaffold spec)) _] ->
           scaffoldTemplate spec `shouldBe` "rest-api"
         other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -3699,10 +3759,10 @@ main = hspec $ do
       let post   = Just (EOp ">=" [EVar "result", ELit (LitInt 0)])
           square = SDefShell "square" [("n", TInt)] (Just TInt)
                      (Contract Nothing Nothing post Nothing Nothing)
-                     (EOp "*" [EVar "n", EVar "n"])      -- nonlinear
+                     (EOp "*" [EVar "n", EVar "n"]) []      -- nonlinear
           inc    = SDefShell "inc" [("n", TInt)] (Just TInt)
                      (Contract Nothing Nothing post Nothing Nothing)
-                     (EOp "+" [EVar "n", ELit (LitInt 1)])  -- linear
+                     (EOp "+" [EVar "n", ELit (LitInt 1)]) []  -- linear
           stmts         = [square, inc]
           fallbackNames = Set.fromList ["square"]  -- erBodyFallback: only the nonlinear body
           -- Mirrors runLeanstralPipeline's nonlinearFallback comprehension.
@@ -3995,7 +4055,7 @@ verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
                       (Contract Nothing Nothing
                          (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
                          Nothing Nothing)
-                      (EOp "*" [EVar "n", EVar "n"])
+                      (EOp "*" [EVar "n", EVar "n"]) []
                   ]
           fallbackNames = Set.fromList ["square"]   -- as reported in erBodyFallback
           worklist = [ (n, p, r, c, b)
@@ -4324,7 +4384,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "pAgentRef (S-expression parser) keeps the '@' prefix on the parsed agent name" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (?delegate @crypto-agent \"task\" -> int))" of
-        Right [SDefShell _ _ _ _ (EHole (HDelegate spec))] ->
+        Right [SDefShell _ _ _ _ (EHole (HDelegate spec)) _] ->
           delegateAgent spec `shouldBe` "@crypto-agent"
         other -> expectationFailure $ "Unexpected parse result: " ++ show other
 
@@ -6084,7 +6144,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let src = "(def-shell identity [x: int] (post (= result x)) x)"
         case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
-          Right [SDefShell _ _ _ contract _] -> do
+          Right [SDefShell _ _ _ contract _ _] -> do
             let Just postExpr = contractPost contract
             -- The critical check: exprToPred must handle this
             let result = exprToPred postExpr
@@ -6095,7 +6155,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let src = "(def-shell nonzero [x: int] (post (!= result 0)) x)"
         case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
-          Right [SDefShell _ _ _ contract _] -> do
+          Right [SDefShell _ _ _ contract _ _] -> do
             let Just postExpr = contractPost contract
             let result = exprToPred postExpr
             result `shouldBe` Just (FQBinPred FQNeq (FQVar "result") (FQLit 0))
@@ -7378,31 +7438,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       effOf stmts "add" `shouldBe` Just (Caps Set.empty)
 
     it "B0-2: a direct wasi.io.stdout call yields {stdout}" $ do
-      let stmts = [SDefShell "emit" [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"])]
+      let stmts = [SDefShell "emit" [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"]) []]
       effOf stmts "emit" `shouldBe` bnd [EStdout]
 
     it "B0-3: an effect reached only via a callee is surfaced transitively" $ do
-      let stmts = [ SDefShell "emit"   [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"])
-                  , SDefShell "caller" [("s", TString)] Nothing noC (EApp "emit" [EVar "s"]) ]
+      let stmts = [ SDefShell "emit"   [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"]) []
+                  , SDefShell "caller" [("s", TString)] Nothing noC (EApp "emit" [EVar "s"]) [] ]
       effOf stmts "caller" `shouldBe` bnd [EStdout]
 
     it "B0-4: a function reaching a ?delegate hole is unbounded (top), not empty" $ do
-      let stmts = [SDefShell "d" [] Nothing noC (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing)))]
+      let stmts = [SDefShell "d" [] Nothing noC (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing))) []]
       effOf stmts "d" `shouldBe` Just Unbounded
 
     it "B0-5: a haskell.* FFI call is unbounded (top)" $ do
-      let stmts = [SDefShell "ffi" [("x", TInt)] Nothing noC (EApp "haskell.unsafeIO" [EVar "x"])]
+      let stmts = [SDefShell "ffi" [("x", TInt)] Nothing noC (EApp "haskell.unsafeIO" [EVar "x"]) []]
       effOf stmts "ffi" `shouldBe` Just Unbounded
 
     it "B0-6: a mutually-recursive SCC terminates and shares the join" $ do
-      let stmts = [ SDefShell "p" [("n", TInt)] Nothing noC (EApp "q" [EVar "n"])
+      let stmts = [ SDefShell "p" [("n", TInt)] Nothing noC (EApp "q" [EVar "n"]) []
                   , SDefShell "q" [("n", TInt)] Nothing noC
-                      (EPair (EApp "wasi.fs.write" [EVar "n", EVar "n"]) (EApp "p" [EVar "n"])) ]
+                      (EPair (EApp "wasi.fs.write" [EVar "n", EVar "n"]) (EApp "p" [EVar "n"])) [] ]
       effOf stmts "p" `shouldBe` bnd [EFsWrite]
       effOf stmts "q" `shouldBe` bnd [EFsWrite]
 
     it "B0-7: per-function and orthogonal — delegate is top, pure is empty (no bleed)" $ do
-      let stmts = [ SDefShell "deleg" [] Nothing noC (EHole (HDelegate (DelegateSpec "a" "t" TInt Nothing)))
+      let stmts = [ SDefShell "deleg" [] Nothing noC (EHole (HDelegate (DelegateSpec "a" "t" TInt Nothing))) []
                   , SDef      "pure2" [("x", TInt)] Nothing noC (EOp "+" [EVar "x", EVar "x"]) ]
       effOf stmts "deleg" `shouldBe` Just Unbounded
       effOf stmts "pure2" `shouldBe` Just (Caps Set.empty)
@@ -7493,27 +7553,27 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "CM-1: an imported function's effect propagates to the importer" $ do
       let lib   = [SDefShell "remote-write" [("p", TString), ("c", TString)] Nothing noC
-                     (EApp "wasi.fs.write" [EVar "p", EVar "c"])]
+                     (EApp "wasi.fs.write" [EVar "p", EVar "c"]) []]
           local = [SDefShell "use-remote" [("p", TString), ("c", TString)] Nothing noC
-                     (EApp "remote-write" [EVar "p", EVar "c"])]
+                     (EApp "remote-write" [EVar "p", EVar "c"]) []]
       effOfC (cacheWith lib) local "use-remote"
         `shouldBe` Just (Caps (Set.singleton EFsWrite))
 
     it "CM-2: a transitively-opaque imported callee tops the importer to ⊤" $ do
       let lib   = [SDefShell "remote-ffi" [("x", TInt)] Nothing noC
-                     (EApp "haskell.unsafeIO" [EVar "x"])]
+                     (EApp "haskell.unsafeIO" [EVar "x"]) []]
           local = [SDefShell "caller" [("x", TInt)] Nothing noC
-                     (EApp "remote-ffi" [EVar "x"])]
+                     (EApp "remote-ffi" [EVar "x"]) []]
       effOfC (cacheWith lib) local "caller" `shouldBe` Just Unbounded
 
     it "CM-3: empty cache (single-file) matches the local-only walk" $
       computeEffectSummary Map.empty
-        [SDefShell "rd" [("p", TString)] Nothing noC (EApp "wasi.fs.read" [EVar "p"])]
+        [SDefShell "rd" [("p", TString)] Nothing noC (EApp "wasi.fs.read" [EVar "p"]) []]
         `shouldBe` [("rd", Caps (Set.singleton EFsRead))]
 
     it "CM-4: an unresolved callee (not local/imported/builtin/prim) joins ⊤" $ do
       let local = [SDefShell "f" [("x", TInt)] Nothing noC
-                     (EApp "mystery-unresolved" [EVar "x"])]
+                     (EApp "mystery-unresolved" [EVar "x"]) []]
       effOfC Map.empty local "f" `shouldBe` Just Unbounded
 
   -- XMOD-ALIAS regression: a module that imports a refinement-type alias and
@@ -9109,19 +9169,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               ]
         case parseStatements GrammarCoreInversion "<test>" src of
           Right stmts ->
-            map (\(SDefShell _ _ _ c _) -> contractSpecEntropy c) stmts
+            map (\(SDefShell _ _ _ c _ _) -> contractSpecEntropy c) stmts
               `shouldBe` [Just SpecEntropyStrict, Just SpecEntropyIntentional, Just SpecEntropyUnknown]
           Left e -> expectationFailure (show e)
 
       it "C13 absent annotation defaults to Nothing on Contract" $ do
         case parseStatements GrammarCoreInversion "<test>" "(def-shell f [n: int] (post (>= result 0)) n)" of
-          Right [SDefShell _ _ _ c _] -> contractSpecEntropy c `shouldBe` Nothing
+          Right [SDefShell _ _ _ c _ _] -> contractSpecEntropy c `shouldBe` Nothing
           other -> expectationFailure (show other)
 
       it "C14 JSON-AST accepts spec_entropy string" $ do
         let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
         case parseJSONAST GrammarCoreInversion "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
-          Right [SDefShell _ _ _ c _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
+          Right [SDefShell _ _ _ c _ _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
           other -> expectationFailure (show other)
 
       it "C15 JSON-AST rejects unknown spec_entropy value" $ do
@@ -9182,7 +9242,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
                       (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                                 (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing)
-                      (EApp "f" [EVar "x"])]
+                      (EApp "f" [EVar "x"]) []]
             jsonTxt = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
         T.isInfixOf "\"termination_unverified\":true" jsonTxt `shouldBe` True
         T.isInfixOf "\"partial_fns\":[\"f\"]" jsonTxt `shouldBe` True
@@ -9200,7 +9260,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let mk name callee = SDefShell name [("x", TInt)] (Just TInt)
                                (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                                          (Just (EApp "=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
-                               (EApp callee [EVar "x"])
+                               (EApp callee [EVar "x"]) []
             report  = buildTrustReport Map.empty [mk "ping" "pong", mk "pong" "ping"] Map.empty
             jsonTxt = formatTrustReportJson report
         Set.member "ping" (trPartialFns report) `shouldBe` True
@@ -9211,7 +9271,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing
                                 (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing)
-                      (EApp "f" [EVar "x"])]
+                      (EApp "f" [EVar "x"]) []]
             jsonTxt = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
         -- derived marker present without any solver verdict...
         T.isInfixOf "\"partial_fns\":[\"f\"]" jsonTxt `shouldBe` True
@@ -9222,7 +9282,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
                       (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                                 (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing)
-                      (EApp "f" [EVar "x"])]
+                      (EApp "f" [EVar "x"]) []]
             report  = markRefuted (Set.fromList ["f"]) (buildTrustReport Map.empty stmts Map.empty)
             jsonTxt = formatTrustReportJson report
         T.isInfixOf "\"termination_unverified\":true" jsonTxt `shouldBe` True
@@ -9651,7 +9711,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               [ SDefShell "s" [("n", TInt)] Nothing
                   (Contract Nothing Nothing
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
-                  (EVar "n")
+                  (EVar "n") []
               ]
             stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
@@ -10015,7 +10075,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [ SDefShell { defShellName = "f", defShellParams = [("n", TInt)]
                                 , defShellReturn = Nothing
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
-                                , defShellBody = ELambda [("x", TInt)] (EVar "x") } ]
+                                , defShellBody = ELambda [("x", TInt)] (EVar "x"), defShellDecreases = [] } ]
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-grammar-violation"]
@@ -10050,7 +10110,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     , SDefShell { defShellName = "caller", defShellParams = [("n", TInt)]
                                 , defShellReturn = Nothing
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
-                                , defShellBody = EApp "helper" [EVar "n"] } ]
+                                , defShellBody = EApp "helper" [EVar "n"], defShellDecreases = [] } ]
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-membership-violation"]
@@ -10138,7 +10198,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [ SDefShell { defShellName = "sh", defShellParams = [("x", TInt)]
                                 , defShellReturn = Just TInt
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing
-                                , defShellBody = EVar "x" }
+                                , defShellBody = EVar "x", defShellDecreases = [] }
                     , SDef { defName = "caller", defParams = [("n", TInt)]
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing
@@ -10525,7 +10585,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
           contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
           shellStmt = SDefShell "my-fn" [("x", TString)] Nothing contract
-                        (EHole (HDelegate ds))
+                        (EHole (HDelegate ds)) []
           prop = Property
             { propDescription = "check-my-fn"
             , propBindings    = [("x", TString)]
@@ -10551,7 +10611,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let postExpr = EOp "=" [EVar "result", ELit (LitBool True)]
           contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
           shellStmt = SDefShell "concrete-fn" [("x", TInt)] Nothing contract
-                        (ELit (LitBool True))
+                        (ELit (LitBool True)) []
           prop = Property
             { propDescription = "check-concrete-fn"
             , propBindings    = [("x", TInt)]
@@ -10575,7 +10635,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
           contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing
           shellStmt = SDefShell "async-fn" [("x", TString)] Nothing contract
-                        (EHole (HDelegateAsync ds))
+                        (EHole (HDelegateAsync ds)) []
           prop = Property
             { propDescription = "check-async-fn"
             , propBindings    = [("x", TString)]

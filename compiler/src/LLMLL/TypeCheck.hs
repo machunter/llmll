@@ -730,7 +730,7 @@ collectTopLevel (SDef name params mRet _contract _body) =
   let argTypes = map snd params
       retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
-collectTopLevel (SDefShell name params mRet _contract _body) =
+collectTopLevel (SDefShell name params mRet _contract _body _) =
   let argTypes = map snd params
       retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
@@ -875,7 +875,7 @@ checkStatement (SDef name params mRet contract body) = do
 
 -- | LT-INV (v0.11): permissive-shell definition.
 -- Same type-checking rules as SDefLogic; no structural or callee-admissibility restrictions.
-checkStatement (SDefShell name params mRet contract body) = do
+checkStatement (SDefShell name params mRet contract body decreases) = do
   withFunctionContext name False $ do
     withTaggedEnv SrcParam params $ do
       bodyType <- case (mRet, body) of
@@ -902,6 +902,16 @@ checkStatement (SDefShell name params mRet contract body) = do
           postOk <- compatibleExpanded postType TBool
           unless postOk $
             tcError $ "post condition of '" <> name <> "' must be bool, got " <> typeLabel postType
+      -- REC-DESCENT (v0.14.24): type-check each decreases measure — int-typed over
+      -- the params (same binding scope as pre), 'result' rejected. Phase 1 is
+      -- verification-inert: this is the surface scope/type check only, no obligation.
+      forM_ decreases $ \m -> do
+        when (exprContainsVar "result" m) $
+          tcError $ "decreases measure of '" <> name <> "' references 'result', which is only available in post clauses (§4.3)"
+        mType <- inferExpr m
+        mOk <- compatibleExpanded mType TInt
+        unless mOk $
+          tcError $ "decreases measure of '" <> name <> "' must be int, got " <> typeLabel mType
 
 -- v0.12.1: def-invariant type-checks identically to its prior SDefLogic form.
 checkStatement (SDefInvariant name params mRet contract body) =

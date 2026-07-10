@@ -89,7 +89,7 @@ stmtToJson (SDef name params ret (Contract mPre _preSource mPost _postSource mEn
     maybe [] (\s -> ["post_source" .= s]) _postSource ++
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
-stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSource mEntropy) body) =
+stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSource mEntropy) body decreases) =
   object $
     [ "kind"   .= ("def-shell" :: Text)
     , "name"   .= name
@@ -101,7 +101,10 @@ stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSourc
     maybe [] (\s -> ["pre_source" .= s]) _preSource ++
     maybe [] (\e -> ["post" .= exprToJson e]) mPost ++
     maybe [] (\s -> ["post_source" .= s]) _postSource ++
-    maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
+    maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy ++
+    -- REC-DESCENT (v0.14.24): emit the measure list only when present, so a
+    -- decreases-free def-shell is byte-identical to pre-0.8.0 output.
+    (if null decreases then [] else ["decreases" .= map exprToJson decreases])
 
 stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource mEntropy) dec body) =
   object $

@@ -461,9 +461,9 @@ moduleSpec = describe "Module System" $ do
         -- realistic verify-time state once it has discharged withdraw's pre and
         -- proved its own post). The hash is recovered from the live def-shell.
         composeOwnSidecar composeEnv =
-          case find (\s -> case s of SDefShell "safe-withdraw" _ _ _ _ -> True; _ -> False)
+          case find (\s -> case s of SDefShell "safe-withdraw" _ _ _ _ _ -> True; _ -> False)
                     (meStatements composeEnv) of
-            Just (SDefShell _ _ _ c b) ->
+            Just (SDefShell _ _ _ c b _) ->
               let h = canonicalDefEvidenceHash "def-shell" b (contractPre c) (contractPost c)
                   v = mkER (DLVerified "liquid-fixpoint") True (Just h)
               in Map.fromList [("safe-withdraw", ContractStatus (Just v) (Just v) [])]

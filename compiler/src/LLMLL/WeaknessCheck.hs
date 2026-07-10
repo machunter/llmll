@@ -193,7 +193,7 @@ generateForStmt gm allStmts catalog (SLetrec name params mRet contract _dec _bod
 generateForStmt gm allStmts catalog (SDef name params mRet contract _body)
   | hasContracts contract =
       mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
-generateForStmt gm allStmts catalog (SDefShell name params mRet contract _body)
+generateForStmt gm allStmts catalog (SDefShell name params mRet contract _body _)
   | hasContracts contract =
       mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
 generateForStmt _ _ _ _ = []

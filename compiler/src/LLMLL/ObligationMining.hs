@@ -199,7 +199,7 @@ findContract name stmts =
              ++ [ c | SLetrec   n _ _ c _ _ <- stmts, n == name ]
              -- LT-INV (v0.11)
              ++ [ c | SDef      n _ _ c _   <- stmts, n == name ]
-             ++ [ c | SDefShell n _ _ c _   <- stmts, n == name ]
+             ++ [ c | SDefShell n _ _ c _ _   <- stmts, n == name ]
              -- v0.12.1
              ++ [ c | SDefInvariant n _ _ c _ <- stmts, n == name ]
   in case matches of

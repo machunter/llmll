@@ -109,7 +109,7 @@ analyzeContracts stmts =
     extractContract (SDef      name _ _ contract _)
       | contractPre contract /= Nothing || contractPost contract /= Nothing
       = Just (name, contract)
-    extractContract (SDefShell name _ _ contract _)
+    extractContract (SDefShell name _ _ contract _ _)
       | contractPre contract /= Nothing || contractPost contract /= Nothing
       = Just (name, contract)
     extractContract _ = Nothing
@@ -156,7 +156,7 @@ instrumentContracts mode statusMap = map go
     lookupStatus (SLetrec n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     -- LT-INV (v0.11)
     lookupStatus (SDef      n _ _ _ _) = Map.findWithDefault defaultCS n statusMap
-    lookupStatus (SDefShell n _ _ _ _) = Map.findWithDefault defaultCS n statusMap
+    lookupStatus (SDefShell n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus _                     = defaultCS
     defaultCS = ContractStatus Nothing Nothing []
 
@@ -176,9 +176,9 @@ instrumentStatement ContractsFull _ (SLetrec name params mRet contract dec body)
 instrumentStatement ContractsFull _ (SDef name params mRet contract body) =
   let newBody = wrapWithContracts name contract body
   in SDef name params mRet noContract newBody
-instrumentStatement ContractsFull _ (SDefShell name params mRet contract body) =
+instrumentStatement ContractsFull _ (SDefShell name params mRet contract body dec) =
   let newBody = wrapWithContracts name contract body
-  in SDefShell name params mRet noContract newBody
+  in SDefShell name params mRet noContract newBody dec
 -- Unproven: strip proven contracts, keep unproven (SDefLogic)
 instrumentStatement ContractsUnproven cs (SDefLogic name params mRet contract body) =
   let stripped = filterContracts cs contract
@@ -194,10 +194,10 @@ instrumentStatement ContractsUnproven cs (SDef name params mRet contract body) =
   let stripped = filterContracts cs contract
       newBody  = wrapWithContracts name stripped body
   in SDef name params mRet noContract newBody
-instrumentStatement ContractsUnproven cs (SDefShell name params mRet contract body) =
+instrumentStatement ContractsUnproven cs (SDefShell name params mRet contract body dec) =
   let stripped = filterContracts cs contract
       newBody  = wrapWithContracts name stripped body
-  in SDefShell name params mRet noContract newBody
+  in SDefShell name params mRet noContract newBody dec
 -- Everything else: pass through
 instrumentStatement _ _ stmt = stmt
 
@@ -245,9 +245,9 @@ applyContractsMode ContractsUnproven statusMap stmts = map stripProven stmts
     stripProven (SDef      n p r c b) =
       let cs = Map.findWithDefault (ContractStatus Nothing Nothing []) n statusMap
       in SDef n p r (filterContracts cs c) b
-    stripProven (SDefShell n p r c b) =
+    stripProven (SDefShell n p r c b dec) =
       let cs = Map.findWithDefault (ContractStatus Nothing Nothing []) n statusMap
-      in SDefShell n p r (filterContracts cs c) b
+      in SDefShell n p r (filterContracts cs c) b dec
     stripProven s = s
 
 -- | Clear all contract clauses from a statement.
@@ -256,7 +256,7 @@ clearContracts (SDefLogic n p r _ b) = SDefLogic n p r noContract b
 clearContracts (SLetrec n p r _ d b) = SLetrec n p r noContract d b
 -- LT-INV (v0.11)
 clearContracts (SDef      n p r _ b) = SDef n p r noContract b
-clearContracts (SDefShell n p r _ b) = SDefShell n p r noContract b
+clearContracts (SDefShell n p r _ b dec) = SDefShell n p r noContract b dec
 clearContracts s = s
 
 -- | Wrap a function body with pre/post contract assertions.

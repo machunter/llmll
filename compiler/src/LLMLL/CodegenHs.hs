@@ -405,7 +405,7 @@ emitStmt (SDefInterface name fns laws)      = emitInterface name fns laws
 emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
 -- LT-INV (v0.11): SDef and SDefShell emit identically to SDefLogic.
 emitStmt (SDef      name params mRet c b) = emitDefLogic name params mRet c b
-emitStmt (SDefShell name params mRet c b) = emitDefLogic name params mRet c b
+emitStmt (SDefShell name params mRet c b _) = emitDefLogic name params mRet c b
 -- v0.12.1: def-invariant codegen unchanged from its prior SDefLogic form.
 emitStmt (SDefInvariant name params mRet c b) = emitDefLogic name params mRet c b
 -- D2: SLetrec emits as a regular Haskell function.
