@@ -4,6 +4,36 @@
 
 <a id="Latest"></a>
 
+## v0.14.24 — REC-DESCENT Phase 1: the `(decreases …)` surface + schema 0.8.0 (inert) (2026-07-10)
+
+### Surface — an optional termination-measure clause on `def-shell`
+
+- **`def-shell` now accepts an optional `(decreases e₁ … eₖ)` clause** — a list of int-typed measure
+  expressions over the parameters (`result` is not in scope, as in `pre`), parsed in both the S-expression
+  and JSON-AST surfaces and round-tripped losslessly (`AstEmit` emits the `decreases` array only when
+  non-empty, so a decreases-free `def-shell` is byte-identical to before). New AST field
+  `defShellDecreases :: [Expr]` on `SDefShell`. `TypeCheck` gates the measures (int-typed over params;
+  `result` rejected with a §4.3 diagnostic). The list shape ships now so it need not change when
+  lexicographic (k > 1) discharge is added later.
+- **This release is verification-inert.** No obligation is emitted, `canonicalDefEvidenceHash` is
+  untouched, and a recursive `def-shell` with a `decreases` clause verifies **exactly** as without it —
+  it still carries the `termination_unverified` flag (v0.14.23). Well-foundedness (`e ≥ 0`), per-call-site
+  strict descent (`eᵍ[args] < eᶠ`), the `measure-not-decreasing` verdict, folding the measure into the
+  evidence hash, and the strict-core admission lift are the next phase (REC-DESCENT Phase 2/3). The
+  surface lands first so the AST shape and the schema bump validate on their own.
+- **Increment 3 Phase 1 of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md §c`](docs/design/rec-body-vc-proposal.md)).
+
+### Schema — JSON-AST 0.7.0 → 0.8.0
+
+- **`schemaVersion` 0.7.0 → 0.8.0** for the additive optional `decreases` array on the `def-shell` node
+  (`$id` → `/schemas/v0.8/`, const `0.8.0`, `expectedSchemaVersion` `0.8.0`). `0.7.0` documents still parse
+  (backward-compatible read); emission stamps `0.8.0`.
+
+**Tests:** 1113 Haskell, 45 Python. (+6: RD1-1..2 S-expr↔JSON round-trip [k=1, k=3], RD1-3 measure
+scope/type-check [`result` and non-int rejected], RD1-4 inertness [a `decreases` clause does not change the
+verdict], RD1-5 schema 0.8.0 stamp + 0.7.0 backward-parse, RD1-6 decreases-free byte-inertness. ~82
+positional `SDefShell` sites migrated for the new field.)
+
 ## v0.14.23 — REC-PARTIAL-MARK: termination_unverified flag for recursive cycles (2026-07-10)
 
 ### Trust report — a visible partiality marker for recursion

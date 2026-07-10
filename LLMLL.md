@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.23)
+# LLMLL: Large Language Model Logical Language (v0.14.24)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.23.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.24.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -461,7 +461,7 @@ The annotation is **optional and checking-mode**, consistent with the synthesis-
 
 ### 4.2 Recursive Functions (`def-shell`)
 
-Self-recursive functions are declared with `def-shell`. The self-call is a user-defined callee and fails the `def` callee-admissibility predicate (in `TypeCheck.hs`), so recursion is outside the strict-core fragment. No `:decreases` annotation is required or available under the default grammar.
+Self-recursive functions are declared with `def-shell`. The self-call is a user-defined callee and fails the `def` callee-admissibility predicate (in `TypeCheck.hs`), so recursion is outside the strict-core fragment. An optional `(decreases e₁ … eₖ)` termination-measure clause is accepted on `def-shell` (the measures are int-typed expressions over the parameters — `result` is not in scope, as in `pre`) and round-trips through the JSON-AST (`schemaVersion 0.8.0`). **As of this release the clause is parsed and type-checked but not yet discharged:** it does not change the verification verdict, and a recursive `def-shell` with a `decreases` clause still carries the `termination_unverified` flag. Well-foundedness (`e ≥ 0`) and per-call-site strict-descent checking — which would clear the flag and upgrade the cycle to total correctness — land in a later release (the REC-DESCENT item). The list shape is fixed now so it need not change when lexicographic (k > 1) discharge is added; the current release discharges nothing.
 
 ```lisp
 (def-shell countdown [n: int]
