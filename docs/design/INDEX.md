@@ -1,6 +1,6 @@
 # LLMLL Design Documents — Reading Guide
 
-> **Last updated:** 2026-07-09  
+> **Last updated:** 2026-07-10  
 > **Purpose:** Index and orientation for all active design documents.
 
 This directory contains design discussions, proposals, and reviews that inform the LLMLL language and system architecture. These are **living documents** — not specifications. The authoritative spec is [`LLMLL.md`](../../LLMLL.md); the engineering backlog is [`compiler-team-roadmap.md`](../compiler-team-roadmap.md).
@@ -20,7 +20,9 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [critique-2026-05-23-triage.md](critique-2026-05-23-triage.md) | 2026-05-23 external-critique triage; four-turn convergence; 17 routing items | **Settled** — routing in progress |
 | [int-3-machine-int-sketch.md](int-3-machine-int-sketch.md) | INT-3 contingency: `machine-int` QF-BV alias; dormant unless INT-PRE escalates | **Contingency (Rev 0)** — dormant |
 | [data-scope-extension.md](data-scope-extension.md) | Didactic multi-post: the data verification boundary (`Σ_auto`) and the array/dependent-length/induction extension levers | **Design / roadmap** — forward-looking; current-state posts describe shipped caps |
-| [cascading-refinement-proposal.md](cascading-refinement-proposal.md) | Agent-driven recursive hole decomposition: `refine` op + growing tree + CDP/feasibility gates + Option-3 cycles | **Rev 2 — Stages 1–3 SHIPPED v0.14.13** (`refine` op + spawn-time CDP vacuity gate); feasibility gate, Option-3 cycle policy, Stage-4 REFINE-REUSE open |
+| [cascading-refinement-proposal.md](cascading-refinement-proposal.md) | Agent-driven recursive hole decomposition: `refine` op + growing tree + CDP/feasibility gates + Option-3 cycles | **Rev 2 — Stages 1–3 SHIPPED v0.14.13** (`refine` op + spawn-time CDP vacuity gate); feasibility gate, Option-3 cycle policy, Stage-4 REFINE-REUSE open; **Rev 3 owed** — REC-BODY-VC finding 3 reconciles Option-3 cycles to the (a) partiality marker |
+| [rec-body-vc-proposal.md](rec-body-vc-proposal.md) | Recursive own-body VC: partiality marker + def-form hash integrity (closes probe E) + `(decreases …)` call-site strict descent (step-indexed A-G) | **Rev 1 (professor-folded)** — increments 1–2 ready to hand off; increment 3 (REC-DESCENT) awaits a freeze-exception sign-off |
+| [rec-body-vc-review.md](rec-body-vc-review.md) | Professor review of REC-BODY-VC Rev 0: hash-not-guard fix for probe E, `measure-not-decreasing` rename, step-index framing, list-shaped `decreases` surface | **Folded into proposal Rev 1** — ready for archive on settlement |
 | [refine-reuse-gate-proposal.md](refine-reuse-gate-proposal.md) | REFINE-REUSE: reuse-retrieval for `refine` — advisory `reuse_suggestions` + non-blocking `W-REUSE` when a spawned sub-contract is subsumed by an existing def (contract-implication, not name/syntax) | **Settled (Rev 1)** — professor review folded (Appendix); awaiting compiler-engineer feasibility read |
 | [match-widen-stretch-plan.md](match-widen-stretch-plan.md) | MATCH-WIDEN staged plan: scrutinee-constructor posts via int-tag discrimination | **Partially shipped (v0.14.12)** — S0–S3 landed; §S4 (>2-arm + sequential) is the active MATCH-WIDEN-2 row |
 | [leanstral-integration-scope.md](leanstral-integration-scope.md) | Leanstral/Lean-tier scoping: anti-laundering guard, C-property, three-layer LEAN-GA rebuild | **Parked (LEAN-GA)** — demo subset shipped v0.14.8; production rebuild deferred, cited by the roadmap parking lot |
