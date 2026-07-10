@@ -49,7 +49,7 @@ $ LLMLL_LEANSTRAL_API_KEY=… llmll verify examples/leanstral-demo/square.llmll 
 
 The certificate is a Lean proof term the kernel accepted — checkable by anyone with Lean, without trusting Leanstral *or* LLMLL's compiler. **An AI proved what the SMT solver couldn't, and you don't have to take its word for it.**
 
-> **Experimental (v0.14.8).** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/design/leanstral-demo-spec.md`](docs/design/leanstral-demo-spec.md).
+> **Experimental (v0.14.8).** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/design/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md).
 
 
 ---
