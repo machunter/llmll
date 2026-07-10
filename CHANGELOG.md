@@ -4,6 +4,33 @@
 
 <a id="Latest"></a>
 
+## v0.14.22 — REC-HASH-FORM: def-form in the evidence hash (probe-E laundering closed) (2026-07-10)
+
+### Verify — evidence-hash integrity for the strict-core admission gate
+
+- **`canonicalDefEvidenceHash` now folds the def-form into its preimage** (`SDef` → `"def"`,
+  `SDefShell` → `"def-shell"`, via the new `Syntax.defFormTag`), and `admitVerifiedSemanticsTag`
+  bumps `av1` → `av2`. The persisted `verified_hash` previously covered only `(semantics-tag, body,
+  pre, post)` — not the def-form — so a `def-shell` → `def` **rename over an intact `.verified.json`**
+  preserved the hash, and the persisted-evidence admission leg admitted the self-callee: partial-
+  correctness recursion laundered into the total-correctness (`verified`) tier under
+  `--strict-verified-core` (probe E). The def-form drift now downgrades the stale sidecar through the
+  existing `downgradeStaleVerifiedSidecar` path → the flipped `def` re-verifies fresh → its self-call
+  is rejected at strict-core admission (`core-membership-violation`), exactly as a from-scratch
+  recursive `def` already was (probe A).
+- **Increment 1 (b0) of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md`](docs/design/rec-body-vc-proposal.md));
+  increments (a) partiality marker, (b1) fail-closed default, and (c) `(decreases …)` call-site strict
+  descent remain open.
+- **Sidecar invalidation (one-time):** the `av1` → `av2` bump changes every persisted `verified_hash`,
+  so existing `.verified.json` files drift once and re-verify fail-closed on next `verify` (no verdict
+  changes — a genuinely body-faithful function re-derives the same evidence). The four git-tracked
+  example sidecars are re-verified under `av2` in this release. No schema change (`schemaVersion` stays
+  `0.7.0`).
+
+**Tests:** 1102 Haskell, 45 Python. (+4: RHF-1 probe-E regression, RHF-2 fresh-def parity, RHF-3
+non-recursive no-drift, RHF-4 form-tag hash sensitivity. Probe E confirmed closed end-to-end against
+the built binary.)
+
 ## v0.14.21 — checkout brief marks the enclosing function "hole" (HOLE-STATUS) (2026-07-09)
 
 ### Checkout — the brief no longer invites a self-call fill
