@@ -3117,8 +3117,8 @@ main = hspec $ do
           report   = buildTrustReport Map.empty [withdrawStmt] sidecar
           jsonText = formatTrustReportJson report
           jsonV    = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
-      -- trust_report_version bumped to 1.4.0
-      jsonText `shouldSatisfy` T.isInfixOf "\"1.4.0\""
+      -- trust_report_version now 1.5.0 (REC-PARTIAL-MARK)
+      jsonText `shouldSatisfy` T.isInfixOf "\"1.5.0\""
       case jsonV of
         Just (Object o) -> case KM.lookup "entries" o of
           Just (Array es) -> case [ ent | Object ent <- foldr (:) [] es
@@ -3397,8 +3397,8 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          -- TRUST-PRE: trust_report_version bumped 1.3.0 → 1.4.0.
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.4.0")
+          -- trust_report_version now 1.5.0 (REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.5.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All six required fields present
@@ -5154,14 +5154,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -5173,7 +5173,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -5186,7 +5186,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -5199,7 +5199,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -5211,7 +5211,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -8337,8 +8337,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            -- TRUST-PRE: trust_report_version bumped 1.3.0 → 1.4.0.
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.4.0")
+            -- trust_report_version now 1.5.0 (REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.5.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -8644,8 +8644,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        -- TRUST-PRE: trust_report_version bumped 1.3.0 → 1.4.0 (additive axis).
-        T.isInfixOf "\"trust_report_version\":\"1.4.0\"" jsonTxt `shouldBe` True
+        -- trust_report_version now 1.5.0 (REC-PARTIAL-MARK; TRUST-PRE was the 1.4.0 additive axis).
+        T.isInfixOf "\"trust_report_version\":\"1.5.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
     -- evalContract isolation regression: empty-FuncEnv invariant
@@ -9170,10 +9170,64 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"headline\":\"measured\"" (formatTrustReportJson (buildTrustReportWithCDP Map.empty stmts Map.empty noWarning)) `shouldBe` True
         T.isInfixOf "\"headline\":\"not-requested\"" (formatTrustReportJson notRequested) `shouldBe` True
 
-      it "C18 trust_report_version is 1.4.0 (TRUST-PRE bump)" $ do
+      it "C18 trust_report_version is 1.5.0 (REC-PARTIAL-MARK bump)" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.4.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.5.0\"" jsonTxt `shouldBe` True
+
+      -- REC-PARTIAL-MARK (increment 2/(a) of REC-BODY-VC): recursive-cycle
+      -- members carry a derived 'termination_unverified' marker + a top-level
+      -- 'partial_fns' list. Informational; does not touch the trust meet.
+      it "PM-1 a recursive def-shell is marked termination_unverified and listed in partial_fns" $ do
+        let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                                (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing)
+                      (EApp "f" [EVar "x"])]
+            jsonTxt = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
+        T.isInfixOf "\"termination_unverified\":true" jsonTxt `shouldBe` True
+        T.isInfixOf "\"partial_fns\":[\"f\"]" jsonTxt `shouldBe` True
+
+      it "PM-2 a non-recursive def is not marked and stays out of partial_fns" $ do
+        let stmts = [SDef "g" [("x", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                                (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                      (EVar "x")]
+            jsonTxt = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
+        T.isInfixOf "termination_unverified" jsonTxt `shouldBe` False
+        T.isInfixOf "\"partial_fns\":[]" jsonTxt `shouldBe` True
+
+      it "PM-3 a mutual-recursion SCC marks BOTH members (not just self-loops)" $ do
+        let mk name callee = SDefShell name [("x", TInt)] (Just TInt)
+                               (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                                         (Just (EApp "=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing)
+                               (EApp callee [EVar "x"])
+            report  = buildTrustReport Map.empty [mk "ping" "pong", mk "pong" "ping"] Map.empty
+            jsonTxt = formatTrustReportJson report
+        Set.member "ping" (trPartialFns report) `shouldBe` True
+        Set.member "pong" (trPartialFns report) `shouldBe` True
+        T.isInfixOf "\"partial_fns\":[\"ping\",\"pong\"]" jsonTxt `shouldBe` True
+
+      it "PM-4 the mark is derived — present on a solver-less render, unlike refuted_fns" $ do
+        let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
+                      (Contract Nothing Nothing
+                                (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing)
+                      (EApp "f" [EVar "x"])]
+            jsonTxt = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
+        -- derived marker present without any solver verdict...
+        T.isInfixOf "\"partial_fns\":[\"f\"]" jsonTxt `shouldBe` True
+        -- ...while the solver-dependent refuted set is empty on the same render
+        T.isInfixOf "\"refuted_fns\":[]" jsonTxt `shouldBe` True
+
+      it "PM-5 refuted and termination_unverified emit independently (orthogonal markers)" $ do
+        let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
+                      (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+                                (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing)
+                      (EApp "f" [EVar "x"])]
+            report  = markRefuted (Set.fromList ["f"]) (buildTrustReport Map.empty stmts Map.empty)
+            jsonTxt = formatTrustReportJson report
+        T.isInfixOf "\"termination_unverified\":true" jsonTxt `shouldBe` True
+        T.isInfixOf "\"refuted\":true" jsonTxt `shouldBe` True
+        T.isInfixOf "\"refuted_fns\":[\"f\"]" jsonTxt `shouldBe` True
 
       it "C19 all ten warning labels round-trip" $ do
         let labels = map cdpWarningLabel
@@ -9331,10 +9385,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"over_annotation\":{" jsonTxt `shouldBe` True
         T.isInfixOf "\"warning\":false" jsonTxt `shouldBe` True
 
-      it "C27e trust_report_version unchanged at 1.4.0 (no bump for this additive field)" $ do
+      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.5.0 (REC-PARTIAL-MARK)" $ do
         let report  = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.4.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.5.0\"" jsonTxt `shouldBe` True
 
     -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
     describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do

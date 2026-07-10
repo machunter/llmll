@@ -43,6 +43,7 @@ import Data.Maybe (mapMaybe, catMaybes, maybeToList)
 import Data.List (nub, sortOn, foldl')
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Graph (stronglyConnComp, SCC(..))
 import Data.Aeson (object, (.=), Value(..))
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Text.Lazy as TL
@@ -53,6 +54,10 @@ import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap)  -- DEF-RET Unit 2
 import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotationRatio, overAnnotationThreshold)
 import LLMLL.AstEmit (exprToJson)
+import LLMLL.HoleAnalysis (buildCallGraph)  -- REC-PARTIAL-MARK: SCC over the call graph
+                                            -- (recursiveNames is reimplemented locally
+                                            -- to avoid the TrustReport↔ObligationAssembly
+                                            -- import cycle)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -153,6 +158,17 @@ data TrustReport = TrustReport
   -- 'DisplayLevel' diamond — refutation is negative evidence, off the
   -- evidence-strength axis (verified-contract-refuted-status-proposal §3.2).
   , trRefutedFns       :: Set Name
+  -- REC-PARTIAL-MARK (1.5.0): functions in a cyclic call-graph SCC, i.e.
+  -- recursive/mutually-recursive functions whose postconditions hold only at
+  -- PARTIAL correctness (termination unverified; REC-BODY-VC increment (a),
+  -- docs/design/rec-body-vc-proposal.md §(a)). DERIVED at build time from the
+  -- live statements (entry + cached modules) via the call-graph SCC — never
+  -- persisted to '.verified.json', so it is present on every report path
+  -- including a solver-less render (unlike 'trRefutedFns', which is empty
+  -- without a solver). Informational only: like 'trRefutedFns' / overflow-taint
+  -- it does NOT feed the trust meet, 'DisplayLevel', or admission. Descent
+  -- discharge (REC-BODY-VC (c), REC-DESCENT) will later clear a member.
+  , trPartialFns       :: Set Name
   -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
   -- density, mirroring the text-only diagnostic at Main.hs's CDP branch
   -- ('over-annotation-warning', CDP.hs Risk #3). Computed here (pure
@@ -228,8 +244,12 @@ data TierProfile = TierProfile
 -- change. The new keys are additive; existing 1.3.0 consumers ignore them.
 -- Unlike 'refuted', the obligation axis is PERSISTED to '.verified.json' (a
 -- static contract property, the safety-polarity inverse of the solver verdict).
+--
+-- REC-PARTIAL-MARK (1.5.0): additive top-level 'partial_fns' list + per-entry
+-- 'termination_unverified' flag (only-on-true). Derived from the call-graph SCC,
+-- never persisted; existing 1.4.0 consumers ignore the new keys.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.4.0"
+trustReportEmitVersion = "1.5.0"
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -318,6 +338,14 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
         , oaiThreshold = overAnnotationThreshold
         , oaiFired     = oaiRatio' > overAnnotationThreshold
         }
+      -- REC-PARTIAL-MARK: cyclic-SCC members of the WHOLE-PROGRAM call graph
+      -- (entry ∪ cached modules), so an imported recursive callee that appears
+      -- in the report is marked too. Reimplements 'ObligationAssembly.recursiveNames'
+      -- locally (the import back would cycle: ObligationAssembly already imports
+      -- TrustReport). Precedent for a locally-kept helper to break an import
+      -- cycle: 'FixpointEmit.admissibleDatatype'.
+      partialFns = cyclicSccMembers
+                     (entryStmts ++ concatMap meStatements (Map.elems cache))
   in TrustReport
        { trEntries         = markedEntries
        , trSummary         = summary
@@ -329,8 +357,16 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trJointWitnesses  = jointGroups
        , trCDP             = cdpMap
        , trRefutedFns      = Set.empty  -- VERIFY-RPT-1: populated by markRefuted post-solver
+       , trPartialFns      = partialFns  -- REC-PARTIAL-MARK: derived, present on every path
        , trOverAnnotation  = overAnnotation
        }
+  where
+    -- REC-PARTIAL-MARK: mirror of 'ObligationAssembly.recursiveNames:286-290'
+    -- (kept local to avoid the TrustReport↔ObligationAssembly import cycle).
+    cyclicSccMembers ss =
+      let cg   = buildCallGraph ss
+          sccs = stronglyConnComp [(n, n, deps) | (n, deps) <- Map.toList cg]
+      in Set.fromList [n | CyclicSCC ns <- sccs, n <- ns]
 
 -- | VERIFY-RPT-1 (Commit 4): refusal set for '--strict-verified-core' conjunct
 -- (c). Returns the directly-refuted functions together with every function that
@@ -1149,7 +1185,14 @@ formatTrustReport report =
                      grs -> "" : "Joint PBT witnesses:" :
                             map (\(h, subs) -> "  ⊗ " <> shortHash h
                                             <> " ⇒ " <> T.intercalate ", " subs) grs
-  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ [separator] ++ summaryLines)
+      -- REC-PARTIAL-MARK: surface recursive-cycle members whose posts hold only
+      -- at partial correctness (termination unverified), matching the report-level
+      -- section style of 'staleLines'/'jointLines' (formatEntry has no report handle).
+      partialLines = case Set.toList (trPartialFns report) of
+                       []  -> []
+                       fns -> "" : "Termination-unverified (recursive, partial correctness):" :
+                              map ("  ↻ " <>) (sortOn id fns)
+  in T.unlines ([header, separator] ++ entryLines ++ suppressionLines ++ staleLines ++ jointLines ++ partialLines ++ [separator] ++ summaryLines)
 
 -- | Display the leading 12 hex chars after the 'sha256:' prefix; the full
 -- hash remains in the JSON emit.
@@ -1238,6 +1281,10 @@ formatTrustReportJson report =
     -- VERIFY-RPT-1 (1.3.0): top-level list of refuted functions (body VC the
     -- solver reported UNSAFE). Verify-time only; empty on a solver-less render.
     , "refuted_fns" .= Set.toList (trRefutedFns report)
+    -- REC-PARTIAL-MARK (1.5.0): recursive-cycle members verified only at partial
+    -- correctness (termination unverified). Derived from the call-graph SCC, so
+    -- unlike 'refuted_fns' it is populated even on a solver-less render.
+    , "partial_fns" .= Set.toList (trPartialFns report)
     -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
     -- density + threshold + fired flag. No 'trust_report_version' bump, same
     -- additive-field precedent as 'joint_pbt_witnesses'/'overflow_tainted_fns'
@@ -1289,6 +1336,11 @@ formatTrustReportJson report =
       -- VERIFY-RPT-1 (1.3.0): per-entry refuted flag, emitted only when true,
       -- mirroring the only-on-true shape so non-refuted JSON stays byte-identical.
       [ "refuted" .= True | Set.member (teName e) (trRefutedFns report) ] ++
+      -- REC-PARTIAL-MARK (1.5.0): per-entry partial-correctness flag, only-on-true,
+      -- mirroring the 'refuted' shape so non-recursive entries stay byte-identical.
+      -- Orthogonal to 'refuted'/'overflow_tainted' — a refuted recursive fn shows
+      -- both. Informational; does not touch 'effective_level'.
+      [ "termination_unverified" .= True | Set.member (teName e) (trPartialFns report) ] ++
       -- TRUST-PRE (1.4.0): per-entry caller-obligation axis. Emission discipline
       -- is the OPPOSITE of 'refuted': present whenever a 'requires' exists, on
       -- EVERY path (solver-less, sidecar-reload), and persisted. The co-located
