@@ -27,7 +27,6 @@
 - [Research track](#research-track-no-v0x-targets-no-active-items-rows)
 
 **Policy & scope:**
-- [Feature Freeze Policy](#feature-freeze-policy)
 - [What's NOT on this Roadmap](#whats-not-on-this-roadmap-and-why)
 
 **History (append-only):**
@@ -44,7 +43,7 @@
 
 > Items below are the genuinely-open work (tags follow the `XXX-N` pattern); they are **not** in priority order. Shipped and settled items live in [Shipped Releases](#shipped-releases) / [Resolved cross-cutting items](#resolved-cross-cutting-items). Off-roadmap adoption work (Docker image, README, demos) has shipped; none is currently open.
 
-### Open work (v0.12+ post-freeze lane)
+### Open work (v0.12+ lane)
 
 | Item | Current Status | Next Action |
 |------|---------------|-------------|
@@ -53,9 +52,9 @@
 | **OBLIG-1-FOLLOWON** (populate reserved obligation-report fields) | **PARTIAL** — only the `assumptions` field remains | Wire the `assumptions` field (returns-absent, `LLMLL.md:1823-1824`); may want a short language-team semantics pin first; no schema bump expected. (`expected_return_type` + `available_functions` paths shipped — see Shipped Releases.) |
 | **OBLIG-HOLE-TYPE** (obligation-report hole typing via sketch inference) `[CT]` | **Open — quality, not soundness** | The report's per-hole `expected_type` comes from `analyzeHoles` (structural), which is weaker than the checkout brief's `runSketch` inference — the same expression-position hole reads `int` in the brief but `unknown` in the report, so its function lists go ungated-full (v0.14.20's safe default) instead of correctly filtered. Fix: run the sketch in `assembleReport` (or thread sketch holes from `Main.hs`), join holes by normalized pointer, prefer the sketch type where `analyzeHoles` has none. One extra type-check pass at report time; `expected_type` improves for many holes (behavior change, strictly more precise). Surfaced during the OBLIG-VOCAB-GATE fix (v0.14.20). |
 | **MATCH-WIDEN-2** (n-arm and sequential `match` bodies) `[CT]` | **Open — fragment widener, same theory as v0.14.12** | The MATCH-WIDEN int-tag discrimination is naturally n-ary; two-arm was scoping, not theory. Extend the tag encoding to >2-arm mixed sums and thread tag guards across sequential matches in one body (first-match `¬prior` threading — [`match-widen-stretch-plan.md`](design/match-widen-stretch-plan.md) §S4 names the mechanism; the v0.14.12 shipped row records the fallback). Stays QF-LIA, conservative. Flips part of the one-pager boundary row "`EMatch` (>2 arms …)". |
-| **REC-BODY-VC** (own body VC for recursive `def`/`letrec` at partial correctness) `[LT→CT]` | **Open — needs LT design + written soundness argument (freeze-exception discipline)** | Emit a recursive function's body VC assuming its OWN contract at recursive call sites — the existing callee assume-guarantee machinery; the v0.9 SCC exclusion was conservative scoping. Sound at partial correctness; flips the one-pager rows "`EApp` (recursive self)" and "`letrec` (own body VC)". Motivation sharpened by F-1 (`examples/secure-channel-emergent/`, v0.14.21): a degenerate self-call fill verifies SAFE today, guarded only by harness policy — with REC-BODY-VC + **R7** strict descent it becomes a solver refutation (no decreasing measure), retiring TERM-1's disclaimer. Sequence: LT design → professor → CT; R7 (research track) is the totality half. |
-| **INT-3** (`MachineInt` QF-BV alias) | **P3 — open** | LT design when freeze lifts again; promote to P1 if INT-PRE shows TOTP regression > 5× (cleared at 1.015×, so dormant) |
-| **OBLIG-PBT-5b** (clean `EvidenceRecord.scope`) | **P2 — open** | engineer post-freeze; `trust_report_version` 1.1.0 → 1.2.0; new `tested-joint` display level |
+| **REC-BODY-VC** (own body VC for recursive `def`/`letrec` at partial correctness) `[LT→CT]` | **Rev 1 design settled — [`rec-body-vc-proposal.md`](design/rec-body-vc-proposal.md)** | Baseline overturned the row's premise: own-contract assume-guarantee already ships (v0.14.13 §0.1). Restructured into (a) partiality marker, (b0) def-form in the evidence hash (closes probe E laundering), (b1) fail-closed default, (c) `(decreases …)` call-site strict descent. Sound at partial correctness; flips the one-pager rows "`EApp` (recursive self)" and "`letrec` (own body VC)". Motivation sharpened by F-1 (`examples/secure-channel-emergent/`, v0.14.21): a degenerate self-call fill verifies SAFE today, guarded only by harness policy — with REC-BODY-VC + **R7** strict descent it becomes a solver refutation (no decreasing measure), retiring TERM-1's disclaimer. Sequence: LT design → professor → CT; R7 (research track) is the totality half. |
+| **INT-3** (`MachineInt` QF-BV alias) | **P3 — open** | LT design when scheduled; promote to P1 if INT-PRE shows TOTP regression > 5× (cleared at 1.015×, so dormant) |
+| **OBLIG-PBT-5b** (clean `EvidenceRecord.scope`) | **P2 — open** | engineer when scheduled; `trust_report_version` 1.1.0 → 1.2.0; new `tested-joint` display level |
 | **R3 — Spec-from-RFC pipeline** (RFC → LLMLL contracts with `:source` clause provenance) | **Active** | Worked examples exist (`examples/totp_rfc6238/`, TCP-793 demo, `:source` provenance). Owed: a generalizable RFC→contract pipeline design doc. |
 | **REFINE-REUSE** (reuse retrieval for `refine`: surface existing defs that subsume a spawned sub-contract) | **DESIGN SETTLED (Rev 1) — deferred** `[LT→CT]` | Settled design [`refine-reuse-gate-proposal.md`](design/refine-reuse-gate-proposal.md): a non-rejecting retrieval facility — advisory `reuse_suggestions` brief channel + non-blocking `W-REUSE` warning on an exact-equivalent (contract-implication, not name/syntax). Stage 4 of the Cascading Refinement track; awaits a compiler-engineer feasibility read. |
 
@@ -212,13 +211,6 @@ Tracked but off the critical path — gated on external availability or a concre
 
 # Policy & Scope
 
-## Feature Freeze Policy
-
-> [!IMPORTANT]
-> **Freeze lifted at v0.11.** The original freeze (v0.8.1a–v0.10) held the language surface fixed while the verification boundary and obligation architecture were deepened. Post-freeze, additions are allowed but each still requires **explicit team consensus with a written soundness argument** (the freeze-exception discipline). Historical rationale: [`core-shell-inversion-direction.md`](archive/shipped-design-specs/core-shell-inversion-direction.md).
-
----
-
 ## What's NOT on this Roadmap (and why)
 
 | Item | Reason |
@@ -233,7 +225,7 @@ Tracked but off the critical path — gated on external availability or a concre
 | `EDo` / effectful bodies in `Σ_auto` | Effects verify on the capability / effect-row axis (Bundle B; B0 shipped v0.12.0, B2/B3 future), not via SMT posts — `EDo` bodies keep runtime contracts + effect summaries by design. |
 | Uncontracted-callee body VCs (bounded inlining / contract inference) | The agent workflow (scaffold/checkout) mandates contracts, so uncontracted callees barely occur in the target flow; contract inference was deliberately kept local (REF-META-5, professor consensus). Bounded inlining is possible but low-value; the contract-only fallback is the recorded decision. |
 
-> The freeze-era "feature freeze" exclusions (new builtins, new syntax constructs, broader FFI, more WASI surface, compiler-side orchestration, typeclass law machinery) were enforced through v0.10 and are no longer blanket-excluded post-freeze; any addition still requires explicit team consensus with a written soundness argument per the [Feature Freeze Policy](#feature-freeze-policy) freeze-exception discipline.
+> The former freeze-era exclusions (new builtins, new syntax constructs, broader FFI, more WASI surface, compiler-side orchestration, typeclass law machinery) are no longer blanket-excluded. A proposed addition goes through the normal design → review → ship pipeline — language-team design, professor critique, compiler-engineer implementation — and lands with a written soundness argument as part of its design record. The original v0.8.1a–v0.10 feature freeze was lifted at v0.11; historical rationale: [`core-shell-inversion-direction.md`](archive/shipped-design-specs/core-shell-inversion-direction.md).
 
 ---
 

@@ -185,7 +185,7 @@ blocking gate.
 - `LLMLL.md` (doc-lead, post-ship) — refine-brief description; `docs/compiler-team-roadmap.md`
   (doc-lead) — retitle the Stage-4 row from "gate," plus the stages-1–3-shipped reconciliation.
 
-Out-of-scope-under-freeze: none (freeze lifted v0.11). Out-of-scope-by-design: concurrent-peer
+Surface-gate status: none (the former feature freeze was retired). Out-of-scope-by-design: concurrent-peer
 cross-module dedup (needs a shared cross-module refinement store — see Risks).
 
 ## Risks and open questions

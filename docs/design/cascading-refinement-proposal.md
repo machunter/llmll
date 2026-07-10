@@ -48,7 +48,7 @@ an *agent-invented* decomposition, not the per-step logic (which is classical).
 5. `agent-orchestration.md:220,415` — flat hole list, `holes --deps` dependency-graph precursor;
    `examples/withdraw-demo/DemoPost.md` — the compare-and-swap concurrency model this must extend.
    No in-flight draft on cascading refinement exists (checked INDEX + grep) — this is from-scratch.
-6. Freeze: lifted since v0.11 (`roadmap` Feature-Freeze note); current `llmll 0.14.11`. A new
+6. No surface gate: the former feature freeze was retired (2026-07-10); current `llmll 0.14.11`. A new
    `refine` verb is a new orchestration operation — permitted, but named below with its soundness
    argument.
 
@@ -261,7 +261,7 @@ The gate threshold `θ` and the meet-propagation are the new spec surface; the s
 - `LLMLL.md §9` / a new subsection (doc-lead) — the `refine` operation and refinement-tree model.
 - `docs/compiler-team-roadmap.md` (doc-lead) — a first-class track; relates to **R2** (self-hosted
   orchestrator), **R8** (incremental re-verify), and **CDP** (`:224`).
-- **Out-of-scope-under-freeze:** none — freeze lifted since v0.11; `refine` is permitted with the
+- **Surface-gate status:** none — the former feature freeze was retired; `refine` is permitted with the
   soundness argument (Layer 1 correctness + Layer 3 gate). Name it, do not grant silently.
 - **Strict immutability:** preserved. `refine` is pure AST **growth** — it adds new immutable
   statements and replaces one hole node with a body; no existing node is mutated, no reference

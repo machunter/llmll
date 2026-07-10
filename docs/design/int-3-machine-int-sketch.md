@@ -15,7 +15,7 @@ This sketch is dormant unless INT-PRE's TOTP wall-clock regression factor under 
 
 > If TOTP regresses >5×, escalate INT-3 to freeze-exception; otherwise INT-2 proceeds as planned for v0.11.
 
-The escalation requires a written proposal at proposal-granularity. A one-phrase roadmap entry — "`MachineInt` QF-BV alias" — does not meet the v0.11 freeze-exception bar (per `docs/compiler-team-roadmap.md:26-31`). This sketch is the seed the language-team revises into a Rev 1 settled proposal *only if* the gate fires.
+The escalation requires a written proposal at proposal-granularity. A one-phrase roadmap entry — "`MachineInt` QF-BV alias" — does not meet the promotion bar; a Rev 1 settled proposal goes through the normal design → review → ship pipeline. This sketch is the seed the language-team revises into that proposal *only if* the gate fires.
 
 If INT-PRE clears the gate, this sketch remains on the research track at P3 (`:321`) and is revisited only when a future codegen-perf gate or external user demand re-surfaces the need for opt-in bounded integers. The Class C entry on `random_int` at `docs/design/int-2-boundary-shims.md` §3.3 is the lowest-noise candidate trigger for a future revisit.
 
@@ -93,7 +93,7 @@ Implicit conversions are forbidden. The type-checker rejects mixed-arithmetic ex
 
 `machine-int` constraints lift to QF-BV via Z3's bit-vector theory. The compiler emits FQ constraints with a new `FQBV` constructor (parallel to the existing `FQInt`). The Rev 1 proposal must enumerate:
 
-- Which arithmetic operations get QF-BV constraints: `+`, `-`, `*`, `div`, `mod`, `&`, `|`, `xor`, `~`, `<<`, `>>` (the bit-twiddling ops are not currently in LLMLL's operator set; their addition is gated under freeze-exception scope).
+- Which arithmetic operations get QF-BV constraints: `+`, `-`, `*`, `div`, `mod`, `&`, `|`, `xor`, `~`, `<<`, `>>` (the bit-twiddling ops are not currently in LLMLL's operator set; their addition is a separate surface decision through the normal pipeline).
 - Which comparisons stay QF-LIA-compatible (with bit-width casts) versus require QF-BV: `=`, `!=`, `<`, `>`, `<=`, `>=` over signed `machine-int`.
 - The fallback when an obligation crosses the QF-LIA / QF-BV boundary (e.g., a mixed `(if (< i (list-length xs)) ...)` where `i: machine-int` and `list-length` returns `int`): explicit conversion is required at the surface; the type-checker enforces.
 
@@ -149,7 +149,7 @@ The 12 existing example directories at `examples/*/` continue to compile against
 If INT-PRE escalates and this sketch promotes to Rev 1, the language-team would consult the professor on two outside-PL questions before committing:
 
 1. **Refinement-aliased vs primitive `machine-int`.** §3 holds the primitive-type position on three grounds, but the refinement-aliased alternative is consistent with Vazou et al.'s general approach in Liquid Haskell, where `Int` is refinable and bounded subtypes are refinement aliases. Does the Liquid Haskell literature treat this as a settled trade-off — primitive types for bit-vector-theory machinery, refinement aliases for QF-LIA-tractable bounds — or is the choice more nuanced? Specific question: when Liquid Haskell users want `Int64` arithmetic with overflow semantics, do they use a refinement alias and rely on the LH `Bitvec` extension, or do they use a primitive type? Citation: Vazou et al., *Refinement Types for Haskell* (ICFP 2014); Vazou et al., *LiquidHaskell: Experience with Refinement Types in the Real World* (Haskell '14); `Data.Refined` namespace conventions.
-2. **Bit-twiddling operator admission.** §4 contemplates `&`, `|`, `xor`, `~`, `<<`, `>>` over `machine-int`. These are not currently in LLMLL's operator set. Their addition is gated under freeze-exception scope per `docs/compiler-team-roadmap.md:26-31`. Is the established PL practice to expose bit-twiddling as language-level operators (Haskell `Bits` class), as builtins (Idris, F\*), or to push it entirely into FFI-sealed helpers? The choice affects whether QF-BV constraints need to discharge bit-twiddling correctness or whether the surface stays small enough that bit-twiddling is FFI-only.
+2. **Bit-twiddling operator admission.** §4 contemplates `&`, `|`, `xor`, `~`, `<<`, `>>` over `machine-int`. These are not currently in LLMLL's operator set. Their addition is a separate surface decision through the normal design → review → ship pipeline. Is the established PL practice to expose bit-twiddling as language-level operators (Haskell `Bits` class), as builtins (Idris, F\*), or to push it entirely into FFI-sealed helpers? The choice affects whether QF-BV constraints need to discharge bit-twiddling correctness or whether the surface stays small enough that bit-twiddling is FFI-only.
 
 Both questions are dormant. If INT-PRE clears the gate, neither needs an answer.
 
