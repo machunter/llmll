@@ -4,6 +4,41 @@
 
 <a id="Latest"></a>
 
+## v0.14.23 — REC-PARTIAL-MARK: termination_unverified flag for recursive cycles (2026-07-10)
+
+### Trust report — a visible partiality marker for recursion
+
+- **Every function in a recursive call-graph cycle now carries a `termination_unverified` flag** — a
+  per-entry `termination_unverified: true` plus a top-level `partial_fns` list — derived at
+  report-build time from the whole-program call graph (`buildCallGraph` over the entry module plus
+  cached `meStatements`). Like `refuted` / `overflow_tainted` it is an **orthogonal informational
+  marker**, not a `DisplayLevel` element: it never feeds `evidenceMeet`, the effective level,
+  `refutedClosure`, or strict-core admission, and it is never persisted to the sidecar — so it is
+  present even on a solver-less `--trust-report` render (unlike `refuted_fns`, which is verify-time
+  only). A recursive `def-shell` keeps whatever tier its body VC earned (typically a `verified` post at
+  partial correctness) and simply carries the flag. `--trust-report` text output gains a
+  `Termination-unverified (recursive, partial correctness)` section. `trust_report_version` 1.4.0 → 1.5.0.
+- **Increment 2 (a) of REC-BODY-VC** ([`docs/design/rec-body-vc-proposal.md`](docs/design/rec-body-vc-proposal.md));
+  increments (b1) fail-closed default and (c) `(decreases …)` strict descent remain open. Makes the
+  `LLMLL.md §4.2` partiality-flag claim true (it previously promised a flag that did not exist), and
+  unifies the tier of a refine-path cycle with a hand-written one (cascading-refinement Option 3, now
+  Rev 3).
+
+### Docs — recursion partial-correctness spec reconciliation (D1/D2)
+
+- **`§5.3.5`, the one-pager, and the README** verification-matrix rows split `EApp (uncontracted /
+  recursive self)`: an uncontracted callee stays contract-only, but a **recursive self / cycle of a
+  contracted function verifies body-faithful at partial correctness** (assume-guarantee over the cycle,
+  `§0.1`) carrying `termination_unverified` — correcting the prior "contract-only" claim that
+  contradicted `§0.1`. `§4.2` and a new `§4.4.4` paragraph document the marker.
+- **`examples/secure-channel-emergent/README.md`** F-1 corrected: the degenerate self-call fill **is**
+  body-faithful + SAFE (it does not drop from the set), so the honest per-fill acceptance bar is
+  `SAFE ∧ body-faithful ∧ ¬termination_unverified`; the v0.14.21/22/23 layers of fixes are named.
+
+**Tests:** 1107 Haskell, 45 Python. (+5: PM-1 recursive marked, PM-2 non-recursive unmarked, PM-3
+mutual-recursion SCC marks both, PM-4 derived-not-persisted [present on a solver-less render], PM-5
+refuted + termination_unverified compose. No AST schema change; `trust_report_version` 1.5.0.)
+
 ## v0.14.22 — REC-HASH-FORM: def-form in the evidence hash (probe-E laundering closed) (2026-07-10)
 
 ### Verify — evidence-hash integrity for the strict-core admission gate

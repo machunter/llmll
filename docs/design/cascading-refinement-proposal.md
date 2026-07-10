@@ -1,7 +1,7 @@
 ---
 name: cascading-refinement-proposal
 title: "CASCADING REFINEMENT — agent-driven recursive hole decomposition"
-status: "Rev 2 (acyclicity decided: Option 3) — design-ahead-of-build, sequenced after MATCH-WIDEN"
+status: "Rev 3 (Option-3 cycle handling reconciled to REC-PARTIAL-MARK's termination_unverified marker, 2026-07-10) — Stages 1–3 shipped v0.14.13; feasibility gate + Stage-4 REFINE-REUSE open"
 date: 2026-07-06
 author: language-team
 consumers: [professor, compiler-engineer]
@@ -85,28 +85,34 @@ for `H`; (ii) a list of new top-level defs `Gᵢ = (def NAME_i params_i -> ret_i
 with fresh names. The operation, under one advisory lock: adds the `Gᵢ` statements, replaces `H`'s
 hole with `e_H`, re-typechecks, and re-verifies `H` modulo the `Gᵢ` contracts (Layer 1). It succeeds
 only if (a) `H` verifies, (b) each `NAME_i` is fresh, (c) each `C_{Gᵢ}` passes the Layer-3 gate, and
-**(d) any call-graph cycle the spawn creates is detected and its members honestly degraded** (below).
+**(d) any call-graph cycle the spawn creates is detected and its members carry the visible `termination_unverified` marker** (below).
 
-**Cycle handling: honest partial-correctness degradation (Rev 2 — decided).** Compositional
-Hoare / assume-guarantee is sound **only** for acyclic call graphs: LLMLL "excludes functions in
-recursive call cycles from compositional encoding and verifies [them] contract-only"
-(`LLMLL.md:13,24`; mutual recursion forces `def-shell`, `:465`). Nothing in the protocol *prevents*
-an agent from spawning a `Gᵢ` that transitively calls back into an ancestor `H`. The Rev-0/Rev-1
-hazard was not the cycle itself but that the degradation is **silent** — the cycle members fall to
-`asserted` while the tree keeps reporting per-node `verified`. **The decision (2026-07-06) is
-Option 3: `refine` ADMITS a cycle-creating spawn, detects the cycle (LLMLL already does, `:24`), lets
-its members fall to contract-only — but makes the degradation VISIBLE**, so the trust-closure never
-launders a recursive core into a full `verified` top claim. Concretely, the decomposition-trust meet
-(Layer 3 (d)) must **floor on any contract-only cycle member**: a cascade containing a recursive core
-reads honestly as "verified modulo a partial recursive core," never silently `verified`. This is a
-decidable graph check (detect the cycle) plus a trust-closure floor — **no reject-gate, and no new
-SMT obligation** — and it is exactly the treatment `letrec` already receives (§5.3.5
-partial-correctness). It is distinct from cascade-*process* termination (Risk 5, an orchestration
-budget). **Option 2 (route the cycle to R7 strict-descent) is the follow-up upgrade**, not a
-prerequisite: when R7 ships, a cyclic node moves from partial (`asserted`) to total (`verified`) with
-no redesign. Option 1 (forbid cycles outright) was rejected — it would make cascading unable to
-express recursion at all, and the recursion it would forbid is mostly int-recursion (recursive *data*
-is already firewalled by the data-scope track), so it buys little at high cost.
+**Cycle handling: partial correctness with a visible marker (Rev 3 — reconciled to REC-PARTIAL-MARK, 2026-07-10).**
+Compositional Hoare / assume-guarantee over a cycle is sound at **partial** correctness — each member
+proves its body assuming its callees' (transitively its own) posts (`LLMLL.md §0.1`; the v0.14.13
+reconciliation). A cycle member is therefore **not** contract-only: it verifies body-faithful and can
+reach a `verified` post, exactly as a hand-written recursive `def-shell` does. (The Rev-2 premise that
+LLMLL "verifies recursive-cycle members contract-only," citing the pre-v0.14.13 `LLMLL.md:13,24`, was
+stale and is dropped.) Nothing in the protocol *prevents* an agent from spawning a `Gᵢ` that
+transitively calls back into an ancestor `H`. The Rev-0/Rev-1 hazard was that any degradation would be
+**silent**. **The decision (2026-07-06, revised 2026-07-10) is Option 3: `refine` ADMITS a
+cycle-creating spawn, detects the cycle, and its members verify at partial correctness carrying the
+automatic `termination_unverified` marker** (per-entry flag + top-level `partial_fns`, REC-PARTIAL-MARK,
+v0.14.23) — the marker is the VISIBLE signal that replaces the silent-degradation hazard, so the trust
+closure never launders a partial recursive core into a *total* top claim. This is the correction over
+Rev 2: a spawn-created cycle and a hand-written cycle now land at the **same** tier (body-faithful
+partial + `termination_unverified`). Grading a refine-path cycle strictly below a hand-written one — the
+Rev-2 "fall to contract-only / `asserted`" treatment — was a provenance-dependent verdict the trust
+model forbids. The decomposition-trust meet (Layer 3 (d)) surfaces the marker at the cascade top
+("verified modulo an unverified-termination recursive core"); it does **not** floor the member to
+`asserted`. This is a decidable graph check (detect the cycle) plus marker propagation — **no
+reject-gate, and no new SMT obligation** — the same treatment a hand-written cycle receives (`§4.2`,
+`§4.4.4`, `§5.3.5`). It is distinct from cascade-*process* termination (Risk 5, an orchestration
+budget). **Option 2 (route the cycle to REC-DESCENT / R7 strict-descent) is the follow-up upgrade**, not
+a prerequisite: when descent ships, a cyclic node moves from partial to total and the marker clears,
+with no redesign. Option 1 (forbid cycles outright) was rejected — it would make cascading unable to
+express recursion at all, and the recursion it would forbid is mostly int-recursion (recursive *data* is
+already firewalled by the data-scope track), so it buys little at high cost.
 
 This is a **scope relaxation of the patch protocol**, not an unbounded one: a `refine` may add
 statements *only* at top level and *only* defs that `e_H` references, so the AST growth is confined

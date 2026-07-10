@@ -73,7 +73,8 @@ LLMLL currently provides body-faithful SMT verification for a **non-recursive `�
 | `ELit`, `EVar` (int / `bool`), linear ops | ✅ | — |
 | `ELet` (PVar), `EIf` (≤4096 paths) | ✅ | — |
 | `EApp` (contracted callee, same-file or imported) | ✅ assume-guarantee | — |
-| `EApp` (uncontracted / recursive self) | ❌ | contract-only |
+| `EApp` (uncontracted callee) | ❌ | contract-only |
+| `EApp` (recursive self / cycle) | ✅ partial correctness | body-faithful; `termination_unverified` flag |
 | `EMatch` two-arm sums (`Result` + user ADTs, nested) | ✅ int-tag encoding | — |
 | `EPair` / pair returns (`first` / `second` / `pair`) | ✅ datatype selectors | — |
 | Admissible (non-recursive) datatype construction | ✅ | — |

@@ -45,8 +45,11 @@ No worked examples, no hints, no steering, no conversation history. On a rejecti
 compiler/harness error text — the same feedback loop any engineer gets. Every prompt,
 reply, request, and verdict is logged under `audit/` for independent inspection.
 
-**Per-fill acceptance bar:** verify `SAFE` **and** the filled function lands in the
-`body-faithful` set. Plain `SAFE` is not enough — see F-1 below.
+**Per-fill acceptance bar:** verify `SAFE`, the filled function lands in the
+`body-faithful` set, **and** it is not flagged `termination_unverified`. Plain `SAFE` is not
+enough, and neither is body-faithful alone — a degenerate self-call is *both* SAFE and
+body-faithful (see F-1 below); the `termination_unverified` marker (v0.14.23) is what the bar
+actually rejects on.
 
 ## How it was built (`audit/runner.py`)
 
@@ -66,14 +69,22 @@ imported contracts since v0.14.18/19).
 
 ## Findings
 
-- **F-1 (compiler fix shipped, v0.14.21).** The first blind agent answered the very first
-  brief with a degenerate **self-call** — `(alert-admit latched sev)` for `alert-admit`'s
-  own hole. It patched cleanly and verified `SAFE`: a nonterminating body discharges its
-  own contract vacuously at partial correctness (the R7/TERM-1 gap), and the recursive
-  function silently drops out of the body-faithful set. Root cause: the brief presented
-  the hole's own function as an available `"filled"` callable whose contract exactly
-  matches the goal. Fixed upstream (the enclosing function now reads `status: "hole"`),
-  and the harness bar (body-faithful, not just SAFE) closes the class.
+- **F-1 (compiler fixes shipped, v0.14.21–v0.14.23).** The first blind agent answered the very
+  first brief with a degenerate **self-call** — `(alert-admit latched sev)` for `alert-admit`'s
+  own hole. It patched cleanly and verified `SAFE` — and, correcting an earlier claim here, it
+  **is** body-faithful, not dropped from the set: a nonterminating body discharges its own
+  contract vacuously at partial correctness (the R7/TERM-1 gap), so a "SAFE ∧ body-faithful" bar
+  does **not** catch it. Three fixes close the class in layers. **(1)** Root cause of the *prompt*:
+  the brief presented the hole's own function as an available `"filled"` callable whose contract
+  exactly matches the goal — fixed upstream so the enclosing function reads `status: "hole"`
+  (v0.14.21, HOLE-STATUS). **(2)** A related *evidence* laundering path — verifying the recursion
+  as `def-shell` then renaming it to `def` over the intact sidecar — passed `--strict-verified-core`
+  because the persisted hash omitted the def-form; closed by folding the def-form into the hash
+  (v0.14.22, REC-HASH-FORM, "probe E"). **(3)** The *acceptance signal*: every recursive-cycle
+  member now carries a `termination_unverified` flag, so the honest per-fill bar is
+  "SAFE ∧ body-faithful ∧ ¬`termination_unverified`" (v0.14.23, REC-PARTIAL-MARK). REC-DESCENT
+  (a declared `(decreases …)` measure) would turn the degenerate self-call into a hard solver
+  refutation and clear the flag.
 - **F-2 (emergent Heartbleed bound).** Asked to fill a wide record-admission contract, an
   agent spawned `len-ok [claimed received] -> bool` with post
   `(<=> result (and (>= claimed 0) (<= claimed received)))` — the Heartbleed bound,
@@ -129,7 +140,8 @@ proof, not in the agents' good behavior.
 Same verification boundary as the flagship: the integer/boolean relational layer
 (lengths, counters, ordinals, credits) in `Σ_auto`; crypto primitives are out of scope by
 construction (none are modeled here). Recursion is proved at partial correctness — which
-is precisely why the acceptance bar requires body-faithful, not just SAFE (F-1). The
+is precisely why the acceptance bar requires `¬termination_unverified`, not just SAFE ∧
+body-faithful (F-1). The
 compiler proves each invented sub-contract is met and non-vacuous — **not** that it is
 the *right* sub-contract; the vacuity gate removes the emptiest failure mode and the root
 contracts pin the ends, but contract quality in the middle is observed, not certified.

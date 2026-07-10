@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.22)
+# LLMLL: Large Language Model Logical Language (v0.14.23)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.22.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.23.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -468,7 +468,7 @@ Self-recursive functions are declared with `def-shell`. The self-call is a user-
   (if (= n 0) 0 (countdown (- n 1))))
 ```
 
-**Partial-correctness caveat.** The verifier proves postconditions under the assumption the function terminates — strict recursive descent is not discharged (see [`docs/design/verification-debate.md`](docs/design/verification-debate.md) Q4 "Where is totality enforced?"). The trust report does not currently emit an automatic flag for self-recursive `def-shell` functions; authors should apply `:trust tested` or verify postconditions with property-based tests when termination is not obvious.
+**Partial-correctness caveat.** The verifier proves postconditions under the assumption the function terminates — strict recursive descent is not discharged (see [`docs/design/verification-debate.md`](docs/design/verification-debate.md) Q4 "Where is totality enforced?"). A recursive `def-shell` still verifies body-faithful and can reach a `verified` post (assume-guarantee over the cycle, §0.1), but that verdict is partial-correctness only. The trust report makes this explicit: every function in a recursive call cycle carries an automatic `termination_unverified` flag (a per-entry marker plus a top-level `partial_fns` list, §4.4.4). The flag does **not** lower the postcondition tier — it is an orthogonal marker beside the display level (the `refuted` / `overflow_tainted` precedent) — so a consumer reads both "post: verified" and "termination unverified" and can gate accordingly. Strict-descent discharge (which would upgrade the cycle to total correctness and clear the flag) is the REC-DESCENT item.
 
 **Mutual recursion** follows the same rule: all mutually recursive functions are `def-shell`.
 
@@ -590,6 +590,8 @@ stack exec llmll -- verify program.llmll --trust-report
 ```
 
 Use `--trust-report --json` for machine-readable JSON output suitable for CI or downstream tooling. The JSON emit carries a `trust_report_version` field plus a six-Int `tier_profile` aggregate `{verified, proved, contract_checked, tested, asserted, no_contract}` over per-function effective tier classifications, intended for downstream tooling that needs a fixed-arity summary without scalarizing the diamond lattice — see [`docs/llmll-trust-report.schema.json`](docs/llmll-trust-report.schema.json) for the full shape.
+
+**`termination_unverified` — the partiality marker.** Every function in a recursive call-graph cycle (a cyclic SCC over the whole-program call graph, entry plus cached modules) carries a per-entry `termination_unverified: true` flag, and the report gains a top-level `partial_fns` list of these names. Like `refuted` / `overflow_tainted`, it is an **orthogonal informational marker**, not a `DisplayLevel` element: it is **derived at report-build time** from the call graph — never persisted to the sidecar — so it is present even on a solver-less `--trust-report` render (unlike `refuted_fns`, which is verify-time only). It does not feed `evidenceMeet`, the effective level, `refutedClosure`, or strict-core admission; a recursive `def-shell` keeps whatever tier its body VC earned (typically `verified` post at partial correctness) and simply carries the flag. It marks that termination is unverified for the cycle, per the §4.2 partial-correctness caveat; REC-DESCENT (strict descent) would discharge it. `trust_report_version` 1.5.0.
 
 **Tier-profile pre/post split.** The trust-report JSON carries two top-level fields parallel to `tier_profile`: `tier_profile_pre` and `tier_profile_post`. Each classifies functions by their per-clause effective level (the clause's own evidence record meeting the transitive-callee effective level), rather than by the per-function meet of pre and post. A function with `pre = asserted` and `post = tested n` increments `tier_profile_pre.asserted` and `tier_profile_post.tested`, where the scalar `tier_profile.asserted` collapses both clauses via the diamond meet at §4.4.1. Downstream tooling that needs the post-side empirical signal (the R6d harness `Cred(R)` predicate is the canonical consumer) reads `tier_profile_post`.
 
@@ -1004,7 +1006,8 @@ The following matrix documents the verification status of each syntax construct.
 | `EIf` (int guards, ≤4096 paths) | ✅ | ✅ | ✅ | ✅ (path-split) | ✅ | — |
 | `EIf` (>4096 paths) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only + warning |
 | `EApp` (contracted callee, non-recursive, same-file or imported) | ✅ | ✅ | ✅ | ✅ (assume-guarantee) | ✅ | — |
-| `EApp` (uncontracted / recursive self) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
+| `EApp` (uncontracted callee) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
+| `EApp` (recursive self / cycle, contracted) | ✅ | ✅ | ✅ | ✅ (assume-guarantee, **partial** correctness — §0.1) | ✅ | body-faithful; termination unverified → `termination_unverified` flag (§4.2, §4.4.4) |
 | `EApp` (builtins: `string-length` etc.) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
 | `EMatch` two-arm sum (`Result`, or user ADT both arms single-payload) | ✅ | ✅ | ✅ | ✅ (two-path, any nesting; consumes payload refinement) | ✅ | — |
 | constructor application `(Ctor e)` / `(Ctor)` over an admissible sum (incl. Result `ok`/`err`) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | recursive sum / non-admissible Result payload → fallback; user-sum recursive ctor → strict-core gate → `def-shell` |

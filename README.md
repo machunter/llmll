@@ -1,4 +1,4 @@
-# LLMLL — v0.14.22
+# LLMLL — v0.14.23
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -178,7 +178,8 @@ LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core*
 | `ELet` (PVar, int RHS) | ✅ | — |
 | `EIf` (≤4096 paths) | ✅ (path-split) | — |
 | `EApp` (contracted callee) | ✅ (assume-guarantee) | — |
-| `EApp` (uncontracted / recursive self) | ❌ | contract-only |
+| `EApp` (uncontracted callee) | ❌ | contract-only |
+| `EApp` (recursive self / cycle) | ✅ (partial correctness) | body-faithful; `termination_unverified` flag |
 | `EMatch` on `Result` (2-arm) | ✅ (two-path) | — |
 | `EMatch` (general ADT), `EPair`, `ELambda`, `EDo` | ❌ | runtime |
 | `letrec` (own body VC) | ❌ | runtime + `:decreases` |
