@@ -1,0 +1,9 @@
+;; The single-function version from blog Post 2: the goto-fail invariant as a
+;; contract, the body an agent fill delivered via checkout/patch (def-shell).
+;;   llmll verify finalize.llmll   -> SAFE (body-faithful: finalize)
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))   ;; return Verified => sig was Continue
+  (match sig ((Continue) Verified) ((Abort c) (Rejected c))))

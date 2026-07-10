@@ -3,17 +3,17 @@
 A full secure-channel record layer, decomposed into **163 contracted holes across seven
 modules**, filled by **orchestrated agents**, and verified **as one whole program** — `SAFE`,
 every function body-faithful, in ~60 s. This is the "convincing large example": not a snippet, a
-real subsystem, where famous-bug invariants are load-bearing and the compiler refuses any fill
+real subsystem, where famous-bug invariants are wired into the proof and the compiler refuses any fill
 that reintroduces them.
 
 Design & plan of record:
 [`docs/design/flagship-secure-channel-proposal.md`](../../../docs/design/flagship-secure-channel-proposal.md).
 
-**Honest scope.** Cryptographic primitives are axiomatized as opaque contracts. LLMLL verifies
+**Scope limits.** Cryptographic primitives are axiomatized as opaque contracts. LLMLL verifies
 the *length / ordering / monotonicity discipline* — the integer-relational layer (QF-LIA) where
 Heartbleed, goto-fail, KRACK, Ping-of-Death, and downgrade actually lived. Lengths, offsets,
 sequence numbers, state ordinals, credits, byte-budgets, epochs — nothing here needs bitvectors
-or recursive data, and that is the point: the honest ceiling is the *data* axis, not size.
+or recursive data, and that is the point: the real ceiling is the *data* axis, not size.
 
 ## What's here
 
@@ -97,7 +97,7 @@ llmll verify examples/heartbleed/secure-channel/agent-fill/adversarial/deliver-g
 #          — implementation does not satisfy postcondition (constraint #0)
 ```
 
-The honest, guarded fill verifies:
+The guarded fill verifies:
 
 ```
 llmll verify examples/heartbleed/secure-channel/agent-fill/adversarial/deliver.llmll

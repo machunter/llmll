@@ -1,0 +1,10 @@
+;; The goto-fail fill: Verified on every arm, ignoring sig (blog Post 2).
+;;   llmll verify finalize-bad.llmll
+;;     -> error: body verification of 'finalize' failed (else-branch does not
+;;        satisfy postcondition) (constraint #1)
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))
+  (match sig ((Continue) Verified) ((Abort c) Verified)))
