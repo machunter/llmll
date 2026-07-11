@@ -90,7 +90,7 @@ import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), wcSyntheticName)
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
-import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, exprToSExpr, importedContractedFns)
+import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, descentDischargedFns, exprToSExpr, importedContractedFns)
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
@@ -1371,19 +1371,16 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 | o <- unsafeOrigins
                 , coClause o `notElem` ["descent", "decreases"]
                 , Set.member (coFunction o) bodyFaithfulSet ]
-              -- REC-DESCENT Phase 3: the descent-discharged (total-correctness)
-              -- functions. Only on a SAFE verify (every emitted descent + well-
-              -- foundedness constraint passed): a cyclic SCC discharges iff EVERY
-              -- member declares a translatable k=1 measure (erMeasuredFns) and is
-              -- body-faithful — the whole-SCC gate (professor Q2(i)). These drop
-              -- the termination_unverified mark and become strict-core-admissible.
-              descentDischargedSet = case fqResult of
-                FQSafe -> Set.fromList
-                  [ n' | scc <- recursiveSCCs stmts
-                       , all (`elem` erMeasuredFns emitR) scc
-                       , all (`Set.member` bodyFaithfulSet) scc
-                       , n' <- scc ]
-                _      -> Set.empty
+              -- REC-DESCENT Phase 3: the descent-discharged (total-correctness) set.
+              -- Extracted to 'ObligationAssembly.descentDischargedFns' (testable): a
+              -- cyclic SCC discharges only on SAFE AND when every member is measured,
+              -- body-faithful, AND the SCC has UNIFORM measure arity. The uniform-arity
+              -- gate is load-bearing — a mixed-arity mutual SCC emits no descent
+              -- constraints (equal-length gate), so its SAFE is vacuous and it must NOT
+              -- discharge (professor ruling (b); see the function's haddock).
+              descentDischargedSet =
+                descentDischargedFns stmts (erMeasuredFns emitR) bodyFaithfulSet
+                  (case fqResult of { FQSafe -> True; _ -> False })
 
           -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
           -- embedded trust report is refuted-marked. Under

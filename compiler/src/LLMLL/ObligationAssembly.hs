@@ -32,6 +32,7 @@ module LLMLL.ObligationAssembly
   , obligationStatus
   , recursiveNames
   , recursiveSCCs
+  , descentDischargedFns
   , patternBindings
   , isTypeCompatible
   , trustLabel
@@ -300,6 +301,41 @@ recursiveSCCs stmts =
   let cg = buildCallGraph stmts
       sccs = stronglyConnComp [(n, n, deps) | (n, deps) <- Map.toList cg]
   in [ ns | CyclicSCC ns <- sccs ]
+
+-- | REC-DESCENT Phase 3: the descent-discharged (total-correctness) function set.
+-- A cyclic SCC discharges to total ONLY on a SAFE verify AND when every member is
+-- measured (a translatable 'decreases' tuple), body-faithful, AND the SCC has
+-- UNIFORM measure arity.
+--
+-- The uniform-arity requirement is LOAD-BEARING for soundness with lexicographic
+-- (k>1) descent: a mixed-arity mutual SCC emits NO descent constraints (the per-edge
+-- equal-length gate skips every cross-member edge — a lexicographic '<' over
+-- differing arities is undefined; professor ruling (b)), so a SAFE verify is VACUOUS
+-- for the cycle. Without this check a NON-terminating mixed-arity mutual recursion
+-- (aa increases m → bb → aa) discharges to total — a false SAFE at the total tier.
+-- Uniform arity ⟹ every intra-SCC edge is same-arity ⟹ every edge emitted (and, on
+-- SAFE, passed) its descent constraint ⟹ the discharge is non-vacuous.
+descentDischargedFns
+  :: [Statement]   -- ^ entry statements (call graph + per-fn measure arity)
+  -> [Name]        -- ^ measured fns ('erMeasuredFns': all tuple components translate)
+  -> Set Name      -- ^ body-faithful fns
+  -> Bool          -- ^ the verify was SAFE (every emitted constraint passed)
+  -> Set Name
+descentDischargedFns stmts measured bodyFaithful isSafe
+  | not isSafe = Set.empty
+  | otherwise  = Set.fromList
+      [ n | scc <- recursiveSCCs stmts
+          , all (`elem` measured) scc
+          , all (`Set.member` bodyFaithful) scc
+          , uniformArity scc
+          , n <- scc ]
+  where
+    measureArity nm = case [ length dec | SDefShell nm' _ _ _ _ dec <- stmts, nm' == nm ] of
+                        (k:_) -> k
+                        []    -> 0
+    uniformArity scc = case map measureArity scc of
+                         []       -> True
+                         (a : as) -> all (== a) as
 
 -- ---------------------------------------------------------------------------
 -- Bundle B0: per-function effect / authority summary (4th informational channel)

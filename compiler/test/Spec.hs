@@ -19,7 +19,7 @@ import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern
 import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyBodyFragment
-  , recursiveNames, ObligationKind(..), patternBindings, isTypeCompatible
+  , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel
   , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..)
   , assembleConsumedGuarantees, assembleFunctionLists
@@ -1573,11 +1573,50 @@ main = hspec $ do
       emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
       ("descent" `elem` clausesOf emitR) `shouldBe` False
 
-    it "RD2-3: a k>1 (lexicographic) measure emits no 'descent' constraint and warns W-DECREASES-LEX" $ do
+    it "RD2-3: a k>1 (lexicographic) measure now discharges via a 'descent' constraint (no W-DECREASES-LEX)" $ do
+      -- (decreases m n): the recursive call decrements m (holds n) — a lexicographic
+      -- decrease. Lexicographic descent (v0.14.27) discharges it: the descent
+      -- constraint is emitted and the function is measured; W-DECREASES-LEX is gone.
       let stmts = parseOrFail "(def-shell f [m: int n: int] -> int (pre (and (>= m 0) (>= n 0))) (post (>= result 0)) (decreases m n) (if (= m 0) 0 (f (- m 1) n)))"
       emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` True
+      any (T.isInfixOf "W-DECREASES-LEX" . diagMessage) (erDiagnostics emitR) `shouldBe` False
+      ("f" `elem` erMeasuredFns emitR) `shouldBe` True
+
+    it "LEX-1: equal-length k=2 mutual recursion — both members measured, descent emitted (professor (a))" $ do
+      let stmts = parseOrFail "(def-shell f [m: int n: int] -> int (pre (and (>= m 0) (>= n 0))) (post (>= result 0)) (decreases m n) (if (= m 0) 0 (g (- m 1) n)))\n(def-shell g [p: int q: int] -> int (pre (and (>= p 0) (>= q 0))) (post (>= result 0)) (decreases p q) (if (= p 0) 0 (f (- p 1) q)))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` True
+      all (`elem` erMeasuredFns emitR) ["f", "g"] `shouldBe` True
+
+    it "LEX-2: mixed-length mutual (k=2 vs k=1) — no descent constraint (equal-length gate; professor (b) refuse)" $ do
+      let stmts = parseOrFail "(def-shell f [m: int n: int] -> int (pre (and (>= m 0) (>= n 0))) (post (>= result 0)) (decreases m n) (if (= m 0) 0 (g (- m 1))))\n(def-shell g [p: int] -> int (pre (>= p 0)) (post (>= result 0)) (decreases p) (if (= p 0) 0 (f p (- p 1))))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
       ("descent" `elem` clausesOf emitR) `shouldBe` False
-      any (T.isInfixOf "W-DECREASES-LEX" . diagMessage) (erDiagnostics emitR) `shouldBe` True
+
+    it "LEX-3: a k=2 tuple with a nonlinear component is untranslatable — no descent (firewall, stays partial)" $ do
+      let stmts = parseOrFail "(def-shell f [m: int n: int] -> int (pre (and (>= m 0) (>= n 0))) (post (>= result 0)) (decreases m (* n n)) (if (= m 0) 0 (f (- m 1) n)))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` False
+
+    it "LEX-4: a mixed-arity mutual SCC does NOT discharge even when measured+body-faithful+SAFE (uniform-arity gate — SOUNDNESS)" $ do
+      -- The non-terminating witness: aa (k=2) INCREASES m and calls bb (k=1), which
+      -- calls aa — it DIVERGES. Both members are measured (translatable tuples) and
+      -- body-faithful, and the verify is SAFE — but VACUOUSLY: the equal-length gate
+      -- emits ZERO descent constraints for the mixed-arity (2 vs 1) cycle, so nothing
+      -- can fail. The SCC MUST NOT discharge (else a non-terminating recursion reaches
+      -- total — a false SAFE). Uniform-arity gate (professor ruling (b)). This test
+      -- fails without that gate.
+      let stmts = parseOrFail (T.unpack (T.concat
+                    [ "(def-shell aa [m: int n: int] -> int (pre (and (>= m 0) (>= n 0))) (post (>= result 0)) (decreases m n) (bb (+ m 1)))"
+                    , "(def-shell bb [m: int] -> int (pre (>= m 0)) (post (>= result 0)) (decreases m) (aa m 0))" ]))
+      descentDischargedFns stmts ["aa", "bb"] (Set.fromList ["aa", "bb"]) True `shouldBe` Set.empty
+
+    it "LEX-5: an equal-arity k=2 mutual SCC DOES discharge (uniform-arity gate does not over-refuse)" $ do
+      let stmts = parseOrFail (T.unpack (T.concat
+                    [ "(def-shell ev [m: int n: int] -> int (pre (and (>= m 0) (>= n 0))) (post (>= result 0)) (decreases m n) (if (= m 0) 0 (od (- m 1) n)))"
+                    , "(def-shell od [p: int q: int] -> int (pre (and (>= p 0) (>= q 0))) (post (>= result 0)) (decreases p q) (if (= p 0) 0 (ev (- p 1) q)))" ]))
+      descentDischargedFns stmts ["ev", "od"] (Set.fromList ["ev", "od"]) True `shouldBe` Set.fromList ["ev", "od"]
 
     it "RD2-4: an untranslatable (nonlinear) measure emits no 'descent' constraint (firewall, never silently total)" $ do
       let stmts = parseOrFail "(def-shell f [n: int m: int] -> int (pre (and (>= n 0) (>= m 0))) (post (>= result 0)) (decreases (* n m)) (if (= n 0) 0 (f (- n 1) m)))"
