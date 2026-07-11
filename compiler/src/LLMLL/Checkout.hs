@@ -79,6 +79,7 @@ import LLMLL.Syntax (Span(..), Type(..), Expr(..), Name, typeLabel, Statement, M
 import LLMLL.TypeCheck (ScopeBinding(..), ScopeSource(..))
 import LLMLL.TrustReport (TrustEntry)
 import LLMLL.ObligationAssembly (trustLabel, importedContractedFns, exprToSExpr, substExpr)
+import LLMLL.ObligationMining (isQfLia)
 import LLMLL.HubQuery (QueryResult(..))
 
 -- ---------------------------------------------------------------------------
@@ -998,24 +999,22 @@ buildScopeEntries env =
   | (name, binding) <- Map.toAscList env
   ]
 
--- | OBLIG-1 (assumptions wire, v1): surface the refinement predicates of the
--- in-scope refinement-typed binders as the checkout brief's @assumptions@.
+-- | OBLIG-1 (assumptions wire): surface the local hypothesis context as the
+-- checkout brief's @assumptions@, in two provinces.
 --
--- For each in-scope binder @(name, ty)@ whose type resolves — directly, or
--- through a type alias — to @TDependent x0 _ phi@, emit @phi@ with the bound
--- variable @x0@ α-renamed to the binder's actual @name@ (so
--- @amount: (where [v:int] (> v 0))@ contributes @(> amount 0)@). Base-typed and
--- function-typed binders contribute nothing.
+-- (v1) For each in-scope refinement-typed PARAM binder @(name, ty)@ whose type
+-- resolves — directly, or through a type alias — to @TDependent x0 _ phi@, emit
+-- @phi@ with the bound variable @x0@ α-renamed to the binder's actual @name@ (so
+-- @amount: (where [v:int] (> v 0))@ contributes @(> amount 0)@). The @SrcParam@
+-- filter is not cosmetic: @shEnv@ also carries the enclosing function's own name
+-- and every in-scope type-alias name as @SrcLetBinding@ entries, and a type-alias
+-- name (e.g. @Pos@, bound to @TCustom "Pos"@) would otherwise unfold to a bogus
+-- @(> Pos 0)@ over a type, not a value.
 --
--- v1 province is refinement-typed PARAM binders ONLY (@sbSource == SrcParam@).
--- The param filter is not cosmetic: @shEnv@ also carries the enclosing
--- function's own name and every in-scope type-alias name as @SrcLetBinding@
--- entries, and a type-alias name (e.g. @Pos@, bound to @TCustom "Pos"@) would
--- otherwise unfold through the alias map and emit a bogus @(> Pos 0)@ over a
--- type, not a value. Restricting to @SrcParam@ drops those and coincides with
--- the intended boundary: let/match definitional equalities and @def-invariant@
--- axioms are out of scope (v2 / deferred, the latter pending provenance tagging
--- as an unverified TCB axiom).
+-- (v2a) For each in-scope let-binding with a QF-LIA RHS, emit the definitional
+-- equality @(= name rhs)@ (the RHS carried on @sbDef@). Still out of scope:
+-- match-scrutinee case hypotheses, and @def-invariant@ axioms (deferred pending
+-- provenance tagging as an unverified TCB axiom).
 --
 -- Sourcing exclusively from the in-scope binder set (@shEnv@ of the checked-out
 -- hole) keeps the field path-correct by construction: out-of-scope /
@@ -1024,10 +1023,24 @@ buildScopeEntries env =
 -- nothing.
 assembleAssumptions :: Map.Map Name Type -> Map.Map Name ScopeBinding -> [Text]
 assembleAssumptions aliasMap env =
+  -- (v1) refinement predicates of refinement-typed PARAMS.
   [ exprToSExpr (substExpr (Map.singleton x0 (EVar name)) phi)
   | (name, binding) <- Map.toAscList env
   , sbSource binding == SrcParam
   , Just (x0, phi)  <- [resolveRefinement aliasMap (sbType binding)]
+  ]
+  ++
+  -- (v2a) definitional equalities of in-scope let-bindings with a QF-LIA RHS.
+  -- A let-binding appears in the hole's shEnv iff the hole is inside its body, so
+  -- @(= y e)@ genuinely holds at the hole (the body VC assumes it, FixpointEmit).
+  -- The @isQfLia@ filter keeps the field QF-LIA (a call/opaque RHS is skipped)
+  -- and, since only real let-bindings carry an @sbDef@, it also excludes the
+  -- type-alias-name and enclosing-fn-name leaks that ride the SrcLetBinding tag.
+  [ exprToSExpr (EApp "=" [EVar name, rhs])
+  | (name, binding) <- Map.toAscList env
+  , sbSource binding == SrcLetBinding
+  , Just rhs        <- [sbDef binding]
+  , isQfLia rhs
   ]
 
 -- | Resolve a binder's type to its refinement predicate, if any. A direct

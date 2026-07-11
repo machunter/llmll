@@ -1916,6 +1916,26 @@ main = hspec $ do
             []    -> expectationFailure "?blue_label hole not recorded"
             (h:_) -> shPointer h `shouldBe` "/statements/1/body/arms/2/body"
 
+    it "LET-PTR: hole in a let body has pointer /statements/0/body/body" $ do
+      -- Regression: the let body traversal must push the "body" segment (like
+      -- fn bodies / if-branches / match-arms) so the hole's sketch pointer
+      -- matches its AST node; otherwise `checkout` cannot resolve a let-nested
+      -- hole and returns null in_scope / assumptions.
+      let src = T.pack $ unlines
+            [ "(def-shell f [x: int]"
+            , "  (let [(y (- x 1))]"
+            , "    ?tail))" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
+          case filter ((== "?tail") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?tail hole not recorded"
+            (h:_) -> do
+              shPointer h `shouldBe` "/statements/0/body/body"
+              -- the let-binding y is in scope at the hole
+              Map.member "y" (shEnv h) `shouldBe` True
+
     it "concrete program produces no holes and non-sketch check is unaffected" $ do
       let src = T.pack $ unlines
             [ "(def-shell f [x: int] x)"
@@ -7588,6 +7608,32 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           as = assumptionsFor src
       -- Map.toAscList orders by binder name (x before y).
       as `shouldBe` ["(> x 0)", "(< y 10)"]
+
+    -- OBLIG-1 v2a: in-scope let-bindings with a QF-LIA RHS surface (= y e).
+    it "OA-6: a let-binding with a QF-LIA RHS surfaces its definitional equality" $ do
+      let src = [ "(def f [x: int]"
+                , "  (post (>= result 0))"
+                , "  (let [(y (- x 1))]"
+                , "    ?body))" ]
+      -- x is base-typed (no param predicate); y = (- x 1) is in scope at the hole.
+      assumptionsFor src `shouldBe` ["(= y (- x 1))"]
+
+    it "OA-7: a let-binding with a non-QF-LIA RHS (a call) is not surfaced" $ do
+      let src = [ "(def g [n: int] (post (>= result 0)) (+ n 1))"
+                , "(def f [x: int]"
+                , "  (post (>= result 0))"
+                , "  (let [(y (g x))]"
+                , "    ?body))" ]
+      -- y = (g x) is an opaque call, not QF-LIA → skipped (no assumption).
+      assumptionsFor src `shouldBe` []
+
+    it "OA-8: v1 param refinement and v2a let-def compose in one brief" $ do
+      let src = [ "(def f [x: (where [v: int] (> v 0))]"
+                , "  (post (>= result 0))"
+                , "  (let [(y (+ x 2))]"
+                , "    ?body))" ]
+      -- Both provinces fire: x's refinement (param) and y's definition (let).
+      assumptionsFor src `shouldBe` ["(> x 0)", "(= y (+ x 2))"]
 
   describe "ObligationAssembly: recursiveNames" $ do
     it "OA-RN1: empty for non-recursive" $ do

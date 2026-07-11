@@ -197,6 +197,9 @@ data ScopeSource
 data ScopeBinding = ScopeBinding
   { sbType   :: Type
   , sbSource :: ScopeSource
+  , sbDef    :: Maybe Expr   -- ^ OBLIG-1 v2a: the RHS expr for a let-binding
+                             -- ('SrcLetBinding'), for surfacing the definitional
+                             -- equality (= y e); 'Nothing' for params/match-arms.
   } deriving (Show, Eq)
 
 -- | A named hole with its inferred status, RFC 6901 JSON Pointer location,
@@ -243,6 +246,10 @@ data TCState = TCState
   -- like "a", and structuralUnify's occurs check (occursIn, string-equality
   -- on TVar names) fires a false "infinite type" on the coincidence alone.
   , tcTVarCounter    :: Int
+  , tcDefs           :: Map Name Expr  -- ^ OBLIG-1 v2a: let-binding name → RHS,
+                                       -- threaded like 'tcProvenance' so a hole's
+                                       -- 'shEnv' can carry each let-binding's
+                                       -- defining expression (for (= y e)).
   } deriving (Show)
 
 type TC a = State TCState a
@@ -336,6 +343,18 @@ withTaggedEnv source bindings action = do
     }
   result <- action
   modify $ \s -> s { tcEnv = oldEnv, tcProvenance = oldProv }
+  pure result
+
+-- | OBLIG-1 v2a: record let-binding name→RHS for the duration of an action (the
+-- let body), so a hole inside it captures each binding's defining expression in
+-- its 'shEnv'. Saves/restores 'tcDefs' exactly as 'withTaggedEnv' does
+-- 'tcProvenance', so a binding's RHS never leaks to a sibling scope.
+withDefs :: [(Name, Expr)] -> TC a -> TC a
+withDefs defs action = do
+  oldDefs <- gets tcDefs
+  modify $ \s -> s { tcDefs = foldr (\(n, e) acc -> Map.insert n e acc) oldDefs defs }
+  result <- action
+  modify $ \s -> s { tcDefs = oldDefs }
   pure result
 
 -- | Run a computation in a function-scope context.
@@ -487,13 +506,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTC gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty)
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode.
 runTCSketch :: GrammarMode -> TypeEnv -> TC a -> (a, TCState)
 runTCSketch gm env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0)
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty)
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -540,12 +559,14 @@ recordHole name status = do
     -- v0.3.5 C2: snapshot tcEnv delta with provenance
     env <- gets tcEnv
     prov <- gets tcProvenance
+    defs <- gets tcDefs
     let delta = Map.difference env builtinEnv
-        -- Build ScopeBinding map: join type from env with source from provenance.
+        -- Build ScopeBinding map: join type from env with source from provenance,
+        -- and (OBLIG-1 v2a) the let-binding RHS from tcDefs.
         -- Default to SrcLetBinding for bindings without explicit provenance
         -- (e.g. top-level definitions registered in checkStatements).
         scopedDelta = Map.mapWithKey (\k t ->
-          ScopeBinding t (Map.findWithDefault SrcLetBinding k prov)) delta
+          ScopeBinding t (Map.findWithDefault SrcLetBinding k prov) (Map.lookup k defs)) delta
     modify $ \s -> s { tcHoles = SketchHole ("?" <> name) status ptr scopedDelta : tcHoles s }
 
 -- | Emit an ambiguous-hole diagnostic to the error accumulator.
@@ -597,7 +618,7 @@ typeCheckStrict gm env stmts =
 
 runTCStrict :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTCStrict gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0 Map.empty)
   in (result, tcErrors st)
 
 -- | v0.6.3: Strict typecheck with module cache.
@@ -642,7 +663,7 @@ typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
       -- shadow these in 'checkStatements' (local wins; same direction as 'open').
       seededAliases = Map.foldl seedAliases Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0)
+        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty)
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -1141,7 +1162,18 @@ inferExpr (ELet bindings body) = do
   -- Restore to pre-let env, then use withTaggedEnv for the body only.
   -- This ensures foldM's tcInsert mutations don't leak to sibling expressions.
   modify $ \s -> s { tcEnv = savedEnv, tcProvenance = savedProv }
-  withTaggedEnv SrcLetBinding resolvedBindings (inferExpr body)
+  -- OBLIG-1 v2a: record simple-var let-binding RHSs so a hole in the body
+  -- carries the definitional equality (= y e). Only PVar heads (a destructuring
+  -- pattern has no single binder to attach an RHS to).
+  --
+  -- LET-PTR: the body traversal pushes the "body" segment (like function bodies,
+  -- if-branches, match-arms) so a let-nested hole's sketch pointer matches its
+  -- AST node (.../body). Without it the hole recorded /statements/N/body while
+  -- its AST node is /statements/N/body/body, so `checkout` could not resolve the
+  -- hole and returned null in_scope / assumptions for every let-nested hole.
+  let letDefs = [ (n, e) | (PVar n, _, e) <- bindings ]
+  withDefs letDefs (withTaggedEnv SrcLetBinding resolvedBindings
+    (withSegment "body" (inferExpr body)))
 
 inferExpr (EIf cond thenE elseE) = do
   condType <- inferExpr cond
