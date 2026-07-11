@@ -4,6 +4,23 @@
 
 <a id="Latest"></a>
 
+## v0.14.28 — obligation-report `expected_type` uses sketch inference (2026-07-11)
+
+### Obligation report — richer per-hole `expected_type`
+
+- **`verify --obligation-report` now reports a hole's sketch-inferred type where the structural pass leaves it
+  untyped.** The per-hole `expected_type` was sourced from `analyzeHoles` (structural) alone, which reads
+  `unknown` for value-position holes — e.g. `?bump` in `(+ x ?bump)` — that the checkout brief's `runSketch`
+  already types as `int`. Because a fill agent gates its callable-vocabulary suggestions on `expected_type`,
+  `unknown` ungated the full (capped) OBLIG-VOCAB-GATE list instead of the typed subset. `assembleReport` now
+  runs the same sketch the brief uses (type-check cost, no solver), joins holes by RFC-6901 pointer, and prefers
+  the sketch type **only where the structural type is absent** — the structural type still wins when present, and
+  an un-inferable hole stays `unknown` (no false precision). Closes roadmap row **OBLIG-HOLE-TYPE** (surfaced by
+  the v0.14.20 OBLIG-VOCAB-GATE fix). No schema bump: `expected_type` already existed; only its value is sharper.
+
+**Tests:** 1150 Haskell, 45 Python (+2: OHT-1 value-position `(+ x ?bump)` reads `int` in the report where the
+structural pass is untyped; OHT-2 bare `?whole` stays `unknown`).
+
 ## v0.14.27 — lexicographic descent (k>1) + n-arm matches in strict-core `def` (2026-07-11)
 
 ### Verify — lexicographic termination measures
