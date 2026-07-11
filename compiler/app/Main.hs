@@ -30,7 +30,8 @@ import Numeric (showFFloat)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.ByteString.Lazy as BL
-import Data.Aeson (Value, encode, object, (.=))
+import Data.Aeson (Value(..), encode, object, toJSON, (.=))
+import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -58,7 +59,8 @@ import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..)
 import LLMLL.Diagnostic
   ( DiagnosticReport(..), Diagnostic(..), Severity(..)
   , formatDiagnostic, formatDiagnosticSExp, formatDiagnosticJson
-  , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated)
+  , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
+  , mkReuseWarning)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
@@ -67,6 +69,7 @@ import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, buildCheckoutFuncs, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
 import LLMLL.PatchApply (applyPatch, applyPatchWithMode, PatchScopeMode(..), parsePatchRequest, PatchResult(..), PatchRequest(..), PatchOp(..), applyOps, hashFile)
+import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , buildDivergenceReport, divergenceReportJson )
@@ -2285,11 +2288,66 @@ doPatchWith scopeMode _json gm fp patchFp = do
               BLC.putStrLn (encode (PatchApplyError gerr))
               exitFailure
             Right () -> do
+              -- REFINE-REUSE: advisory retrieval attached to the success output.
+              -- Runs ALONGSIDE the gate (not part of it) — it never affects the
+              -- verdict. Computed BEFORE applyPatchWithMode, which overwrites the
+              -- source file on success (reuseRetrievalPass re-reads that file to
+              -- diff the spawned sub-contracts, so it must see the PRE-patch
+              -- source). Injected only into a ScopeRefine success.
+              sugg <- case scopeMode of
+                        ScopeRefine -> reuseRetrievalPass gm fp pr
+                        ScopeNormal -> pure []
               result <- applyPatchWithMode scopeMode gm fp pr
-              BLC.putStrLn (encode result)
+              let out = case result of
+                          PatchSuccess _ -> injectReuse sugg (toJSON result)
+                          _              -> toJSON result
+              BLC.putStrLn (encode out)
               case result of
                 PatchSuccess _ -> exitSuccess
                 _              -> exitFailure
+
+-- | REFINE-REUSE: inject the advisory @reuse_suggestions@ (always present on a
+-- ScopeRefine success, possibly empty) and, when any suggestion is an exact
+-- contract-equivalent, a non-blocking @warnings@ array carrying @W-REUSE@.
+-- Additive: the refine result JSON is unversioned, so only new keys are added.
+injectReuse :: [ReuseSuggestion] -> Value -> Value
+injectReuse sugg (Object o) =
+  let warns = [ mkReuseWarning (rsSpawned s) (rsCandidate s)
+              | s <- sugg, rsRelation s == "exact-equivalent" ]
+      o1 = KM.insert "reuse_suggestions" (toJSON sugg) o
+      o2 = if null warns then o1 else KM.insert "warnings" (toJSON warns) o1
+  in Object o2
+injectReuse _ v = v
+
+-- | REFINE-REUSE: compute the advisory reuse suggestions for a `refine`. Mirrors
+-- 'refineGate' setup — parse the source, apply the ops, diff to find the newly
+-- SPAWNED sub-contracts, take the pre-refine source defs as the candidate pool —
+-- then runs the retrieval driver. Graceful skip (empty) on any parse failure or
+-- when there is no spawn. The subsumption tier further graceful-skips when no
+-- solver is installed (mirrors 'refineGate'); the exact-key tier still runs.
+reuseRetrievalPass :: GrammarMode -> FilePath -> PatchRequest -> IO [ReuseSuggestion]
+reuseRetrievalPass gm fp pr = do
+  raw <- BL.readFile fp
+  case A.decode raw of
+    Nothing     -> pure []
+    Just srcVal ->
+      case (parseJSONASTValue gm srcVal, applyOps (prPatch pr) srcVal) of
+        (Right srcStmts, Right patchedVal) ->
+          case parseJSONASTValue gm patchedVal of
+            Left _      -> pure []
+            Right stmts -> do
+              let srcNames    = [ n | s <- srcStmts, Just (n,_,_,_,_) <- [normalizeDefStmt s] ]
+                  spawnedDefs = [ (n, ps, mr, c)
+                                | s <- stmts, Just (n, ps, mr, c, _) <- [normalizeDefStmt s]
+                                , n `notElem` srcNames ]
+                  candDefs    = [ (n, ps, mr, c)
+                                | s <- srcStmts, Just (n, ps, mr, c, _) <- [normalizeDefStmt s] ]
+                  aliases     = buildAliasMap stmts
+              if null spawnedDefs then pure [] else do
+                mLF <- do a <- findExecutable "liquid-fixpoint"
+                          maybe (findExecutable "fixpoint") (pure . Just) a
+                reuseRetrieval mLF aliases spawnedDefs candDefs
+        _ -> pure []
 
 -- | cascading Stage 4: the contract-quality GATE run before a `refine` applies.
 -- Rejects a refine whose spawned sub-contract is vacuous — a contract most generic

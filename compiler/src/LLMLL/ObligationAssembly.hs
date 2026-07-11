@@ -22,6 +22,7 @@ module LLMLL.ObligationAssembly
   , computeEffectSummary
   , encodeEff
   , exprToSExpr
+  , substExpr           -- REFINE-REUSE: positional α-rename of a refinement predicate
   , deriveBacking
   , classifyGuard
   , collectHoleGuards
