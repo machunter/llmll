@@ -67,7 +67,7 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, buildCheckoutFuncs, ScopeEntry(..), FuncEntry(..), checkoutHole, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), loadSessions, sessionMembers, promoteDivergenceWinner, emptyCheckoutContext)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, assembleAssumptions, buildCheckoutFuncs, ScopeEntry(..), FuncEntry(..), checkoutHole, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), loadSessions, sessionMembers, promoteDivergenceWinner, emptyCheckoutContext)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
@@ -7527,6 +7527,57 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "OBR-4: unknown pointer yields empty brief (no enclosing function)" $ withStmts $ \stmts ->
       holeContractBrief stmts "/statements/99/body" "?x"
         `shouldBe` (Nothing, Nothing, [])
+
+  -- OBLIG-1 (assumptions wire, v1): the checkout brief's 'assumptions' field is
+  -- the refinement predicates of the in-scope refined binders, α-renamed to
+  -- their actual names. This mirrors Main.assembleCheckoutContext exactly:
+  -- parse → runSketch → the checked-out hole's shEnv → assembleAssumptions over
+  -- the same-file alias map. v1 province is refinement-typed binders ONLY.
+  describe "OBLIG-1: assumptions field (OA)" $ do
+    let assumptionsFor srcLines =
+          case parseStatements GrammarCoreInversion "<test>" (T.unlines srcLines) of
+            Left e      -> error ("parse failed: " <> show e)
+            Right stmts ->
+              let sketch = runSketch GrammarCoreInversion builtinEnv stmts defaultPatterns
+              in case sketchHoles sketch of
+                   (h:_) -> assembleAssumptions (buildAliasMap stmts) (shEnv h)
+                   []    -> error "OA harness: sketch produced no hole"
+
+    it "OA-1: inline refined param surfaces its predicate, α-renamed to the binder" $ do
+      let src = [ "(def f [x: (where [v: int] (> v 0))]"
+                , "  (post (>= result 0))"
+                , "  ?body)" ]
+      -- Exact: the enclosing name 'f' (SrcLetBinding) contributes nothing.
+      assumptionsFor src `shouldBe` ["(> x 0)"]
+
+    it "OA-2: aliased refined param resolves through the alias map" $ do
+      let src = [ "(type Pos (where [v: int] (> v 0)))"
+                , "(def f [x: Pos]"
+                , "  (post (>= result 0))"
+                , "  ?body)" ]
+      -- Exact: the type-alias name 'Pos' also leaks into shEnv (SrcLetBinding)
+      -- but is filtered out — only the param 'x' surfaces, α-renamed.
+      assumptionsFor src `shouldBe` ["(> x 0)"]
+
+    it "OA-3: base-typed params contribute no assumptions" $ do
+      let src = [ "(def f [x: int y: int]"
+                , "  (post (>= result 0))"
+                , "  ?body)" ]
+      assumptionsFor src `shouldBe` []
+
+    it "OA-4: compound predicate round-trips both conjuncts (substExpr shape)" $ do
+      let src = [ "(def f [x: (where [v: int] (and (>= v 0) (< v 100)))]"
+                , "  (post (>= result 0))"
+                , "  ?body)" ]
+      assumptionsFor src `shouldBe` ["(and (>= x 0) (< x 100))"]
+
+    it "OA-5: multiple refined binders each surface their own predicate" $ do
+      let src = [ "(def f [x: (where [v: int] (> v 0)) y: (where [v: int] (< v 10))]"
+                , "  (post (>= result 0))"
+                , "  ?body)" ]
+          as = assumptionsFor src
+      -- Map.toAscList orders by binder name (x before y).
+      as `shouldBe` ["(> x 0)", "(< y 10)"]
 
   describe "ObligationAssembly: recursiveNames" $ do
     it "OA-RN1: empty for non-recursive" $ do

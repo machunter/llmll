@@ -65,7 +65,7 @@ import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, F
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
-import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, buildCheckoutFuncs, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
+import LLMLL.Checkout (checkoutHole, checkoutHoleWithContext, releaseHole, checkoutStatus, CheckoutToken(..), CheckoutContext(..), FuncEntry(..), buildScopeEntries, assembleAssumptions, buildCheckoutFuncs, collectTypeDefinitions, normalizePointer, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), sessionMembers, loadSessions)
 import LLMLL.PatchApply (applyPatch, applyPatchWithMode, PatchScopeMode(..), parsePatchRequest, PatchResult(..), PatchRequest(..), PatchOp(..), applyOps, hashFile)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
@@ -1942,10 +1942,10 @@ assembleCheckoutContext json gm fp pointer = do
     then Just <$> hashFile verifiedFp
     else pure Nothing
   let normPtr = normalizePointer pointer
-  (mScope, mTypeDefs, mPre, mPost, mPath, mFuncs, mConsumed, mExpRet) <- do
+  (mScope, mTypeDefs, mPre, mPost, mPath, mFuncs, mConsumed, mExpRet, mAssumptions) <- do
     mStmts <- loadStatementsMulti json gm fp
     case mStmts of
-      Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
+      Left () -> pure (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
       Right (stmts, _cache, _) -> do
         -- XMOD-SCOPE-BRIEF: seed the sketch env with qualified cache exports
         -- so the hole's in_scope carries imported names — the walk's SOpen
@@ -1957,6 +1957,15 @@ assembleCheckoutContext json gm fp pointer = do
                        (h:_) -> Just h
                        []    -> Nothing
             scope  = fmap (buildScopeEntries . shEnv) mHole
+            -- OBLIG-1 (assumptions wire, v1): refinement predicates of the
+            -- in-scope refined binders, α-renamed to their actual names.
+            -- Sourced ONLY from the hole's shEnv, so path-correct by
+            -- construction. Same-file alias map ('buildAliasMap').
+            assumptions = case mHole of
+              Nothing -> Nothing
+              Just h  ->
+                let preds = assembleAssumptions (buildAliasMap stmts) (shEnv h)
+                in if null preds then Nothing else Just preds
             expRet = mHole >>= (inferredTypeLabel . shStatus)
             holeNm = maybe "" shName mHole
             (pre, post, path) = holeContractBrief stmts normPtr holeNm
@@ -1997,6 +2006,7 @@ assembleCheckoutContext json gm fp pointer = do
              , if null funcs then Nothing else Just funcs
              , if null consumed then Nothing else Just consumed
              , expRet
+             , assumptions
              )
   pure CheckoutContext
     { ccScope          = mScope
@@ -2006,7 +2016,7 @@ assembleCheckoutContext json gm fp pointer = do
     , ccContractPre    = mPre
     , ccPostGoal       = mPost
     , ccPathCondition  = mPath
-    , ccAssumptions    = Nothing
+    , ccAssumptions    = mAssumptions
     , ccObligationId   = Nothing
     , ccSourceHash     = Just sourceHash
     , ccVerifiedHash   = mVerifiedHash

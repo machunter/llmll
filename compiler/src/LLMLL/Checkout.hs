@@ -50,6 +50,7 @@ module LLMLL.Checkout
   , monomorphizeFunctions
   , truncateScope
   , buildScopeEntries
+  , assembleAssumptions  -- OBLIG-1: the brief's 'assumptions' field (v1: refined binders)
   , buildFuncEntries
   , buildCheckoutFuncs   -- HOLE-STATUS: the brief's available_functions list
   , sourceLabel
@@ -74,10 +75,10 @@ import Data.Maybe (mapMaybe)
 
 import LLMLL.JsonPointer (resolvePointer, isHoleNode, findDescendantHoles)
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..))
-import LLMLL.Syntax (Span(..), Type(..), Name, typeLabel, Statement, ModuleCache, Contract(..), normalizeDefStmt)
+import LLMLL.Syntax (Span(..), Type(..), Expr(..), Name, typeLabel, Statement, ModuleCache, Contract(..), normalizeDefStmt)
 import LLMLL.TypeCheck (ScopeBinding(..), ScopeSource(..))
 import LLMLL.TrustReport (TrustEntry)
-import LLMLL.ObligationAssembly (trustLabel, importedContractedFns, exprToSExpr)
+import LLMLL.ObligationAssembly (trustLabel, importedContractedFns, exprToSExpr, substExpr)
 import LLMLL.HubQuery (QueryResult(..))
 
 -- ---------------------------------------------------------------------------
@@ -996,6 +997,50 @@ buildScopeEntries env =
   [ ScopeEntry name (typeLabel (sbType binding)) (sourceLabel (sbSource binding))
   | (name, binding) <- Map.toAscList env
   ]
+
+-- | OBLIG-1 (assumptions wire, v1): surface the refinement predicates of the
+-- in-scope refinement-typed binders as the checkout brief's @assumptions@.
+--
+-- For each in-scope binder @(name, ty)@ whose type resolves — directly, or
+-- through a type alias — to @TDependent x0 _ phi@, emit @phi@ with the bound
+-- variable @x0@ α-renamed to the binder's actual @name@ (so
+-- @amount: (where [v:int] (> v 0))@ contributes @(> amount 0)@). Base-typed and
+-- function-typed binders contribute nothing.
+--
+-- v1 province is refinement-typed PARAM binders ONLY (@sbSource == SrcParam@).
+-- The param filter is not cosmetic: @shEnv@ also carries the enclosing
+-- function's own name and every in-scope type-alias name as @SrcLetBinding@
+-- entries, and a type-alias name (e.g. @Pos@, bound to @TCustom "Pos"@) would
+-- otherwise unfold through the alias map and emit a bogus @(> Pos 0)@ over a
+-- type, not a value. Restricting to @SrcParam@ drops those and coincides with
+-- the intended boundary: let/match definitional equalities and @def-invariant@
+-- axioms are out of scope (v2 / deferred, the latter pending provenance tagging
+-- as an unverified TCB axiom).
+--
+-- Sourcing exclusively from the in-scope binder set (@shEnv@ of the checked-out
+-- hole) keeps the field path-correct by construction: out-of-scope /
+-- sibling-branch binders never appear. The alias map is same-file
+-- ('buildAliasMap'); imported aliases that never unfold locally contribute
+-- nothing.
+assembleAssumptions :: Map.Map Name Type -> Map.Map Name ScopeBinding -> [Text]
+assembleAssumptions aliasMap env =
+  [ exprToSExpr (substExpr (Map.singleton x0 (EVar name)) phi)
+  | (name, binding) <- Map.toAscList env
+  , sbSource binding == SrcParam
+  , Just (x0, phi)  <- [resolveRefinement aliasMap (sbType binding)]
+  ]
+
+-- | Resolve a binder's type to its refinement predicate, if any. A direct
+-- @TDependent@ is used as-is; a @TCustom n@ is unfolded through the alias map
+-- (bounded, to tolerate a short chain of aliases) until it reaches a
+-- @TDependent@ or a non-alias. A type that never reaches a @TDependent@
+-- contributes no assumption. Returns the bound variable and the predicate.
+resolveRefinement :: Map.Map Name Type -> Type -> Maybe (Name, Expr)
+resolveRefinement aliasMap = go (8 :: Int)
+  where
+    go _ (TDependent x0 _ phi) = Just (x0, phi)
+    go n (TCustom c) | n > 0   = Map.lookup c aliasMap >>= go (n - 1)
+    go _ _                     = Nothing
 
 -- | Build FuncEntry list from a function signature map.
 buildFuncEntries :: Map.Map Name Type -> [FuncEntry]

@@ -22,6 +22,7 @@ module LLMLL.ObligationAssembly
   , computeEffectSummary
   , encodeEff
   , exprToSExpr
+  , substExpr           -- OBLIG-1 assumptions wire: α-rename a refinement predicate
   , deriveBacking
   , classifyGuard
   , collectHoleGuards
