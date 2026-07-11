@@ -128,16 +128,6 @@ normOps (EApp n args) = EApp n (map normOps args)
 normOps (EIf a b c)  = EIf (normOps a) (normOps b) (normOps c)
 normOps e            = e
 
--- | EOp → EApp throughout a contract's predicates. The JSON parser stores an
--- operator node (@kind:"op"@) as 'EOp' (ParserJSON), but the QF-LIA gate
--- 'classifyContractFragment' / 'isQfLia' only recognizes the 'EApp' form — so
--- without this, every real (parsed) contract mis-classifies as non-QF-LIA and no
--- suggestion is ever produced. 'exprToPred' and 'normOps' already tolerate 'EOp'
--- on the solver/key paths; this closes the gate path.
-normContractOps :: Contract -> Contract
-normContractOps c = c { contractPre  = fmap normOps (contractPre c)
-                      , contractPost = fmap normOps (contractPost c) }
-
 -- ---------------------------------------------------------------------------
 -- Canonical-contract key (exact-match index — no solver)
 -- ---------------------------------------------------------------------------
@@ -273,9 +263,9 @@ reuseRetrieval mLF aliases spawned pool =
   where
     -- Only QF-LIA contracts reach the solver; a fully-absent or Lean-escaping
     -- contract abstains (no suggestion). classifyContractFragment returns
-    -- "qf_lia" when at least one clause is present and both are QF-LIA. Normalize
-    -- EOp → EApp first so the parser's operator representation is recognized.
-    qfContract c = classifyContractFragment (normContractOps c) == "qf_lia"
+    -- "qf_lia" when at least one clause is present and both are QF-LIA — it
+    -- recognizes the parser's EOp operator form directly (since CLASSIFY-EOP).
+    qfContract c = classifyContractFragment c == "qf_lia"
 
 -- ---------------------------------------------------------------------------
 -- local helper

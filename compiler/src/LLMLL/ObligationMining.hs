@@ -173,6 +173,13 @@ isQfLia expr = case expr of
   -- Literals
   ELit _      -> True
   EVar _      -> True
+  -- CLASSIFY-EOP: both parsers emit an operator node as 'EOp' (S-expr
+  -- 'Parser.hs:897', JSON 'ParserJSON.hs:558'), but every operator case below
+  -- matches 'EApp'. Without this, a normal operator-bearing contract predicate
+  -- (e.g. '(>= x 0)') falls through to the 'not in fragment' default and
+  -- mis-classifies as non-QF-LIA — even though it verifies fine (FixpointEmit
+  -- normalizes EOp→EApp at ':1916'). Treat 'EOp' as the equivalent 'EApp'.
+  EOp op args -> isQfLia (EApp op args)
   -- Linear arithmetic + comparisons
   EApp op [l, r]
     | op `elem` [">=", "≥", ">", "<=", "≤", "<", "=", "==", "/=", "≠",

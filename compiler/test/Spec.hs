@@ -7438,6 +7438,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         (Just (EApp "string-empty?" [EVar "s"])) Nothing Nothing Nothing Nothing)
         `shouldBe` "non_qf_lia"
 
+    it "OA-CF-EOP: qf_lia for an operator predicate in EOp form (as both parsers emit)" $
+      -- CLASSIFY-EOP regression: `(>= x 0)` / `(> result x)` parse to EOp, not EApp;
+      -- the classifier must recognize the EOp form, else every real operator-bearing
+      -- contract mis-labels non_qf_lia (verifies fine — FixpointEmit normalizes EOp→EApp).
+      classifyContractFragment (Contract
+        (Just (EOp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
+        (Just (EOp ">" [EVar "result", EVar "x"])) Nothing Nothing)
+        `shouldBe` "qf_lia"
+
   describe "ObligationAssembly: classifyBodyFragment" $ do
     let noRec = Set.empty :: Set.Set T.Text
 
@@ -8138,6 +8147,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       isQfLia (EApp "string-empty?" [EVar "s"]) `shouldBe` False
     it "IQ-3: multiplication is not QF-LIA" $
       isQfLia (EApp "*" [EVar "x", EVar "y"]) `shouldBe` False
+    it "IQ-4: operator in EOp form is QF-LIA (CLASSIFY-EOP)" $
+      isQfLia (EOp ">=" [EVar "x", ELit (LitInt 0)]) `shouldBe` True
+    it "IQ-5: nested EOp connectives are QF-LIA (CLASSIFY-EOP)" $
+      isQfLia (EOp "and" [ EOp ">=" [EVar "x", ELit (LitInt 0)]
+                        , EOp "<"  [EVar "x", ELit (LitInt 5)] ]) `shouldBe` True
+    it "IQ-6: EOp with a non-linear operator is still rejected" $
+      isQfLia (EOp "*" [EVar "x", EVar "y"]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- Phase 4: Golden Benchmark Tests (B1, B3, B5)
