@@ -31,6 +31,7 @@ module LLMLL.TrustReport
   , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
   , markMeasureNotDecreasing  -- REC-DESCENT: stamp measure-not-decreasing post-solver
+  , markDescentDischarged  -- REC-DESCENT Phase 3: drop the mark for descent-discharged SCCs
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
   , injectOpenedAliases -- XMOD-CG-BRIEF: bare-alias opened imports in any qualified-keyed map
   , trustReportEmitVersion
@@ -433,6 +434,16 @@ markMeasureNotDecreasing mnd report =
             , trMeasureNotDecreasingFns = mnd
             }
 
+-- | REC-DESCENT Phase 3: drop the 'termination_unverified' mark for the
+-- descent-discharged (total-correctness) functions. Post-solver, like
+-- 'markRefuted' / 'markMeasureNotDecreasing' — discharge is a solver fact, so a
+-- solver-less '--trust-report' render keeps the mark (conservative). Subtracts
+-- from 'trPartialFns'; the per-entry 'termination_unverified' flag and the
+-- top-level 'partial_fns' list are both projected from that set, so both clear.
+markDescentDischarged :: Set Name -> TrustReport -> TrustReport
+markDescentDischarged discharged report =
+  report { trPartialFns = trPartialFns report `Set.difference` discharged }
+
 -- | OBLIG-PBT-3: collect SHA-256 hashes of every live property body across
 -- the entry module and the cached module set. Used by 'buildTrustReport' on
 -- read to detect property-body drift / deletion and downgrade stale
@@ -522,7 +533,7 @@ downgradeStaleVerifiedSidecar stmts =
     -- of the write-side stamp in Main.hs.
     liveHashes :: Map Name Text
     liveHashes = Map.fromList
-      [ (n, canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost (augmentContractPost am mRet c)))
+      [ (n, canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost (augmentContractPost am mRet c)) (case s of SDefShell _ _ _ _ _ d -> d; _ -> []))
       | s <- stmts
       , Just (n, _, mRet, c, body) <- [normalizeDefStmt s]
       ]
@@ -632,7 +643,8 @@ collectAllContractStatus cache entryStmts =
         (Just (TL.toStrict (encodeToLazyText (exprToJson pred))))
         True
         Nothing
-    mkER src _ = EvidenceRecord DLAsserted False src [] False Nothing Nothing False Nothing
+        False
+    mkER src _ = EvidenceRecord DLAsserted False src [] False Nothing Nothing False Nothing False
 
 -- | XMOD-TIER: inject bare-name aliases into the contract-status map for every
 -- name brought into scope by an @(open M)@ in the entry module, mirroring the

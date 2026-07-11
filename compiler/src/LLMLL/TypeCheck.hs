@@ -56,7 +56,8 @@ import Control.Monad.State.Strict
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
-import LLMLL.HoleAnalysis (isNonLinear)
+import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph)
+import Data.Graph (stronglyConnComp, SCC(..))
 
 -- ---------------------------------------------------------------------------
 -- Type Environment
@@ -404,9 +405,23 @@ checkCalleeAdmissibility func = do
     -- channel here (verification runs after type-check). A bare 'erBodyFaithful'
     -- test would admit overflow-tainted / escape-discharged / runtime-fallback /
     -- hash-absent verdicts. So we admit ONLY on the full conjunction.
-    let persistedVerified = case Map.lookup func csMap of
-          Just cs -> erFullyVerifiedAdmissible (csPre cs)
-                     || erFullyVerifiedAdmissible (csPost cs)
+    -- REC-DESCENT Phase 3 (b1): a RECURSIVE callee (a cyclic call-graph SCC
+    -- member) is admissible into strict-core ONLY when its persisted post
+    -- evidence is descent-discharged ('erTerminationVerified'). This closes the
+    -- gap where a verified-but-measureless recursive 'def-shell' callee reached
+    -- the total-correctness strict core on partial-correctness evidence, and
+    -- delivers the lift: a discharged recursive callee (carrying the bit in its
+    -- sidecar) is admitted. Non-recursive callees are unaffected.
+    stmts <- gets tcModuleStmts
+    let recSet = cyclicMembers stmts
+        isRec  = func `Set.member` recSet
+        recTotal mer = erFullyVerifiedAdmissible mer
+                       && maybe False erTerminationVerified mer
+        persistedVerified = case Map.lookup func csMap of
+          Just cs
+            | isRec     -> recTotal (csPost cs)
+            | otherwise -> erFullyVerifiedAdmissible (csPre cs)
+                           || erFullyVerifiedAdmissible (csPost cs)
           Nothing -> False
         trusted = func `Set.member` trustedPrelude
                   || Map.member func builtinEnv
@@ -451,6 +466,16 @@ erFullyVerifiedAdmissible (Just er) =
   && erBodyFaithful er
   && not (erOverflowTainted er)
   && maybe False (const True) (erVerifiedHash er)  -- fail closed on absent hash
+
+-- | REC-DESCENT Phase 3: cyclic call-graph SCC members (the recursive
+-- functions). Local mirror of 'ObligationAssembly.recursiveNames', kept here to
+-- avoid the TypeCheck→ObligationAssembly import cycle (the same pattern
+-- 'TrustReport.cyclicSccMembers' uses).
+cyclicMembers :: [Statement] -> Set.Set Name
+cyclicMembers stmts =
+  let cg   = buildCallGraph stmts
+      sccs = stronglyConnComp [(n, n, deps) | (n, deps) <- Map.toList cg]
+  in Set.fromList [n | CyclicSCC ns <- sccs, n <- ns]
 
 -- | Emit a structured non-exhaustive-match error using the registered diagnostic.
 tcEmitNonExhaustive :: Name -> [Name] -> [Name] -> TC ()

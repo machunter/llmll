@@ -31,6 +31,7 @@ module LLMLL.ObligationAssembly
   , normalizeForFingerprint
   , obligationStatus
   , recursiveNames
+  , recursiveSCCs
   , patternBindings
   , isTypeCompatible
   , trustLabel
@@ -290,6 +291,15 @@ recursiveNames stmts =
   let cg = buildCallGraph stmts
       sccs = stronglyConnComp [(n, n, deps) | (n, deps) <- Map.toList cg]
   in Set.fromList [n | CyclicSCC ns <- sccs, n <- ns]
+
+-- | REC-DESCENT: the cyclic SCC member-lists (each a mutually-recursive group).
+-- Used for the whole-SCC descent-discharge gate: an SCC upgrades to total only
+-- when EVERY member is measured + body-faithful (professor Q2(i)).
+recursiveSCCs :: [Statement] -> [[Name]]
+recursiveSCCs stmts =
+  let cg = buildCallGraph stmts
+      sccs = stronglyConnComp [(n, n, deps) | (n, deps) <- Map.toList cg]
+  in [ ns | CyclicSCC ns <- sccs ]
 
 -- ---------------------------------------------------------------------------
 -- Bundle B0: per-function effect / authority summary (4th informational channel)

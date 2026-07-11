@@ -297,8 +297,8 @@ buildModuleEnv path stmts _env =
     mkCS name contract
       | contractPre contract /= Nothing || contractPost contract /= Nothing =
           Just (name, ContractStatus
-            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (contractPre contract)
-            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (contractPost contract)
+            { csPre  = fmap (const (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) (contractPre contract)
+            , csPost = fmap (const (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) (contractPost contract)
             , csAssumptions = []
             })
       | otherwise = Nothing

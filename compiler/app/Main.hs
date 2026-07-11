@@ -76,7 +76,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -90,7 +90,7 @@ import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), wcSyntheticName)
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
 import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
-import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, exprToSExpr, importedContractedFns)
+import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, exprToSExpr, importedContractedFns)
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
@@ -1371,6 +1371,19 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 | o <- unsafeOrigins
                 , coClause o `notElem` ["descent", "decreases"]
                 , Set.member (coFunction o) bodyFaithfulSet ]
+              -- REC-DESCENT Phase 3: the descent-discharged (total-correctness)
+              -- functions. Only on a SAFE verify (every emitted descent + well-
+              -- foundedness constraint passed): a cyclic SCC discharges iff EVERY
+              -- member declares a translatable k=1 measure (erMeasuredFns) and is
+              -- body-faithful — the whole-SCC gate (professor Q2(i)). These drop
+              -- the termination_unverified mark and become strict-core-admissible.
+              descentDischargedSet = case fqResult of
+                FQSafe -> Set.fromList
+                  [ n' | scc <- recursiveSCCs stmts
+                       , all (`elem` erMeasuredFns emitR) scc
+                       , all (`Set.member` bodyFaithfulSet) scc
+                       , n' <- scc ]
+                _      -> Set.empty
 
           -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
           -- embedded trust report is refuted-marked. Under
@@ -1378,7 +1391,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             oblSidecar <- loadVerified fp
-            let trustRpt = markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar))
+            let trustRpt = markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
@@ -1396,7 +1409,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               paSidecar <- loadVerified fp
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar))
+              let paTrust = markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))
               case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
                 Left e   -> unless json $ TIO.putStrLn ("   proof-artifact NOT written (internal inconsistency): " <> renderLaunderError e)
                 Right pa -> do
@@ -1449,7 +1462,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   -- not function-side proof obligations. Call-site VCs are a v0.9 item.
                   provenCS = Map.fromList
                     [ (n, ContractStatus
-                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False Nothing Nothing False Nothing))
+                        { csPre  = fmap (const (EvidenceRecord DLAsserted False (contractPreSource c) [] False Nothing Nothing False Nothing False))
                                        (contractPre c)
                             -- Pre remains asserted: no call-site VCs in v0.8.1b
                         , csPost = if Set.member n bodyFaithfulSet
@@ -1461,10 +1474,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                                             -- admissible, so it carries no admission hash.
                                             hash = if tainted
                                                    then Nothing
-                                                   else Just (canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost cAug))
-                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash))
+                                                   else Just (canonicalDefEvidenceHash (defFormTag s) body (contractPre c) (contractPost cAug) (case s of SDefShell _ _ _ _ _ d -> d; _ -> []))
+                                        in fmap (const (EvidenceRecord (DLVerified "liquid-fixpoint") True (contractPostSource c) [] tainted Nothing Nothing False hash (Set.member n descentDischargedSet)))
                                                 (contractPost cAug)
-                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing))
+                                   else fmap (const (EvidenceRecord DLAsserted False (contractPostSource c) [] False Nothing Nothing False Nothing False))
                                              (contractPost cAug)
                             -- Post verified only when body-faithful VC succeeded
                         , csAssumptions = []  -- v0.8.1b: deferred to v0.9
@@ -1603,9 +1616,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
-            let report = markMeasureNotDecreasing measureNotDecreasingSet
-                           (markRefuted refutedSet
-                             (buildTrustReportWithCDP _cache stmts sidecar cdpResults))
+            let report = markDescentDischarged descentDischargedSet
+                           (markMeasureNotDecreasing measureNotDecreasingSet
+                             (markRefuted refutedSet
+                               (buildTrustReportWithCDP _cache stmts sidecar cdpResults)))
             if json
               then TIO.putStrLn (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
@@ -1632,7 +1646,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (cdpFlag && not strictCore) already threads
             -- 'cdpResults' correctly; this branch just never did.
-            let stReport = markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults))
+            let stReport = markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))
                 refusal  = refutedClosure refutedSet stReport
             when (trustReport && not obligationReport) $
               if json

@@ -601,15 +601,25 @@ admitVerifiedSemanticsTag = "av2;qf-lia;int=unbounded"
 -- sidecar is downgraded rather than admitted into the strict-core total tier.
 --
 -- Output shape matches 'canonicalPropBodyHash': @\"sha256:\" <> 64 hex@.
-canonicalDefEvidenceHash :: Text -> Expr -> Maybe Expr -> Maybe Expr -> Text
-canonicalDefEvidenceHash formTag body mPre mPost =
+-- REC-DESCENT Phase 3 (professor Q1): the trailing @decs@ (the def-shell's
+-- 'decreases' measure list) enters the preimage — a total-correctness verdict
+-- depends on the measure exactly as it depends on pre/post, so editing the
+-- measure must invalidate the cached total sidecar. Byte-INERT for the empty
+-- list: a decreases-free def emits no measure fragment, so its hash is
+-- unchanged from the REC-HASH-FORM shape.
+canonicalDefEvidenceHash :: Text -> Expr -> Maybe Expr -> Maybe Expr -> [Expr] -> Text
+canonicalDefEvidenceHash formTag body mPre mPost decs =
   let clause = maybe "(none)" canonicalExpr
+      measurePart = if null decs then ""
+                    else " (decreases " <> T.intercalate " " (map canonicalExpr decs) <> ")"
       payload = "(def-evidence "
              <> admitVerifiedSemanticsTag <> " "
              <> "(form " <> formTag <> ") "
              <> "(body " <> canonicalExpr body <> ") "
              <> "(pre " <> clause mPre <> ") "
-             <> "(post " <> clause mPost <> "))"
+             <> "(post " <> clause mPost <> ")"
+             <> measurePart
+             <> ")"
       bytes = SHA256.hash (TE.encodeUtf8 payload)
       hex   = T.pack $ concatMap (\b -> let h = showHex b "" in if length h == 1 then '0':h else h)
                                  (BS.unpack bytes)
@@ -775,7 +785,7 @@ processRun contractByName qualMap propsByDesc delegateBodies run =
               h      = canonicalPropBodyHash body
               w      = PbtWitness h desc
               mkEntry f =
-                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing
+                let er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing False
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
                     key = Map.findWithDefault f f qualMap
                 in (key, cs)
@@ -874,6 +884,8 @@ mergePbtWriteback a b = ContractStatus
            -- ADMIT-VERIFIED: PBT join never produces body-faithful verified
            -- evidence; the hash is verifier-stamped only, so drop it here.
            , erVerifiedHash        = Nothing
+           -- REC-DESCENT: PBT join never establishes termination.
+           , erTerminationVerified = False
            }
 
     dedupWitnesses ws =

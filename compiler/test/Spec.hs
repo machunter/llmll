@@ -45,7 +45,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -1620,6 +1620,64 @@ main = hspec $ do
         && T.isInfixOf "\"kind\":\"termination-obligation\"" reportJson
         && T.isInfixOf "\"refuted_fns\":[]" reportJson) `shouldBe` True
 
+    -- REC-DESCENT Phase 3: discharge feedback (mark-drop) + measure-in-hash.
+    it "RD3-1: markDescentDischarged drops a discharged member from partial_fns" $ do
+      let stmts = parseOrFail "(def-shell cd [x: int] -> int (pre (>= x 0)) (post (= result 0)) (decreases x) (if (= x 0) 0 (cd (- x 1))))"
+          base    = buildTrustReport Map.empty stmts Map.empty
+          dropped = markDescentDischarged (Set.fromList ["cd"]) base
+      Set.member "cd" (trPartialFns base)    `shouldBe` True   -- recursive ⇒ marked termination_unverified
+      Set.member "cd" (trPartialFns dropped) `shouldBe` False  -- descent-discharged ⇒ mark dropped
+
+    it "RD3-2: a k=1 SCC where one member lacks a measure is not dischargeable (whole-SCC gate)" $ do
+      -- ping declares a measure, pong does not; the SCC must stay marked for BOTH.
+      let stmts = parseOrFail (T.unpack (T.concat
+                    [ "(def-shell ping [x: int] -> int (pre (>= x 0)) (post (= result 0)) (decreases x) (pong x))"
+                    , "(def-shell pong [x: int] -> int (pre (>= x 0)) (post (= result 0)) (ping x))" ]))
+          base = buildTrustReport Map.empty stmts Map.empty
+      -- both are recursive-cycle members; neither is dischargeable (pong unmeasured),
+      -- so a correct discharge set is empty and both stay in partial_fns.
+      (Set.member "ping" (trPartialFns base) && Set.member "pong" (trPartialFns base)) `shouldBe` True
+
+    it "RD3-3: the decreases measure enters the evidence hash (Q1: measure edit invalidates; empty is inert)" $ do
+      let body = EVar "x"
+          post = Just (EOp "=" [EVar "result", ELit (LitInt 0)])
+          hEmpty = canonicalDefEvidenceHash "def-shell" body Nothing post []
+          hMeas  = canonicalDefEvidenceHash "def-shell" body Nothing post [EVar "x"]
+          hMeas2 = canonicalDefEvidenceHash "def-shell" body Nothing post [EOp "+" [EVar "x", ELit (LitInt 1)]]
+      hMeas  `shouldNotBe` hEmpty   -- declaring a measure changes the hash
+      hMeas2 `shouldNotBe` hMeas    -- editing the measure changes the hash (invalidates a total sidecar)
+
+    it "RD3-4: a strict-core def calling a DISCHARGED (termination-verified) recursive def-shell is ADMITTED (b1 lift)" $ do
+      let recG = SDefShell { defShellName = "rec-g", defShellParams = [("x", TInt)]
+                           , defShellReturn = Just TInt
+                           , defShellContract = Contract (Just (EOp ">=" [EVar "x", ELit (LitInt 0)])) Nothing (Just (EOp "=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+                           , defShellBody = EIf (EOp "=" [EVar "x", ELit (LitInt 0)]) (ELit (LitInt 0)) (EApp "rec-g" [EOp "-" [EVar "x", ELit (LitInt 1)]])
+                           , defShellDecreases = [EVar "x"] }
+          caller = SDef { defName = "caller", defParams = [("n", TInt)], defReturn = Just TInt
+                        , defContract = Contract (Just (EOp ">=" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing
+                        , defBody = EApp "rec-g" [EVar "n"] }
+          -- rec-g's post evidence is verified + body-faithful + hash + termination-verified.
+          recEr tv = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False (Just "sha256:deadbeef") tv
+          statusMap = DM.fromList [("rec-g", ContractStatus Nothing (Just (recEr True)) [])]
+          report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion (DM.empty :: ModuleCache) statusMap emptyEnv [recG, caller]
+      mapMaybe diagKind (reportDiagnostics report) `shouldNotContain` ["core-membership-violation"]
+
+    it "RD3-5: a strict-core def calling a verified-but-MEASURELESS recursive def-shell is REFUSED (gap closure)" $ do
+      let recG = SDefShell { defShellName = "rec-g", defShellParams = [("x", TInt)]
+                           , defShellReturn = Just TInt
+                           , defShellContract = Contract (Just (EOp ">=" [EVar "x", ELit (LitInt 0)])) Nothing (Just (EOp "=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing
+                           , defShellBody = EIf (EOp "=" [EVar "x", ELit (LitInt 0)]) (ELit (LitInt 0)) (EApp "rec-g" [EOp "-" [EVar "x", ELit (LitInt 1)]])
+                           , defShellDecreases = [] }
+          caller = SDef { defName = "caller", defParams = [("n", TInt)], defReturn = Just TInt
+                        , defContract = Contract (Just (EOp ">=" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing
+                        , defBody = EApp "rec-g" [EVar "n"] }
+          -- verified + body-faithful + hash, but NOT termination-verified (partial correctness):
+          -- the recursion tightening refuses it from the total-correctness strict core.
+          recEr tv = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False (Just "sha256:deadbeef") tv
+          statusMap = DM.fromList [("rec-g", ContractStatus Nothing (Just (recEr False)) [])]
+          report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion (DM.empty :: ModuleCache) statusMap emptyEnv [recG, caller]
+      mapMaybe diagKind (reportDiagnostics report) `shouldContain` ["core-membership-violation"]
+
     -- DEF-RET: optional return-type annotation on def/def-shell (v0.7.0 schema)
     it "DEF-RET: S-expr parses optional '-> T' into mRet" $ do
       case parseStatements GrammarCoreInversion "<test>" (T.pack "(def f [x: int] -> int x)") of
@@ -1686,7 +1744,7 @@ main = hspec $ do
           hashOf stmts =
             let am = buildAliasMap stmts
             in [ canonicalDefEvidenceHash "def" body (contractPre c)
-                   (contractPost (augmentContractPost am mRet c))
+                   (contractPost (augmentContractPost am mRet c)) []
                | SDef _ _ mRet c body <- stmts ]
       case ( parse "(type PositiveInt (where [x: int] (> x 0)))\n(def f [x: int] -> PositiveInt (pre (>= x 0)) (+ x 1))"
            , parse "(type PositiveInt (where [x: int] (> x 0)))\n(def f [x: int] -> int (pre (>= x 0)) (+ x 1))" ) of
@@ -2193,7 +2251,7 @@ main = hspec $ do
           cs = Map.fromList
                  [ ("withdraw", ContractStatus
                      Nothing
-                     (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                     (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False))
                      []) ]
       saveVerified fp cs
       loaded <- loadVerified fp
@@ -2692,8 +2750,8 @@ main = hspec $ do
         hasPost = Just (EApp ">=" [EVar "result", ELit (LitInt 0)])
         body    = EVar "x"
         defaultCS = ContractStatus Nothing Nothing []
-        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) []
-        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) []
+        provenCS  = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) []
+        mixedCS   = ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) []
 
     it "ContractsFull keeps all contracts (SDefLogic)" $ do
       let stmt = mkDefLogic "f" hasPre hasPost body
@@ -2869,8 +2927,8 @@ main = hspec $ do
         body1 = EVar "x"
         stmts = [mkDL "f" pre1 post1 body1, mkDL "g" pre1 Nothing body1]
         provenMap = DM.fromList
-          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
-          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) Nothing [])
+          [ ("f", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) [])
+          , ("g", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) Nothing [])
           ]
         emptyMap = DM.empty
 
@@ -2899,8 +2957,8 @@ main = hspec $ do
     it "saveVerified then loadVerified recovers contract status" $ do
       let testFile = "test/_tmp_roundtrip_test.llmll"
           statuses = DM.fromList
-            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing)) [])
-            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) Nothing [])
+            [ ("add", ContractStatus (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing False)) [])
+            , ("mul", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) Nothing [])
             ]
       saveVerified testFile statuses
       loaded <- loadVerified testFile
@@ -2929,7 +2987,7 @@ main = hspec $ do
           , meAliasMap = DM.empty
           , mePath = modPath
           , meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])]
+              [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) [])]
           , meContracts = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
@@ -2942,7 +3000,7 @@ main = hspec $ do
 
     it "no trust-gap for proven contracts" $ do
       let provenEnv = modEnv { meContractStatus = DM.fromList
-              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])] }
+              [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) [])] }
           provenCache = DM.fromList [(modPath, provenEnv)]
           callerStmts = [SDefLogic "caller" [] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing) (EApp "math.safe-add" [ELit (LitInt 5)])]
           report = typeCheckWithCache GrammarCoreInversion provenCache emptyEnv callerStmts
@@ -2996,28 +3054,28 @@ main = hspec $ do
 
     -- Test 1: Asserted contracts emit trust-gap warnings
     it "asserted contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 2: Proven contracts do NOT emit trust-gap warnings
     it "proven contract in imported module emits no trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldBe` 0
 
     -- Test 3: Tested contracts emit trust-gap warnings
     it "tested contract in imported module emits trust-gap warning" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
       countTrustGaps report `shouldSatisfy` (> 0)
 
     -- Test 4: Mixed levels — proven pre + asserted post still emits warning (for post)
     it "mixed levels (proven pre, asserted post) emits trust-gap for post only" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           report  = typeCheckWithCache GrammarCoreInversion cache emptyEnv mkCallerStmts
           gaps    = filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report)
@@ -3026,7 +3084,7 @@ main = hspec $ do
 
     -- Test 5: Trust declaration at DLTested suppresses DLTested gap
     it "trust declaration at tested level suppresses tested trust-gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" (DLTested 0)
@@ -3040,7 +3098,7 @@ main = hspec $ do
     -- Test 6: Trust declaration at lower level does NOT suppress higher-level gap
     -- (trust at asserted should NOT suppress a tested-level gap since asserted < tested)
     it "trust at asserted does NOT suppress tested-level gap" $ do
-      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)) [])
+      let authEnv = mkAuthModule (ContractStatus (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache   = DM.fromList [(authModPath, authEnv)]
           callerStmts =
             [ STrust "auth.verify.auth.verify" DLAsserted  -- asserted < tested
@@ -3061,7 +3119,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["math"]
             , meContractStatus = DM.fromList
-                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])]
+                [("safe-add", ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) [])]
             , meContracts      = DM.empty
             }
           cryptoEnv = ModuleEnv
@@ -3071,7 +3129,7 @@ main = hspec $ do
             , meAliasMap       = DM.empty
             , mePath           = ["crypto"]
             , meContractStatus = DM.fromList
-                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) Nothing [])]
+                [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) Nothing [])]
             , meContracts      = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
@@ -3127,9 +3185,9 @@ main = hspec $ do
     -- Test 2: Report detects epistemic drift (proven depends on asserted)
     it "detects epistemic drift: proven function depending on asserted callee" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           -- Entry function is proven but calls asserted crypto.hash
           stmts = [ SDefLogic "process" [("x", TInt)] (Just TInt)
@@ -3147,7 +3205,7 @@ main = hspec $ do
     -- Test 3: No drift when all dependencies are proven
     it "no drift when all dependencies are proven" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache = DM.fromList [(["math"], provenMod)]
           stmts = [ SDefLogic "caller" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing Nothing)
@@ -3160,9 +3218,9 @@ main = hspec $ do
     -- Test 4: Summary counts are correct
     it "summary counts match entry classification" $ do
       let provenMod = mkModEnv "safe-add" ["math"]
-                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing)) [])
+                        (ContractStatus (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord (DLContractChecked "z3") False Nothing [] False Nothing Nothing False Nothing False)) [])
           assertedMod = mkModEnv "hash" ["crypto"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) [])
           cache = DM.fromList [(["math"], provenMod), (["crypto"], assertedMod)]
           stmts = [ SDefLogic "no-contract" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")
@@ -3194,7 +3252,7 @@ main = hspec $ do
     -- Test 6: Human-readable format contains function names and levels
     it "formatTrustReport contains function names and verification levels" $ do
       let assertedMod = mkModEnv "verify-token" ["auth"]
-                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) Nothing [])
+                          (ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) Nothing [])
           cache = DM.fromList [(["auth"], assertedMod)]
           stmts = []
           report = buildTrustReport cache stmts Map.empty
@@ -3215,8 +3273,8 @@ main = hspec $ do
     -- pre asserted (caller obligation), post DLVerified (proven implication).
     let preVerifiedCS =
           ContractStatus
-            (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
-            (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+            (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
+            (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False))
             []
         -- The live source for 'withdraw' carrying a real 'requires' predicate.
         withdrawStmt =
@@ -3261,8 +3319,8 @@ main = hspec $ do
     -- change drops csPre from the classifier, it never lifts a weak csPost.
     it "TP-PRE-3 weak post is never promoted (pre dropped, post respected)" $ do
       let weakCS = ContractStatus
-                     (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
-                     (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                     (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
+                     (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
                      []
           sidecar = Map.fromList [("withdraw", weakCS)]
           report  = buildTrustReport Map.empty [withdrawStmt] sidecar
@@ -3326,7 +3384,7 @@ main = hspec $ do
           -- 'pay' verified (body-faithful) → discharged withdraw's pre.
           verifiedSidecar = Map.fromList
             [ ("pay", ContractStatus Nothing
-                        (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                        (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False))
                         []) ]
           verReport = buildTrustReport Map.empty stmts verifiedSidecar
           -- 'pay' NOT verified (no post evidence) → callee pre escaped to it.
@@ -3364,11 +3422,11 @@ main = hspec $ do
           -- Both verified post in the sidecar (callee pre stays asserted).
           sidecar = Map.fromList
             [ ("withdraw", ContractStatus
-                  (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
-                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                  (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
+                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False))
                   [])
             , ("safe-withdraw", ContractStatus Nothing
-                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False))
                   []) ]
           report = buildTrustReport Map.empty stmts sidecar
           effOf nm = case filter (\e -> teName e == nm) (trEntries report) of
@@ -3399,10 +3457,10 @@ main = hspec $ do
           stmts = [calleeStmt, callerStmt]
           sidecar = Map.fromList
             [ ("weak", ContractStatus Nothing
-                  (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                  (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
                   [])
             , ("uses-weak", ContractStatus Nothing
-                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                  (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False))
                   []) ]
           report = buildTrustReport Map.empty stmts sidecar
           effOf nm = case filter (\e -> teName e == nm) (trEntries report) of
@@ -3449,8 +3507,8 @@ main = hspec $ do
     let mkEntry name pre post =
           TrustEntry
             { teName               = name
-            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False Nothing) pre
-            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False Nothing) post
+            , tePre                = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False Nothing False) pre
+            , tePost               = fmap (\dl -> EvidenceRecord dl False Nothing [] False Nothing Nothing False Nothing False) post
             , teDeps               = []
             , teDrifts             = []
             , teEffectiveLevel     = Nothing  -- aggregateTiers falls back to ContractStatus meet
@@ -8329,8 +8387,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- Prior sidecar entry at DLVerified — replicates the verifier write
             -- shape at Main.hs:1196-1206.
             priorCS    = Map.singleton "f" $ ContractStatus
-                           (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
-                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing))
+                           (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
+                           (Just (EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False))
                            []
             -- Replicate Main.hs:doTest order: pbtCS on the sidecar side, prior
             -- sidecar on the base side, merged via Module.mergeCS.
@@ -8410,9 +8468,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "0"  -- never matches a live body
             staleW    = PbtWitness staleHash "f-id"
-            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False Nothing Nothing False Nothing
+            staleEr   = EvidenceRecord (DLTested 100) False Nothing [staleW] False Nothing Nothing False Nothing False
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
                          (Just staleEr)
                          []
             -- Live property covers f but with a body whose hash ≠ staleHash.
@@ -8434,9 +8492,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let f         = mkContractedFn "f"
             staleHash = "sha256:" <> T.replicate 64 "a"
             staleEr   = EvidenceRecord (DLTested 100) False Nothing
-                          [PbtWitness staleHash "f-id"] False Nothing Nothing False Nothing
+                          [PbtWitness staleHash "f-id"] False Nothing Nothing False Nothing False
             staleCS   = Map.singleton "f" $ ContractStatus
-                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing))
+                         (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False))
                          (Just staleEr)
                          []
             stmts     = [f]  -- no SCheck — property deleted
@@ -8723,7 +8781,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             sidecar = Map.fromList
               [ ("f", ContractStatus
                   { csPre  = Nothing
-                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing)
+                  , csPost = Just (EvidenceRecord (DLTested 100) False Nothing [] False Nothing Nothing False Nothing False)
                   , csAssumptions = []
                   })
               ]
@@ -8978,7 +9036,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T12: VerifiedCache round-trip: erOverflowTainted=True survives JSON encode/decode.
     it "T12 .verified.json round-trip preserves overflow_tainted: true" $ do
       let path = "/tmp/llmll-int1-roundtrip.llmll"
-          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False Nothing
+          er   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False Nothing False
           cs   = ContractStatus Nothing (Just er) []
           cs0  = Map.singleton "f" cs
       saveVerified path cs0
@@ -9018,8 +9076,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- T15: TrustReport JSON aggregation surfaces both top-level fns array and
     -- per-entry flag when a verified+tainted entry is present.
     it "T15 trust-report JSON surfaces overflow_tainted at top-level and per-entry" $ do
-      let taintedEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False Nothing
-          cleanEr   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing
+      let taintedEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] True Nothing Nothing False Nothing False
+          cleanEr   = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False
           cs   = Map.fromList
             [ ("add-one", ContractStatus Nothing (Just taintedEr) [])
             , ("is-pos",  ContractStatus Nothing (Just cleanEr)   [])
@@ -10292,10 +10350,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           dblBody     = EOp "+" [EVar "x", EVar "x"]
           dblPost     = Just (EApp "=" [EVar "result", EOp "+" [EVar "x", EVar "x"]])
           dblContract = Contract Nothing Nothing dblPost Nothing Nothing
-          dblHash     = canonicalDefEvidenceHash "def" dblBody Nothing dblPost
+          dblHash     = canonicalDefEvidenceHash "def" dblBody Nothing dblPost []
           -- A fully-verified, hash-valid post EvidenceRecord for 'double'.
           dblVerifiedER = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing []
-                            False Nothing Nothing False (Just dblHash)
+                            False Nothing Nothing False (Just dblHash) False
           dblVerifiedCS = ContractStatus Nothing (Just dblVerifiedER) []
           -- The leaf def statement (so the staleness guard can recompute).
           dblStmt = SDef { defName = "double", defParams = [("x", TInt)]
@@ -10318,7 +10376,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "AV-SF2 stale-hash entry is rejected (callee body changed since verify)" $ do
         -- Persisted evidence keyed to the OLD body hash; live body is dblStmt.
-        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 99)]) Nothing dblPost
+        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 99)]) Nothing dblPost []
             staleER   = dblVerifiedER { erVerifiedHash = Just staleHash }
             rawCS     = DM.fromList [("double", ContractStatus Nothing (Just staleER) [])]
             (validatedCS, _) = downgradeStaleVerifiedSidecar [dblStmt, adStmt] rawCS
@@ -10352,7 +10410,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "AV-XM2 asserted-only imported callee is REJECTED" $ do
         let assertedCS = ContractStatus Nothing
-              (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing)) []
+              (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False)) []
             cache  = DM.fromList [(["core"], mkCoreModule assertedCS)]
             report = typeCheckStrictWithCacheAndStatus GrammarCoreInversion cache DM.empty emptyEnv importerStmts
         kindsOf report `shouldContain` ["core-membership-violation"]
@@ -10360,7 +10418,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "AV-XM3 import staleness (hash mismatch) is REJECTED after validation" $ do
         -- The imported module's persisted evidence is hash-stale relative to
         -- its own live body; validating it before seeding demotes it.
-        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 7)]) Nothing dblPost
+        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 7)]) Nothing dblPost []
             staleCS   = ContractStatus Nothing (Just (dblVerifiedER { erVerifiedHash = Just staleHash })) []
             modEnv    = mkCoreModule staleCS
             (validatedModCS, _) = downgradeStaleVerifiedSidecar (meStatements modEnv) (meContractStatus modEnv)
@@ -10370,7 +10428,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       -- ---- staleness guard direct (2) ----
       it "AV-SG1 hash mismatch downgrades body-faithful evidence to asserted" $ do
-        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 1)]) Nothing dblPost
+        let staleHash = canonicalDefEvidenceHash "def" (EOp "+" [EVar "x", ELit (LitInt 1)]) Nothing dblPost []
             rawCS     = DM.fromList [("double", ContractStatus Nothing (Just (dblVerifiedER { erVerifiedHash = Just staleHash })) [])]
             (out, diags) = downgradeStaleVerifiedSidecar [dblStmt] rawCS
             postER    = csPost (out DM.! "double")
@@ -10406,7 +10464,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       -- ---- schema back-compat (2) ----
       it "AV-BC1 verified_hash-absent sidecar reads (round-trips without the field)" $ do
-        let er  = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing
+        let er  = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False
             cs  = ContractStatus Nothing (Just er) []
             tmp = "/tmp/admit_verified_bc1.llmll"
         saveVerified tmp (DM.fromList [("double", cs)])
@@ -10433,7 +10491,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                              , defReturn = Just TInt, defContract = recContract
                              , defBody = recBody }
           -- The hash that was stamped when 'f' was a def-shell.
-          recDsHash   = canonicalDefEvidenceHash "def-shell" recBody recPre recPost
+          recDsHash   = canonicalDefEvidenceHash "def-shell" recBody recPre recPost []
 
       it "RHF-1 def-shell->def flip over an intact sidecar is REJECTED (probe E closed)" $ do
         let staleER   = dblVerifiedER { erVerifiedHash = Just recDsHash }
@@ -10467,8 +10525,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         diags `shouldBe` []
 
       it "RHF-4 the def-form tag is load-bearing in the hash preimage" $
-        canonicalDefEvidenceHash "def" dblBody Nothing dblPost
-          `shouldNotBe` canonicalDefEvidenceHash "def-shell" dblBody Nothing dblPost
+        canonicalDefEvidenceHash "def" dblBody Nothing dblPost []
+          `shouldNotBe` canonicalDefEvidenceHash "def-shell" dblBody Nothing dblPost []
 
     describe "INV-G: isCoreBodySyntactic" $ do
 

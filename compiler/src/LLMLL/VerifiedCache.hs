@@ -97,7 +97,10 @@ erToJSON er = object $
   -- omitted on records the verifier did not stamp). A reader that does not find
   -- the field defaults to Nothing — which the admission leg treats as
   -- fail-closed (not admissible).
-  maybe [] (\h -> ["verified_hash" .= h]) (erVerifiedHash er)
+  maybe [] (\h -> ["verified_hash" .= h]) (erVerifiedHash er) ++
+  -- REC-DESCENT Phase 3: emit termination_verified only when True (additive,
+  -- omitted on non-total records so existing sidecars stay byte-identical).
+  ["termination_verified" .= True | erTerminationVerified er]
 
 erFromJSON :: Value -> Maybe EvidenceRecord
 erFromJSON (Object o) = do
@@ -136,7 +139,13 @@ erFromJSON (Object o) = do
       vh  = case KM.lookup "verified_hash" o of
               Just (String s) -> Just s
               _               -> Nothing
-  Just $ EvidenceRecord dl bf src ws ot pf pt rc vh
+      -- REC-DESCENT Phase 3: optional total-correctness bit; absent on
+      -- pre-REC-DESCENT sidecars defaults to False (fail-closed — an old
+      -- sidecar is not termination-verified).
+      tv  = case KM.lookup "termination_verified" o of
+              Just (Bool b) -> b
+              _             -> False
+  Just $ EvidenceRecord dl bf src ws ot pf pt rc vh tv
 
 -- ---------------------------------------------------------------------------
 -- JSON encoding — PbtWitness (OBLIG-PBT-3)

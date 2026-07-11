@@ -188,4 +188,4 @@ upgradeLeanstralPosts pcache statuses = foldr apply statuses (Map.toList pcache)
                                  , erVerifiedHash = Nothing } }
 
     emptyCS = ContractStatus Nothing Nothing []
-    emptyER = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing
+    emptyER = EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False

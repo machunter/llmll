@@ -420,6 +420,14 @@ data EvidenceRecord = EvidenceRecord
   -- evidence admission leg. 'Nothing' on pre-ADMIT-VERIFIED sidecars; that
   -- absence MUST fail closed (not admissible) — never unguarded admission.
   , erVerifiedHash         :: Maybe Text     -- ^ "sha256:" hash of canonical (body,pre,post)+version tag
+  -- REC-DESCENT Phase 3: total-correctness bit. True when this function is a
+  -- member of a descent-discharged SCC (every member declares a translatable
+  -- k=1 (decreases e) measure, all body-faithful, and all well-foundedness +
+  -- strict-descent VCs SAFE). Stamped on POST evidence by the verifier; absent
+  -- on read defaults to False (fail-closed). Consulted by
+  -- 'checkCalleeAdmissibility': a RECURSIVE callee is strict-core-admissible
+  -- only when this is True (the b1 lift).
+  , erTerminationVerified  :: Bool
   } deriving (Show, Eq, Generic)
 
 -- | OBLIG-PBT-3: SHA-256 hash + description of a property body whose

@@ -137,6 +137,7 @@ data EmitResult = EmitResult
   , erEmittedPost       :: [Text]           -- ^ v0.8.0: functions whose post emitted a constraint
   , erCallPreFns        :: [Text]           -- ^ v0.9.0: functions that emitted call-pre obligations
   , erOverflowTaintedFns :: [Text]          -- ^ INT-1 (v0.10.8): body-faithful fns whose body uses unbounded-Int arithmetic
+  , erMeasuredFns        :: [Text]          -- ^ REC-DESCENT: def-shells with a translatable k=1 decreases measure (the descent-discharge candidate set; on SAFE + whole-SCC-measured ⇒ termination-verified)
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -504,6 +505,7 @@ emitFixpointWithCache opts srcFile cache stmts = do
     , erEmittedPost       = emPost
     , erCallPreFns        = callPre
     , erOverflowTaintedFns = ovTainted
+    , erMeasuredFns        = [ n | (n, (_, e)) <- Map.toList measureMap, isJust (exprToPred e) ]
     }
 
 -- ---------------------------------------------------------------------------
