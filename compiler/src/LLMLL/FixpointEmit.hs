@@ -578,7 +578,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
         | (v, t) <- params
         , v `Set.member` matchedVs
         , TSumType ctors <- [resolveAliasTy aliases t]
-        , length ctors == 2
+        , length ctors >= 2    -- MATCH-WIDEN-2: n-ary (was ==2); mixed sums only (any payload)
         , any (isJust . snd) ctors ]
       dsAll e     = desugarScrutCtor scrutTagMap (dsExpr e)
       contract    = contractAug { contractPre  = dsAll <$> contractPre contractAug
@@ -755,7 +755,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                   [ (v <> "$" <> c, typeToSort pt)
                   | (v, t) <- params
                   , TSumType ctors <- [resolveAliasTy aliases t]
-                  , length ctors == 2
+                  , length ctors >= 2    -- MATCH-WIDEN-2: n-ary
                   , (c, Just pt) <- ctors
                   , admissiblePayload aliases pt ]
                 -- MATCH-WIDEN STRETCH (S0): seed a free int TAG per two-arm sum param
@@ -767,7 +767,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                   | (v, t) <- params
                   , case resolveAliasTy aliases t of
                       TResult _ _    -> True
-                      TSumType ctors -> length ctors == 2
+                      TSumType ctors -> length ctors >= 2    -- MATCH-WIDEN-2: n-ary
                       _              -> False ]
                 sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
@@ -784,7 +784,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                   [ (v <> "$" <> c, ref)
                   | (v, t) <- params
                   , TSumType ctors <- [resolveAliasTy aliases t]
-                  , length ctors == 2
+                  , length ctors >= 2    -- MATCH-WIDEN-2: n-ary
                   , (c, Just pt) <- ctors
                   , admissiblePayload aliases pt
                   , Just ref <- [payloadRefinement aliases pt] ]
@@ -2027,16 +2027,23 @@ bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
 -- its "<v>$<Ctor>" sort key to be seeded (admissible payload); a nullary arm needs
 -- no key and binds no payload. A payload arm whose key is absent (non-admissible /
 -- recursive payload) fails 'armOk' → falls through to the generic path → fallback.
+-- MATCH-WIDEN-2: n-arm (≥2) user-sum match. Each constructor arm discriminates on
+-- its declaration-order tag `<r>$tag = k`; the arms compose as a right-nested
+-- BranchVC chain (first-match ¬prior), n=2 being byte-identical to the prior
+-- binary encoding. A payload arm requires its `<r>$<Ctor>` sort key (admissible
+-- payload); an arm whose key is absent (non-admissible/recursive) → whole match
+-- falls back. Exhaustiveness is upstream (TypeCheck.checkExhaustive).
 bodyToPredM env se cenv sccSet (EMatch (EVar r) arms)
-  | Just (c1, mv1, b1, c2, mv2, b2) <- classifyTwoArmAdtArms arms
-  , armOk c1 mv1, armOk c2 mv2
+  | Just (ctorArms, mWild) <- classifyNArmAdtArms arms
+  , not (null ctorArms)
+  , all (\(c, mv, _) -> armOk c mv) ctorArms
   = do (refEnv, stm) <- ask
-       -- MATCH-WIDEN STRETCH: arm1's guard tag is c1's DECLARATION-order tag (from
-       -- ScrutTags), so a reordered-arm match agrees with the post's `=Ctor` desugar.
-       let t1 = fromMaybe 0 (Map.lookup r stm >>= Map.lookup c1)
-       buildOpaqueSumBranch env se cenv sccSet r t1
-         (armPayload refEnv c1 mv1, b1)
-         (armPayload refEnv c2 mv2, b2)
+       -- The scrutinee's declaration-order tag map (from ScrutTags) gives each arm's
+       -- tag and the constructor count n (for the tag range fact `tag ∈ {0..n-1}`).
+       let tagOf c   = fromMaybe 0 (Map.lookup r stm >>= Map.lookup c)
+           nCtors    = maybe (length ctorArms) Map.size (Map.lookup r stm)
+           armTuples = [ (tagOf c, armPayload refEnv c mv, b) | (c, mv, b) <- ctorArms ]
+       buildOpaqueSumBranchN env se cenv sccSet r nCtors armTuples mWild
   where
     armOk _ Nothing  = True                          -- nullary arm: always fine
     armOk c (Just _) = Map.member (r <> "$" <> c) se  -- payload arm: must be seeded
@@ -2185,6 +2192,70 @@ buildOpaqueSumBranch env se cenv sccSet scrutVar tag1 (mp1, b1) (mp2, b2) = do
     -- COMP-4 (b): declare a payload at its DECLARED refinement (sound because the
     -- intro-side obligation makes every caller prove it); Nothing → FQTrue skolem
     -- (d-elim). A nullary arm binds nothing and declares no skolem.
+    bindArm Nothing = return (env, se, [])
+    bindArm (Just (v, s, mref)) = do
+      r <- freshName v
+      let armPred = case mref of
+            Nothing      -> FQTrue
+            Just (xb, p) -> fromMaybe FQTrue (exprToPred (renameVar xb r p))
+      return (Map.insert v r env, Map.insert r s se, [(r, s, armPred)])
+
+-- | MATCH-WIDEN-2: n-way generalization of 'buildOpaqueSumBranch'. Builds a
+-- right-nested 'BranchVC' chain discriminating each constructor arm on its
+-- declaration-order tag `<v>$tag = kᵢ`, with the final arm (or an explicit
+-- wildcard) as the terminal `¬prior` else. The tag range fact `tag ∈ {0..n-1}`
+-- and every arm's payload skolem binder ride the OUTERMOST branch's binder field
+-- (declared by 'collectBranchBinders'); inner branches carry none. At n=2 with no
+-- wildcard this is byte-identical to 'buildOpaqueSumBranch' (one BranchVC, the
+-- tag binder + both payload binders, then=arm1, else=arm2). Exhaustiveness is
+-- guaranteed upstream (TypeCheck.checkExhaustive), so the terminal else soundly
+-- covers the remaining constructor(s). Any arm body outside the fragment (Nothing)
+-- → whole match falls back. Stays QF-LIA (no datatype testers).
+buildOpaqueSumBranchN
+  :: Map Name Name -> SortEnv -> ContractEnv -> Set.Set Name
+  -> Name                                                    -- ^ scrutinee var (tag discrimination)
+  -> Int                                                     -- ^ constructor count n (tag range fact)
+  -> [(Int, Maybe (Name, FQSort, Maybe (Name, Expr)), Expr)] -- ^ constructor arms: (tag, optional payload, body)
+  -> Maybe Expr                                              -- ^ optional wildcard-tail body (terminal else)
+  -> ReaderT (RefEnv, ScrutTags) (State Int) (Maybe BodyVC)
+buildOpaqueSumBranchN env se cenv sccSet scrutVar nCtors arms mWild = do
+  let tagVar  = scrutVar <> "$tag"
+      rangeF  = FQOr [ FQBinPred FQEq (FQVar tagVar) (FQLit (toInteger i)) | i <- [0 .. nCtors - 1] ]
+      tagEq t = FQBinPred FQEq (FQVar tagVar) (FQLit (toInteger t))
+  -- Bind then translate each arm in source order (preserves the freshName counter
+  -- order, so n=2 output is byte-identical to the binary builder).
+  armVCs <- forM arms $ \(tag, mp, b) -> do
+    (env', se', binders) <- bindArm mp
+    mvc <- bodyToPredM env' se' cenv sccSet b
+    return (tag, binders, mvc)
+  mWildVC <- traverse (bodyToPredM env se cenv sccSet) mWild
+  let allArmVCs = sequence [ mvc | (_, _, mvc) <- armVCs ]
+      wildOk    = case mWild of
+                    Nothing -> Just Nothing
+                    Just _  -> case mWildVC of Just (Just vc) -> Just (Just vc); _ -> Nothing
+  case (allArmVCs, wildOk) of
+    (Just vcs, Just mwvc) ->
+      let tagged     = zip3 [ t | (t, _, _) <- armVCs ] [ bs | (_, bs, _) <- armVCs ] vcs
+          allBinders = concat [ bs | (_, bs, _) <- armVCs ]
+          (branchArms, terminalVC) = case mwvc of
+            Just wvc -> (tagged, wvc)                              -- wildcard = terminal else
+            Nothing  -> (init tagged, (\(_, _, vc) -> vc) (last tagged))  -- last arm = terminal else
+          branchTags = [ t | (t, _, _) <- branchArms ]
+      in case branchArms of
+           [] -> return (Just terminalVC)  -- degenerate: wildcard-only match
+           -- Soundness: the chain's tag guards must be DISTINCT, else a later arm's
+           -- `¬prior ∧ tag=kᵢ` collapses to false (vacuous, never checked). Non-distinct
+           -- tags mean the scrutinee's ScrutTags were not seeded (e.g. an int-valued
+           -- enum reaching here unseeded, or a bodyToPredFrom unit call) → fall back.
+           -- n=2 has a single branch guard, so this never trips it (byte-identity).
+           _ | length (nub branchTags) /= length branchTags -> return Nothing
+           ((tag1, _, vc1) : rest) ->
+             let inner = foldr (\(tag, _, vc) acc -> BranchVC (tagEq tag) [] vc acc) terminalVC rest
+             in return (Just (BranchVC (tagEq tag1)
+                                       ((tagVar, FQInt, rangeF) : allBinders)
+                                       vc1 inner))
+    _ -> return Nothing
+  where
     bindArm Nothing = return (env, se, [])
     bindArm (Just (v, s, mref)) = do
       r <- freshName v
@@ -2580,24 +2651,30 @@ classifyResultArms arms = case arms of
     Just (s, bodyS, e, bodyE)
   _ -> Nothing
 
--- | COMP-4 (d-elim): classify a two-arm match on an arbitrary user sum type.
--- Each arm is a single-payload constructor pattern over two DISTINCT
--- constructors; returns (ctor1, payloadVar1, body1, ctor2, payloadVar2, body2)
--- in source order. Ctor-agnostic generalization of 'classifyResultArms'; the
--- caller resolves each arm's payload sort from the "<v>$<Ctor>" derived keys.
--- MATCH-WIDEN (v0.14.12): each arm is a single-payload OR nullary constructor
--- (payload var is 'Maybe'), so a mixed sum (one nullary + one payload arm) classifies.
-classifyTwoArmAdtArms :: [(Pattern, Expr)] -> Maybe (Name, Maybe Name, Expr, Name, Maybe Name, Expr)
-classifyTwoArmAdtArms arms = case arms of
-  [(p1, b1), (p2, b2)]
-    | Just (c1, mv1) <- armCtor p1
-    , Just (c2, mv2) <- armCtor p2
-    , c1 /= c2 -> Just (c1, mv1, b1, c2, mv2, b2)
-  _ -> Nothing
+-- | MATCH-WIDEN-2: classify an n-arm (≥2) match on a user sum type. Returns the
+-- list of single-payload-or-nullary constructor arms (in source order, distinct
+-- constructors) plus an OPTIONAL wildcard/PVar tail body (the terminal else). A
+-- wildcard, if present, must be the LAST arm (first-match order). Any arm that is
+-- not a nullary/single-payload constructor or a final wildcard → 'Nothing' (the
+-- whole match falls back). n-ary generalization of 'classifyTwoArmAdtArms';
+-- exhaustiveness is guaranteed upstream by 'TypeCheck.checkExhaustive', so the
+-- verifier need not re-check coverage.
+classifyNArmAdtArms :: [(Pattern, Expr)] -> Maybe ([(Name, Maybe Name, Expr)], Maybe Expr)
+classifyNArmAdtArms arms0 = go arms0 []
   where
-    armCtor (PConstructor c [PVar v]) = Just (c, Just v)
-    armCtor (PConstructor c [])       = Just (c, Nothing)
-    armCtor _                         = Nothing
+    go [] acc
+      | null acc  = Nothing
+      | otherwise = Just (reverse acc, Nothing)
+    -- a final wildcard / PVar arm becomes the terminal else; must be last
+    go [(PWildcard, b)] acc
+      | not (null acc) = Just (reverse acc, Just b)
+    go [(PVar _, b)] acc
+      | not (null acc) = Just (reverse acc, Just b)
+    go ((PConstructor c [PVar v], b) : rest) acc
+      | c `notElem` map (\(cc, _, _) -> cc) acc = go rest ((c, Just v, b) : acc)
+    go ((PConstructor c [], b) : rest) acc
+      | c `notElem` map (\(cc, _, _) -> cc) acc = go rest ((c, Nothing, b) : acc)
+    go _ _ = Nothing
 
 -- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
 -- Used for EMatch-over-call: the match's BranchVC becomes the call's continuation.

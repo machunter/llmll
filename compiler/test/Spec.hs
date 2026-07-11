@@ -6737,6 +6737,90 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             map (\(_, s, _) -> s) binders `shouldBe` [FQInt, FQInt, FQInt]
           other -> expectationFailure $ "Expected BranchVC with binders, got: " ++ show other
 
+    -- MATCH-WIDEN-2: n-arm (>2) payload-bearing sum matches + sequential (Commit A
+    -- is the n-arm half). Same int-tag QF-LIA theory as v0.14.12; the arms compose
+    -- as a right-nested BranchVC chain (first-match ¬prior), n=2 byte-identical to
+    -- the prior binary encoding. Exhaustiveness is guaranteed upstream by
+    -- TypeCheck.checkExhaustive, so the verifier only sees exhaustive matches.
+    -- Refutation preservation (a -bad twin refutes) is a solver verdict, CLI-probe-
+    -- verified (scratchpad mixed3bad.llmll → exit 1); not emit-level testable here.
+    describe "MATCH-WIDEN-2: n-arm payload-bearing sum matches" $ do
+      let emitSrc src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "MW2A-1: a 3-arm mixed sum (nullary + two payloads) is body-faithful" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Sig (| Continue) (| Stop int) (| Retry int))"
+          , "(def-shell handle [s: Sig] -> int"
+          , "  (post (>= result 0))"
+          , "  (match s ((Continue) 0) ((Stop n) n) ((Retry m) m)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "handle"
+        erBodyFallback er    `shouldSatisfy` not . elem "handle"
+
+      it "MW2A-2: a 4-arm sum is body-faithful (the tag chain is naturally n-ary)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Sig4 (| A) (| B int) (| C int) (| D int))"
+          , "(def-shell pick4 [s: Sig4] -> int"
+          , "  (post (>= result 0))"
+          , "  (match s ((A) 0) ((B n) n) ((C m) m) ((D k) k)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "pick4"
+
+      it "MW2A-3: a 3-arm sum with a wildcard tail is body-faithful (terminal ¬prior else)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Sig (| Continue) (| Stop int) (| Retry int))"
+          , "(def-shell hwild [s: Sig] -> int"
+          , "  (post (>= result 0))"
+          , "  (match s ((Continue) 0) ((Stop n) n) (_ 0)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "hwild"
+
+      it "MW2A-4: an all-nullary 3-arm enum is still body-faithful (no regression on the desugar path)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Color (| Red) (| Green) (| Blue))"
+          , "(def-shell pick [c: Color] -> int"
+          , "  (post (>= result 0))"
+          , "  (match c ((Red) 0) ((Green) 1) ((Blue) 2)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "pick"
+
+      it "MW2A-5: a 3-arm sum with a non-admissible (sum-typed) payload arm falls back (firewall)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Inner (| A int) (| B int))"
+          , "(type Wrap3 (| W Inner) (| Z int) (| Q))"
+          , "(def-shell f [w: Wrap3] -> int (post (>= result 0))"
+          , "  (match w ((W i) 0) ((Z n) 0) ((Q) 0)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` not . elem "f"
+
+      it "MW2A-6: a two-arm ADT match is UNCHANGED — a single BranchVC (n=2 byte-identity)" $ do
+        -- Mirrors DELIM-3: the n-way generalization must degenerate to the exact
+        -- prior binary encoding at n=2 (one BranchVC, tag guard o$tag=0, tag binder
+        -- + both payload binders), else every shipped two-arm sidecar invalidates.
+        let body = EMatch (EVar "o")
+                     [ (PConstructor "Ok" [PVar "n"], EVar "n")
+                     , (PConstructor "Bad" [PVar "m"], ELit (LitInt 0)) ]
+            se = Map.fromList [("o$Ok", FQInt), ("o$Bad", FQInt)] :: SortEnv
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
+        case result of
+          Just (BranchVC g binders t e) -> do
+            g `shouldBe` FQBinPred FQEq (FQVar "o$tag") (FQLit 0)
+            map (\(_, s, _) -> s) binders `shouldBe` [FQInt, FQInt, FQInt]
+            -- both children are leaves (no nested chain) — the n=2 special case
+            case (t, e) of
+              (SimpleVC _ _, SimpleVC _ _) -> pure ()
+              _ -> expectationFailure "n=2 must be a flat BranchVC, not a nested chain"
+          other -> expectationFailure $ "Expected single BranchVC, got: " ++ show other
+
+      it "MW2A-7: a non-exhaustive n-arm mixed match is a type error (checkExhaustive gates it before verify)" $ do
+        let src = T.unlines
+              [ "(type Sig (| Continue) (| Stop int) (| Retry int))"
+              , "(def-shell h [s: Sig] -> int (match s ((Continue) 0) ((Stop n) n)))" ]
+        case parseStatements GrammarCoreInversion "<test>" src of
+          Left err -> expectationFailure (show err)
+          Right stmts -> do
+            let report = typeCheck GrammarCoreInversion emptyEnv stmts
+                nonExh = filter (\d -> diagKind d == Just "non-exhaustive-match")
+                                (reportDiagnostics report)
+            nonExh `shouldSatisfy` not . null
+
     -- COMP-4 (b): a matched arm consumes its payload's DECLARED refinement
     -- (elim-side), and a caller forwarding a weaker payload is refused by a
     -- payload-subtyping obligation (intro-side). The elim-binder and the helper
