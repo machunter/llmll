@@ -4,6 +4,45 @@
 
 <a id="Latest"></a>
 
+## v0.14.27 — lexicographic descent (k>1) + n-arm matches in strict-core `def` (2026-07-11)
+
+### Verify — lexicographic termination measures
+
+- **A k>1 `(decreases e₁ … eₖ)` measure now discharges termination via the lexicographic order on ℕᵏ.**
+  Previously k>1 was accepted but only warned `W-DECREASES-LEX` and stayed `termination_unverified`. The
+  per-call-site descent constraint generalizes from the scalar `e[args'] < e` to the QF-LIA disjunction
+  `⋁ᵢ (e₁'=e₁ ∧ … ∧ e_{i-1}'=e_{i-1} ∧ eᵢ'<eᵢ)`, with well-foundedness `eⱼ≥0` per component. `lexLess [g] [f]`
+  is a bare `g<f`, so the k=1 encoding is byte-identical (no shipped sidecar invalidates). Self-recursion
+  and **equal-arity** mutual recursion discharge (different measures per member allowed — the common-ℕᵏ
+  criterion); a k>1 measure that does not lexicographically decrease is `measure-not-decreasing` (the same
+  verdict, over the tuple). No schema/hash change (the measure was list-shaped since REC-DESCENT Phase 1).
+- **Soundness — uniform-arity discharge gate.** A recursive SCC discharges to total **only if every member
+  declares a `decreases` tuple of the same length** (extracted to `ObligationAssembly.descentDischargedFns`).
+  A mismatched-arity edge emits no descent constraint, so without this gate a mixed-arity mutual SCC would
+  verify vacuously-SAFE (nothing to fail) and be stamped total — claiming termination for a divergent
+  function. Mixed-arity now stays `termination_unverified` (refuse-not-pad).
+
+### Verify — n-arm matches in strict-core `def` bodies
+
+- **`isCoreBodySyntactic` admits n-arm payload-bearing sum matches**, so a strict-core `def` body may now
+  contain a >2-arm mixed/payload `match` (previously rejected "use def-shell", even though the verifier —
+  MATCH-WIDEN-2, v0.14.26 — could already discharge it body-faithful). The two payload match cases widen
+  from `length cases == 2` to `>= 2`; `isMixedNullaryPayloadArms` generalizes to any arity. Sound: the
+  verifier already discharges these matches and `checkExhaustive` already enforces coverage, so a `def`
+  body sees no new obligation — the grammar gate catches up to the verifier. The widening lifts only the
+  arity cap: a non-core arm body, a multi-payload constructor pattern, and non-exhaustive matches stay
+  rejected.
+
+### Examples
+
+- **`examples/gotofail/`** exploits MATCH-WIDEN-2: adds `sequential.llmll` / `sequential-bad.llmll` (the
+  faithful `(let [(h (match hash …))] (match sig …))` sequential pipeline) and `nary.llmll` (a 3-arm sum);
+  the stale README scope-limits (two-arm-only, sequential-falls-back) are corrected.
+
+**Tests:** 1148 Haskell, 45 Python. (Lexicographic descent +5 [LEX-1..5; LEX-4 is the mixed-arity soundness
+regression test]; n-arm strict-core +5 [CNARY-1..5]; +1 MW2B-5 sequential-refutation coverage. 1137 → 1148.
+No AST schema change [stays 0.8.0].)
+
 ## v0.14.26 — MATCH-WIDEN-2: n-arm sums + sequential matches (2026-07-10)
 
 Widens the body-faithful match fragment from two arms to any arity, and to sequential matches — same int-tag QF-LIA theory as v0.14.12, no new fragment, no schema change.
