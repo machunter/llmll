@@ -1,0 +1,21 @@
+;; Apple "goto fail", N-ARM form: the signature-check status is a THREE-way sum
+;; `Step3 = Continue | Abort int | Retry int` (not just two arms). The final
+;; Verdict is Verified only if `sig` Continued — the post over the scrutinee's
+;; constructor, discharged over a >2-arm payload-bearing match, which MATCH-WIDEN-2
+;; (v0.14.26, Commit A) made body-faithful via the n-way int-tag chain. Before
+;; v0.14.26 only two-arm sums discharged.
+;;
+;; Uses `def-shell`: the n-arm match now VERIFIES body-faithful, but the strict-core
+;; `def` grammar gate still admits only two-arm matches (a follow-on to widen it to
+;; n-arm), so the >2-arm body lives in `def-shell`. The verification (post over the
+;; scrutinee's constructor) is identical either way.
+;;
+;;   llmll verify examples/gotofail/nary.llmll   -> SAFE (body-faithful: finalize-n)
+(type Step3   (| Continue) (| Abort int) (| Retry int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def-shell finalize-n [sig: Step3] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))
+  (match sig ((Continue) Verified)
+             ((Abort c)  (Rejected c))
+             ((Retry n)  (Rejected n))))

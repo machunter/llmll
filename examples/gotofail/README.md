@@ -6,10 +6,12 @@ each stage's status is a `Step` **value**, and the invariant that carries the st
 over the *scrutinee's constructor* — "return `Verified` only if `sig = Continue`".
 
 This is the class of body that MATCH-WIDEN (v0.14.12) made verifiable: a two-arm sum
-`match` whose contract references the matched value's constructor now discharges
-body-faithfully (int-tag discrimination, QF-LIA — no datatype testers). Crypto/hash
-primitives are axiomatized; the modeled discipline is the error-propagation control
-flow the bug broke.
+`match` whose contract references the matched value's constructor discharges
+body-faithfully (int-tag discrimination, QF-LIA — no datatype testers). **MATCH-WIDEN-2
+(v0.14.26)** extended that to **n-arm (>2-constructor) sums** (`nary.llmll`) and to
+**sequential matches in one body** (`sequential.llmll` — the `(let [x (match a …)]
+(match b …))` shape that previously fell back). Crypto/hash primitives are axiomatized;
+the modeled discipline is the error-propagation control flow the bug broke.
 
 | File | Verdict |
 |---|---|
@@ -18,6 +20,9 @@ flow the bug broke.
 | `pipeline.llmll` | `SAFE` — `finalize` returns `Verified` only when `sig = Continue` |
 | `pipeline-bad.llmll` | **refuted** — returns `Verified` on the `Abort` arm too (the bug) |
 | `nested.llmll` | `SAFE` — the multi-stage pipeline via nested matches (reordered arms) |
+| `sequential.llmll` | `SAFE` — the sequential `(let [(h (match hash …))] (match sig …))` form (MATCH-WIDEN-2 Commit B) |
+| `sequential-bad.llmll` | **refuted** — `Verified` on the signature stage's `Abort` arm, threaded across the sequence (the bug) |
+| `nary.llmll` | `SAFE` — a 3-arm `Step3` sum, `Verified` only if `sig = Continue` (MATCH-WIDEN-2 Commit A; `def-shell`) |
 
 ```
 llmll verify examples/gotofail/finalize.llmll        # SAFE
@@ -25,9 +30,16 @@ llmll verify examples/gotofail/finalize-bad.llmll    # body verification failed 
 llmll verify examples/gotofail/pipeline.llmll        # SAFE
 llmll verify examples/gotofail/pipeline-bad.llmll    # body verification failed (refuted)
 llmll verify examples/gotofail/nested.llmll          # SAFE
+llmll verify examples/gotofail/sequential.llmll      # SAFE
+llmll verify examples/gotofail/sequential-bad.llmll  # body verification failed (refuted)
+llmll verify examples/gotofail/nary.llmll            # SAFE
 ```
 
-**Scope limits.** Two-arm sums; the scrutinee must be `match`ed in the body (a
-constructor post over an *un-matched* param falls back to contract-only, not a crash).
-Sequential two-match-in-one-body composition (`(let [x (match a …)] (match b …))`)
-still falls back to contract-only — a separate case-tree-threading follow-on.
+**Scope.** As of MATCH-WIDEN-2 (v0.14.26): two-arm **and** n-arm payload-bearing sums,
+nested matches, and sequential two-match-in-one-body composition all discharge
+body-faithfully. The scrutinee must be `match`ed in the body (a constructor post over
+an *un-matched* param falls back to contract-only, not a crash). Two residual limits:
+an n-arm (>2-arm) match currently requires `def-shell` — the strict-core `def` grammar
+gate still admits only two-arm matches, a follow-on to widen it to n-arm; and
+recursive / non-admissible sums stay firewalled (int-tag discrimination is for acyclic
+admissible sums).

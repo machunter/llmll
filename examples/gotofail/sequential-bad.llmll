@@ -1,0 +1,14 @@
+;; The goto-fail fill, SEQUENTIAL form: the signature-check's Abort arm STILL
+;; returns Verified — the "report success while skipping the check" bug, threaded
+;; across the sequential composition. Refuted: the post over `sig`'s constructor
+;; fails on the Abort arm (result = Verified with sig = Abort).
+;;
+;;   llmll verify examples/gotofail/sequential-bad.llmll   -> body verification failed (refuted)
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def finalize-seq [hash: Step sig: Step] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))
+  (let [(h (match hash ((Continue) 0) ((Abort c) c)))]
+    (match sig ((Continue) (if (= h 0) Verified (Rejected h)))
+               ((Abort c)  Verified))))

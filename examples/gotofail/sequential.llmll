@@ -1,0 +1,17 @@
+;; Apple "goto fail" (CVE-2014-1266), SEQUENTIAL form: two error-propagation
+;; stages threaded through a let-bound match feeding the final signature-check
+;; match — `(let [(h (match hash …))] (match sig …))`. The final Verdict is
+;; Verified only if the signature check `sig` Continued: the post over the
+;; scrutinee's constructor, discharged across the sequential composition that
+;; MATCH-WIDEN-2 (v0.14.26, Commit B) made body-faithful. Before v0.14.26 this
+;; exact two-match-in-one-body shape fell back to contract-only.
+;;
+;;   llmll verify examples/gotofail/sequential.llmll   -> SAFE (body-faithful: finalize-seq)
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def finalize-seq [hash: Step sig: Step] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))
+  (let [(h (match hash ((Continue) 0) ((Abort c) c)))]
+    (match sig ((Continue) (if (= h 0) Verified (Rejected h)))
+               ((Abort c)  (Rejected c)))))
