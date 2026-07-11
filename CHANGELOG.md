@@ -4,6 +4,26 @@
 
 <a id="Latest"></a>
 
+## v0.14.30 — QF-LIA classifier recognizes the `EOp` operator form (CLASSIFY-EOP) (2026-07-11)
+
+### Fixed — obligation classification for operator-bearing contracts
+
+- **`isQfLia` / `classifyContractFragment` now recognize the `EOp` operator node, not only `EApp`.** Both parsers
+  emit an operator predicate (`(>= x 0)`, `(> result x)`) as `EOp` (S-expr `Parser.hs:897`, JSON
+  `ParserJSON.hs:558`), but every operator case in `isQfLia` matched `EApp` only — so a normal operator-bearing
+  contract fell through to the non-QF-LIA default. The obligation report's `contract_fragment` therefore
+  mislabeled **every** real contract `non_qf_lia`, and `ObligationMining`'s per-obligation Verified/Advisory tier
+  downgraded QF-LIA obligations to Advisory. **Not a soundness defect** — the verifier was never affected
+  (`FixpointEmit` normalizes `EOp → EApp` before VC emission at `:1916`), so contracts always verified correctly;
+  the bug was in the classification/reporting an agent reads to judge auto-dischargeability. One-line central fix
+  (`EOp op args` classified as the equivalent `EApp op args`); REFINE-REUSE's local `normContractOps` workaround
+  removed (its `normOps` canonical-key path is unaffected). Surfaced by REFINE-REUSE's end-to-end verification
+  (v0.14.29). Empirically: `(pre (>= x 0)) (post (> result x))` read `contract_fragment: non_qf_lia` before,
+  `qf_lia` after.
+
+**Tests:** 1167 Haskell, 45 Python (+4: OA-CF-EOP, IQ-4/5/6 — `EOp`-faithful; the prior classifier tests
+constructed `EApp` directly, bypassing the parser, which is exactly why the bug survived).
+
 ## v0.14.29 — checkout-brief `assumptions` (OBLIG-1) + `refine` reuse-retrieval (REFINE-REUSE) (2026-07-11)
 
 ### Checkout brief — `assumptions` field wired (OBLIG-1)
