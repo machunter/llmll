@@ -4,6 +4,55 @@
 
 <a id="Latest"></a>
 
+## v0.14.25 — REC-DESCENT Phase 2+3: termination discharge + strict-core admission (2026-07-10)
+
+Completes the REC-BODY-VC line: a `def-shell` with a discharging `(decreases e)` measure now verifies **total** correctness and becomes strict-core admissible.
+
+### Verify — descent obligations + the `measure-not-decreasing` verdict (Phase 2)
+
+- **A single-measure `(decreases e)` on `def-shell` now discharges termination.** The verifier emits
+  well-foundedness (`pre ⟹ e ≥ 0`) and, at each intra-cycle call site, strict descent
+  (`pre ∧ path ⟹ e[args'] < e`) — QF-LIA over the well-founded order `<` on ℕ. Different measures on
+  distinct cycle members are permitted (they share the ℕ order — Floyd's ranking criterion); the
+  discharge is per-edge, so a terminating cycle whose decrease is distributed across edges rather than
+  holding on each edge is conservatively rejected.
+- **`measure-not-decreasing` — a new hard-fail verdict, distinct from `refuted`.** A declared measure
+  that does not strictly decrease fails the build (exit 1) as `measure-not-decreasing`: the *declared
+  measure* is refuted, **not** the postcondition. Surfaced in the trust report
+  (`measure_not_decreasing_fns` + a per-entry flag) and the obligation report (a `termination-obligation`
+  with `status: measure-not-decreasing`; obligation-report `schema_version` `0.12.1` → `0.12.2`), never
+  mislabeled `refuted`.
+- **Diagnostics:** `W-DECREASES-LEX` (a lexicographic k > 1 clause is accepted but not yet discharged;
+  the SCC stays partial), `W-DECREASES-UNUSED` (a measure on a non-recursive `def-shell`), and an
+  untranslatable-measure firewall (nonlinear / opaque-carrier → no constraint, stays partial, never
+  silently total). Also fixes a latent letrec well-foundedness sort-crash (the `≥ 0` constraint emitted
+  the measure as a bool predicate).
+
+### Verify — discharge feedback + strict-core admission (Phase 3)
+
+- **A descent-discharged cycle upgrades partial → total.** When every member of a recursive SCC declares
+  a discharging k = 1 measure and is body-faithful (the whole-SCC gate), the SCC is descent-discharged:
+  a new persisted `erTerminationVerified` bit is stamped, the `termination_unverified` flag / `partial_fns`
+  membership is dropped, and the recursion becomes **strict-core admissible** — a `def` may now call it.
+- **Admission tightening (closes a live gap).** `checkCalleeAdmissibility` gates a *recursive* callee on
+  `erTerminationVerified`: a descent-discharged recursion is admitted, while a **verified-but-measureless**
+  recursion is now **refused** from strict-core (previously partial-correctness recursion could reach the
+  strict core through a callee). Non-recursive callees are unchanged; rides the existing two-pass
+  persisted-evidence model. Corpus sweep: no example was a strict-core `def` calling a recursive
+  `def-shell`, so nothing needed measures — the gap was latent.
+- **The measure is part of the total-correctness evidence.** `canonicalDefEvidenceHash` folds the
+  `decreases` measure into its preimage, so editing the measure invalidates the cached total verdict;
+  byte-inert for the empty list (decreases-free defs' hashes unchanged). `erTerminationVerified`
+  absent-on-read defaults `False` (fail-closed).
+
+Settled by professor rulings: hash the measure (it is a load-bearing input to the cached total verdict,
+not a tactic hint); admit different-measure mutual recursion via the common-ℕ Floyd criterion, with the
+`≥ 0` floor gating the whole SCC and the per-edge (not per-cycle) incompleteness documented.
+
+**Tests:** 1126 Haskell, 45 Python. (Phase 2 +8 RD2, Phase 3 +5 RD3; 1113 → 1126. No AST schema change
+[stays `0.8.0`]; obligation-report `schema_version` `0.12.2`; `EvidenceRecord` gains `erTerminationVerified`
+[63-site migration].)
+
 ## v0.14.24 — REC-DESCENT Phase 1: the `(decreases …)` surface + schema 0.8.0 (inert) (2026-07-10)
 
 ### Surface — an optional termination-measure clause on `def-shell`
