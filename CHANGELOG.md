@@ -4,6 +4,45 @@
 
 <a id="Latest"></a>
 
+## v0.14.29 — checkout-brief `assumptions` (OBLIG-1) + `refine` reuse-retrieval (REFINE-REUSE) (2026-07-11)
+
+### Checkout brief — `assumptions` field wired (OBLIG-1)
+
+- **The checkout brief's reserved `assumptions` field now carries the refinement predicates of in-scope
+  refinement-typed parameters.** For a checked-out hole, each in-scope PARAM binder `x` whose type resolves —
+  directly or through a same-file type alias — to a refinement type `{v | φ}` contributes `φ` with the bound
+  variable α-renamed to `x` (e.g. `x: (where [v:int] (> v 0))` → `assumptions: ["(> x 0)"]`). Previously
+  `assumptions` was always `null`; the predicate was surfaced nowhere else (`in_scope` shows `int (constrained)`,
+  `type_definitions` the base type), and for an inline refinement it was not even derivable by the consumer.
+  Sourced strictly from the hole's in-scope binder set, so path-correct by construction (out-of-scope /
+  sibling-branch binders never appear). Type-check cost — no solver, no constraint emission. **No schema bump**
+  (`ctAssumptions` was already `[string]`-shaped; the report-side `trAssumptions` is untouched).
+- **v1 scope is refinement-typed parameters only** — a sound-but-deliberately-incomplete view of the hole's
+  hypothesis context (professor review). Out of scope, documented: let-definitional equalities `y = e` (which
+  the body VC *does* assume — a disclosed brief-vs-verifier asymmetry), match-scrutinee case hypotheses, and
+  `def-invariant` axioms (deferred pending provenance tagging, an unverified invariant being a TCB assumption).
+
+### `refine` — advisory reuse-retrieval (REFINE-REUSE)
+
+- **`refine` now surfaces in-scope defs whose contract subsumes a spawned sub-contract, as an advisory
+  `reuse_suggestions` field, plus a non-blocking `W-REUSE` on an exact contract-equivalent.** For each contracted
+  sub-hole a cascading `refine` spawns, the compiler retrieves in-scope `def`/`def-shell`s that could serve it —
+  subsumption is contract subtyping (Liskov-Wing): `D` subsumes `Cₛ` iff `preₛ ⟹ pre_D` (contravariant) ∧
+  `post_D ⟹ postₛ` (covariant), emitted as two standalone liquid-fixpoint refinement-subtyping Horn constraints
+  over α-normalized binders (params → `p0…pn` positionally, result → `v`). An exact contract-equivalent
+  (α-normalized canonical key, no solver) additionally raises `W-REUSE`. **NON-REJECTING**: never blocks a
+  well-formed refine; orthogonal to the CDP vacuity gate. A signature pre-filter (arity + param sort-vector +
+  result sort) and a QF-LIA gate bound solver work; with no solver installed only the exact-key tier runs
+  (graceful skip). `reuse_suggestions` is present (possibly `[]`) on every `ScopeRefine` success; **no AST schema
+  bump** (the refine result JSON is unversioned).
+- Incidental fix surfaced by end-to-end verification: the QF-LIA fragment classifier
+  (`classifyContractFragment` / `isQfLia`) recognized only the `EApp` operator form, but the JSON parser emits
+  `EOp` — so a *parsed* contract mis-classified as non-QF-LIA. REFINE-REUSE normalizes `EOp → EApp` before the
+  gate; the broader classifier blind spot is tracked as a follow-on.
+
+**Tests:** 1163 Haskell, 45 Python (+13: OBLIG-1 +5 [OA-1..5]; REFINE-REUSE +8 [RR-1..8, RR-1..3 real
+liquid-fixpoint solves]).
+
 ## v0.14.28 — obligation-report `expected_type` uses sketch inference (2026-07-11)
 
 ### Obligation report — richer per-hole `expected_type`
