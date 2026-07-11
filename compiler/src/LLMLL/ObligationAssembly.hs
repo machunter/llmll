@@ -76,7 +76,9 @@ import LLMLL.HoleAnalysis
   ( HoleReport(..), HoleEntry(..), HoleStatus(..)
   , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc )
 import LLMLL.ObligationMining (isQfLia, generateCandidates, CandidateExpr(..))
-import LLMLL.TypeCheck (builtinEnv)
+import LLMLL.TypeCheck (builtinEnv, runSketch, seedCacheEnv, SketchResult(..), SketchHole(..))
+import LLMLL.Sketch (inferredTypeLabel)
+import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.GuardClassifier (classifyGuardM, lookupArithOp, lookupPredOp)
 
 -- ---------------------------------------------------------------------------
@@ -944,10 +946,22 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
       refutedSet = trRefutedFns trustRpt
       holeReport = analyzeHoles stmts
 
+      -- OBLIG-HOLE-TYPE: the obligation report's structural hole type
+      -- ('analyzeHoles') reads 'unknown' where the checkout brief's sketch
+      -- inference has a concrete type — so a filterable hole was emitting the
+      -- full OBLIG-VOCAB-GATE vocabulary instead of its typed subset. Run the
+      -- same sketch the brief uses (type-check cost, no solver), keyed by the
+      -- hole's RFC-6901 pointer (shPointer, same form as holePointer), and
+      -- prefer the sketch type below where the structural type is absent.
+      sketchTypeMap = Map.fromList
+        [ (shPointer h, t)
+        | h <- sketchHoles (runSketch GrammarCoreInversion (seedCacheEnv builtinEnv cache) stmts defaultPatterns)
+        , Just t <- [inferredTypeLabel (shStatus h)] ]
+
       -- Assemble hole obligations (XMOD-SCOPE-BRIEF: cache-aware, so the
       -- per-hole contracted-function vocabulary includes imported callables)
       holeObls = assembleHoleObligations stmts cache table mFqResult trustRpt
-                   faithful fallback tainted recNames suppressed holeReport
+                   faithful fallback tainted recNames suppressed sketchTypeMap holeReport
 
       -- Assemble branch obligations from EMatch (F1: two-pass)
       aliases = buildAliasMap stmts
@@ -1003,15 +1017,15 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
 -- | Assemble hole obligations from HoleReport.
 assembleHoleObligations :: [Statement] -> ModuleCache -> ConstraintTable -> Maybe FQVerifyResult
                         -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
-                        -> HoleReport -> [ObligationObj]
-assembleHoleObligations stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed hr =
-  mapMaybe (mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed)
+                        -> Map Text Text -> HoleReport -> [ObligationObj]
+assembleHoleObligations stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed sketchTypeMap hr =
+  mapMaybe (mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed sketchTypeMap)
            (holeEntries hr)
 
 mkHoleObl :: [Statement] -> ModuleCache -> ConstraintTable -> Maybe FQVerifyResult
           -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
-          -> HoleEntry -> Maybe ObligationObj
-mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed he = do
+          -> Map Text Text -> HoleEntry -> Maybe ObligationObj
+mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recNames suppressed sketchTypeMap he = do
   fnName <- enclosingFunc (holePointer he) stmts
   let (mContract, mParams, mBody) = findFunctionInfo fnName stmts
       params   = fromMaybe [] mParams
@@ -1022,7 +1036,8 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
 
       -- Type channel
       typeCh = TypeChannel
-        { tcExpectedType = maybe "unknown" typeLabel (holeInferredType he)
+        { tcExpectedType = maybe (Map.findWithDefault "unknown" (holePointer he) sketchTypeMap)
+                                 typeLabel (holeInferredType he)
         , tcPolymorphic  = case holeInferredType he of
             Just (TVar _) -> True
             _             -> False

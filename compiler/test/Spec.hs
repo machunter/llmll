@@ -7680,6 +7680,39 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let entries' = buildCheckoutFuncs stmts Map.empty Map.empty Nothing
       map (snd . nameStatus) entries' `shouldBe` ["filled", "filled"]
 
+    -- OHT (OBLIG-HOLE-TYPE): the obligation report's per-hole 'expected_type'
+    -- must carry the SKETCH-inferred type when the structural hole analyzer
+    -- ('analyzeHoles', the 'holes' command) leaves the hole untyped
+    -- (inferred-type null). A value-position hole like '(+ x ?bump)' reads
+    -- null structurally but runSketch recovers 'int' from the '+' arg position.
+    -- The fill agent gates its callable vocabulary on 'expected_type', so the
+    -- old 'unknown' needlessly ungated (over-broad vocabulary). Fix = prefer the
+    -- sketch type where the structural type is absent; keep structural when Just.
+    it "OHT-1: a value-position hole reads its sketch-inferred type, not 'unknown'" $ do
+      let stmts = parse [ "(def-shell add-one [x: int]"
+                        , "  (pre  (>= x 0))"
+                        , "  (post (> result x))"
+                        , "  (+ x ?bump))" ]
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      let trustRpt = buildTrustReport Map.empty stmts Map.empty
+          report   = assembleReport "test.llmll" stmts Map.empty emitR Nothing trustRpt
+      -- structural analyzeHoles leaves this hole untyped ...
+      [ holeInferredType he | he <- holeEntries (analyzeHoles stmts)
+                            , holePointer he == "/statements/0/body/args/1" ]
+        `shouldBe` [Nothing]
+      -- ... but the obligation report now surfaces the sketch type.
+      T.isInfixOf "\"expected_type\":\"int\"" report `shouldBe` True
+
+    it "OHT-2: an un-inferable hole stays 'unknown' (no false-precise gating)" $ do
+      let stmts = parse [ "(def-shell mystery [x: int]"
+                        , "  (pre  (>= x 0))"
+                        , "  (post (>= result 0))"
+                        , "  ?whole)" ]
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      let trustRpt = buildTrustReport Map.empty stmts Map.empty
+          report   = assembleReport "test.llmll" stmts Map.empty emitR Nothing trustRpt
+      T.isInfixOf "\"expected_type\":\"unknown\"" report `shouldBe` True
+
     -- Test 5: SAFE per-call-site PreconditionObligation surfacing.
     --
     -- EMPIRICAL CORRECTION (verified against the shipped emitter, not the
