@@ -160,6 +160,7 @@ data ReportSummary = ReportSummary
   , rsDeferred   :: Int
   , rsAsserted   :: Int
   , rsRefuted    :: Int   -- VERIFY-RPT-1 (Commit 4): body-faithful disproved
+  , rsMeasureNotDecreasing :: Int  -- REC-DESCENT (v0.14.25): declared measure disproved
   } deriving (Show)
 
 -- | Top-level obligation report (spec §2.1)
@@ -170,6 +171,7 @@ data ObligationReport = ObligationReport
   , orObligations   :: [ObligationObj]
   , orSummary       :: ReportSummary
   , orRefutedFns    :: [Name]   -- VERIFY-RPT-1 (Commit 4): top-level refuted_fns
+  , orMeasureNotDecreasingFns :: [Name]  -- REC-DESCENT (v0.14.25): top-level measure_not_decreasing_fns
   , orEffectSummary :: [(Name, EffectSummary)]  -- Bundle B0: per-function authority summary (informational)
   } deriving (Show)
 
@@ -931,6 +933,7 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
         , rsDeferred   = length [o | o <- allObls, ooStatus o == "deferred"]
         , rsAsserted   = length [o | o <- allObls, ooStatus o == "asserted"]
         , rsRefuted    = length [o | o <- allObls, ooStatus o == "refuted"]
+        , rsMeasureNotDecreasing = length [o | o <- allObls, ooStatus o == "measure-not-decreasing"]
         }
       report = ObligationReport
         -- VERIFY-RPT-1 (Commit 4): 0.10.0 -> 0.11.0 (additive: "refuted" status
@@ -938,12 +941,15 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
         -- Bundle B0: 0.11.0 -> 0.12.0 (additive: per-function effect_summary).
         -- DEMO-COMP: 0.12.0 -> 0.12.1 (additive: contracted_functions.{pre,post,
         -- tier,return_type}, SAFE precondition-obligation entries, consumed_guarantees).
-        { orSchemaVersion = "0.12.1"
+        -- REC-DESCENT: 0.12.1 -> 0.12.2 (additive: "measure-not-decreasing"
+        -- status value, top-level measure_not_decreasing_fns, summary count).
+        { orSchemaVersion = "0.12.2"
         , orSourceFile    = T.pack fp
         , orCrossModule   = if Map.null cache then "single-file" else "supported"
         , orObligations   = allObls
         , orSummary       = summary
         , orRefutedFns    = Set.toList refutedSet
+        , orMeasureNotDecreasingFns = Set.toList (trMeasureNotDecreasingFns trustRpt)
         , orEffectSummary = computeEffectSummary cache stmts
         }
   in encodeReport report
@@ -1055,7 +1061,17 @@ assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed
       let fnName  = coFunction origin
           clause  = coClause origin
           kind    = classifyClause clause
-          status  = obligationStatus mFqResult fnName kind table suppressed (trRefutedFns trustRpt)
+          baseStatus = obligationStatus mFqResult fnName kind table suppressed (trRefutedFns trustRpt)
+          -- REC-DESCENT (v0.14.25): a failed termination obligation of a
+          -- measure-not-decreasing function reports "measure-not-decreasing",
+          -- distinct from the generic "open" (and from "refuted" — the declared
+          -- measure is disproved, not the postcondition). Scoped to the
+          -- TerminationObligation so a measure-failed function's OTHER
+          -- obligations keep their own status.
+          status  = if kind == TerminationObligation
+                       && Set.member fnName (trMeasureNotDecreasingFns trustRpt)
+                    then "measure-not-decreasing"
+                    else baseStatus
           backing = deriveBacking table fnName kind
           (mContract, mParams, _) = findFunctionInfo fnName stmts
           params  = fromMaybe [] mParams
@@ -1084,12 +1100,14 @@ assembleConstraintObligations stmts table mFqResult trustRpt faithful suppressed
 
     classifyClause c
       | "call-pre:" `T.isPrefixOf` c = PreconditionObligation
-      | c == "decreases"             = TerminationObligation
+      -- REC-DESCENT: both "decreases" (well-foundedness) and "descent"
+      -- (strict-descent) are termination obligations.
+      | c == "decreases" || c == "descent" = TerminationObligation
       | otherwise                    = ContractObligation
 
     clauseChannel c
       | "call-pre:" `T.isPrefixOf` c = "call-pre"
-      | c == "decreases"             = "termination"
+      | c == "decreases" || c == "descent" = "termination"
       | otherwise                    = "contract"
 
 -- | DEMO-COMP (§3.3): assemble per-call-site PreconditionObligation entries on
@@ -1209,6 +1227,7 @@ encodeReport r = T.pack . map (toEnum . fromEnum) . BL.unpack . encode $ object
   , "obligations"    .= map encodeObligation (orObligations r)
   , "summary"        .= encodeSummary (orSummary r)
   , "refuted_fns"    .= orRefutedFns r
+  , "measure_not_decreasing_fns" .= orMeasureNotDecreasingFns r
   , "effect_summary" .= encodeEffectSummary (orEffectSummary r)
   ]
 
@@ -1275,4 +1294,5 @@ encodeSummary s = object
   , "deferred"   .= rsDeferred s
   , "asserted"   .= rsAsserted s
   , "refuted"    .= rsRefuted s
+  , "measure_not_decreasing" .= rsMeasureNotDecreasing s
   ]

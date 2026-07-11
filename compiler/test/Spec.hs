@@ -23,7 +23,7 @@ import LLMLL.ObligationAssembly
   , trustLabel
   , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..)
   , assembleConsumedGuarantees, assembleFunctionLists
-  , assembleSafePreObligations, ObligationObj(..) )
+  , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA)
@@ -45,7 +45,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -1556,6 +1556,69 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           T.isInfixOf "decreases" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` False
+
+    -- REC-DESCENT Phase 2 (v0.14.25): descent obligation emission + verdict.
+    let clausesOf emitR = map coClause (Map.elems (erConstraintTable emitR))
+        parseOrFail s = case parseStatements GrammarCoreInversion "<test>" (T.pack s) of
+                          Left e -> error (show e); Right ss -> ss
+
+    it "RD2-1: a measured recursive def-shell emits a 'descent' constraint AND a 'decreases' (well-foundedness) constraint" $ do
+      let stmts = parseOrFail "(def-shell count-down [x: int] -> int (pre (>= x 0)) (post (>= result 0)) (decreases x) (if (= x 0) 0 (count-down (- x 1))))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      let cs = clausesOf emitR
+      (("descent" `elem` cs) && ("decreases" `elem` cs)) `shouldBe` True
+
+    it "RD2-2: a recursive def-shell WITHOUT a measure emits no 'descent' constraint" $ do
+      let stmts = parseOrFail "(def-shell count-down [x: int] -> int (pre (>= x 0)) (post (>= result 0)) (if (= x 0) 0 (count-down (- x 1))))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` False
+
+    it "RD2-3: a k>1 (lexicographic) measure emits no 'descent' constraint and warns W-DECREASES-LEX" $ do
+      let stmts = parseOrFail "(def-shell f [m: int n: int] -> int (pre (and (>= m 0) (>= n 0))) (post (>= result 0)) (decreases m n) (if (= m 0) 0 (f (- m 1) n)))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` False
+      any (T.isInfixOf "W-DECREASES-LEX" . diagMessage) (erDiagnostics emitR) `shouldBe` True
+
+    it "RD2-4: an untranslatable (nonlinear) measure emits no 'descent' constraint (firewall, never silently total)" $ do
+      let stmts = parseOrFail "(def-shell f [n: int m: int] -> int (pre (and (>= n 0) (>= m 0))) (post (>= result 0)) (decreases (* n m)) (if (= n 0) 0 (f (- n 1) m)))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` False
+
+    it "RD2-5: a decreases measure on a NON-recursive def-shell warns W-DECREASES-UNUSED and emits no 'descent'" $ do
+      let stmts = parseOrFail "(def-shell f [x: int] -> int (pre (>= x 0)) (post (>= result 0)) (decreases x) (+ x 1))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` False
+      any (T.isInfixOf "W-DECREASES-UNUSED" . diagMessage) (erDiagnostics emitR) `shouldBe` True
+
+    it "RD2-6: markMeasureNotDecreasing surfaces a DISTINCT verdict — measure_not_decreasing_fns set, refuted_fns NOT" $ do
+      let stmts  = parseOrFail "(def-shell f [x: int] -> int (pre (>= x 0)) (post (= result x)) (decreases x) (f x))"
+          report = markMeasureNotDecreasing (Set.fromList ["f"]) (buildTrustReport Map.empty stmts Map.empty)
+      Set.member "f" (trMeasureNotDecreasingFns report) `shouldBe` True
+      Set.member "f" (trRefutedFns report) `shouldBe` False
+      let js = formatTrustReportJson report
+      (T.isInfixOf "\"measure_not_decreasing_fns\":[\"f\"]" js
+        && T.isInfixOf "\"measure_not_decreasing\":true" js) `shouldBe` True
+
+    it "RD2-7: F-1 shape — a measured degenerate self-call emits a 'descent' constraint (the solver refutes x<x at verify)" $ do
+      let stmts = parseOrFail "(def-shell alert-admit [latched: bool sev: int] -> bool (post (<=> result (and (and (>= sev 1) (<= sev 2)) (and (not latched) (not (= sev 2)))))) (decreases sev) (alert-admit latched sev))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      ("descent" `elem` clausesOf emitR) `shouldBe` True
+
+    it "RD2-8: the obligation report surfaces measure-not-decreasing DISTINCTLY from refuted (agent-facing)" $ do
+      let stmts = parseOrFail "(def-shell f [x: int] -> int (pre (>= x 0)) (post (= result x)) (decreases x) (f x))"
+      emitR <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "test.llmll" stmts
+      let table      = erConstraintTable emitR
+          descentIds = [ i | (i, o) <- Map.toList table, coClause o == "descent" ]
+          fqResult   = FQUnsafe descentIds
+          trustRpt   = markMeasureNotDecreasing (Set.fromList ["f"]) (buildTrustReport Map.empty stmts Map.empty)
+          reportJson = assembleReport "test.llmll" stmts Map.empty emitR (Just fqResult) trustRpt
+      -- the descent obligation exists, is a termination obligation, and reads
+      -- "measure-not-decreasing" — not "open", not "refuted".
+      not (null descentIds) `shouldBe` True
+      (T.isInfixOf "\"measure_not_decreasing_fns\":[\"f\"]" reportJson
+        && T.isInfixOf "\"status\":\"measure-not-decreasing\"" reportJson
+        && T.isInfixOf "\"kind\":\"termination-obligation\"" reportJson
+        && T.isInfixOf "\"refuted_fns\":[]" reportJson) `shouldBe` True
 
     -- DEF-RET: optional return-type annotation on def/def-shell (v0.7.0 schema)
     it "DEF-RET: S-expr parses optional '-> T' into mRet" $ do
@@ -5214,14 +5277,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -5233,7 +5296,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -5246,7 +5309,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -5259,7 +5322,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -5271,7 +5334,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"

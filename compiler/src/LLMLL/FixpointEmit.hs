@@ -230,6 +230,19 @@ buildContractEnvWith am stmts = Map.fromList $ mapMaybe go stmts
     go (SDefInvariant name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
     go _ = Nothing
 
+-- | REC-DESCENT (v0.14.25): name → (param names, k=1 termination measure) for
+-- every 'def-shell' that declares EXACTLY ONE 'decreases' expression. k>1
+-- (lexicographic) and k=0 (absent) are excluded — they contribute no measure,
+-- so the descent emitter skips them (k>1 gets 'W-DECREASES-LEX' at the dispatch;
+-- k=0 is a plain unmeasured recursive fn, stays 'termination_unverified'). The
+-- param names let the descent emitter substitute the call arguments into the
+-- callee's measure ('eᵍ[a/params_g]'), exactly as the call-pre obligation
+-- substitutes the callee's precondition.
+buildMeasureMap :: [Statement] -> Map Name ([Name], Expr)
+buildMeasureMap stmts = Map.fromList
+  [ (n, (map fst params, e))
+  | SDefShell n params _ _ _ [e] <- stmts ]
+
 -- | xmod-ag: build the imported half of a cross-module ContractEnv. For each
 -- cached module, re-derive its contracts from its own statements THROUGH the
 -- merged alias map 'am' (so nullary-ctor tags match the entry body), then key
@@ -316,6 +329,7 @@ emitFixpointWithCache opts srcFile cache stmts = do
   -- xmod-ag: seed the body-VC ContractEnv with imported contracts (dual-keyed,
   -- desugared against the merged alias map). Entry contracts shadow imports.
   let cenv = cacheAwareContractEnv aliases stmts cache
+      measureMap = buildMeasureMap stmts   -- REC-DESCENT: name → (params, k=1 measure)
       callGraph = buildCallGraph stmts
       sccs = stronglyConnComp
         [(name, name, deps) | (name, deps) <- Map.toList callGraph]
@@ -392,33 +406,46 @@ emitFixpointWithCache opts srcFile cache stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
           name params mRet contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
           name params mRet contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
           name params mRet contract (Just body) Nothing idx
 
-      SDefShell name params mRet contract body _ ->
+      -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
+      -- for well-foundedness (e ≥ 0), reusing the letrec constraint path; the
+      -- per-call-site strict descent is emitted from 'measureMap' in the body
+      -- block. k>1 (lexicographic) is accepted but not discharged (W-DECREASES-LEX);
+      -- a measure on a non-recursive def-shell is unused (W-DECREASES-UNUSED).
+      SDefShell name params mRet contract body dec -> do
+        let mDec = case dec of { [e] -> Just e; _ -> Nothing }
+        when (length dec > 1) $
+          addDiag $ mkWarning Nothing $ "W-DECREASES-LEX: lexicographic decreases (k>1) on '"
+            <> name <> "' is not yet discharged; single-measure metrics discharge in this release "
+            <> "(the function stays termination_unverified)."
+        when (not (null dec) && Set.notMember name recursiveNames) $
+          addDiag $ mkWarning Nothing $ "W-DECREASES-UNUSED: '" <> name
+            <> "' declares a decreases measure but is not self-recursive; no descent obligation is emitted."
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
-          name params mRet contract (Just body) Nothing idx
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
+          name params mRet contract (Just body) mDec idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv recursiveNames measureMap
           name params mRet contract (Just body) Nothing idx
 
       _ -> pure ()
@@ -504,17 +531,18 @@ emitFnConstraints
   -> AliasMap              -- v0.8.0: type alias map for isIntLike
   -> ContractEnv           -- v0.9.0: contract environment for compositional VC
   -> Set.Set Name          -- v0.9.0: recursive SCC set
+  -> Map Name ([Name], Expr) -- REC-DESCENT: name → (params, k=1 measure)
   -> Name
   -> [(Name, Type)]
   -> Maybe Type
   -> Contract
   -> Maybe Expr            -- Just body = function body (Nothing for letrec)
-  -> Maybe Expr            -- Just dec = letrec :decreases
+  -> Maybe Expr            -- Just dec = letrec :decreases OR def-shell k=1 measure (well-foundedness)
   -> Int                   -- statement index (for JSON Pointer)
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet measureMap
     name params mRet contract0 mBody mDec stmtIdx = do
 
   -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
@@ -647,9 +675,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
           Nothing   -> addSkip name  -- complex decrease: D3 already flagged ?proof-required
           Just decPred -> do
             cid  <- freshCid
-            -- well-foundedness: decreases >= 0 (necessary condition for termination)
-            let lhs = FQReft "v" FQInt decPred
-                rhs = FQReft "v" FQInt (FQBinPred FQGe (FQVar "v") (FQLit 0))
+            -- well-foundedness: pre ⟹ measure ≥ 0. REC-DESCENT fix — the measure
+            -- is a TERM (decPred), not a predicate: the constraint proves the
+            -- measure value is a natural number, so the < order the descent uses
+            -- is well-founded (professor Q2 (i): the ≥0 floor). The prior letrec
+            -- code emitted `{v | measure} ⟹ {v | v≥0}`, which mis-sorted a bare
+            -- int measure as a bool predicate and crashed liquid-fixpoint.
+            let mWfPre = contractPre contract >>= exprToPred
+                lhs = FQReft "v" FQInt (fromMaybe FQTrue mWfPre)
+                rhs = FQReft "v" FQInt (FQBinPred FQGe decPred (FQLit 0))
                 c   = FQConstraint cid envIds lhs rhs [name, "decreases"]
             addConst c
             let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
@@ -877,6 +911,55 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                         addConst c
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                         addOrigin cid (ConstraintOrigin name cpTag ptr srcFile)
+
+                    -- REC-DESCENT (v0.14.25): strict-descent obligations. For each
+                    -- intra-SCC call f→g where BOTH f and g declare a k=1 measure,
+                    -- emit  pathGuard ∧ preᶠ ∧ ctxPosts ⟹ eᵍ[a/params_g] < eᶠ
+                    -- (tag "descent"). Common ℕ order (< floored by the ≥0
+                    -- well-foundedness constraint) — sound for different-measure
+                    -- mutual recursion (Floyd ranking; professor Q2). A callee with
+                    -- no measure, or an untranslatable measure, emits no descent
+                    -- constraint (the SCC stays termination_unverified; §3.4.5).
+                    case Map.lookup name measureMap of
+                      Nothing -> pure ()   -- f declares no measure
+                      Just (_fParams, fMeasE) -> case exprToPred fMeasE of
+                        Nothing ->           -- f's measure untranslatable (nonlinear/opaque)
+                          addDiag $ mkWarning Nothing $ "decreases measure of '" <> name
+                            <> "' is not linear-arithmetic-translatable; no descent obligation emitted "
+                            <> "(the function stays termination_unverified)."
+                        Just fMeasPred ->
+                          forM_ (collectDescentSites bvc) $ \(callee, cArgs, pathGuard, ctxCalls, pathLbs) ->
+                            when (Set.member callee sccSet) $
+                              case Map.lookup callee measureMap of
+                                Nothing -> pure ()   -- callee unmeasured → SCC not fully-declared; stays partial
+                                Just (gParams, gMeasE) -> case exprToPred gMeasE of
+                                  Nothing -> pure ()  -- callee measure untranslatable → skip (stays partial)
+                                  Just gMeasPred -> do
+                                    let subst      = Map.fromList (zip gParams cArgs)
+                                        gMeasSubst = applySubst subst gMeasPred
+                                        priorRVars = [ rv | (rv, _, _) <- ctxCalls ]
+                                        scope0     = Set.fromList (map bindName paramBinds ++ priorRVars)
+                                        usableLbs  = inScopeLbs scope0 (nub pathLbs)
+                                    ctxBindIds <- mapM (\(rv, rs, _) -> do
+                                      bid <- freshBid
+                                      addBind (FQBind bid rv (FQReft "v" rs FQTrue))
+                                      return bid) ctxCalls
+                                    lbCtxBindIds <- mapM (\lb -> do
+                                      bid <- freshBid
+                                      addBind (FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
+                                                (FQBinPred FQEq (FQVar "v") (lbRhs lb))))
+                                      return bid) usableLbs
+                                    dcid <- freshCid
+                                    let ctxPosts = [ post | (_, _, post) <- ctxCalls, post /= FQTrue ]
+                                        lhsPred = conjoinAll $ [pathGuard | pathGuard /= FQTrue]
+                                                             ++ maybe [] (:[]) mPre
+                                                             ++ ctxPosts
+                                        lhs = FQReft "v" FQInt lhsPred
+                                        rhs = FQReft "v" FQInt (FQBinPred FQLt gMeasSubst fMeasPred)
+                                        dc  = FQConstraint dcid (envIds ++ ctxBindIds ++ lbCtxBindIds) lhs rhs [name, "descent"]
+                                    addConst dc
+                                    let dptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
+                                    addOrigin dcid (ConstraintOrigin name "descent" dptr srcFile)
 
                     -- COMP-4 (b) intro-side: payload-subtyping obligations. For
                     -- each call passing an arg to a refined-payload Result/ADT
@@ -2212,6 +2295,21 @@ collectCallPreObligations = go FQTrue []
           calls' = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
           contObligs = go guard calls' cont
       in preObligs ++ contObligs
+
+-- | REC-DESCENT (v0.14.25): like 'collectCallPreObligations', but yields the
+-- callee's translated ARGUMENTS (not its precondition) for EVERY 'CallVC' node,
+-- so the descent emitter can substitute them into the callee's measure. Same
+-- path-guard / prior-call-context threading as the call-pre walk.
+collectDescentSites :: BodyVC -> [(Name, [FQPred], FQPred, [(Text, FQSort, FQPred)], [LetBinding])]
+collectDescentSites = go FQTrue []
+  where
+    go _guard _calls (SimpleVC _ _) = []
+    go guard calls (BranchVC g _ thenVC elseVC) =
+      go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
+    go guard calls (CallVC callee args _mPre mPost rVar rSort cont) =
+      let here    = [(callee, args, guard, calls, subtreeLbs cont)]
+          calls'  = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
+      in here ++ go guard calls' cont
 
 -- | F-NIW-4b: all let-bindings reachable in a BodyVC. `prependLB` parks
 -- let-bindings at the leaf SimpleVC of a CallVC continuation, so a call-pre

@@ -76,7 +76,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -1355,12 +1355,22 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- VERIFY-RPT-1 (Commit 4): refuted functions = body-faithful fns
               -- named by the constraint-table origin of each unsafe id.
               bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
-              refutedSet = case fqResult of
-                FQUnsafe ids -> Set.fromList
-                  [ coFunction o
-                  | i <- ids, Just o <- [Map.lookup i table]
-                  , Set.member (coFunction o) bodyFaithfulSet ]
-                _ -> Set.empty
+              unsafeOrigins = case fqResult of
+                FQUnsafe ids -> [ o | i <- ids, Just o <- [Map.lookup i table] ]
+                _            -> []
+              -- REC-DESCENT (v0.14.25): partition the unsafe origins by clause.
+              -- A failing well-foundedness ("decreases") or strict-descent
+              -- ("descent") constraint is measure-not-decreasing — the DECLARED
+              -- measure is unfit — NOT refuted (the postcondition is not
+              -- disproved). Kept out of 'refutedSet' so a pure measure failure is
+              -- never mislabeled 'refuted'. Both are hard exit-1 (FQUnsafe).
+              measureNotDecreasingSet = Set.fromList
+                [ coFunction o | o <- unsafeOrigins, coClause o `elem` ["descent", "decreases"] ]
+              refutedSet = Set.fromList
+                [ coFunction o
+                | o <- unsafeOrigins
+                , coClause o `notElem` ["descent", "decreases"]
+                , Set.member (coFunction o) bodyFaithfulSet ]
 
           -- v0.10: --obligation-report (runs regardless of SAFE/UNSAFE). The
           -- embedded trust report is refuted-marked. Under
@@ -1368,7 +1378,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             oblSidecar <- loadVerified fp
-            let trustRpt = markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)
+            let trustRpt = markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
@@ -1386,7 +1396,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               paSidecar <- loadVerified fp
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)
+              let paTrust = markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar))
               case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
                 Left e   -> unless json $ TIO.putStrLn ("   proof-artifact NOT written (internal inconsistency): " <> renderLaunderError e)
                 Right pa -> do
@@ -1593,8 +1603,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- VERIFY-RPT-1 (Commit 4): mark refuted on the post-solver CDP path
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
-            let report = markRefuted refutedSet
-                           (buildTrustReportWithCDP _cache stmts sidecar cdpResults)
+            let report = markMeasureNotDecreasing measureNotDecreasingSet
+                           (markRefuted refutedSet
+                             (buildTrustReportWithCDP _cache stmts sidecar cdpResults))
             if json
               then TIO.putStrLn (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
@@ -1621,7 +1632,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (cdpFlag && not strictCore) already threads
             -- 'cdpResults' correctly; this branch just never did.
-            let stReport = markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)
+            let stReport = markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults))
                 refusal  = refutedClosure refutedSet stReport
             when (trustReport && not obligationReport) $
               if json

@@ -30,6 +30,7 @@ module LLMLL.TrustReport
   , computeJointHashes -- OBLIG-PBT-5a: joint witness hash detection
   , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
+  , markMeasureNotDecreasing  -- REC-DESCENT: stamp measure-not-decreasing post-solver
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
   , injectOpenedAliases -- XMOD-CG-BRIEF: bare-alias opened imports in any qualified-keyed map
   , trustReportEmitVersion
@@ -169,6 +170,14 @@ data TrustReport = TrustReport
   -- it does NOT feed the trust meet, 'DisplayLevel', or admission. Descent
   -- discharge (REC-BODY-VC (c), REC-DESCENT) will later clear a member.
   , trPartialFns       :: Set Name
+  -- REC-DESCENT (v0.14.25): functions whose declared 'decreases' measure the
+  -- solver disproved — a failing well-foundedness (e ≥ 0) or strict-descent
+  -- (eᵍ[a] < eᶠ) constraint. DISTINCT from 'trRefutedFns': refuted = the
+  -- postcondition is disproved; measure-not-decreasing = the DECLARED measure
+  -- does not decrease (the function may still terminate under another measure).
+  -- Verify-time only (empty on a solver-less render), populated post-solver by
+  -- 'markMeasureNotDecreasing' from the descent/decreases-clause origins.
+  , trMeasureNotDecreasingFns :: Set Name
   -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
   -- density, mirroring the text-only diagnostic at Main.hs's CDP branch
   -- ('over-annotation-warning', CDP.hs Risk #3). Computed here (pure
@@ -358,6 +367,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trCDP             = cdpMap
        , trRefutedFns      = Set.empty  -- VERIFY-RPT-1: populated by markRefuted post-solver
        , trPartialFns      = partialFns  -- REC-PARTIAL-MARK: derived, present on every path
+       , trMeasureNotDecreasingFns = Set.empty  -- REC-DESCENT: populated by markMeasureNotDecreasing post-solver
        , trOverAnnotation  = overAnnotation
        }
   where
@@ -405,6 +415,22 @@ markRefuted refuted report =
         | otherwise = e
   in report { trEntries    = map stamp (trEntries report)
             , trRefutedFns = refuted
+            }
+
+-- | REC-DESCENT (v0.14.25): stamp measure-not-decreasing functions post-solver.
+-- Sets 'trMeasureNotDecreasingFns' and adds a per-entry drift note. Distinct
+-- from 'markRefuted': this is a measure verdict, not a postcondition refutation,
+-- so it does NOT propagate a 'depends-on' closure (a caller of a
+-- measure-unfit function is not itself measure-unfit).
+markMeasureNotDecreasing :: Set Name -> TrustReport -> TrustReport
+markMeasureNotDecreasing mnd report =
+  let stamp e
+        | Set.member (teName e) mnd =
+            e { teDrifts = teDrifts e ++
+                  ["measure-not-decreasing: the declared decreases measure was disproved by liquid-fixpoint (solver UNSAFE on a well-foundedness or strict-descent constraint); termination under this measure does not hold"] }
+        | otherwise = e
+  in report { trEntries                 = map stamp (trEntries report)
+            , trMeasureNotDecreasingFns = mnd
             }
 
 -- | OBLIG-PBT-3: collect SHA-256 hashes of every live property body across
@@ -1281,6 +1307,8 @@ formatTrustReportJson report =
     -- VERIFY-RPT-1 (1.3.0): top-level list of refuted functions (body VC the
     -- solver reported UNSAFE). Verify-time only; empty on a solver-less render.
     , "refuted_fns" .= Set.toList (trRefutedFns report)
+    -- REC-DESCENT (v0.14.25): measure-not-decreasing functions (verify-time only).
+    , "measure_not_decreasing_fns" .= Set.toList (trMeasureNotDecreasingFns report)
     -- REC-PARTIAL-MARK (1.5.0): recursive-cycle members verified only at partial
     -- correctness (termination unverified). Derived from the call-graph SCC, so
     -- unlike 'refuted_fns' it is populated even on a solver-less render.
@@ -1341,6 +1369,7 @@ formatTrustReportJson report =
       -- Orthogonal to 'refuted'/'overflow_tainted' — a refuted recursive fn shows
       -- both. Informational; does not touch 'effective_level'.
       [ "termination_unverified" .= True | Set.member (teName e) (trPartialFns report) ] ++
+      [ "measure_not_decreasing" .= True | Set.member (teName e) (trMeasureNotDecreasingFns report) ] ++
       -- TRUST-PRE (1.4.0): per-entry caller-obligation axis. Emission discipline
       -- is the OPPOSITE of 'refuted': present whenever a 'requires' exists, on
       -- EVERY path (solver-less, sidecar-reload), and persisted. The co-located
