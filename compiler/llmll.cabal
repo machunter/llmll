@@ -38,6 +38,7 @@ library
       LLMLL.JsonPointer
       LLMLL.Checkout
       LLMLL.PatchApply
+      LLMLL.RefineReuse
       LLMLL.VerifiedCache
       LLMLL.Replay
       LLMLL.LeanTranslate

@@ -28,7 +28,8 @@ import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligat
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
-import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, megaparsecToDiagnostic)
+import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
 import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
 import qualified LLMLL.HoleAnalysis as HA
@@ -54,7 +55,7 @@ import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
-import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory)
+import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory, findExecutable)
 import System.Environment (setEnv, unsetEnv, lookupEnv)
 import System.Process (callProcess)
 import Data.List (isSuffixOf, sort, find)
@@ -11503,6 +11504,128 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           any ((== mcSession mc1) . dsSession) remaining `shouldBe` False
         Left diag -> expectationFailure $ T.unpack (diagMessage diag)
       removeDirectoryRecursive tmpDir
+
+  -- -----------------------------------------------------------------------
+  -- REFINE-REUSE (RR): non-rejecting reuse-retrieval for `refine`
+  -- -----------------------------------------------------------------------
+  describe "REFINE-REUSE (RR)" $ do
+    let mkC mPre mPost = Contract mPre Nothing mPost Nothing Nothing
+        -- p >= k, p > k etc. built in EOp form — the representation the JSON
+        -- parser actually produces for `kind:"op"` (ParserJSON), so the driver
+        -- is exercised on real-shaped contracts (isQfLia sees only EApp; the
+        -- driver's normContractOps closes that gap).
+        ge a b = EOp ">=" [EVar a, ELit (LitInt b)]
+        gt a b = EOp ">"  [EVar a, ELit (LitInt b)]
+        aliases = buildAliasMap []
+        findSolver = do a <- findExecutable "liquid-fixpoint"
+                        maybe (findExecutable "fixpoint") (pure . Just) a
+        -- drop the name → the (params, ret, contract) triple buildSubsumptionFQ takes
+        defParts (_, ps, mr, c) = (ps, mr, c)
+        -- spawned Cs = (pre (>= x 1), post (> result 0))  over [x:int] -> int
+        csDef = ("bytes_eq", [("x", TInt)], Just TInt,
+                 mkC (Just (ge "x" 1)) (Just (gt "result" 0)))
+
+    -- RR-1: D = (pre (>= x 0), post (> result 0)) — weaker pre, equal post ⇒
+    -- (>= x 1) ⟹ (>= x 0) SAT and post reflexive SAT ⇒ D subsumes Cs.
+    it "RR-1: weaker-pre/equal-post candidate is a 'subsumes' suggestion" $ do
+      mLF <- findSolver
+      case mLF of
+        Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+        Just _  -> do
+          let dDef = ("safe_impl", [("x", TInt)], Just TInt,
+                      mkC (Just (ge "x" 0)) (Just (gt "result" 0)))
+          sugg <- reuseRetrieval mLF aliases [csDef] [dDef]
+          map (\s -> (rsCandidate s, rsRelation s)) sugg
+            `shouldBe` [("safe_impl", "subsumes")]
+
+    -- RR-2: D' = (pre (>= x 5), …) ⇒ (>= x 1) ⟹ (>= x 5) UNSAT ⇒ not suggested.
+    it "RR-2: stronger-pre candidate is excluded (contravariant pre fails)" $ do
+      mLF <- findSolver
+      case mLF of
+        Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+        Just _  -> do
+          let dDef = ("too_strict", [("x", TInt)], Just TInt,
+                      mkC (Just (ge "x" 5)) (Just (gt "result" 0)))
+          sugg <- reuseRetrieval mLF aliases [csDef] [dDef]
+          sugg `shouldBe` []
+
+    -- RR-3: D'' = (…, post (>= result 0)) ⇒ (>= result 0) ⟹ (> result 0)
+    -- UNSAT (result = 0) ⇒ not suggested (covariant post fails).
+    it "RR-3: weaker-post candidate is excluded (covariant post fails)" $ do
+      mLF <- findSolver
+      case mLF of
+        Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+        Just _  -> do
+          let dDef = ("weak_post", [("x", TInt)], Just TInt,
+                      mkC (Just (ge "x" 0)) (Just (ge "result" 0)))
+          sugg <- reuseRetrieval mLF aliases [csDef] [dDef]
+          sugg `shouldBe` []
+
+    -- RR-4: D ≡ Cs up to α-rename (different PARAM names) ⇒ exact-equivalent by
+    -- canonical key (NO solver), and W-REUSE fires. Refine still succeeds
+    -- (reuseRetrieval only produces advisory suggestions; it never rejects).
+    it "RR-4: α-equivalent candidate is 'exact-equivalent' and fires W-REUSE" $ do
+      -- Cs post is (<=> result (= a b)); D uses param names c,d but is identical
+      -- after positional α-rename → p0,p1.
+      let eqAB     = EOp "<=>" [EVar "result", EOp "=" [EVar "a", EVar "b"]]
+          eqCD     = EOp "<=>" [EVar "result", EOp "=" [EVar "c", EVar "d"]]
+          csEq     = ("spawn_eq", [("a", TInt), ("b", TInt)], Just TBool, mkC Nothing (Just eqAB))
+          dEq      = ("mac_matches", [("c", TInt), ("d", TInt)], Just TBool, mkC Nothing (Just eqCD))
+      -- exact-key tier needs no solver:
+      sugg <- reuseRetrieval Nothing aliases [csEq] [dEq]
+      map (\s -> (rsCandidate s, rsRelation s)) sugg
+        `shouldBe` [("mac_matches", "exact-equivalent")]
+      -- the W-REUSE diagnostic Main derives from an exact-equivalent row:
+      diagCode (mkReuseWarning "spawn_eq" "mac_matches") `shouldBe` Just "W-REUSE"
+
+    -- RR-5: a candidate with different arity/sort is rejected by the cheap
+    -- signature pre-filter BEFORE any solver call (no-constraint path).
+    it "RR-5: signature pre-filter excludes arity/sort mismatch before the solver" $ do
+      -- arity mismatch
+      signatureCompatible aliases ([("x", TInt)], Just TInt)
+                                  ([("x", TInt), ("y", TInt)], Just TInt) `shouldBe` False
+      -- param sort mismatch
+      signatureCompatible aliases ([("x", TInt)], Just TInt)
+                                  ([("x", TBool)], Just TInt) `shouldBe` False
+      -- result sort mismatch
+      signatureCompatible aliases ([("x", TInt)], Just TInt)
+                                  ([("x", TInt)], Just TBool) `shouldBe` False
+      -- matching signature passes
+      signatureCompatible aliases ([("x", TInt)], Just TInt)
+                                  ([("z", TInt)], Just TInt) `shouldBe` True
+      -- driver drops the mismatch with no suggestion (no solver needed):
+      let wrongArity = ("two_arg", [("x", TInt), ("y", TInt)], Just TInt,
+                        mkC (Just (ge "x" 0)) (Just (gt "result" 0)))
+      sugg <- reuseRetrieval Nothing aliases [csDef] [wrongArity]
+      sugg `shouldBe` []
+
+    -- RR-6: no subsuming candidate ⇒ reuse_suggestions empty (non-rejecting).
+    it "RR-6: empty candidate pool yields no suggestions (non-rejecting)" $ do
+      sugg <- reuseRetrieval Nothing aliases [csDef] []
+      sugg `shouldBe` []
+
+    -- RR-7: canonical key equates α-variants (different param names) and
+    -- distinguishes genuinely different contracts.
+    it "RR-7: canonicalContractKey is α-invariant and predicate-sensitive" $ do
+      let c1 = mkC (Just (ge "a" 1)) (Just (gt "result" 0))
+          c2 = mkC (Just (ge "z" 1)) (Just (gt "result" 0))   -- same shape, renamed param
+          c3 = mkC (Just (ge "a" 2)) (Just (gt "result" 0))   -- different literal
+      canonicalContractKey [("a", TInt)] c1 `shouldBe` canonicalContractKey [("z", TInt)] c2
+      canonicalContractKey [("a", TInt)] c1 `shouldNotBe` canonicalContractKey [("a", TInt)] c3
+
+    -- RR-8: buildSubsumptionFQ emits a bare two-constraint .fq (n param binds);
+    -- abstains (Nothing) when a predicate escapes QF-LIA.
+    it "RR-8: buildSubsumptionFQ shape + abstains on non-QF-LIA" $ do
+      let dDef = ("d", [("x", TInt)], Just TInt, mkC (Just (ge "x" 0)) (Just (gt "result" 0)))
+      case buildSubsumptionFQ aliases (defParts csDef) (defParts dDef) of
+        Nothing -> expectationFailure "expected a constraint file for QF-LIA contracts"
+        Just fq -> do
+          length (fqConstraints fq) `shouldBe` 2
+          length (fqBinds fq)       `shouldBe` 1   -- one param p0
+      -- non-linear post (multiplication) escapes QF-LIA → exprToPred fails → Nothing
+      let nl = ("nl", [("x", TInt)], Just TInt,
+                mkC Nothing (Just (EOp "=" [EVar "result", EOp "*" [EVar "x", EVar "x"]])))
+      buildSubsumptionFQ aliases (defParts csDef) (defParts nl) `shouldBe` Nothing
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

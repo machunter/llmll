@@ -40,6 +40,8 @@ module LLMLL.Diagnostic
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
+  -- * REFINE-REUSE: non-blocking reuse-duplicate warning
+  , mkReuseWarning
   ) where
 
 import Data.Text (Text)
@@ -209,6 +211,21 @@ mkTrustGapWarning funcName level pointer =
   in (mkWarning Nothing msg)
        { diagKind = Just "trust-gap"
        , diagPointer = Just pointer
+       }
+
+-- | REFINE-REUSE (W-REUSE): a `refine`-spawned sub-contract is contract-identical
+-- (up to α-rename) to an existing in-scope def. NON-BLOCKING advisory — the
+-- refine still succeeds; this only suggests calling the existing def instead of
+-- filling a duplicate. Sound-but-incomplete (normal-form-key equality).
+mkReuseWarning :: Text  -- ^ spawned sub-contract's def name
+               -> Text  -- ^ the contract-identical in-scope def
+               -> Diagnostic
+mkReuseWarning spawned candidate =
+  let msg = "spawned '" <> spawned <> "' is contract-identical to in-scope '"
+            <> candidate <> "'; consider calling it instead of filling a duplicate"
+  in (mkWarning Nothing msg)
+       { diagCode = Just "W-REUSE"
+       , diagKind = Just "reuse-duplicate"
        }
 
 -- ---------------------------------------------------------------------------
