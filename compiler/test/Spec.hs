@@ -6821,6 +6821,43 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                 (reportDiagnostics report)
             nonExh `shouldSatisfy` not . null
 
+      -- MATCH-WIDEN-2 Commit B: sequential matches in one body. A let-bound
+      -- multi-path match RHS is threaded into the body (§S4) instead of falling
+      -- back; when the body is itself a match this nests (two sequential matches).
+      it "MW2B-1: two sequential two-arm matches in one body are body-faithful" $ do
+        er <- emitSrc (T.unlines
+          [ "(type R (| Ok int) (| Err int))"
+          , "(def-shell chain [a: R b: R] -> int"
+          , "  (post (>= result 0))"
+          , "  (let [(x (match a ((Ok p) (if (>= p 0) p 0)) ((Err q) 0)))]"
+          , "    (match b ((Ok r) (if (>= r 0) (+ x r) x)) ((Err s) x))))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "chain"
+        erBodyFallback er    `shouldSatisfy` not . elem "chain"
+
+      it "MW2B-2: an n-arm match (Commit A) followed by a two-arm match is body-faithful" $ do
+        er <- emitSrc (T.unlines
+          [ "(type Sig (| Continue) (| Stop int) (| Retry int))"
+          , "(type R (| Ok int) (| Err int))"
+          , "(def-shell f [s: Sig b: R] -> int (post (>= result 0))"
+          , "  (let [(x (match s ((Continue) 0) ((Stop n) (if (>= n 0) n 0)) ((Retry m) (if (>= m 0) m 0))))]"
+          , "    (match b ((Ok r) x) ((Err e) x))))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+
+      it "MW2B-3: a single (non-sequential) match body is UNCHANGED — the graft is scoped to multi-path let-RHS" $ do
+        er <- emitSrc (T.unlines
+          [ "(type R (| Ok int) (| Err int))"
+          , "(def-shell single [a: R] -> int (post (>= result 0))"
+          , "  (match a ((Ok p) (if (>= p 0) p 0)) ((Err q) 0)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "single"
+
+      it "MW2B-4: a sequential whose continuation is untranslatable (nonlinear) falls back through the thread (no crash)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type R (| Ok int) (| Err int))"
+          , "(def-shell g [a: R] -> int (post (>= result 0))"
+          , "  (let [(x (match a ((Ok p) (if (>= p 0) p 0)) ((Err q) 0)))]"
+          , "    (* x x)))" ])
+        erBodyFallback er `shouldSatisfy` elem "g"
+
     -- COMP-4 (b): a matched arm consumes its payload's DECLARED refinement
     -- (elim-side), and a caller forwarding a weaker payload is refused by a
     -- payload-subtyping obligation (intro-side). The elim-binder and the helper

@@ -1978,8 +1978,31 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
               return (Just (BranchVC gp bs
                 (prependLBs (pathLBs ++ [lb]) tvc)
                 (prependLBs (pathLBs ++ [lb]) evc)))
-        -- Multi-path: fall back (conservative, sound)
-        _ -> return Nothing
+        -- Multi-path (MATCH-WIDEN-2, §S4 sequential matches): thread the branch
+        -- into the body instead of falling back. At each RHS-branch leaf, bind
+        -- `v` to that path's result and translate `body` FRESH — fresh skolems
+        -- per path, because 'collectBranchBinders' does not dedup, so grafting a
+        -- shared body-'BranchVC' would double-declare its binders. The RHS branch
+        -- guards + payload binders are preserved; only the leaf continuation
+        -- changes. Any leaf whose body fails to translate → whole fallback
+        -- (Applicative Maybe short-circuit). When `body` is itself a match this
+        -- nests naturally (two sequential matches).
+        _ ->
+          let graftLeaves (SimpleVC lbs result) = do
+                rn <- freshName v
+                let env'' = Map.insert v rn env
+                    se''  = Map.insert rn FQInt se
+                    lb    = LetBinding rn FQInt result
+                mb <- bodyToPredM env'' se'' cenv sccSet body
+                return (prependLBs (lbs ++ [lb]) <$> mb)
+              graftLeaves (BranchVC g bs t e) = do
+                mt <- graftLeaves t
+                me <- graftLeaves e
+                return (BranchVC g bs <$> mt <*> me)
+              graftLeaves (CallVC cal cargs mPre mPost rVar rSort cont) = do
+                mc <- graftLeaves cont
+                return ((\k -> CallVC cal cargs mPre mPost rVar rSort k) <$> mc)
+          in graftLeaves bvc
     _ -> return Nothing
 
 -- ELet with multiple bindings: desugar to nested single-binding ELets
