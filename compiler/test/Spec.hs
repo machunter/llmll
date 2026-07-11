@@ -6858,6 +6858,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "    (* x x)))" ])
         erBodyFallback er `shouldSatisfy` elem "g"
 
+      -- MW2B-5: refutation preservation (emit-level half). A sequential body whose
+      -- SECOND match has a violating arm (Err -> -1 vs post >= 0) must still be
+      -- body-faithful — the per-arm obligation is EMITTED under its path guard and
+      -- reaches the solver, NOT laundered to contract-only fallback (which would
+      -- silently swallow the violation). The solver-refutes half is CLI-verified
+      -- (verify exits 1, not in fallback). This locks in that the sequential graft
+      -- cannot launder a bad mid-pipeline arm.
+      it "MW2B-5: a sequential body with a violating 2nd-match arm stays body-faithful (obligation emitted, not laundered)" $ do
+        er <- emitSrc (T.unlines
+          [ "(type R (| Ok int) (| Err int))"
+          , "(def-shell chain [a: R b: R] -> int (post (>= result 0))"
+          , "  (let [(x (match a ((Ok p) 0) ((Err q) 0)))]"
+          , "    (match b ((Ok r) x) ((Err s) (- 0 1)))))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "chain"
+        erBodyFallback er    `shouldSatisfy` not . elem "chain"
+
     -- COMP-4 (b): a matched arm consumes its payload's DECLARED refinement
     -- (elim-side), and a caller forwarding a weaker payload is refused by a
     -- payload-subtyping obligation (intro-side). The elim-binder and the helper
