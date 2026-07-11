@@ -1234,6 +1234,34 @@ main = hspec $ do
       isCoreBodySyntactic (EHole (HProofRequired "manual" Nothing))      `shouldBe` False
       isCoreBodySyntactic (EHole (HProofRequired "manual" (Just (EVar "n")))) `shouldBe` False
 
+    -- MATCH-WIDEN-2 (isCoreBodySyntactic n-arm widening): a >2-arm sum match
+    -- whose arms are nullary / single-payload / catch-all is now core syntax
+    -- (a strict-core `def` may contain it), matching the verifier's n-arm discharge.
+    let match3mixed body2 = EMatch (EVar "s")
+          [ (PConstructor "Continue" [], ELit (LitInt 0))
+          , (PConstructor "Abort" [PVar "n"], EVar "n")
+          , (PConstructor "Retry" [PVar "m"], body2) ]
+    it "CNARY-1 isCoreBodySyntactic admits a 3-arm mixed sum match (n-arm widening)" $
+      isCoreBodySyntactic (match3mixed (EVar "m")) `shouldBe` True
+    it "CNARY-2 isCoreBodySyntactic admits a 4-arm all-single-payload match" $
+      isCoreBodySyntactic (EMatch (EVar "s")
+        [ (PConstructor "A" [PVar "a"], EVar "a")
+        , (PConstructor "B" [PVar "b"], EVar "b")
+        , (PConstructor "C" [PVar "c"], EVar "c")
+        , (PConstructor "D" [PVar "d"], EVar "d") ]) `shouldBe` True
+    it "CNARY-3 isCoreBodySyntactic still admits a 2-arm mixed match (regression)" $
+      isCoreBodySyntactic (EMatch (EVar "s")
+        [ (PConstructor "Continue" [], ELit (LitInt 0))
+        , (PConstructor "Abort" [PVar "n"], EVar "n") ]) `shouldBe` True
+    it "CNARY-4 the widening lifts the arity cap only — a non-core ARM BODY is still rejected" $
+      -- arm body (* m m) is non-linear → not core; isCoreBodySyntactic recurses into arm bodies
+      isCoreBodySyntactic (match3mixed (EOp "*" [EVar "m", EVar "m"])) `shouldBe` False
+    it "CNARY-5 an arm with a MULTI-payload constructor pattern is still rejected" $
+      isCoreBodySyntactic (EMatch (EVar "s")
+        [ (PConstructor "A" [], ELit (LitInt 0))
+        , (PConstructor "B" [PVar "x", PVar "y"], EVar "x")  -- 2-payload arm → not admissible
+        , (PConstructor "C" [PVar "z"], EVar "z") ]) `shouldBe` False
+
     -- PPR-G2: holeName field of HoleEntry includes reason tag for 2-arg form
     it "PPR-G2 HoleEntry holeName includes reason tag for predicate-carrying HProofRequired" $ do
       let stmts = [SDefLogic "f" [("n", TInt)] Nothing
