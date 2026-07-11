@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.14.26 — MATCH-WIDEN-2: n-arm sums + sequential matches (2026-07-10)
+
+Widens the body-faithful match fragment from two arms to any arity, and to sequential matches — same int-tag QF-LIA theory as v0.14.12, no new fragment, no schema change.
+
+### Verify — n-arm payload-bearing sum matches (Commit A)
+
+- **A match on an admissible sum of any arity now verifies body-faithful.** A `(match s ((Continue) 0)
+  ((Stop n) n) ((Retry m) m))` over a 3+-constructor mixed nullary/payload sum previously fell back; it
+  now discharges via an n-way int-tag chain (arm *i* guards on `<v>$tag = i`, the final arm or a wildcard
+  is the `¬prior` else). Generalizes `classifyTwoArmAdtArms` → `classifyNArmAdtArms` and the binary
+  `buildOpaqueSumBranch` → `buildOpaqueSumBranchN`. Exhaustiveness is enforced upstream by the type
+  checker (a non-exhaustive match is a type error), so the verifier only sees exhaustive matches. An
+  all-nullary n-arm enum already verified (the int-tag desugar); a recursive/non-admissible payload arm
+  still falls back (firewall). **n=2 is byte-identical to the prior binary encoding** — no shipped
+  two-arm sidecar invalidates.
+
+### Verify — sequential matches (Commit B)
+
+- **Two sequential matches in one body now verify body-faithful.** A `(let [(x (match a …))] (match b …))`
+  — a multi-path match bound in a `let` and threaded into a following match — previously fell back; the
+  multi-path let-RHS is now grafted into the body (§S4), translating the continuation fresh at each
+  RHS-branch leaf (fresh skolems per path, since `collectBranchBinders` does not dedup). The branch
+  guards and payload binders are preserved; refutation is preserved (a mid-pipeline violating arm still
+  refutes). Scoped to the multi-path let-RHS path, so single-match bodies are byte-identical. The
+  `countPathsBounded 4096` cap bounds sequential path products.
+
+**Tests:** 1137 Haskell, 45 Python. (+11: Commit A +7 MW2A-1..7 [n-arm mixed verifies, 4-arm, wildcard
+tail, all-nullary no regression, non-admissible firewall, n=2 byte-identity, non-exhaustive type error];
+Commit B +4 MW2B-1..4 [sequential 2-arm, n-arm-then-2-arm, single-match unchanged, untranslatable
+continuation falls back]. No schema change.)
+
 ## v0.14.25 — REC-DESCENT Phase 2+3: termination discharge + strict-core admission (2026-07-10)
 
 Completes the REC-BODY-VC line: a `def-shell` with a discharging `(decreases e)` measure now verifies **total** correctness and becomes strict-core admissible.

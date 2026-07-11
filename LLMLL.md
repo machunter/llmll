@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.25)
+# LLMLL: Large Language Model Logical Language (v0.14.26)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.25.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.26.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -409,7 +409,7 @@ Two declaration forms are available under the default grammar (`GrammarCoreInver
 
 | Keyword | AST node | Body restriction | Verification tier reachable |
 |---------|----------|-----------------|----------------------------|
-| `def` | `SDef` | Strict-core whitelist (QF-LIA arithmetic, `ELet`, `EIf`, two-arm sum `EMatch` [`Result` / user ADT: both-single-payload **or** mixed nullary+payload, nested], scrutinee-constructor posts, admissible-sum constructor application, `EApp` to admitted callees — see §5.3.5) | `verified` (body-faithful SMT) |
+| `def` | `SDef` | Strict-core whitelist (QF-LIA arithmetic, `ELet`, `EIf`, n-arm sum `EMatch` [`Result` / admissible user ADT of any arity: single-payload or nullary arms, nested and sequential], scrutinee-constructor posts, admissible-sum constructor application, `EApp` to admitted callees — see §5.3.5) | `verified` (body-faithful SMT) |
 | `def-shell` | `SDefShell` | None | `contract-checked`, `tested`, `asserted` |
 
 **Syntax (both forms are identical):**
@@ -961,7 +961,7 @@ where ⟦B⟧ is the body's symbolic translation into the liquid-fixpoint constr
 
 Body-faithfulness (VC emitted) is necessary but not sufficient: `DLVerified "liquid-fixpoint"` is assigned **only when liquid-fixpoint returns SAFE on the body VC** `P ∧ (result = ⟦B⟧) ⟹ Q`. A body-faithful VC the solver reports UNSAFE is *refuted* (§4.4) — not *unproven* — and assigns no `verified` evidence; it writes no `.verified.json` entry. Under QF-LIA confinement the SAFE verdict is a decidable side-condition on the fixed VC (liquid-fixpoint/Z3 is a sound-and-complete decision procedure for the fragment), not a quantifier over solver runs.
 
-**Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, `EApp` to contracted functions (assume-guarantee), a **two-arm sum `EMatch`** — `Result`, or a user ADT with two arms that are **both single-payload OR one nullary and one single-payload** constructor, with admissible-scalar payloads — **at any nesting depth** (under `let`/`if`, and nested within another arm), consuming the matched payload's declared refinement, an **admissible-sum constructor application** `(Ctor e)` (via the datatype theory §5.3.3), and all QF-LIA operators. A post that references the **matched scrutinee's constructor** (`result = C₁ ⇒ sig = C₂`) discharges: the arm discriminant is a free int-tag equality `(= sig$tag k)` with a range fact, and a scrutinee-constructor desugar rewrites `sig = C` to `sig$tag = k` (QF-LIA; no datatype testers). An `EMatch` with more than two arms, a constructor of a non-admissible (recursive) sum, two **sequential** matches in one body, `letrec` (own body), and non-linear expressions fall back conservatively to contract-only verification.
+**Coverage:** `ELet` with alpha-renaming (shadowing-safe), `EIf` with path-sensitive constraint emission, `EApp` to contracted functions (assume-guarantee), an **n-arm sum `EMatch`** — `Result`, or a user ADT of **any arity** whose arms are single-payload or nullary constructors with admissible-scalar payloads (the int-tag discriminant is naturally n-ary — arm *i* guards on `<v>$tag = i`, the final arm or a wildcard is the `¬prior` else) — **at any nesting depth** (under `let`/`if`, nested within another arm, and **sequentially** — a multi-path match bound in a `let` and threaded into a following match), consuming the matched payload's declared refinement, an **admissible-sum constructor application** `(Ctor e)` (via the datatype theory §5.3.3), and all QF-LIA operators. Match exhaustiveness is enforced upstream by the type checker, so the verifier only sees exhaustive matches. A post that references the **matched scrutinee's constructor** (`result = C₁ ⇒ sig = C₂`) discharges: the arm discriminant is a free int-tag equality `(= sig$tag k)` with a range fact, and a scrutinee-constructor desugar rewrites `sig = C` to `sig$tag = k` (QF-LIA; no datatype testers). A constructor of a non-admissible (recursive) sum, `letrec` (own body), and non-linear expressions fall back conservatively to contract-only verification.
 
 **Compositional call-chain verification:** When a body-faithful function calls a contracted callee, the verifier:
 1. **Proves** the callee's precondition is satisfied at the call site (PROVE polarity — caller obligation)
@@ -1011,7 +1011,7 @@ The following matrix documents the verification status of each syntax construct.
 | `EApp` (builtins: `string-length` etc.) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
 | `EMatch` two-arm sum (`Result`, or user ADT both arms single-payload) | ✅ | ✅ | ✅ | ✅ (two-path, any nesting; consumes payload refinement) | ✅ | — |
 | constructor application `(Ctor e)` / `(Ctor)` over an admissible sum (incl. Result `ok`/`err`) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | recursive sum / non-admissible Result payload → fallback; user-sum recursive ctor → strict-core gate → `def-shell` |
-| `EMatch` (>2 arms, or a nullary arm) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
+| `EMatch` n-arm admissible sum (mixed nullary/payload, nested, sequential) | ✅ | ✅ | ✅ | ✅ (n-ary int-tag chain; exhaustiveness type-checked) | ✅ | recursive/non-admissible payload → runtime |
 | `EPair`/`first`/`second` (scalar / admissible-sum / nested / list component) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | opaque-pair / `Result` / recursive-sum / non-`Σ_auto` component → runtime |
 | `letrec` (own body VC) | ✅ | ✅ | ⚠ measure well-formedness only | ❌ | ✅ | runtime + `:decreases` check |
 | `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |

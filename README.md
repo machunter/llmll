@@ -1,4 +1,4 @@
-# LLMLL — v0.14.25
+# LLMLL — v0.14.26
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -90,7 +90,7 @@ LLMLL treats **verification as the coordination protocol**. A lead agent defines
 
 ## What's proven vs. not — read this before believing the headline
 
-The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core**: integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and 2-arm `Result` matches. That covers numeric bounds, conservation invariants, and length preservation. Everything else — strings, general recursion, non-`Result` ADTs, non-linear arithmetic (`* / mod`), IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix below and in [`LLMLL.md §5.3.5`](LLMLL.md)).
+The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core**: integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums — `Result` and user ADTs, nested and sequential. That covers numeric bounds, conservation invariants, and length preservation. Everything else — strings, non-terminating recursion (recursion with a discharging `(decreases e)` measure verifies total), recursive-payload ADTs, non-linear arithmetic (`* / mod`), IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix below and in [`LLMLL.md §5.3.5`](LLMLL.md)).
 
 An interactive proof path for the rest (Lean 4 via "Leanstral" MCP) is **designed but not shipped** — it runs in mock mode only (`--leanstral-mock`), blocked on external availability.
 
@@ -180,8 +180,8 @@ LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core*
 | `EApp` (contracted callee) | ✅ (assume-guarantee) | — |
 | `EApp` (uncontracted callee) | ❌ | contract-only |
 | `EApp` (recursive self / cycle) | ✅ partial; ✅ total with `(decreases e)` | no measure → `termination_unverified`; k=1 measure → total + strict-core admissible |
-| `EMatch` on `Result` (2-arm) | ✅ (two-path) | — |
-| `EMatch` (general ADT), `EPair`, `ELambda`, `EDo` | ❌ | runtime |
+| `EMatch` admissible sum (n-arm, `Result`/user ADT, nested + sequential) | ✅ (n-ary int-tag) | — |
+| `EMatch` (recursive-sum payload), `EPair` opaque, `ELambda`, `EDo` | ❌ | runtime |
 | `letrec` (own body VC) | ❌ | runtime + `:decreases` |
 | Non-linear ops (*, /, mod) | ❌ | runtime + `?proof-required` |
 | **Int overflow** | ⚠ | Z3 `Int` ≠ Haskell `Int64` |

@@ -75,10 +75,10 @@ LLMLL currently provides body-faithful SMT verification for a **non-recursive `�
 | `EApp` (contracted callee, same-file or imported) | ✅ assume-guarantee | — |
 | `EApp` (uncontracted callee) | ❌ | contract-only |
 | `EApp` (recursive self / cycle) | ✅ partial; ✅ total w/ `(decreases e)` | no measure → `termination_unverified`; k=1 measure → total + strict-core admissible; bad measure → `measure-not-decreasing` |
-| `EMatch` two-arm sums (`Result` + user ADTs, nested) | ✅ int-tag encoding | — |
+| `EMatch` n-arm admissible sums (`Result` + user ADTs, mixed nullary/payload, nested + sequential) | ✅ n-ary int-tag chain | — |
 | `EPair` / pair returns (`first` / `second` / `pair`) | ✅ datatype selectors | — |
 | Admissible (non-recursive) datatype construction | ✅ | — |
-| `EMatch` (>2 arms / recursive-sum payload), `ELambda`, `EDo` | ❌ | contract-only / runtime |
+| `EMatch` (recursive-sum payload), `ELambda`, `EDo` | ❌ | contract-only / runtime |
 | `letrec` (own body VC) | ❌ | runtime |
 | Non-linear ops (*, /, mod) | ❌ | `?proof-required` (→ `--leanstral`) |
 | **Int overflow** | ✅ none | `int` = mathematical `Integer`, both verifier and codegen (LT-INT) |
