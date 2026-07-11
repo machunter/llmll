@@ -4,6 +4,33 @@
 
 <a id="Latest"></a>
 
+## v0.14.31 — checkout `assumptions` v2a: let-definitional equalities + let-nested hole context (LET-PTR) (2026-07-11)
+
+### Checkout brief — `assumptions` gains let-definitional equalities (OBLIG-1 v2a)
+
+- **The checkout brief's `assumptions` field now also surfaces, for each in-scope let-binding with a QF-LIA RHS,
+  the definitional equality `(= y e)`.** A let-binding appears in a hole's scope only when the hole is inside its
+  body, so `(= y e)` genuinely holds at the hole (the body VC already assumes it). The QF-LIA filter (now
+  `EOp`-aware, v0.14.30) keeps the field in-fragment — a call/opaque RHS is skipped — and, since only real
+  let-bindings carry a recorded RHS, the alias-name / enclosing-fn-name leaks that share the `let-binding` scope
+  tag are naturally excluded. This is the professor's named v2 province; still deferred: match-scrutinee case
+  hypotheses and `def-invariant` axioms (the latter needs a schema bump + assume-vs-assert provenance). No schema
+  bump.
+
+### Fixed — `checkout` context for let-nested holes (LET-PTR)
+
+- **A hole inside a `let` body now resolves its checkout context.** The sketch's `let`-body traversal did not push
+  the `body` pointer segment (unlike function bodies, `if`-branches, and `match`-arms), so a let-nested hole
+  recorded sketch pointer `/statements/N/body` while its AST node is `/statements/N/body/body`. `checkout`
+  validates the pointer against the AST node and then matches the sketch hole by pointer — the mismatch meant
+  **every let-nested hole returned `null` `in_scope` and `null` `assumptions`**. Fixed by wrapping the body in
+  `withSegment "body"`. This repairs the full context surface (`in_scope`, contract fields, `assumptions`) for
+  all let-nested holes, not only OBLIG-1. Surfaced by the OBLIG-1 v2a end-to-end verification.
+
+**Tests:** 1171 Haskell, 45 Python (+4: OA-6 let-def surfaced, OA-7 non-QF-LIA call RHS skipped, OA-8 param +
+let-def compose; LET-PTR pointer regression + let-binding-in-scope). E2e: a let-nested hole checkout now yields
+`in_scope [f,x,y]` and `assumptions ["(> x 0)", "(= y (- x 1))"]`.
+
 ## v0.14.30 — QF-LIA classifier recognizes the `EOp` operator form (CLASSIFY-EOP) (2026-07-11)
 
 ### Fixed — obligation classification for operator-bearing contracts
