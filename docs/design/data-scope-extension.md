@@ -113,8 +113,8 @@ Here is the whole surface, mapped:
 | `pair` / tuple | yes | **`first`/`second` as datatype selectors** | — |
 | `list[t]` | yes | **`list-length` only** (Post 4) | elements, order, membership → opaque |
 | `string` | yes | **`string-length` only** | characters, regex → opaque |
-| `bytes[n]` | yes | nothing (the `n` is a type-level tag, not a solver fact) | every byte → opaque |
-| `map[k,v]` | yes | nothing | keys, values, get-after-put → opaque |
+| `bytes[n]` | yes | **`select`/`store` reflection, `bytesLen(b)=n` ground fact, byte-range facts, index-in-bounds as a PROVE obligation** (Lever A stage A1 — the off-by-one refutes) | whole-`bytes` `=` → out-of-fragment by design (exact-reflection rule) |
+| `map[k,v]` | yes | nothing yet (ops ship runtime-asserted; reflection is Lever A stage A2) | keys, values, get-after-put → opaque until A2 |
 | recursive `type` (self-referential) | **rejected at the verified gate** (Post 5) | — | — |
 
 Read the `list[t]` row carefully, because it is the crux of the "complex data" question. There are

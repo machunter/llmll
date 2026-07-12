@@ -4,6 +4,30 @@
 
 <a id="Latest"></a>
 
+## v0.14.34 — LEVER-A1: `bytes[n]` obligations discharge statically (2026-07-11)
+
+### Added — the array class enters `Σ_auto` (Lever A stage A1)
+
+- **`bytes[n]` verification is real: an out-of-bounds read is now *refuted*, not asserted.** Bytes params/returns
+  of functions whose contract or body mentions a bytes op lower to the solver's native array sort (`Map_t int int`
+  — the probe-proven liquid-fixpoint spelling); `bytes-get`/`bytes-set` reflect as exact-pinning call obligations
+  (index-in-bounds and value-range, PROVE polarity, riding the existing call-pre machinery), `bytes-length b`
+  reflects as the per-binder ground fact `bytesLen(b) = n`, `bytes-zero` as the const array; byte-range facts
+  (`0 ≤ select ≤ 255`) are emitted ground per occurring read (the path-(a) discipline extended). The design's §11
+  off-by-one crux — a bounds check written `<=` where `<` is required — refutes with call-site localization; the
+  corrected twin verifies SAFE, including under `--strict-verified-core`. Aliased symbolic indices refute;
+  cross-function call sites carry the obligation.
+- **Refutation-completeness discipline (proposal §6.1) enforced:** a body-faithful VC is emitted only when every
+  symbol reflects exactly. Map operations stay unreflected (stage A2) and route to fallback unchanged; whole-bytes
+  `=` never reflects to array equality (review F1); a mixed bytes+map obligation falls back whole.
+- **Zero-flip verdict inventory (review F7 gate):** 85-example sweep, base vs A1 binary — 0 verify-output diffs,
+  0 emitted-`.fq` byte diffs. Ungated functions are byte-identical by construction (activation gate); the crypto
+  builtins' `bytes[20]` signatures acquire no new obligations.
+- Spec: `Σ_auto` gains the array class (LLMLL.md §5.3.3 bullet + signature, §5.3.5 matrix rows, §13.12 flip).
+
+**Tests:** 1199 Haskell, 45 Python (+9: `LEVER-A1` block — emission shapes, solver-gated crux pair, store/value-range,
+const array, map-op routing, F1 routing, crypto-shape inertness, cross-function activation, mixed-body fallback).
+
 ## v0.14.33 — LEVER-A0: the bytes/map operation family, verification-inert (2026-07-11)
 
 ### Added — eight bytes/map builtins (Lever A stage A0)
