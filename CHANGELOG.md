@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.14.38 — LEVER-A3: reporting surfaces catch up with the array verifier (2026-07-12)
+
+### Fixed — array contracts classify in-fragment (obligation report)
+
+- **An exactly-reflectable bytes/map contract now classifies `qf_lia` in `verify --obligation-report`** instead of
+  the Advisory-tier `non_qf_lia` mislabel it carried while the verifier was already discharging it body-faithful.
+  Classification derives from the emitter's own §6.1 guards (`FixpointEmit.contractArrGuardsBlock`, exported and
+  shared — the CLASSIFY-EOP lesson: no parallel reimplementation that can drift), applied with the enclosing
+  function's types: whole-array `=`, string/bool-valued maps, and non-int put values stay `non_qf_lia`. The
+  `qf_lia` label is retained per the design's own acceptance wording (its haddock now reads "in the auto-discharge
+  fragment `Σ_auto`"); no schema bumps (`orSchemaVersion`/`brief_version` stay 0.12.2).
+
+### Added — checkout-brief array vocabulary
+
+- **A hole with a bytes/map type visible in scope gets the array ops as `builtin` entries in
+  `available_functions`**, each carrying its PROVE precondition over display binders (`bytes-get`:
+  `(and (>= p1 0) (< p1 (bytes-length p0)))`; `map-get`: `(map-has p0 p1)`). Type-relevance gated — every
+  pre-A3 brief is byte-unchanged. The brief's let-definitional `assumptions` (v2a) now also admit an array-op RHS
+  (`(= y (bytes-get b i))` — the body VC pins exactly this equality since A1).
+- Refine reuse-retrieval abstains on array-op contracts (its standalone Horn driver sorts binders without
+  `$has`/`$val` splitting — a driver limitation, tracked as A3.x, not a classification gap).
+
+### Found (tracked, not fixed) — CLASSIFY-MEASURE
+
+- The same classifier–emitter drift family exists outside arrays: measure-class contracts classify `non_qf_lia`
+  yet discharge; string-literal contracts classify `qf_lia` yet fall back. New roadmap row.
+
+**Tests:** 1218 Haskell, 45 Python (+6: A3-1..6 — parser-faithful flips, three-guard residue, bad put value,
+vocabulary gating with alias resolution, assumptions widening; A0-6 flipped in place per its recorded note).
+64-file sweep: zero verdict movement; refute-crux gate 22/22.
+
 ## v0.14.37 — LEVER-A2: `map[int,int]` obligations discharge statically (2026-07-12)
 
 ### Added — map discharge via the two-array presence encoding (Lever A stage A2)

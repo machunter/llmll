@@ -47,13 +47,12 @@ error: call-site precondition of 'bytes-set' not satisfied in 'write-at' — cal
 Exit 1. The index is proven but the admitted value range reaches 300;
 `bytes-set` requires `0 ≤ v ≤ 255`.
 
-## Scope caveat (stated up front)
+## Scope note
 
-The **verify surface is complete today**: verdicts, refutations, localization,
-and `--strict-verified-core` admission all work as shown. The **reporting
-surface catches up at stage A3** of the arrays track: until then, a contract
-mentioning bytes ops still classifies `non_qf_lia` in `--obligation-report`
-(Advisory tier) even though the verifier discharges it body-faithful, and
-checkout briefs do not yet carry array vocabulary. This example is the
-acceptance fixture for that A3 flip: when A3 lands, these contracts must
-classify in-fragment with no verdict change.
+Both surfaces are complete: verdicts, refutations, localization, and
+`--strict-verified-core` admission as shown, and — since the arrays track's
+stage A3 — an exactly-reflectable bytes contract classifies `qf_lia`
+in `--obligation-report` and checkout briefs list the bytes ops (with their
+PROVE preconditions) for holes with a bytes type in scope. This example served
+as A3's acceptance fixture and now stands as its regression witness: these
+contracts classify in-fragment, and the verdicts above must never move.
