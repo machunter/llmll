@@ -66,6 +66,13 @@ data FQSort
                              --   with interpreted @Map_select@/@Map_store@/@Map_default@
                              --   (probe-proven on the pinned solver stack; see
                              --   docs/design/data-scope-lever-a-feasibility.md §2)
+  | FQMapArr                 -- ^ LEVER-A2.1: the map-component array sort. Renders
+                             --   IDENTICALLY to @FQArr FQInt FQInt@ (both are
+                             --   @(Map_t int int)@ in .fq), but is a DISTINCT
+                             --   Haskell value so the emitter can tell a map
+                             --   return/component apart from a @bytes[n]@ return
+                             --   (which share the concrete array sort). Byte-inert:
+                             --   no .fq text changes.
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -210,6 +217,7 @@ emitSort (FQTyVar i)        = "@(" <> T.pack (show i) <> ")"
 -- bridge declares the map ops monomorphically (bool elements crash; the map
 -- presence encoding is int-0/1 for exactly this reason, proposal §5 Rev 1.1).
 emitSort (FQArr k v)        = "(Map_t " <> emitSort k <> " " <> emitSort v <> ")"
+emitSort FQMapArr           = "(Map_t int int)"  -- identical text, distinct value
 
 -- | NIW: constant strLen : (func(0 , [Str; int]))
 emitConstant :: FQConstant -> Text

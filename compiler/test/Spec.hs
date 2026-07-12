@@ -6547,19 +6547,98 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
 
-      it "A2-10 cross-call map A-G deferred (A2.1): a map-op-bearing callee PRE forces whole-call fallback; a map-op POST is not assumed" $ do
+      -- LEVER-A2.1 (cross-call map assume-guarantee): a map-op-bearing callee
+      -- contract now PARTICIPATES in a body-faithful caller's VC — component-
+      -- aware substitution rewrites the callee's p$has/p$val to the caller's
+      -- translated components. The end-to-end refutation (a caller not proving
+      -- the callee's map pre is refuted at the call site) is a cross-MODULE
+      -- flow (the same-file all-`def` chain hits the strict-core admission
+      -- wall, STRICT-SIBLING, settled-by-design); it is demonstrated in the CLI
+      -- transcript. These tests pin the EMISSION: the caller is body-faithful
+      -- and carries the call-pre obligation (not a whole-call fallback).
+      it "A2.1-1 cross-call map A-G: a def caller of a map-pre callee is body-faithful and emits the call-pre obligation" $ do
         er <- emitA2 (unlines
           [ "(def rd [m: map[int,int] k: int] -> int"
           , "  (pre (map-has m k))"
-          , "  (post (>= result (map-get m k)))"
+          , "  (post (= result (map-get m k)))"
           , "  (map-get m k))"
-          , "(def-shell caller [m2: map[int,int] j: int] -> int"
-          , "  (post (>= result 0))"
+          , "(def caller [m2: map[int,int] j: int] -> int"
+          , "  (pre (map-has m2 j))"
+          , "  (post (= result (map-get m2 j)))"
           , "  (rd m2 j))" ])
-        -- the callee itself reflects; the CALLER falls back (its call cannot
-        -- emit the component-rooted pre against its own arg names yet)
-        erBodyFaithfulFns er `shouldSatisfy` elem "rd"
-        erBodyFallback er    `shouldSatisfy` elem "caller"
+        -- the caller reflects (component substitution succeeded), and the
+        -- callee's map pre becomes a PROVE obligation at the caller's call site
+        erBodyFaithfulFns er `shouldSatisfy` elem "caller"
+        erCallPreFns er      `shouldSatisfy` elem "caller"
+        -- the substituted pre roots the CALLER's own components (m2$has), the
+        -- proof that param→component substitution rewrote the callee's p$has
+        erFQText er `shouldSatisfy` T.isInfixOf "(Map_select m2_has j)"
+
+      it "A2.1-2 cross-call solver crux: caller proving the callee pre SAFE; the un-proving twin's call-pre is Unsafe" $ do
+        let src callerPre = unlines
+              [ "(def rd [m: map[int,int] k: int] -> int"
+              , "  (pre (map-has m k))"
+              , "  (post (= result (map-get m k)))"
+              , "  (map-get m k))"
+              , "(def caller [m2: map[int,int] j: int] -> int"
+              , callerPre
+              , "  (post (= result (map-get m2 j)))"
+              , "  (rd m2 j))" ]
+        erGood <- emitA2 (src "  (pre (map-has m2 j))")
+        erBad  <- emitA2 (src "")
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      -- LEVER-A2.1 (read-modify-write): a map-returning body that is a
+      -- straight-line let-chain over map-gets now discharges (was the
+      -- most-common deferred shape). mapRetChain peels the spine.
+      it "A2.1-3 read-modify-write: (map-put m k (+ (map-get m k) 1)) is body-faithful with the inner get's presence obligation" $ do
+        er <- emitA2 (unlines
+          [ "(def bump [m: map[int,int] k: int] -> map[int,int]"
+          , "  (pre (map-has m k))"
+          , "  (post (= (map-get result k) (+ (map-get m k) 1)))"
+          , "  (map-put m k (+ (map-get m k) 1)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "bump"
+        erCallPreFns er      `shouldSatisfy` elem "bump"
+
+      it "A2.1-4 RMW solver crux: correct increment SAFE; the +2 twin REFUTED; the no-pre twin's inner get is Unsafe" $ do
+        let src pre inc = unlines
+              [ "(def bump [m: map[int,int] k: int] -> map[int,int]"
+              , pre
+              , "  (post (= (map-get result k) (+ (map-get m k) 1)))"
+              , "  (map-put m k (+ (map-get m k) " <> inc <> ")))" ]
+        erGood <- emitA2 (src "  (pre (map-has m k))" "1")
+        erBad  <- emitA2 (src "  (pre (map-has m k))" "2")
+        erNoPre <- emitA2 (src "" "1")
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+        mN <- solveFq erNoPre
+        case mN of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2.1-5 bool/string-valued maps still fall back whole (deferred residue): no partial emit, no crash" $ do
+        -- bool-valued: solver-feasible via int-0/1 bridging (probe recorded),
+        -- but not threaded this pass — must fall back whole, not partially.
+        erBool <- emitA2 (unlines
+          [ "(def flag [m: map[int,bool] k: int] -> bool"
+          , "  (pre (map-has m k))"
+          , "  (post (= result (map-get m k)))"
+          , "  (map-get m k))" ])
+        erBodyFallback erBool `shouldSatisfy` elem "flag"
+        erFQText erBool `shouldNotSatisfy` T.isInfixOf "m_has"
 
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires

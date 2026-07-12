@@ -862,25 +862,42 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                   , Just ref <- [payloadRefinement aliases pt] ]
                 refEnv = Map.fromList (resultRefs ++ adtRefs)
             -- LEVER-A2: a gated function RETURNING an admissible map[int,int]
-            -- whose (let-expanded) body is a pure map term — the cache-put
-            -- shape — takes a dedicated single-constraint emission: the body's
-            -- component pair is PINNED to fresh result$has/result$val env
-            -- binders on the constraint LHS (the A1 resultLenFact lesson: the
-            -- constraint reft var `result` shadows a same-named env binder, but
-            -- the $-suffixed component names are unshadowed), and the reflected
-            -- post reads them via mapPairTermsC's `result` root. A map-returning
-            -- body OUTSIDE this shape (branches, embedded calls/map-gets) has no
-            -- generic-path representation for its pair → contract-only fallback
-            -- (sound; A2.1 scope). Generic translation is SKIPPED for the
+            -- takes a dedicated emission: the body's component pair is PINNED
+            -- to fresh result$has/result$val env binders on the constraint LHS
+            -- (the A1 resultLenFact lesson: the constraint reft var `result`
+            -- shadows a same-named env binder, but the $-suffixed component
+            -- names are unshadowed), and the reflected post reads them via
+            -- mapPairTermsC's `result` root.
+            -- LEVER-A2.1: the accepted shape widens from "pure map term" to a
+            -- STRAIGHT-LINE let-chain over map-gets and scalar defs ending in a
+            -- pure map term — the read-modify-write class. The body is
+            -- ANF-normalized first (hoisting embedded map-gets into lets, the
+            -- same hoist set as the generic path), then 'mapRetChain' peels the
+            -- spine: each map-get contributes a PROVE presence obligation
+            -- (tag "call-pre:map-get") and an exact pin (v = value-select) on
+            -- its binder; each scalar let pins its definition. Branches,
+            -- embedded contracted calls, and shadowing → Nothing → contract-only
+            -- fallback, whole (§6.1). Generic translation is SKIPPED for the
             -- dedicated path (mBodyVC forced Nothing) so the case below stays
             -- three-way at the original structure.
-            let mMapRetPair
+            seedD <- readIORef bodyCounterRef
+            let anfNames = Map.keysSet cenv
+                             `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
+                (bodyD, seedD') = evalState
+                  (do r <- aNormalizeBody anfNames (expandMapLets (Map.keysSet cenv) body')
+                      c <- get
+                      return (r, c))
+                  seedD
+                mMapRetPair
                   | arrGate
                   , Just rt <- mRet
                   , mapIntIntTy aliases rt
-                  = mapPairTermsB Map.empty sortEnv
-                      (expandMapLets (Map.keysSet cenv) body')
+                  = mapRetChain sortEnv bodyD
                   | otherwise = Nothing
+            -- Commit the ANF counter only when the dedicated path is taken —
+            -- otherwise the generic path re-reads the untouched ref
+            -- (byte-inertness for everything else).
+            when (isJust mMapRetPair) (writeIORef bodyCounterRef seedD')
             -- Translate body (generic path; Result-var matches handled within).
             seed <- readIORef bodyCounterRef
             let (newSeed, mBodyVC) =
@@ -889,18 +906,43 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     else bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet body'
             writeIORef bodyCounterRef newSeed
             case (mMapRetPair, mBodyVC) of
-              (Just (hT, vT), _) -> do
+              (Just (steps, (hT, vT)), _) -> do
+                -- LEVER-A2.1: chain-step binders — pins ride the binder
+                -- refinement (the F-NIW-4b discipline), so both the presence
+                -- obligations and the final constraint see them via the env.
+                stepBindIds <- forM steps $ \st -> do
+                  bid <- freshBid
+                  case st of
+                    MRGet v _ sel ->
+                      addBind (FQBind bid v (FQReft "v" FQInt
+                                (FQBinPred FQEq (FQVar "v") sel)))
+                    MRDef v t ->
+                      addBind (FQBind bid v (FQReft "v" FQInt
+                                (FQBinPred FQEq (FQVar "v") t)))
+                  return bid
                 rhbid <- freshBid
                 addBind (FQBind rhbid "result$has" (FQReft "v" mapArraySort FQTrue))
                 rvbid <- freshBid
                 addBind (FQBind rvbid "result$val" (FQReft "v" mapArraySort FQTrue))
+                -- LEVER-A2.1: PROVE-polarity presence obligation per chain get.
+                let getObls = [ pres | MRGet _ pres _ <- steps ]
+                unless (null getObls) (addCallPre name)
+                forM_ getObls $ \pres -> do
+                  ocid <- freshCid
+                  let olhs = FQReft "v" FQInt (conjoinAll (maybe [] (:[]) mPre))
+                      orhs = FQReft "v" FQInt pres
+                      oc = FQConstraint ocid (envIds ++ stepBindIds) olhs orhs
+                             [name, "call-pre:map-get"]
+                  addConst oc
+                  let optr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                  addOrigin ocid (ConstraintOrigin name "call-pre:map-get" optr srcFile)
                 cid <- freshCid
                 let pins = [ FQBinPred FQEq (FQVar "result$has") hT
                            , FQBinPred FQEq (FQVar "result$val") vT ]
                     lhsPred = conjoinAll (maybe [] (:[]) mPre ++ pins)
                     lhs = FQReft "result" FQInt lhsPred
                     rhs = FQReft "result" FQInt postPred
-                    c = FQConstraint cid (envIds ++ [rhbid, rvbid]) lhs rhs [name, "body-post"]
+                    c = FQConstraint cid (envIds ++ stepBindIds ++ [rhbid, rvbid]) lhs rhs [name, "body-post"]
                 addConst c
                 let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                 addOrigin cid (ConstraintOrigin name "body-post" ptr srcFile)
@@ -916,7 +958,19 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     addDiag $ mkWarning Nothing $
                       "body VC for '" <> name <> "' exceeded 4096 path limit — "
                       <> "falling back to contract-only verification"
-                  else do
+                  -- LEVER-A2.1 sort guard: an INT-returning function whose body
+                  -- tail is an array-sorted call result (a map-returning body
+                  -- the dedicated mapRetChain path could not pin — a branch or
+                  -- embedded call — that fell through with retSort defaulting to
+                  -- FQInt) would emit an ill-sorted `result = rVar`. Route it to
+                  -- fallback (§6.1). Gated on FQInt so a bytes/map return (whose
+                  -- retSort IS the array sort, equating cleanly) is unaffected —
+                  -- byteArraySort and mapArraySort are the same FQArr FQInt FQInt,
+                  -- so the sort alone cannot distinguish them; the retSort gate
+                  -- does.
+                  else if maybe FQInt sortA1 mRet == FQInt && arrayResultPath bvc
+                    then addBodyFallback name
+                    else do
                     -- Warn at 257-4096
                     when (pathCount > 256) $
                       addDiag $ mkWarning Nothing $
@@ -1006,10 +1060,17 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                         -- F-NIW-4: declare the prior-call result vars on this path so
                         -- a precondition referencing one is not a free variable; their
                         -- assumed posts join the LHS hypothesis (assume-guarantee).
-                        ctxBindIds <- mapM (\(rv, rs, _) -> do
+                        -- LEVER-A2.1: a map-returning prior call also declares its
+                        -- split components (rv$has/rv$val) — the assumed post and a
+                        -- later map-op obligation root on them.
+                        let ctxDecls = concat
+                              [ (rv, rs) : [ (rv <> sfx, mapArraySort)
+                                           | rs == mapArraySort, sfx <- ["$has", "$val"] ]
+                              | (rv, rs, _) <- ctxCalls ]
+                        ctxBindIds <- mapM (\(dv, ds) -> do
                           bid <- freshBid
-                          addBind (FQBind bid rv (FQReft "v" rs FQTrue))
-                          return bid) ctxCalls
+                          addBind (FQBind bid dv (FQReft "v" ds FQTrue))
+                          return bid) ctxDecls
                         -- F-NIW-4b: declare the in-scope let-bound non-call values on
                         -- this path with their defining equality, so a precondition
                         -- referencing one is provable. Filtered to the subset whose RHS
@@ -1074,10 +1135,17 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                                         priorRVars  = [ rv | (rv, _, _) <- ctxCalls ]
                                         scope0      = Set.fromList (map bindName paramBinds ++ priorRVars)
                                         usableLbs   = inScopeLbs scope0 (nub pathLbs)
-                                    ctxBindIds <- mapM (\(rv, rs, _) -> do
+                                    -- LEVER-A2.1: expand map-returning prior-call
+                                    -- results into their split components (mirrors
+                                    -- the call-pre emission above).
+                                    let dCtxDecls = concat
+                                          [ (rv, rs) : [ (rv <> sfx, mapArraySort)
+                                                       | rs == mapArraySort, sfx <- ["$has", "$val"] ]
+                                          | (rv, rs, _) <- ctxCalls ]
+                                    ctxBindIds <- mapM (\(dv, ds) -> do
                                       bid <- freshBid
-                                      addBind (FQBind bid rv (FQReft "v" rs FQTrue))
-                                      return bid) ctxCalls
+                                      addBind (FQBind bid dv (FQReft "v" ds FQTrue))
+                                      return bid) dCtxDecls
                                     lbCtxBindIds <- mapM (\lb -> do
                                       bid <- freshBid
                                       addBind (FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
@@ -1419,7 +1487,7 @@ mapIntIntTy am t = case resolveAliasTy am t of
 -- | The component-array sort of the two-array map encoding (int keys, int-0/1
 -- presence / int values). One sort for both components in the v1 class.
 mapArraySort :: FQSort
-mapArraySort = FQArr FQInt FQInt
+mapArraySort = FQMapArr
 
 -- | LEVER-A2 crash-class guard for map-op-bearing contract clauses. Blocks (→
 -- whole-contract fallback) when a reflection would reference binders that were
@@ -1515,6 +1583,42 @@ scalarIntTerm env se = go
       = FQBinArith bop <$> go l <*> go r
     go (EOp op as) = go (EApp op as)
     go _ = Nothing
+
+-- | LEVER-A2.1: one peeled step of a straight-line map-returning body chain.
+data MapRetStep
+  = MRGet Name FQPred FQPred  -- ^ bound var, presence pred (PROVE), value select (pin)
+  | MRDef Name FQPred          -- ^ bound var, defining scalar term (pin)
+
+-- | LEVER-A2.1 (read-modify-write class): peel a straight-line, ANF'd,
+-- let-expanded map-returning body — a spine of lets whose RHSs are map-gets
+-- or scalar int terms, terminating in a pure map term. Each map-get step
+-- carries its presence obligation and exact pin; each scalar step its
+-- defining pin. Anything else — branches, contracted calls, shadowing a name
+-- already in the SortEnv, non-scalar lets — is Nothing → the whole body falls
+-- back (§6.1: never a partial reflection).
+mapRetChain :: SortEnv -> Expr -> Maybe ([MapRetStep], (FQPred, FQPred))
+mapRetChain se0 = go se0
+  where
+    go se (ELet [(PVar v, _, rhs0)] body)
+      | Map.member v se = Nothing            -- shadowing → fall back whole
+      | otherwise =
+          case normOp rhs0 of
+            EApp "map-get" [mE, kE] -> do
+              (h, vl) <- mapPairTermsB Map.empty se mE
+              k <- scalarIntTerm Map.empty se kE
+              let pres = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
+                  sel  = FQApp "Map_select" [vl, k]
+              (steps, term) <- go (Map.insert v FQInt se) body
+              pure (MRGet v pres sel : steps, term)
+            rhs -> do
+              t <- scalarIntTerm Map.empty se rhs
+              (steps, term) <- go (Map.insert v FQInt se) body
+              pure (MRDef v t : steps, term)
+    go se (ELet (b:bs) body) = go se (ELet [b] (ELet bs body))
+    go se (ELet [] body)     = go se body
+    go se e                  = (,) [] <$> mapPairTermsB Map.empty se e
+    normOp (EOp f as) = EApp f as
+    normOp e          = e
 
 -- | LEVER-A2 (§5.1, the pipeline shape): substitute PURE map-typed
 -- let-bindings into their bodies BEFORE ANF/translation, reducing the
@@ -2126,6 +2230,13 @@ extractQualifiers sortMap clause fnName expr =
       -- FQApp) cannot become a qualifier — the ctor would be a free symbol
       -- ("Qualifier with free vars"). Qualifiers are optional inference hints;
       -- skipping is sound (the constraint still checks the post).
+      -- LEVER-A2.1 disposition (the CLASSIFY-MEASURE watch-item): array-class
+      -- preds (Map_select/Map_store/Map_default/bytesLen) are DELIBERATELY
+      -- caught by this same guard — LLMLL's body VCs are fully path-enumerated
+      -- (no kvars), so qualifiers only feed wf-constraint inference, and an
+      -- array qualifier would carry theory symbols into exactly the
+      -- free-symbol crash this guard exists to prevent. All A1/A2 cruxes
+      -- discharge without array qualifiers; correct as-is, no change.
       | not (Set.null (appNames pred `Set.difference` Set.fromList ["strLen", "listLen"])) -> []
       | otherwise -> atomicQualifiers sortMap fnName clause pred
 
@@ -2365,27 +2476,67 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             -- reflected terms mention the result). A bytes return WITHOUT
             -- bytes ops in the contract keeps today's FQInt — byte-inertness
             -- for the opaque-carrier corpus (the crypto call chains).
+            -- LEVER-A2.1: a callee returning a LITERAL map[int,int] whose
+            -- contract mentions a map op sorts its result var at the array
+            -- sort too — the marker the ELet CallVC case reads to seed the
+            -- result's split component binders (r$has/r$val). Syntactic
+            -- literal check only (bodyToPredM has no AliasMap — the
+            -- PAIR-RET-2 precedent); an alias-hidden map return keeps FQInt
+            -- and its post components stay unsubstituted → not assumed.
             calleeRetSort = case mRetType of
               Just (TBytes _) | contractMentionsBytesOp contract -> byteArraySort
+              Just (TMap TInt TInt) | contractMentionsMapOp contract -> mapArraySort
               _ -> maybe FQInt typeToSort mRetType
-        -- Build substitution: callee params → translated args
-        let subst = Map.fromList (zip paramNames argPreds)
+        -- Build substitution: callee params → translated args.
+        -- LEVER-A2.1 (cross-call map assume-guarantee): a map-op-bearing callee
+        -- contract reflects COMPONENT-rooted names (p$has/p$val via
+        -- mapPairTermsC), which the plain param→arg substitution cannot
+        -- rewrite. For each literal map[int,int] param whose raw ARG pair-
+        -- translates in the caller (mapPairTermsB — requires the caller's own
+        -- split binders, i.e. the caller is gated), extend the substitution
+        -- with the component keys. A map param whose arg does NOT translate
+        -- leaves its components unsubstituted; the leftover check below then
+        -- forces pre-fallback / post-non-assumption exactly as before.
+        let mapCompSubst = Map.fromList $ concat
+              [ [ (p <> "$has", h), (p <> "$val", vl) ]
+              | ((p, TMap TInt TInt), aE) <- zip params args
+              , Just (h, vl) <- [mapPairTermsB env se aE] ]
+            -- Component names a reflected callee clause could root that MUST
+            -- have a substitution entry for the clause to be caller-meaningful.
+            -- Checked on the PRE-substitution predicate (whose every var is
+            -- callee-scope) against the substitution's key set — checking the
+            -- substituted OUTPUT would false-positive when a caller arg shares
+            -- its name with the callee param (`(read1 m k)` with param `m`:
+            -- the correctly-substituted caller `m$has` is textually identical
+            -- to the callee leftover).
+            calleeCompNames = Set.fromList $ concat
+              [ [ p <> "$has", p <> "$val" ]
+              | p <- "result" : paramNames ]
+            uncoveredComps extraKeys p =
+              any (\v -> v `Set.member` calleeCompNames
+                      && not (v `Map.member` mapCompSubst)
+                      && not (v `Set.member` extraKeys))
+                  (predVars p)
+        let subst = Map.union mapCompSubst (Map.fromList (zip paramNames argPreds))
         -- Issue 1 resolution: three-way pre distinction (soundness-critical)
         --   callee has no pre        → no obligation, assumption valid
         --   callee has pre, translates → obligation emitted
         --   callee has pre, fails     → ENTIRE CALL FALLS BACK
-        -- LEVER-A2: cross-call assume-guarantee over MAP-op-bearing callee
-        -- contracts is deferred (A2.1) — the reflected clause roots component
-        -- names (p$has/p$val) that the param→arg substitution cannot rewrite
-        -- (it substitutes `p`, not `p$has`), leaving free vars. A map-op pre
-        -- forces whole-call fallback (never an unproven obligation); a map-op
-        -- post is simply not assumed (sound weakening, below).
+        -- LEVER-A2.1: cross-call assume-guarantee over MAP-op-bearing callee
+        -- contracts is LIVE — component substitution above rewrites p$has/p$val
+        -- to the caller's translated components. The leftover check preserves
+        -- the three-way soundness discipline: a reflected pre still rooting an
+        -- unsubstituted component (ungated caller, alias-hidden map param,
+        -- untranslatable map arg) forces WHOLE-call fallback — never an
+        -- unproven obligation, never a free variable in the .fq.
         let mPreResult = case contractPre contract of
               Nothing  -> Just Nothing
-              Just pre | exprMentionsMapOp pre -> Nothing  -- LEVER-A2: fallback
               Just pre -> case exprToPred pre of
                             Nothing -> Nothing       -- untranslatable pre → fallback
-                            Just p  -> Just (Just (applySubst subst p))
+                            Just p  ->
+                              if uncoveredComps Set.empty p
+                                then Nothing         -- uncovered map component → fallback
+                                else Just (Just (applySubst subst p))
         case mPreResult of
           Nothing -> return Nothing  -- soundness: cannot assume post without verifying pre
           Just mPrePred -> do
@@ -2403,15 +2554,27 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                           -- the post (sound weakening; the call still proves its pre).
                           | bytesOpOnResult (contractPost contract)
                             && calleeRetSort /= byteArraySort = Nothing
-                          -- LEVER-A2: a map-op-bearing callee post reflects
-                          -- component-rooted names the substitution cannot
-                          -- rewrite (see mPreResult note) — do not assume it
-                          -- (sound weakening; cross-call map A-G is A2.1).
-                          | exprMentionsMapOpM (contractPost contract) = Nothing
                           | otherwise                       = contractPost contract >>= exprToPred
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
-            let mPostSubst = fmap (\p -> applySubst (Map.insert "result" (FQVar resultVar) subst) p) mPostPred
+            -- LEVER-A2.1: a map-returning callee's post roots result$has/
+            -- result$val — substitute them to the fresh result var's split
+            -- components (declared by the ELet CallVC seed via the
+            -- mapArraySort marker). Guarded on the marker: without it the
+            -- components would be free vars, so the leftover check below
+            -- drops the assumption (sound weakening) instead.
+            let resultCompSubst
+                  | calleeRetSort == mapArraySort = Map.fromList
+                      [ ("result$has", FQVar (resultVar <> "$has"))
+                      , ("result$val", FQVar (resultVar <> "$val")) ]
+                  | otherwise = Map.empty
+                postSubst = Map.union resultCompSubst
+                              (Map.insert "result" (FQVar resultVar) subst)
+                mPostSubst = do
+                  p <- mPostPred
+                  if uncoveredComps (Map.keysSet resultCompSubst) p
+                    then Nothing                    -- uncovered component → not assumed
+                    else Just (applySubst postSubst p)
                 retSort = calleeRetSort
             -- Issue 3 resolution: return CallVC directly (Option A)
             -- The enclosing ELet case fills the real continuation.
@@ -2614,8 +2777,18 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
     -- in every constraint that referenced it (the withdraw-twice / banking_ledger
     -- crash, masked pre-F-NIW-3 by liquid-fixpoint's hyphen mis-lex).
     Just (CallVC cal callArgs mPre mPost rVar rSort _cont) -> do
+      -- LEVER-A2.1: a map-returning callee (rSort == mapArraySort, the
+      -- cross-call marker) binds its result as a SPLIT component pair — seed
+      -- rVar$has/rVar$val so subsequent map ops over the let-bound name root
+      -- through mapPairTermsB (env renames v → rVar; its "$has" lookup then
+      -- hits these keys). The component binders themselves are declared at
+      -- flatten/compile time via collectCallResultComps.
       let env' = Map.insert v rVar env
-          se'  = Map.insert rVar rSort se
+          se0  = Map.insert rVar rSort se
+          se'  = if rSort == mapArraySort
+                   then Map.insert (rVar <> "$has") mapArraySort
+                          (Map.insert (rVar <> "$val") mapArraySort se0)
+                   else se0
       mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
         Nothing -> return Nothing
@@ -2981,11 +3154,28 @@ flattenBodyVC (CallVC _callee _args _mPre mPost resultVar resultSort cont) =
   let contPaths = flattenBodyVC cont
       -- Add result variable as a let-binding and postcondition as guard
       resultLB = LetBinding resultVar resultSort (FQVar resultVar)
+      -- LEVER-A2.1: a map-returning callee's result is a SPLIT component pair;
+      -- declare the components (self-eq declaration, the resultLB pattern) so
+      -- the assumed post and downstream map ops that root on them are bound.
+      compLBs = [ LetBinding (resultVar <> sfx) mapArraySort
+                             (FQVar (resultVar <> sfx))
+                | resultSort == mapArraySort, sfx <- ["$has", "$val"] ]
   in [ ( conjoinAll [guard, fromMaybe FQTrue mPost]
-       , resultLB : lbs
+       , resultLB : compLBs ++ lbs
        , resultPred )
      | (guard, lbs, resultPred) <- contPaths
      ]
+
+-- | LEVER-A2.1: does any flattened path RETURN an array-sorted let-bound var
+-- (a map-returning call's result)? The generic body-post constraint equates
+-- `result` (int reft) against the path result — ill-sorted for an array var,
+-- so the caller routes to fallback instead (§6.1).
+arrayResultPath :: BodyVC -> Bool
+arrayResultPath bvc =
+  any (\(_, lbs, rp) -> case rp of
+         FQVar v -> any (\lb -> lbName lb == v && lbSort lb == mapArraySort) lbs
+         _       -> False)
+      (flattenBodyVC bvc)
 
 -- | Per-path outermost-branch provenance, in the SAME order as 'flattenBodyVC'.
 -- For each flattened path: @Just True@ if it descends from the then-subtree of
