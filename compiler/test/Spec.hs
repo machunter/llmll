@@ -6152,6 +6152,69 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         er <- emitE "(type S (| A) (| B int)) (def g [x: S n: int] -> int (post (=> (= x A) (= result 1))) 1)"
         erBodyFallback er `shouldSatisfy` elem "g"
 
+    -- LEVER-A0 (data-scope-lever-a-arrays-proposal.md §10 stage A0): the eight
+    -- bytes/map builtins exist at the surface — typecheck (incl. the v1 int-only
+    -- map-key gate and bytes-zero's determining-context rule), codegen shims,
+    -- runtime assertions — while verification stays byte-inert: none of the ops
+    -- is reflected, so bodies fall back and contracts classify non_qf_lia.
+    -- Byte-inertness over examples/ is sweep-verified (85 files, 0 stdout diffs,
+    -- 0 .fq diffs, before/after binaries), not asserted here.
+    describe "LEVER-A0 (bytes/map surface, verification-inert)" $ do
+      let checkA0 src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> typeCheck GrammarCoreInversion emptyEnv stmts
+          errsOf r = [ diagMessage d | d <- reportDiagnostics r, diagSeverity d == SevError ]
+
+      it "A0-1 all eight ops typecheck in one well-typed program" $ do
+        let r = checkA0 (unlines
+                  [ "(def-shell zeros8 [] -> bytes[8] (bytes-zero))"
+                  , "(def-shell db [] -> int (let [(b (zeros8))] (let [(b2 (bytes-set b 3 200))] (+ (bytes-get b2 3) (bytes-length b2)))))"
+                  , "(def-shell dm [] -> int (let [(m (map-put (map-empty) 7 41))] (if (map-has m 7) (map-get m 7) 0)))" ])
+        errsOf r `shouldBe` []
+
+      it "A0-2 v1 key gate: a map op on non-int keys is a diagnostic on the operation" $ do
+        let r = checkA0 "(def-shell f [m: map[string,int]] -> int (map-get m \"k\"))"
+        errsOf r `shouldSatisfy` any (T.isInfixOf "int key")
+
+      it "A0-2b the map[string,int] TYPE alone (no ops) stays legal T1" $ do
+        let r = checkA0 "(def-shell g [m: map[string,int]] -> int 1)"
+        errsOf r `shouldBe` []
+
+      it "A0-3 bytes-get on a non-bytes argument is a type error" $ do
+        let r = checkA0 "(def-shell f [s: string] -> int (bytes-get s 0))"
+        errsOf r `shouldSatisfy` any (T.isInfixOf "expects bytes[n]")
+
+      it "A0-4 bare (bytes-zero) outside the determining context is a type error" $ do
+        let r = checkA0 "(def-shell f [] -> int (bytes-length (bytes-zero)))"
+        errsOf r `shouldSatisfy` any (T.isInfixOf "determines bytes[n]")
+
+      it "A0-5 bytes-set preserves bytes[n]: result unifies with the declared return" $ do
+        let r = checkA0 "(def-shell f [b: bytes[8] v: int] -> bytes[8] (bytes-set b 0 v))"
+        errsOf r `shouldBe` []
+
+      it "A0-6 classifier: a contract mentioning an array op is non_qf_lia (Advisory tier, stage-A3 flips it)" $ do
+        let c = Contract (Just (EApp "map-has" [EVar "m", EVar "k"])) Nothing Nothing Nothing Nothing
+        classifyContractFragment c `shouldBe` "non_qf_lia"
+        isQfLia (EApp "bytes-get" [EVar "b", ELit (LitInt 0)]) `shouldBe` False
+
+      it "A0-7 codegen: Class-A seam for bytes ops; bytes-zero reads n from the declared return; shims in the preamble" $ do
+        emitApp "bytes-get" [EVar "b", ELit (LitInt 3)]
+          `shouldSatisfy` T.isInfixOf "bytes_get"
+        emitApp "bytes-get" [EVar "b", ELit (LitInt 3)]
+          `shouldSatisfy` T.isInfixOf ":: Int"
+        let src = case parseStatements GrammarCoreInversion "test" (T.pack "(def-shell zeros8 [] -> bytes[8] (bytes-zero))") of
+                    Left err -> error (show err)
+                    Right stmts -> cgHsSource (generateHaskell "t" stmts)
+        src `shouldSatisfy` T.isInfixOf "(bytes_zero 8)"
+        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "bytes_get :: [Word8] -> Int -> Integer"
+        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "map_get :: (Ord k, Show k) => Map.Map k v -> k -> v"
+
+      it "A0-8 verification inertness: a body using array ops falls back (unreflected ops), never crashes emission" $ do
+        er <- case parseStatements GrammarCoreInversion "test" (T.pack "(def-shell f [m: map[int,int] k: int] -> int (pre (map-has m k)) (map-get m k))") of
+                Left err -> error (show err)
+                Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+        erBodyFallback er `shouldSatisfy` elem "f"
+
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
     -- an uppercase identifier) and whose constructors use `| ctor { }` syntax.

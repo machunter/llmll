@@ -264,6 +264,40 @@ runtimePreamble =
   , "range :: Integer -> Integer -> [Integer]"  -- LT-INT (v0.11): Class B value-shape
   , "range from to = [from .. to - 1]"
   , ""
+  , "-- §13.12 Bytes / map operations (Lever A stage A0)."
+  , "-- Builtin contracts fire here as runtime assertions (the §5.3.4 backstop);"
+  , "-- verify-time discharge of the same obligations is stage A1/A2."
+  , "bytes_length :: [Word8] -> Int"
+  , "bytes_length = length"
+  , ""
+  , "bytes_get :: [Word8] -> Int -> Integer"
+  , "bytes_get b i"
+  , "  | i < 0 || i >= length b = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "  | otherwise              = fromIntegral (b !! i)"
+  , ""
+  , "bytes_set :: [Word8] -> Int -> Integer -> [Word8]"
+  , "bytes_set b i v"
+  , "  | i < 0 || i >= length b = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "  | v < 0 || v > 255       = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "  | otherwise              = take i b ++ [fromIntegral v] ++ drop (i + 1) b"
+  , ""
+  , "bytes_zero :: Int -> [Word8]"
+  , "bytes_zero n = replicate n 0"
+  , ""
+  , "map_has :: Ord k => Map.Map k v -> k -> Bool"
+  , "map_has m k = Map.member k m"
+  , ""
+  , "map_get :: (Ord k, Show k) => Map.Map k v -> k -> v"
+  , "map_get m k = case Map.lookup k m of"
+  , "  Just v  -> v"
+  , "  Nothing -> error (\"map-get: pre-condition failed: key \" ++ show k ++ \" not present (map-has is the required pre)\")"
+  , ""
+  , "map_put :: Ord k => Map.Map k v -> k -> v -> Map.Map k v"
+  , "map_put m k v = Map.insert k v m"
+  , ""
+  , "map_empty :: Map.Map k v"
+  , "map_empty = Map.empty"
+  , ""
   , "-- §13.6 String"
   , "string_length :: String -> Int"
   , "string_length = length"
@@ -542,9 +576,15 @@ emitDefLogic name params mRet contract body = T.unlines $
         in "(let { _pre_ = " <> preExpr <> " } in _pre_ `seq` " <> bodyWithPost <> ")"
     bodyWithPost = case contractPost contract of
       Just (EHole (HProofRequired _ (Just pred))) ->
-        "(let { _result_ = " <> emitExpr body <> "; _ppost_ = if " <> emitExpr pred
+        "(let { _result_ = " <> emitBodyExpr <> "; _ppost_ = if " <> emitExpr pred
         <> " then () else error \"post-condition (proof-required predicate) failed\" } in _ppost_ `seq` _result_)"
-      _ -> emitExpr body
+      _ -> emitBodyExpr
+    -- LEVER-A0: bytes-zero's length comes from the declared return type — the
+    -- typechecker admits (bytes-zero) as a body only under a literal
+    -- '-> bytes[n]' (the v1 determining context), so mRet is authoritative here.
+    emitBodyExpr = case (mRet, body) of
+      (Just (TBytes n), EApp "bytes-zero" []) -> "(bytes_zero " <> T.pack (show n) <> ")"
+      _                                       -> emitExpr body
 
 -- | Emit a check block as a QuickCheck property.
 emitCheck :: Property -> Text
@@ -618,6 +658,13 @@ emitApp op args
 -- call seam, and lifts `Int`-returning primitives back to `Integer`.
 emitApp "list-length"   [xs]     = "(fromIntegral (list_length " <> wrap xs <> ") :: Integer)"
 emitApp "string-length" [s]      = "(fromIntegral (string_length " <> wrap s <> ") :: Integer)"
+-- LEVER-A0: bytes ops take the same Class-A seam (Int indices at the Haskell
+-- boundary, Integer at the LLMLL surface). Map ops need no seam cases — keys
+-- and values are already Integer-typed, so the generic fallback emits
+-- (map_has (m) (k)) etc. via toHsIdent.
+emitApp "bytes-length"  [b]      = "(fromIntegral (bytes_length " <> wrap b <> ") :: Integer)"
+emitApp "bytes-get"     [b,i]    = "(bytes_get " <> wrap b <> " (fromIntegral " <> wrap i <> " :: Int))"
+emitApp "bytes-set"     [b,i,v]  = "(bytes_set " <> wrap b <> " (fromIntegral " <> wrap i <> " :: Int) " <> wrap v <> ")"
 emitApp "list-nth"      [xs,i]   = "(list_nth " <> wrap xs <> " (fromIntegral " <> wrap i <> " :: Int))"
 emitApp "string-slice"  [s,f,t]  = "(string_slice " <> wrap s <> " (fromIntegral " <> wrap f <> " :: Int) (fromIntegral " <> wrap t <> " :: Int))"
 emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " (fromIntegral " <> wrap i <> " :: Int))"

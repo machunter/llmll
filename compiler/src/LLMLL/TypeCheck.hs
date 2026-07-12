@@ -147,6 +147,22 @@ builtinEnv = Map.fromList $
   -- Correctness is outside the decidable fragment — classified as Asserted.
   , ("hmac-sha1",          TFn [TBytes 20, TBytes 20] (TBytes 20))
   , ("sha1",               TFn [TBytes 20] (TBytes 20))
+  -- §13.12 Bytes / map operations (Lever A stage A0).
+  -- Typing is special-cased in inferArrayOp (a bytes[n] length is an Int, not
+  -- a type variable, and map keys carry the v1 int-only gate — neither is
+  -- expressible as a TVar signature). These entries serve name-membership
+  -- (callee admissibility, brief/report vocabulary) and map-empty's fully
+  -- generic constructor path. Verification-inert at this stage: none of these
+  -- names is reflected by FixpointEmit, so bodies/contracts mentioning them
+  -- take today's fallback routing unchanged.
+  , ("bytes-length", TFn [TVar "bs"] TInt)
+  , ("bytes-get",    TFn [TVar "bs", TInt] TInt)
+  , ("bytes-set",    TFn [TVar "bs", TInt, TInt] (TVar "bs"))
+  , ("bytes-zero",   TFn [] (TVar "bs"))
+  , ("map-has",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] TBool)
+  , ("map-get",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] (TVar "v"))
+  , ("map-put",      TFn [TMap (TVar "k") (TVar "v"), TVar "k", TVar "v"] (TMap (TVar "k") (TVar "v")))
+  , ("map-empty",    TFn [] (TMap (TVar "k") (TVar "v")))
   ]
 
 emptyEnv :: TypeEnv
@@ -948,6 +964,12 @@ checkStatement (SDef name params mRet contract body) = do
       -- keeps infer-then-unify, preserving the name-attributed return mismatch.
       bodyType <- case (mRet, body) of
         (Just retTy, EHole (HNamed _)) -> retTy <$ withSegment "body" (checkExpr body retTy)
+        -- LEVER-A0: bytes-zero's v1 determining context — the full body under a
+        -- declared literal '-> bytes[n]' return type. The length must be
+        -- syntactically present (no alias expansion): codegen reads the same
+        -- annotation to emit the n-length zero value, and the two ends must
+        -- agree on when the construct is legal.
+        (Just retTy@(TBytes _), EApp "bytes-zero" []) -> pure retTy
         (Just retTy, _)                -> do
           t <- withSegment "body" (inferExpr body)
           unify name retTy t
@@ -978,6 +1000,8 @@ checkStatement (SDefShell name params mRet contract body decreases) = do
     withTaggedEnv SrcParam params $ do
       bodyType <- case (mRet, body) of
         (Just retTy, EHole (HNamed _)) -> retTy <$ withSegment "body" (checkExpr body retTy)
+        -- LEVER-A0: same bytes-zero determining-context rule as the SDef site.
+        (Just retTy@(TBytes _), EApp "bytes-zero" []) -> pure retTy
         (Just retTy, _)                -> do
           t <- withSegment "body" (inferExpr body)
           unify name retTy t
@@ -1353,7 +1377,14 @@ inferExpr (EApp func args) = do
          emitTrustGap func trusts (fmap erDisplayLevel (csPre cs))
          -- Check post-condition
          emitTrustGap func trusts (fmap erDisplayLevel (csPost cs))
-  case mFuncTy of
+  -- LEVER-A0: bytes/map builtins are typed by inferArrayOp, ahead of the
+  -- generic builtinEnv path — a bytes[n] length is an Int (not a TVar) and
+  -- map ops carry the v1 int-only key gate, neither expressible as a
+  -- polymorphic signature. map-empty is NOT intercepted: its
+  -- TFn [] (TMap k v) entry types fully generically (list-empty precedent).
+  if func `elem` arrayOpNames
+    then inferArrayOp func args
+    else case mFuncTy of
     Nothing -> do
       tcWarnOrError $ "call to unknown function '" <> func <> "'"
       pure (TVar "?")  -- wildcard: don't inject false type mismatch downstream
@@ -1757,6 +1788,130 @@ freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TB
 -- user-defined 'def'/'def-shell' signatures (LLMLL's surface syntax has no
 -- generic/type-variable annotation, so user function types never contain a
 -- TVar in the first place).
+-- | LEVER-A0: the bytes/map builtins whose typing cannot ride the generic
+-- TVar-signature path (see the §13.12 builtinEnv block). map-empty is absent
+-- on purpose — TFn [] (TMap k v) types generically.
+arrayOpNames :: [Name]
+arrayOpNames =
+  [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
+  , "map-has", "map-get", "map-put" ]
+
+-- | LEVER-A0: dedicated typing for the array/map operation family (proposal
+-- data-scope-lever-a-arrays-proposal.md §3). Enforces:
+--   * first-argument structure (bytes[n] / map[k,v], alias-expanded);
+--   * the v1 int-only map-key gate (F2 disposition) — a diagnostic on the
+--     OPERATION, the type former stays unrestricted;
+--   * bytes-set's length-preserving result type (bytes[n] in, bytes[n] out);
+--   * bytes-zero's determining-context rule — v1 admits it only as the full
+--     body of a function declared '-> bytes[n]' (handled at the def sites);
+--     reaching it here means the context did not determine n.
+-- Lenient where the argument type is an unresolved TVar (hole/unknown):
+-- accept and return the best-known type, mirroring the generic path's
+-- wildcard discipline so sketch mode and hole briefs keep working.
+inferArrayOp :: Name -> [Expr] -> TC Type
+inferArrayOp func args = case func of
+  "bytes-zero" -> do
+    checkArity 0
+    tcError $ "(bytes-zero) requires a context that determines bytes[n]; "
+              <> "v1 supports it only as the full body of a function declared '-> bytes[n]'"
+    pure (TVar "?")
+  "bytes-length" -> do
+    checkArity 1
+    _ <- bytesArg 0
+    pure TInt
+  "bytes-get" -> do
+    checkArity 2
+    _ <- bytesArg 0
+    intArg 1
+    pure TInt
+  "bytes-set" -> do
+    checkArity 3
+    bTy <- bytesArg 0
+    intArg 1
+    intArg 2
+    pure bTy
+  "map-has" -> do
+    checkArity 2
+    _ <- mapArgAndKey
+    pure TBool
+  "map-get" -> do
+    checkArity 2
+    (_, vt) <- mapArgAndKey
+    pure vt
+  "map-put" -> do
+    checkArity 3
+    (kt, vt) <- mapArgAndKey
+    vt' <- valueArg 2 vt
+    pure (TMap kt vt')
+  _ -> do  -- unreachable by construction (arrayOpNames gate)
+    tcWarnOrError $ "call to unknown function '" <> func <> "'"
+    pure (TVar "?")
+  where
+    checkArity n =
+      when (length args /= n) $
+        tcError $ "function '" <> func <> "' expects " <> tshow (n :: Int)
+                  <> " args, got " <> tshow (length args)
+    argAt j = withSegment "args" $ withSegment (tshow (j :: Int)) $
+      case drop j args of
+        (EHole hk : _) -> do
+          -- Record the hole with a wildcard expectation; array-op arg types
+          -- are enforced only on concrete terms (generic-path discipline).
+          checkExpr (EHole hk) (TVar "?")
+          pure (TVar "?")
+        (e : _)        -> inferExpr e >>= expandAlias
+        []             -> pure (TVar "?")  -- arity error already reported
+    bytesArg j = do
+      t <- argAt j
+      case t of
+        TBytes _ -> pure t
+        TVar _   -> pure t  -- unresolved (hole/unknown): lenient
+        other    -> do
+          tcError $ "function '" <> func <> "' expects bytes[n] as argument "
+                    <> tshow (j + 1) <> ", got " <> typeLabel other
+          pure (TVar "?")
+    intArg j = do
+      t <- argAt j
+      ok <- compatibleExpanded t TInt
+      unless ok $
+        tcError $ "function '" <> func <> "' expects int as argument "
+                  <> tshow (j + 1) <> ", got " <> typeLabel t
+    -- First argument must be map[k,v]; key argument (index 1) must satisfy
+    -- the v1 int-only gate regardless of how the map's key sort resolved.
+    mapArgAndKey = do
+      t <- argAt 0
+      (kt, vt) <- case t of
+        TMap kt vt -> do
+          ktE <- expandAlias kt
+          case ktE of
+            TInt   -> pure ()
+            TVar _ -> pure ()  -- unresolved key sort: gate lands on the key arg
+            other  -> tcError $ "map operation '" <> func <> "' requires int keys in v1 "
+                                <> "(got map[" <> typeLabel other <> ",...]); "
+                                <> "string and other key sorts are deferred (Lever A §3)"
+          pure (ktE, vt)
+        TVar _ -> pure (TInt, TVar "?")  -- unresolved map (hole/unknown): lenient
+        other  -> do
+          tcError $ "function '" <> func <> "' expects map[k,v] as argument 1, got "
+                    <> typeLabel other
+          pure (TInt, TVar "?")
+      kArgTy <- argAt 1
+      kOk <- compatibleExpanded kArgTy TInt
+      unless kOk $
+        tcError $ "map operation '" <> func <> "' requires an int key in v1, got "
+                  <> typeLabel kArgTy
+      pure (kt, vt)
+    valueArg j vt = do
+      t <- argAt j
+      case vt of
+        TVar _ -> pure t  -- map's value sort unresolved: take the argument's
+        _      -> do
+          vOk <- compatibleExpanded t vt
+          unless vOk $
+            tcError $ "function '" <> func <> "' expects a value of type "
+                      <> typeLabel vt <> " as argument " <> tshow (j + 1)
+                      <> ", got " <> typeLabel t
+          pure vt
+
 freshenFnType :: Type -> TC Type
 freshenFnType t =
   case Set.toList (freeTVarNames t) of
