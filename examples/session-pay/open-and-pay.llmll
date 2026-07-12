@@ -62,12 +62,12 @@
 ;; --- 1. STATE-SAFETY: the RFC 793 state machine (verified leaf) -----------------
 (def step [state: ConnState event: Event] -> StepResult
   (post
-    (and (or (not (and (= state Closed)      (= event PassiveOpen))) (= result 1))
-    (and (or (not (and (= state Closed)      (= event ActiveOpen)))  (= result 2))
-    (and (or (not (and (= state Listen)      (= event RcvSyn)))      (= result 3))
-    (and (or (not (and (= state SynSent)     (= event RcvSynAck)))   (= result 4))
-    (and (or (not (and (= state SynRcvd)     (= event RcvAck)))      (= result 4))
-    (and (or (not (and (= state Established) (= event SendData)))    (= result 4))
+    (and (=> (and (= state Closed)      (= event PassiveOpen)) (= result 1))
+    (and (=> (and (= state Closed)      (= event ActiveOpen))  (= result 2))
+    (and (=> (and (= state Listen)      (= event RcvSyn))      (= result 3))
+    (and (=> (and (= state SynSent)     (= event RcvSynAck))   (= result 4))
+    (and (=> (and (= state SynRcvd)     (= event RcvAck))      (= result 4))
+    (and (=> (and (= state Established) (= event SendData))    (= result 4))
          (or (and (= state Closed)      (= event PassiveOpen))
          (or (and (= state Closed)      (= event ActiveOpen))
          (or (and (= state Listen)      (= event RcvSyn))
@@ -95,15 +95,15 @@
 (def-shell open-and-pay [state: ConnState event: Event balance: int amount: Word] -> PayOutcome
   (pre (>= balance 0))
   (post
-    (and (or (not (and (or (and (= state SynSent)     (= event RcvSynAck))
-                   (or (and (= state SynRcvd)     (= event RcvAck))
-                       (and (= state Established) (= event SendData))))
-                   (>= balance amount)))
-             (= result (Paid (- balance amount))))
-         (or (and (or (and (= state SynSent)     (= event RcvSynAck))
+    (and (=> (and (or (and (= state SynSent)     (= event RcvSynAck))
                   (or (and (= state SynRcvd)     (= event RcvAck))
                       (and (= state Established) (= event SendData))))
                   (>= balance amount))
+             (= result (Paid (- balance amount))))
+         (=> (not (and (or (and (= state SynSent)     (= event RcvSynAck))
+                       (or (and (= state SynRcvd)     (= event RcvAck))
+                           (and (= state Established) (= event SendData))))
+                       (>= balance amount)))
              (= result (Rejected 0))))
     :source "session-pay: pay iff a transition reaches ESTABLISHED (RFC 793 §3.2) and balance >= amount; else REJECTED")
   (let [[next (step state event)]]

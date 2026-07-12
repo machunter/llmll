@@ -1,6 +1,6 @@
 {
-  "llmll_version": "0.13.8",
-  "schemaVersion": "0.7.0",
+  "llmll_version": "0.14.31",
+  "schemaVersion": "0.8.0",
   "statements": [
     {
       "body": {
@@ -81,52 +81,6 @@
               {
                 "args": [
                   {
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "n"
-                      },
-                      {
-                        "kind": "lit-int",
-                        "value": 0
-                      }
-                    ],
-                    "kind": "op",
-                    "op": ">="
-                  }
-                ],
-                "kind": "op",
-                "op": "not"
-              },
-              {
-                "args": [
-                  {
-                    "kind": "var",
-                    "name": "result"
-                  },
-                  {
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "n"
-                      }
-                    ],
-                    "fn": "Accepted",
-                    "kind": "app"
-                  }
-                ],
-                "kind": "op",
-                "op": "="
-              }
-            ],
-            "kind": "op",
-            "op": "or"
-          },
-          {
-            "args": [
-              {
-                "args": [
-                  {
                     "kind": "var",
                     "name": "n"
                   },
@@ -151,6 +105,46 @@
                         "name": "n"
                       }
                     ],
+                    "fn": "Accepted",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "=>"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "n"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "n"
+                      }
+                    ],
                     "fn": "Rejected",
                     "kind": "app"
                   }
@@ -160,7 +154,7 @@
               }
             ],
             "kind": "op",
-            "op": "or"
+            "op": "=>"
           }
         ],
         "kind": "op",

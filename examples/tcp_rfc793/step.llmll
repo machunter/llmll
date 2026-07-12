@@ -10,12 +10,13 @@
 ;;  constructor value, distinct from any next-state by Z3's datatype theory.
 ;;
 ;; The `post` is the FULL transition-table totality, authored FROM the RFC (not a
-;; copy of the body): each legal pair maps to its specific `Next(tag)`, and every
-;; other pair maps to `Rejected`. This is stronger than the earlier enum re-type
-;; (which proved only the partial "no CLOSED/LISTEN -> ESTABLISHED" safety): the real
-;; outcome sum restores the full totality the int-sentinel version once carried,
-;; WITHOUT the sentinel. A body that skips the handshake is refuted and localized to
-;; the offending branch (see step-bad.llmll).
+;; copy of the body): each legal pair maps to its specific `Next(tag)` via the `=>`
+;; implication sugar (v0.14.16), and every pair outside the legal table maps to
+;; `Rejected`. This is stronger than the earlier enum re-type (which proved only the
+;; partial "no CLOSED/LISTEN -> ESTABLISHED" safety): the real outcome sum restores
+;; the full totality the int-sentinel version once carried, WITHOUT the sentinel. A
+;; body that skips the handshake is refuted and localized to the offending branch
+;; (see step-bad.llmll).
 ;;   Regenerate twin: llmll build ./step.llmll --emit -o .
 
 (type ConnState
@@ -41,11 +42,11 @@
 
 (def step [state: ConnState event: Event] -> StepOutcome
   (post
-    (and (or (not (and (= state Closed)  (= event PassiveOpen))) (= result (Next 1)))
-    (and (or (not (and (= state Closed)  (= event ActiveOpen)))  (= result (Next 2)))
-    (and (or (not (and (= state Listen)  (= event RcvSyn)))      (= result (Next 3)))
-    (and (or (not (and (= state SynSent) (= event RcvSynAck)))   (= result (Next 4)))
-    (and (or (not (and (= state SynRcvd) (= event RcvAck)))      (= result (Next 4)))
+    (and (=> (and (= state Closed)  (= event PassiveOpen)) (= result (Next 1)))
+    (and (=> (and (= state Closed)  (= event ActiveOpen))  (= result (Next 2)))
+    (and (=> (and (= state Listen)  (= event RcvSyn))      (= result (Next 3)))
+    (and (=> (and (= state SynSent) (= event RcvSynAck))   (= result (Next 4)))
+    (and (=> (and (= state SynRcvd) (= event RcvAck))      (= result (Next 4)))
          (or (and (= state Closed)  (= event PassiveOpen))
          (or (and (= state Closed)  (= event ActiveOpen))
          (or (and (= state Listen)  (= event RcvSyn))

@@ -5,16 +5,15 @@
 ;; (v0.14.26, Commit A) made body-faithful via the n-way int-tag chain. Before
 ;; v0.14.26 only two-arm sums discharged.
 ;;
-;; Uses `def-shell`: the n-arm match now VERIFIES body-faithful, but the strict-core
-;; `def` grammar gate still admits only two-arm matches (a follow-on to widen it to
-;; n-arm), so the >2-arm body lives in `def-shell`. The verification (post over the
-;; scrutinee's constructor) is identical either way.
+;; Uses strict-core `def`: since v0.14.27 the strict-core grammar admits >2-arm
+;; payload matches (it had lagged the verifier, which widened at v0.14.26), so the
+;; three-arm body earns the strict tier directly — no `def-shell` escape hatch.
 ;;
 ;;   llmll verify examples/gotofail/nary.llmll   -> SAFE (body-faithful: finalize-n)
 (type Step3   (| Continue) (| Abort int) (| Retry int))
 (type Verdict (| Verified) (| Rejected int))
 
-(def-shell finalize-n [sig: Step3] -> Verdict
+(def finalize-n [sig: Step3] -> Verdict
   (post (=> (= result Verified) (= sig Continue)))
   (match sig ((Continue) Verified)
              ((Abort c)  (Rejected c))

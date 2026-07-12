@@ -38,11 +38,11 @@
   (post
     ;; WEAK: pins the five legal transitions but OMITS the "else -> Rejected"
     ;; totality clause, so an un-pinned illegal pair may return any outcome.
-    (and (or (not (and (= state Closed)  (= event PassiveOpen))) (= result (Next 1)))
-    (and (or (not (and (= state Closed)  (= event ActiveOpen)))  (= result (Next 2)))
-    (and (or (not (and (= state Listen)  (= event RcvSyn)))      (= result (Next 3)))
-    (and (or (not (and (= state SynSent) (= event RcvSynAck)))   (= result (Next 4)))
-         (or (not (and (= state SynRcvd) (= event RcvAck)))      (= result (Next 4)))))))
+    (and (=> (and (= state Closed)  (= event PassiveOpen)) (= result (Next 1)))
+    (and (=> (and (= state Closed)  (= event ActiveOpen))  (= result (Next 2)))
+    (and (=> (and (= state Listen)  (= event RcvSyn))      (= result (Next 3)))
+    (and (=> (and (= state SynSent) (= event RcvSynAck))   (= result (Next 4)))
+         (=> (and (= state SynRcvd) (= event RcvAck))      (= result (Next 4)))))))
     :source "RFC 793 §3.2 — legal transitions only (INCOMPLETE: omits the illegal -> REJECTED totality)")
   (if (and (= state Closed)  (= event PassiveOpen)) (Next 1)
   (if (and (= state Closed)  (= event ActiveOpen))  (Next 2)

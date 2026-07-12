@@ -1,6 +1,6 @@
 {
-  "llmll_version": "0.13.9",
-  "schemaVersion": "0.7.0",
+  "llmll_version": "0.14.31",
+  "schemaVersion": "0.8.0",
   "statements": [
     {
       "body": {
@@ -400,6 +400,60 @@
                   {
                     "args": [
                       {
+                        "kind": "var",
+                        "name": "state"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "Closed"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "event"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "PassiveOpen"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "and"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 1
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "=>"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
                         "args": [
                           {
                             "kind": "var",
@@ -421,7 +475,7 @@
                           },
                           {
                             "kind": "var",
-                            "name": "PassiveOpen"
+                            "name": "ActiveOpen"
                           }
                         ],
                         "kind": "op",
@@ -430,72 +484,6 @@
                     ],
                     "kind": "op",
                     "op": "and"
-                  }
-                ],
-                "kind": "op",
-                "op": "not"
-              },
-              {
-                "args": [
-                  {
-                    "kind": "var",
-                    "name": "result"
-                  },
-                  {
-                    "kind": "lit-int",
-                    "value": 1
-                  }
-                ],
-                "kind": "op",
-                "op": "="
-              }
-            ],
-            "kind": "op",
-            "op": "or"
-          },
-          {
-            "args": [
-              {
-                "args": [
-                  {
-                    "args": [
-                      {
-                        "args": [
-                          {
-                            "args": [
-                              {
-                                "kind": "var",
-                                "name": "state"
-                              },
-                              {
-                                "kind": "var",
-                                "name": "Closed"
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "="
-                          },
-                          {
-                            "args": [
-                              {
-                                "kind": "var",
-                                "name": "event"
-                              },
-                              {
-                                "kind": "var",
-                                "name": "ActiveOpen"
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "="
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "and"
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "not"
                   },
                   {
                     "args": [
@@ -513,7 +501,7 @@
                   }
                 ],
                 "kind": "op",
-                "op": "or"
+                "op": "=>"
               },
               {
                 "args": [
@@ -524,40 +512,34 @@
                           {
                             "args": [
                               {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "state"
-                                  },
-                                  {
-                                    "kind": "var",
-                                    "name": "Listen"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
+                                "kind": "var",
+                                "name": "state"
                               },
                               {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "event"
-                                  },
-                                  {
-                                    "kind": "var",
-                                    "name": "RcvSyn"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
+                                "kind": "var",
+                                "name": "Listen"
                               }
                             ],
                             "kind": "op",
-                            "op": "and"
+                            "op": "="
+                          },
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "event"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "RcvSyn"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "="
                           }
                         ],
                         "kind": "op",
-                        "op": "not"
+                        "op": "and"
                       },
                       {
                         "args": [
@@ -575,7 +557,7 @@
                       }
                     ],
                     "kind": "op",
-                    "op": "or"
+                    "op": "=>"
                   },
                   {
                     "args": [
@@ -586,40 +568,34 @@
                               {
                                 "args": [
                                   {
-                                    "args": [
-                                      {
-                                        "kind": "var",
-                                        "name": "state"
-                                      },
-                                      {
-                                        "kind": "var",
-                                        "name": "SynSent"
-                                      }
-                                    ],
-                                    "kind": "op",
-                                    "op": "="
+                                    "kind": "var",
+                                    "name": "state"
                                   },
                                   {
-                                    "args": [
-                                      {
-                                        "kind": "var",
-                                        "name": "event"
-                                      },
-                                      {
-                                        "kind": "var",
-                                        "name": "RcvSynAck"
-                                      }
-                                    ],
-                                    "kind": "op",
-                                    "op": "="
+                                    "kind": "var",
+                                    "name": "SynSent"
                                   }
                                 ],
                                 "kind": "op",
-                                "op": "and"
+                                "op": "="
+                              },
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "event"
+                                  },
+                                  {
+                                    "kind": "var",
+                                    "name": "RcvSynAck"
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
                               }
                             ],
                             "kind": "op",
-                            "op": "not"
+                            "op": "and"
                           },
                           {
                             "args": [
@@ -637,7 +613,7 @@
                           }
                         ],
                         "kind": "op",
-                        "op": "or"
+                        "op": "=>"
                       },
                       {
                         "args": [
@@ -648,40 +624,34 @@
                                   {
                                     "args": [
                                       {
-                                        "args": [
-                                          {
-                                            "kind": "var",
-                                            "name": "state"
-                                          },
-                                          {
-                                            "kind": "var",
-                                            "name": "SynRcvd"
-                                          }
-                                        ],
-                                        "kind": "op",
-                                        "op": "="
+                                        "kind": "var",
+                                        "name": "state"
                                       },
                                       {
-                                        "args": [
-                                          {
-                                            "kind": "var",
-                                            "name": "event"
-                                          },
-                                          {
-                                            "kind": "var",
-                                            "name": "RcvAck"
-                                          }
-                                        ],
-                                        "kind": "op",
-                                        "op": "="
+                                        "kind": "var",
+                                        "name": "SynRcvd"
                                       }
                                     ],
                                     "kind": "op",
-                                    "op": "and"
+                                    "op": "="
+                                  },
+                                  {
+                                    "args": [
+                                      {
+                                        "kind": "var",
+                                        "name": "event"
+                                      },
+                                      {
+                                        "kind": "var",
+                                        "name": "RcvAck"
+                                      }
+                                    ],
+                                    "kind": "op",
+                                    "op": "="
                                   }
                                 ],
                                 "kind": "op",
-                                "op": "not"
+                                "op": "and"
                               },
                               {
                                 "args": [
@@ -699,7 +669,7 @@
                               }
                             ],
                             "kind": "op",
-                            "op": "or"
+                            "op": "=>"
                           },
                           {
                             "args": [
@@ -710,40 +680,34 @@
                                       {
                                         "args": [
                                           {
-                                            "args": [
-                                              {
-                                                "kind": "var",
-                                                "name": "state"
-                                              },
-                                              {
-                                                "kind": "var",
-                                                "name": "Established"
-                                              }
-                                            ],
-                                            "kind": "op",
-                                            "op": "="
+                                            "kind": "var",
+                                            "name": "state"
                                           },
                                           {
-                                            "args": [
-                                              {
-                                                "kind": "var",
-                                                "name": "event"
-                                              },
-                                              {
-                                                "kind": "var",
-                                                "name": "SendData"
-                                              }
-                                            ],
-                                            "kind": "op",
-                                            "op": "="
+                                            "kind": "var",
+                                            "name": "Established"
                                           }
                                         ],
                                         "kind": "op",
-                                        "op": "and"
+                                        "op": "="
+                                      },
+                                      {
+                                        "args": [
+                                          {
+                                            "kind": "var",
+                                            "name": "event"
+                                          },
+                                          {
+                                            "kind": "var",
+                                            "name": "SendData"
+                                          }
+                                        ],
+                                        "kind": "op",
+                                        "op": "="
                                       }
                                     ],
                                     "kind": "op",
-                                    "op": "not"
+                                    "op": "and"
                                   },
                                   {
                                     "args": [
@@ -761,7 +725,7 @@
                                   }
                                 ],
                                 "kind": "op",
-                                "op": "or"
+                                "op": "=>"
                               },
                               {
                                 "args": [
@@ -1310,6 +1274,176 @@
                           {
                             "args": [
                               {
+                                "kind": "var",
+                                "name": "state"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "SynSent"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "="
+                          },
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "event"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "RcvSynAck"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "="
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "and"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "state"
+                                  },
+                                  {
+                                    "kind": "var",
+                                    "name": "SynRcvd"
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              },
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "event"
+                                  },
+                                  {
+                                    "kind": "var",
+                                    "name": "RcvAck"
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "and"
+                          },
+                          {
+                            "args": [
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "state"
+                                  },
+                                  {
+                                    "kind": "var",
+                                    "name": "Established"
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              },
+                              {
+                                "args": [
+                                  {
+                                    "kind": "var",
+                                    "name": "event"
+                                  },
+                                  {
+                                    "kind": "var",
+                                    "name": "SendData"
+                                  }
+                                ],
+                                "kind": "op",
+                                "op": "="
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "and"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "or"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "or"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "balance"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "amount"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": ">="
+                  }
+                ],
+                "kind": "op",
+                "op": "and"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "balance"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "amount"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "-"
+                      }
+                    ],
+                    "fn": "Paid",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "="
+              }
+            ],
+            "kind": "op",
+            "op": "=>"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
                                 "args": [
                                   {
                                     "kind": "var",
@@ -1450,176 +1584,6 @@
                   {
                     "args": [
                       {
-                        "args": [
-                          {
-                            "kind": "var",
-                            "name": "balance"
-                          },
-                          {
-                            "kind": "var",
-                            "name": "amount"
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "-"
-                      }
-                    ],
-                    "fn": "Paid",
-                    "kind": "app"
-                  }
-                ],
-                "kind": "op",
-                "op": "="
-              }
-            ],
-            "kind": "op",
-            "op": "or"
-          },
-          {
-            "args": [
-              {
-                "args": [
-                  {
-                    "args": [
-                      {
-                        "args": [
-                          {
-                            "args": [
-                              {
-                                "kind": "var",
-                                "name": "state"
-                              },
-                              {
-                                "kind": "var",
-                                "name": "SynSent"
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "="
-                          },
-                          {
-                            "args": [
-                              {
-                                "kind": "var",
-                                "name": "event"
-                              },
-                              {
-                                "kind": "var",
-                                "name": "RcvSynAck"
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "="
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "and"
-                      },
-                      {
-                        "args": [
-                          {
-                            "args": [
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "state"
-                                  },
-                                  {
-                                    "kind": "var",
-                                    "name": "SynRcvd"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              },
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "event"
-                                  },
-                                  {
-                                    "kind": "var",
-                                    "name": "RcvAck"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "and"
-                          },
-                          {
-                            "args": [
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "state"
-                                  },
-                                  {
-                                    "kind": "var",
-                                    "name": "Established"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              },
-                              {
-                                "args": [
-                                  {
-                                    "kind": "var",
-                                    "name": "event"
-                                  },
-                                  {
-                                    "kind": "var",
-                                    "name": "SendData"
-                                  }
-                                ],
-                                "kind": "op",
-                                "op": "="
-                              }
-                            ],
-                            "kind": "op",
-                            "op": "and"
-                          }
-                        ],
-                        "kind": "op",
-                        "op": "or"
-                      }
-                    ],
-                    "kind": "op",
-                    "op": "or"
-                  },
-                  {
-                    "args": [
-                      {
-                        "kind": "var",
-                        "name": "balance"
-                      },
-                      {
-                        "kind": "var",
-                        "name": "amount"
-                      }
-                    ],
-                    "kind": "op",
-                    "op": ">="
-                  }
-                ],
-                "kind": "op",
-                "op": "and"
-              },
-              {
-                "args": [
-                  {
-                    "kind": "var",
-                    "name": "result"
-                  },
-                  {
-                    "args": [
-                      {
                         "kind": "lit-int",
                         "value": 0
                       }
@@ -1633,7 +1597,7 @@
               }
             ],
             "kind": "op",
-            "op": "or"
+            "op": "=>"
           }
         ],
         "kind": "op",

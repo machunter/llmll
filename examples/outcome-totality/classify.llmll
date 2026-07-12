@@ -10,6 +10,6 @@
 (type Outcome (| Accepted int) (| Rejected int))
 
 (def classify [n: int] -> Outcome
-  (post (and (or (not (>= n 0)) (= result (Accepted n)))     ;; legal   -> Accepted(n)
-             (or (>= n 0)       (= result (Rejected n)))))    ;; illegal -> Rejected(n)
+  (post (and (=> (>= n 0) (= result (Accepted n)))     ;; legal   -> Accepted(n)
+             (=> (< n 0)  (= result (Rejected n)))))   ;; illegal -> Rejected(n)
   (if (>= n 0) (Accepted n) (Rejected n)))
