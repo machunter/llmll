@@ -483,11 +483,15 @@ emitFixpointWithCache opts srcFile cache stmts = do
       -- undeclared symbol. Scanning 'quals' too closes the gap; 'quals'
       -- includes 'builtinQualifiers' (pure int comparisons, no measure
       -- symbols), so this is a no-op for programs that don't hit the gap.
+      -- LEVER-A1: the array-theory operation symbols are INTERPRETED by the
+      -- solver (native map theory) — declaring them as UF constants would
+      -- shadow the theory. Excluded from the sweep like datatype ctors.
+      arrayTheorySyms = Set.fromList ["Map_select", "Map_store", "Map_default"]
       usedMeasures = (Set.unions $
            [ Set.union (appNames (reftPred (conLhs c))) (appNames (reftPred (conRhs c)))
            | c <- consts ]
         ++ [ appNames (reftPred (bindReft b)) | b <- binds ]
-        ++ [ appNames (qualBody q) | q <- quals ]) Set.\\ ctorNames
+        ++ [ appNames (qualBody q) | q <- quals ]) Set.\\ ctorNames Set.\\ arrayTheorySyms
       measureConsts = map measureConstant (Set.toList usedMeasures)
   let fqFile = FQFile measureConsts dataDecs quals binds consts
   return EmitResult
@@ -583,6 +587,19 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
 
   -- Only handle integer-typed parameters (linear arithmetic fragment)
   let intParams = [ (n, t) | (n, t) <- params, isScalarLike aliases t ]
+  -- LEVER-A1: the per-function activation gate (§5). When on, bytes[n] params
+  -- join the binder set at the array sort (family-1 fact in the binder reft),
+  -- and the result sort of a bytes return is the array sort. When off — every
+  -- function that neither mentions a bytes op nor calls a bytes-op-contracted
+  -- callee, i.e. the whole pre-existing corpus — arrParams is empty and sortA1
+  -- coincides with typeToSortA: byte-identical .fq.
+  let arrGate = arrGateActive cenv contract mBody
+      arrParams = if arrGate
+                    then [ (n, t) | (n, t) <- params, isJust (bytesLenOf aliases t) ]
+                    else []
+      sortA1 t = case bytesLenOf aliases t of
+                   Just _ | arrGate -> byteArraySort
+                   _                -> typeToSortA aliases t
   -- NIW (v0.12): non-int params used as measure arguments get an opaque carrier
   -- binder so (strLen s) / (listLen xs) resolve to an in-scope symbol. Scoped to
   -- genuinely-used measure args (scan of contract + body) so measure-free
@@ -608,7 +625,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     else do
 
     -- Emit binders for int params plus any measure-argument carrier params (NIW)
-    paramBinds <- mapM (emitParamBind aliases freshBid addBind) (intParams ++ measureParams)
+    -- plus, under the LEVER-A1 gate, bytes[n] params at the array sort.
+    paramBinds <- mapM (emitParamBind aliases freshBid addBind) (intParams ++ measureParams ++ arrParams)
     let envIds = map bindId paramBinds
 
     -- Emit qualifiers extracted from pre/post
@@ -617,8 +635,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     -- crashes liquid-fixpoint ("free vars [not]"); and/or survive by coercion but
     -- not does not. Sort result + params from the signature; others default int.
     let qualSortMap = Map.fromList $
-          ("result", maybe FQInt (typeToSortA aliases) mRet)
-          : [ (pn, typeToSortA aliases pt) | (pn, pt) <- params ]
+          ("result", maybe FQInt sortA1 mRet)
+          : [ (pn, sortA1 pt) | (pn, pt) <- params ]
         preQuals  = maybe [] (extractQualifiers qualSortMap "pre"  name) (contractPre contract)
         postQuals = maybe [] (extractQualifiers qualSortMap "post" name) (contractPost contract)
     addQuals (preQuals ++ postQuals)
@@ -654,7 +672,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
           Just pred -> do
             cid    <- freshCid
             -- 'result' binder: type inferred from return annotation
-            let retSort = maybe FQInt (typeToSortA aliases) mRet
+            let retSort = maybe FQInt sortA1 mRet
             rbid   <- freshBid
             let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
             addBind resultBind
@@ -708,6 +726,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                       -- sort → would crash liquid-fixpoint. Fall back to contract-only.
                       | clauseOverOpaqueSumParam aliases params (contractPost contract)
                         || clauseOverOpaqueSumParam aliases params (contractPre contract) = Nothing
+                      -- LEVER-A1 (review F1): whole-structure = / /= over a bytes
+                      -- operand is unconditionally out-of-fragment → contract-only
+                      -- fallback (never reflected to array equality; §7 row 4).
+                      | arrGate && (wholeBytesEqClause aliases params mRet (contractPost contract)
+                                 || wholeBytesEqClause aliases params mRet (contractPre contract)) = Nothing
                       | otherwise                         = contractPost contract >>= exprToPred
             mPrePred  = case contractPre contract of
                           Nothing  -> Just Nothing       -- no pre is fine
@@ -812,7 +835,18 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     -- Flatten and emit constraints
                     let paths = flattenBodyVC bvc
                         provs = pathBranchSides bvc  -- structural then/else provenance, positionally aligned with paths
-                        retSort = maybe FQInt (typeToSortA aliases) mRet
+                        retSort = maybe FQInt sortA1 mRet
+                        -- LEVER-A1: the family-1 fact for a gated bytes[n] RETURN
+                        -- (type-level truth: every bytes[n] value has length n). It
+                        -- must ride the constraint LHS, not the result binder's
+                        -- refinement — the constraint reft var `result` SHADOWS the
+                        -- env binder of the same name, so a binder-level fact is
+                        -- invisible exactly where it is needed (param binders are
+                        -- not shadowed; theirs stay on the binder).
+                        resultLenFact = case (if arrGate then mRet >>= bytesLenOf aliases else Nothing) of
+                          Just blen -> [FQBinPred FQEq (FQApp "bytesLen" [FQVar "result"])
+                                                       (FQLit (fromIntegral blen))]
+                          Nothing   -> []
                     -- COMP-3b-general: declare every match-introduced binder across
                     -- the WHOLE VC tree (synthetic guard + arm payloads, at their
                     -- ok/err sort) so the per-arm body-VC constraints have no free
@@ -840,6 +874,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                       let resultEq = FQBinPred FQEq (FQVar "result") resultPred
                           lhsPred  = conjoinAll $ [guard | guard /= FQTrue]
                                                 ++ maybe [] (:[]) mPre
+                                                ++ resultLenFact
                                                 ++ [resultEq]
                           lhs = FQReft "result" retSort lhsPred
                           rhs = FQReft "result" retSort postPred
@@ -1015,7 +1050,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
 emitParamBind :: AliasMap -> IO FQBindId -> (FQBind -> IO ()) -> (Name, Type) -> IO FQBind
 emitParamBind aliases freshBid addBind (n, t) = do
   bid <- freshBid
-  let b = FQBind bid n (FQReft "v" (typeToSort (resolveAliasTy aliases t)) FQTrue)
+  -- LEVER-A1: a bytes[n] param (reachable ONLY via the gated arrParams list —
+  -- bytes is neither scalar-like nor a measure sort, so an ungated function
+  -- never sends one here) binds at the array sort carrying the family-1 ground
+  -- fact `bytesLen(v) = n`.
+  let reft = case bytesLenOf aliases t of
+        Just len -> bytesLenReft len
+        Nothing  -> FQReft "v" (typeToSort (resolveAliasTy aliases t)) FQTrue
+      b = FQBind bid n reft
   addBind b
   return b
 
@@ -1101,6 +1143,127 @@ isBoolLike _  _                     = False
 -- pure for the int-only decisions (measure carriers, etc.).
 isScalarLike :: AliasMap -> Type -> Bool
 isScalarLike am t = isIntLike am t || isBoolLike am t
+
+-- ---------------------------------------------------------------------------
+-- LEVER-A1: bytes[n] static discharge (data-scope-lever-a-arrays-proposal.md,
+-- Rev 1.1). The array class activates PER FUNCTION (the §5 activation gate) so
+-- every function outside the gate emits byte-identical .fq. Map ops are
+-- deliberately unreflected until stage A2 — a contract/body mentioning one
+-- keeps today's fallback routing, which is what the §6.1 exact-reflection rule
+-- requires (never a partial reflection).
+-- ---------------------------------------------------------------------------
+
+-- | The reflected bytes-op family (stage A1). NOT the map ops.
+bytesOpNames :: [Name]
+bytesOpNames = ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
+
+-- | The bytes[n] lowering: int-indexed, int-element SMT array (elements are
+-- byte values 0–255; the range is a ground fact per read, injectRangeFacts).
+byteArraySort :: FQSort
+byteArraySort = FQArr FQInt FQInt
+
+-- | Alias-resolved bytes[n] detection; yields the type-level length.
+bytesLenOf :: AliasMap -> Type -> Maybe Int
+bytesLenOf am t = case resolveAliasTy am t of
+  TBytes n -> Just n
+  _        -> Nothing
+
+-- | Family-1 ground fact as a binder refinement: @bytesLen(v) = n@ — the
+-- type-level length becomes a solver fact on the binder itself, in scope of
+-- every constraint that uses it (path-(a) discipline: ground per binder, never
+-- a quantified axiom).
+bytesLenReft :: Int -> FQReft
+bytesLenReft n = FQReft "v" byteArraySort
+  (FQBinPred FQEq (FQApp "bytesLen" [FQVar "v"]) (FQLit (fromIntegral n)))
+
+-- | Does an expression mention a bytes op (any nesting)?
+exprMentionsBytesOp :: Expr -> Bool
+exprMentionsBytesOp = go
+  where
+    go (EApp f args)  = f `elem` bytesOpNames || any go args
+    go (EOp  f args)  = f `elem` bytesOpNames || any go args
+    go (EIf c t e)    = go c || go t || go e
+    go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
+    go (EMatch s as)  = go s || any (go . snd) as
+    go (ELambda _ b)  = go b
+    go (EDo steps)    = any (\(DoStep _ e) -> go e) steps
+    go (EPair a b)    = go a || go b
+    go (EAwait e)     = go e
+    go _              = False
+
+contractMentionsBytesOp :: Contract -> Bool
+contractMentionsBytesOp c =
+     maybe False exprMentionsBytesOp (contractPre c)
+  || maybe False exprMentionsBytesOp (contractPost c)
+
+-- | The §5 activation gate. On when the function's own contract or body
+-- mentions a bytes op, or its body calls a contracted callee whose contract
+-- does (the callee's pre/post is translated at the call site, so the CALLER's
+-- VC carries the reflected terms and needs the array binders). Off — the
+-- entire pre-existing corpus — nothing changes.
+arrGateActive :: ContractEnv -> Contract -> Maybe Expr -> Bool
+arrGateActive cenv contract mBody =
+     contractMentionsBytesOp contract
+  || maybe False exprMentionsBytesOp mBody
+  || maybe False calleeCarries mBody
+  where
+    calleeCarries e = any calleeHit (Set.toList (calledNames e))
+    calleeHit f = case Map.lookup f cenv of
+      Just (_, c, _) -> contractMentionsBytesOp c
+      Nothing        -> False
+    calledNames :: Expr -> Set.Set Name
+    calledNames (EApp f args)  = Set.insert f (Set.unions (map calledNames args))
+    calledNames (EOp  f args)  = Set.insert f (Set.unions (map calledNames args))
+    calledNames (EIf c t e)    = Set.unions [calledNames c, calledNames t, calledNames e]
+    calledNames (ELet bs b)    = Set.unions (calledNames b : [ calledNames r | (_, _, r) <- bs ])
+    calledNames (EMatch s as)  = Set.unions (calledNames s : map (calledNames . snd) as)
+    calledNames (ELambda _ b)  = calledNames b
+    calledNames (EDo steps)    = Set.unions [ calledNames e | DoStep _ e <- steps ]
+    calledNames (EPair a b)    = Set.union (calledNames a) (calledNames b)
+    calledNames (EAwait e)     = calledNames e
+    calledNames _              = Set.empty
+
+-- | LEVER-A1 (review F1): a contract clause applying = / /= to a bytes-valued
+-- operand. Whole-structure equality is UNCONDITIONALLY out-of-fragment in v1:
+-- the encoding carries junk outside [0,n), so representational array equality
+-- diverges from the observational `=` of LLMLL.md §11.1 — reflecting it risks
+-- a spurious refutation of an observationally true post (a §5.3.4 claim-
+-- accuracy break). Routes the function to contract-only fallback.
+wholeBytesEqClause :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Bool
+wholeBytesEqClause _ _ _ Nothing = False
+wholeBytesEqClause am params mRet (Just e0) = go e0
+  where
+    bytesVars = Set.fromList $ [ n | (n, t) <- params, isJust (bytesLenOf am t) ]
+                            ++ [ "result" | Just t <- [mRet], isJust (bytesLenOf am t) ]
+    go (EApp op [l, r])
+      | op `elem` ["=", "==", "/=", "!=", "≠"] = bytesish l || bytesish r || go l || go r
+    go (EApp _ args)  = any go args
+    go (EOp op args)  = go (EApp op args)
+    go (EIf c t e)    = go c || go t || go e
+    go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
+    go (EMatch s as)  = go s || any (go . snd) as
+    go _              = False
+    bytesish (EVar v)              = v `Set.member` bytesVars
+    bytesish (EApp "bytes-set" _)  = True
+    bytesish (EApp "bytes-zero" _) = True
+    bytesish (EOp op as)           = bytesish (EApp op as)
+    bytesish _                     = False
+
+-- | LEVER-A1: does a contract clause apply a bytes op to @result@? Used by the
+-- call-site post-assumption guard (an ill-sorted reflected term over an
+-- int-sorted result var would crash the solver rather than fall back).
+bytesOpOnResult :: Maybe Expr -> Bool
+bytesOpOnResult Nothing   = False
+bytesOpOnResult (Just e0) = go e0
+  where
+    go (EApp f args)
+      | f `elem` bytesOpNames = any (exprMentionsVar "result") args || any go args
+      | otherwise             = any go args
+    go (EOp f args)  = go (EApp f args)
+    go (EIf c t e)   = go c || go t || go e
+    go (ELet bs b)   = any (\(_, _, r) -> go r) bs || go b
+    go (EMatch s as) = go s || any (go . snd) as
+    go _             = False
 
 -- | PAIR-RET: does the module use pairs anywhere a Pair2 sort/term would be emitted?
 -- Checks each def-form's signature for a (transitive) pair type AND walks its contract
@@ -1568,6 +1731,18 @@ exprToPred (EApp "list-length"   [a]) = (\x -> FQApp "listLen" [x]) <$> exprToPr
 exprToPred (EApp "first"  [a]) = (\x   -> FQApp "pair2_0" [x])   <$> exprToPred a
 exprToPred (EApp "second" [a]) = (\x   -> FQApp "pair2_1" [x])   <$> exprToPred a
 exprToPred (EPair a b)         = (\x y -> FQApp "pair2"   [x, y]) <$> exprToPred a <*> exprToPred b
+-- LEVER-A1 (proposal §4): the bytes-op family reflects into the array theory —
+-- bytes-length to the bytesLen UF (grounded per binder by the family-1 binder
+-- fact), bytes-get/bytes-set to the interpreted select/store. Exact reflections
+-- (§6.1). The MAP ops are deliberately ABSENT (stage A2): a contract mentioning
+-- one falls to the catch-all below → contract-only fallback, per the
+-- exact-reflection rule. These cases fire only when the ops occur, so every
+-- op-free contract translates byte-identically.
+exprToPred (EApp "bytes-length" [b]) = (\x -> FQApp "bytesLen" [x]) <$> exprToPred b
+exprToPred (EApp "bytes-get" [b, i]) =
+  (\x y -> FQApp "Map_select" [x, y]) <$> exprToPred b <*> exprToPred i
+exprToPred (EApp "bytes-set" [b, i, v]) =
+  (\x y z -> FQApp "Map_store" [x, y, z]) <$> exprToPred b <*> exprToPred i <*> exprToPred v
 -- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
 exprToPred (EOp op args)     = exprToPred (EApp op args)
 -- COMP-4-RESULT: the Result builtins `ok`/`err` are lowercase, so the uppercase-ctor
@@ -1663,7 +1838,11 @@ bodyToPredFrom seed sortEnv cenv sccSet expr =
 -- ScrutTags from two-arm payload sums; existing callers use 'bodyToPredFrom' (both empty).
 bodyToPredFromR :: Int -> SortEnv -> RefEnv -> ScrutTags -> ContractEnv -> Set.Set Name -> Expr -> (Int, Maybe BodyVC)
 bodyToPredFromR seed sortEnv refEnv scrutTags cenv sccSet expr =
-  let callNames = Map.keysSet cenv
+  -- LEVER-A1: bytes-get/bytes-set join the ANF hoist set so a nested occurrence
+  -- (argument/operator position) lifts into a let and threads its CallVC
+  -- (pre obligation + exact-pinning post). Hoisting only fires on occurrence —
+  -- byte-inert for every op-free body.
+  let callNames = Map.keysSet cenv `Set.union` Set.fromList ["bytes-get", "bytes-set"]
       (result, finalCounter) = runStateFrom seed $ do
         expr' <- aNormalizeBody callNames expr
         runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags)
@@ -1818,6 +1997,14 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
       Just argPreds -> do
         let (params, contract, mRetType) = cenv Map.! fname
             paramNames = map fst params
+            -- LEVER-A1: a callee returning bytes[n] whose contract mentions a
+            -- bytes op sorts its result var at the array sort (its post's
+            -- reflected terms mention the result). A bytes return WITHOUT
+            -- bytes ops in the contract keeps today's FQInt — byte-inertness
+            -- for the opaque-carrier corpus (the crypto call chains).
+            calleeRetSort = case mRetType of
+              Just (TBytes _) | contractMentionsBytesOp contract -> byteArraySort
+              _ -> maybe FQInt typeToSort mRetType
         -- Build substitution: callee params → translated args
         let subst = Map.fromList (zip paramNames argPreds)
         -- Issue 1 resolution: three-way pre distinction (soundness-critical)
@@ -1839,11 +2026,18 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             -- mis-sort `pair2_i` against the alias-unaware retSort and crash the
             -- solver). The callee itself already fell back when emitted.
             let mPostPred | syntacticUnsafePairRet mRetType = Nothing
+                          -- LEVER-A1: a callee post applying a bytes op to `result`
+                          -- when the result var is NOT array-sorted (a non-TBytes or
+                          -- alias-hidden return) would emit an ill-sorted Map_*/bytesLen
+                          -- term over an int var and crash the solver — do not assume
+                          -- the post (sound weakening; the call still proves its pre).
+                          | bytesOpOnResult (contractPost contract)
+                            && calleeRetSort /= byteArraySort = Nothing
                           | otherwise                       = contractPost contract >>= exprToPred
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
             let mPostSubst = fmap (\p -> applySubst (Map.insert "result" (FQVar resultVar) subst) p) mPostPred
-                retSort = maybe FQInt typeToSort mRetType
+                retSort = calleeRetSort
             -- Issue 3 resolution: return CallVC directly (Option A)
             -- The enclosing ELet case fills the real continuation.
             return $ Just $ CallVC
@@ -1917,6 +2111,61 @@ bodyToPredM env _ _ _ (EApp "string-length" [EVar v]) =
   return . Just $ SimpleVC [] (FQApp "strLen"  [FQVar (fromMaybe v (Map.lookup v env))])
 bodyToPredM env _ _ _ (EApp "list-length"   [EVar v]) =
   return . Just $ SimpleVC [] (FQApp "listLen" [FQVar (fromMaybe v (Map.lookup v env))])
+
+-- LEVER-A1: the reflected bytes-op family in body position (proposal §4).
+-- `bytes-length` mirrors the measure clauses above (EVar argument only —
+-- aNormalizeBody hoists bytes-set out of argument position, so the argument is
+-- always a variable post-ANF; anything else → catch-all → fallback, sound).
+bodyToPredM env _ _ _ (EApp "bytes-length" [EVar v]) =
+  return . Just $ SimpleVC [] (FQApp "bytesLen" [FQVar (fromMaybe v (Map.lookup v env))])
+
+-- `bytes-get b i` → an EXACT-PINNING CallVC (§6.1): the fresh result var is
+-- EQUATED to the interpreted `Map_select` term in the assumed post, so all
+-- downstream reasoning sees the theory term itself — never an opaque skolem
+-- (a skolem is sound for SAFE but licenses spurious refutation). The
+-- index-in-bounds pre rides the existing call-pre machinery (PROVE polarity,
+-- path-guarded, tag "call-pre:bytes-get"); the byte-range fact is injected per
+-- occurring select term (injectRangeFacts, family 2).
+bodyToPredM env se cenv sccSet (EApp "bytes-get" [EVar b, iE]) = do
+  let bP = FQVar (fromMaybe b (Map.lookup b env))
+  mIvc <- bodyToPredM env se cenv sccSet iE
+  case mIvc of
+    Just (SimpleVC [] iP) -> do
+      r <- freshName "call_bytes_get"
+      let pre  = FQAnd [ FQBinPred FQLe (FQLit 0) iP
+                       , FQBinPred FQLt iP (FQApp "bytesLen" [bP]) ]
+          post = FQBinPred FQEq (FQVar r) (FQApp "Map_select" [bP, iP])
+      return . Just $ CallVC "bytes-get" [bP, iP] (Just pre) (Just post)
+                             r FQInt (SimpleVC [] (FQVar r))
+    _ -> return Nothing
+
+-- `bytes-set b i v` → the same exact-pinning shape at the array sort. The
+-- assumed post carries the store equality AND the length-preservation fact
+-- `bytesLen(r) = bytesLen(b)` (semantically valid — store preserves length —
+-- and needed so a subsequent read of the result can discharge its bound).
+bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
+  let bP = FQVar (fromMaybe b (Map.lookup b env))
+  mIvc <- bodyToPredM env se cenv sccSet iE
+  mVvc <- bodyToPredM env se cenv sccSet vE
+  case (mIvc, mVvc) of
+    (Just (SimpleVC [] iP), Just (SimpleVC [] vP)) -> do
+      r <- freshName "call_bytes_set"
+      let pre  = FQAnd [ FQBinPred FQLe (FQLit 0) iP
+                       , FQBinPred FQLt iP (FQApp "bytesLen" [bP])
+                       , FQBinPred FQLe (FQLit 0) vP
+                       , FQBinPred FQLe vP (FQLit 255) ]
+          post = FQAnd [ FQBinPred FQEq (FQVar r) (FQApp "Map_store" [bP, iP, vP])
+                       , FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQApp "bytesLen" [bP]) ]
+      return . Just $ CallVC "bytes-set" [bP, iP, vP] (Just pre) (Just post)
+                             r byteArraySort (SimpleVC [] (FQVar r))
+    _ -> return Nothing
+
+-- `(bytes-zero)` → the const array (probe p4). The typechecker restricts it to
+-- the whole body of a def with a literal `-> bytes[n]` return, so it only ever
+-- reaches here in result position; the result binder's family-1 fact supplies
+-- its length.
+bodyToPredM _ _ _ _ (EApp "bytes-zero" []) =
+  return . Just $ SimpleVC [] (FQApp "Map_default" [FQLit 0])
 
 -- Normalize EOp to EApp
 bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet (EApp name args)
@@ -2521,7 +2770,21 @@ isMeasureSort _  _                  = False
 injectRangeFacts :: FQConstraint -> FQConstraint
 injectRangeFacts c =
   let apps  = nub (collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c)))
-      facts = [ FQBinPred FQGe a (FQLit 0) | a <- apps ]
+      facts = concatMap factsFor apps
+      -- LEVER-A1 fact synthesis per head symbol. Array-VALUED terms (Map_store /
+      -- Map_default) get NO facts — `(Map_store …) >= 0` is ill-sorted over the
+      -- array sort. A Map_select term is (at stage A1) always a bytes element
+      -- read, so it carries the byte-range family-2 facts `0 ≤ t ≤ 255`.
+      -- *** A2 LANDMINE, do not miss: when map ops reflect, a map-get select is
+      -- NOT byte-ranged (and not even ≥ 0 for int values) — the range synthesis
+      -- must then be scoped to selects rooted at bytes binders, which requires
+      -- threading byte-rootedness here. Part of the A2 pair-threading work. ***
+      -- Every other FQApp keeps the pre-existing `t >= 0` measure fact exactly
+      -- as before (byte-identical for the existing corpus).
+      factsFor a@(FQApp f _)
+        | f `elem` ["Map_store", "Map_default"] = []
+        | f == "Map_select" = [ FQBinPred FQGe a (FQLit 0), FQBinPred FQLe a (FQLit 255) ]
+      factsFor a = [ FQBinPred FQGe a (FQLit 0) ]
   in if null facts
        then c
        else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
@@ -2552,8 +2815,11 @@ appNames p = case p of
 
 -- | UF constant declaration for a measure symbol.
 measureConstant :: Text -> FQConstant
-measureConstant "listLen" = FQConstant "listLen" [FQList] FQInt
-measureConstant n         = FQConstant n          [FQStr]  FQInt  -- strLen + default
+measureConstant "listLen"  = FQConstant "listLen"  [FQList] FQInt
+-- LEVER-A1: the family-1 length UF over the byte-array sort (grounded per
+-- binder by the `bytesLen(v) = n` binder fact; declared only when used).
+measureConstant "bytesLen" = FQConstant "bytesLen" [FQArr FQInt FQInt] FQInt
+measureConstant n          = FQConstant n          [FQStr]  FQInt  -- strLen + default
 
 -- | F-NIW-1: collect every refinement predicate along a (possibly aliased) type's
 -- chain, with its binding variable. Stacked aliases (e.g. NonEmptyWord over Word,

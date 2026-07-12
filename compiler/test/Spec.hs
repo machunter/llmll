@@ -57,7 +57,7 @@ import Control.Monad.State.Strict (evalState)
 import qualified Data.Map.Strict as Map
 import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory, findExecutable)
 import System.Environment (setEnv, unsetEnv, lookupEnv)
-import System.Process (callProcess)
+import System.Process (callProcess, readProcessWithExitCode)
 import Data.List (isSuffixOf, sort, find)
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BL
@@ -6214,6 +6214,134 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 Left err -> error (show err)
                 Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
         erBodyFallback er `shouldSatisfy` elem "f"
+
+    -- LEVER-A1 (data-scope-lever-a-arrays-proposal.md §10 stage A1): bytes[n]
+    -- static discharge. Emission-based tests for the reflection shapes + two
+    -- solver-gated e2e tests for the §11 refute crux (the positive witness the
+    -- edge-case discipline requires). The §6.1 exact-reflection rule is pinned
+    -- by the routing tests (map ops and whole-bytes `=` stay out-of-fragment).
+    -- The F7 verdict inventory (85 examples, 0 output/.fq diffs, before/after
+    -- binaries) is a release-gate sweep artifact, not a Spec test.
+    describe "LEVER-A1 (bytes[n] static discharge)" $ do
+      let emitA1 src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          findSolver = do a <- findExecutable "liquid-fixpoint"
+                          maybe (findExecutable "fixpoint") (pure . Just) a
+          cruxSrc cmp = unlines
+            [ "(def read-at [b: bytes[64] i: int] -> int"
+            , "  (pre  (and (>= i 0) (" <> cmp <> " i 64)))"
+            , "  (post (and (>= result 0) (<= result 255)))"
+            , "  (bytes-get b i))" ]
+          solveFq er = do
+            tmp <- getTemporaryDirectory
+            let fqPath = tmp <> "/lever-a1-spec.fq"
+            TIO.writeFile fqPath (erFQText er)
+            mLF <- findSolver
+            case mLF of
+              Nothing -> pure Nothing
+              Just lf -> do
+                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                pure (Just (T.pack out))
+
+      it "A1-1 the crux emits body-faithful with the array sort, binder length fact, exact pinning, and byte-range facts" $ do
+        er <- emitA1 (cruxSrc "<")
+        erBodyFaithfulFns er `shouldSatisfy` elem "read-at"
+        erCallPreFns er      `shouldSatisfy` elem "read-at"
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "(Map_t int int)"
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen v) = 64)"          -- family-1 binder fact
+        fq `shouldSatisfy` T.isInfixOf "= (Map_select b i)"           -- exact pinning, never a skolem
+        fq `shouldSatisfy` T.isInfixOf "((Map_select b i) <= 255)"    -- family-2 byte range
+        fq `shouldSatisfy` T.isInfixOf "(i < (bytesLen b))"           -- the PROVE bound
+        fq `shouldSatisfy` T.isInfixOf "constant bytesLen : (func(0 , [(Map_t int int); int]))"
+        fq `shouldNotSatisfy` T.isInfixOf "constant Map_select"       -- theory symbols are interpreted, not UF
+
+      it "A1-2 refute crux (solver): pre `<= 64` is Unsafe, pre `< 64` is Safe — refutation fidelity (§6.1)" $ do
+        erBad  <- emitA1 (cruxSrc "<=")
+        erGood <- emitA1 (cruxSrc "<")
+        mBad  <- solveFq erBad
+        case mBad of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Unsafe"
+        mGood <- solveFq erGood
+        case mGood of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "Safe"
+
+      it "A1-3 bytes-set: Map_store pinning, length-preservation post, value-range obligation" $ do
+        er <- emitA1 (unlines
+          [ "(def sr [b: bytes[8] v: int] -> bytes[8]"
+          , "  (pre (and (>= v 0) (<= v 255)))"
+          , "  (post (= (bytes-length result) 8))"
+          , "  (bytes-set b 3 v))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "sr"
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "(Map_store b 3 v)"
+        fq `shouldSatisfy` T.isInfixOf "= (bytesLen b)"               -- length preservation
+        fq `shouldSatisfy` T.isInfixOf "(v <= 255)"                    -- value-range in the call-pre
+        fq `shouldNotSatisfy` T.isInfixOf "(Map_store b 3 v) >= 0"     -- array-sorted term gets NO range fact
+
+      it "A1-4 bytes-zero: Map_default reflection + the result length fact rides the constraint LHS" $ do
+        er <- emitA1 "(def zeros8 [] -> bytes[8] (post (= (bytes-length result) 8)) (bytes-zero))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "zeros8"
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "(Map_default 0)"
+        fq `shouldSatisfy` T.isInfixOf "((bytesLen result) = 8)"
+
+      it "A1-5 exact-reflection routing: map ops STAY out-of-fragment at A1 (fallback, no Map_t emission)" $ do
+        er <- emitA1 "(def-shell f [m: map[int,int] k: int] -> int (pre (map-has m k)) (map-get m k))"
+        erBodyFallback er `shouldSatisfy` elem "f"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "Map_t"
+
+      it "A1-6 review F1: whole-bytes = / /= in a contract routes to contract-only fallback, never array equality" $ do
+        er <- emitA1 (unlines
+          [ "(def we [b: bytes[8] b2: bytes[8]] -> int"
+          , "  (post (=> (= b b2) (= result 1)))"
+          , "  (bytes-get b 0))" ])
+        erBodyFallback er `shouldSatisfy` elem "we"
+
+      it "A1-7 byte-inertness: bytes params WITHOUT ops (the crypto shape) keep today's int-only lowering" $ do
+        er <- emitA1 (unlines
+          [ "(def-shell wrap [key: bytes[20] message: bytes[20]] -> int"
+          , "  (post (>= result 0))"
+          , "  0)" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "wrap"
+        let fq = erFQText er
+        fq `shouldNotSatisfy` T.isInfixOf "Map_t"
+        fq `shouldNotSatisfy` T.isInfixOf "bytesLen"
+
+      it "A1-8 gate condition 3: the CALLER of a bytes-op-CONTRACTED callee activates and proves the callee's bound" $ do
+        -- The callee's CONTRACT carries the bytes ops (bytes-length in the pre,
+        -- bytes-get in the post), so the caller's VC receives reflected array
+        -- terms over its own binder and must activate. (A callee whose bounds
+        -- live only in its BODY leaves the caller op-free — no activation
+        -- needed, no array terms cross the call.) The caller is a def-shell:
+        -- same-run strict-core sibling admission is the open STRICT-SIBLING row.
+        er <- emitA1 (unlines
+          [ "(def head-ok [b: bytes[8] i: int] -> int"
+          , "  (pre (and (>= i 0) (< i (bytes-length b))))"
+          , "  (post (= result (bytes-get b i)))"
+          , "  (bytes-get b i))"
+          , "(def-shell caller [buf: bytes[8]] -> int"
+          , "  (post (>= result 0))"
+          , "  (head-ok buf 3))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "caller"
+        erCallPreFns er      `shouldSatisfy` elem "caller"
+        let fq = erFQText er
+        -- caller's bytes param bound at the array sort with its own family-1 fact
+        fq `shouldSatisfy` T.isInfixOf "buf : { v : (Map_t int int) | ((bytesLen v) = 8) }"
+        -- the callee's reflected post is assumed over the caller's binder
+        fq `shouldSatisfy` T.isInfixOf "= (Map_select buf 3)"
+        -- and the callee's bound is a PROVE obligation against the caller's fact
+        fq `shouldSatisfy` T.isInfixOf "(3 < (bytesLen buf))"
+
+      it "A1-9 an unreflectable position inside a gated function still falls back whole (never partial reflection)" $ do
+        er <- emitA1 (unlines
+          [ "(def mixed [b: bytes[8] m: map[int,int] k: int] -> int"
+          , "  (post (>= result 0))"
+          , "  (+ (bytes-get b 0) (map-get m k)))" ])
+        erBodyFallback er `shouldSatisfy` elem "mixed"
 
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires

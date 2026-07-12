@@ -61,6 +61,11 @@ data FQSort
   | FQData Text      -- ^ named ADT sort, e.g. Color
   | FQDataApp Text [FQSort]  -- ^ PAIR-RET: applied (parametric) datatype sort, e.g. (Pair2 int int)
   | FQTyVar Int      -- ^ PAIR-RET: polymorphic field tyvar @(n) inside a parametric data decl
+  | FQArr FQSort FQSort      -- ^ LEVER-A1: SMT array sort (index, element), rendered to
+                             --   liquid-fixpoint's native map theory sort @(Map_t k v)@
+                             --   with interpreted @Map_select@/@Map_store@/@Map_default@
+                             --   (probe-proven on the pinned solver stack; see
+                             --   docs/design/data-scope-lever-a-feasibility.md §2)
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -200,6 +205,11 @@ emitSort (FQData n) = n
 -- accepted by the pinned fixpoint (polymorphic `data Pair2 2`, applied `(Pair2 int int)`).
 emitSort (FQDataApp n args) = "(" <> n <> " " <> T.unwords (map emitSort args) <> ")"
 emitSort (FQTyVar i)        = "@(" <> T.pack (show i) <> ")"
+-- LEVER-A1: the array sort prints as fixpoint's native map-theory sort. Only
+-- int/Str element instantiations are emittable on the pinned solver — its SMT
+-- bridge declares the map ops monomorphically (bool elements crash; the map
+-- presence encoding is int-0/1 for exactly this reason, proposal §5 Rev 1.1).
+emitSort (FQArr k v)        = "(Map_t " <> emitSort k <> " " <> emitSort v <> ")"
 
 -- | NIW: constant strLen : (func(0 , [Str; int]))
 emitConstant :: FQConstant -> Text
