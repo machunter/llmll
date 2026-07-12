@@ -1,10 +1,10 @@
 # Data-Scope Lever A — The SMT Theory of Arrays for `bytes[n]` and `map[k,v]`
 
-> **Status:** Rev 1 — professor-reviewed (proceed-with-revisions), review folded — ready for compiler-engineer feasibility read (A0/A1)
+> **Status:** Rev 1.1 — professor-reviewed + review folded (Rev 1) + feasibility read folded (Rev 1.1: int-0/1 presence array, §5) — **A0 GO · A1 GO · A2 GO-WITH-CHANGES** per [`data-scope-lever-a-feasibility.md`](data-scope-lever-a-feasibility.md); ready to build
 > **Review:** [`data-scope-lever-a-arrays-review.md`](data-scope-lever-a-arrays-review.md) (2026-07-11); dispositions in the Review-fold appendix
 > **Track:** Data Scope Extension, Lever A ([`compiler-team-roadmap.md`](../compiler-team-roadmap.md) → *Future — Data Scope Extension*, row A — this document is that row's design record)
 > **Didactic companion:** [`data-scope-extension.md`](data-scope-extension.md) Posts 6–8 (rationale); this document is the normative design.
-> **Author:** language-team · 2026-07-11 (Rev 0), review fold 2026-07-11 (Rev 1)
+> **Author:** language-team · 2026-07-11 (Rev 0), review fold 2026-07-11 (Rev 1), feasibility amendment 2026-07-11 (Rev 1.1)
 
 ---
 
@@ -116,7 +116,7 @@ No new user-facing logical symbols. The operation names **are** the contract voc
 New IR sort: `FQArr FQSort FQSort` (element and index both restricted per §3). Lowering (`typeToSort`):
 
 - `bytes[n]` → `FQArr FQInt FQInt` — one binder, plus the ground length fact of §4.
-- `map[k,v]` → **two** binders per source binder `m`: `m$has : FQArr σₖ FQBool` and `m$val : FQArr σₖ σᵥ` — the standard finite-map-as-presence-plus-value-array encoding, and a direct reuse of the emitter's established binder-splitting pattern (`FixpointEmit.hs:738–739` splits a `Result` binder into `v$ok`/`v$err` today).
+- `map[k,v]` → **two** binders per source binder `m`: `m$has : FQArr σₖ FQInt` (presence as an **int 0/1 array**: `(= (Map_select m$has k) 1)` means present) and `m$val : FQArr σₖ σᵥ` — the standard finite-map-as-presence-plus-value-array encoding, and a direct reuse of the emitter's established binder-splitting pattern (`FixpointEmit.hs:738–739` splits a `Result` binder into `v$ok`/`v$err` today). **(Rev 1.1, feasibility-driven amendment):** the presence array is int-0/1 rather than the Rev 1 `FQBool` because the pinned liquid-fixpoint's SMT bridge declares its array operations monomorphically at int elements — a `(Map_t int bool)` binder is a hard solver crash (`smt_map_sto` sort mismatch; feasibility probes p5/p5c), while the int-0/1 shape is proven end-to-end (probe p5b). The change is §6.1-exact (0/1 ↔ present/absent is a bijection, not an over-approximation — the same int-tag discipline the nullary-enum desugar already uses), bool-*valued* maps take the same encoding, and it incidentally moots the F5 `Arr σₖ Bool` politeness leg at the solver layer (the metatheory note in §6 stands as the general argument). See [`data-scope-lever-a-feasibility.md`](data-scope-lever-a-feasibility.md) §4.
 
 **Encoding choice (professor-confirmed, review F9).** Presence-plus-value is the standard finite-map model across the auto-active tools — Dafny's map axiomatization (domain + elements), Boogie map models, F*'s `FStar.Map` (value array plus domain map), Why3's `fmap`. The array-of-option alternative (`FQArr σₖ (Option σᵥ)`) is not wrong but pays a datatype case-split under every read, drags `Option` into every array-lemma instantiation, and couples the constructor story to `K(None)`; no completeness cliff separates the two. **The two-array encoding's one real cost is named here so it travels with the decision:** the component arrays carry junk at absent keys (nothing constrains `select(m$val,k)` where `¬select(m$has,k)`; for `bytes[n]`, nothing constrains indices outside `[0,n)`), so representational array equality diverges from the language's observational `=` (`LLMLL.md:2157`). The encoding's soundness condition is therefore: **reads are gated by presence, and surface whole-structure `=` never reflects to array equality** (§7 row 4, per review F1).
 
