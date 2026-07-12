@@ -79,7 +79,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -878,8 +878,25 @@ doRun json gm fp extraArgs = do
               TIO.putStrLn "ERROR: stack not found in PATH. Install from https://haskellstack.org"
               exitFailure
             Just stackBin -> do
-              (code, _out, err) <- readProcessWithExitCode stackBin
-                (["exec", "--stack-yaml", outDir <> "/stack.yaml", "--"] ++ extraArgs) ""
+              -- RUN-EXEC: 'stack exec' needs the executable's component name
+              -- after '--' (it was omitted, so an argument-less 'llmll run'
+              -- always fell over with stack's usage text, and 'llmll run f x'
+              -- tried to run the command 'x'). The component name is the
+              -- sanitized package name (CodegenHs.sanitizePkgName — the
+              -- 'executables:' stanza key). 'stack exec' does not build, so
+              -- build first; and the child's stdout is the program's output —
+              -- pass it through instead of discarding it.
+              (bcode, _bout, berr) <- readProcessWithExitCode stackBin
+                ["build", "--stack-yaml", outDir <> "/stack.yaml"] ""
+              case bcode of
+                ExitFailure _ -> do
+                  TIO.putStr (T.pack berr)
+                  exitFailure
+                ExitSuccess -> pure ()
+              let exeName = T.unpack (sanitizePkgName modNameT)
+              (code, out, err) <- readProcessWithExitCode stackBin
+                (["exec", "--stack-yaml", outDir <> "/stack.yaml", "--", exeName] ++ extraArgs) ""
+              TIO.putStr (T.pack out)
               case code of
                 ExitSuccess   -> pure ()
                 ExitFailure _ -> do
@@ -1211,7 +1228,16 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- kernel-checked certificate. Presence-based + fail-safe (no cache / no
         -- match → unchanged 'asserted'); applied AFTER the staleness gate.
         leanCache <- loadProofCache fp
-        let report = buildTrustReport _cache stmts (upgradeLeanstralPosts leanCache entrySidecar)
+        -- TERM-REPORT-PLAIN: this render-only path must honor the sidecar's
+        -- persisted descent discharge ('erTerminationVerified' on the post
+        -- record, staleness-gated via 'entrySidecar') the same way it honors
+        -- persisted 'verified' posts — otherwise a discharged '(decreases)'
+        -- renders 'termination_unverified' here while the strict/CDP paths
+        -- (and the sidecar itself) say total. 'measure-not-decreasing' stays
+        -- solver-path-only, exactly like 'refuted' (the by-design note above):
+        -- it is a same-run solver verdict and is never persisted.
+        let report = markDescentDischarged (sidecarDischargedSet entrySidecar)
+                       (buildTrustReport _cache stmts (upgradeLeanstralPosts leanCache entrySidecar))
         if json
           then TIO.putStrLn (formatTrustReportJson report)
           else TIO.putStr (formatTrustReport report)

@@ -46,7 +46,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -1696,6 +1696,25 @@ main = hspec $ do
       Set.member "cd" (trPartialFns base)    `shouldBe` True   -- recursive ⇒ marked termination_unverified
       Set.member "cd" (trPartialFns dropped) `shouldBe` False  -- descent-discharged ⇒ mark dropped
 
+    -- TERM-REPORT-PLAIN: the render-only trust-report path derives the
+    -- discharged set from the PERSISTED sidecar (erTerminationVerified on the
+    -- post record) instead of the same-run solver set it never has.
+    it "TRP-1: a sidecar-recorded termination_verified post clears the mark on a solver-less render" $ do
+      let stmts = parseOrFail "(def-shell cd [x: int] -> int (pre (>= x 0)) (post (= result 0)) (decreases x) (if (= x 0) 0 (cd (- x 1))))"
+          er = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False (Just "sha256:deadbeef") True
+          sidecar = DM.fromList [("cd", ContractStatus Nothing (Just er) [])]
+          report = markDescentDischarged (sidecarDischargedSet sidecar) (buildTrustReport Map.empty stmts sidecar)
+      Set.member "cd" (trPartialFns report) `shouldBe` False
+      T.isInfixOf "Termination-unverified" (formatTrustReport report) `shouldBe` False
+
+    it "TRP-2: without the sidecar bit the solver-less render keeps the mark (conservative)" $ do
+      let stmts = parseOrFail "(def-shell cd [x: int] -> int (pre (>= x 0)) (post (= result 0)) (decreases x) (if (= x 0) 0 (cd (- x 1))))"
+          er = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False (Just "sha256:deadbeef") False
+          sidecar = DM.fromList [("cd", ContractStatus Nothing (Just er) [])]
+          report = markDescentDischarged (sidecarDischargedSet sidecar) (buildTrustReport Map.empty stmts sidecar)
+      Set.member "cd" (trPartialFns report) `shouldBe` True
+      T.isInfixOf "Termination-unverified" (formatTrustReport report) `shouldBe` True
+
     it "RD3-2: a k=1 SCC where one member lacks a measure is not dischargeable (whole-SCC gate)" $ do
       -- ping declares a measure, pong does not; the SCC must stay marked for BOTH.
       let stmts = parseOrFail (T.unpack (T.concat
@@ -1935,6 +1954,28 @@ main = hspec $ do
               shPointer h `shouldBe` "/statements/0/body/body"
               -- the let-binding y is in scope at the hole
               Map.member "y" (shEnv h) `shouldBe` True
+
+    it "SCRUT-PTR: hole in scrutinee position has pointer /statements/1/body/scrutinee" $ do
+      -- Regression: the EMatch traversal must push the "scrutinee" segment
+      -- (matching AstEmit's match-node key) so a scrutinee-position hole
+      -- records its own pointer, not the parent match node's — the LET-PTR
+      -- defect class.
+      let src = T.pack $ unlines
+            [ "(type AB (| A) (| B))"
+            , "(def-shell f [x: int]"
+            , "  (match ?scrut"
+            , "    ((A) 0)"
+            , "    ((B) 1)))" ]
+      case parseStatements GrammarCoreInversion "<test>" src of
+        Left err    -> expectationFailure (show err)
+        Right stmts -> do
+          let result = runSketch GrammarCoreInversion emptyEnv stmts []
+          case filter ((== "?scrut") . shName) (sketchHoles result) of
+            []    -> expectationFailure "?scrut hole not recorded"
+            (h:_) -> do
+              shPointer h `shouldBe` "/statements/1/body/scrutinee"
+              -- the param x is in scope at the hole
+              Map.member "x" (shEnv h) `shouldBe` True
 
     it "concrete program produces no holes and non-sketch check is unaffected" $ do
       let src = T.pack $ unlines

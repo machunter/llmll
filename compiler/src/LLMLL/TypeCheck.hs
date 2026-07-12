@@ -1287,7 +1287,10 @@ inferExpr (EIf cond thenE elseE) = do
       pure (TVar "?")
 
 inferExpr (EMatch expr cases) = do
-  scrutType <- inferExpr expr
+  -- SCRUT-PTR: push the "scrutinee" segment (matches AstEmit's match-node key)
+  -- so a hole in scrutinee position records its own pointer instead of the
+  -- parent match node's — the LET-PTR defect class (v0.14.31 precedent).
+  scrutType <- withSegment "scrutinee" (inferExpr expr)
   -- Resolve through type aliases so we can see the structural TSumType body
   -- (redundant; checkPattern also expands at entry — kept for checkExhaustive)
   resolvedScrutType <- expandAlias scrutType

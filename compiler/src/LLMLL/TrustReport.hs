@@ -32,6 +32,7 @@ module LLMLL.TrustReport
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
   , markMeasureNotDecreasing  -- REC-DESCENT: stamp measure-not-decreasing post-solver
   , markDescentDischarged  -- REC-DESCENT Phase 3: drop the mark for descent-discharged SCCs
+  , sidecarDischargedSet   -- TERM-REPORT-PLAIN: persisted discharge for the render-only path
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
   , injectOpenedAliases -- XMOD-CG-BRIEF: bare-alias opened imports in any qualified-keyed map
   , trustReportEmitVersion
@@ -436,13 +437,28 @@ markMeasureNotDecreasing mnd report =
 
 -- | REC-DESCENT Phase 3: drop the 'termination_unverified' mark for the
 -- descent-discharged (total-correctness) functions. Post-solver, like
--- 'markRefuted' / 'markMeasureNotDecreasing' — discharge is a solver fact, so a
--- solver-less '--trust-report' render keeps the mark (conservative). Subtracts
--- from 'trPartialFns'; the per-entry 'termination_unverified' flag and the
--- top-level 'partial_fns' list are both projected from that set, so both clear.
+-- 'markRefuted' / 'markMeasureNotDecreasing' — discharge is a solver fact.
+-- A solver-less '--trust-report' render feeds this from the PERSISTED sidecar
+-- instead ('sidecarDischargedSet', TERM-REPORT-PLAIN): the render-only path
+-- already trusts staleness-gated sidecar evidence for 'verified' posts, and
+-- ignoring the same sidecar's 'termination_verified' made it contradict the
+-- strict/CDP paths. Subtracts from 'trPartialFns'; the per-entry
+-- 'termination_unverified' flag and the top-level 'partial_fns' list are both
+-- projected from that set, so both clear.
 markDescentDischarged :: Set Name -> TrustReport -> TrustReport
 markDescentDischarged discharged report =
   report { trPartialFns = trPartialFns report `Set.difference` discharged }
+
+-- | TERM-REPORT-PLAIN: the functions whose persisted post evidence is
+-- descent-discharged ('erTerminationVerified'). The render-only trust-report
+-- path feeds this to 'markDescentDischarged' so a sidecar-recorded total
+-- verdict survives a solver-less render. Staleness gating is the caller's
+-- job — pass the gated sidecar (Main.hs 'entrySidecar'), never a raw reload.
+-- 'measure-not-decreasing' has no analog here: it is a same-run solver
+-- verdict, never persisted — solver-path-only, exactly like 'refuted'.
+sidecarDischargedSet :: Map Name ContractStatus -> Set Name
+sidecarDischargedSet =
+  Map.keysSet . Map.filter (maybe False erTerminationVerified . csPost)
 
 -- | OBLIG-PBT-3: collect SHA-256 hashes of every live property body across
 -- the entry module and the cached module set. Used by 'buildTrustReport' on
