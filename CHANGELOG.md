@@ -4,6 +4,36 @@
 
 <a id="Latest"></a>
 
+## v0.14.36 — TERM-REPORT-PLAIN + RUN-EXEC + SCRUT-PTR (2026-07-12)
+
+### Fixed — plain trust-report honors persisted descent discharge (TERM-REPORT-PLAIN)
+
+- **The render-only `verify --trust-report` path (non-strict, non-CDP) now reads the sidecar's
+  `termination_verified` bit** (`TrustReport.sidecarDischargedSet` — the same field the strict-core admission gate
+  trusts), so a function whose `(decreases)` measure was discharged no longer renders `termination_unverified` +
+  `partial_fns` on that path. A file with no discharged sidecar keeps the conservative mark. Diagnosis narrowed
+  from the roadmap row: the plain path never runs the solver, and `measure-not-decreasing` is a same-run solver
+  verdict that is never persisted (the `refuted` analog) — so the "bad-measure stamp on the plain path" half of the
+  row was not a defect but the recorded design; only the discharged-flag half was real.
+
+### Fixed — `llmll run` executes programs (RUN-EXEC)
+
+- **`llmll run` was broken end-to-end for argument-less programs, and the defect was triple:** `doRun` never built
+  the generated package, passed no executable name to `stack exec` (which therefore printed its usage text), and
+  discarded the child's stdout. It now builds fail-closed, executes the generated binary by its sanitized package
+  name, and streams the program's output. (Pre-existing, untouched: the child gets empty stdin — interactive `run`
+  is a separate concern.)
+
+### Fixed — scrutinee-position hole pointer (SCRUT-PTR)
+
+- **A hole in match-scrutinee position (`(match ?h …)`) records its own pointer** (`…/scrutinee` segment, matching
+  the JSON-AST shape) instead of its parent match node's, so `checkout` resolves its context (`in_scope`,
+  contracts) rather than returning null — the LET-PTR defect class, fixed with the same `withSegment` discipline
+  (v0.14.31 precedent).
+
+**Tests:** 1202 Haskell, 45 Python (+3: TRP-1/TRP-2 sidecar-bit rendering, SCRUT-PTR pointer + scope; RUN-EXEC
+accepted by live transcript — spawning stack subprocesses in-suite has no precedent and costs minutes per run).
+
 ## v0.14.35 — Examples hardening: refute-crux CI gates + `total-recursion` + `bytes-bounds` (2026-07-12)
 
 ### Added — frozen refute-crux gates (the ENUM-EQ-FALLBACK lesson, institutionalized)
