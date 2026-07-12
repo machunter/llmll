@@ -4,6 +4,31 @@
 
 <a id="Latest"></a>
 
+## v0.14.37 — LEVER-A2: `map[int,int]` obligations discharge statically (2026-07-12)
+
+### Added — map discharge via the two-array presence encoding (Lever A stage A2)
+
+- **`map[int,int]` verification is real: a read without a presence proof, an aliased-key confusion, or a dropped
+  update in a verified function is *refuted*.** A gated map binder splits into the two-array presence-plus-value
+  encoding (`m$has`/`m$val`, presence as an **int 0/1 array** — the Rev 1.1 amendment; bool-element arrays crash
+  the pinned solver bridge): `map-has` reflects as `select(m$has,k) = 1`, `map-get` as a presence-gated value
+  select whose key-presence precondition is a PROVE call-site obligation, `map-put` as paired stores, `map-empty`
+  as const arrays. Get-after-put discharges including the realistic let-bound pipeline shape
+  (`(let [(m2 (map-put m k v))] (map-get m2 k))` — a pure-map-let expansion pre-pass, §6.1-exact). A defensive
+  `(if (map-has m k) (map-get m k) d)` read discharges from the path condition.
+- **The A1 landmine is resolved:** byte-range fact synthesis (`0 ≤ select ≤ 255`) is re-rooted on bytes-rooted
+  selects only — a map-component select acquires no phantom range fact. Demonstrated by a mixed bytes+map program
+  pair: the unbounded-map-value post refutes (a phantom fact would have made it vacuously SAFE) while its
+  pre-bounded twin verifies through the bytes select's still-emitted fact.
+- **Exact-reflection discipline (§6.1) holds at the new boundary:** string/bool-valued maps, a map-op contract on
+  a cross-file callee, and non-pure map-returning bodies fall back **whole** (tracked as A2.1); whole-map `=`
+  never reflects (review F1). F7 verdict inventory: 71-file sweep, zero output/`.fq` diffs; refute-crux gate 22/22.
+- Spec: the §5.3.3 array class extends to maps; §5.3.5 map-op row flips; §13.12 updated (int values = the v1
+  reflected class).
+
+**Tests:** 1212 Haskell, 45 Python (+10: A2-1..10 — pinning emission, crux pair, pipeline, aliased keys, presence
+pair, landmine, F1 routing, string-value fallback-not-crash, defensive read, cross-call deferral).
+
 ## v0.14.36 — TERM-REPORT-PLAIN + RUN-EXEC + SCRUT-PTR (2026-07-12)
 
 ### Fixed — plain trust-report honors persisted descent discharge (TERM-REPORT-PLAIN)

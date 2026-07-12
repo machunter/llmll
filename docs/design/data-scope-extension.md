@@ -114,7 +114,7 @@ Here is the whole surface, mapped:
 | `list[t]` | yes | **`list-length` only** (Post 4) | elements, order, membership → opaque |
 | `string` | yes | **`string-length` only** | characters, regex → opaque |
 | `bytes[n]` | yes | **`select`/`store` reflection, `bytesLen(b)=n` ground fact, byte-range facts, index-in-bounds as a PROVE obligation** (Lever A stage A1 — the off-by-one refutes) | whole-`bytes` `=` → out-of-fragment by design (exact-reflection rule) |
-| `map[k,v]` | yes | nothing yet (ops ship runtime-asserted; reflection is Lever A stage A2) | keys, values, get-after-put → opaque until A2 |
+| `map[k,v]` | yes | **two-array presence encoding: `map-has`/get-after-put/key-presence discharge; presence is a PROVE obligation** (Lever A stage A2 — aliased-key and dropped-put twins refute) | string/bool values, cross-call map contracts → fallback (A2.1); whole-map `=` → out-of-fragment by design |
 | recursive `type` (self-referential) | **rejected at the verified gate** (Post 5) | — | — |
 
 Read the `list[t]` row carefully, because it is the crux of the "complex data" question. There are
