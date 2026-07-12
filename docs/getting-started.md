@@ -43,7 +43,7 @@ llmll — AI-to-AI programming language compiler
 
 Usage: llmll [--version] COMMAND [--json] [--grammar MODE]
 
-  LLMLL — Large Language Model Logical Language Compiler (v0.14.21)
+  LLMLL — Large Language Model Logical Language Compiler (v0.14.31)
 
 Available options:
   -h,--help                Show this help text
@@ -72,8 +72,13 @@ Available commands:
   serve                    Start HTTP server on 127.0.0.1:7777 for AI agent
                            integration
   checkout                 Lock a hole for exclusive editing
-                           (checkout/release/status)
+                           (checkout/release/status; --multi N opens a
+                           divergence session)
+  diverge-report           R5: collect a divergence session's fills and emit the
+                           divergence_witness record
   patch                    Apply an RFC 6902 JSON-Patch to a checked-out hole
+  refine                   Fill a checked-out hole AND spawn new contracted
+                           sub-holes it calls (cascading decomposition)
   replay                   Replay an event log against a compiled program
   replay-artifact          Re-derive and check a recorded verification artifact
                            (fail-closed)
@@ -520,7 +525,7 @@ P ∧ (result = ⟦B⟧) ⟹ Q
 
 This means `DLVerified` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent.
 
-**Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**, v0.14.17), a **two-arm sum `EMatch`** (`Result` or a user ADT, nested at any depth) including scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. Falls back to contract-only verification: `EMatch` with more than two arms or a recursive-sum payload, two sequential matches in one body, a recursive `def-shell`'s own body (sound at partial correctness), non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
+**Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**), an **n-arm sum `EMatch`** (`Result` or a user ADT of any arity, mixed nullary/payload arms, nested at any depth, including sequential matches) with scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. A recursive `def-shell` cycle verifies by assume-guarantee — partial correctness by default (`termination_unverified`), **total** with a discharging `(decreases …)` measure. Falls back to contract-only verification: a recursive-sum payload, non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
 
 **JSON output:** `--json verify` includes per-function `body_faithful` and `body_fallback` metadata:
 
@@ -570,7 +575,7 @@ The replay command:
 ```json
 // if_hole.ast.json
 {
-  "schemaVersion": "0.7.0",
+  "schemaVersion": "0.8.0",
   "statements": [
     { "kind": "def", "name": "greet",
       "params": [{ "name": "formal", "param_type": { "kind": "primitive", "name": "bool" } }],
@@ -681,6 +686,7 @@ $ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statemen
   ...,
   "contract_pre": "(>= balance amount)",
   "postcondition_goal": "(= result (- balance amount))",
+  "assumptions": ["(> amount 0)"],
   "expected_return_type": "int",
   "in_scope": [
     { "name": "amount", "source": "param", "type": "PositiveInt" },
@@ -707,7 +713,8 @@ $ stack exec llmll -- checkout ../examples/withdraw-demo/demo.ast.json /statemen
 | `type_definitions` | User-defined type aliases and sum types referenced by in-scope bindings. Depth-bounded expansion (max 5 levels) with cycle detection. |
 | `consumed_guarantees` | A verified callee's post the body may assume without re-proving (composition only); `null` otherwise. |
 | `scope_truncated` | `true` if the scope was truncated; absent or `false` otherwise. |
-| `path_condition`, `obligation_id`, `assumptions` | Reserved/contextual fields; `null` when not applicable to this hole. |
+| `assumptions` | Facts that hold at the hole site beyond `contract_pre`: refinement predicates of in-scope refinement-typed params (α-renamed to the binder — here `amount : PositiveInt` yields `(> amount 0)`), let-definitional equalities `(= y e)` for in-scope let-bindings with a QF-LIA right-hand side, and the case hypothesis of each enclosing match arm (a hole under `((Abort c) …)` on scrutinee `s` carries `(= s (Abort c))`). `null` when none apply. |
+| `path_condition`, `obligation_id` | Reserved/contextual fields; `null` when not applicable to this hole. |
 | `brief_version`, `source_hash`, `verified_hash`, `timestamp` | Bookkeeping: brief schema version, content hash at checkout (for compare-and-swap staleness detection), last-verified hash, and checkout time. |
 
 > [!IMPORTANT]
@@ -741,6 +748,10 @@ Supported operations: `replace`, `add`, `remove`, `test`. The `test` op guards a
 
 **On success:** the updated `.ast.json` is written and the lock is cleared. **On failure:** the original file is unchanged, the lock is preserved for retry, and diagnostics reference the responsible patch operation (e.g., `patch-op/1/body`).
 
+### `refine` — fill a hole and spawn contracted sub-holes
+
+`llmll refine <file.ast.json> <refine-request.json>` is the cascading-decomposition dual of `patch`: one request fills a checked-out hole **and** adds new top-level contracted functions (each with a `?body`) that the fill calls, atomically. The filled function verifies against the spawned contracts (assume-guarantee); each spawned function becomes a new hole to check out — so an agent can grow the decomposition top-down instead of filling pre-authored blanks. Spawns are bounded (fresh names, body-referenced, hole-bodied only), pass a CDP vacuity gate (a trivially-satisfiable sub-contract is rejected), and each spawned sub-contract carries advisory `reuse_suggestions` naming in-scope functions whose contracts already subsume it (`W-REUSE` warns on an exact equivalent; never blocks). Working example: `examples/refine-demo/`.
+
 **HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
 
 ---
@@ -751,13 +762,13 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.7.0",
-  "llmll_version": "0.14.21",
+  "schemaVersion": "0.8.0",
+  "llmll_version": "0.14.31",
   "statements": [ ... ]
 }
 ```
 
-The compiler rejects mismatched versions immediately. **Strict mode:** only the exact matching version is accepted.
+The compiler rejects files with an unrecognised `schemaVersion` immediately; it reads `0.7.0` and `0.6.0` for backward compatibility (the newer fields are additive-optional).
 
 | Field | Meaning |
 |-------|---------|
@@ -1552,7 +1563,7 @@ A **refinement-aliased return** (`-> PositiveInt`) discharges: the body-VC prove
 
 **Known restrictions:**
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
-- Schema `schemaVersion` is `0.7.0` (optional `return_type` on `def`/`def-shell`; the reader also accepts `0.6.0` for backward compatibility). New `.ast.json` files should carry `"schemaVersion": "0.7.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
+- Schema `schemaVersion` is `0.8.0` (optional `decreases` array on `def-shell`; the reader also accepts `0.7.0` and `0.6.0` for backward compatibility — the newer fields are additive-optional). New `.ast.json` files should carry `"schemaVersion": "0.8.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
 
 ---
 

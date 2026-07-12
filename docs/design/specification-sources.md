@@ -106,7 +106,7 @@ This produces a corpus of `(problem, specification, implementation)` triples for
 
 | Item | Priority | Team |
 |------|----------|------|
-| Spec-from-RFC pipeline (translate external standards) | **High** — strongest near-term answer | Orchestrator |
+| Spec-from-RFC pipeline (translate external standards) | **High** — strongest near-term answer | Language team — design: [`spec-from-rfc-pipeline.md`](spec-from-rfc-pipeline.md); evaluation: experiment-lead |
 | `--trust-report` flag (epistemic drift detection) | **High** — enables progressive refinement | Compiler |
 | Haskell-to-LLMLL transpiler (spec lifting) | Medium — research component | Compiler + Language |
 | Hub query-by-signature | Medium — enables spec reuse | Orchestrator |

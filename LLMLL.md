@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.31)
+# LLMLL: Large Language Model Logical Language (v0.14.32)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.31.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.32.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -107,7 +107,7 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | Type names | **PascalCase** | `Ledger`, `Balance`, `PositiveInt` |
 | Constructor / variant names | **PascalCase** | `Success`, `Error`, `Ok` |
 | Boolean predicates | **kebab-case + trailing `?`** | `empty?`, `string-empty?`, `is-game-over?` |
-| Built-in keywords and builtins | **kebab-case** (no underscore) | `def`, `def-shell`, `for-all`, `map-get`, `list-empty` |
+| Built-in keywords and builtins | **kebab-case** (no underscore) | `def`, `def-shell`, `for-all`, `string-length`, `list-empty` |
 | Reserved identifiers | **lowercase** | `result`, `unit`, `true`, `false` |
 
 **Cross-language API spec translation.** When a language-neutral problem statement uses snake_case (`create_ledger`, `total_balance`) or camelCase (`createLedger`), the LLMLL solution must transliterate to kebab-case: `create-ledger`, `total-balance`. The grammar **accepts** snake_case and camelCase identifiers, but the canonical examples and built-in surface use only kebab-case; emitting non-kebab identifiers produces parseable but non-idiomatic LLMLL.
@@ -472,7 +472,7 @@ Self-recursive functions are declared with `def-shell`. The self-call is a user-
 
 **Mutual recursion** follows the same rule: all mutually recursive functions are `def-shell`.
 
-> **Legacy grammar (`--grammar=legacy`).** The `letrec` form is available and provides an explicit `:decreases` termination measure that is checked for well-foundedness (`measure ≥ 0`) by `llmll verify`. Strict recursive descent (`measure(args') < measure(args)` at each call site) remains a research-track item. The trust report flags `letrec`-derived `verified` claims as partial-correctness when the descent obligation is unfulfilled. Under the default `GrammarCoreInversion`, `letrec` is rejected with a `core-grammar-violation` diagnostic.
+> **Legacy grammar (`--grammar=legacy`).** The `letrec` form is available and provides an explicit `:decreases` termination measure that is checked for well-foundedness (`measure ≥ 0`) by `llmll verify`. Strict recursive descent is **not** encoded on the `letrec` path — the shipped `(decreases …)` discharge above is `def-shell`-only. The trust report flags `letrec`-derived `verified` claims as partial-correctness when the descent obligation is unfulfilled. Under the default `GrammarCoreInversion`, `letrec` is rejected with a `core-grammar-violation` diagnostic.
 
 `pre`/`post` contracts on recursive `def-shell` functions behave identically to non-recursive ones (see §4.3–4.4).
 
@@ -917,7 +917,7 @@ The following table precisely defines what `llmll verify` can prove, what it tra
 | Fragment | Status | Prover | What it covers |
 |----------|--------|--------|----------------|
 | **QF-LIA** (quantifier-free linear integer arithmetic) | **Shipped** | Z3 via liquid-fixpoint | `+`, `-`, `=`, `≠`, `<`, `<=`, `>=`, `>`, and the boolean connectives `and`/`or`/`not`, over `int`/`bool`. Handles numeric bounds, conservation invariants, length preservation. ~80% of practical contracts. |
-| **Termination** (`:decreases` measures) | **Shipped** | liquid-fixpoint | Simple variable measures (`:decreases n`) are checked for non-negativity (`n ≥ 0`). Call-site strict descent (`measure(args') < measure(args)`) is not yet encoded — it is research-track item **R7 "Call-Site Strict Descent"** (see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) Research Track, or the frozen historical record at [`docs/archive/research-track.md`](docs/archive/research-track.md) §7). Complex measures emit `?proof-required(complex-decreases)`. |
+| **Termination** (`(decreases …)` measures) | **Shipped** | liquid-fixpoint | A `(decreases e₁ … eₖ)` clause on a recursive `def-shell` discharges termination: **well-foundedness** (`pre ⟹ eᵢ ≥ 0`) plus **call-site strict descent** (`measure(args') < measure(args)` at each intra-cycle call site; lexicographic order on ℕᵏ for k > 1, equal-arity across the SCC). A discharged SCC upgrades from partial to **total** correctness and becomes strict-core admissible; a non-decreasing measure is the hard verdict `measure-not-decreasing` (§4.2). Nonlinear/opaque measure components leave the SCC partial. The legacy `letrec :decreases` path checks non-negativity only; complex legacy measures emit `?proof-required(complex-decreases)`. |
 | **Property-based testing** | **Shipped** | QuickCheck | `check`/`for-all` blocks generate randomized inputs and attempt to falsify properties. Contracts verified this way are marked `tested`. |
 | **Lean path** (nonlinear arithmetic / inductive properties) | **Experimental `--leanstral` demo shipped (v0.14.8); production deferred** | Lean 4 + Mathlib kernel, via `labs-leanstral-1-5` | An **opt-in, experimental** `--leanstral` path (v0.14.8) discharges a *faithfully-translatable* obligation — the demo class is **nonlinear integer arithmetic** (`n*n`, the QF-NIA escape the QF-LIA core firewalls out) — by translating a **body-faithful** Lean 4 theorem (`result` bound to the body), having `labs-leanstral-1-5` prove it, and **kernel-checking the proof with `lake env lean` + Mathlib**. A SAFE kernel check records **`verified-lean`** (`DLVerifiedLean`) — a *distinct* evidence kind that is a **peer of SMT `verified`** (§5.3.4) — plus a re-checkable `.lean` certificate. This is **not the production Lean tier:** faithful translation across *all* escape classes (`/`/`mod` floor-vs-truncation, lists/inductive via the retry-with-error loop, Lean-staleness revalidation) remains the deferred **LEAN-GA** rebuild (see [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md)); general inductive properties in particular are **not** yet shipped. Needs `LLMLL_LEANSTRAL_API_KEY` + a local Lean 4 + Mathlib project; **fails closed** otherwise. The legacy `--leanstral-mock` path emits `by sorry` (rejected by the `sanitizeProof` anti-laundering guard). Scoped in [`docs/design/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md) + [`docs/design/leanstral-integration-scope.md`](docs/design/leanstral-integration-scope.md). |
 | **Cryptographic primitives** | **Asserted** | _(opaque — outside any decidable fragment)_ | `hmac-sha1` and `sha1` builtins are treated as axiomatically correct. Contracts on functions that use them are capped at `asserted` in the trust report. The TOTP benchmark (`examples/totp_rfc6238/`) demonstrates mixed display levels (verified + asserted + tested) across a single module. |
@@ -1007,7 +1007,7 @@ The following matrix documents the verification status of each syntax construct.
 | `EIf` (>4096 paths) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only + warning |
 | `EApp` (contracted callee, non-recursive, same-file or imported) | ✅ | ✅ | ✅ | ✅ (assume-guarantee) | ✅ | — |
 | `EApp` (uncontracted callee) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
-| `EApp` (recursive self / cycle, contracted) | ✅ | ✅ | ✅ | ✅ (assume-guarantee; **partial** by default, **total** with a discharging k=1 `(decreases e)` — §4.2) | ✅ | no measure → `termination_unverified` flag; k=1 discharge → total + strict-core admissible; bad measure → `measure-not-decreasing` (§4.2, §4.4.4) |
+| `EApp` (recursive self / cycle, contracted) | ✅ | ✅ | ✅ | ✅ (assume-guarantee; **partial** by default, **total** with a discharging `(decreases e₁ … eₖ)` — single or lexicographic, equal-arity SCC — §4.2) | ✅ | no measure → `termination_unverified` flag; discharge → total + strict-core admissible; bad measure → `measure-not-decreasing`; mixed-arity mutual SCC refused (stays partial) (§4.2, §4.4.4) |
 | `EApp` (builtins: `string-length` etc.) | ✅ | ✅ | ✅ | ❌ | ✅ | contract-only |
 | `EMatch` two-arm sum (`Result`, or user ADT both arms single-payload) | ✅ | ✅ | ✅ | ✅ (two-path, any nesting; consumes payload refinement) | ✅ | — |
 | constructor application `(Ctor e)` / `(Ctor)` over an admissible sum (incl. Result `ok`/`err`) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | recursive sum / non-admissible Result payload → fallback; user-sum recursive ctor → strict-core gate → `def-shell` |
@@ -1808,10 +1808,13 @@ The `(on-failure e)` rule's `Γ ⊢ e : T` side condition is enforced by `compil
 | `llmll checkout --release <file> <token>` | Explicitly abandon a checkout |
 | `llmll checkout --status <file> <token>` | Query remaining TTL |
 | `llmll patch <file.ast.json> <patch.json>` | Apply patch + re-verify |
+| `llmll refine <file.ast.json> <refine.json>` | Fill a hole + spawn contracted sub-holes, atomically |
 
 **HTTP endpoints** (via `llmll serve`): `POST /checkout`, `POST /checkout/release`, `POST /patch` — governed by the same bearer token auth as `POST /sketch`.
 
-> Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling; general AST mutation is planned for a future release.
+> Checkout requires `.ast.json` input. S-expression sources are rejected with: `"checkout requires .ast.json input; run 'llmll build --emit json-ast' first"`. Patches are restricted to hole-filling; `refine` (below) is the one bounded extension — general AST mutation is planned for a future release.
+
+**The `refine` op — cascading decomposition.** `refine` is the dual of `patch`: one request installs a checked-out hole `H`'s body **and** adds new top-level contracted defs `Gᵢ` (each with a `?body`) that the body references, atomically, reusing the `patch` lifecycle (staleness compare-and-swap + assume-guarantee re-verify). `H` verifies *modulo* each `Gᵢ`'s contract; each `Gᵢ` becomes a new frontier hole — decomposition grows top-down instead of being authored up front. A **scope-relaxation safety predicate** bounds the op: a spawned def must be introduced by exactly one body-replace plus additive `add /statements/-` ops, **fresh** (name unbound), **body-referenced** by the fill, and hole-bodied. A **CDP vacuity gate** rejects a spawn whose invented sub-contract a trivial identity/constant/projection body already satisfies. Each spawned sub-contract also carries an advisory `reuse_suggestions` list — in-scope defs whose contract *subsumes* it (contract subtyping `preₛ ⟹ pre_D ∧ post_D ⟹ postₛ`, α-normalized, solver-checked) — plus a non-blocking `W-REUSE` warning on an exact contract-equivalent; reuse retrieval never rejects a refine. Demo: `examples/refine-demo/`.
 
 #### Context-Aware Checkout
 
@@ -1834,8 +1837,9 @@ The checkout response includes four optional fields (present when the compiler h
 | `contract_pre` | `string` \| `null` | The enclosing function's precondition as an S-expression (e.g. `(>= balance amount)`). |
 | `postcondition_goal` | `string` \| `null` | The postcondition the fill must satisfy (e.g. `(= result (- balance amount))`). |
 | `path_condition` | `[string]` \| `null` | Guard expressions on the path to the hole; non-empty only for holes inside `if` / `match` branches. |
+| `assumptions` | `[string]` \| `null` | Facts that hold at the hole site, beyond `contract_pre`: the refinement predicate of each in-scope refinement-typed **param**, α-renamed to the binder (`x: PositiveInt` where `PositiveInt ≜ (where [v:int] (> v 0))` → `"(> x 0)"`, resolved through same-file aliases), the **definitional equality** `(= y e)` of each in-scope let-binding whose RHS is QF-LIA (a call/opaque RHS is skipped), and the **case hypothesis** of each enclosing match arm on a variable scrutinee (`(= s (Ctor x))`; nullary arm: `(= s Ctor)`), accumulated outermost-first across nested and sequential matches — a binder that shadows a hypothesis's name drops that hypothesis rather than mis-scope it. Sourced strictly from the hole's in-scope binder set and path, so path-correct by construction. Sound but deliberately incomplete: complex scrutinees, wildcard/variable/literal arms, and `def-invariant` axioms are not yet surfaced (the body VC does assume the corresponding facts — a disclosed brief-vs-verifier asymmetry for the remaining provinces). |
 
-`assumptions` is reserved (currently `null`). These contract fields are assembled from a parse + sketch type-check (no constraint emission, no solver), so `checkout` stays at type-check cost. The whole-program view of the same obligations — across every hole, unproven contract, call-site failure, and `refuted_fns` — remains `llmll verify --obligation-report`.
+These contract fields are assembled from a parse + sketch type-check (no constraint emission, no solver), so `checkout` stays at type-check cost. The whole-program view of the same obligations — across every hole, unproven contract, call-site failure, and `refuted_fns` — remains `llmll verify --obligation-report`.
 
 **Effect summary.** `verify --obligation-report` additionally emits a top-level `effect_summary` — a per-function, sound *over-approximation* of the coarse capabilities each function may reach through its call graph — **composed across module imports**, so an imported function's reachable capabilities propagate into its caller's summary: a sorted array of labels (`stdout`, `fs.read`, `fs.write`, `net.http`, `random`, `crypto`) or `"unbounded"` (⊤ — may exercise any capability) at opaque boundaries (`?delegate`/`?scaffold` holes, `haskell.*`/`c.*` FFI, and calls into a module not loaded). It is **informational** and orthogonal to trust — it never affects a function's trust tier or verification verdict. The report's `cross_module` field is `"supported"` when imports are loaded, else `"single-file"`. Obligation-report `schema_version` `0.12.0`. See [`docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md`](docs/archive/shipped-design-specs/bundle-b0-effect-summary-proposal.md).
 
@@ -1862,7 +1866,7 @@ The current module system provides `mergeModuleEnvs` (name unification across im
 > [!WARNING]
 > **Parses (JSON-AST only); semantic enforcement not yet implemented.** `def-invariant` produces its own `SDefInvariant` AST node — a first-class node, not a reduction to `SDefLogic`. It currently parses only from **JSON-AST**; the S-expression production shown below is the intended grammar (§12) but is not yet implemented in the S-expression parser (known compiler bug, fix in progress) — a `def-invariant` form in `.llmll` source is rejected. Z3 invariant verification on merge is not yet implemented either way.
 
-A module can declare invariants that must hold over its state at all times:
+A module can declare invariants that must hold over its state at all times. The example below is **illustrative, not runnable**: `sum`, `map-values`, `state-accounts`, and `state-total-supply` are not registered builtins or defined functions — they sketch the intended vocabulary of a future map-capable invariant surface (the data-scope extension track):
 
 ```lisp
 (def-invariant balance-conservation [state: LedgerState]
@@ -1978,6 +1982,11 @@ ARROW       = "->" | "→" ;  (* both produce TokArrow; canonical output is "->"
 typed-param    = IDENT ":" type ;
 pre-clause     = "(" "pre"  expr [ ":source" STRING ] ")" ;
 post-clause    = "(" "post" expr [ ":source" STRING ] ")" ;
+decreases-clause = "(" "decreases" expr { expr } ")" ;
+                  (* def-shell only. Termination measure: int-typed exprs over  *)
+                  (* the params ('result' not in scope, as in pre). k = 1       *)
+                  (* discharges via well-foundedness + call-site strict         *)
+                  (* descent; k > 1 via the lexicographic order on ℕᵏ (§4.2).   *)
 entropy-clause = "(" "spec-entropy" SPEC_ENTROPY ")" ;
 SPEC_ENTROPY   = ":strict" | ":intentional" | ":unknown" ;
                   (* CDP: optional per-contract annotation; defaults to *)
@@ -2004,6 +2013,7 @@ def          = "(" "def"       IDENT "[" { typed-param } "]"
 def-shell    = "(" "def-shell" IDENT "[" { typed-param } "]"
                  [ ARROW type ]
                  [ pre-clause ] [ post-clause ] [ entropy-clause ]
+                 [ decreases-clause ]
                  expr
                ")" ;
                  (* Permissive form: no body restriction; no callee check.      *)

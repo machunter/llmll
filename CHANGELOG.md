@@ -4,6 +4,57 @@
 
 <a id="Latest"></a>
 
+## v0.14.32 — checkout `assumptions` v2b: match-scrutinee case hypotheses + nullary-enum refutation restored (ENUM-EQ-FALLBACK) (2026-07-11)
+
+### Checkout brief — `assumptions` gains match-scrutinee case hypotheses (OBLIG-1 v2b)
+
+- **The checkout brief's `assumptions` field now also surfaces the case hypothesis of each enclosing match arm:**
+  a hole under `((Ctor x) …)` on a variable scrutinee `s` carries `(= s (Ctor x))` (nullary arm: bare `(= s Ctor)`,
+  matching the contract-position convention). Hypotheses accumulate outermost-first across nested and sequential
+  matches; entering a binder scope that rebinds a name mentioned by a stacked hypothesis drops that hypothesis
+  (shadow guard — loses completeness, never soundness). Captured at sketch time (`SketchHole.shHyps` via
+  `matchHypothesis`/`withHyp`), rendered brief-time after the v1 (param-refinement) and v2a (let-definitional)
+  provinces; type-check cost, no solver, no schema bump. Complex scrutinees and wildcard/variable/literal arms are
+  silently skipped (the sound-but-incomplete bar); the residual OBLIG-1 province is `def-invariant` axioms.
+
+### Fixed — nullary-enum contracts no longer force body-fallback (ENUM-EQ-FALLBACK)
+
+- **A contract equality atom on an all-nullary enum param (`(= state Closed)`) no longer forces contract-only
+  fallback.** The v0.14.12 MATCH-WIDEN guard `clauseOverOpaqueSumParam` matched *any* sum-typed param named bare in
+  a pre/post — including all-nullary enums, which are int-tag-desugared (COMP-3b-general, v0.13.5) and
+  solver-visible — so every operator contract over an enum param fell back and its designed-wrong twins verified
+  SAFE on a merely-asserted post. Refutation was silently lost v0.14.12–v0.14.31 for `tcp_rfc793/step-bad` and all
+  three `session-pay` wrong twins. The guard now fires only for payload-bearing (genuinely value-opaque) sums; its
+  protective case is pinned by a regression test. An 85-file examples sweep confirms exactly the 4 intended
+  SAFE→refuted flips plus 3 fallback→body-faithful upgrades (verdicts unchanged); all other files line-identical.
+  Surfaced by the examples-modernization pass; root-caused to commit `8c61f30`.
+
+### Examples — modernized to the shipped surface
+
+- `tcp_rfc793`, `session-pay`, `outcome-totality`: contract posts rewritten from `(or (not A) B)` to `(=> A B)`
+  (v0.14.16 sugar); JSON-AST twins regenerated. `gotofail/nary.llmll` promoted `def-shell` → strict `def` (n-arm
+  strict core, v0.14.27). All refute cruxes re-verified against the fixed compiler; both contract forms refute.
+
+### Docs — review wave through v0.14.31 + two new design docs
+
+- `llmll refine` documented across README, `LLMLL.md` §11.2, and getting-started (shipped v0.14.13, previously
+  absent from all three); `assumptions` docs match the three shipped provinces; §5.3.3/§5.3.5 termination rows
+  describe the shipped k=1 + lexicographic descent discharge; `decreases-clause` added to the §12 grammar;
+  getting-started schema/`--help`/coverage text re-captured; XMOD-STALE closed (no long-lived `ModuleCache`
+  consumer exists — `Serve.hs` is stateless per request by recorded design); four settled design docs archived with
+  redirect stubs; INDEX labels refreshed.
+- New design docs: [`docs/design/data-scope-lever-a-arrays-proposal.md`](docs/design/data-scope-lever-a-arrays-proposal.md)
+  (Lever A — QF array theory for `bytes[n]`/`map[k,v]`, Rev 0, awaiting professor review) and
+  [`docs/design/spec-from-rfc-pipeline.md`](docs/design/spec-from-rfc-pipeline.md) (R3 pipeline design, Rev 0;
+  remaining = its §4 evaluation run, experiment-lead-owned).
+- New roadmap rows: SCRUT-PTR (scrutinee-position hole records its parent pointer — LET-PTR defect class, low) and
+  STRICT-SIBLING (same-run sibling evidence for strict-core admission, surfaced twice this session).
+
+**Tests:** 1181 Haskell, 45 Python (+10: OA-9..13 — payload/nullary/nested/let+match-compose/shadow-drop;
+ENUM-EQ-FALLBACK block — if/match ctor atoms, or-not pre form, wrong-body in-fragment refute, payload-sum guard
+preserved). E2e: a match-nested hole's brief carries `["(> limit 0)", "(= y (+ c 1))", "(= s (Abort c))"]`;
+`step-bad` refutes on both contract forms.
+
 ## v0.14.31 — checkout `assumptions` v2a: let-definitional equalities + let-nested hole context (LET-PTR) (2026-07-11)
 
 ### Checkout brief — `assumptions` gains let-definitional equalities (OBLIG-1 v2a)

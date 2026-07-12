@@ -1,4 +1,4 @@
-# LLMLL — v0.14.31
+# LLMLL — v0.14.32
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -49,7 +49,7 @@ $ LLMLL_LEANSTRAL_API_KEY=… llmll verify examples/leanstral-demo/square.llmll 
 
 The certificate is a Lean proof term the kernel accepted — checkable by anyone with Lean, without trusting Leanstral *or* LLMLL's compiler. **An AI proved what the SMT solver couldn't, and you don't have to take its word for it.**
 
-> **Experimental (v0.14.8).** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/design/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md).
+> **Experimental.** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/design/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md).
 
 
 ---
@@ -114,6 +114,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll serve [--host H] [--port P] [--token T]` | Expose `--sketch` as `POST /sketch` HTTP endpoint for agent swarms. Default: `127.0.0.1:7777`. |
 | `llmll checkout <file.ast.json> <pointer>` | Lock a `?hole` for exclusive agent editing. Returns a checkout token with the hole's contract context (`contract_pre`, `postcondition_goal`, `path_condition`) and typing context (`in_scope`, `type_definitions`). Use `--release` to abandon, `--status` to query TTL. |
 | `llmll patch <file.ast.json> <patch.json>` | Apply an RFC 6902 JSON-Patch to a checked-out hole. Re-verifies type safety before committing. |
+| `llmll refine <file.ast.json> <refine.json>` | Fill a checked-out hole **and** spawn new contracted sub-holes its body calls, atomically (cascading decomposition). Spawned sub-contracts pass a CDP vacuity gate; in-scope defs whose contracts subsume a spawned sub-contract are surfaced as advisory `reuse_suggestions` (non-blocking `W-REUSE` on an exact contract-equivalent). |
 | `llmll hub fetch <pkg>@<ver>` | Download a package into the hub cache (`~/.llmll/modules/`). |
 | `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
 | `llmll hub query --signature <sig>` | Search hub cache for functions matching a type signature (e.g. `"int -> int -> int"`). |

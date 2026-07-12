@@ -131,7 +131,7 @@
           "description": "Optional contract discriminative-power annotation (LT-CDP v0.11). Same semantics as on DefCore."
         },
         "body":         { "$ref": "#/$defs/Expr" },
-        "decreases":    { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Expr" }, "description": "REC-DESCENT (v0.8.0): optional termination-measure list, def-shell only. Each element is an int-valued expression over the params (same binding scope as 'pre'; 'result' not in scope). v1 discharges the single-measure (length-1) case; longer lists parse and round-trip (lexicographic discharge deferred). Absent means no declared measure." }
+        "decreases":    { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Expr" }, "description": "REC-DESCENT (v0.8.0): optional termination-measure list, def-shell only. Each element is an int-valued expression over the params (same binding scope as 'pre'; 'result' not in scope). A length-1 list discharges via well-foundedness + call-site strict descent; a longer list discharges via the lexicographic order on N^k (equal tuple arity required across the recursive SCC). Absent means no declared measure." }
       },
       "examples": [
         {
