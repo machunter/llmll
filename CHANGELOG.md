@@ -4,6 +4,30 @@
 
 <a id="Latest"></a>
 
+## v0.14.39 — R3 evaluation run: RFC 1982 through the pipeline, all six criteria pass (2026-07-12)
+
+### Added — `examples/rfc1982_serial/` (the spec-from-RFC pipeline validated by procedure)
+
+- **RFC 1982 (DNS serial number arithmetic) ran S0→S5 through
+  [`spec-from-rfc-pipeline.md`](docs/design/spec-from-rfc-pipeline.md) by procedure, passing all six §4 success
+  criteria** — closing the pipeline doc's own completion gap (G4). `serial-add`/`serial-lt`/`serial-gt` all reach
+  body-faithful `verified` (trust report `verified: 3, asserted: 0`) with one `:source` per contracted clause;
+  the S0 stage dispositioned §3.1's `modulo` into a linear conditional subtraction *before* authoring
+  (SERIAL_BITS = 32). Two authored mutants refute — `serial-lt-bad` is the historical naive-`<` DNS comparison
+  bug, refuted and localized — and `serial-lt-weak` is the recorded weak-spec co-evolution exhibit. The first
+  persisted **clause inventory** (9/9 normative clauses dispositioned, the G1 template) lives in the example's
+  `VERIFICATION_SCOPE.md`. Verdicts frozen: the family joins `make refute-crux-gate` (22 → 26 cases).
+- Pipeline findings: [`experiments/rfc1982-eval/findings.md`](experiments/rfc1982-eval/findings.md) — no taxonomy
+  gap, no scoping error; five findings routed (two compiler report-surface, three pipeline-doc revisions).
+
+### Found (tracked, not fixed) — COVERAGE-TIER
+
+- `--spec-coverage`'s tier column prints `Verified: 0 / Asserted: 3` while the same tree's trust report says
+  `verified: 3` — the coverage summary doesn't read solver evidence (TERM-REPORT-PLAIN family; new roadmap row,
+  which also carries the stale OBLIG-PBT-4 diagnostic text found alongside it).
+
+**Tests:** 1218 Haskell, 45 Python (examples/scripts-only change); `make refute-crux-gate` 26/26.
+
 ## v0.14.38 — LEVER-A3: reporting surfaces catch up with the array verifier (2026-07-12)
 
 ### Fixed — array contracts classify in-fragment (obligation report)

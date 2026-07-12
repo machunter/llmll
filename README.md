@@ -1,4 +1,4 @@
-# LLMLL — v0.14.38
+# LLMLL — v0.14.39
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 
@@ -209,6 +209,7 @@ Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).
 | [`examples/withdraw-demo/`](examples/withdraw-demo/) | The repair loop (hole → rejected bad fills → accepted fix → verified) + the `return-refine` beat |
 | [`examples/bytes-bounds/`](examples/bytes-bounds/) | `bytes[n]` memory safety: a correct bounds check verifies; the off-by-one (`<=` for `<`) and an out-of-range write are `refuted` at the call site |
 | [`examples/total-recursion/`](examples/total-recursion/) | A recursive function with `(decreases n)` verifies **total** (termination discharged); a bad measure fails on the distinct `measure-not-decreasing` channel |
+| [`examples/rfc1982_serial/`](examples/rfc1982_serial/) | RFC 1982 serial arithmetic via the spec-from-RFC pipeline: all three functions `verified` with per-clause `:source`; the historical naive-`<` DNS bug refutes |
 
 ### Language / runtime examples
 
