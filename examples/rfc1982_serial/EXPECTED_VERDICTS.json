@@ -1,0 +1,13 @@
+{
+  "family": "rfc1982_serial",
+  "frozen_at": "v0.14.38",
+  "frozen_date": "2026-07-12",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY (no obligation-report/trust-report/classification fields — the standing A3-churn guard). Produced by the spec-from-rfc-pipeline.md section-4 evaluation run: contracts authored from RFC 1982 verbatim clauses; serial-lt-bad is the historical naive-`<` DNS bug and must stay refuted; serial-lt-weak is the deliberate weak-spec co-evolution exhibit and must stay SAFE.",
+  "cases": [
+    { "file": "serial.llmll",         "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
+    { "file": "serial-lt-bad.llmll",  "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "serial-lt" },
+    { "file": "serial-add-bad.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "serial-add" },
+    { "file": "serial-lt-weak.llmll", "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe",
+      "why": "deliberate weak-spec exhibit: a one-directional partial reading of RFC 1982 section 3.2 lets the naive-< body verify — the documented co-evolution lesson, must stay SAFE" }
+  ]
+}

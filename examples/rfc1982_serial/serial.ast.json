@@ -1,0 +1,1276 @@
+{
+  "llmll_version": "0.14.38",
+  "schemaVersion": "0.8.0",
+  "statements": [
+    {
+      "body": {
+        "cond": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "s"
+                },
+                {
+                  "kind": "var",
+                  "name": "n"
+                }
+              ],
+              "kind": "op",
+              "op": "+"
+            },
+            {
+              "kind": "lit-int",
+              "value": 4294967296
+            }
+          ],
+          "kind": "op",
+          "op": "<"
+        },
+        "else_branch": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "var",
+                  "name": "s"
+                },
+                {
+                  "kind": "var",
+                  "name": "n"
+                }
+              ],
+              "kind": "op",
+              "op": "+"
+            },
+            {
+              "kind": "lit-int",
+              "value": 4294967296
+            }
+          ],
+          "kind": "op",
+          "op": "-"
+        },
+        "kind": "if",
+        "then_branch": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "s"
+            },
+            {
+              "kind": "var",
+              "name": "n"
+            }
+          ],
+          "kind": "op",
+          "op": "+"
+        }
+      },
+      "kind": "def",
+      "name": "serial-add",
+      "params": [
+        {
+          "name": "s",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "n",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "n"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "+"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 4294967296
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "<"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "n"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "+"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "=>"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "n"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "+"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 4294967296
+                      }
+                    ],
+                    "kind": "op",
+                    "op": ">="
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "s"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "n"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "+"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 4294967296
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "-"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "=>"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "post_source": "RFC 1982 §3.1 — s' = (s + n) modulo (2^SERIAL_BITS), as a linear case split under the §3.1 n-bound",
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "n"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "n"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 2147483647
+                  }
+                ],
+                "kind": "op",
+                "op": "<="
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre_source": "RFC 1982 §3.1 — s a serial (§2 space); n in [0 .. 2^(SERIAL_BITS-1)-1], other values undefined",
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    },
+    {
+      "body": {
+        "cond": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "s1"
+            },
+            {
+              "kind": "var",
+              "name": "s2"
+            }
+          ],
+          "kind": "op",
+          "op": "="
+        },
+        "else_branch": {
+          "cond": {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s1"
+              },
+              {
+                "kind": "var",
+                "name": "s2"
+              }
+            ],
+            "kind": "op",
+            "op": "<"
+          },
+          "else_branch": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  }
+                ],
+                "kind": "op",
+                "op": "-"
+              },
+              {
+                "kind": "lit-int",
+                "value": 2147483648
+              }
+            ],
+            "kind": "op",
+            "op": ">"
+          },
+          "kind": "if",
+          "then_branch": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  }
+                ],
+                "kind": "op",
+                "op": "-"
+              },
+              {
+                "kind": "lit-int",
+                "value": 2147483648
+              }
+            ],
+            "kind": "op",
+            "op": "<"
+          }
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "lit-bool",
+          "value": false
+        }
+      },
+      "kind": "def",
+      "name": "serial-lt",
+      "params": [
+        {
+          "name": "s1",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "s2",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s1"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "s2"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "not"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s1"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "s2"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "<"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "s2"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "s1"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "-"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 2147483648
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "<"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  },
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s1"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "s2"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": ">"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "s1"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "s2"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "-"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 2147483648
+                          }
+                        ],
+                        "kind": "op",
+                        "op": ">"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  }
+                ],
+                "kind": "op",
+                "op": "or"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "<=>"
+      },
+      "post_source": "RFC 1982 §3.2 — lt iff not equal and (i1<i2 and i2-i1 < 2^31) or (i1>i2 and i1-i2 > 2^31)",
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre_source": "RFC 1982 §2 — serial number space [0, 2^SERIAL_BITS - 1]",
+      "return_type": {
+        "kind": "primitive",
+        "name": "bool"
+      }
+    },
+    {
+      "body": {
+        "cond": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "s1"
+            },
+            {
+              "kind": "var",
+              "name": "s2"
+            }
+          ],
+          "kind": "op",
+          "op": "="
+        },
+        "else_branch": {
+          "cond": {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s1"
+              },
+              {
+                "kind": "var",
+                "name": "s2"
+              }
+            ],
+            "kind": "op",
+            "op": "<"
+          },
+          "else_branch": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  }
+                ],
+                "kind": "op",
+                "op": "-"
+              },
+              {
+                "kind": "lit-int",
+                "value": 2147483648
+              }
+            ],
+            "kind": "op",
+            "op": "<"
+          },
+          "kind": "if",
+          "then_branch": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  }
+                ],
+                "kind": "op",
+                "op": "-"
+              },
+              {
+                "kind": "lit-int",
+                "value": 2147483648
+              }
+            ],
+            "kind": "op",
+            "op": ">"
+          }
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "lit-bool",
+          "value": false
+        }
+      },
+      "kind": "def",
+      "name": "serial-gt",
+      "params": [
+        {
+          "name": "s1",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "s2",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s1"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "s2"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "not"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s1"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "s2"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "<"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "s2"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "s1"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "-"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 2147483648
+                          }
+                        ],
+                        "kind": "op",
+                        "op": ">"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  },
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s1"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "s2"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": ">"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "s1"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "s2"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "-"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 2147483648
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "<"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  }
+                ],
+                "kind": "op",
+                "op": "or"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "<=>"
+      },
+      "post_source": "RFC 1982 §3.2 — gt iff not equal and (i1<i2 and i2-i1 > 2^31) or (i1>i2 and i1-i2 < 2^31)",
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre_source": "RFC 1982 §2 — serial number space [0, 2^SERIAL_BITS - 1]",
+      "return_type": {
+        "kind": "primitive",
+        "name": "bool"
+      }
+    },
+    {
+      "for_all": {
+        "bindings": [
+          {
+            "name": "s",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "body": {
+          "cond": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          "else_branch": {
+            "kind": "lit-bool",
+            "value": true
+          },
+          "kind": "if",
+          "then_branch": {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s"
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 1
+                  }
+                ],
+                "fn": "serial-add",
+                "kind": "app"
+              }
+            ],
+            "fn": "serial-lt",
+            "kind": "app"
+          }
+        },
+        "kind": "for-all"
+      },
+      "kind": "check",
+      "label": "RFC 1982 §5 analog - every serial in space is less than its successor",
+      "subjects": [
+        "serial-lt",
+        "serial-add"
+      ]
+    },
+    {
+      "for_all": {
+        "bindings": [
+          {
+            "name": "s1",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "name": "s2",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "body": {
+          "cond": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s1"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 0
+                      }
+                    ],
+                    "kind": "op",
+                    "op": ">="
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s1"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 4294967296
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "<"
+                  }
+                ],
+                "kind": "op",
+                "op": "and"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s2"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 0
+                          }
+                        ],
+                        "kind": "op",
+                        "op": ">="
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s2"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 4294967296
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "<"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "and"
+                  },
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s2"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "s1"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "-"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 2147483648
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "and"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          "else_branch": {
+            "kind": "lit-bool",
+            "value": true
+          },
+          "kind": "if",
+          "then_branch": {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s1"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "s2"
+                      }
+                    ],
+                    "fn": "serial-lt",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "not"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s1"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "s2"
+                      }
+                    ],
+                    "fn": "serial-gt",
+                    "kind": "app"
+                  }
+                ],
+                "kind": "op",
+                "op": "not"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        },
+        "kind": "for-all"
+      },
+      "kind": "check",
+      "label": "RFC 1982 §3.2/§4 - a pair at distance exactly 2^31 is neither lt nor gt",
+      "subjects": [
+        "serial-lt",
+        "serial-gt"
+      ]
+    },
+    {
+      "for_all": {
+        "bindings": [
+          {
+            "name": "k",
+            "param_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ],
+        "body": {
+          "args": [
+            {
+              "args": [
+                {
+                  "kind": "lit-int",
+                  "value": 4294967295
+                },
+                {
+                  "kind": "lit-int",
+                  "value": 1
+                }
+              ],
+              "fn": "serial-add",
+              "kind": "app"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": "="
+        },
+        "kind": "for-all"
+      },
+      "kind": "check",
+      "label": "RFC 1982 §5.2 analog at SERIAL_BITS=32 - (2^32-1) + 1 == 0"
+    }
+  ]
+}

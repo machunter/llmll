@@ -1,0 +1,284 @@
+{
+  "llmll_version": "0.14.38",
+  "schemaVersion": "0.8.0",
+  "statements": [
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "s"
+          },
+          {
+            "kind": "var",
+            "name": "n"
+          }
+        ],
+        "kind": "op",
+        "op": "+"
+      },
+      "kind": "def",
+      "name": "serial-add",
+      "params": [
+        {
+          "name": "s",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "n",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "result"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "n"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "+"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 4294967296
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "<"
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "n"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "+"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "=>"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "args": [
+                          {
+                            "kind": "var",
+                            "name": "s"
+                          },
+                          {
+                            "kind": "var",
+                            "name": "n"
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "+"
+                      },
+                      {
+                        "kind": "lit-int",
+                        "value": 4294967296
+                      }
+                    ],
+                    "kind": "op",
+                    "op": ">="
+                  },
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "result"
+                      },
+                      {
+                        "args": [
+                          {
+                            "args": [
+                              {
+                                "kind": "var",
+                                "name": "s"
+                              },
+                              {
+                                "kind": "var",
+                                "name": "n"
+                              }
+                            ],
+                            "kind": "op",
+                            "op": "+"
+                          },
+                          {
+                            "kind": "lit-int",
+                            "value": 4294967296
+                          }
+                        ],
+                        "kind": "op",
+                        "op": "-"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "="
+                  }
+                ],
+                "kind": "op",
+                "op": "=>"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "post_source": "RFC 1982 §3.1 — s' = (s + n) modulo (2^SERIAL_BITS), as a linear case split under the §3.1 n-bound",
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "n"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "n"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 2147483647
+                  }
+                ],
+                "kind": "op",
+                "op": "<="
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre_source": "RFC 1982 §3.1 — s a serial (§2 space); n in [0 .. 2^(SERIAL_BITS-1)-1], other values undefined",
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+;; RFC 1982 weak-spec exhibit (S4's human co-evolution loop — the check that does NOT
+;; mechanize). The body is the SAME naive `<` bug as serial-lt-bad.llmll, but the post
+;; is a realistic partial reading of §3.2: only the no-wraparound direction, only as a
+;; one-way implication ("if s2 is ahead by less than 2^31, report less-than"). The
+;; naive body satisfies that weak contract, so the wraparound bug SURVIVES — SAFE.
+;;
+;; The co-evolution step: compare this post against the clause inventory
+;; (VERIFICATION_SCOPE.md, clause Q5) — the inventory row shows §3.2's OTHER disjunct
+;; (i1 > i2 and i1 - i2 > 2^31) and the iff-direction are untranslated. Restoring them
+;; yields serial.llmll's biconditional, under which this same body refutes
+;; (serial-lt-bad.llmll). No mechanized flag fires here by design; the inventory is
+;; what makes the gap visible (spec-from-rfc-pipeline.md §1.2 S4.4).
+;;   llmll verify ./serial-lt-weak.llmll --strict-verified-core   # SAFE — bug survives
+
+(def serial-lt [s1: int s2: int] -> bool
+  (pre (and (and (>= s1 0) (< s1 4294967296))
+            (and (>= s2 0) (< s2 4294967296)))
+    :source "RFC 1982 §2 — serial number space [0, 2^SERIAL_BITS - 1]")
+  (post (=> (and (< s1 s2) (< (- s2 s1) 2147483648)) result)
+    :source "RFC 1982 §3.2 — PARTIAL reading: near-ascending pairs only, one direction (the weak-spec exhibit)")
+  (< s1 s2))

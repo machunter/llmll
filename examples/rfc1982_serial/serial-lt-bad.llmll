@@ -1,0 +1,19 @@
+;; RFC 1982 mutant (S4 refutation witness) — the HISTORICAL bug: comparing serials
+;; with plain integer `<`, ignoring wraparound. Same contracts as serial.llmll's
+;; serial-lt (authored from RFC 1982 §3.2); body is the naive comparison.
+;;
+;; Refuting witness pair: s1 = 4294967295 (2^32-1), s2 = 0. The RFC says s1 < s2 is
+;; TRUE (i1 > i2 and i1 - i2 = 4294967295 > 2^31 — zero is the max serial's successor);
+;; plain `<` says false. The solver refutes the biconditional.
+;;   llmll verify ./serial-lt-bad.llmll --strict-verified-core   # refuted: serial-lt
+
+(def serial-lt [s1: int s2: int] -> bool
+  (pre (and (and (>= s1 0) (< s1 4294967296))
+            (and (>= s2 0) (< s2 4294967296)))
+    :source "RFC 1982 §2 — serial number space [0, 2^SERIAL_BITS - 1]")
+  (post (<=> result
+             (and (not (= s1 s2))
+                  (or (and (< s1 s2) (< (- s2 s1) 2147483648))
+                      (and (> s1 s2) (> (- s1 s2) 2147483648)))))
+    :source "RFC 1982 §3.2 — lt iff not equal and (i1<i2 and i2-i1 < 2^31) or (i1>i2 and i1-i2 > 2^31)")
+  (< s1 s2))

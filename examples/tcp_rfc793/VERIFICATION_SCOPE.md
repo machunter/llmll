@@ -73,7 +73,7 @@ Nothing cryptographic or opaque is in scope.
 3. Re-verify the buggy edge → **refuted** — the bug is now caught.
 
 The hardening is **human-driven** (notice the survival, tighten the contract).
-Honest caveat: `--cdp` / `--weakness-check` do **not** auto-flag the weak contract
+Stated caveat: `--cdp` / `--weakness-check` do **not** auto-flag the weak contract
 for this function shape; automating the "your spec is too weak" signal is future
 work, not a shipped claim.
 

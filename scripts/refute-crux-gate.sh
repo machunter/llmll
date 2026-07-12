@@ -35,6 +35,7 @@ FAMILIES=(
   "outcome-totality"
   "total-recursion"
   "bytes-bounds"
+  "rfc1982_serial"
 )
 
 if ! command -v jq &> /dev/null; then

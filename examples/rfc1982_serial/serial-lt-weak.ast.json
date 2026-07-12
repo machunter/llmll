@@ -1,0 +1,174 @@
+{
+  "llmll_version": "0.14.38",
+  "schemaVersion": "0.8.0",
+  "statements": [
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "s1"
+          },
+          {
+            "kind": "var",
+            "name": "s2"
+          }
+        ],
+        "kind": "op",
+        "op": "<"
+      },
+      "kind": "def",
+      "name": "serial-lt",
+      "params": [
+        {
+          "name": "s1",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "s2",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              },
+              {
+                "args": [
+                  {
+                    "args": [
+                      {
+                        "kind": "var",
+                        "name": "s2"
+                      },
+                      {
+                        "kind": "var",
+                        "name": "s1"
+                      }
+                    ],
+                    "kind": "op",
+                    "op": "-"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 2147483648
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "kind": "var",
+            "name": "result"
+          }
+        ],
+        "kind": "op",
+        "op": "=>"
+      },
+      "post_source": "RFC 1982 §3.2 — PARTIAL reading: near-ascending pairs only, one direction (the weak-spec exhibit)",
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s1"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          },
+          {
+            "args": [
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 0
+                  }
+                ],
+                "kind": "op",
+                "op": ">="
+              },
+              {
+                "args": [
+                  {
+                    "kind": "var",
+                    "name": "s2"
+                  },
+                  {
+                    "kind": "lit-int",
+                    "value": 4294967296
+                  }
+                ],
+                "kind": "op",
+                "op": "<"
+              }
+            ],
+            "kind": "op",
+            "op": "and"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre_source": "RFC 1982 §2 — serial number space [0, 2^SERIAL_BITS - 1]",
+      "return_type": {
+        "kind": "primitive",
+        "name": "bool"
+      }
+    }
+  ]
+}

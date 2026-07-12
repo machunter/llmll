@@ -1,0 +1,101 @@
+;; RFC 1982 — Serial Number Arithmetic (SERIAL_BITS = 32, the DNS SOA width).
+;;
+;; The spec-from-RFC pipeline's §4 evaluation example (docs/design/spec-from-rfc-pipeline.md):
+;; contracts authored FROM the RFC text, one :source per clause, every normative clause
+;; dispositioned in VERIFICATION_SCOPE.md's clause inventory (the first persisted S1
+;; artifact — gap G1).
+;;
+;; The famous subtlety: serial numbers wrap. "Is s2 newer than s1?" is NOT `(< s1 s2)` —
+;; RFC 1982 §3.2 defines comparison by case-split on the wrapped distance, and pairs
+;; separated by exactly 2^(SERIAL_BITS-1) compare as NEITHER lt nor gt (undefined).
+;; Real DNS implementations got this wrong for years; the naive `<` is the authored
+;; mutant here (serial-lt-bad.llmll) and the solver refutes it.
+;;
+;; Fragment scoping (S0, decided before authoring — see VERIFICATION_SCOPE.md):
+;; §3.1's `modulo (2 ^ SERIAL_BITS)` is nonlinear as written, but under §3.1's own
+;; n-range precondition the sum is < 2^33, so the mod is ONE conditional subtraction —
+;; a linear case split. Everything lands in QF-LIA + bool; no mod, no opaque carrier.
+;;
+;; SERIAL_BITS = 32:  2^32 = 4294967296 · 2^31 = 2147483648 · max n = 2147483647
+;;   Regenerate twin: llmll build ./serial.llmll --emit -o .
+
+;; §3.1 — s' = (s + n) modulo (2 ^ SERIAL_BITS), n in [0 .. 2^(SERIAL_BITS-1) - 1].
+;; "Addition of a value outside the range [0 .. (2^(SERIAL_BITS - 1) - 1)] is
+;;  undefined" -> encoded as the pre (clauses Q2, Q3).
+(def serial-add [s: int n: int] -> int
+  (pre (and (and (>= s 0) (< s 4294967296))
+            (and (>= n 0) (<= n 2147483647)))
+    :source "RFC 1982 §3.1 — s a serial (§2 space); n in [0 .. 2^(SERIAL_BITS-1)-1], other values undefined")
+  (post (and (and (>= result 0) (< result 4294967296))
+             (and (=> (<  (+ s n) 4294967296) (= result (+ s n)))
+                  (=> (>= (+ s n) 4294967296) (= result (- (+ s n) 4294967296)))))
+    :source "RFC 1982 §3.1 — s' = (s + n) modulo (2^SERIAL_BITS), as a linear case split under the §3.1 n-bound")
+  (if (< (+ s n) 4294967296)
+      (+ s n)
+      (- (+ s n) 4294967296)))
+
+;; §3.2 — "s1 is said to be less than s2 if, and only if, s1 is not equal to s2, and
+;;   (i1 < i2 and i2 - i1 < 2^(SERIAL_BITS - 1)) or
+;;   (i1 > i2 and i1 - i2 > 2^(SERIAL_BITS - 1))"  (clause Q5)
+;; The post is the biconditional, verbatim-shaped; the body is a decision chain, so the
+;; solver proves genuine equivalence, not syntactic identity.
+(def serial-lt [s1: int s2: int] -> bool
+  (pre (and (and (>= s1 0) (< s1 4294967296))
+            (and (>= s2 0) (< s2 4294967296)))
+    :source "RFC 1982 §2 — serial number space [0, 2^SERIAL_BITS - 1]")
+  (post (<=> result
+             (and (not (= s1 s2))
+                  (or (and (< s1 s2) (< (- s2 s1) 2147483648))
+                      (and (> s1 s2) (> (- s1 s2) 2147483648)))))
+    :source "RFC 1982 §3.2 — lt iff not equal and (i1<i2 and i2-i1 < 2^31) or (i1>i2 and i1-i2 > 2^31)")
+  (if (= s1 s2)
+      false
+      (if (< s1 s2)
+          (< (- s2 s1) 2147483648)
+          (> (- s1 s2) 2147483648))))
+
+;; §3.2 — "s1 is said to be greater than s2 if, and only if, s1 is not equal to s2, and
+;;   (i1 < i2 and i2 - i1 > 2^(SERIAL_BITS - 1)) or
+;;   (i1 > i2 and i1 - i2 < 2^(SERIAL_BITS - 1))"  (clause Q6)
+;; Note gt is NOT (not lt): pairs at distance exactly 2^31 are neither (clause Q7) —
+;; the biconditionals make both false there; the check block demonstrates it.
+(def serial-gt [s1: int s2: int] -> bool
+  (pre (and (and (>= s1 0) (< s1 4294967296))
+            (and (>= s2 0) (< s2 4294967296)))
+    :source "RFC 1982 §2 — serial number space [0, 2^SERIAL_BITS - 1]")
+  (post (<=> result
+             (and (not (= s1 s2))
+                  (or (and (< s1 s2) (> (- s2 s1) 2147483648))
+                      (and (> s1 s2) (< (- s1 s2) 2147483648)))))
+    :source "RFC 1982 §3.2 — gt iff not equal and (i1<i2 and i2-i1 > 2^31) or (i1>i2 and i1-i2 < 2^31)")
+  (if (= s1 s2)
+      false
+      (if (< s1 s2)
+          (> (- s2 s1) 2147483648)
+          (< (- s1 s2) 2147483648))))
+
+;; C5 — §5 examples, adapted to SERIAL_BITS=32 (the RFC's §5 vectors are stated at
+;; SERIAL_BITS=2 and 8; the width adaptation is recorded in the clause inventory, Q9).
+
+;; §5.2 analog: "255+1 == 0" at 8 bits -> (2^32-1) + 1 == 0 at 32 bits; and every
+;; serial is less than its successor (1 > 0, 2 > 1, ... 0 > 3 pattern of §5.1).
+(check "RFC 1982 §5 analog - every serial in space is less than its successor" :subjects [serial-lt serial-add]
+  (for-all [s: int]
+    (if (and (>= s 0) (< s 4294967296))
+        (serial-lt s (serial-add s 1))
+        true)))
+
+;; §5.1 analog: "It is undefined whether 2 > 0 or 0 > 2" (distance exactly
+;; 2^(SERIAL_BITS-1)) -> at 32 bits a pair at distance 2^31 is neither lt nor gt.
+(check "RFC 1982 §3.2/§4 - a pair at distance exactly 2^31 is neither lt nor gt" :subjects [serial-lt serial-gt]
+  (for-all [s1: int s2: int]
+    (if (and (and (>= s1 0) (< s1 4294967296))
+             (and (and (>= s2 0) (< s2 4294967296))
+                  (= (- s2 s1) 2147483648)))
+        (and (not (serial-lt s1 s2)) (not (serial-gt s1 s2)))
+        true)))
+
+;; §5.2 analog concrete vector: (2^32-1) + 1 wraps to 0.
+(check "RFC 1982 §5.2 analog at SERIAL_BITS=32 - (2^32-1) + 1 == 0"
+  (for-all [k: int]
+    (= (serial-add 4294967295 1) 0)))

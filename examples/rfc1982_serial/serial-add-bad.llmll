@@ -1,0 +1,15 @@
+;; RFC 1982 mutant (S4 refutation witness) — addition without the modulo wrap.
+;; Same contracts as serial.llmll's serial-add (authored from RFC 1982 §3.1); the body
+;; drops the conditional subtraction, so for s + n >= 2^32 the result leaves the
+;; serial space and violates the post's range clause.
+;;   llmll verify ./serial-add-bad.llmll --strict-verified-core   # refuted: serial-add
+
+(def serial-add [s: int n: int] -> int
+  (pre (and (and (>= s 0) (< s 4294967296))
+            (and (>= n 0) (<= n 2147483647)))
+    :source "RFC 1982 §3.1 — s a serial (§2 space); n in [0 .. 2^(SERIAL_BITS-1)-1], other values undefined")
+  (post (and (and (>= result 0) (< result 4294967296))
+             (and (=> (<  (+ s n) 4294967296) (= result (+ s n)))
+                  (=> (>= (+ s n) 4294967296) (= result (- (+ s n) 4294967296)))))
+    :source "RFC 1982 §3.1 — s' = (s + n) modulo (2^SERIAL_BITS), as a linear case split under the §3.1 n-bound")
+  (+ s n))
