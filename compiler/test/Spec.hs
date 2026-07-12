@@ -18,7 +18,7 @@ import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCacheA
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
-  , obligationStatus, classifyContractFragment, classifyBodyFragment
+  , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
   , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
   , trustLabel
   , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..)
@@ -68,7 +68,7 @@ import qualified Data.Aeson.Key as K
 import qualified Data.Map.Strict as DM
 
 import LLMLL.JsonPointer (resolvePointer, setAtPointer, removeAtPointer, findDescendantHoles, isHoleNode)
-import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, assembleAssumptions, buildCheckoutFuncs, ScopeEntry(..), FuncEntry(..), checkoutHole, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), loadSessions, sessionMembers, promoteDivergenceWinner, emptyCheckoutContext)
+import LLMLL.Checkout (lockFilePath, expireStale, CheckoutToken(..), CheckoutLock(..), TypeDefEntry(..), normalizePointer, collectTypeDefinitions, monomorphizeFunctions, truncateScope, buildScopeEntries, assembleAssumptions, buildCheckoutFuncs, arrayOpFuncEntries, ScopeEntry(..), FuncEntry(..), checkoutHole, checkoutHoleMulti, MultiCheckoutResult(..), DivergenceSession(..), DivergenceMember(..), loadSessions, sessionMembers, promoteDivergenceWinner, emptyCheckoutContext)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
@@ -6233,10 +6233,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let r = checkA0 "(def-shell f [b: bytes[8] v: int] -> bytes[8] (bytes-set b 0 v))"
         errsOf r `shouldBe` []
 
-      it "A0-6 classifier: a contract mentioning an array op is non_qf_lia (Advisory tier, stage-A3 flips it)" $ do
+      it "A0-6 classifier: array-op contracts classify in-fragment (flipped at stage A3, LEVER-A3)" $ do
         let c = Contract (Just (EApp "map-has" [EVar "m", EVar "k"])) Nothing Nothing Nothing Nothing
-        classifyContractFragment c `shouldBe` "non_qf_lia"
-        isQfLia (EApp "bytes-get" [EVar "b", ELit (LitInt 0)]) `shouldBe` False
+        classifyContractFragment c `shouldBe` "qf_lia"
+        isQfLia (EApp "bytes-get" [EVar "b", ELit (LitInt 0)]) `shouldBe` True
 
       it "A0-7 codegen: Class-A seam for bytes ops; bytes-zero reads n from the declared return; shims in the preamble" $ do
         emitApp "bytes-get" [EVar "b", ELit (LitInt 3)]
@@ -6565,6 +6565,105 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
     -- an uppercase identifier) and whose constructors use `| ctor { }` syntax.
     -- Regression guard for the two-part .fq data-decl bug: the prior emitter wrote
+    -- LEVER-A3 (proposal §10 A3 row): classifier + agent-surface integration.
+    -- Classification derives from the emitter's OWN predicates (§6.1: classify
+    -- in-fragment iff the contract channel reflects exactly — isQfLia mirrors
+    -- exprToPred's cases; contractArrGuardsBlock IS the emitter's guard pair).
+    -- Parser-faithful sources (EOp operator forms), per the CLASSIFY-EOP lesson.
+    describe "LEVER-A3 (classifier & brief integration)" $ do
+      let parseA3 srcLines = case parseStatements GrammarCoreInversion "test" (T.pack (unlines srcLines)) of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> stmts
+          classifyFirst stmts =
+            case [ (ps, r, c, b) | s <- stmts, Just (_, ps, r, c, b) <- [normalizeDefStmt s] ] of
+              ((ps, r, c, b):_) -> classifyContractFragmentTyped (buildAliasMap stmts) ps r (Just b) c
+              []                -> error "no def"
+
+      it "A3-1 bytes contracts classify in-fragment (parser-faithful)" $ do
+        let stmts = parseA3
+              [ "(def read-at [b: bytes[64] i: int] -> int"
+              , "  (pre  (and (>= i 0) (< i 64)))"
+              , "  (post (= result (bytes-get b i)))"
+              , "  (bytes-get b i))" ]
+        classifyFirst stmts `shouldBe` "qf_lia"
+
+      it "A3-2 map contracts classify in-fragment (get-after-put shape)" $ do
+        let stmts = parseA3
+              [ "(def cache-put [m: map[int,int] k: int v: int] -> map[int,int]"
+              , "  (post (and (map-has result k) (= (map-get result k) v)))"
+              , "  (map-put m k v))" ]
+        classifyFirst stmts `shouldBe` "qf_lia"
+
+      it "A3-3 residue routes out: string-valued map, whole-array =, both guards live" $ do
+        -- (a) string-valued map: mapClauseBlocked (inadmissible value class).
+        let sVal = parseA3
+              [ "(def sget [m: map[int,string] k: int] -> int"
+              , "  (pre (map-has m k))"
+              , "  0)" ]
+        classifyFirst sVal `shouldBe` "non_qf_lia"
+        -- (b) whole-map = in the contract, ops only in the BODY (the
+        -- body-relevance leg of the activation gate).
+        let wEq = parseA3
+              [ "(def keep [m: map[int,int] k: int v: int] -> map[int,int]"
+              , "  (post (= result m))"
+              , "  (map-put m k v))" ]
+        classifyFirst wEq `shouldBe` "non_qf_lia"
+        -- (c) whole-bytes = alongside an in-fragment atom: still out (F1).
+        let bEq = parseA3
+              [ "(def keepb [b: bytes[8] b2: bytes[8]] -> bytes[8]"
+              , "  (post (and (= (bytes-length result) 8) (= result b2)))"
+              , "  b)" ]
+        classifyFirst bEq `shouldBe` "non_qf_lia"
+
+      it "A3-4 map-put with a non-int value arg in a clause routes out (badPutValue)" $ do
+        let stmts = parseA3
+              [ "(def putS [m: map[int,int] k: int s: string] -> int"
+              , "  (pre (map-has (map-put m k s) k))"
+              , "  0)" ]
+        classifyFirst stmts `shouldBe` "non_qf_lia"
+
+      it "A3-5 brief vocabulary: array ops listed iff a bytes/map type is visible, with PROVE pres" $ do
+        -- Positional accessors: 'feName'/'fePre' are ambiguous at this import
+        -- surface (another record exports the same field names), matching the
+        -- DC-8 precedent.
+        let entryName   (FuncEntry n _ _ _ _ _ _) = n
+            entryPre    (FuncEntry _ _ _ _ p _ _) = p
+            entryStatus (FuncEntry _ _ _ s _ _ _) = s
+            entryTier   (FuncEntry _ _ _ _ _ _ t) = t
+            bytesEs = arrayOpFuncEntries Map.empty [TBytes 8]
+            mapEs   = arrayOpFuncEntries Map.empty [TMap TInt TInt]
+            intEs   = arrayOpFuncEntries Map.empty [TInt, TString]
+            aliasEs = arrayOpFuncEntries (Map.fromList [("Buf", TBytes 8)]) [TCustom "Buf"]
+        map entryName bytesEs `shouldBe` ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
+        map entryName mapEs   `shouldBe` ["map-has", "map-get", "map-put", "map-empty"]
+        map entryName intEs   `shouldBe` []
+        map entryName aliasEs `shouldBe` ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
+        [ entryPre e | e <- bytesEs, entryName e == "bytes-get" ]
+          `shouldBe` [Just "(and (>= p1 0) (< p1 (bytes-length p0)))"]
+        [ entryPre e | e <- mapEs, entryName e == "map-get" ]
+          `shouldBe` [Just "(map-has p0 p1)"]
+        all (\e -> entryStatus e == "builtin" && entryTier e == Nothing) (bytesEs ++ mapEs)
+          `shouldBe` True
+
+      it "A3-6 assumptions: a let-bound array-op RHS surfaces its definitional equality" $ do
+        -- Local copy of the OA harness (that one is let-bound inside its own
+        -- describe block). The v2a isQfLia filter now admits array ops, so the
+        -- brief states the fact the agent needs: y IS that read.
+        let assumptionsForA3 srcLines =
+              case parseStatements GrammarCoreInversion "<test>" (T.unlines srcLines) of
+                Left e      -> error ("parse failed: " <> show e)
+                Right stmts ->
+                  let sketch = runSketch GrammarCoreInversion builtinEnv stmts defaultPatterns
+                  in case sketchHoles sketch of
+                       (h:_) -> assembleAssumptions (buildAliasMap stmts) (shEnv h) (shHyps h)
+                       []    -> error "A3 harness: sketch produced no hole"
+            src = [ "(def f [b: bytes[8] i: int]"
+                  , "  (pre (and (>= i 0) (< i 8)))"
+                  , "  (post (>= result 0))"
+                  , "  (let [(y (bytes-get b i))]"
+                  , "    ?body))" ]
+        assumptionsForA3 src `shouldBe` ["(= y (bytes-get b i))"]
+
     -- `data lookuperror 0 = [red 0 | ...]`, which liquid-fixpoint rejected on BOTH
     -- the lowercase type name AND the `name arity` constructor form, crashing
     -- fixpoint on every program containing a user sum type. No .fq-level test
@@ -8278,11 +8377,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "DC-8 (HOLE-STATUS): the enclosing function's brief entry is status hole, not filled" $ do
       let stmts = parse quadrupleSrc
           nameStatus (FuncEntry n _ _ s _ _ _) = (n, s)
-          entries = buildCheckoutFuncs stmts Map.empty Map.empty (Just "quadruple")
+          entries = buildCheckoutFuncs stmts Map.empty Map.empty (Just "quadruple") Map.empty []
       map nameStatus entries
         `shouldBe` [("double", "filled"), ("quadruple", "hole")]
       -- No enclosing function (contract-position hole): everything is "filled".
-      let entries' = buildCheckoutFuncs stmts Map.empty Map.empty Nothing
+      let entries' = buildCheckoutFuncs stmts Map.empty Map.empty Nothing Map.empty []
       map (snd . nameStatus) entries' `shouldBe` ["filled", "filled"]
 
     -- OHT (OBLIG-HOLE-TYPE): the obligation report's per-hole 'expected_type'

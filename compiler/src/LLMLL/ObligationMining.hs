@@ -37,9 +37,11 @@ import Data.Aeson (object, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Text.Lazy as TL
 
-import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), DisplayLevel(..))
+import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), DisplayLevel(..), Type, normalizeDefStmt)
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), TrustDependency(..))
+-- LEVER-A3: classification derives from the emitter's own predicates (§6.1).
+import LLMLL.FixpointEmit (buildAliasMap, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -155,16 +157,37 @@ selfSuggestion caller clause cid pointer stmts =
 -- the constraint is Verified; otherwise Advisory.
 clauseStrength :: Name -> Text -> [Statement] -> SuggestionStrength
 clauseStrength fnName clause stmts =
-  case findContract fnName stmts of
+  case findDefSig fnName stmts of
     Nothing -> Advisory  -- No contract found, can't determine
-    Just contract ->
+    Just (params, mRet, contract, mBody) ->
       let targetExpr = case clause of
             "pre"  -> contractPre contract
             "post" -> contractPost contract
             _      -> Nothing
+          -- LEVER-A3: the emitter's own type-level array guards re-demote what
+          -- the structural check admits (whole-array `=`, inadmissible map
+          -- classes), applied under the same contract-or-body relevance as the
+          -- activation gate — classification cannot claim Verified where the
+          -- contract channel would fall back (§6.1).
+          arrRelevant = contractMentionsArrOp contract
+                        || maybe False exprMentionsArrOp mBody
+          arrBlocked  = arrRelevant
+                        && contractArrGuardsBlock (buildAliasMap stmts) params mRet contract
       in case targetExpr of
            Nothing -> Advisory
-           Just expr -> if isQfLia expr then Verified else Advisory
+           Just expr -> if isQfLia expr && not arrBlocked then Verified else Advisory
+
+-- | A function's params, return type, contract, and body (signature for the
+-- typed classifier guards). First match wins, like 'findContract'.
+findDefSig :: Name -> [Statement] -> Maybe ([(Name, Type)], Maybe Type, Contract, Maybe Expr)
+findDefSig name stmts =
+  case [ (ps, mRet, c, Just b) | stmt <- stmts
+                               , Just (n, ps, mRet, c, b) <- [normalizeDefStmt stmt]
+                               , n == name ] of
+    (x:_) -> Just x
+    []    -> case findContract name stmts of   -- SLetrec/SDefInvariant fallback
+               Just c  -> Just ([], Nothing, c, Nothing)
+               Nothing -> Nothing
 
 -- | Check if an expression is in the QF-LIA fragment (linear integer arithmetic).
 -- This is a simplified check matching what FixpointEmit.exprToPred accepts.
@@ -196,8 +219,31 @@ isQfLia expr = case expr of
   -- IMPL-SUGAR: implication / biconditional of QF-LIA atoms stays QF-LIA
   EApp "=>"  args -> all isQfLia args
   EApp "<=>" args -> all isQfLia args
+  -- LEVER-A3: the array-op family is in the auto-discharge fragment (the
+  -- Σ_auto array class, LLMLL.md §5.3.3) — these cases mirror exprToPred's
+  -- A1/A2 contract-channel cases EXACTLY (same ops, same map-root shapes; a
+  -- bare map-put/map-empty outside a map-has/map-get root has no case there,
+  -- so none here). Structural only: the type-level guards (whole-array `=`,
+  -- inadmissible map value classes, non-int put values) are the emitter's own
+  -- 'contractArrGuardsBlock', applied at the CONTRACT level by
+  -- 'classifyContractFragmentTyped' — mirroring how the emitter itself splits
+  -- exprToPred (syntactic) from wholeArrEqClause/mapClauseBlocked (typed).
+  EApp "bytes-length" [b]       -> isQfLia b
+  EApp "bytes-get"    [b, i]    -> isQfLia b && isQfLia i
+  EApp "bytes-set"    [b, i, v] -> isQfLia b && isQfLia i && isQfLia v
+  EApp "map-has"      [m, k]    -> mapRootQf m && isQfLia k
+  EApp "map-get"      [m, k]    -> mapRootQf m && isQfLia k
   -- Anything else: not in fragment
   _ -> False
+  where
+    -- The mapPairTermsC root shapes (FixpointEmit): a variable, a map-put
+    -- chain over such a root, or map-empty. Anything else falls back there,
+    -- so it classifies out here.
+    mapRootQf (EVar _)                   = True
+    mapRootQf (EApp "map-put" [m, k, v]) = mapRootQf m && isQfLia k && isQfLia v
+    mapRootQf (EApp "map-empty" [])      = True
+    mapRootQf (EOp f as)                 = mapRootQf (EApp f as)
+    mapRootQf _                          = False
 
 -- | Find a function's contract by name in the statement list.
 findContract :: Name -> [Statement] -> Maybe Contract

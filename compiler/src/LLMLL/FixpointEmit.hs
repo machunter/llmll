@@ -81,6 +81,12 @@ module LLMLL.FixpointEmit
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
+    -- * LEVER-A3: classifier–emitter coherence (the §6.1 arbiter, shared with
+    -- ObligationMining/ObligationAssembly so classification cannot drift from
+    -- what this emitter actually reflects)
+  , contractArrGuardsBlock
+  , contractMentionsArrOp
+  , exprMentionsArrOp
     -- * COMP-3b-general Phase 1 (exported for testing)
   , desugarCtorValues
   , buildCtorTagMap
@@ -1304,6 +1310,21 @@ contractMentionsMapOp c =
 
 contractMentionsArrOp :: Contract -> Bool
 contractMentionsArrOp c = contractMentionsBytesOp c || contractMentionsMapOp c
+
+-- | LEVER-A3: the classifier-side composition of the SAME two array guards the
+-- contract channel runs before reflecting (the mPostPred chain above): True
+-- when the emitter would force contract-only fallback for array reasons —
+-- whole-structure = / /= over an array operand (review F1), or a map-op clause
+-- over inadmissible map types / non-int put values (the A2 crash-class guard).
+-- Exported so ObligationMining/ObligationAssembly classify with the emitter's
+-- own predicates instead of a drift-prone reimplementation (§6.1: the
+-- classifier's job is deciding exact-reflectability per obligation).
+contractArrGuardsBlock :: AliasMap -> [(Name, Type)] -> Maybe Type -> Contract -> Bool
+contractArrGuardsBlock am params mRet c =
+     wholeArrEqClause am params mRet (contractPost c)
+  || wholeArrEqClause am params mRet (contractPre c)
+  || (contractMentionsMapOp c
+      && mapClauseBlocked am params mRet (contractPost c) (contractPre c))
 
 -- | The §5 activation gate. On when the function's own contract or body
 -- mentions an array-class op (bytes or, since A2, map), or its body calls a

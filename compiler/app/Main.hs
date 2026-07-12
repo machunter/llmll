@@ -2022,8 +2022,10 @@ assembleCheckoutContext json gm fp pointer = do
             cenv     = cacheAwareContractEnv aliases stmts _cache
             recNames = recursiveNames stmts
             -- HOLE-STATUS + XMOD-SCOPE-BRIEF: extracted to
-            -- Checkout.buildCheckoutFuncs (see its haddock).
-            funcs = buildCheckoutFuncs stmts _cache trustMap mEnclosing
+            -- Checkout.buildCheckoutFuncs (see its haddock). LEVER-A3: the
+            -- hole's in-scope binding types gate the array-op vocabulary.
+            holeScopeTys = maybe [] (map sbType . Map.elems . shEnv) mHole
+            funcs = buildCheckoutFuncs stmts _cache trustMap mEnclosing aliases holeScopeTys
             mEnclosing = enclosingFunc normPtr stmts
             consumed = case mEnclosing of
               Just fn -> assembleConsumedGuarantees stmts cenv trustMap recNames fn

@@ -63,7 +63,7 @@ import           LLMLL.Syntax
 import           LLMLL.FixpointIR
   ( FQFile(..), FQBind(..), FQReft(..), FQConstraint(..)
   , FQPred(..), emptyFQFile, emitFQFile )
-import           LLMLL.FixpointEmit (AliasMap, typeToSortA, exprToPred)
+import           LLMLL.FixpointEmit (AliasMap, typeToSortA, exprToPred, contractMentionsArrOp)
 import           LLMLL.ObligationAssembly (substExpr, classifyContractFragment)
 import           LLMLL.PBT (canonicalExpr)
 import           LLMLL.DiagnosticFQ
@@ -265,7 +265,14 @@ reuseRetrieval mLF aliases spawned pool =
     -- contract abstains (no suggestion). classifyContractFragment returns
     -- "qf_lia" when at least one clause is present and both are QF-LIA — it
     -- recognizes the parser's EOp operator form directly (since CLASSIFY-EOP).
+    -- LEVER-A3: array-op contracts now classify in-fragment, but THIS driver
+    -- cannot discharge them — its standalone Horn constraints sort binders via
+    -- typeToSortA (FQInt for bytes/map, no $has/$val component splitting), so
+    -- an array term would emit ill-sorted or free. Abstain on them here — a
+    -- driver limitation, not a classification: reuse retrieval over array
+    -- contracts is an A3.x follow-on (needs the A2 splitting discipline).
     qfContract c = classifyContractFragment c == "qf_lia"
+                   && not (contractMentionsArrOp c)
 
 -- ---------------------------------------------------------------------------
 -- local helper

@@ -28,6 +28,7 @@ module LLMLL.ObligationAssembly
   , collectHoleGuards
   , holeContractBrief
   , classifyContractFragment
+  , classifyContractFragmentTyped
   , classifyBodyFragment
   , normalizeForFingerprint
   , obligationStatus
@@ -70,7 +71,9 @@ import LLMLL.Syntax
 import LLMLL.FixpointIR (FQSort(..))
 import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
-  , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap )
+  , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap
+  -- LEVER-A3: the emitter's own guards, so classification cannot drift (§6.1)
+  , contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp )
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), injectOpenedAliases)
 import LLMLL.HoleAnalysis
@@ -270,7 +273,13 @@ collectHoleGuards env0 se0 = go env0 se0 []
     isIntLikeSimple TInt = True
     isIntLikeSimple _    = False
 
--- | Classify contract fragment (spec §4.2.2).
+-- | Classify contract fragment (spec §4.2.2). Since LEVER-A3, "qf_lia" reads
+-- as "in the auto-discharge fragment Σ_auto" (QF-LIA core + measure + datatype
+-- + array classes, LLMLL.md §5.3.3) — the label is kept for schema stability
+-- (report-shape only, no schema bump; proposal §10 A3 row). This untyped form
+-- applies the structural check only; where the signature is available, use
+-- 'classifyContractFragmentTyped', which also applies the emitter's
+-- type-level array guards.
 classifyContractFragment :: Contract -> Text
 classifyContractFragment c
   | contractPre c == Nothing && contractPost c == Nothing = "absent"
@@ -278,6 +287,23 @@ classifyContractFragment c
       let preOk  = maybe True isQfLia (contractPre c)
           postOk = maybe True isQfLia (contractPost c)
       in if preOk && postOk then "qf_lia" else "non_qf_lia"
+
+-- | LEVER-A3: the typed classifier — the §6.1 exact-reflectability decision
+-- per obligation. Structure via 'isQfLia' (mirrors exprToPred's cases), then
+-- the emitter's own 'contractArrGuardsBlock' re-demotes what the contract
+-- channel would refuse to reflect (whole-array `=`, inadmissible map value
+-- classes, non-int put values). The guards apply exactly when the emitter's
+-- activation gate would be on for this function's own text (contract OR body
+-- mentions an array op — the 'arrGateActive' first two legs; the callee-leg
+-- is a recorded residual imprecision, rare and conservative-at-emitter).
+-- Coherence criterion: an array-bearing contract classifies "qf_lia" iff the
+-- emitter reflects it exactly.
+classifyContractFragmentTyped :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Contract -> Text
+classifyContractFragmentTyped am params mRet mBody c
+  | classifyContractFragment c /= "qf_lia" = classifyContractFragment c
+  | arrRelevant && contractArrGuardsBlock am params mRet c = "non_qf_lia"
+  | otherwise = "qf_lia"
+  where arrRelevant = contractMentionsArrOp c || maybe False exprMentionsArrOp mBody
 
 -- | Classify body fragment (spec §4.2.2).
 -- F4: Takes recursive name set for "recursive" classification.
@@ -1052,12 +1078,19 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
       -- F7 fix: holeName has "?" prefix, collectHoleGuards emits without
       hName    = T.dropWhile (== '?') (holeName he)
       myGuards = maybe [] snd $ lookup hName [(n, (n, gs)) | (n, gs) <- guards]
+      -- LEVER-A3: the enclosing def's return type for the typed classifier
+      -- (the array guards need the full signature).
+      mRetTy   = case [ r | stmt <- stmts
+                          , Just (n, _, r, _, _) <- [normalizeDefStmt stmt]
+                          , n == fnName ] of
+                   (r:_) -> r
+                   []    -> Nothing
       contractCh = ContractChannel
         { ccPreconditions = maybe [] (\e -> [exprToSExpr e]) (contractPre contract)
         , ccPostGoal      = fmap exprToSExpr (contractPost contract)
         , ccPathCondition = take 16 myGuards
         , ccPathTruncated = length myGuards > 16
-        , ccContractFrag  = classifyContractFragment contract
+        , ccContractFrag  = classifyContractFragmentTyped aliases params mRetTy mBody contract
         , ccBodyFrag      = classifyBodyFragment fnName recNames faithful fallback
                               (fromMaybe (EHole (HNamed "")) mBody)
         , ccBodyFaithful  = fnName `elem` faithful

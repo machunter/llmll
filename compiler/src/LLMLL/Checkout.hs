@@ -53,6 +53,7 @@ module LLMLL.Checkout
   , assembleAssumptions  -- OBLIG-1: the brief's 'assumptions' field (v1 params / v2a let-defs / v2b match hyps)
   , buildFuncEntries
   , buildCheckoutFuncs   -- HOLE-STATUS: the brief's available_functions list
+  , arrayOpFuncEntries   -- LEVER-A3: type-relevance-gated array-op vocabulary
   , sourceLabel
   ) where
 
@@ -1092,8 +1093,11 @@ buildFuncEntries sigs =
 -- with (alert-admit latched sev). "hole" is the documented-but-never-emitted
 -- third enum value of 'feStatus'.
 buildCheckoutFuncs
-  :: [Statement] -> ModuleCache -> Map.Map Name TrustEntry -> Maybe Name -> [FuncEntry]
-buildCheckoutFuncs stmts cache trustMap mEnclosing =
+  :: [Statement] -> ModuleCache -> Map.Map Name TrustEntry -> Maybe Name
+  -> Map.Map Name Type   -- ^ alias map (LEVER-A3: array-op relevance resolution)
+  -> [Type]              -- ^ the hole's in-scope binding types (LEVER-A3)
+  -> [FuncEntry]
+buildCheckoutFuncs stmts cache trustMap mEnclosing aliasMap scopeTys =
   [ FuncEntry
       { feName   = fname
       , feParams = map (\(n,t) -> (n, typeLabel t)) ps
@@ -1119,6 +1123,57 @@ buildCheckoutFuncs stmts cache trustMap mEnclosing =
       }
   | (dname, ps, mRet, c) <- importedContractedFns stmts cache
   ]
+  ++
+  -- LEVER-A3: array-op builtin vocabulary, type-relevance gated.
+  arrayOpFuncEntries aliasMap scopeTys
+
+-- | LEVER-A3 (proposal §10 A3 row): the eight bytes/map builtins as brief
+-- vocabulary, listed only when a bytes/map type is visible at the hole
+-- (alias-resolved in-scope binding types) — a hole with no array types in
+-- reach gets no array noise, so every pre-A3 brief is unchanged. Entries carry
+-- the ops' PROVE-polarity preconditions (LLMLL.md §13.12) over the display
+-- binders p0..pn — since A1/A2 these are real solver-checked call-site
+-- obligations, so the agent must see what it will owe. 'feStatus' uses the
+-- pre-declared "builtin" enum value; builtins carry no trust tier (feTier
+-- Nothing), matching 'buildFuncEntries'.
+arrayOpFuncEntries :: Map.Map Name Type -> [Type] -> [FuncEntry]
+arrayOpFuncEntries aliasMap scopeTys =
+     (if bytesRel then bytesEntries else [])
+  ++ (if mapRel   then mapEntries   else [])
+  where
+    resolved = map (resolveTy (8 :: Int)) scopeTys
+    resolveTy n (TCustom c) | n > 0, Just t <- Map.lookup c aliasMap = resolveTy (n - 1) t
+    resolveTy _ t = t
+    bytesRel = any isBytesTy resolved
+    mapRel   = any isMapTy'  resolved
+    isBytesTy (TBytes _) = True
+    isBytesTy _          = False
+    isMapTy' (TMap _ _)  = True
+    isMapTy' _           = False
+    mk name ps ret mPre = FuncEntry
+      { feName   = name
+      , feParams = zipWith (\i t -> ("p" <> T.pack (show (i :: Int)), t)) [0..] ps
+      , feReturn = ret
+      , feStatus = "builtin"
+      , fePre    = mPre
+      , fePost   = Nothing
+      , feTier   = Nothing
+      }
+    bytesEntries =
+      [ mk "bytes-length" ["bytes[n]"] "int" Nothing
+      , mk "bytes-get"    ["bytes[n]", "int"] "int"
+           (Just "(and (>= p1 0) (< p1 (bytes-length p0)))")
+      , mk "bytes-set"    ["bytes[n]", "int", "int"] "bytes[n]"
+           (Just "(and (>= p1 0) (< p1 (bytes-length p0)) (>= p2 0) (<= p2 255))")
+      , mk "bytes-zero"   [] "bytes[n]" Nothing
+      ]
+    mapEntries =
+      [ mk "map-has"   ["map[int,v]", "int"] "bool" Nothing
+      , mk "map-get"   ["map[int,v]", "int"] "v"
+           (Just "(map-has p0 p1)")
+      , mk "map-put"   ["map[int,v]", "int", "v"] "map[int,v]" Nothing
+      , mk "map-empty" [] "map[k,v]" Nothing
+      ]
 
 -- | Render ScopeSource as JSON-friendly text.
 sourceLabel :: ScopeSource -> Text
