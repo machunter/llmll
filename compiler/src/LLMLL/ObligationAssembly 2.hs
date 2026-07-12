@@ -72,10 +72,8 @@ import LLMLL.FixpointIR (FQSort(..))
 import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap
-  -- LEVER-A3 / CLASSIFY-MEASURE: the emitter's own guards, so classification
-  -- cannot drift (§6.1)
-  , contractArrGuardsBlock, contractSigGuardsBlock
-  , contractMentionsArrOp, exprMentionsArrOp )
+  -- LEVER-A3: the emitter's own guards, so classification cannot drift (§6.1)
+  , contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp )
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), injectOpenedAliases)
 import LLMLL.HoleAnalysis
@@ -303,11 +301,6 @@ classifyContractFragment c
 classifyContractFragmentTyped :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Contract -> Text
 classifyContractFragmentTyped am params mRet mBody c
   | classifyContractFragment c /= "qf_lia" = classifyContractFragment c
-  -- CLASSIFY-MEASURE: the ungated legs of the emitter's guard chain (pair
-  -- sortability, Result-payload admissibility, opaque-sum param mentions) —
-  -- 'mPostPred' composes the same 'contractSigGuardsBlock', so this cannot
-  -- claim "qf_lia" where the contract channel falls back.
-  | contractSigGuardsBlock am params mRet c = "non_qf_lia"
   | arrRelevant && contractArrGuardsBlock am params mRet c = "non_qf_lia"
   | otherwise = "qf_lia"
   where arrRelevant = contractMentionsArrOp c || maybe False exprMentionsArrOp mBody

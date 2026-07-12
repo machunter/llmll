@@ -1038,15 +1038,12 @@ assembleAssumptions aliasMap env hyps =
   , Just (x0, phi)  <- [resolveRefinement aliasMap (sbType binding)]
   ]
   ++
-  -- (v2a) definitional equalities of in-scope let-bindings whose RHS is in the
-  -- auto-discharge fragment. A let-binding appears in the hole's shEnv iff the
-  -- hole is inside its body, so @(= y e)@ genuinely holds at the hole (the body
-  -- VC assumes it, FixpointEmit). The @isQfLia@ filter is the emitter's own
-  -- translatability check (CLASSIFY-MEASURE: literally 'exprToPred'-backed), so
-  -- a call/opaque/string-literal RHS is skipped while measure, pair, ctor, and
-  -- array-op RHS — all VC-assumed — surface; since only real let-bindings carry
-  -- an @sbDef@, the type-alias-name and enclosing-fn-name leaks that ride the
-  -- SrcLetBinding tag stay excluded.
+  -- (v2a) definitional equalities of in-scope let-bindings with a QF-LIA RHS.
+  -- A let-binding appears in the hole's shEnv iff the hole is inside its body, so
+  -- @(= y e)@ genuinely holds at the hole (the body VC assumes it, FixpointEmit).
+  -- The @isQfLia@ filter keeps the field QF-LIA (a call/opaque RHS is skipped)
+  -- and, since only real let-bindings carry an @sbDef@, it also excludes the
+  -- type-alias-name and enclosing-fn-name leaks that ride the SrcLetBinding tag.
   [ exprToSExpr (EApp "=" [EVar name, rhs])
   | (name, binding) <- Map.toAscList env
   , sbSource binding == SrcLetBinding

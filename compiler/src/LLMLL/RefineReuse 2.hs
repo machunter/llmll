@@ -47,7 +47,6 @@ module LLMLL.RefineReuse
   ) where
 
 import           Data.Maybe (fromMaybe, catMaybes)
-import           Data.Char (isUpper)
 import           Control.Monad (forM)
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -272,31 +271,8 @@ reuseRetrieval mLF aliases spawned pool =
     -- an array term would emit ill-sorted or free. Abstain on them here — a
     -- driver limitation, not a classification: reuse retrieval over array
     -- contracts is an A3.x follow-on (needs the A2 splitting discipline).
-    -- CLASSIFY-MEASURE: classification now derives from exprToPred, so the
-    -- measure/pair/ctor classes classify in-fragment too — but this driver's
-    -- bare .fq declares no UF constants (strLen/listLen/pair2*/ctor terms
-    -- would reach liquid-fixpoint undeclared; the fail-safe would abstain
-    -- after a doomed solver spawn). Abstain on them explicitly, same
-    -- disposition as the array classes.
     qfContract c = classifyContractFragment c == "qf_lia"
                    && not (contractMentionsArrOp c)
-                   && not (clauseUF (contractPre c))
-                   && not (clauseUF (contractPost c))
-    clauseUF = maybe False ufBearing
-    -- The UF/datatype-term classes exprToPred translates but this driver's
-    -- standalone .fq cannot declare: measures, pair selectors/constructor,
-    -- Result builtins, uppercase constructor applications.
-    ufBearing :: Expr -> Bool
-    ufBearing e = case e of
-      EVar v
-        | not (T.null v) && isUpper (T.head v) -> True  -- nullary ctor term
-      EApp f as
-        | f `elem` ["string-length", "list-length", "first", "second", "ok", "err"] -> True
-        | not (T.null f) && isUpper (T.head f) -> True
-        | otherwise -> any ufBearing as
-      EOp _ as  -> any ufBearing as
-      EPair _ _ -> True
-      _         -> False
 
 -- ---------------------------------------------------------------------------
 -- local helper

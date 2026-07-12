@@ -85,7 +85,6 @@ module LLMLL.FixpointEmit
     -- ObligationMining/ObligationAssembly so classification cannot drift from
     -- what this emitter actually reflects)
   , contractArrGuardsBlock
-  , contractSigGuardsBlock
   , contractMentionsArrOp
   , exprMentionsArrOp
     -- * COMP-3b-general Phase 1 (exported for testing)
@@ -745,13 +744,13 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
         -- is proven as part of the post goal. A non-Σ_auto return refinement makes
         -- this post untranslatable → mPostPred=Nothing → fallback (§3.4.5 firewall),
         -- exactly the Unit-1 conservative behavior, now via the existing path.
-        -- CLASSIFY-MEASURE: the three ungated type-level guards (PAIR-RET-2
-        -- non-sortable pair component, COMP-4-RESULT non-admissible Result
-        -- payload, MATCH-WIDEN bare opaque-sum param mention — each would
-        -- crash or mis-sort liquid-fixpoint) are composed in
-        -- 'contractSigGuardsBlock', which the classifier shares — one arbiter,
-        -- no drift (§6.1).
-        let mPostPred | contractSigGuardsBlock aliases params mRet contract = Nothing
+        let mPostPred | sigPairUnsafe aliases params mRet = Nothing  -- PAIR-RET-2: non-sortable pair component → fall back (no solver crash)
+                      | resultReturnUnsafe aliases mRet   = Nothing  -- COMP-4-RESULT: non-admissible Result payload → fall back
+                      -- MATCH-WIDEN (v0.14.12): a pre/post naming a bare opaque-sum param
+                      -- (e.g. a scrutinee-constructor post `(= sig Continue)`) has no value
+                      -- sort → would crash liquid-fixpoint. Fall back to contract-only.
+                      | clauseOverOpaqueSumParam aliases params (contractPost contract)
+                        || clauseOverOpaqueSumParam aliases params (contractPre contract) = Nothing
                       -- LEVER-A1 (review F1): whole-structure = / /= over a bytes
                       -- operand is unconditionally out-of-fragment → contract-only
                       -- fallback (never reflected to array equality; §7 row 4).
@@ -1326,23 +1325,6 @@ contractArrGuardsBlock am params mRet c =
   || wholeArrEqClause am params mRet (contractPre c)
   || (contractMentionsMapOp c
       && mapClauseBlocked am params mRet (contractPost c) (contractPre c))
-
--- | CLASSIFY-MEASURE: the UNGATED type-level legs of the contract channel's
--- fallback decision — the exact guards 'mPostPred' runs before reflecting,
--- independent of the array activation gate: a non-sortable pair component
--- ('sigPairUnsafe'), a non-admissible Result payload ('resultReturnUnsafe'),
--- or a clause naming a payload-bearing sum param bare
--- ('clauseOverOpaqueSumParam'). 'mPostPred' composes THIS function, so the
--- classifier and the emitter cannot drift: classification calls the same
--- arbiter the emitter falls back on. (The gated array legs stay separate in
--- 'contractArrGuardsBlock' because the emitter applies them only under
--- 'arrGateActive'.)
-contractSigGuardsBlock :: AliasMap -> [(Name, Type)] -> Maybe Type -> Contract -> Bool
-contractSigGuardsBlock am params mRet c =
-     sigPairUnsafe am params mRet
-  || resultReturnUnsafe am mRet
-  || clauseOverOpaqueSumParam am params (contractPost c)
-  || clauseOverOpaqueSumParam am params (contractPre c)
 
 -- | The §5 activation gate. On when the function's own contract or body
 -- mentions an array-class op (bytes or, since A2, map), or its body calls a

@@ -23,7 +23,6 @@ module LLMLL.ObligationMining
   , formatObligations
   , formatObligationsJson
   , isQfLia             -- spec §12: shared QF-LIA check
-  , clauseStrength      -- CLASSIFY-MEASURE: exported for the agreement battery
   , CandidateExpr(..)   -- OBLIG-4: repair suggestions
   , generateCandidates
   ) where
@@ -32,7 +31,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Maybe (mapMaybe, isJust)
+import Data.Maybe (mapMaybe)
 import qualified Data.List
 import Data.Aeson (object, (.=))
 import Data.Aeson.Text (encodeToLazyText)
@@ -42,7 +41,7 @@ import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), D
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), TrustDependency(..))
 -- LEVER-A3: classification derives from the emitter's own predicates (§6.1).
-import LLMLL.FixpointEmit (buildAliasMap, contractArrGuardsBlock, contractSigGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, exprToPred)
+import LLMLL.FixpointEmit (buildAliasMap, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -170,19 +169,13 @@ clauseStrength fnName clause stmts =
           -- classes), applied under the same contract-or-body relevance as the
           -- activation gate — classification cannot claim Verified where the
           -- contract channel would fall back (§6.1).
-          am          = buildAliasMap stmts
           arrRelevant = contractMentionsArrOp contract
                         || maybe False exprMentionsArrOp mBody
           arrBlocked  = arrRelevant
-                        && contractArrGuardsBlock am params mRet contract
-          -- CLASSIFY-MEASURE: the UNGATED type-level legs of the same chain
-          -- (pair sortability, Result-payload admissibility, opaque-sum param
-          -- mentions) — the emitter applies these unconditionally.
-          sigBlocked  = contractSigGuardsBlock am params mRet contract
+                        && contractArrGuardsBlock (buildAliasMap stmts) params mRet contract
       in case targetExpr of
            Nothing -> Advisory
-           Just expr -> if isQfLia expr && not arrBlocked && not sigBlocked
-                          then Verified else Advisory
+           Just expr -> if isQfLia expr && not arrBlocked then Verified else Advisory
 
 -- | A function's params, return type, contract, and body (signature for the
 -- typed classifier guards). First match wins, like 'findContract'.
@@ -196,25 +189,61 @@ findDefSig name stmts =
                Just c  -> Just ([], Nothing, c, Nothing)
                Nothing -> Nothing
 
--- | Check if an expression is in the auto-discharge fragment: would the
--- emitter's contract channel translate it?
---
--- CLASSIFY-MEASURE: this IS 'FixpointEmit.exprToPred' — not a mirror of it.
--- Every hand-maintained approximation here has drifted from the emitter at
--- least once, in both directions: CLASSIFY-EOP (v0.14.30, operator nodes
--- under-labeled), LEVER-A3 (v0.14.38, array ops under-labeled), and
--- CLASSIFY-MEASURE itself (measure-class atoms like '(string-length s)'
--- under-labeled Advisory while discharging body-faithful; string/float/unit
--- literals over-labeled Verified while the emitter falls back — the
--- claim-accuracy direction). Deriving the structural check from the emitter's
--- own translation function closes the whole family: any future 'exprToPred'
--- case classifies correctly by construction. Type-level demotions (pair
--- sortability, Result-payload admissibility, opaque-sum param mentions, the
--- gated array guards) are NOT structural and stay in the shared typed
--- arbiters ('contractSigGuardsBlock' / 'contractArrGuardsBlock'), exactly as
--- the emitter splits 'exprToPred' from its 'mPostPred' guard chain.
+-- | Check if an expression is in the QF-LIA fragment (linear integer arithmetic).
+-- This is a simplified check matching what FixpointEmit.exprToPred accepts.
 isQfLia :: Expr -> Bool
-isQfLia = isJust . exprToPred
+isQfLia expr = case expr of
+  -- Literals
+  ELit _      -> True
+  EVar _      -> True
+  -- CLASSIFY-EOP: both parsers emit an operator node as 'EOp' (S-expr
+  -- 'Parser.hs:897', JSON 'ParserJSON.hs:558'), but every operator case below
+  -- matches 'EApp'. Without this, a normal operator-bearing contract predicate
+  -- (e.g. '(>= x 0)') falls through to the 'not in fragment' default and
+  -- mis-classifies as non-QF-LIA — even though it verifies fine (FixpointEmit
+  -- normalizes EOp→EApp at ':1916'). Treat 'EOp' as the equivalent 'EApp'.
+  EOp op args -> isQfLia (EApp op args)
+  -- Linear arithmetic + comparisons
+  EApp op [l, r]
+    | op `elem` [">=", "≥", ">", "<=", "≤", "<", "=", "==", "/=", "≠",
+                  "+", "-"]
+    -> isQfLia l && isQfLia r
+  -- Non-linear: reject
+  EApp op [_, _]
+    | op `elem` ["*", "/", "mod", "rem", "^", "**"]
+    -> False
+  -- Boolean connectors
+  EApp "and" args -> all isQfLia args
+  EApp "or"  args -> all isQfLia args
+  EApp "not" [a]  -> isQfLia a
+  -- IMPL-SUGAR: implication / biconditional of QF-LIA atoms stays QF-LIA
+  EApp "=>"  args -> all isQfLia args
+  EApp "<=>" args -> all isQfLia args
+  -- LEVER-A3: the array-op family is in the auto-discharge fragment (the
+  -- Σ_auto array class, LLMLL.md §5.3.3) — these cases mirror exprToPred's
+  -- A1/A2 contract-channel cases EXACTLY (same ops, same map-root shapes; a
+  -- bare map-put/map-empty outside a map-has/map-get root has no case there,
+  -- so none here). Structural only: the type-level guards (whole-array `=`,
+  -- inadmissible map value classes, non-int put values) are the emitter's own
+  -- 'contractArrGuardsBlock', applied at the CONTRACT level by
+  -- 'classifyContractFragmentTyped' — mirroring how the emitter itself splits
+  -- exprToPred (syntactic) from wholeArrEqClause/mapClauseBlocked (typed).
+  EApp "bytes-length" [b]       -> isQfLia b
+  EApp "bytes-get"    [b, i]    -> isQfLia b && isQfLia i
+  EApp "bytes-set"    [b, i, v] -> isQfLia b && isQfLia i && isQfLia v
+  EApp "map-has"      [m, k]    -> mapRootQf m && isQfLia k
+  EApp "map-get"      [m, k]    -> mapRootQf m && isQfLia k
+  -- Anything else: not in fragment
+  _ -> False
+  where
+    -- The mapPairTermsC root shapes (FixpointEmit): a variable, a map-put
+    -- chain over such a root, or map-empty. Anything else falls back there,
+    -- so it classifies out here.
+    mapRootQf (EVar _)                   = True
+    mapRootQf (EApp "map-put" [m, k, v]) = mapRootQf m && isQfLia k && isQfLia v
+    mapRootQf (EApp "map-empty" [])      = True
+    mapRootQf (EOp f as)                 = mapRootQf (EApp f as)
+    mapRootQf _                          = False
 
 -- | Find a function's contract by name in the statement list.
 findContract :: Name -> [Statement] -> Maybe Contract

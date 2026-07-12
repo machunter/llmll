@@ -24,9 +24,9 @@ import LLMLL.ObligationAssembly
   , computeEffectSummary, encodeEff, EffectSummary(..), EffectLabel(..)
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
-import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
+import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
@@ -6663,115 +6663,6 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   , "  (let [(y (bytes-get b i))]"
                   , "    ?body))" ]
         assumptionsForA3 src `shouldBe` ["(= y (bytes-get b i))"]
-
-    -- CLASSIFY-MEASURE: classifier–emitter agreement OUTSIDE arrays. isQfLia
-    -- is now literally exprToPred-backed and the ungated typed guards
-    -- (contractSigGuardsBlock) are the emitter's own mPostPred legs, so
-    -- classify == reflect by construction. The table pins the current truth
-    -- per fragment class; add a row here whenever exprToPred gains a case.
-    describe "CLASSIFY-MEASURE (classifier-emitter agreement)" $ do
-      let parseCM srcLines = case parseStatements GrammarCoreInversion "test" (T.pack (unlines srcLines)) of
-            Left err    -> error ("parse failed: " <> show err)
-            Right stmts -> stmts
-          classifyFirst stmts =
-            case [ (ps, r, c, b) | s <- stmts, Just (_, ps, r, c, b) <- [normalizeDefStmt s] ] of
-              ((ps, r, c, b):_) -> classifyContractFragmentTyped (buildAliasMap stmts) ps r (Just b) c
-              []                -> error "no def"
-          -- The battery: (label, source, expected fragment). Every row's
-          -- expectation is ALSO cross-checked against the emitter's own
-          -- decision pieces in CM-4.
-          battery =
-            [ ( "measure post"
-              , [ "(def slen [s: string] -> int"
-                , "  (pre (>= (string-length s) 1))"
-                , "  (post (>= result 1))"
-                , "  (string-length s))" ]
-              , "qf_lia" )
-            , ( "string-literal pre"
-              , [ "(def greet [name: string] -> int"
-                , "  (pre (= name \"admin\"))"
-                , "  (post (>= result 0))"
-                , "  7)" ]
-              , "non_qf_lia" )
-            , ( "pair-selector post"
-              , [ "(def both [a: int b: int] -> (int, int)"
-                , "  (post (= (+ (first result) (second result)) (+ a b)))"
-                , "  (pair a b))" ]
-              , "qf_lia" )
-            , ( "constructor post over admissible sum return"
-              , [ "(type Outcome (| Accepted int) (| Rejected int))"
-                , "(def acc [n: int] -> Outcome"
-                , "  (post (= result (Accepted n)))"
-                , "  (Accepted n))" ]
-              , "qf_lia" )
-            , ( "bare payload-sum param mention (opaque-sum guard)"
-              , [ "(type Step (| Continue) (| Abort int))"
-                , "(def stuck [st: Step] -> int"
-                , "  (pre (= st Continue))"
-                , "  0)" ]
-              , "non_qf_lia" )
-            , ( "float literal"
-              , [ "(def half [x: float] -> int"
-                , "  (pre (= x 1.5))"
-                , "  0)" ]
-              , "non_qf_lia" )
-            , ( "!= atom (operator-set drift)"
-              , [ "(def nz [x: int] -> int"
-                , "  (pre (!= x 0))"
-                , "  (post (>= result 0))"
-                , "  1)" ]
-              , "qf_lia" )
-            , ( "nonlinear control"
-              , [ "(def sq [x: int] -> int"
-                , "  (post (= result (* x x)))"
-                , "  (* x x))" ]
-              , "non_qf_lia" )
-            ]
-
-      it "CM-1 the battery classifies as pinned (measure/pair/ctor in; string/float literals + opaque-sum mention out)" $ do
-        mapM_ (\(label, src, expected) ->
-                 (label, classifyFirst (parseCM src)) `shouldBe` (label, expected))
-              battery
-
-      it "CM-2 recorded instance: measure-class contract clauses grade Verified (was Advisory)" $ do
-        let stmts = parseCM
-              [ "(def slen [s: string] -> int"
-              , "  (pre (>= (string-length s) 1))"
-              , "  (post (>= result 1))"
-              , "  (string-length s))" ]
-        clauseStrength "slen" "pre"  stmts `shouldBe` Verified
-        clauseStrength "slen" "post" stmts `shouldBe` Verified
-
-      it "CM-3 recorded instance: string-literal contract clauses grade Advisory (was Verified)" $ do
-        let stmts = parseCM
-              [ "(def greet [name: string] -> int"
-              , "  (pre (= name \"admin\"))"
-              , "  (post (>= result 0))"
-              , "  7)" ]
-        clauseStrength "greet" "pre" stmts `shouldBe` Advisory
-
-      it "CM-4 classify == the emitter's own decision, across the whole battery" $ do
-        -- The sharing pin: recompute the emitter's contract-channel decision
-        -- from its exported pieces (exprToPred + contractSigGuardsBlock +
-        -- gated contractArrGuardsBlock) and require classification to agree.
-        -- If someone reintroduces a parallel classifier, this breaks.
-        let emitterReflects stmts =
-              case [ (ps, r, c, b) | s <- stmts, Just (_, ps, r, c, b) <- [normalizeDefStmt s] ] of
-                []                -> error "no def"
-                ((ps, r, c, b):_) ->
-                  let am = buildAliasMap stmts
-                      translates = maybe True (isJust . exprToPred) (contractPre c)
-                                   && maybe True (isJust . exprToPred) (contractPost c)
-                      hasClause  = contractPre c /= Nothing || contractPost c /= Nothing
-                      arrRel     = contractMentionsArrOp c || exprMentionsArrOp b
-                  in hasClause && translates
-                     && not (contractSigGuardsBlock am ps r c)
-                     && not (arrRel && contractArrGuardsBlock am ps r c)
-        mapM_ (\(label, src, _) -> do
-                 let stmts = parseCM src
-                 (label, classifyFirst stmts == "qf_lia")
-                   `shouldBe` (label, emitterReflects stmts))
-              battery
 
     -- `data lookuperror 0 = [red 0 | ...]`, which liquid-fixpoint rejected on BOTH
     -- the lowercase type name AND the `name arity` constructor form, crashing
