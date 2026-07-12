@@ -1039,8 +1039,13 @@ clauseOverOpaqueSumParam _  _      Nothing       = False
 clauseOverOpaqueSumParam am params (Just clause) =
   any (\(v, t) -> isSumTy (resolveAliasTy am t) && exprMentionsVar v clause) params
   where
-    isSumTy (TSumType _) = True
-    isSumTy _            = False
+    -- ENUM-EQ-FALLBACK: an all-nullary enum param is NOT opaque — it is
+    -- int-tag-desugared (isIntLike/desugarCtorValues, COMP-3b-general) and lives
+    -- in the sort env as FQInt, so a clause naming it is well-sorted. Firing on
+    -- it forced contract-only fallback and silently lost refutation
+    -- (v0.14.12–v0.14.31). Only a payload-bearing sum is value-opaque.
+    isSumTy (TSumType ctors) = any (isJust . snd) ctors
+    isSumTy _                = False
 
 -- | Local free-mention check (TypeCheck.exprContainsVar is not imported here).
 exprMentionsVar :: Name -> Expr -> Bool

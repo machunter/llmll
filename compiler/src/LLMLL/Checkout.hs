@@ -50,7 +50,7 @@ module LLMLL.Checkout
   , monomorphizeFunctions
   , truncateScope
   , buildScopeEntries
-  , assembleAssumptions  -- OBLIG-1: the brief's 'assumptions' field (v1: refined binders)
+  , assembleAssumptions  -- OBLIG-1: the brief's 'assumptions' field (v1 params / v2a let-defs / v2b match hyps)
   , buildFuncEntries
   , buildCheckoutFuncs   -- HOLE-STATUS: the brief's available_functions list
   , sourceLabel
@@ -1000,7 +1000,7 @@ buildScopeEntries env =
   ]
 
 -- | OBLIG-1 (assumptions wire): surface the local hypothesis context as the
--- checkout brief's @assumptions@, in two provinces.
+-- checkout brief's @assumptions@, in three provinces.
 --
 -- (v1) For each in-scope refinement-typed PARAM binder @(name, ty)@ whose type
 -- resolves — directly, or through a type alias — to @TDependent x0 _ phi@, emit
@@ -1012,17 +1012,24 @@ buildScopeEntries env =
 -- @(> Pos 0)@ over a type, not a value.
 --
 -- (v2a) For each in-scope let-binding with a QF-LIA RHS, emit the definitional
--- equality @(= name rhs)@ (the RHS carried on @sbDef@). Still out of scope:
--- match-scrutinee case hypotheses, and @def-invariant@ axioms (deferred pending
--- provenance tagging as an unverified TCB axiom).
+-- equality @(= name rhs)@ (the RHS carried on @sbDef@).
 --
--- Sourcing exclusively from the in-scope binder set (@shEnv@ of the checked-out
--- hole) keeps the field path-correct by construction: out-of-scope /
--- sibling-branch binders never appear. The alias map is same-file
--- ('buildAliasMap'); imported aliases that never unfold locally contribute
--- nothing.
-assembleAssumptions :: Map.Map Name Type -> Map.Map Name ScopeBinding -> [Text]
-assembleAssumptions aliasMap env =
+-- (v2b) The match-scrutinee case hypotheses on the hole's path (@shHyps@,
+-- outermost match first): a hole under @((Ctor x) …)@ carries @(= s (Ctor x))@;
+-- a nullary arm carries @(= s Ctor)@ (bare, as nullary ctors appear in contract
+-- position). Captured at sketch time by the arm traversal ('matchHypothesis'),
+-- so nested and sequential matches accumulate per-path; a hypothesis whose
+-- names are later shadowed is dropped at capture (the 'withTaggedEnv' guard).
+-- Still out of scope: @def-invariant@ axioms (deferred pending provenance
+-- tagging as an unverified TCB axiom).
+--
+-- Sourcing exclusively from the checked-out hole's own sketch snapshot (@shEnv@,
+-- @shHyps@) keeps the field path-correct by construction: out-of-scope /
+-- sibling-branch binders and sibling-arm hypotheses never appear. The alias map
+-- is same-file ('buildAliasMap'); imported aliases that never unfold locally
+-- contribute nothing.
+assembleAssumptions :: Map.Map Name Type -> Map.Map Name ScopeBinding -> [Expr] -> [Text]
+assembleAssumptions aliasMap env hyps =
   -- (v1) refinement predicates of refinement-typed PARAMS.
   [ exprToSExpr (substExpr (Map.singleton x0 (EVar name)) phi)
   | (name, binding) <- Map.toAscList env
@@ -1042,6 +1049,10 @@ assembleAssumptions aliasMap env =
   , Just rhs        <- [sbDef binding]
   , isQfLia rhs
   ]
+  ++
+  -- (v2b) match-scrutinee case hypotheses, already path-filtered and
+  -- shadow-guarded at sketch capture — render in path order (outermost first).
+  map exprToSExpr hyps
 
 -- | Resolve a binder's type to its refinement predicate, if any. A direct
 -- @TDependent@ is used as-is; a @TCustom n@ is unfolded through the alias map

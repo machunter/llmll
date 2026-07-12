@@ -209,6 +209,8 @@ data SketchHole = SketchHole
   , shStatus  :: HoleStatus
   , shPointer :: Text       -- ^ RFC 6901 JSON Pointer (e.g. \"/statements/3/body/else\")
   , shEnv     :: Map Name ScopeBinding  -- ^ v0.3.5: Γ delta (tcEnv \\ builtinEnv) with provenance
+  , shHyps    :: [Expr]     -- ^ OBLIG-1 v2b: match-scrutinee case hypotheses on the
+                            -- hole's path, outermost match first (e.g. @(= s (Ctor x))@).
   } deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -250,6 +252,10 @@ data TCState = TCState
                                        -- threaded like 'tcProvenance' so a hole's
                                        -- 'shEnv' can carry each let-binding's
                                        -- defining expression (for (= y e)).
+  , tcHyps           :: [Expr]         -- ^ OBLIG-1 v2b: match-scrutinee case
+                                       -- hypotheses on the current path, innermost
+                                       -- first (pushed by 'withHyp' at match-arm
+                                       -- entry; snapshot reversed at 'recordHole').
   } deriving (Show)
 
 type TC a = State TCState a
@@ -336,13 +342,20 @@ withTaggedEnv :: ScopeSource -> [(Name, Type)] -> TC a -> TC a
 withTaggedEnv source bindings action = do
   oldEnv <- gets tcEnv
   oldProv <- gets tcProvenance
+  oldHyps <- gets tcHyps
   let newProv = foldr (\(n, _) acc -> Map.insert n source acc) oldProv bindings
+      -- OBLIG-1 v2b shadow guard: a stacked case hypothesis that mentions a name
+      -- rebound here would, at a deeper hole, refer to the NEW binding — drop it
+      -- for the duration (conservative: dropping only loses completeness).
+      boundNames = map fst bindings
+      liveHyps = [ h | h <- oldHyps, not (any (`exprContainsVar` h) boundNames) ]
   modify $ \s -> s
     { tcEnv = foldr (uncurry Map.insert) oldEnv bindings
     , tcProvenance = newProv
+    , tcHyps = liveHyps
     }
   result <- action
-  modify $ \s -> s { tcEnv = oldEnv, tcProvenance = oldProv }
+  modify $ \s -> s { tcEnv = oldEnv, tcProvenance = oldProv, tcHyps = oldHyps }
   pure result
 
 -- | OBLIG-1 v2a: record let-binding name→RHS for the duration of an action (the
@@ -356,6 +369,42 @@ withDefs defs action = do
   result <- action
   modify $ \s -> s { tcDefs = oldDefs }
   pure result
+
+-- | OBLIG-1 v2b: push a match-scrutinee case hypothesis for the duration of an
+-- action (the arm body), so a hole inside it captures the hypothesis in its
+-- 'shHyps'. Save/restore like 'withDefs'; identity when there is no renderable
+-- hypothesis. Must run INSIDE the arm's 'withTaggedEnv' so the shadow guard
+-- (which drops hypotheses mentioning rebound names) never sees the arm's own
+-- hypothesis — its binder references are to the arm's fresh bindings.
+withHyp :: Maybe Expr -> TC a -> TC a
+withHyp Nothing action = action
+withHyp (Just h) action = do
+  oldHyps <- gets tcHyps
+  modify $ \s -> s { tcHyps = h : oldHyps }
+  result <- action
+  modify $ \s -> s { tcHyps = oldHyps }
+  pure result
+
+-- | OBLIG-1 v2b: the renderable case hypothesis for one match arm, or Nothing.
+-- Rendering follows the contract-vocabulary conventions the examples already
+-- use in posts: a payload arm is a constructor application, @(= s (Ctor x))@;
+-- a nullary arm is the bare constructor value, @(= s Ctor)@ (as in
+-- @(= sig Continue)@ — nullary ctors appear bare in contract position).
+--
+-- Sound-but-incomplete by design (the accepted OBLIG-1 bar): only an 'EVar'
+-- scrutinee with an all-'PVar' constructor pattern is rendered. A complex
+-- scrutinee (call/op — its value has no name at the hole), a wildcard or
+-- variable or literal arm, and a nested sub-pattern are all skipped silently.
+matchHypothesis :: Expr -> Pattern -> Maybe Expr
+matchHypothesis (EVar s) (PConstructor c args) =
+  case mapM patVar args of
+    Just [] -> Just (EApp "=" [EVar s, EVar c])
+    Just ns -> Just (EApp "=" [EVar s, EApp c (map EVar ns)])
+    Nothing -> Nothing
+  where
+    patVar (PVar n) = Just n
+    patVar _        = Nothing
+matchHypothesis _ _ = Nothing
 
 -- | Run a computation in a function-scope context.
 -- Sets tcCurrentFn and tcIsLetrec for the duration of the action,
@@ -506,13 +555,13 @@ tcEmitNonExhaustive typeName missing covered = do
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTC gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [])
   in (result, tcErrors st)
 
 -- | Run the type checker in sketch mode.
 runTCSketch :: GrammarMode -> TypeEnv -> TC a -> (a, TCState)
 runTCSketch gm env action =
-  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty)
+  runState action (TCState env [] Map.empty Nothing False True [] [] Map.empty Map.empty Map.empty [] False gm False 0 Map.empty [])
 
 -- | v0.3: Emit a trust-gap warning if a contract clause is unproven and
 -- not covered by a (trust ...) declaration.
@@ -560,6 +609,7 @@ recordHole name status = do
     env <- gets tcEnv
     prov <- gets tcProvenance
     defs <- gets tcDefs
+    hyps <- gets tcHyps
     let delta = Map.difference env builtinEnv
         -- Build ScopeBinding map: join type from env with source from provenance,
         -- and (OBLIG-1 v2a) the let-binding RHS from tcDefs.
@@ -567,7 +617,9 @@ recordHole name status = do
         -- (e.g. top-level definitions registered in checkStatements).
         scopedDelta = Map.mapWithKey (\k t ->
           ScopeBinding t (Map.findWithDefault SrcLetBinding k prov) (Map.lookup k defs)) delta
-    modify $ \s -> s { tcHoles = SketchHole ("?" <> name) status ptr scopedDelta : tcHoles s }
+    -- OBLIG-1 v2b: tcHyps is innermost-first (a push stack); the brief reads
+    -- outermost-first (path order), hence the reverse.
+    modify $ \s -> s { tcHoles = SketchHole ("?" <> name) status ptr scopedDelta (reverse hyps) : tcHoles s }
 
 -- | Emit an ambiguous-hole diagnostic to the error accumulator.
 emitAmbiguous :: Name -> Type -> Type -> TC ()
@@ -618,7 +670,7 @@ typeCheckStrict gm env stmts =
 
 runTCStrict :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
 runTCStrict gm env action =
-  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0 Map.empty)
+  let (result, st) = runState action (TCState env [] Map.empty Nothing False False [] [] Map.empty Map.empty Map.empty [] True gm False 0 Map.empty [])
   in (result, tcErrors st)
 
 -- | v0.6.3: Strict typecheck with module cache.
@@ -663,7 +715,7 @@ typeCheckWithCacheMode' gm strict cache entryCS baseEnv stmts =
       -- shadow these in 'checkStatements' (local wins; same direction as 'open').
       seededAliases = Map.foldl seedAliases Map.empty cache
       (_, st) = runState (checkStatements stmts)
-        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty)
+        (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [])
       diags = tcErrors st
       hasErrors = any ((== SevError) . diagSeverity) diags
   in DiagnosticReport
@@ -1225,7 +1277,10 @@ inferExpr (EMatch expr cases) = do
   -- Each arm pointer uses three clean tokens: "arms" / i / "body"
   nonHoleResults <- forM nonHoleArms $ \(i, pat, body) -> do
     patBindings <- checkPattern pat resolvedScrutType
+    -- OBLIG-1 v2b: a hole nested anywhere in this arm's body captures the arm's
+    -- case hypothesis. withHyp sits INSIDE withTaggedEnv (see its haddock).
     t <- withTaggedEnv SrcMatchArm patBindings $
+           withHyp (matchHypothesis expr pat) $
            withSegment "arms" $ withSegment (tshow i) $ withSegment "body" $
              inferExpr body
     pure t
@@ -1245,6 +1300,7 @@ inferExpr (EMatch expr cases) = do
   forM_ holeArms $ \(i, pat, body) -> do
     patBindings <- checkPattern pat resolvedScrutType
     withTaggedEnv SrcMatchArm patBindings $
+      withHyp (matchHypothesis expr pat) $
       withSegment "arms" $ withSegment (tshow i) $ withSegment "body" $ do
         case body of
           EHole (HNamed name) -> do

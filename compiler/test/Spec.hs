@@ -6118,6 +6118,40 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- `(not a)` is the `if` PATH GUARD (predicate position — fixpoint accepts it).
         erFQText er          `shouldSatisfy`    T.isInfixOf "/="
 
+    -- ENUM-EQ-FALLBACK (regression, v0.14.12–v0.14.31): 'clauseOverOpaqueSumParam'
+    -- (the MATCH-WIDEN bare-opaque-sum guard) fired on ALL-NULLARY enum params,
+    -- although those are int-tag-desugared (COMP-3b-general) and sorted FQInt —
+    -- forcing contract-only fallback and silently losing refutation (tcp_rfc793
+    -- step-bad / session-pay wrong twins verified SAFE). The guard must fire only
+    -- for payload-bearing (genuinely value-opaque) sums. Emission-based (solver
+    -- not invoked; refutation probe-verified against the binary on the repro set).
+    describe "ENUM-EQ-FALLBACK (nullary-enum contract atoms stay body-faithful)" $ do
+      let emitE src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+
+      it "ENUM-EQ-1 if-body: ctor-equality atoms on a nullary-enum param in the post are body-faithful" $ do
+        er <- emitE "(type E (| A) (| B)) (def f [x: E] -> int (post (and (=> (= x A) (= result 1)) (=> (= x B) (= result 2)))) (if (= x A) 1 2))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        erBodyFallback er    `shouldNotSatisfy` elem "f"
+
+      it "ENUM-EQ-2 match-body: nullary-enum match with ctor-valued results stays body-faithful" $ do
+        er <- emitE "(type E (| A) (| B)) (type Out (| Ok int) (| No int)) (def f [x: E] -> Out (post (and (=> (= x A) (= result (Ok 1))) (=> (= x B) (= result (No 0))))) (match x ((A) (Ok 1)) ((B) (No 0))))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+
+      it "ENUM-EQ-3 the pre-sugar (or (not ..) ..) contract form is equally body-faithful" $ do
+        er <- emitE "(type E (| A) (| B)) (def f [x: E] -> int (post (and (or (not (= x A)) (= result 1)) (or (not (= x B)) (= result 2)))) (if (= x A) 1 2))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+
+      it "ENUM-EQ-4 wrong-body variant stays IN-fragment (solver refutes; not vacuously SAFE via fallback)" $ do
+        er <- emitE "(type E (| A) (| B)) (def f [x: E] -> int (post (and (=> (= x A) (= result 1)) (=> (= x B) (= result 2)))) (if (= x A) 2 1))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        erBodyFallback er    `shouldNotSatisfy` elem "f"
+
+      it "ENUM-EQ-5 the guard still fires for a payload-bearing sum param named bare in a post (unmatched → no $tag desugar)" $ do
+        er <- emitE "(type S (| A) (| B int)) (def g [x: S n: int] -> int (post (=> (= x A) (= result 1))) 1)"
+        erBodyFallback er `shouldSatisfy` elem "g"
+
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
     -- an uppercase identifier) and whose constructors use `| ctor { }` syntax.
@@ -7570,7 +7604,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Right stmts ->
               let sketch = runSketch GrammarCoreInversion builtinEnv stmts defaultPatterns
               in case sketchHoles sketch of
-                   (h:_) -> assembleAssumptions (buildAliasMap stmts) (shEnv h)
+                   (h:_) -> assembleAssumptions (buildAliasMap stmts) (shEnv h) (shHyps h)
                    []    -> error "OA harness: sketch produced no hole"
 
     it "OA-1: inline refined param surfaces its predicate, α-renamed to the binder" $ do
@@ -7634,6 +7668,61 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 , "    ?body))" ]
       -- Both provinces fire: x's refinement (param) and y's definition (let).
       assumptionsFor src `shouldBe` ["(> x 0)", "(= y (+ x 2))"]
+
+    -- OBLIG-1 v2b: match-scrutinee case hypotheses on the hole's path.
+    it "OA-9: a hole in a payload arm surfaces (= s (Ctor x))" $ do
+      let src = [ "(type Step (| Continue) (| Abort int))"
+                , "(def f [s: Step]"
+                , "  (post (>= result 0))"
+                , "  (match s ((Continue) 0)"
+                , "           ((Abort c) ?body)))" ]
+      -- The arm binds c; the case hypothesis links s to the matched form.
+      assumptionsFor src `shouldBe` ["(= s (Abort c))"]
+
+    it "OA-10: a hole in a nullary arm surfaces (= s Ctor), bare" $ do
+      let src = [ "(type Step (| Continue) (| Abort int))"
+                , "(def f [s: Step]"
+                , "  (post (>= result 0))"
+                , "  (match s ((Continue) ?body)"
+                , "           ((Abort c) c)))" ]
+      -- Bare ctor, matching contract-position convention (= sig Continue).
+      assumptionsFor src `shouldBe` ["(= s Continue)"]
+
+    it "OA-11: nested matches accumulate hypotheses, outermost first" $ do
+      let src = [ "(type Step (| Continue) (| Abort int))"
+                , "(type Verdict (| Ok) (| Fail int))"
+                , "(def f [s: Step v: Verdict]"
+                , "  (post (>= result 0))"
+                , "  (match s ((Continue) 0)"
+                , "           ((Abort c)"
+                , "            (match v ((Ok) c)"
+                , "                     ((Fail n) ?body)))))" ]
+      assumptionsFor src `shouldBe` ["(= s (Abort c))", "(= v (Fail n))"]
+
+    it "OA-12: v2a let-def and v2b case hypothesis compose (let inside an arm)" $ do
+      let src = [ "(type Step (| Continue) (| Abort int))"
+                , "(def f [s: Step]"
+                , "  (post (>= result 0))"
+                , "  (match s ((Continue) 0)"
+                , "           ((Abort c)"
+                , "            (let [(y (+ c 1))]"
+                , "              ?body))))" ]
+      -- Exercises the LET-PTR interaction: the hole is let-nested inside a
+      -- match arm; both the definitional equality and the case hypothesis
+      -- must survive to the same brief (v2a from shEnv, v2b from shHyps).
+      assumptionsFor src `shouldBe` ["(= y (+ c 1))", "(= s (Abort c))"]
+
+    it "OA-13: a hypothesis whose binder is shadowed is dropped; wildcard arm contributes none" $ do
+      let src = [ "(type Step (| Continue) (| Abort int))"
+                , "(def f [s: Step]"
+                , "  (post (>= result 0))"
+                , "  (match s ((Abort c)"
+                , "            (let [(c 7)]"
+                , "              ?body))"
+                , "           (_ 0)))" ]
+      -- The inner let rebinds c, so (= s (Abort c)) would name the WRONG c at
+      -- the hole — the shadow guard drops it. The let-def (= c 7) still fires.
+      assumptionsFor src `shouldBe` ["(= c 7)"]
 
   describe "ObligationAssembly: recursiveNames" $ do
     it "OA-RN1: empty for non-recursive" $ do

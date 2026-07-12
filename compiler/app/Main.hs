@@ -1960,14 +1960,15 @@ assembleCheckoutContext json gm fp pointer = do
                        (h:_) -> Just h
                        []    -> Nothing
             scope  = fmap (buildScopeEntries . shEnv) mHole
-            -- OBLIG-1 (assumptions wire, v1): refinement predicates of the
-            -- in-scope refined binders, α-renamed to their actual names.
-            -- Sourced ONLY from the hole's shEnv, so path-correct by
-            -- construction. Same-file alias map ('buildAliasMap').
+            -- OBLIG-1 (assumptions wire): v1 param refinements + v2a let-def
+            -- equalities (from shEnv) + v2b match-scrutinee case hypotheses
+            -- (from shHyps). Sourced ONLY from the hole's own sketch snapshot,
+            -- so path-correct by construction. Same-file alias map
+            -- ('buildAliasMap').
             assumptions = case mHole of
               Nothing -> Nothing
               Just h  ->
-                let preds = assembleAssumptions (buildAliasMap stmts) (shEnv h)
+                let preds = assembleAssumptions (buildAliasMap stmts) (shEnv h) (shHyps h)
                 in if null preds then Nothing else Just preds
             expRet = mHole >>= (inferredTypeLabel . shStatus)
             holeNm = maybe "" shName mHole
