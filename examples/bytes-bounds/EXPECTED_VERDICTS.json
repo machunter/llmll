@@ -1,0 +1,11 @@
+{
+  "family": "bytes-bounds",
+  "frozen_at": "v0.14.34",
+  "frozen_date": "2026-07-12",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY. Deliberately does NOT freeze obligation-report classification (bytes-op contracts classify non_qf_lia until arrays-track stage A3 — the classification flip must NOT churn this gate, only a verdict change may).",
+  "cases": [
+    { "file": "read-at.llmll",            "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
+    { "file": "read-at-off-by-one.llmll", "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "bytes-get" },
+    { "file": "write-overflow.llmll",     "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "bytes-set" }
+  ]
+}

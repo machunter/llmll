@@ -1,0 +1,16 @@
+{
+  "family": "gotofail",
+  "frozen_at": "v0.14.34",
+  "frozen_date": "2026-07-12",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY. Deliberately does NOT freeze obligation-report classification, trust-report shape, or contract_fragment values (stage A3 of the data-scope track legitimately changes classification output).",
+  "cases": [
+    { "file": "finalize.llmll",       "flags": [],                         "expect_exit": 0, "expect": "safe" },
+    { "file": "finalize-bad.llmll",   "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "finalize" },
+    { "file": "pipeline.llmll",       "flags": [],                         "expect_exit": 0, "expect": "safe" },
+    { "file": "pipeline-bad.llmll",   "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "finalize" },
+    { "file": "sequential.llmll",     "flags": [],                         "expect_exit": 0, "expect": "safe" },
+    { "file": "sequential-bad.llmll", "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "finalize-seq" },
+    { "file": "nary.llmll",           "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
+    { "file": "nested.llmll",         "flags": [],                         "expect_exit": 0, "expect": "safe" }
+  ]
+}

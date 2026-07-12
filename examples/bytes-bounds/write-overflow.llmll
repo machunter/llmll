@@ -1,0 +1,11 @@
+;; bytes-bounds — the value-range twin.
+;;
+;; bytes-set carries a value-range obligation as well as an index obligation:
+;; a byte is 0–255. This writer's precondition proves the index but admits
+;; v up to 300 — the solver REFUTES the bytes-set call because nothing proves
+;; v ≤ 255. A byte buffer cannot silently truncate an out-of-range write.
+
+(def write-at [b: bytes[64] i: int v: int] -> bytes[64]
+  (pre  (and (>= i 0) (and (< i 64) (and (>= v 0) (<= v 300)))))
+  (post (= (bytes-length result) 64))
+  (bytes-set b i v))

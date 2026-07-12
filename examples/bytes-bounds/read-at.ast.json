@@ -1,0 +1,112 @@
+{
+  "llmll_version": "0.14.34",
+  "schemaVersion": "0.8.0",
+  "statements": [
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "b"
+          },
+          {
+            "kind": "var",
+            "name": "i"
+          }
+        ],
+        "fn": "bytes-get",
+        "kind": "app"
+      },
+      "kind": "def",
+      "name": "read-at",
+      "params": [
+        {
+          "name": "b",
+          "param_type": {
+            "kind": "bytes",
+            "length": 64
+          }
+        },
+        {
+          "name": "i",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "result"
+              },
+              {
+                "kind": "lit-int",
+                "value": 255
+              }
+            ],
+            "kind": "op",
+            "op": "<="
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "pre": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "i"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": ">="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "i"
+              },
+              {
+                "kind": "lit-int",
+                "value": 64
+              }
+            ],
+            "kind": "op",
+            "op": "<"
+          }
+        ],
+        "kind": "op",
+        "op": "and"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

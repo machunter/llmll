@@ -1,0 +1,14 @@
+;; bytes-bounds — the off-by-one twin (Heartbleed-class bounds error).
+;;
+;; Identical to read-at.llmll except the precondition bound is written
+;; (<= i 64) instead of (< i 64) — it admits i = 64, one past the end of a
+;; bytes[64] buffer. The solver REFUTES it: the caller's precondition does not
+;; prove bytes-get's index-in-bounds obligation (i < bytes-length b), and the
+;; refutation is localized to the bytes-get call site. This is the bounds
+;; error class that a length-proxy contract cannot catch — here the buffer
+;; access itself carries the obligation.
+
+(def read-at [b: bytes[64] i: int] -> int
+  (pre  (and (>= i 0) (<= i 64)))
+  (post (and (>= result 0) (<= result 255)))
+  (bytes-get b i))

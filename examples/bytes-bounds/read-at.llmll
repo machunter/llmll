@@ -1,0 +1,15 @@
+;; bytes-bounds — the LEVER-A1 witness: index-in-bounds proven by the solver.
+;;
+;; read-at reads one byte out of a 64-byte buffer. The precondition carries
+;; the CORRECT bound (< i 64): the solver discharges bytes-get's
+;; index-in-bounds obligation at the call site, and the byte-range facts
+;; (0 ≤ byte ≤ 255) discharge the post. Verifies SAFE, including under
+;; --strict-verified-core.
+;;
+;; Compare read-at-off-by-one.llmll: the same function with the bound written
+;; (<= i 64) — the classic Heartbleed-class off-by-one — is REFUTED.
+
+(def read-at [b: bytes[64] i: int] -> int
+  (pre  (and (>= i 0) (< i 64)))
+  (post (and (>= result 0) (<= result 255)))
+  (bytes-get b i))

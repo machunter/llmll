@@ -12,7 +12,7 @@ Run from this directory. This is the flagship "take an RFC and let the system im
 
 The `post` is the **full transition-table totality** authored *from* the RFC (`:source "RFC 793 §3.2 …"`): each of the five legal pairs maps to its specific `Next(tag)`, and every other pair maps to `Rejected`. The verified invariant: the implementation provably cannot take an illegal transition (in particular, cannot reach `Established` without the handshake) and provably rejects every non-legal pair.
 
-> **Honest scope (state it).**
+> **Scope (state it).**
 > - **Co-evolution is human-in-the-loop, not auto-signaled.** `step-weak` (below) shows a too-weak contract letting a bug survive; the fix is real, but `--weakness-check`/`--cdp` does **not** auto-flag it — you *notice* the survival and tighten the spec yourself. The RFC and the verifier together harden the contract.
 > - **Verify-time, not run-time (yet).** Constructor values are discharged by the *verifier* (native datatype reflection); the runtime / property-test evaluator does not yet evaluate the constructed outcome, so `llmll test` on this demo *skips* constructor-valued vectors rather than running them. The demo's beat is **typecheck → verify** — the proof is the point, not a test pass.
 
@@ -25,7 +25,7 @@ llmll verify ./step.llmll --strict-verified-core
 ```
    body-faithful: step
    Running liquid-fixpoint ...
-✅ step.llmll — SAFE (liquid-fixpoint)
+✅ ./step.llmll — SAFE (liquid-fixpoint)
 ```
 
 **Wrong: an illegal transition — refuted.** `step-bad.llmll` makes one arm wrong — `Closed + ActiveOpen` returns `(Next 4)` (ESTABLISHED) instead of the correct `(Next 2)` (SYN_SENT), skipping the handshake. It type-checks (`ConnState`/`Event` in, `StepOutcome` out), but the solver refutes it against the totality post for that input — the post pins the pair to `(Next 2)` and datatype injectivity rejects the `(Next 4)` body, localized to the branch:
@@ -44,12 +44,12 @@ llmll verify ./step-weak.llmll --strict-verified-core
 ```
    body-faithful: step
    Running liquid-fixpoint ...
-✅ step-weak.llmll — SAFE (liquid-fixpoint)
+✅ ./step-weak.llmll — SAFE (liquid-fixpoint)
 ```
 That green check on a wrong implementation is the point: **a spec is only as strong as you write it.** You notice the survival, add the missing totality clause (citing the RFC), and re-verify — and `step.llmll`'s full post `refutes` that edge. The verifier and the RFC co-evolve the contract until the implementation is provably correct.
 
 ## Narration
 
-> *"I implemented the TCP connection state machine from RFC 793 — in real enum types, matched in the body, returning a real outcome sum `(| Next int) (| Rejected int)` — and the compiler proved it maps every (state, event) to the right outcome: legal transitions to the right next state, every illegal pair to a real `Rejected` value, not a magic `-1`. A protocol-totality property, `verified`, not asserted. Then a weaker spec lets a bad transition slip through — the honest part: the proof is exactly as strong as the contract, and you harden the contract from what slips through. The RFC is the spec source; the verifier holds you to it."*
+> *"I implemented the TCP connection state machine from RFC 793 — in real enum types, matched in the body, returning a real outcome sum `(| Next int) (| Rejected int)` — and the compiler proved it maps every (state, event) to the right outcome: legal transitions to the right next state, every illegal pair to a real `Rejected` value, not a magic `-1`. A protocol-totality property, `verified`, not asserted. Then a weaker spec lets a bad transition slip through — the caveat, stated plainly: the proof is exactly as strong as the contract, and you harden the contract from what slips through. The RFC is the spec source; the verifier holds you to it."*
 
 Framing: **assurance, not bug-finding** — and the `VERIFICATION_SCOPE.md` matrix names exactly what's proven (the full transition-table totality) versus trusted.

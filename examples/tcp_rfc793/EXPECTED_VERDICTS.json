@@ -1,0 +1,12 @@
+{
+  "family": "tcp_rfc793",
+  "frozen_at": "v0.14.34",
+  "frozen_date": "2026-07-12",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY. Deliberately does NOT freeze obligation-report classification, trust-report shape, or contract_fragment values (the data-scope track's stage A3 legitimately changes classification output). Refutation of step-bad was silently lost v0.14.12-v0.14.31 (ENUM-EQ-FALLBACK); this gate exists so that class of regression cannot hide again.",
+  "cases": [
+    { "file": "step.llmll",      "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
+    { "file": "step-bad.llmll",  "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "step" },
+    { "file": "step-weak.llmll", "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe",
+      "why": "deliberate weak-spec exhibit: the under-specified post lets a wrong body verify — documented co-evolution lesson, must stay SAFE" }
+  ]
+}

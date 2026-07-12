@@ -1,0 +1,108 @@
+{
+  "llmll_version": "0.14.34",
+  "schemaVersion": "0.8.0",
+  "statements": [
+    {
+      "body": {
+        "cond": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "n"
+            },
+            {
+              "kind": "lit-int",
+              "value": 0
+            }
+          ],
+          "kind": "op",
+          "op": "="
+        },
+        "else_branch": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "n"
+            },
+            {
+              "args": [
+                {
+                  "args": [
+                    {
+                      "kind": "var",
+                      "name": "n"
+                    },
+                    {
+                      "kind": "lit-int",
+                      "value": 1
+                    }
+                  ],
+                  "kind": "op",
+                  "op": "-"
+                }
+              ],
+              "fn": "sum-to",
+              "kind": "app"
+            }
+          ],
+          "kind": "op",
+          "op": "+"
+        },
+        "kind": "if",
+        "then_branch": {
+          "kind": "lit-int",
+          "value": 0
+        }
+      },
+      "decreases": [
+        {
+          "kind": "var",
+          "name": "n"
+        }
+      ],
+      "kind": "def-shell",
+      "name": "sum-to",
+      "params": [
+        {
+          "name": "n",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "result"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "pre": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "n"
+          },
+          {
+            "kind": "lit-int",
+            "value": 0
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

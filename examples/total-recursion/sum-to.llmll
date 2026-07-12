@@ -1,0 +1,18 @@
+;; total-recursion — recursion verified TOTAL via a (decreases …) measure.
+;;
+;; sum-to computes 0 + 1 + … + n. The (decreases n) clause makes the verifier
+;; discharge termination: well-foundedness (pre ⟹ n ≥ 0) plus strict descent
+;; at the recursive call site (n-1 < n on the recursive path). With the
+;; measure discharged, the function's verdict is TOTAL correctness — the
+;; trust report carries no termination_unverified flag for it.
+;;
+;; Compare sum-to-bad-measure.llmll: same correct body, wrong measure —
+;; rejected on the distinct measure-not-decreasing channel.
+
+(def-shell sum-to [n: int] -> int
+  (pre (>= n 0))
+  (post (>= result 0))
+  (decreases n)
+  (if (= n 0)
+      0
+      (+ n (sum-to (- n 1)))))

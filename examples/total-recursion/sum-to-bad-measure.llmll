@@ -1,0 +1,16 @@
+;; total-recursion — the bad-measure twin.
+;;
+;; The BODY is identical to sum-to.llmll and still correct; only the measure
+;; is wrong: (- 100 n) INCREASES along the recursion (n shrinks, so 100 - n
+;; grows), so strict descent fails at the recursive call site. The verifier
+;; rejects on the dedicated measure-not-decreasing channel (exit 1) — distinct
+;; from a postcondition refutation — because the failure is about termination
+;; evidence, not about what the function computes.
+
+(def-shell sum-to [n: int] -> int
+  (pre (>= n 0))
+  (post (>= result 0))
+  (decreases (- 100 n))
+  (if (= n 0)
+      0
+      (+ n (sum-to (- n 1)))))

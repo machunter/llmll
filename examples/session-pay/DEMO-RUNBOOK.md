@@ -26,7 +26,7 @@ llmll verify ./open-and-pay.llmll --strict-verified-core --trust-report
    body-faithful: step, debit, open-and-pay
    call-pre obligations: open-and-pay
    Running liquid-fixpoint ...
-✅ open-and-pay.llmll — SAFE (liquid-fixpoint)
+✅ ./open-and-pay.llmll — SAFE (liquid-fixpoint)
 Trust Report
 ────────────────────────────────────────────────────────────
   debit:
@@ -83,7 +83,7 @@ error: call-site precondition of 'debit' not satisfied in 'open-and-pay' — cal
 
 Three rules, three twins, three distinct verdicts — a refutation for the state-safety violation, two call-site refusals for the dropped funds-guard and the dropped bound.
 
-## Honest scope
+## Scope boundaries
 
 - **Real enum states/events AND a real outcome sum.** `ConnState`/`Event` are real nullary-enum sum types — matched and compared as values, verified. The multi-outcome RESULT is now a real payload-bearing sum, `PayOutcome` (`Paid(int)` / `Rejected(int)`), **constructed natively** and discharged by constructor equality / injectivity. No int sentinel: `Rejected(0)` is a first-class constructor value, distinct from every `Paid(n)` by Z3's datatype distinctness — not a `-1` posing as a balance.
 - **Single module.** `step`/`debit` are re-authored here, not cross-module-imported, to keep the whole composition in the body-faithful fragment (cross-module verified composition is a tracked gap).
