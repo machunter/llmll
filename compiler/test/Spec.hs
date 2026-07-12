@@ -6330,10 +6330,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "(Map_default 0)"
         fq `shouldSatisfy` T.isInfixOf "((bytesLen result) = 8)"
 
-      it "A1-5 exact-reflection routing: map ops STAY out-of-fragment at A1 (fallback, no Map_t emission)" $ do
-        er <- emitA1 "(def-shell f [m: map[int,int] k: int] -> int (pre (map-has m k)) (map-get m k))"
-        erBodyFallback er `shouldSatisfy` elem "f"
-        erFQText er `shouldNotSatisfy` T.isInfixOf "Map_t"
+      it "A1-5 (expectation flipped at A2): map ops now REFLECT — split binders + presence call-pre, body-faithful" $ do
+        -- A1 asserted map ops stay out-of-fragment; A2 ships their reflection.
+        -- The same program now emits the two-array encoding and a presence
+        -- call-pre obligation instead of falling back.
+        er <- emitA1 "(def-shell f [m: map[int,int] k: int] -> int (pre (map-has m k)) (post (= result (map-get m k))) (map-get m k))"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        erCallPreFns er      `shouldSatisfy` elem "f"
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "(Map_t int int)"
+        fq `shouldSatisfy` T.isInfixOf "Map_select"
 
       it "A1-6 review F1: whole-bytes = / /= in a contract routes to contract-only fallback, never array equality" $ do
         er <- emitA1 (unlines
@@ -6377,12 +6383,183 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- and the callee's bound is a PROVE obligation against the caller's fact
         fq `shouldSatisfy` T.isInfixOf "(3 < (bytesLen buf))"
 
-      it "A1-9 an unreflectable position inside a gated function still falls back whole (never partial reflection)" $ do
+      it "A1-9 (expectation flipped at A2): a mixed bytes+map body now discharges body-faithful" $ do
+        -- A1 asserted the mixed body falls back whole (map ops unreflected);
+        -- A2 reflects both families, so the same program is body-faithful with
+        -- BOTH obligations (bytes bound + map presence) at their call sites.
         er <- emitA1 (unlines
           [ "(def mixed [b: bytes[8] m: map[int,int] k: int] -> int"
           , "  (post (>= result 0))"
           , "  (+ (bytes-get b 0) (map-get m k)))" ])
-        erBodyFallback er `shouldSatisfy` elem "mixed"
+        erBodyFaithfulFns er `shouldSatisfy` elem "mixed"
+        erCallPreFns er      `shouldSatisfy` elem "mixed"
+
+    -- LEVER-A2 (map[int,int] static discharge — two-array int-0/1 presence
+    -- encoding, proposal Rev 1.1 §5/§5.1/§10 A2 row). Emission-shape tests plus
+    -- solver-gated crux pairs; the value class is int-valued maps (string/bool
+    -- values fall back whole — deferred, §6.1).
+    describe "LEVER-A2 (map[int,int] static discharge)" $ do
+      let emitA2 src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          findSolver = do a <- findExecutable "liquid-fixpoint"
+                          maybe (findExecutable "fixpoint") (pure . Just) a
+          solveFq er = do
+            tmp <- getTemporaryDirectory
+            let fqPath = tmp <> "/lever-a2-spec.fq"
+            TIO.writeFile fqPath (erFQText er)
+            mLF <- findSolver
+            case mLF of
+              Nothing -> pure Nothing
+              Just lf -> do
+                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                pure (Just (T.pack out))
+          cachePutSrc bdy = unlines
+            [ "(def cache-put [m: map[int,int] k: int v: int] -> map[int,int]"
+            , "  (post (and (map-has result k) (= (map-get result k) v)))"
+            , "  " <> bdy <> ")" ]
+
+      it "A2-1 cache-put (map-returning): result-pair pinning, paired stores, presence-eq post — body-faithful" $ do
+        er <- emitA2 (cachePutSrc "(map-put m k v)")
+        erBodyFaithfulFns er `shouldSatisfy` elem "cache-put"
+        let fq = erFQText er
+        -- split param binders at the component sort
+        fq `shouldSatisfy` T.isInfixOf "m_has : { v : (Map_t int int)"
+        fq `shouldSatisfy` T.isInfixOf "m_val : { v : (Map_t int int)"
+        -- result components pinned to the paired stores (int-0/1 presence)
+        fq `shouldSatisfy` T.isInfixOf "(result_has = (Map_store m_has k 1))"
+        fq `shouldSatisfy` T.isInfixOf "(result_val = (Map_store m_val k v))"
+        -- the reflected post reads the pinned components
+        fq `shouldSatisfy` T.isInfixOf "((Map_select result_has k) = 1)"
+
+      it "A2-2 solver crux: get-after-put SAFE; the dropped-put twin REFUTED" $ do
+        erGood <- emitA2 (cachePutSrc "(map-put m k v)")
+        erBad  <- emitA2 (cachePutSrc "m")
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2-3 the §5.1 pipeline shape: a let-bound map-put threads into a later map-get (expandMapLets) — SAFE" $ do
+        er <- emitA2 (unlines
+          [ "(def put-get [m: map[int,int] k: int v: int] -> int"
+          , "  (post (= result v))"
+          , "  (let [(m2 (map-put m k v))]"
+          , "    (map-get m2 k)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "put-get"
+        -- the expanded composite: select over the stored pair
+        erFQText er `shouldSatisfy` T.isInfixOf "(Map_select (Map_store m_val k v) k)"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2-4 aliased symbolic keys: unrelated k1/k2 REFUTED; (= k1 k2) pre twin SAFE" $ do
+        let src pre = unlines
+              [ "(def read-other [m: map[int,int] k1: int k2: int v: int] -> int"
+              , pre
+              , "  (post (= result v))"
+              , "  (map-get (map-put m k1 v) k2))" ]
+        erBad  <- emitA2 (src "")
+        erGood <- emitA2 (src "  (pre (= k1 k2))")
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2-5 presence is a PROVE call-site obligation: blind map-get REFUTED; (map-has m k) pre twin SAFE" $ do
+        let srcBlind = unlines
+              [ "(def rd [m: map[int,int] k: int] -> int"
+              , "  (post (= result (map-get m k)))"
+              , "  (map-get m k))" ]
+            srcChecked = unlines
+              [ "(def rd [m: map[int,int] k: int] -> int"
+              , "  (pre (map-has m k))"
+              , "  (post (= result (map-get m k)))"
+              , "  (map-get m k))" ]
+        erBlind   <- emitA2 srcBlind
+        erChecked <- emitA2 srcChecked
+        erCallPreFns erBlind `shouldSatisfy` elem "rd"
+        mB <- solveFq erBlind
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+        mC <- solveFq erChecked
+        case mC of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2-6 the A1 landmine resolved: bytes selects keep 0..255 range facts, map selects get NONE" $ do
+        er <- emitA2 (unlines
+          [ "(def mixed [b: bytes[8] m: map[int,int] i: int k: int] -> int"
+          , "  (pre (and (and (>= i 0) (< i 8)) (map-has m k)))"
+          , "  (post (<= result 512))"
+          , "  (+ (bytes-get b i) (map-get m k)))" ])
+        let fq = erFQText er
+        -- byte-range facts exist for the BYTES select…
+        fq `shouldSatisfy` T.isInfixOf "((Map_select b i) <= 255)"
+        fq `shouldSatisfy` T.isInfixOf "((Map_select b i) >= 0)"
+        -- …and are NEVER synthesized for a map-component select
+        fq `shouldNotSatisfy` T.isInfixOf "((Map_select m_val k) <= 255)"
+        fq `shouldNotSatisfy` T.isInfixOf "((Map_select m_val k) >= 0)"
+        fq `shouldNotSatisfy` T.isInfixOf "((Map_select m_has k) <= 255)"
+        -- and the phantom-fact unsoundness is refuted end-to-end: the map value
+        -- is unbounded, so post <= 512 must be Unsafe (with a phantom 0..255 on
+        -- the map select it would be vacuously Safe at <= 510)
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2-7 review F1: whole-map = in a contract routes to contract-only fallback, never array equality" $ do
+        er <- emitA2 (unlines
+          [ "(def same [m: map[int,int] m2: map[int,int] k: int] -> map[int,int]"
+          , "  (post (= result m))"
+          , "  (map-put m2 k 0))" ])
+        erBodyFallback er `shouldSatisfy` elem "same"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "result_has"
+
+      it "A2-8 inadmissible value sort: a string-valued map op falls back whole (deferred class), never crashes" $ do
+        er <- emitA2 (unlines
+          [ "(def name-of [m: map[int,string] k: int] -> string"
+          , "  (pre (map-has m k))"
+          , "  (post (= (string-length result) (string-length result)))"
+          , "  (map-get m k))" ])
+        erBodyFallback er `shouldSatisfy` elem "name-of"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "m_has"
+
+      it "A2-9 presence-gated defensive read: (if (map-has m k) (map-get m k) d) — pre discharges from the path" $ do
+        er <- emitA2 (unlines
+          [ "(def read-or [m: map[int,int] k: int d: int] -> int"
+          , "  (post (=> (map-has m k) (= result (map-get m k))))"
+          , "  (if (map-has m k) (map-get m k) d))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "read-or"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2-10 cross-call map A-G deferred (A2.1): a map-op-bearing callee PRE forces whole-call fallback; a map-op POST is not assumed" $ do
+        er <- emitA2 (unlines
+          [ "(def rd [m: map[int,int] k: int] -> int"
+          , "  (pre (map-has m k))"
+          , "  (post (>= result (map-get m k)))"
+          , "  (map-get m k))"
+          , "(def-shell caller [m2: map[int,int] j: int] -> int"
+          , "  (post (>= result 0))"
+          , "  (rd m2 j))" ])
+        -- the callee itself reflects; the CALLER falls back (its call cannot
+        -- emit the component-rooted pre against its own arg names yet)
+        erBodyFaithfulFns er `shouldSatisfy` elem "rd"
+        erBodyFallback er    `shouldSatisfy` elem "caller"
 
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires

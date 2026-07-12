@@ -590,12 +590,21 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
   -- LEVER-A1: the per-function activation gate (§5). When on, bytes[n] params
   -- join the binder set at the array sort (family-1 fact in the binder reft),
   -- and the result sort of a bytes return is the array sort. When off — every
-  -- function that neither mentions a bytes op nor calls a bytes-op-contracted
-  -- callee, i.e. the whole pre-existing corpus — arrParams is empty and sortA1
-  -- coincides with typeToSortA: byte-identical .fq.
+  -- function that neither mentions an array-class op nor calls an
+  -- array-op-contracted callee, i.e. the whole pre-existing corpus — arrParams
+  -- and mapParams are empty and sortA1 coincides with typeToSortA:
+  -- byte-identical .fq.
+  -- LEVER-A2: the gate's mention set widens to the map ops, and admissible
+  -- map[int,int] params split into the two-array encoding (m$has / m$val,
+  -- proposal §5 Rev 1.1: presence is an int-0/1 array). A map param at any
+  -- other key/value sort is NOT split — the reflection cases require split
+  -- binders (mapPairTermsB roots on them), so obligations over it fall back.
   let arrGate = arrGateActive cenv contract mBody
       arrParams = if arrGate
                     then [ (n, t) | (n, t) <- params, isJust (bytesLenOf aliases t) ]
+                    else []
+      mapParams = if arrGate
+                    then [ n | (n, t) <- params, mapIntIntTy aliases t ]
                     else []
       sortA1 t = case bytesLenOf aliases t of
                    Just _ | arrGate -> byteArraySort
@@ -627,7 +636,17 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
     -- Emit binders for int params plus any measure-argument carrier params (NIW)
     -- plus, under the LEVER-A1 gate, bytes[n] params at the array sort.
     paramBinds <- mapM (emitParamBind aliases freshBid addBind) (intParams ++ measureParams ++ arrParams)
-    let envIds = map bindId paramBinds
+    -- LEVER-A2: each gated map[int,int] param splits into its two component
+    -- binders (m$has at int-0/1, m$val at the value array), both unconstrained
+    -- (FQTrue) — a symbolic map is an arbitrary pair of arrays; the encoding's
+    -- semantics live in how the ops read/write the pair, not in binder facts.
+    mapCompBinds <- fmap concat $ forM mapParams $ \n ->
+      forM ["$has", "$val"] $ \sfx -> do
+        bid <- freshBid
+        let b = FQBind bid (n <> sfx) (FQReft "v" mapArraySort FQTrue)
+        addBind b
+        return b
+    let envIds = map bindId paramBinds ++ map bindId mapCompBinds
 
     -- Emit qualifiers extracted from pre/post
     -- BOOL-FRAG (v0.14.15): qualifier params must carry their REAL sort. A bool
@@ -729,8 +748,21 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                       -- LEVER-A1 (review F1): whole-structure = / /= over a bytes
                       -- operand is unconditionally out-of-fragment → contract-only
                       -- fallback (never reflected to array equality; §7 row 4).
-                      | arrGate && (wholeBytesEqClause aliases params mRet (contractPost contract)
-                                 || wholeBytesEqClause aliases params mRet (contractPre contract)) = Nothing
+                      -- LEVER-A2: same rule for map operands (wholeArrEqClause
+                      -- covers both bytes-ish and map-ish operands).
+                      | arrGate && (wholeArrEqClause aliases params mRet (contractPost contract)
+                                 || wholeArrEqClause aliases params mRet (contractPre contract)) = Nothing
+                      -- LEVER-A2: a map-op-bearing clause whose map-typed
+                      -- params/result are not all admissible map[int,int], or
+                      -- whose map-put value args are not int-in-context, would
+                      -- reflect against binders that don't exist (or at the
+                      -- wrong element sort) — free-var/ill-sort crash, not a
+                      -- fallback. Route the whole contract to fallback instead
+                      -- (§6.1: never a partial reflection).
+                      | (exprMentionsMapOpM (contractPost contract)
+                          || exprMentionsMapOpM (contractPre contract))
+                        && mapClauseBlocked aliases params mRet
+                             (contractPost contract) (contractPre contract) = Nothing
                       | otherwise                         = contractPost contract >>= exprToPred
             mPrePred  = case contractPre contract of
                           Nothing  -> Just Nothing       -- no pre is fine
@@ -790,7 +822,19 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                       TResult _ _    -> True
                       TSumType ctors -> length ctors >= 2    -- MATCH-WIDEN-2: n-ary
                       _              -> False ]
-                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys)
+                -- LEVER-A2: component-sort keys for each gated admissible
+                -- map[int,int] param — the '$'-suffix discipline of the Result
+                -- keys above. Their presence in the SortEnv is ALSO the body
+                -- channel's admissibility witness: mapPairTermsB roots only on
+                -- variables whose "$has" key is here.
+                mapKeys =
+                  [ kv
+                  | arrGate
+                  , (v, t) <- params
+                  , mapIntIntTy aliases t
+                  , kv <- [ (v <> "$has", mapArraySort)
+                          , (v <> "$val", mapArraySort) ] ]
+                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
                 -- Result/two-arm-ADT param payload's declared refinement, keyed
                 -- identically to the sort keys. Unrefined payloads contribute
@@ -810,13 +854,52 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                   , admissiblePayload aliases pt
                   , Just ref <- [payloadRefinement aliases pt] ]
                 refEnv = Map.fromList (resultRefs ++ adtRefs)
+            -- LEVER-A2: a gated function RETURNING an admissible map[int,int]
+            -- whose (let-expanded) body is a pure map term — the cache-put
+            -- shape — takes a dedicated single-constraint emission: the body's
+            -- component pair is PINNED to fresh result$has/result$val env
+            -- binders on the constraint LHS (the A1 resultLenFact lesson: the
+            -- constraint reft var `result` shadows a same-named env binder, but
+            -- the $-suffixed component names are unshadowed), and the reflected
+            -- post reads them via mapPairTermsC's `result` root. A map-returning
+            -- body OUTSIDE this shape (branches, embedded calls/map-gets) has no
+            -- generic-path representation for its pair → contract-only fallback
+            -- (sound; A2.1 scope). Generic translation is SKIPPED for the
+            -- dedicated path (mBodyVC forced Nothing) so the case below stays
+            -- three-way at the original structure.
+            let mMapRetPair
+                  | arrGate
+                  , Just rt <- mRet
+                  , mapIntIntTy aliases rt
+                  = mapPairTermsB Map.empty sortEnv
+                      (expandMapLets (Map.keysSet cenv) body')
+                  | otherwise = Nothing
             -- Translate body (generic path; Result-var matches handled within).
             seed <- readIORef bodyCounterRef
-            let (newSeed, mBodyVC) = bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet body'
+            let (newSeed, mBodyVC) =
+                  if isJust mMapRetPair
+                    then (seed, Nothing)
+                    else bodyToPredFromR seed sortEnv refEnv scrutTagMap cenv sccSet body'
             writeIORef bodyCounterRef newSeed
-            case mBodyVC of
-              Nothing -> addBodyFallback name  -- body outside QF-LIA fragment
-              Just bvc -> do
+            case (mMapRetPair, mBodyVC) of
+              (Just (hT, vT), _) -> do
+                rhbid <- freshBid
+                addBind (FQBind rhbid "result$has" (FQReft "v" mapArraySort FQTrue))
+                rvbid <- freshBid
+                addBind (FQBind rvbid "result$val" (FQReft "v" mapArraySort FQTrue))
+                cid <- freshCid
+                let pins = [ FQBinPred FQEq (FQVar "result$has") hT
+                           , FQBinPred FQEq (FQVar "result$val") vT ]
+                    lhsPred = conjoinAll (maybe [] (:[]) mPre ++ pins)
+                    lhs = FQReft "result" FQInt lhsPred
+                    rhs = FQReft "result" FQInt postPred
+                    c = FQConstraint cid (envIds ++ [rhbid, rvbid]) lhs rhs [name, "body-post"]
+                addConst c
+                let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
+                addOrigin cid (ConstraintOrigin name "body-post" ptr srcFile)
+                addBodyFaithful name
+              (Nothing, Nothing) -> addBodyFallback name  -- body outside QF-LIA fragment
+              (Nothing, Just bvc) -> do
                 -- Path count check (bounded)
                 let pathCount = countPathsBounded 4097 bvc  -- stop at 4097
                 if pathCount > 4096
@@ -1145,17 +1228,22 @@ isScalarLike :: AliasMap -> Type -> Bool
 isScalarLike am t = isIntLike am t || isBoolLike am t
 
 -- ---------------------------------------------------------------------------
--- LEVER-A1: bytes[n] static discharge (data-scope-lever-a-arrays-proposal.md,
--- Rev 1.1). The array class activates PER FUNCTION (the §5 activation gate) so
--- every function outside the gate emits byte-identical .fq. Map ops are
--- deliberately unreflected until stage A2 — a contract/body mentioning one
--- keeps today's fallback routing, which is what the §6.1 exact-reflection rule
--- requires (never a partial reflection).
+-- LEVER-A1/A2: bytes[n] + map[int,int] static discharge
+-- (data-scope-lever-a-arrays-proposal.md, Rev 1.1). The array class activates
+-- PER FUNCTION (the §5 activation gate) so every function outside the gate
+-- emits byte-identical .fq. A2 reflects map[int,int] via the two-array
+-- encoding (m$has int-0/1 presence + m$val values); string/bool-VALUED maps
+-- and cross-call map assume-guarantee are deferred (fall back whole, §6.1 —
+-- never a partial reflection).
 -- ---------------------------------------------------------------------------
 
 -- | The reflected bytes-op family (stage A1). NOT the map ops.
 bytesOpNames :: [Name]
 bytesOpNames = ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
+
+-- | The reflected map-op family (stage A2).
+mapOpNames :: [Name]
+mapOpNames = ["map-has", "map-get", "map-put", "map-empty"]
 
 -- | The bytes[n] lowering: int-indexed, int-element SMT array (elements are
 -- byte values 0–255; the range is a ground fact per read, injectRangeFacts).
@@ -1176,12 +1264,12 @@ bytesLenReft :: Int -> FQReft
 bytesLenReft n = FQReft "v" byteArraySort
   (FQBinPred FQEq (FQApp "bytesLen" [FQVar "v"]) (FQLit (fromIntegral n)))
 
--- | Does an expression mention a bytes op (any nesting)?
-exprMentionsBytesOp :: Expr -> Bool
-exprMentionsBytesOp = go
+-- | Does an expression mention any op in the given family (any nesting)?
+exprMentionsOpIn :: [Name] -> Expr -> Bool
+exprMentionsOpIn ops = go
   where
-    go (EApp f args)  = f `elem` bytesOpNames || any go args
-    go (EOp  f args)  = f `elem` bytesOpNames || any go args
+    go (EApp f args)  = f `elem` ops || any go args
+    go (EOp  f args)  = f `elem` ops || any go args
     go (EIf c t e)    = go c || go t || go e
     go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
     go (EMatch s as)  = go s || any (go . snd) as
@@ -1191,25 +1279,46 @@ exprMentionsBytesOp = go
     go (EAwait e)     = go e
     go _              = False
 
+exprMentionsBytesOp :: Expr -> Bool
+exprMentionsBytesOp = exprMentionsOpIn bytesOpNames
+
+exprMentionsMapOp :: Expr -> Bool
+exprMentionsMapOp = exprMentionsOpIn mapOpNames
+
+exprMentionsMapOpM :: Maybe Expr -> Bool
+exprMentionsMapOpM = maybe False exprMentionsMapOp
+
+-- | Any array-class op (bytes or map) — the LEVER-A2 gate's mention set.
+exprMentionsArrOp :: Expr -> Bool
+exprMentionsArrOp = exprMentionsOpIn (bytesOpNames ++ mapOpNames)
+
 contractMentionsBytesOp :: Contract -> Bool
 contractMentionsBytesOp c =
      maybe False exprMentionsBytesOp (contractPre c)
   || maybe False exprMentionsBytesOp (contractPost c)
 
+contractMentionsMapOp :: Contract -> Bool
+contractMentionsMapOp c =
+     exprMentionsMapOpM (contractPre c)
+  || exprMentionsMapOpM (contractPost c)
+
+contractMentionsArrOp :: Contract -> Bool
+contractMentionsArrOp c = contractMentionsBytesOp c || contractMentionsMapOp c
+
 -- | The §5 activation gate. On when the function's own contract or body
--- mentions a bytes op, or its body calls a contracted callee whose contract
--- does (the callee's pre/post is translated at the call site, so the CALLER's
--- VC carries the reflected terms and needs the array binders). Off — the
--- entire pre-existing corpus — nothing changes.
+-- mentions an array-class op (bytes or, since A2, map), or its body calls a
+-- contracted callee whose contract does (the callee's pre/post is translated
+-- at the call site, so the CALLER's VC carries the reflected terms and needs
+-- the array binders). Off — the entire pre-existing corpus — nothing changes.
 arrGateActive :: ContractEnv -> Contract -> Maybe Expr -> Bool
 arrGateActive cenv contract mBody =
-     contractMentionsBytesOp contract
-  || maybe False exprMentionsBytesOp mBody
+     contractMentionsArrOp contract
+  || maybe False exprMentionsArrOp mBody
   || maybe False calleeCarries mBody
   where
     calleeCarries e = any calleeHit (Set.toList (calledNames e))
     calleeHit f = case Map.lookup f cenv of
-      Just (_, c, _) -> contractMentionsBytesOp c
+      Just (_, c, _) -> contractMentionsArrOp c
       Nothing        -> False
     calledNames :: Expr -> Set.Set Name
     calledNames (EApp f args)  = Set.insert f (Set.unions (map calledNames args))
@@ -1223,31 +1332,225 @@ arrGateActive cenv contract mBody =
     calledNames (EAwait e)     = calledNames e
     calledNames _              = Set.empty
 
--- | LEVER-A1 (review F1): a contract clause applying = / /= to a bytes-valued
--- operand. Whole-structure equality is UNCONDITIONALLY out-of-fragment in v1:
--- the encoding carries junk outside [0,n), so representational array equality
--- diverges from the observational `=` of LLMLL.md §11.1 — reflecting it risks
--- a spurious refutation of an observationally true post (a §5.3.4 claim-
--- accuracy break). Routes the function to contract-only fallback.
-wholeBytesEqClause :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Bool
-wholeBytesEqClause _ _ _ Nothing = False
-wholeBytesEqClause am params mRet (Just e0) = go e0
+-- | LEVER-A1 (review F1), extended by A2: a contract clause applying = / /= to
+-- an array-valued operand (bytes OR map). Whole-structure equality is
+-- UNCONDITIONALLY out-of-fragment in v1: the encoding carries junk outside
+-- [0,n) / at absent keys, so representational array equality diverges from the
+-- observational `=` of LLMLL.md §11.1 — reflecting it risks a spurious
+-- refutation of an observationally true post (a §5.3.4 claim-accuracy break).
+-- Routes the function to contract-only fallback.
+wholeArrEqClause :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Bool
+wholeArrEqClause _ _ _ Nothing = False
+wholeArrEqClause am params mRet (Just e0) = go e0
   where
     bytesVars = Set.fromList $ [ n | (n, t) <- params, isJust (bytesLenOf am t) ]
                             ++ [ "result" | Just t <- [mRet], isJust (bytesLenOf am t) ]
+    mapVars = Set.fromList $ [ n | (n, t) <- params, isMapTy am t ]
+                          ++ [ "result" | Just t <- [mRet], isMapTy am t ]
     go (EApp op [l, r])
-      | op `elem` ["=", "==", "/=", "!=", "≠"] = bytesish l || bytesish r || go l || go r
+      | op `elem` ["=", "==", "/=", "!=", "≠"] = arrish l || arrish r || go l || go r
     go (EApp _ args)  = any go args
     go (EOp op args)  = go (EApp op args)
     go (EIf c t e)    = go c || go t || go e
     go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
     go (EMatch s as)  = go s || any (go . snd) as
     go _              = False
-    bytesish (EVar v)              = v `Set.member` bytesVars
-    bytesish (EApp "bytes-set" _)  = True
-    bytesish (EApp "bytes-zero" _) = True
-    bytesish (EOp op as)           = bytesish (EApp op as)
-    bytesish _                     = False
+    arrish (EVar v)              = v `Set.member` bytesVars || v `Set.member` mapVars
+    arrish (EApp "bytes-set" _)  = True
+    arrish (EApp "bytes-zero" _) = True
+    arrish (EApp "map-put" _)    = True
+    arrish (EApp "map-empty" _)  = True
+    arrish (EOp op as)           = arrish (EApp op as)
+    arrish _                     = False
+
+-- | Any map[k,v] type (alias-resolved), admissible or not.
+isMapTy :: AliasMap -> Type -> Bool
+isMapTy am t = case resolveAliasTy am t of
+  TMap _ _ -> True
+  _        -> False
+
+-- | LEVER-A2 admissibility: the reflected map class is map[int,int] (int keys
+-- per the A0 typechecker gate; int VALUES per the v1 emitter scope — string/
+-- bool-valued maps fall back whole; deferred, see the block comment above).
+mapIntIntTy :: AliasMap -> Type -> Bool
+mapIntIntTy am t = case resolveAliasTy am t of
+  TMap kt vt -> isIntLike am kt && isIntLike am vt
+  _          -> False
+
+-- | The component-array sort of the two-array map encoding (int keys, int-0/1
+-- presence / int values). One sort for both components in the v1 class.
+mapArraySort :: FQSort
+mapArraySort = FQArr FQInt FQInt
+
+-- | LEVER-A2 crash-class guard for map-op-bearing contract clauses. Blocks (→
+-- whole-contract fallback) when a reflection would reference binders that were
+-- never split or store a non-int value into an int-element array:
+--   (a) some map-typed param or the map return is not admissible map[int,int];
+--   (b) some map-put VALUE argument in a clause is neither an int literal nor
+--       an int-like param (contract clauses only see params/result, so this
+--       syntactic check is complete for the contract channel).
+mapClauseBlocked :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Maybe Expr -> Bool
+mapClauseBlocked am params mRet mPost mPre =
+     any (\(_, t) -> isMapTy am t && not (mapIntIntTy am t)) paramsAndRet
+  || badPutValue mPost || badPutValue mPre
+  where
+    paramsAndRet = params ++ [ ("result", t) | Just t <- [mRet] ]
+    intParamSet  = Set.fromList [ n | (n, t) <- params, isIntLike am t ]
+    badPutValue Nothing   = False
+    badPutValue (Just e0) = go e0
+      where
+        go (EApp "map-put" [mE, kE, vE]) = not (okVal vE) || go mE || go kE || go vE
+        go (EApp _ args)  = any go args
+        go (EOp op args)  = go (EApp op args)
+        go (EIf c t e)    = go c || go t || go e
+        go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
+        go (EMatch s as)  = go s || any (go . snd) as
+        go _              = False
+        okVal (ELit (LitInt _)) = True
+        okVal (EVar v)          = v `Set.member` intParamSet
+        okVal (EApp op [l, r])
+          | op `elem` ["+", "-"] = okVal l && okVal r
+        okVal (EOp op as)       = okVal (EApp op as)
+        okVal _                 = False
+
+-- | LEVER-A2, contract channel: translate a map-typed CONTRACT subterm to its
+-- component pair ⟨has-term, val-term⟩. Roots are variables (params/result —
+-- their split binders are guaranteed by the gate + mapClauseBlocked), map-put
+-- chains, and map-empty. Anything else → Nothing → the enclosing clause falls
+-- back (§6.1). Presence stores write the int tag 1; map-empty is the all-absent
+-- pair of const arrays (probe p4/p5b).
+mapPairTermsC :: Expr -> Maybe (FQPred, FQPred)
+mapPairTermsC (EVar m) = Just (FQVar (m <> "$has"), FQVar (m <> "$val"))
+mapPairTermsC (EApp "map-put" [mE, kE, vE]) = do
+  (h, vl) <- mapPairTermsC mE
+  k <- exprToPred kE
+  v <- exprToPred vE
+  pure ( FQApp "Map_store" [h, k, FQLit 1]
+       , FQApp "Map_store" [vl, k, v] )
+mapPairTermsC (EApp "map-empty" []) =
+  Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [FQLit 0])
+mapPairTermsC (EOp f as) = mapPairTermsC (EApp f as)
+mapPairTermsC _ = Nothing
+
+-- | LEVER-A2, body channel: the same pair translation with the body's renaming
+-- env + SortEnv discipline. A variable root must have SPLIT binders in scope
+-- (its "$has" key is in the SortEnv — seeded only for gated admissible
+-- map[int,int] params), and map-put value/key args must be int-in-context
+-- (literal, int-sorted var, or +/- arith over those) — a string-typed value
+-- var would otherwise store an ill-sorted (or free) symbol into an int-element
+-- array. Failure → Nothing → the enclosing op falls back (§6.1).
+mapPairTermsB :: Map Name Name -> SortEnv -> Expr -> Maybe (FQPred, FQPred)
+mapPairTermsB env se = go
+  where
+    go (EVar m) =
+      let m' = fromMaybe m (Map.lookup m env)
+      in if Map.member (m' <> "$has") se
+           then Just (FQVar (m' <> "$has"), FQVar (m' <> "$val"))
+           else Nothing
+    go (EApp "map-put" [mE, kE, vE]) = do
+      (h, vl) <- go mE
+      k <- scalarIntTerm env se kE
+      v <- scalarIntTerm env se vE
+      pure ( FQApp "Map_store" [h, k, FQLit 1]
+           , FQApp "Map_store" [vl, k, v] )
+    go (EApp "map-empty" []) =
+      Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [FQLit 0])
+    go (EOp f as) = go (EApp f as)
+    go _ = Nothing
+
+-- | An int-in-context scalar term for map-op key/value positions (body
+-- channel): int literal, int-sorted in-scope variable, or +/- arithmetic over
+-- those. Deliberately narrow — contracted calls are ANF-hoisted into lets
+-- before this runs, so a variable is the general case.
+scalarIntTerm :: Map Name Name -> SortEnv -> Expr -> Maybe FQPred
+scalarIntTerm env se = go
+  where
+    go (ELit (LitInt n)) = Just (FQLit n)
+    go (EVar v) =
+      let v' = fromMaybe v (Map.lookup v env)
+      in case Map.lookup v' se of
+           Just FQInt -> Just (FQVar v')
+           _          -> Nothing
+    go (EApp op [l, r])
+      | Just bop <- lookupArithOp op, op `elem` ["+", "-"]
+      = FQBinArith bop <$> go l <*> go r
+    go (EOp op as) = go (EApp op as)
+    go _ = Nothing
+
+-- | LEVER-A2 (§5.1, the pipeline shape): substitute PURE map-typed
+-- let-bindings into their bodies BEFORE ANF/translation, reducing the
+-- let-bound pipeline `(let [(m2 (map-put m k v))] (map-get m2 k))` to the
+-- composite form the reflection cases handle. Substitution is §6.1-exact: the
+-- ops are pure functional updates, so duplication preserves meaning. Guarded:
+-- only RHSs whose head chain is map-put/map-empty and which mention NO
+-- contracted-callee name are expanded (a call inside a duplicated RHS would
+-- duplicate its call obligations); anything else stays a normal let (and the
+-- enclosing map op then falls back — sound). Shadowing respected: substitution
+-- stops where the name is rebound.
+expandMapLets :: Set.Set Name -> Expr -> Expr
+expandMapLets callNames e0
+  -- Byte-inertness: a map-op-free body returns the ORIGINAL expression object
+  -- untouched. `go` rebuilds the tree (and desugars multi-binding lets), which
+  -- is translation-equivalent but shifts ANF fresh-variable numbering — a
+  -- .fq-text diff the F7 sweep rightly rejects for the pre-existing corpus.
+  | not (exprMentionsMapOp e0) = e0
+  | otherwise                  = go e0
+  where
+    go :: Expr -> Expr
+    go (ELet [(PVar v, mt, rhs)] body)
+      | isPureMapTerm rhs' = go (substVar v rhs' body)
+      | otherwise          = ELet [(PVar v, mt, rhs')] (go body)
+      where rhs' = go rhs
+    go (ELet (b:bs) body) = go (ELet [b] (ELet bs body))
+    go (ELet [] body)     = go body
+    go (EApp f args)      = EApp f (map go args)
+    go (EOp f args)       = EOp f (map go args)
+    go (EIf c t e)        = EIf (go c) (go t) (go e)
+    go (EMatch s as)      = EMatch (go s) [ (p, go b) | (p, b) <- as ]
+    go (ELambda ps b)     = ELambda ps (go b)
+    go (EPair a b)        = EPair (go a) (go b)
+    go (EAwait e)         = EAwait (go e)
+    go e                  = e
+    isPureMapTerm (EApp "map-put" [mE, kE, vE]) =
+      (isPureMapTerm mE || isVarE mE) && callFree kE && callFree vE && callFree mE
+    isPureMapTerm (EApp "map-empty" []) = True
+    isPureMapTerm (EOp f as) = isPureMapTerm (EApp f as)
+    isPureMapTerm _ = False
+    isVarE (EVar _) = True
+    isVarE _        = False
+    callFree = not . mentionsCallName
+    mentionsCallName (EApp f args) = f `Set.member` callNames || any mentionsCallName args
+    mentionsCallName (EOp f args)  = mentionsCallName (EApp f args)
+    mentionsCallName (EIf c t e)   = any mentionsCallName [c, t, e]
+    mentionsCallName (ELet bs b)   = any (\(_, _, r) -> mentionsCallName r) bs || mentionsCallName b
+    mentionsCallName (EMatch s as) = mentionsCallName s || any (mentionsCallName . snd) as
+    mentionsCallName (EPair a b)   = mentionsCallName a || mentionsCallName b
+    mentionsCallName (EAwait e)    = mentionsCallName e
+    mentionsCallName _             = False
+    -- Capture-safe-enough substitution: stop at any construct that rebinds v.
+    substVar v r = sub
+      where
+        sub e@(EVar x) | x == v = r
+                       | otherwise = e
+        sub (EApp f args) = EApp f (map sub args)
+        sub (EOp f args)  = EOp f (map sub args)
+        sub (EIf c t e)   = EIf (sub c) (sub t) (sub e)
+        sub el@(ELet [(PVar x, mt, rhs)] body)
+          | x == v    = ELet [(PVar x, mt, sub rhs)] body   -- v rebound: RHS still sees outer v
+          | otherwise = ELet [(PVar x, mt, sub rhs)] (sub body)
+        sub (ELet (b:bs) body) = case sub (ELet [b] (ELet bs body)) of e -> e
+        sub (ELet [] body) = sub body
+        sub (EMatch s as) = EMatch (sub s)
+          [ (p, if v `Set.member` patVars p then b else sub b) | (p, b) <- as ]
+        sub (ELambda ps b)
+          | v `elem` map fst ps = ELambda ps b
+          | otherwise           = ELambda ps (sub b)
+        sub (EPair a b) = EPair (sub a) (sub b)
+        sub (EAwait e)  = EAwait (sub e)
+        sub e = e
+        patVars (PVar x)            = Set.singleton x
+        patVars (PConstructor _ ps) = Set.unions (map patVars ps)
+        patVars _                   = Set.empty
 
 -- | LEVER-A1: does a contract clause apply a bytes op to @result@? Used by the
 -- call-site post-assumption guard (an ill-sorted reflected term over an
@@ -1743,6 +2046,22 @@ exprToPred (EApp "bytes-get" [b, i]) =
   (\x y -> FQApp "Map_select" [x, y]) <$> exprToPred b <*> exprToPred i
 exprToPred (EApp "bytes-set" [b, i, v]) =
   (\x y z -> FQApp "Map_store" [x, y, z]) <$> exprToPred b <*> exprToPred i <*> exprToPred v
+-- LEVER-A2 (proposal §4): the map ops reflect via the two-array encoding —
+-- presence is the int-0/1 array (Rev 1.1), so `(map-has m k)` is the equation
+-- `Map_select(m$has, k) = 1` and `(map-get m k)` reads the value array. The
+-- map argument threads as a component PAIR (mapPairTermsC): variable roots
+-- resolve to the split binders (guaranteed in scope by the activation gate +
+-- mapClauseBlocked), map-put chains to paired stores, map-empty to const
+-- arrays. A bare map-put/map-empty NOT under map-has/map-get (e.g. a
+-- whole-structure equality) has no standalone case → falls back (review F1).
+exprToPred (EApp "map-has" [mE, kE]) = do
+  (h, _) <- mapPairTermsC mE
+  k <- exprToPred kE
+  pure (FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1))
+exprToPred (EApp "map-get" [mE, kE]) = do
+  (_, vl) <- mapPairTermsC mE
+  k <- exprToPred kE
+  pure (FQApp "Map_select" [vl, k])
 -- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
 exprToPred (EOp op args)     = exprToPred (EApp op args)
 -- COMP-4-RESULT: the Result builtins `ok`/`err` are lowercase, so the uppercase-ctor
@@ -1842,9 +2161,14 @@ bodyToPredFromR seed sortEnv refEnv scrutTags cenv sccSet expr =
   -- (argument/operator position) lifts into a let and threads its CallVC
   -- (pre obligation + exact-pinning post). Hoisting only fires on occurrence —
   -- byte-inert for every op-free body.
-  let callNames = Map.keysSet cenv `Set.union` Set.fromList ["bytes-get", "bytes-set"]
+  -- LEVER-A2: map-get joins the hoist set (its presence pre needs the CallVC
+  -- channel); map-put/map-empty deliberately do NOT (they stay inline so
+  -- expandMapLets/mapPairTermsB thread them as component pairs). expandMapLets
+  -- runs FIRST: pure map-typed lets substitute into their bodies, reducing the
+  -- §5.1 pipeline shape to the composite form. Inert for map-let-free bodies.
+  let callNames = Map.keysSet cenv `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
       (result, finalCounter) = runStateFrom seed $ do
-        expr' <- aNormalizeBody callNames expr
+        expr' <- aNormalizeBody callNames (expandMapLets (Map.keysSet cenv) expr)
         runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags)
   in (finalCounter, result)
   where
@@ -2011,8 +2335,15 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
         --   callee has no pre        → no obligation, assumption valid
         --   callee has pre, translates → obligation emitted
         --   callee has pre, fails     → ENTIRE CALL FALLS BACK
+        -- LEVER-A2: cross-call assume-guarantee over MAP-op-bearing callee
+        -- contracts is deferred (A2.1) — the reflected clause roots component
+        -- names (p$has/p$val) that the param→arg substitution cannot rewrite
+        -- (it substitutes `p`, not `p$has`), leaving free vars. A map-op pre
+        -- forces whole-call fallback (never an unproven obligation); a map-op
+        -- post is simply not assumed (sound weakening, below).
         let mPreResult = case contractPre contract of
               Nothing  -> Just Nothing
+              Just pre | exprMentionsMapOp pre -> Nothing  -- LEVER-A2: fallback
               Just pre -> case exprToPred pre of
                             Nothing -> Nothing       -- untranslatable pre → fallback
                             Just p  -> Just (Just (applySubst subst p))
@@ -2033,6 +2364,11 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                           -- the post (sound weakening; the call still proves its pre).
                           | bytesOpOnResult (contractPost contract)
                             && calleeRetSort /= byteArraySort = Nothing
+                          -- LEVER-A2: a map-op-bearing callee post reflects
+                          -- component-rooted names the substitution cannot
+                          -- rewrite (see mPreResult note) — do not assume it
+                          -- (sound weakening; cross-call map A-G is A2.1).
+                          | exprMentionsMapOpM (contractPost contract) = Nothing
                           | otherwise                       = contractPost contract >>= exprToPred
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
@@ -2166,6 +2502,31 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
 -- its length.
 bodyToPredM _ _ _ _ (EApp "bytes-zero" []) =
   return . Just $ SimpleVC [] (FQApp "Map_default" [FQLit 0])
+
+-- LEVER-A2: `map-has m k` in body position (bool atom — a bool body result or,
+-- via GuardClassifier's twin case, an if-condition). Pure translation, no
+-- obligation: presence testing is total.
+bodyToPredM env se _ _ (EApp "map-has" [mE, kE]) =
+  return $ do
+    (h, _) <- mapPairTermsB env se mE
+    k <- scalarIntTerm env se kE
+    pure (SimpleVC [] (FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)))
+
+-- LEVER-A2: `map-get m k` → an EXACT-PINNING CallVC (§6.1), the map twin of
+-- bytes-get: the key-presence pre `Map_select(m$has,k) = 1` is a PROVE-polarity
+-- call-site obligation (tag "call-pre:map-get"), and the fresh result is
+-- EQUATED to the value-array select — never an opaque skolem. The map argument
+-- may be a composite (map-put chain / map-empty — the let-expanded pipeline
+-- shape); read-over-write then discharges the presence pre for the stored key.
+bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
+  case (mapPairTermsB env se mE, scalarIntTerm env se kE) of
+    (Just (h, vl), Just k) -> do
+      r <- freshName "call_map_get"
+      let pre  = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
+          post = FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k])
+      return . Just $ CallVC "map-get" [h, vl, k] (Just pre) (Just post)
+                             r FQInt (SimpleVC [] (FQVar r))
+    _ -> return Nothing
 
 -- Normalize EOp to EApp
 bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet (EApp name args)
@@ -2771,20 +3132,29 @@ injectRangeFacts :: FQConstraint -> FQConstraint
 injectRangeFacts c =
   let apps  = nub (collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c)))
       facts = concatMap factsFor apps
-      -- LEVER-A1 fact synthesis per head symbol. Array-VALUED terms (Map_store /
-      -- Map_default) get NO facts — `(Map_store …) >= 0` is ill-sorted over the
-      -- array sort. A Map_select term is (at stage A1) always a bytes element
-      -- read, so it carries the byte-range family-2 facts `0 ≤ t ≤ 255`.
-      -- *** A2 LANDMINE, do not miss: when map ops reflect, a map-get select is
-      -- NOT byte-ranged (and not even ≥ 0 for int values) — the range synthesis
-      -- must then be scoped to selects rooted at bytes binders, which requires
-      -- threading byte-rootedness here. Part of the A2 pair-threading work. ***
-      -- Every other FQApp keeps the pre-existing `t >= 0` measure fact exactly
-      -- as before (byte-identical for the existing corpus).
-      factsFor a@(FQApp f _)
+      -- LEVER-A1/A2 fact synthesis per head symbol. Array-VALUED terms
+      -- (Map_store / Map_default) get NO facts — `(Map_store …) >= 0` is
+      -- ill-sorted over the array sort. A2 resolves the A1 landmine: a
+      -- Map_select term carries the byte-range family-2 facts `0 ≤ t ≤ 255`
+      -- ONLY when its array argument is BYTES-ROOTED — a map component read
+      -- (roots named *$has / *$val, or a Map_default chain, which only map
+      -- composites produce in select position) is an unconstrained int and
+      -- must get NO range fact (a phantom 0..255 on a map value would be an
+      -- unsound assumption). Missing a fact only loses completeness; adding a
+      -- wrong one breaks refutation exactness (§6.1) — the discriminator errs
+      -- toward no-facts. Every other FQApp keeps the pre-existing `t >= 0`
+      -- measure fact exactly as before (byte-identical for the existing
+      -- corpus).
+      factsFor a@(FQApp f args)
         | f `elem` ["Map_store", "Map_default"] = []
-        | f == "Map_select" = [ FQBinPred FQGe a (FQLit 0), FQBinPred FQLe a (FQLit 255) ]
+        | f == "Map_select" = case args of
+            (arr : _) | bytesRootedArr arr ->
+              [ FQBinPred FQGe a (FQLit 0), FQBinPred FQLe a (FQLit 255) ]
+            _ -> []
       factsFor a = [ FQBinPred FQGe a (FQLit 0) ]
+      bytesRootedArr (FQVar n) = not ("$has" `T.isSuffixOf` n || "$val" `T.isSuffixOf` n)
+      bytesRootedArr (FQApp "Map_store" (arr : _)) = bytesRootedArr arr
+      bytesRootedArr _ = False
   in if null facts
        then c
        else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }

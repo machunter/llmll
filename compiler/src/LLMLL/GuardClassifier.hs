@@ -80,6 +80,22 @@ classifyGuardM env se (EApp "not" [a]) = do
   ap <- classifyGuardM env se a
   return $ FQNot <$> ap
 
+-- LEVER-A2: `(map-has m k)` as an if-guard — the presence-gated defensive-read
+-- shape `(if (map-has m k) (map-get m k) d)`. Reflects to the int-0/1 presence
+-- equation `Map_select(m$has, k) = 1` (proposal §5 Rev 1.1) so the then-path's
+-- presence obligation discharges from the path condition. Gated on the split
+-- binder existing in the SortEnv (seeded only for admissible gated map[int,int]
+-- params in FixpointEmit) — anything else falls back. Variable scrutinee only;
+-- composite scrutinees in guard position are out of the v1 class.
+classifyGuardM env se (EApp "map-has" [EVar m, kE]) = do
+  let m' = fromMaybe m (Map.lookup m env)
+  if Map.member (m' <> "$has") se
+    then do
+      mk <- classifyGuardM env se kE
+      return $ (\k -> FQBinPred FQEq (FQApp "Map_select" [FQVar (m' <> "$has"), k])
+                                     (FQLit 1)) <$> mk
+    else return Nothing
+
 classifyGuardM env se (EApp "and" args) = do
   ps <- mapM (classifyGuardM env se) args
   return $ if all isJust ps then Just (FQAnd (catMaybes ps)) else Nothing
