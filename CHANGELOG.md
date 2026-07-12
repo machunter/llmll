@@ -4,6 +4,31 @@
 
 <a id="Latest"></a>
 
+## v0.14.40 — CLASSIFY-MEASURE: the obligation classifier is now literally the emitter (2026-07-12)
+
+### Fixed — classifier–emitter drift closed by construction
+
+- **`isQfLia = isJust . exprToPred`** — sixty lines of hand-mirrored classification deleted; any future
+  `exprToPred` case classifies correctly by construction, and a table-driven classify==emitter meta-test (CM-4,
+  recomputed from the emitter's exported pieces) breaks if anyone reintroduces a parallel classifier. The
+  emitter's ungated type-level guards are shared via the new `FixpointEmit.contractSigGuardsBlock`, which
+  `mPostPred` itself now composes — the sharing is literal, not parallel.
+- **Both recorded drifts fixed** (with live before/after evidence): measure-class contracts
+  (`(>= (string-length s) 1)`) classified Advisory while discharging body-faithful (under-label); string-literal
+  contracts classified `qf_lia` while falling back (over-label — a promised tier the verifier never delivered).
+- **Five more instances found by the sweep and fixed**: pair selectors/`EPair` (PAIR-RET class), Result `ok`/`err`,
+  uppercase constructor applications (COMP-4 class), the `!=` spelling, and n-ary `=>`/`<=>` corners (emitter is
+  binary-only). The A3 array hand-mirror is deleted (now exprToPred-backed). The A3-recorded classifier callee-leg
+  imprecision remains, conservative at the emitter.
+- Reuse-retrieval abstains explicitly on UF-bearing contracts (measures, pair ops, `ok`/`err`, constructor terms) —
+  its standalone Horn driver declares no UF constants; previously these hit the solver-error fail-safe after a
+  doomed spawn (same A3.x driver disposition). The checkout brief's let-definitional `assumptions` RHS filter
+  widens intentionally with the classifier (measure/pair/constructor RHS — each is VC-assumed).
+
+**Tests:** 1222 Haskell, 45 Python (+4: the 8-row pinned battery, both recorded instances at the tier level, the
+classify==emitter meta-assertion). 64-file sweep: zero verdict movement; refute-crux gate 22/22 (26 with the
+rfc1982 family).
+
 ## v0.14.39 — R3 evaluation run: RFC 1982 through the pipeline, all six criteria pass (2026-07-12)
 
 ### Added — `examples/rfc1982_serial/` (the spec-from-RFC pipeline validated by procedure)
