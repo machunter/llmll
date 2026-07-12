@@ -4,6 +4,39 @@
 
 <a id="Latest"></a>
 
+## v0.14.35 — Examples hardening: refute-crux CI gates + `total-recursion` + `bytes-bounds` (2026-07-12)
+
+### Added — frozen refute-crux gates (the ENUM-EQ-FALLBACK lesson, institutionalized)
+
+- **Six example families now carry frozen-verdict CI gates** (`EXPECTED_VERDICTS.json` per family +
+  `scripts/refute-crux-gate.sh`; Makefile target `refute-crux-gate`, wired into `benchmark-all`): tcp_rfc793,
+  session-pay, gotofail, outcome-totality, total-recursion, bytes-bounds — 22 cases. The gate verifies a temp copy
+  and checks **verdict + exit code + refutation localization only**; obligation-report/trust-report/classification
+  fields are deliberately unfrozen (arrays stage A3 legitimately changes classification). Rationale: `step-bad`
+  verified SAFE for twenty versions (v0.14.12–31) because nothing froze the showcased refutations; that class of
+  silent loss now fails CI loudly.
+
+### Added — two new examples
+
+- **`examples/total-recursion/`** — the first `(decreases …)` presence in `examples/`: `sum-to` verifies **total**
+  (termination discharged, strict-core admits the recursion, no `termination_unverified` flag) and the
+  byte-identical-body `sum-to-bad-measure` twin fails on the distinct termination channel
+  (`decreases-condition`/`descent-condition … not verified`; `measure-not-decreasing` drift stamp).
+- **`examples/bytes-bounds/`** — the LEVER-A1 witness: `read-at` with the correct `<` bound is SAFE including under
+  `--strict-verified-core`; the off-by-one twin (`<=`) and an out-of-range `bytes-set` (value 300) are refuted at
+  their call sites. Its README names the stage-A3 reporting caveat; this example is A3's acceptance fixture.
+
+### Fixed — runbook claim re-check (post-ENUM-EQ-FALLBACK)
+
+- Every claimed verdict in the tcp_rfc793/session-pay runbooks and scope docs re-reproduced verbatim against the
+  shipped binary; fixes were cosmetic drift only (output path prefixes, one fragment-name imprecision, banned-word
+  headings). LLMLL.md §4.2 gains one sentence mapping the `measure-not-decreasing` verdict name to its CLI
+  constraint messages.
+- Found and tracked (not fixed): TERM-REPORT-PLAIN — the plain (non-strict) trust-report path misses same-run
+  descent marks (roadmap row; strict-core and CDP paths are correct).
+
+**Tests:** 1199 Haskell, 45 Python (examples/scripts-only change); `make refute-crux-gate` 22/22.
+
 ## v0.14.34 — LEVER-A1: `bytes[n]` obligations discharge statically (2026-07-11)
 
 ### Added — the array class enters `Σ_auto` (Lever A stage A1)
