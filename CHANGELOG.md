@@ -4,6 +4,32 @@
 
 <a id="Latest"></a>
 
+## v0.14.33 — LEVER-A0: the bytes/map operation family, verification-inert (2026-07-11)
+
+### Added — eight bytes/map builtins (Lever A stage A0)
+
+- **`bytes-length` / `bytes-get` / `bytes-set` / `bytes-zero` and `map-has` / `map-get` / `map-put` / `map-empty`
+  ship as typed, compilable, runnable builtins** (LLMLL.md §13.12) — the surface stage of the data-scope Lever A
+  design ([`docs/design/data-scope-lever-a-arrays-proposal.md`](docs/design/data-scope-lever-a-arrays-proposal.md),
+  Rev 1.1). Reads carry PROVE-polarity preconditions (index-in-bounds, key-presence) enforced at this stage as
+  runtime assertions in the generated code (the §5.3.4 backstop) — a violating `bytes-get` aborts with
+  `index 9 out of bounds for bytes[8]`. Typing is dedicated (`inferArrayOp`): the v1 **int-only map-key gate** is a
+  diagnostic on the operation (the `map[k,v]` type former stays unrestricted), `bytes-set` is length-preserving,
+  and `(bytes-zero)` is legal only as the whole body of a `def`/`def-shell` with a literal `-> bytes[n]` return
+  (the return type determines `n`; no let-annotation surface exists to widen the context — routed to
+  language-team).
+- **Verification-inert, demonstrated:** no FixpointEmit/classifier/sort-env change; an 85-file `examples/` sweep
+  shows 0 verify-output diffs and 0 emitted-`.fq` byte diffs; contracts mentioning the ops classify out-of-fragment
+  and route through the §5.3.3 fallback exactly as any opaque builtin does today. Reflection into VCs is stage A1
+  (`bytes[n]`) / A2 (`map`).
+- Found en route (pre-existing, tracked as RUN-EXEC, not fixed here): `llmll run` never passes the executable name
+  to `stack exec`, so argument-less programs fail with stack usage text.
+
+**Tests:** 1190 Haskell, 45 Python (+9: `LEVER-A0` block — eight-op acceptance, key-gate diagnostic + type-former
+legality, non-bytes arg rejection, `bytes-zero` context rule both ways, `bytes[n]` preservation, classifier
+`non_qf_lia`, codegen seams/shims, emission fallback-no-crash). E2e: an eight-op program builds and prints the
+designed `208042`; both precondition assertions fire on violating calls.
+
 ## v0.14.32 — checkout `assumptions` v2b: match-scrutinee case hypotheses + nullary-enum refutation restored (ENUM-EQ-FALLBACK) (2026-07-11)
 
 ### Checkout brief — `assumptions` gains match-scrutinee case hypotheses (OBLIG-1 v2b)

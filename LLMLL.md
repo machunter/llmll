@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.32)
+# LLMLL: Large Language Model Logical Language (v0.14.33)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.32.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.33.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -144,6 +144,8 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | `Command` | An IO effect (see §9) | _(constructed via capability constructors only)_ |
 
 > `Command` is opaque — only produced by the standard command constructors (§13.9). Currently emitted as Haskell `IO ()`. Capability enforcement (§7) requires a matching `(import wasi.* (capability ...))` for any `wasi.*` call.
+
+> `bytes[n]` and `map[k,v]` have a builtin operation family — indexing, update, presence, construction — catalogued in §13.12.
 
 
 ### 3.3 Algebraic Sum Types (Custom Variants)
@@ -2437,5 +2439,22 @@ Cryptographic builtins are **opaque primitives** — the compiler does not attem
 `:source` (§4.6) is grammatically a suffix on a `(pre ...)`/`(post ...)` clause — it cannot appear bare in a body. `hmac-sha1-wrap` has no `pre`/`post` predicate to attach it to (it's unconditionally trusted via `weakness-ok`, not a contract), so RFC provenance here lives in the `weakness-ok` reason string instead — matching the real fixture, [`examples/totp_rfc6238/totp_filled.ast.json`](examples/totp_rfc6238/totp_filled.ast.json).
 
 The `weakness-ok` declaration acknowledges that the wrapper has no meaningful contract — its correctness rests entirely on the axiomatically assumed `hmac-sha1` builtin.
+
+### 13.12 Bytes and Map Operations
+
+Operations over the compound types `bytes[n]` and `map[k,v]` (§3.2). Reads carry **PROVE-polarity preconditions** — the caller owes the obligation (there is no `Result`-wrapped read form). The preconditions are enforced as runtime assertions (§5.3.4 backstop); these operation names are not yet reflected into verification conditions, so a contract mentioning them classifies out-of-fragment and routes through the §5.3.3 fallback (static discharge is the roadmap's data-scope extension track).
+
+| Function | Signature | Precondition | Notes |
+|----------|-----------|--------------|-------|
+| `bytes-length` | `bytes[n] → int` | — | Returns `n`. |
+| `bytes-get` | `bytes[n] int → int` | `0 ≤ i < n` | The byte at index `i` (`0–255`). |
+| `bytes-set` | `bytes[n] int int → bytes[n]` | `0 ≤ i < n` | Functional update; length-preserving. |
+| `bytes-zero` | `→ bytes[n]` | — | All-zero buffer. Legal only as the whole body of a `def`/`def-shell` whose declared return is a literal `bytes[n]` — the return type determines `n`. |
+| `map-has` | `map[int,v] int → bool` | — | Key-presence test. |
+| `map-get` | `map[int,v] int → v` | `(map-has m k)` | Read of a present key. |
+| `map-put` | `map[int,v] int v → map[int,v]` | — | Functional update. |
+| `map-empty` | `→ map[k,v]` | — | Empty map; type from context. |
+
+**Map keys are `int` in v1** — a map operation at any other key type is a typechecker diagnostic on the *operation*; the `map[k,v]` type former itself is unrestricted.
 
 ---
