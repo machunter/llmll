@@ -4,6 +4,31 @@
 
 <a id="Latest"></a>
 
+## v0.14.41 — LEVER-A2.1: map discharge covers read-modify-write, cross-module, and map-returning shapes (2026-07-12)
+
+### Added — three map-discharge deferrals lifted (Lever A stage A2.1)
+
+- **Read-modify-write map bodies discharge.** `(map-put m k (+ (map-get m k) 1))` — the most common map shape —
+  now verifies: `mapRetChain` peels a straight-line let-spine of `map-get`s and scalar defs terminating in a pure
+  map term, each `map-get` emitting its presence PROVE obligation and an exact pin. Crux: the RMW post verifies,
+  the wrong-increment twin refutes, and an RMW on an unproven key refutes at the inner `map-get`.
+- **Cross-module map assume-guarantee discharges.** A contracted callee whose pre/post mentions map ops now
+  participates in the caller's VC via component-aware `p$has`/`p$val` → caller-component substitution. A caller that
+  proves the callee's `(map-has m k)` precondition verifies; **a caller that does not proves refutes at the call
+  site** — the earlier development state where this bad twin wrongly passed (a shared-name substitution
+  false-positive) was the dropped-obligation bug this stage had to close, and it does. Map-returning callee results
+  (`result$has`/`result$val`) participate too.
+- **Infrastructure:** a new `FQMapArr` sort constructor distinguishes map returns from bytes returns at the Haskell
+  level (both were `FQArr FQInt FQInt`, so map-return guards misfired on bytes returns and had broken an A1 crux)
+  while rendering **identically** to `(Map_t int int)` in `.fq` — a 68-file sweep is byte-identical to v0.14.40.
+- **Still deferred (A2.2):** string/bool-**valued** maps fall back whole — bool values are solver-feasible via an
+  int-0/1 bridge (probe-confirmed) but need value-path threading; string values need `Str`-EUF value arrays.
+
+**Tests:** 1226 Haskell, 45 Python (+4: cross-call emission + solver crux, RMW emission + solver crux,
+deferred-residue whole-fallback). `make refute-crux-gate` 26/26. The `extractQualifiers` watch-item was
+investigated and is correct as-is (array preds are caught by the existing free-symbol guard; body VCs are fully
+path-enumerated, so qualifiers only feed wf-inference).
+
 ## v0.14.40 — CLASSIFY-MEASURE: the obligation classifier is now literally the emitter (2026-07-12)
 
 ### Fixed — classifier–emitter drift closed by construction
