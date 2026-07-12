@@ -284,3 +284,26 @@ Professor review: [`data-scope-lever-a-arrays-review.md`](data-scope-lever-a-arr
 | **Syntax check** (review's out-of-scope note) | **Checked.** The proposal's `bytes[64]`/`map[…,…]` spellings match the §12 grammar exactly (`bytes-type = "bytes" "[" INT "]"`, `map-type = "map" "[" type "," type "]"`, `LLMLL.md:1959–1965`) and the §3.2 table (`:135–140`). No reconciliation needed; §11's key-type change is the F2 disposition, not a spelling fix. |
 
 Rev 0's "Open questions for the professor" section is retired: Q1 → F9, Q2 → F8, both resolved as proposed.
+
+### Addendum (2026-07-12): `bytes-zero` determining-context rule — v1 narrowing BLESSED
+
+The A0 implementation shipped a determining context **narrower** than §2's row ("`n` inferred from
+usage — the `list-empty` precedent"): `(bytes-zero)` is legal only as the **whole body** of a
+`def`/`def-shell` whose declared return is a literal `bytes[n]` (`TypeCheck.hs:967-1004`, the two
+dispatch arms; bare occurrences elsewhere are a type error naming the rule). The language team
+records this narrowing as the **v1 design**, superseding the §2 prose, on three grounds. (1) The
+`list-empty` precedent does not transfer: a list's element type is a `TVar` the unifier can solve,
+while a `bytes` length is an `Int` index outside unification — "inferred from usage" has no
+mechanism in the shipped infer-then-unify checker, which carries no expected-type flow into `EApp`.
+(2) Neither parser accepts a type annotation on a `let` binding (`Parser.hs:712` — "could be added
+later"; the JSON-AST binding shape has no type field), so the natural mid-body determining context
+does not exist on any surface. (3) The narrowing costs a refactor, not expressiveness: a mid-body
+zero buffer is `(def zeros [] -> bytes[64] (bytes-zero))` away — a helper whose call site is
+body-faithful (A1 reflects the callee's constructed value through assume-guarantee). Two widening
+levers are recorded, unscheduled: **let-binding type annotations** (surface + JSON-AST binding
+schema delta — the smaller move, and independently useful) or **bidirectional expected-type flow
+into `EApp`** (a checker-architecture move; REF-META-5 deliberately chose local inference, so this
+lever re-opens a settled decision and needs its own proposal). Neither is justified by one
+constructor's ergonomics alone; revisit if agent-authored corpora show mid-body buffer construction
+at meaningful frequency. `map-empty` is unaffected (its type parameters are `TVar`s; the generic
+constructor path types it).
