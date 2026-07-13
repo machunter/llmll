@@ -4,6 +4,26 @@
 
 <a id="Latest"></a>
 
+## v0.14.42 — COVERAGE-TIER: `--spec-coverage` reports the same tiers as `--trust-report` (2026-07-12)
+
+### Fixed — coverage tiers now consistent with the trust report by construction
+
+- **`verify --spec-coverage` printed `Verified: 0` beside the same tree's `--trust-report` `verified: 3`.** Two
+  layers: the coverage call sites passed no evidence at all (`runCoverage … Map.empty`, a literal Sprint-3 TODO),
+  and even fed the sidecar, `computeSummary` counted `verified` as `isVer pre && isVer post` — so every verified
+  function, whose *own* precondition is `asserted` at its own site (it discharges at call sites, not in its body),
+  fell into the `asserted` bucket. Coverage now classifies on the trust report's per-function headline level (the
+  TRUST-PRE Position B rule — a precondition never floors the function's tier), via a new shared
+  `TrustReport.entryHeadlineLevel` extracted from the four sites that had the tier logic copied verbatim. Coverage
+  and trust tiers agree by construction, including the transitive-callee meet. A tree with no discharged sidecar
+  still shows `Verified: 0` (correct — nothing proven yet).
+- Same visit: a stale PBT multi-callee diagnostic told authors to "wait for `:subject` metadata in OBLIG-PBT-4"
+  though `:subjects [f g]` is shipped and working; the message now points at the shipped annotation.
+
+**Tests:** 1228 Haskell, 45 Python (+2: coverage-tier == trust-tier consistency on a verified-post/asserted-pre
+function; the 2-arg own-post fallback). No verdict movement; `make refute-crux-gate` 26/26. No schema or CLI-surface
+change.
+
 ## v0.14.41 — LEVER-A2.1: map discharge covers read-modify-write, cross-module, and map-returning shapes (2026-07-12)
 
 ### Added — three map-discharge deferrals lifted (Lever A stage A2.1)
