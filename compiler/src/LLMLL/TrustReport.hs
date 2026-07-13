@@ -33,6 +33,7 @@ module LLMLL.TrustReport
   , markMeasureNotDecreasing  -- REC-DESCENT: stamp measure-not-decreasing post-solver
   , markDescentDischarged  -- REC-DESCENT Phase 3: drop the mark for descent-discharged SCCs
   , sidecarDischargedSet   -- TERM-REPORT-PLAIN: persisted discharge for the render-only path
+  , entryHeadlineLevel  -- COVERAGE-TIER: the one per-function tier notion (post-side, met + joint-demoted)
   , refutedClosure     -- VERIFY-RPT-1: refuted ∪ transitive callers (strict-core gate)
   , injectOpenedAliases -- XMOD-CG-BRIEF: bare-alias opened imports in any qualified-keyed map
   , trustReportEmitVersion
@@ -993,6 +994,20 @@ demoteJointTested :: TrustEntry -> Maybe DisplayLevel -> Maybe DisplayLevel
 demoteJointTested e (Just (DLTested _)) | teJointPostWitness e = Just DLAsserted
 demoteJointTested _ lvl                                        = lvl
 
+-- | COVERAGE-TIER: the single per-function tier notion the summary classifies
+-- on. TRUST-PRE (Position B): the post-side effective level ('teEffectivePostLevel',
+-- already met against transitive callees' posts and excluding 'csPre'), falling
+-- back to the own raw post when no effective level was computed, then joint-tested
+-- demoted (OBLIG-PBT-5a). This is the value that produces the trust-report
+-- 'verified'/'contract-checked'/'tested'/'asserted' summary — 'computeSummary'
+-- and the JSON 'effective_level' both go through it, and 'SpecCoverage' consumes
+-- it (via Main) so '--spec-coverage' tiers agree with '--trust-report' by
+-- construction rather than by a parallel recount.
+entryHeadlineLevel :: TrustEntry -> Maybe DisplayLevel
+entryHeadlineLevel e = demoteJointTested e $ case teEffectivePostLevel e of
+                         Just lvl -> Just lvl
+                         Nothing  -> fmap erDisplayLevel (tePost e)
+
 -- ---------------------------------------------------------------------------
 -- TRUST-PRE (Part 2): caller-obligation axis
 -- ---------------------------------------------------------------------------
@@ -1115,9 +1130,7 @@ computeSummary entries =
   -- consumers want the post-side notion); there is no longer a pre-inclusive
   -- whole-function meet anywhere.
   -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted at classify time.
-  let classify e = demoteJointTested e $ case teEffectivePostLevel e of
-                     Just lvl -> Just lvl
-                     Nothing  -> fmap erDisplayLevel (tePost e)
+  let classify e = entryHeadlineLevel e  -- COVERAGE-TIER: shared per-function tier
       verified = length [e | e <- entries, isVer (classify e)]
       contractChecked = length [e | e <- entries, isCC (classify e)]
       tested   = length [e | e <- entries, isTst (classify e)]
@@ -1156,9 +1169,7 @@ aggregateTiers entries =
   -- callees' pres floor its tier (all on the caller_obligations axis); a weak
   -- post — own or inherited from a callee — is still respected.
   -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted before classify.
-  let classify e = demoteJointTested e $ case teEffectivePostLevel e of
-                     Just lvl -> Just lvl
-                     Nothing  -> fmap erDisplayLevel (tePost e)
+  let classify e = entryHeadlineLevel e  -- COVERAGE-TIER: shared per-function tier
   in classifyToProfile classify entries
 
 -- | OBLIG-PBT-3: per-pre-clause tier profile. Each entry contributes by
@@ -1183,9 +1194,7 @@ aggregateTiersPost entries =
   -- OBLIG-PBT-5a: demote joint-only DLTested to DLAsserted before classify.
   -- This is the aggregate the H1-Assurance discriminator consumes; joint
   -- credit must not inflate 'tpTested' here.
-  let classify e = demoteJointTested e $ case teEffectivePostLevel e of
-                     Just lvl -> Just lvl
-                     Nothing  -> fmap erDisplayLevel (tePost e)
+  let classify e = entryHeadlineLevel e  -- COVERAGE-TIER: shared per-function tier
   in classifyToProfile classify entries
 
 -- | Shared classification kernel for the three aggregate functions.
@@ -1362,9 +1371,7 @@ formatTrustReportJson report =
     maybeERs e   = maybeToList (tePre e) ++ maybeToList (tePost e)
     -- TRUST-PRE: the headline tier = the Position-B post-side level, with the
     -- OBLIG-PBT-5a joint-only demotion applied, identical to 'computeSummary'.
-    headlineLevel e = demoteJointTested e $ case teEffectivePostLevel e of
-                        Just lvl -> Just lvl
-                        Nothing  -> fmap erDisplayLevel (tePost e)
+    headlineLevel e = entryHeadlineLevel e  -- COVERAGE-TIER: shared per-function tier
     entryJson e = object $
       [ "name"       .= teName e
       , "pre_level"  .= fmap (dlLabel . erDisplayLevel) (tePre e)

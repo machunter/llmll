@@ -838,7 +838,7 @@ processRun contractByName qualMap propsByDesc delegateBodies run =
                         let diag = "property \"" <> desc
                                  <> "\" covers multiple contracted callees ("
                                  <> T.intercalate ", " fs
-                                 <> "); no trust evidence recorded — split the property or wait for :subject metadata in OBLIG-PBT-4"
+                                 <> "); no trust evidence recorded — split the property or add an explicit ':subject f' / ':subjects [f₁ … fₖ]' annotation"
                         in (Map.empty, [diag])
     PBTFailed -> (Map.empty, ["property \"" <> pbtDescription run <> "\" failed; no trust evidence recorded"])
     PBTSkipped -> (Map.empty, [])

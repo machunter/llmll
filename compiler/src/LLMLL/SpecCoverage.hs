@@ -18,6 +18,7 @@ module LLMLL.SpecCoverage
   , LawEntry(..)
     -- * Core API
   , runCoverage
+  , runCoverageWithLevels   -- COVERAGE-TIER: classify tiers on trust-report headline levels
   , classifyFunction
     -- * Formatting
   , formatCoverageText
@@ -51,8 +52,14 @@ data FunctionClass
 data FunctionEntry = FunctionEntry
   { feName      :: Name              -- ^ Function name
   , feClass     :: FunctionClass     -- ^ Classification
-  , fePreLevel  :: Maybe DisplayLevel  -- ^ From sidecar
-  , fePostLevel :: Maybe DisplayLevel  -- ^ From sidecar
+  , fePreLevel  :: Maybe DisplayLevel  -- ^ From sidecar (own pre evidence — display only)
+  , fePostLevel :: Maybe DisplayLevel  -- ^ From sidecar (own post evidence — display only)
+  , feHeadlineLevel :: Maybe DisplayLevel
+    -- ^ COVERAGE-TIER: the tier the summary counts on — the trust report's
+    -- per-function headline level ('TrustReport.entryHeadlineLevel'), so
+    -- '--spec-coverage' agrees with '--trust-report' by construction. TRUST-PRE
+    -- (Position B): a function's own pre never floors its tier, so this is the
+    -- post-side effective level, not @isVer pre && isVer post@.
   , feReason    :: Maybe Text        -- ^ weakness-ok reason (if suppressed)
   } deriving (Show, Eq)
 
@@ -106,8 +113,33 @@ classifyFunction contract hasSuppression _reason
 
 -- | Build a spec coverage report from statements and sidecar data.
 -- Pure function — Main.hs handles IO.
+--
+-- COVERAGE-TIER: the 2-arg form derives each function's tier from its OWN
+-- persisted post level (the sidecar 'csPost'), with no transitive-callee meet.
+-- Main uses 'runCoverageWithLevels' with the trust report's headline levels so
+-- the summary matches '--trust-report' even when a callee downgrades a caller's
+-- effective post. Callers that only have the raw sidecar (e.g. the pure-function
+-- tests) use this form.
 runCoverage :: [Statement] -> Map Name ContractStatus -> CoverageReport
 runCoverage stmts csMap =
+  runCoverageWithLevels stmts csMap (ownPostLevels csMap)
+
+-- | COVERAGE-TIER: own post display level per function, the 2-arg fallback for
+-- callers without a trust report. Post-side (TRUST-PRE Position B) — the pre is
+-- never consulted for the tier.
+ownPostLevels :: Map Name ContractStatus -> Map Name DisplayLevel
+ownPostLevels csMap =
+  Map.fromList [ (n, erDisplayLevel er)
+               | (n, cs) <- Map.toList csMap
+               , Just er <- [csPost cs] ]
+
+-- | COVERAGE-TIER: classify tiers on an explicit per-function headline-level map
+-- (from 'TrustReport.entryHeadlineLevel'), so '--spec-coverage' agrees with
+-- '--trust-report' by construction. The contracted/suppressed/unspecified
+-- CLASS still comes from the contract shape; only the tier COUNT comes from the
+-- levels.
+runCoverageWithLevels :: [Statement] -> Map Name ContractStatus -> Map Name DisplayLevel -> CoverageReport
+runCoverageWithLevels stmts csMap levelMap =
   let -- Extract suppressions (SWeaknessOk) — deduplicated by name (WO-3)
       suppressions = nub [(n, r) | SWeaknessOk n r <- stmts]
       suppMap = Map.fromList suppressions
@@ -116,7 +148,7 @@ runCoverage stmts csMap =
       functions = extractFunctions stmts
 
       -- Classify each function
-      entries = map (classifyEntry suppMap csMap) functions
+      entries = map (classifyEntry suppMap csMap levelMap) functions
 
       -- v0.6.2: Extract interface law counts
       lawEntries = [ LawEntry ifName (length laws)
@@ -173,10 +205,11 @@ extractFunctions stmts =
 -- | Classify a single function and build its coverage entry.
 classifyEntry
   :: Map Name Text           -- ^ suppression map (name -> reason)
-  -> Map Name ContractStatus -- ^ sidecar data
+  -> Map Name ContractStatus -- ^ sidecar data (own pre/post evidence, display)
+  -> Map Name DisplayLevel   -- ^ COVERAGE-TIER: headline level for the tier count
   -> (Name, Contract)        -- ^ (function name, contract)
   -> FunctionEntry
-classifyEntry suppMap csMap (name, contract) =
+classifyEntry suppMap csMap levelMap (name, contract) =
   let hasSuppression = Map.member name suppMap
       reason = Map.lookup name suppMap
       cls = classifyFunction contract hasSuppression reason
@@ -188,6 +221,7 @@ classifyEntry suppMap csMap (name, contract) =
        , feClass     = cls
        , fePreLevel  = preLevel
        , fePostLevel = postLevel
+       , feHeadlineLevel = Map.lookup name levelMap
        , feReason    = reason
        }
 
@@ -211,13 +245,18 @@ computeSummary entries =
       suppDebt    = if total == 0
                     then 0.0
                     else fromIntegral (length suppressed) / fromIntegral total
-      -- Count by evidence level within contracted
-      verified = length [e | e <- contracted, isVer (fePreLevel e) && isVer (fePostLevel e)]
-      contractChecked = length [e | e <- contracted, isCC (fePreLevel e) || isCC (fePostLevel e)
-                                                    , not (isVer (fePreLevel e) && isVer (fePostLevel e))]
-      tested   = length [e | e <- contracted, isTst (fePreLevel e) || isTst (fePostLevel e)
-                                             , not (isVer (fePreLevel e) && isVer (fePostLevel e))
-                                             , not (isCC (fePreLevel e) || isCC (fePostLevel e))]
+      -- COVERAGE-TIER: count by the trust-report headline level ('feHeadlineLevel'),
+      -- the same per-function tier 'TrustReport.computeSummary' classifies on
+      -- ('entryHeadlineLevel'). Post-side only (TRUST-PRE Position B): a function's
+      -- own pre is 'asserted' at its own site and must not floor its tier — the
+      -- prior @isVer pre && isVer post@ conjunct counted every verified function
+      -- as asserted (COVERAGE-TIER, F-1982-1).
+      verified = length [e | e <- contracted, isVer (feHeadlineLevel e)]
+      contractChecked = length [e | e <- contracted, isCC (feHeadlineLevel e)
+                                                    , not (isVer (feHeadlineLevel e))]
+      tested   = length [e | e <- contracted, isTst (feHeadlineLevel e)
+                                             , not (isVer (feHeadlineLevel e))
+                                             , not (isCC (feHeadlineLevel e))]
       asserted = length contracted - verified - contractChecked - tested
   in CoverageSummary
        { csContracted = length contracted

@@ -79,7 +79,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -92,7 +92,7 @@ import LLMLL.CDP
 import LLMLL.AgentSpec (agentSpecJSON, agentSpecText)
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, WeaknessCandidate(..), wcSyntheticName)
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson)
-import LLMLL.SpecCoverage (runCoverage, formatCoverageText, formatCoverageJson)
+import LLMLL.SpecCoverage (runCoverage, runCoverageWithLevels, formatCoverageText, formatCoverageJson)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, descentDischargedFns, exprToSExpr, importedContractedFns)
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
 import LLMLL.HoleAnalysis (enclosingFunc)
@@ -1251,7 +1251,19 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- '--spec-coverage' (the common case — a fast syntactic check with no
       -- solver dependency) keeps its existing early-exit behavior unchanged.
       when (specCoverage && not strictVerify) $ do
-        let coverageReport = runCoverage stmts Map.empty  -- TODO: load sidecar in Sprint 3
+        -- COVERAGE-TIER (F-1982-1): classify coverage tiers on the same
+        -- persisted, staleness-gated sidecar evidence '--trust-report' reads
+        -- ('entrySidecar', loaded+gated above), via the trust report's per-function
+        -- headline levels — so '--spec-coverage' reports 'verified' where the
+        -- trust report does, instead of the prior 'Map.empty' (everything
+        -- 'asserted'). No solver runs here; 'buildTrustReport' is pure and only
+        -- reads the sidecar + computes the call-graph meet. No sidecar on disk →
+        -- empty map → tiers all 'asserted', which is correct (nothing proven yet).
+        let covTrust = buildTrustReport _cache stmts entrySidecar
+            covLevels = Map.fromList [ (teName e, l)
+                                     | e <- trEntries covTrust
+                                     , Just l <- [entryHeadlineLevel e] ]
+            coverageReport = runCoverageWithLevels stmts entrySidecar covLevels
         if json
           then TIO.putStrLn (formatCoverageJson coverageReport)
           else TIO.putStr (formatCoverageText coverageReport)
@@ -1626,7 +1638,18 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- section from whichever exit point below is actually taken —
           -- '--cdp'/'--trust-report' combinations exit at more than one site.
           let printDeferredCoverage = when (specCoverage && strictVerify) $ do
-                let coverageReport = runCoverage stmts Map.empty
+                -- COVERAGE-TIER (F-1982-1): the solver has run and written the
+                -- sidecar; classify tiers on it (staleness-gated) via the trust
+                -- report's headline levels, so the trailing coverage section
+                -- agrees with the trust report printed alongside it — not the
+                -- prior 'Map.empty' (every function 'asserted').
+                covSidecarRaw <- loadVerified fp
+                let (covSidecar, _) = downgradeStaleVerifiedSidecar stmts covSidecarRaw
+                    covTrust = buildTrustReport _cache stmts covSidecar
+                    covLevels = Map.fromList [ (teName e, l)
+                                             | e <- trEntries covTrust
+                                             , Just l <- [entryHeadlineLevel e] ]
+                    coverageReport = runCoverageWithLevels stmts covSidecar covLevels
                 if json
                   then TIO.putStrLn (formatCoverageJson coverageReport)
                   else TIO.putStr (formatCoverageText coverageReport)

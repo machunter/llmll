@@ -46,7 +46,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -81,7 +81,7 @@ import LLMLL.CDP
   ( CDPResult(..), CDPWarning(..), CDPScope(..)
   , computeCDPFor, overAnnotationRatio, overAnnotationThreshold
   , cdpWarningLabel )
-import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, formatCoverageJson, formatCoverageText)
+import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
 import Data.Time.Calendar (fromGregorian)
@@ -5627,6 +5627,38 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                    ]
           report = runCoverage stmts emptyCS
       csTotal (crSummary report) `shouldBe` 1
+
+    -- COVERAGE-TIER (F-1982-1): a function's own pre is 'asserted' at its own
+    -- site (discharged at call sites, not its body), so the prior
+    -- @isVer pre && isVer post@ tier count reported every verified function as
+    -- 'asserted' — coverage said Verified:0 while --trust-report said verified:3
+    -- on the same tree. Tiers now classify on the post-side headline level
+    -- (TRUST-PRE Position B), matching the trust summary by construction.
+    it "COVERAGE-TIER: verified post + asserted pre counts verified, matching --trust-report" $ do
+      let stmts = [ SDefLogic "f" [("x", TInt)] (Just TInt) withPost (EVar "x") ]
+          preEr  = EvidenceRecord DLAsserted True Nothing [] False Nothing Nothing False Nothing False
+          postEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False
+          sidecar = Map.fromList [("f", ContractStatus (Just preEr) (Just postEr) [])]
+          trust  = buildTrustReport Map.empty stmts sidecar
+          levels = Map.fromList [ (teName e, l)
+                                | e <- trEntries trust, Just l <- [entryHeadlineLevel e] ]
+          cov    = runCoverageWithLevels stmts sidecar levels
+      csVerified (crSummary cov) `shouldBe` 1
+      csAsserted (crSummary cov) `shouldBe` 0
+      -- consistent by construction: coverage 'verified' == trust 'verified'
+      csVerified (crSummary cov) `shouldBe` tsVerified (trSummary trust)
+
+    -- COVERAGE-TIER: the 2-arg runCoverage (own-post fallback, used by callers
+    -- without a trust report) classifies the same post-side way — a verified
+    -- post is 'verified' regardless of the pre level.
+    it "COVERAGE-TIER: 2-arg runCoverage own-post fallback counts a verified post verified" $ do
+      let stmts = [ SDefLogic "f" [("x", TInt)] (Just TInt) withPost (EVar "x") ]
+          preEr  = EvidenceRecord DLAsserted True Nothing [] False Nothing Nothing False Nothing False
+          postEr = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False
+          sidecar = Map.fromList [("f", ContractStatus (Just preEr) (Just postEr) [])]
+          cov     = runCoverage stmts sidecar
+      csVerified (crSummary cov) `shouldBe` 1
+      csAsserted (crSummary cov) `shouldBe` 0
 
   -- =========================================================================
   -- v0.6.2: Interface Laws Tests (LAWS-8)
