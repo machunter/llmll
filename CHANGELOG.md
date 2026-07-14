@@ -4,6 +4,33 @@
 
 <a id="Latest"></a>
 
+## v0.14.44 — STRLIT: string literals reflect into `Σ_auto` via interned constants + distinctness (2026-07-14)
+
+### Added — string-literal equality/distinctness discharges (was Advisory)
+
+- **String literals now reflect.** A string literal reflects to a content-interned nullary `Str` constant
+  (`strlitConst`: each code point → fixed-width 6-hex, **injective** and sanitize-stable, so distinct literals
+  never collide post-`sanitizeFQId` — a collision would be a false verify, so never a hash), and a ground
+  pairwise-distinctness fact `c_i /= c_j` is conjoined over the occurring literal constants
+  (`injectStrLitDistinct`, a pure per-constraint pass mirroring `injectRangeFacts`, over LHS ∪ RHS, distinct
+  pairs only). Contracts like `(= method "GET")`, `pre (= s "admin")`, and string-tag / enum-as-string patterns
+  now **verify or refute** instead of routing to Advisory. The reflection flip and the distinctness pass land
+  atomically: the flip alone is UNSAFE-unsound (a model identifying two literals spuriously refutes — §6.1 F2).
+  Classifier follows by construction (`isQfLia = isJust . exprToPred`).
+- **String params compared to a literal get an `FQStr` carrier binder** (`strEqOperandVars` widens the NIW
+  measure-carrier mechanism) — else the reflected `s = strlit_…` carries a free var and the solver rejects it.
+- **The injective encoding is soundness-load-bearing.** `"a-b"` and `"a_b"` intern to *distinct* constants
+  (`strlit_…2d…` vs `strlit_…5f…`); a naive `-→_` escape would collapse them into a false verify.
+  Probe-confirmed on the pinned fixpoint (nullary `Str` constant + `/=`, both verdicts).
+- **Scope:** Stage 1 (reflection + distinctness). Literal-length pinning is **Stage 2 (deferred — the next
+  step)**; string *structure* (concat / substr / regex) stays out (undecidable — word equations with length is
+  open). Design record: `docs/design/string-literal-distinctness-proposal.md` (Rev 1).
+
+**Tests:** 1241 Haskell, 45 Python (+6 STRLIT: emission, distinctness crux, literal/variable no-fact, duplicate
+literal, injectivity/collision-avoidance, no-op; `CM-1`/`CM-3` retargeted — they codified the old
+string-literals-out classification, now flipped; `CM-4` classify==emitter meta-test unchanged). No schema or
+CLI-surface change. `make refute-crux-gate` 26/26.
+
 ## v0.14.43 — LEVER-A2.2: bool-valued maps discharge via the int-0/1 value bridge (2026-07-13)
 
 ### Added — `map[int,bool]` joins the array-encoded map class
