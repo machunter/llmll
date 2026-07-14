@@ -106,7 +106,8 @@ import Data.List (nub, partition)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
 import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
-import Data.Char (isUpper)
+import Data.Char (isUpper, ord)
+import Numeric (showHex)
 import Data.Graph (stronglyConnComp, SCC(..))
 
 import LLMLL.Syntax
@@ -376,7 +377,10 @@ emitFixpointWithCache opts srcFile cache stmts = do
   -- NIW (v0.12): inject ground measure range facts (m t >= 0) per occurring
   -- measure-term at the single point all constraints flow through. No-op when a
   -- constraint contains no FQApp, so measure-free .fq output is byte-identical.
-  let addConst c  = modifyIORef' constsRef (++ [injectRangeFacts c])
+  -- STRLIT: injectStrLitDistinct conjoins pairwise string-literal distinctness,
+  -- composed with the measure/byte range facts at the single choke point. Pure,
+  -- constraint-derived (no per-function state); byte-inert without string literals.
+  let addConst c  = modifyIORef' constsRef (++ [injectStrLitDistinct (injectRangeFacts c)])
   let addQuals qs = modifyIORef' qualsRef (++ qs)
   let addData  d  = modifyIORef' dataRef  (++ [d])
   let addSkip  n  = modifyIORef' skippedRef (++ [n])
@@ -494,13 +498,20 @@ emitFixpointWithCache opts srcFile cache stmts = do
       -- solver (native map theory) — declaring them as UF constants would
       -- shadow the theory. Excluded from the sweep like datatype ctors.
       arrayTheorySyms = Set.fromList ["Map_select", "Map_store", "Map_default"]
-      usedMeasures = (Set.unions $
+      allAppNames = Set.unions $
            [ Set.union (appNames (reftPred (conLhs c))) (appNames (reftPred (conRhs c)))
            | c <- consts ]
         ++ [ appNames (reftPred (bindReft b)) | b <- binds ]
-        ++ [ appNames (qualBody q) | q <- quals ]) Set.\\ ctorNames Set.\\ arrayTheorySyms
+        ++ [ appNames (qualBody q) | q <- quals ]
+      -- STRLIT: interned string-literal constants are NULLARY Str constants, not
+      -- [Str]->int measure UFs — declare them separately and exclude them from the
+      -- measure sweep (else measureConstant's default mis-declares them as unary
+      -- functions and the solver sort-mismatches).
+      strLitNames  = Set.filter ("strlit_" `T.isPrefixOf`) allAppNames
+      strLitConsts = [ FQConstant n [] FQStr | n <- Set.toList strLitNames ]
+      usedMeasures = allAppNames Set.\\ ctorNames Set.\\ arrayTheorySyms Set.\\ strLitNames
       measureConsts = map measureConstant (Set.toList usedMeasures)
-  let fqFile = FQFile measureConsts dataDecs quals binds consts
+  let fqFile = FQFile (measureConsts ++ strLitConsts) dataDecs quals binds consts
   return EmitResult
     { erFQFile            = fqFile
     , erFQText            = emitFQFile fqFile
@@ -639,7 +650,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         -- F-NIW-2: carrier vars passed as arguments to a measure-refined callee
         -- param need binding too, so the emitted call-pre obligation references
         -- an in-scope symbol (intro-side).
-        , maybe Set.empty (collectCallArgCarrierVars aliases cenv) mBody ]
+        , maybe Set.empty (collectCallArgCarrierVars aliases cenv) mBody
+        -- STRLIT: string params compared against a string literal now reflect and
+        -- need an in-scope FQStr carrier binder (contract clauses only — the body
+        -- side already binds via its own VC machinery, per the `pos` witness).
+        , maybe Set.empty strEqOperandVars (contractPre contract)
+        , maybe Set.empty strEqOperandVars (contractPost contract) ]
       measureParams = [ (n, t) | (n, t) <- params
                       , n `Set.member` measureVars
                       , isMeasureSort aliases t
@@ -1620,6 +1636,17 @@ boolValLit (ELit (LitBool True))  = Just (FQLit 1)
 boolValLit (ELit (LitBool False)) = Just (FQLit 0)
 boolValLit _                      = Nothing
 
+-- | STRLIT (Stage 1): the interned nullary Str-constant NAME of a string literal.
+-- Each code point is fixed-width 6-hex (@ord c@ ≤ U+10FFFF fits in 6 hex digits),
+-- so 'strlitConst' is INJECTIVE and its output lives entirely in the sanitize-
+-- stable alphabet @[0-9a-f_]@ — 'sanitizeFQId' (FixpointIR:238, non-injective) is
+-- the identity on it, so two distinct literals never collide post-sanitize. A
+-- collision would identify distinct literals → a FALSE VERIFY; hence NEVER a hash.
+-- The empty string interns to bare @strlit_@ (distinct from every non-empty literal).
+strlitConst :: Text -> Text
+strlitConst s = "strlit_" <> T.concat [ pad6 (ord c) | c <- T.unpack s ]
+  where pad6 n = T.justifyRight 6 '0' (T.pack (showHex n ""))
+
 -- | LEVER-A2.2: the int-0/1 tag of a bool literal (true→1, false→0).
 boolTag :: Bool -> Integer
 boolTag b = if b then 1 else 0
@@ -2247,6 +2274,12 @@ exprToPred (EVar v)
 exprToPred (ELit (LitInt n)) = Just (FQLit n)
 exprToPred (ELit (LitBool True))  = Just FQTrue
 exprToPred (ELit (LitBool False)) = Just FQFalse
+-- STRLIT (Stage 1): a string literal reflects to a content-interned nullary Str
+-- constant. SOUND ONLY paired with injectStrLitDistinct, which conjoins pairwise
+-- `/=` over occurring literal constants — the flip alone is UNSAFE-unsound (a model
+-- identifying "a"="b" spuriously refutes; §6.1 F2). Term-vs-term string equality
+-- already reflected; this closes the literal gap.
+exprToPred (ELit (LitString s)) = Just (FQApp (strlitConst s) [])
 -- | LEVER-A2.2 get-comparison bridge (well-sortedness): a bool-valued
 -- @(map-get m k)@ compared against a bool literal reflects the value select
 -- against the int-0/1 tag — @FQEq (Map_select …) (FQLit 0/1)@ — never the
@@ -3451,6 +3484,31 @@ lexLess gs  fs  = FQOr [ mkTerm i | i <- [0 .. length gs - 1] ]
 -- (string-length / list-length) anywhere in an expression. Drives which non-int
 -- params need an opaque carrier binder, preserving byte-identical .fq output for
 -- measure-free functions.
+-- | STRLIT (Stage 1): variables appearing as a direct operand of an @=@/@!=@
+-- comparison. After the 'exprToPred' @LitString@ flip, a string param compared
+-- against a string literal reflects (@s = strlit_…@), so it must be an in-scope
+-- @FQStr@ carrier binder or the solver rejects a free var. Collected into
+-- 'measureVars'; the 'measureParams' 'isMeasureSort' gate then binds only the
+-- string/list ones (int operands are already bound via 'intParams'; list operands
+-- get a harmless unused carrier).
+strEqOperandVars :: Expr -> Set.Set Name
+strEqOperandVars e = case e of
+  EApp op [l, r] | op `elem` (["=", "==", "/=", "!=", "≠"] :: [Text]) ->
+    Set.unions [operandVar l, operandVar r, strEqOperandVars l, strEqOperandVars r]
+  EApp _ args   -> Set.unions (map strEqOperandVars args)
+  EOp op args   -> strEqOperandVars (EApp op args)
+  EIf a b c     -> Set.unions (map strEqOperandVars [a, b, c])
+  ELet bs body  -> Set.unions (strEqOperandVars body : [strEqOperandVars r | (_, _, r) <- bs])
+  EMatch s arms -> Set.unions (strEqOperandVars s : map (strEqOperandVars . snd) arms)
+  EPair a b     -> Set.union (strEqOperandVars a) (strEqOperandVars b)
+  ELambda _ b   -> strEqOperandVars b
+  EAwait a      -> strEqOperandVars a
+  EDo steps     -> Set.unions [strEqOperandVars x | DoStep _ x <- steps]
+  _             -> Set.empty
+  where
+    operandVar (EVar v) = Set.singleton v
+    operandVar _        = Set.empty
+
 measureArgVars :: Expr -> Set.Set Name
 measureArgVars e = case e of
   EApp "string-length" [EVar v] -> Set.singleton v
@@ -3536,6 +3594,29 @@ injectBoolValRangeFacts bva c
       in if null facts
            then c
            else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
+
+-- | STRLIT (Stage 1): conjoin ground pairwise-distinctness @c_i /= c_j@ for every
+-- unordered pair of DISTINCT occurring string-literal constants (nullary
+-- @FQApp "strlit_…" []@), collected from LHS ∪ RHS. Mirrors 'injectRangeFacts''s
+-- per-occurrence ground discipline and is the MANDATORY companion to the
+-- 'exprToPred' @LitString@ flip: without it, a model identifying two literals
+-- spuriously refutes a valid post (§6.1 F2). Literal/variable and literal/term
+-- pairs get no fact by construction — only @strlit_@ constants are paired.
+-- Byte-inert when fewer than two distinct literals occur (deterministic order via
+-- 'Set.toAscList'), so string-literal-free @.fq@ is byte-identical.
+injectStrLitDistinct :: FQConstraint -> FQConstraint
+injectStrLitDistinct c =
+  let apps  = collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c))
+      names = Set.toAscList (Set.fromList
+                [ n | FQApp n [] <- apps, "strlit_" `T.isPrefixOf` n ])
+      facts = [ FQBinPred FQNeq (FQApp a []) (FQApp b [])
+              | (a, rest) <- pairsTail names, b <- rest ]
+  in if null facts
+       then c
+       else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
+  where
+    pairsTail []     = []
+    pairsTail (x:xs) = (x, xs) : pairsTail xs
 
 -- | Measure-application subterms of a predicate.
 collectApps :: FQPred -> [FQPred]

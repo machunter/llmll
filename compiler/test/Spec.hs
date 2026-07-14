@@ -6781,6 +6781,76 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- int Map_select in a boolean slot
         erBodyFallback erBare `shouldSatisfy` elem "usebare"
 
+    -- STRLIT (Stage 1): string literals reflect to content-interned nullary Str
+    -- constants + ground pairwise-distinctness (injectStrLitDistinct), so literal
+    -- comparisons discharge instead of routing to Advisory. The escape is an
+    -- injective per-codepoint hex (no collision → no false verify). Length pinning
+    -- is Stage 2 (deferred — docs/design/string-literal-distinctness-proposal.md).
+    describe "STRLIT (string-literal distinctness)" $ do
+      let emitStr src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> emitFixpointWith (EmitOptions True) "test.llmll" stmts
+          findSolver = do a <- findExecutable "liquid-fixpoint"
+                          maybe (findExecutable "fixpoint") (pure . Just) a
+          solveStr er = do
+            tmp <- getTemporaryDirectory
+            let fqPath = tmp <> "/strlit-spec.fq"
+            TIO.writeFile fqPath (erFQText er)
+            mLF <- findSolver
+            case mLF of
+              Nothing -> pure Nothing
+              Just lf -> do
+                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                pure (Just (T.pack out))
+
+      it "STRLIT-1 emission: a string-literal contract declares nullary Str constants + a ground distinctness fact" $ do
+        er <- emitStr "(def f [s: string] -> int (pre (= s \"GET\")) (post (!= s \"POST\")) 0)"
+        let fq = erFQText er
+        -- each occurring literal declared as a NULLARY Str constant (func(0 , [Str]))
+        fq `shouldSatisfy` T.isInfixOf "constant strlit_"
+        fq `shouldSatisfy` T.isInfixOf "[Str]))"
+        -- the mandatory ground pairwise-distinctness fact between the two constants
+        fq `shouldSatisfy` T.isInfixOf "/= (strlit_"
+
+      it "STRLIT-2 distinctness crux: (pre (= s \"GET\")) proves (!= s \"POST\") SAFE; the equality twin REFUTED" $ do
+        erGood <- emitStr "(def f [s: string] -> int (pre (= s \"GET\")) (post (!= s \"POST\")) 0)"
+        erBad  <- emitStr "(def f [s: string] -> int (pre (= s \"GET\")) (post (= s \"POST\")) 0)"
+        mG <- solveStr erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveStr erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "STRLIT-3 literal/variable no-fact: (= s t) does not prove (!= s \"admin\") — UNSAFE (a var may equal a literal)" $ do
+        er <- emitStr "(def f [s: string t: string] -> int (pre (= s t)) (post (!= s \"admin\")) 0)"
+        m <- solveStr er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "STRLIT-4 duplicate literal interns once: (= a \"x\") and (= b \"x\") give (= a b) SAFE" $ do
+        er <- emitStr "(def f [a: string b: string] -> int (pre (and (= a \"x\") (= b \"x\"))) (post (= a b)) 0)"
+        m <- solveStr er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "STRLIT-5 injectivity (collision-avoidance): \"a-b\" and \"a_b\" intern to DISTINCT constants, no false verify" $ do
+        er <- emitStr "(def f [s: string] -> int (pre (= s \"a-b\")) (post (!= s \"a_b\")) 0)"
+        -- two distinct constant declarations (a naive - to _ escape would collapse them)
+        T.count "constant strlit_" (erFQText er) `shouldSatisfy` (>= 2)
+        m <- solveStr er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "STRLIT-6 no-op: a string-literal-free contract emits no strlit_ constant (byte-identity)" $ do
+        er <- emitStr "(def g [n: int] -> int (pre (>= n 0)) (post (>= result 0)) n)"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "strlit_"
+
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
     -- an uppercase identifier) and whose constructors use `| ctor { }` syntax.
@@ -6907,12 +6977,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 , "  (post (>= result 1))"
                 , "  (string-length s))" ]
               , "qf_lia" )
-            , ( "string-literal pre"
+            , ( "string-literal pre"       -- STRLIT: now reflects (interned Str const + distinctness)
               , [ "(def greet [name: string] -> int"
                 , "  (pre (= name \"admin\"))"
                 , "  (post (>= result 0))"
                 , "  7)" ]
-              , "non_qf_lia" )
+              , "qf_lia" )
             , ( "pair-selector post"
               , [ "(def both [a: int b: int] -> (int, int)"
                 , "  (post (= (+ (first result) (second result)) (+ a b)))"
@@ -6948,7 +7018,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "non_qf_lia" )
             ]
 
-      it "CM-1 the battery classifies as pinned (measure/pair/ctor in; string/float literals + opaque-sum mention out)" $ do
+      it "CM-1 the battery classifies as pinned (measure/pair/ctor/string-literal in; float literal + opaque-sum mention out)" $ do
         mapM_ (\(label, src, expected) ->
                  (label, classifyFirst (parseCM src)) `shouldBe` (label, expected))
               battery
@@ -6962,13 +7032,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         clauseStrength "slen" "pre"  stmts `shouldBe` Verified
         clauseStrength "slen" "post" stmts `shouldBe` Verified
 
-      it "CM-3 recorded instance: string-literal contract clauses grade Advisory (was Verified)" $ do
+      it "CM-3 recorded instance (STRLIT): string-literal contract clauses grade Verified (was Advisory)" $ do
         let stmts = parseCM
               [ "(def greet [name: string] -> int"
               , "  (pre (= name \"admin\"))"
               , "  (post (>= result 0))"
               , "  7)" ]
-        clauseStrength "greet" "pre" stmts `shouldBe` Advisory
+        clauseStrength "greet" "pre" stmts `shouldBe` Verified
 
       it "CM-4 classify == the emitter's own decision, across the whole battery" $ do
         -- The sharing pin: recompute the emitter's contract-channel decision
