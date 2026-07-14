@@ -550,7 +550,7 @@ emitFnConstraints
   -> Maybe Expr            -- Just dec = letrec :decreases OR def-shell k=1 measure (well-foundedness)
   -> Int                   -- statement index (for JSON Pointer)
   -> IO ()
-emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
+emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
     addEmittedPre addEmittedPost addCallPre addOverflowTainted bodyCounterRef aliases cenv sccSet measureMap
     name params mRet contract0 mBody mDec stmtIdx = do
@@ -611,8 +611,20 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst addQuals
                     then [ (n, t) | (n, t) <- params, isJust (bytesLenOf aliases t) ]
                     else []
       mapParams = if arrGate
-                    then [ n | (n, t) <- params, mapIntIntTy aliases t ]
+                    then [ n | (n, t) <- params, mapArrEncodableTy aliases t ]
                     else []
+      -- LEVER-A2.2: the $val arrays of this function's bool-valued maps (params
+      -- + result). Each occurring Map_select on one carries the ground value-
+      -- range fact 0 ≤ v ≤ 1 (injectBoolValRangeFacts, wrapped into addConst
+      -- below) — the byte-range discipline at the value sort, making the {0,1}
+      -- encoding exact. Empty off-gate and for int-valued maps → byte-identical.
+      boolValArrs = if arrGate
+                      then Set.fromList
+                             [ n <> "$val"
+                             | (n, t) <- params ++ [ ("result", rt) | Just rt <- [mRet] ]
+                             , boolValuedMapTy aliases t ]
+                      else Set.empty
+      addConst c = addConst0 (injectBoolValRangeFacts boolValArrs c)
       sortA1 t = case bytesLenOf aliases t of
                    Just _ | arrGate -> byteArraySort
                    _                -> typeToSortA aliases t
@@ -1476,13 +1488,41 @@ isMapTy am t = case resolveAliasTy am t of
   TMap _ _ -> True
   _        -> False
 
--- | LEVER-A2 admissibility: the reflected map class is map[int,int] (int keys
--- per the A0 typechecker gate; int VALUES per the v1 emitter scope — string/
--- bool-valued maps fall back whole; deferred, see the block comment above).
+-- | LEVER-A2 admissibility: the strictly-int map class map[int,int]. Retained
+-- for the int-only call sites (measure carriers etc.); the array-encoding
+-- admission sites use 'mapArrEncodableTy' (which also admits bool values).
 mapIntIntTy :: AliasMap -> Type -> Bool
 mapIntIntTy am t = case resolveAliasTy am t of
   TMap kt vt -> isIntLike am kt && isIntLike am vt
   _          -> False
+
+-- | LEVER-A2.2 admissibility: the maps the two-array encoding accepts — int
+-- keys, and a SCALAR value (int OR bool). A bool value rides the same int-0/1
+-- array as presence: 'true'/'false' lower to 1/0 (literal-bridge), and each
+-- occurring bool VALUE read carries the ground range fact 0 ≤ v ≤ 1
+-- ('injectRangeFacts', the byte-range discipline at the value sort) so the
+-- ℤ-encoding is exact on {0,1} — closing the disequality-in-hypothesis spurious
+-- refute (professor review, 2026-07-13). String-valued maps stay out.
+mapArrEncodableTy :: AliasMap -> Type -> Bool
+mapArrEncodableTy am t = case resolveAliasTy am t of
+  TMap kt vt -> isIntLike am kt && isScalarLike am vt
+  _          -> False
+
+-- | LEVER-A2.2: a map whose keys are int and values are bool (the 0/1-bridged
+-- value class). Drives the value-range-fact scoping ('boolValArrs').
+boolValuedMapTy :: AliasMap -> Type -> Bool
+boolValuedMapTy am t = case resolveAliasTy am t of
+  TMap kt vt -> isIntLike am kt && isBoolLike am vt
+  _          -> False
+
+-- | LEVER-A2.2: the SYNTACTIC array-encodable map check used in 'bodyToPredM',
+-- which has no AliasMap (the PAIR-RET-2 precedent): a literal @map[int,int]@ or
+-- @map[int,bool]@ callee return / param. An alias-hidden map return keeps FQInt
+-- and its post components stay unsubstituted → conservatively not assumed.
+syntEncodableMapTy :: Type -> Bool
+syntEncodableMapTy (TMap TInt TInt)  = True
+syntEncodableMapTy (TMap TInt TBool) = True
+syntEncodableMapTy _                 = False
 
 -- | The component-array sort of the two-array map encoding (int keys, int-0/1
 -- presence / int values). One sort for both components in the v1 class.
@@ -1491,18 +1531,24 @@ mapArraySort = FQMapArr
 
 -- | LEVER-A2 crash-class guard for map-op-bearing contract clauses. Blocks (→
 -- whole-contract fallback) when a reflection would reference binders that were
--- never split or store a non-int value into an int-element array:
---   (a) some map-typed param or the map return is not admissible map[int,int];
---   (b) some map-put VALUE argument in a clause is neither an int literal nor
---       an int-like param (contract clauses only see params/result, so this
---       syntactic check is complete for the contract channel).
+-- never split or produce ill-sorted FQ:
+--   (a) some map-typed param or the map return is not array-encodable
+--       (map[int,{int,bool}]) — a string-valued or non-int-keyed map;
+--   (b) some map-put VALUE argument is neither an int/bool literal nor an
+--       int-like param (a bool VAR value falls back — deferred);
+--   (c) LEVER-A2.2: a bool-valued map-get used in a boolean position other than
+--       a direct =/ /= comparison — an int Map_select in a not/and/or/if/bare
+--       slot is ill-sorted (contract clauses only see params/result, so these
+--       syntactic checks are complete for the contract channel).
 mapClauseBlocked :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Maybe Expr -> Bool
 mapClauseBlocked am params mRet mPost mPre =
-     any (\(_, t) -> isMapTy am t && not (mapIntIntTy am t)) paramsAndRet
+     any (\(_, t) -> isMapTy am t && not (mapArrEncodableTy am t)) paramsAndRet
   || badPutValue mPost || badPutValue mPre
+  || boolMapUnsafe mPost || boolMapUnsafe mPre
   where
     paramsAndRet = params ++ [ ("result", t) | Just t <- [mRet] ]
     intParamSet  = Set.fromList [ n | (n, t) <- params, isIntLike am t ]
+    boolMapVars  = Set.fromList [ n | (n, t) <- paramsAndRet, boolValuedMapTy am t ]
     badPutValue Nothing   = False
     badPutValue (Just e0) = go e0
       where
@@ -1513,12 +1559,48 @@ mapClauseBlocked am params mRet mPost mPre =
         go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
         go (EMatch s as)  = go s || any (go . snd) as
         go _              = False
-        okVal (ELit (LitInt _)) = True
-        okVal (EVar v)          = v `Set.member` intParamSet
+        okVal (ELit (LitInt _))  = True
+        okVal (ELit (LitBool _)) = True   -- LEVER-A2.2: bridged 0/1 (boolValLit)
+        okVal (EVar v)           = v `Set.member` intParamSet
         okVal (EApp op [l, r])
           | op `elem` ["+", "-"] = okVal l && okVal r
-        okVal (EOp op as)       = okVal (EApp op as)
-        okVal _                 = False
+        okVal (EOp op as)        = okVal (EApp op as)
+        okVal _                  = False
+    -- LEVER-A2.2: a bool-valued map-get reflects to an int Map_select. That int
+    -- term is well-sorted ONLY when it meets another INT-reflecting term across
+    -- =/ /= — a bridged bool literal (→ FQLit 0/1) or another bool-map-get (→
+    -- another select). Any other position — bare, under a boolean connective, an
+    -- if-condition, or =/ /= against a bool VARIABLE (int-select vs bool-var is
+    -- ill-sorted) — is blocked → whole-contract fallback. The admitted shapes
+    -- (get-vs-literal, get-vs-get) stay live; get-vs-var falls back (deferred).
+    boolMapUnsafe Nothing  = False
+    boolMapUnsafe (Just e) = walk e
+    walk e
+      | isBoolMapGet e = True   -- a bool-map-get in a non-eq (boolean) position
+      | otherwise = case e of
+          EApp op [l, r]
+            | op `elem` eqNeqOps, isBoolMapGet l || isBoolMapGet r
+                -> not (intReflecting l && intReflecting r)
+            | op `elem` eqNeqOps
+                -> walk l || walk r
+          EApp _ args  -> any walk args
+          EOp op args  -> walk (EApp op args)
+          EIf c t el   -> walk c || walk t || walk el
+          ELet bs b    -> any (\(_, _, r) -> walk r) bs || walk b
+          EMatch s as  -> walk s || any (walk . snd) as
+          _            -> False
+    -- reflects to an int term across =/ /= : a bool-map-get or a bool literal.
+    intReflecting x = isBoolMapGet x || isBoolLitE x
+    isBoolLitE (ELit (LitBool _)) = True
+    isBoolLitE _                  = False
+    eqNeqOps = ["=", "==", "/=", "!=", "≠"] :: [Text]
+    isBoolMapGet (EApp "map-get" (mE : _)) = rootBoolMap mE
+    isBoolMapGet (EOp  "map-get" (mE : _)) = rootBoolMap mE
+    isBoolMapGet _                         = False
+    rootBoolMap (EVar v)                = v `Set.member` boolMapVars
+    rootBoolMap (EApp "map-put" (m:_))  = rootBoolMap m
+    rootBoolMap (EOp  "map-put" (m:_))  = rootBoolMap m
+    rootBoolMap _                       = False
 
 -- | LEVER-A2, contract channel: translate a map-typed CONTRACT subterm to its
 -- component pair ⟨has-term, val-term⟩. Roots are variables (params/result —
@@ -1526,12 +1608,35 @@ mapClauseBlocked am params mRet mPost mPre =
 -- chains, and map-empty. Anything else → Nothing → the enclosing clause falls
 -- back (§6.1). Presence stores write the int tag 1; map-empty is the all-absent
 -- pair of const arrays (probe p4/p5b).
+-- | LEVER-A2.2 literal-bridge: a bool literal at a map VALUE position lowers to
+-- its int-0/1 tag (@true@→1, @false@→0) so it stores well-sorted into the
+-- int-element @$val@ array. Only literals bridge; a bool VAR value returns
+-- Nothing → the enclosing op falls back (an @ite@-bridge for bool vars is
+-- deferred). The typechecker's homogeneous value typing guarantees a bool
+-- literal here implies a bool-valued map (TypeCheck.hs:162-164), so this is
+-- context-free and sound.
+boolValLit :: Expr -> Maybe FQPred
+boolValLit (ELit (LitBool True))  = Just (FQLit 1)
+boolValLit (ELit (LitBool False)) = Just (FQLit 0)
+boolValLit _                      = Nothing
+
+-- | LEVER-A2.2: the int-0/1 tag of a bool literal (true→1, false→0).
+boolTag :: Bool -> Integer
+boolTag b = if b then 1 else 0
+
+-- | LEVER-A2.2: is the expression a @map-get@ application (either surface form)?
+-- Used to spot the bool-value get-comparison bridge in 'exprToPred'.
+isMapGetHead :: Expr -> Bool
+isMapGetHead (EApp "map-get" _) = True
+isMapGetHead (EOp  "map-get" _) = True
+isMapGetHead _                  = False
+
 mapPairTermsC :: Expr -> Maybe (FQPred, FQPred)
 mapPairTermsC (EVar m) = Just (FQVar (m <> "$has"), FQVar (m <> "$val"))
 mapPairTermsC (EApp "map-put" [mE, kE, vE]) = do
   (h, vl) <- mapPairTermsC mE
   k <- exprToPred kE
-  v <- exprToPred vE
+  v <- case boolValLit vE of { Just x -> Just x; Nothing -> exprToPred vE }
   pure ( FQApp "Map_store" [h, k, FQLit 1]
        , FQApp "Map_store" [vl, k, v] )
 mapPairTermsC (EApp "map-empty" []) =
@@ -1557,7 +1662,7 @@ mapPairTermsB env se = go
     go (EApp "map-put" [mE, kE, vE]) = do
       (h, vl) <- go mE
       k <- scalarIntTerm env se kE
-      v <- scalarIntTerm env se vE
+      v <- case boolValLit vE of { Just x -> Just x; Nothing -> scalarIntTerm env se vE }
       pure ( FQApp "Map_store" [h, k, FQLit 1]
            , FQApp "Map_store" [vl, k, v] )
     go (EApp "map-empty" []) =
@@ -2142,6 +2247,23 @@ exprToPred (EVar v)
 exprToPred (ELit (LitInt n)) = Just (FQLit n)
 exprToPred (ELit (LitBool True))  = Just FQTrue
 exprToPred (ELit (LitBool False)) = Just FQFalse
+-- | LEVER-A2.2 get-comparison bridge (well-sortedness): a bool-valued
+-- @(map-get m k)@ compared against a bool literal reflects the value select
+-- against the int-0/1 tag — @FQEq (Map_select …) (FQLit 0/1)@ — never the
+-- ill-sorted @FQEq (Map_select …) FQTrue@. Either operand order. Sound and
+-- context-free: the homogeneous @=@ typing (TypeCheck.hs:81) means a bool
+-- literal opposite a map-get forces the map bool-valued. The value-range fact
+-- (injectBoolValRangeFacts) supplies @0 ≤ v ≤ 1@ so a @/=@ here is exact, not a
+-- ℤ over-approximation (professor review 2026-07-13). Must precede the generic
+-- @=@/@/=@ clauses below.
+exprToPred (EApp op [l, r])
+  | op `elem` eqNeqOps, isMapGetHead l, ELit (LitBool b) <- r
+      = (\s -> FQBinPred (relOf op) s (FQLit (boolTag b))) <$> exprToPred l
+  | op `elem` eqNeqOps, ELit (LitBool b) <- l, isMapGetHead r
+      = (\s -> FQBinPred (relOf op) (FQLit (boolTag b)) s) <$> exprToPred r
+  where
+    eqNeqOps = ["=", "==", "/=", "!=", "≠"] :: [Text]
+    relOf o  = if o `elem` (["/=", "!=", "≠"] :: [Text]) then FQNeq else FQEq
 exprToPred (EApp op [l, r])
   | op `elem` [">=", "≥"] = (\a b -> FQBinPred FQGe  a b) <$> exprToPred l <*> exprToPred r
   | op `elem` [">"]        = (\a b -> FQBinPred FQGt  a b) <$> exprToPred l <*> exprToPred r
@@ -2485,7 +2607,7 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             -- and its post components stay unsubstituted → not assumed.
             calleeRetSort = case mRetType of
               Just (TBytes _) | contractMentionsBytesOp contract -> byteArraySort
-              Just (TMap TInt TInt) | contractMentionsMapOp contract -> mapArraySort
+              Just t | syntEncodableMapTy t, contractMentionsMapOp contract -> mapArraySort
               _ -> maybe FQInt typeToSort mRetType
         -- Build substitution: callee params → translated args.
         -- LEVER-A2.1 (cross-call map assume-guarantee): a map-op-bearing callee
@@ -2499,7 +2621,7 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
         -- forces pre-fallback / post-non-assumption exactly as before.
         let mapCompSubst = Map.fromList $ concat
               [ [ (p <> "$has", h), (p <> "$val", vl) ]
-              | ((p, TMap TInt TInt), aE) <- zip params args
+              | ((p, pt), aE) <- zip params args, syntEncodableMapTy pt
               , Just (h, vl) <- [mapPairTermsB env se aE] ]
             -- Component names a reflected callee clause could root that MUST
             -- have a substitution entry for the clause to be caller-meaningful.
@@ -3387,6 +3509,33 @@ injectRangeFacts c =
   in if null facts
        then c
        else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
+
+-- | LEVER-A2.2: conjoin the ground value-range fact @0 ≤ v ≤ 1@ for each
+-- occurring bool-map VALUE read — a @Map_select@ whose array roots (through any
+-- @Map_store@ chain) in a bool-valued map's @$val@ array (the @boolValArrs@ set,
+-- scoped per function). This is the byte-range family-2 discipline
+-- ('injectRangeFacts') at the value sort: it supplies the @value ∈ {0,1}@
+-- invariant the ℤ-encoding lacks, making the encoding exact on occurring keys
+-- and closing the disequality-in-hypothesis spurious refute (professor review,
+-- 2026-07-13). The fact pins the read RESULT, not a key, so it is sound under
+-- key aliasing. Byte-inert when @boolValArrs@ is empty (off-gate / int-valued
+-- maps) or no such select occurs — collected from both lhs and rhs so a value
+-- read occurring only in the goal (post) still lands its fact in the lhs.
+injectBoolValRangeFacts :: Set.Set Text -> FQConstraint -> FQConstraint
+injectBoolValRangeFacts bva c
+  | Set.null bva = c
+  | otherwise =
+      let apps  = nub (collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c)))
+          facts = concatMap factsFor apps
+          factsFor a@(FQApp "Map_select" (arr : _))
+            | boolValRooted arr = [ FQBinPred FQGe a (FQLit 0), FQBinPred FQLe a (FQLit 1) ]
+          factsFor _ = []
+          boolValRooted (FQVar n)                     = n `Set.member` bva
+          boolValRooted (FQApp "Map_store" (arr : _)) = boolValRooted arr
+          boolValRooted _                             = False
+      in if null facts
+           then c
+           else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
 
 -- | Measure-application subterms of a predicate.
 collectApps :: FQPred -> [FQPred]

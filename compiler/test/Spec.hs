@@ -6661,16 +6661,125 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
 
-      it "A2.1-5 bool/string-valued maps still fall back whole (deferred residue): no partial emit, no crash" $ do
-        -- bool-valued: solver-feasible via int-0/1 bridging (probe recorded),
-        -- but not threaded this pass — must fall back whole, not partially.
+      it "A2.1-5 bool-valued maps are now admitted (LEVER-A2.2): binders split; the get-vs-var flag shape still body-falls-back" $ do
+        -- bool-valued maps ride the int-0/1 value bridge (LEVER-A2.2), so the
+        -- param now SPLITS into component binders (was: whole fallback pre-A2.2).
         erBool <- emitA2 (unlines
           [ "(def flag [m: map[int,bool] k: int] -> bool"
           , "  (pre (map-has m k))"
           , "  (post (= result (map-get m k)))"
           , "  (map-get m k))" ])
+        erFQText erBool `shouldSatisfy` T.isInfixOf "m_has : { v : (Map_t int int)"
+        -- but (= result (map-get m k)) is get-vs-VARIABLE — an int Map_select
+        -- against a bool var is ill-sorted, so boolMapUnsafe blocks it and the
+        -- body-map-get body itself is not int-channel reflected → whole fallback.
         erBodyFallback erBool `shouldSatisfy` elem "flag"
-        erFQText erBool `shouldNotSatisfy` T.isInfixOf "m_has"
+
+      -- LEVER-A2.2 (bool-VALUED maps via the int-0/1 bridge). Bool values ride
+      -- the same int array as presence: true/false lower to 1/0 (literal-bridge),
+      -- and each occurring bool VALUE read carries the ground range fact
+      -- 0 ≤ v ≤ 1 (injectBoolValRangeFacts) so the {0,1} encoding is EXACT —
+      -- closing the disequality-in-hypothesis spurious refute the professor found
+      -- (2026-07-13). Contract channel only this pass; get-vs-var / bare-bool-get
+      -- / bool-var put values fall back. String-valued maps stay out.
+      it "A2.2-1 get-after-put crux: (map-get (map-put m k true) k) == true SAFE; the dropped-put twin REFUTED" $ do
+        erGood <- emitA2 (unlines
+          [ "(def gap [m: map[int,bool] k: int] -> int"
+          , "  (post (= (map-get (map-put m k true) k) true))"
+          , "  0)" ])
+        -- the bool literal true lowered to the int tag 1 in the value store
+        erFQText erGood `shouldSatisfy` T.isInfixOf "(Map_store m_val k 1)"
+        erBad <- emitA2 (unlines
+          [ "(def dropped [m: map[int,bool] k1: int k2: int] -> int"
+          , "  (pre (!= k1 k2))"
+          , "  (post (= (map-get (map-put m k1 true) k2) true))"
+          , "  0)" ])
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2.2-2 the spurious-refute witness: pre (!= (map-get m k) true), post (= (map-get m k) false) — SAFE via the value-range fact" $ do
+        er <- emitA2 (unlines
+          [ "(def diseq-false [m: map[int,bool] k: int] -> int"
+          , "  (pre (and (map-has m k) (!= (map-get m k) true)))"
+          , "  (post (= (map-get m k) false))"
+          , "  0)" ])
+        -- the load-bearing value-range fact 0 ≤ v ≤ 1 is present in the LHS
+        erFQText er `shouldSatisfy` T.isInfixOf "(Map_select m_val k) >= 0"
+        erFQText er `shouldSatisfy` T.isInfixOf "(Map_select m_val k) <= 1"
+        m <- solveFq er
+        case m of
+          -- SAFE only because of the range fact: (s ≠ 1 ∧ 0 ≤ s ≤ 1) ⟹ s = 0.
+          -- Without it, s = 2 refutes — the professor's spurious refutation.
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2.2-3 get-vs-get disequality (the syntactic-normalization-incomplete case): SAFE via the value-range fact" $ do
+        er <- emitA2 (unlines
+          [ "(def gvg [m: map[int,bool] k1: int k2: int] -> int"
+          , "  (pre (and (map-has m k1) (and (map-has m k2) (and (!= (map-get m k1) (map-get m k2)) (= (map-get m k1) true)))))"
+          , "  (post (= (map-get m k2) false))"
+          , "  0)" ])
+        -- range facts pin BOTH value reads to {0,1}; the derivation is
+        -- s1 = 1 ∧ s1 ≠ s2 ∧ 0 ≤ s2 ≤ 1 ⟹ s2 = 0 (unreachable by literal
+        -- normalization alone — the disequality has no literal operand).
+        erFQText er `shouldSatisfy` T.isInfixOf "(Map_select m_val k2) <= 1"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2.2-4 value-domain tautology (completeness recovery): (=> (!= get true) (= get false)) — SAFE only with the range fact" $ do
+        er <- emitA2 (unlines
+          [ "(def tauto [m: map[int,bool] k: int] -> int"
+          , "  (pre (map-has m k))"
+          , "  (post (=> (!= (map-get m k) true) (= (map-get m k) false)))"
+          , "  0)" ])
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2.2-5 false path: (= (map-get (map-put m k false) k) false) — false lowers to 0, SAFE" $ do
+        er <- emitA2 (unlines
+          [ "(def fp [m: map[int,bool] k: int] -> int"
+          , "  (post (= (map-get (map-put m k false) k) false))"
+          , "  0)" ])
+        erFQText er `shouldSatisfy` T.isInfixOf "(Map_store m_val k 0)"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2.2-6 no-op guarantee: an int-valued map's value select gets NO 0..1 range fact (byte-identity)" $ do
+        er <- emitA2 (unlines
+          [ "(def cache-put [m: map[int,int] k: int v: int] -> map[int,int]"
+          , "  (post (and (map-has result k) (= (map-get result k) v)))"
+          , "  (map-put m k v))" ])
+        -- the bool value-range fact is scoped to bool maps only; an int map's
+        -- $val select is unbounded exactly as before.
+        erFQText er `shouldNotSatisfy` T.isInfixOf "(Map_select result_val k) <= 1"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "(Map_select m_val k) <= 1"
+
+      it "A2.2-7 deferred residue falls back (no ill-sorted FQ): a bool-VAR put value, and a bare bool-get in a boolean position" $ do
+        erVar <- emitA2 (unlines
+          [ "(def setflag [m: map[int,bool] k: int b: bool] -> int"
+          , "  (post (= (map-get (map-put m k b) k) true))"
+          , "  0)" ])
+        erBodyFallback erVar `shouldSatisfy` elem "setflag"
+        erBare <- emitA2 (unlines
+          [ "(def usebare [m: map[int,bool] k: int] -> int"
+          , "  (pre (map-has m k))"
+          , "  (post (=> (not (map-get m k)) (>= result 0)))"
+          , "  0)" ])
+        -- a bool-get under `not` (boolean connective) → whole fallback, never an
+        -- int Map_select in a boolean slot
+        erBodyFallback erBare `shouldSatisfy` elem "usebare"
 
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
