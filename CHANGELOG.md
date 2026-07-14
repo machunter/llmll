@@ -4,6 +4,34 @@
 
 <a id="Latest"></a>
 
+## v0.14.43 — LEVER-A2.2: bool-valued maps discharge via the int-0/1 value bridge (2026-07-13)
+
+### Added — `map[int,bool]` joins the array-encoded map class
+
+- **Bool-valued maps verify statically.** `map[int,bool]` now rides the two-array encoding: `true`/`false`
+  lower to `1`/`0` at the `map-put` value and at every `(map-get m k) = <bool-literal>` comparison
+  (literal-bridge), and each occurring bool value read carries the ground fact `0 ≤ select(m$val, k) ≤ 1` —
+  the byte-range discipline (`injectBoolValRangeFacts`) at the value sort, making the `{0,1}` encoding
+  **exact** on occurring keys. Was Advisory fallback.
+- **Closes a disequality-in-hypothesis spurious refutation.** A `pre (!= (map-get m k) true)` proving
+  `post (= (map-get m k) false)` was wrongly **refuted**: over the unpinned ℤ range the solver picked value
+  `2` (`2 ≠ 1`, yet `2 ≠ 0`). The value-range fact makes `(s ≠ 1) ⟹ (s = 0)` valid — verified. It also
+  closes the get-vs-get disequality case a literal-only normalization could not (`(!= (map-get m k1) (map-get
+  m k2))` transitively concludes `s ≠ 1` with no literal to normalize), and recovers the value-domain
+  tautology `(=> (!= get true) (= get false))`.
+- **Scope + fallback discipline.** Admissibility widens to `map[int,{int,bool}]` (`mapArrEncodableTy`); the
+  re-guard (`boolMapUnsafe`) blocks only the ill-sorted shapes — a bare bool `map-get` in a boolean position
+  (`not`/`and`/`or`/`if`), a get compared against a bool **variable**, and a bool-variable `map-put` value —
+  which fall back whole, never ill-sorted FQ. Contract channel only; the body channel stays int-only.
+  String-valued maps stay out (Str-EUF value arrays — future).
+- **No-op guarantee.** An int-valued map's value select gets **no** `0 ≤ v ≤ 1` fact; the fact is scoped to
+  bool-map `$val` arrays, so int/bytes `.fq` is byte-identical (the sole existing-test change is A2.1-5, which
+  codified the old whole-fallback and is retargeted).
+
+**Tests:** 1235 Haskell, 45 Python (+7: get-after-put crux + dropped-put twin, the spurious-refute witness,
+get-vs-get disequality, the value-domain tautology, the false path, the int-map no-op, and the deferred-residue
+fallbacks; A2.1-5 retargeted). No schema or CLI-surface change.
+
 ## v0.14.42 — COVERAGE-TIER: `--spec-coverage` reports the same tiers as `--trust-report` (2026-07-12)
 
 ### Fixed — coverage tiers now consistent with the trust report by construction
