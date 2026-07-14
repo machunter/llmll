@@ -4,6 +4,34 @@
 
 <a id="Latest"></a>
 
+## v0.14.45 — STRLIT Stage 2: literal-length pinning (`strLen(strlit_s) = |s|`, code points) (2026-07-14)
+
+### Added — string-literal length-consistency reasoning discharges
+
+- **Each string literal's code-point length is now pinned.** A ground fact `strLen(strlit_s) = |s|` is conjoined
+  per occurring literal constant (`injectStrLitLen`, a pure per-constraint pass mirroring `injectStrLitDistinct`,
+  over LHS ∪ RHS), composing with the existing `string-length → strLen` reflection. Length-consistency now
+  discharges: under `pre (= s "GET")`, the goal `(= (string-length s) 3)` **verifies** (congruence:
+  `strLen s = strLen strlit_GET = 3`) and the `= 5` twin **refutes**. Recovers the length-uniqueness completeness
+  gap Stage 1 documented.
+- **`|s|` is the code-point count** (`T.length s`), recovered exactly from the interned name (`strlitLen`:
+  `strlitConst` emits fixed-width 6-hex per code point, so `(len − |"strlit_"|) / 6 = T.length s`). This matches
+  the runtime `string_length` (`CodegenHs.hs:302-303`; `Data.Text.length` counts code points): `"😀"` (U+1F600)
+  → **1** (not 4 bytes or 2 UTF-16 units), `"e" + U+0301` → **2**, `"é"` (U+00E9 precomposed) → **1**, `""` → **0**.
+  A UTF-8 byte or UTF-16 word count is a §5.3.4 claim-accuracy break and is forbidden.
+- **Sound by construction.** Each length fact is a true, mutually-consistent ground equation (`strLen`
+  uninterpreted; `strlitConst` injectivity ⇒ one length per constant), so it only strengthens the hypothesis —
+  it can close a spurious refute, never open one, and never contradicts (no vacuous SAFE unless a precondition is
+  genuinely infeasible, which is correct). The extra `strLen` application makes the preamble sweep declare
+  `strLen : (Str) → int` even when the program has no `string-length` call. Byte-inert without string literals.
+- **Scope:** Stage 2 completes the STRLIT line (equality + distinctness + length). String *structure*
+  (concat / substr / regex / interpreted length) stays out — word equations with length is open (Ganesh et al.,
+  HVC 2012). Design record: `docs/design/string-literal-distinctness-proposal.md` (§Stage 2, SHIPPED).
+
+**Tests:** 1244 Haskell, 45 Python (+3 STRLIT: length emission, length crux SAFE/UNSAFE, code-point convention
+regression — ASCII / astral / combining / precomposed / empty). No schema or CLI-surface change.
+`make refute-crux-gate` 26/26 (no example verdict flips).
+
 ## v0.14.44 — STRLIT: string literals reflect into `Σ_auto` via interned constants + distinctness (2026-07-14)
 
 ### Added — string-literal equality/distinctness discharges (was Advisory)

@@ -1,6 +1,6 @@
 # String-Literal Distinctness — Reflecting String Literals into `Σ_auto`
 
-> **Status:** Rev 1 — professor-reviewed, findings folded — **Stage 1 READY TO BUILD**; **Stage 2 (length-fact pinning) DOCUMENTED AS THE NEXT STEP** (see §Stage 2).
+> **Status:** Rev 1 — professor-reviewed, findings folded — **Stage 1 SHIPPED v0.14.44**; **Stage 2 (length-fact pinning) SHIPPED v0.14.45** (`injectStrLitLen`; see §Stage 2). The STRLIT line is complete (equality + distinctness + length); string structure remains out of scope.
 > **Review:** professor review folded in-line (this cycle, 2026-07-13); dispositions in the Review-fold appendix.
 > **Track:** enabler for Data Scope Extension Lever A2.2-string ([`data-scope-lever-a-arrays-proposal.md`](data-scope-lever-a-arrays-proposal.md) §3 F2 disposition — this document promotes and generalizes that deferred keys-only path); general string-surface improvement, not map-specific.
 > **Author:** language-team · 2026-07-13 (Rev 0), professor fold same day (Rev 1)
@@ -40,9 +40,9 @@ An `injectStrLitDistinct` ground pass, mirroring the shipped `injectRangeFacts` 
 - **Ships:** plain-string literal contracts (`(= method "GET")`, `(= result "ok")`, string-tag patterns) — no sort threading.
 - **Enables:** A2.2-string map values and string map keys inherit literal reflection once their respective sort-threading / key-gate work lands.
 
-## Stage 2 — literal-length pinning (THE NEXT STEP, deferred from this ship)
+## Stage 2 — literal-length pinning (SHIPPED v0.14.45)
 
-> This section is the durable record that Stage 2 is the planned follow-on. It is **not** built in the Stage-1 shipment.
+> **SHIPPED v0.14.45** as `injectStrLitLen` (a per-constraint pass sibling to `injectStrLitDistinct`, composed at the `addConst` choke point). `|s|` is recovered exactly from the interned name via `strlitLen` (`(len − |"strlit_"|) / 6`, since `strlitConst` emits fixed-width 6-hex per code point), so no re-decoding is needed. `strLen : (Str) → int` auto-declares because the injected application reaches the preamble sweep. Sound by construction: the ground equations are true and mutually consistent, so they only strengthen the hypothesis. The code-point regression below is the shipped acceptance gate (STRLIT-9); the length crux (STRLIT-8) is the load-bearing end-to-end check.
 
 Add `strLen(strlitConst s) = |s|` per occurring literal constant, composing with the existing `string-length → strLen` reflection so length-consistency reasoning discharges (`s = "admin" ∧ strLen(s) = 3` → refute; and the value-domain length case for A2.2-string map values).
 
