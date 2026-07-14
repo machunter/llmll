@@ -81,6 +81,9 @@ module LLMLL.FixpointEmit
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
+    -- * STRLIT (exported for testing): literal interning + Stage-2 code-point length
+  , strlitConst
+  , strlitLen
     -- * LEVER-A3: classifier–emitter coherence (the §6.1 arbiter, shared with
     -- ObligationMining/ObligationAssembly so classification cannot drift from
     -- what this emitter actually reflects)
@@ -377,10 +380,11 @@ emitFixpointWithCache opts srcFile cache stmts = do
   -- NIW (v0.12): inject ground measure range facts (m t >= 0) per occurring
   -- measure-term at the single point all constraints flow through. No-op when a
   -- constraint contains no FQApp, so measure-free .fq output is byte-identical.
-  -- STRLIT: injectStrLitDistinct conjoins pairwise string-literal distinctness,
-  -- composed with the measure/byte range facts at the single choke point. Pure,
+  -- STRLIT: injectStrLitDistinct conjoins pairwise string-literal distinctness and
+  -- injectStrLitLen (Stage 2) pins each literal's code-point length, both composed
+  -- with the measure/byte range facts at the single choke point. Pure,
   -- constraint-derived (no per-function state); byte-inert without string literals.
-  let addConst c  = modifyIORef' constsRef (++ [injectStrLitDistinct (injectRangeFacts c)])
+  let addConst c  = modifyIORef' constsRef (++ [injectStrLitLen (injectStrLitDistinct (injectRangeFacts c))])
   let addQuals qs = modifyIORef' qualsRef (++ qs)
   let addData  d  = modifyIORef' dataRef  (++ [d])
   let addSkip  n  = modifyIORef' skippedRef (++ [n])
@@ -1646,6 +1650,17 @@ boolValLit _                      = Nothing
 strlitConst :: Text -> Text
 strlitConst s = "strlit_" <> T.concat [ pad6 (ord c) | c <- T.unpack s ]
   where pad6 n = T.justifyRight 6 '0' (T.pack (showHex n ""))
+
+-- | STRLIT (Stage 2): the CODE-POINT length encoded in a 'strlitConst' name — the
+-- inverse of its fixed-width 6-hex-per-code-point encoding. Strip the @strlit_@
+-- prefix and divide the remaining hex by 6; exact because every code point
+-- contributes exactly six hex digits (U+10FFFF = @10ffff@, the widest, is six).
+-- The result equals @T.length s@ = the runtime @string_length@ (CodegenHs:302-303;
+-- @Data.Text.length@ counts code points, an astral char = 1), so length facts
+-- agree with the program under evaluation — the code-point convention (proposal
+-- §Stage 2). @strlit_@ (the empty literal) recovers 0.
+strlitLen :: Text -> Integer
+strlitLen n = fromIntegral ((T.length n - T.length "strlit_") `div` 6)
 
 -- | LEVER-A2.2: the int-0/1 tag of a bool literal (true→1, false→0).
 boolTag :: Bool -> Integer
@@ -3617,6 +3632,33 @@ injectStrLitDistinct c =
   where
     pairsTail []     = []
     pairsTail (x:xs) = (x, xs) : pairsTail xs
+
+-- | STRLIT (Stage 2): pin the CODE-POINT length of every occurring string-literal
+-- constant — conjoin the ground fact @strLen(strlit_s) = |s|@, one per DISTINCT
+-- literal, collected from LHS ∪ RHS. Composes with the @string-length@ → @strLen@
+-- reflection ('exprToPred') so length-consistency reasoning discharges: under
+-- @pre (= s "GET")@, the goal @(= (string-length s) 5)@ REFUTES because congruence
+-- gives @strLen s = strLen strlit_GET = 3 /= 5@, and the twin @… 3@ VERIFIES. |s|
+-- is recovered exactly from the interned name ('strlitLen'), so it is the runtime
+-- code-point count. SOUND: each fact is a true, mutually-consistent ground
+-- equation (@strLen@ is uninterpreted; 'strlitConst' injectivity gives each
+-- constant exactly one length), so it only strengthens the hypothesis — it can
+-- close a spurious refute, never open one, and never contradicts (no vacuous SAFE).
+-- The extra @strLen@ application makes the sweep declare @strLen : (Str) -> int@
+-- (measureConstant default) even when the program has no @string-length@ call.
+-- Byte-inert without string literals; mirrors 'injectStrLitDistinct''s occurring-set
+-- discipline. Idempotent w.r.t. 'injectStrLitDistinct' order: neither introduces a
+-- new @strlit_@ name the other must pair.
+injectStrLitLen :: FQConstraint -> FQConstraint
+injectStrLitLen c =
+  let apps  = collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c))
+      names = Set.toAscList (Set.fromList
+                [ n | FQApp n [] <- apps, "strlit_" `T.isPrefixOf` n ])
+      facts = [ FQBinPred FQEq (FQApp "strLen" [FQApp n []]) (FQLit (strlitLen n))
+              | n <- names ]
+  in if null facts
+       then c
+       else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }
 
 -- | Measure-application subterms of a predicate.
 collectApps :: FQPred -> [FQPred]

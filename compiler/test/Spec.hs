@@ -26,7 +26,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
@@ -6850,6 +6850,43 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "STRLIT-6 no-op: a string-literal-free contract emits no strlit_ constant (byte-identity)" $ do
         er <- emitStr "(def g [n: int] -> int (pre (>= n 0)) (post (>= result 0)) n)"
         erFQText er `shouldNotSatisfy` T.isInfixOf "strlit_"
+
+      -- STRLIT (Stage 2): pin each literal's CODE-POINT length (injectStrLitLen),
+      -- so the string-length UF is grounded on literals and length-consistency
+      -- reasoning discharges. |s| = T.length s (code points), locked against a
+      -- bytes/UTF-16 mistake by the non-ASCII regression below.
+      it "STRLIT-7 length emission: a string-literal contract pins strLen(strlit_) = |s| and declares strLen" $ do
+        er <- emitStr "(def f [s: string] -> int (pre (= s \"GET\")) (post (= (string-length s) 3)) 0)"
+        let fq = erFQText er
+        -- the ground length fact for the literal (G/E/T = 47/45/54, 3 code points)
+        fq `shouldSatisfy` T.isInfixOf "(strLen (strlit_000047000045000054 )) = 3"
+        -- the strLen UF is declared even though string-length also occurs (Str -> int)
+        fq `shouldSatisfy` T.isInfixOf "constant strLen"
+
+      it "STRLIT-8 length crux: (pre (= s \"GET\")) proves (= (string-length s) 3) SAFE; the != 5 twin REFUTED" $ do
+        erGood <- emitStr "(def f [s: string] -> int (pre (= s \"GET\")) (post (= (string-length s) 3)) 0)"
+        erBad  <- emitStr "(def f [s: string] -> int (pre (= s \"GET\")) (post (= (string-length s) 5)) 0)"
+        mG <- solveStr erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveStr erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "STRLIT-9 code-point convention: |s| counts code points (astral = 1, combining = 2), never bytes/UTF-16" $ do
+        -- the Stage-2 acceptance gate (proposal §Stage 2): a bytes/UTF-16 mistake
+        -- would give 5-byte "admin"→5 but "😀"→4 (bytes) or 2 (UTF-16), and "e"+U+0301→3.
+        strlitLen (strlitConst "admin")    `shouldBe` 5
+        strlitLen (strlitConst "\x1F600")  `shouldBe` 1   -- 😀 U+1F600 (astral)
+        strlitLen (strlitConst "e\x0301")  `shouldBe` 2   -- e + combining acute
+        strlitLen (strlitConst "\xE9")     `shouldBe` 1   -- é U+00E9 precomposed
+        strlitLen (strlitConst "")         `shouldBe` 0   -- empty literal
+        -- round-trips through the exprToPred reflection too (name → recovered length)
+        case exprToPred (ELit (LitString "\x1F600")) of
+          Just (FQApp n []) -> strlitLen n `shouldBe` 1
+          other             -> expectationFailure ("expected nullary strlit app, got " <> show other)
 
     -- FIXPOINT-DATA (codegen fix): a user sum type must emit a liquid-fixpoint
     -- ADT declaration whose type name preserves source case (.fq fTyConP requires
