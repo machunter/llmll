@@ -4,6 +4,29 @@
 
 <a id="Latest"></a>
 
+## v0.14.48 — STRLIT body-channel flip: string-conditional bodies verify (closes the Stage-1 watch item) (2026-07-17)
+
+### Added — string comparisons in bodies are body-faithful (was vacuous-SAFE fallback)
+
+- **String-conditional bodies discharge.** The STRLIT Stage-1 watch item ("string-conditional `if`-bodies
+  fall back → vacuous SAFE") is closed with the body-channel flip, three small widenings mirroring the
+  contract channel: the guard channel (`classifyGuardM`) admits **Str-sorted vars** (an ANF-hoisted string
+  map-get result / a seeded put-value param can only be a comparison operand — a bare Str guard atom is
+  ill-typed upstream) and **string literals** (interned via `strlitConst`); `bodyToPredM` admits **Str vars**
+  and **string-literal leaves**. So `(if (= (map-get m k) "active") … …)`, string-literal branch leaves
+  (`(if (map-has m k) (map-get m k) "none")`), and `(= t "status")` as a bool result all verify body-faithfully.
+- **The A4 introspect shape is fully discriminative** (A2S-11): RFC 7662 §2.2 `active` = present ∧
+  status-`"active"` ∧ within validity window (two maps — `map[int,string]` status + `map[int,int]` expiry) —
+  the reference body verifies SAFE and the classic **expiry-skip bug refutes** (was a vacuous SAFE through
+  the fallback). Discovered as a Phase-2 blocker of the A4 flagship plan: the central seed contract's natural
+  body shape was Advisory-only.
+- **`strlitConst`/`strlitLen` moved to `FixpointIR`** (re-exported from `FixpointEmit`) so the guard channel
+  interns literals without an import cycle.
+
+**Tests:** 1255 Haskell, 45 Python (+1 A2S-11; the two carrier-rejection tests retargeted to `FQList` — the
+still-out carrier — with Str-acceptance twins, their second retargeting after BOOL-FRAG). No schema or
+CLI-surface change. `make refute-crux-gate` 26/26.
+
 ## v0.14.47 — A2.2-string residue lift: string-map returns + param-string put values (2026-07-17)
 
 ### Added — the A4-flagship API shapes verify (Phase 1 of the A4 plan)
