@@ -659,7 +659,13 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         -- need an in-scope FQStr carrier binder (contract clauses only — the body
         -- side already binds via its own VC machinery, per the `pos` witness).
         , maybe Set.empty strEqOperandVars (contractPre contract)
-        , maybe Set.empty strEqOperandVars (contractPost contract) ]
+        , maybe Set.empty strEqOperandVars (contractPost contract)
+        -- A2.2-string (residue lift): string params used as map-put VALUES need
+        -- the FQStr carrier binder too — in contracts AND in the body (the body
+        -- VC references the param name through the shared param binders).
+        , maybe Set.empty mapPutValVars (contractPre contract)
+        , maybe Set.empty mapPutValVars (contractPost contract)
+        , maybe Set.empty mapPutValVars mBody ]
       measureParams = [ (n, t) | (n, t) <- params
                       , n `Set.member` measureVars
                       , isMeasureSort aliases t
@@ -880,7 +886,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   , mapIntIntTy aliases t || mapStrValuedTy aliases t
                   , kv <- [ (v <> "$has", mapArraySort)
                           , (v <> "$val", mapValArraySort aliases t) ] ]
-                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys)
+                -- A2.2-string (residue lift): string params used as map-put
+                -- VALUES join the body-channel SortEnv at FQStr, so strValTerm's
+                -- var leg resolves them. Scoped to actual put-value occurrences
+                -- (byte-inert otherwise, the NIW convention).
+                strParamKeys =
+                  [ (v, FQStr)
+                  | (v, t) <- params
+                  , isStrLike aliases t
+                  , v `Set.member` maybe Set.empty mapPutValVars mBody ]
+                sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys ++ strParamKeys)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
                 -- Result/two-arm-ADT param payload's declared refinement, keyed
                 -- identically to the sort keys. Unrefined payloads contribute
@@ -927,10 +942,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       c <- get
                       return (r, c))
                   seedD
+                -- A2.2-string residue lift: the dedicated map-returning path
+                -- widens from map[int,int] to string-valued maps too — the
+                -- chain translation (mapPairTermsB) is already value-sort-aware
+                -- via the SortEnv, so a string RMW chain peels identically.
                 mMapRetPair
                   | arrGate
                   , Just rt <- mRet
-                  , mapIntIntTy aliases rt
+                  , mapIntIntTy aliases rt || mapStrValuedTy aliases rt
                   = mapRetChain sortEnv bodyD
                   | otherwise = Nothing
             -- Commit the ANF counter only when the dedicated path is taken —
@@ -952,19 +971,24 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                 stepBindIds <- forM steps $ \st -> do
                   bid <- freshBid
                   case st of
-                    MRGet v _ sel ->
-                      addBind (FQBind bid v (FQReft "v" FQInt
+                    -- A2.2-string: the get-step binder carries the chain's value
+                    -- sort (Str for a string-map read) so the pin is well-sorted.
+                    MRGet v _ sel vSort ->
+                      addBind (FQBind bid v (FQReft "v" vSort
                                 (FQBinPred FQEq (FQVar "v") sel)))
                     MRDef v t ->
                       addBind (FQBind bid v (FQReft "v" FQInt
                                 (FQBinPred FQEq (FQVar "v") t)))
                   return bid
+                -- A2.2-string: result$val threads the return type's value-array
+                -- sort ((Map_t int Str) for a string-valued map return).
                 rhbid <- freshBid
                 addBind (FQBind rhbid "result$has" (FQReft "v" mapArraySort FQTrue))
                 rvbid <- freshBid
-                addBind (FQBind rvbid "result$val" (FQReft "v" mapArraySort FQTrue))
+                addBind (FQBind rvbid "result$val"
+                          (FQReft "v" (maybe mapArraySort (mapValArraySort aliases) mRet) FQTrue))
                 -- LEVER-A2.1: PROVE-polarity presence obligation per chain get.
-                let getObls = [ pres | MRGet _ pres _ <- steps ]
+                let getObls = [ pres | MRGet _ pres _ _ <- steps ]
                 unless (null getObls) (addCallPre name)
                 forM_ getObls $ \pres -> do
                   ocid <- freshCid
@@ -1102,9 +1126,13 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                         -- LEVER-A2.1: a map-returning prior call also declares its
                         -- split components (rv$has/rv$val) — the assumed post and a
                         -- later map-op obligation root on them.
+                        -- A2.2-string: string-map returns (strMapArraySort marker)
+                        -- split too; $val carries the marker's value sort.
                         let ctxDecls = concat
-                              [ (rv, rs) : [ (rv <> sfx, mapArraySort)
-                                           | rs == mapArraySort, sfx <- ["$has", "$val"] ]
+                              [ (rv, rs) : [ (rv <> "$has", mapArraySort)
+                                           | isMapArrRetSort rs ]
+                                        ++ [ (rv <> "$val", markerValSort rs)
+                                           | isMapArrRetSort rs ]
                               | (rv, rs, _) <- ctxCalls ]
                         ctxBindIds <- mapM (\(dv, ds) -> do
                           bid <- freshBid
@@ -1177,9 +1205,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                     -- LEVER-A2.1: expand map-returning prior-call
                                     -- results into their split components (mirrors
                                     -- the call-pre emission above).
+                                    -- A2.2-string: mirrors the call-pre ctxDecls widening.
                                     let dCtxDecls = concat
-                                          [ (rv, rs) : [ (rv <> sfx, mapArraySort)
-                                                       | rs == mapArraySort, sfx <- ["$has", "$val"] ]
+                                          [ (rv, rs) : [ (rv <> "$has", mapArraySort)
+                                                       | isMapArrRetSort rs ]
+                                                    ++ [ (rv <> "$val", markerValSort rs)
+                                                       | isMapArrRetSort rs ]
                                           | (rv, rs, _) <- ctxCalls ]
                                     ctxBindIds <- mapM (\(dv, ds) -> do
                                       bid <- freshBid
@@ -1568,17 +1599,46 @@ mapStrValuedTy am t = case resolveAliasTy am t of
 -- Map_select over it is Str-sorted.
 mapValArraySort :: AliasMap -> Type -> FQSort
 mapValArraySort am t
-  | mapStrValuedTy am t = FQArr FQInt FQStr
+  | mapStrValuedTy am t = strMapArraySort
   | otherwise           = mapArraySort
+
+-- | A2.2-string (residue lift): the string-map marker/component sort. Mirrors
+-- the int-map convention where the whole-map RETURN marker equals the component
+-- sort ('mapArraySort' = FQMapArr): a string-valued map return is marked
+-- @FQArr FQInt FQStr@ — distinct from FQMapArr (int/bool maps) and from
+-- byteArraySort (FQArr FQInt FQInt) — and its $val component carries the same
+-- sort. Every marker-dispatch site widens via 'isMapArrRetSort'.
+strMapArraySort :: FQSort
+strMapArraySort = FQArr FQInt FQStr
+
+-- | A2.2-string (residue lift): is this sort a map-return marker (int/bool map
+-- OR string-valued map)? The widened guard for every `== mapArraySort` return-
+-- dispatch site; bytes returns (byteArraySort) remain excluded.
+isMapArrRetSort :: FQSort -> Bool
+isMapArrRetSort s = s == mapArraySort || s == strMapArraySort
+
+-- | A2.2-string (residue lift): the $val component sort a map-return marker
+-- implies ($has is always 'mapArraySort').
+markerValSort :: FQSort -> FQSort
+markerValSort s = if s == strMapArraySort then strMapArraySort else mapArraySort
 
 -- | LEVER-A2.2: the SYNTACTIC array-encodable map check used in 'bodyToPredM',
 -- which has no AliasMap (the PAIR-RET-2 precedent): a literal @map[int,int]@ or
 -- @map[int,bool]@ callee return / param. An alias-hidden map return keeps FQInt
 -- and its post components stay unsubstituted → conservatively not assumed.
 syntEncodableMapTy :: Type -> Bool
-syntEncodableMapTy (TMap TInt TInt)  = True
-syntEncodableMapTy (TMap TInt TBool) = True
-syntEncodableMapTy _                 = False
+syntEncodableMapTy (TMap TInt TInt)    = True
+syntEncodableMapTy (TMap TInt TBool)   = True
+syntEncodableMapTy (TMap TInt TString) = True  -- A2.2-string residue lift
+syntEncodableMapTy _                   = False
+
+-- | A2.2-string (residue lift): the return-marker sort of a syntactic map type
+-- (the 'syntEncodableMapTy' class) — the Str marker for a string-valued map,
+-- 'mapArraySort' otherwise. Used where a callee's literal return type drives
+-- the marker (no AliasMap, the PAIR-RET-2 precedent).
+syntMapRetSort :: Type -> FQSort
+syntMapRetSort (TMap TInt TString) = strMapArraySort
+syntMapRetSort _                   = mapArraySort
 
 -- | The component-array sort of the two-array map encoding (int keys, int-0/1
 -- presence / int values). One sort for both components in the v1 class.
@@ -1599,10 +1659,9 @@ mapArraySort = FQMapArr
 mapClauseBlocked :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Maybe Expr -> Bool
 mapClauseBlocked am params mRet mPost mPre =
      any (\(_, t) -> isMapTy am t && not (mapArrEncodableTy am t)) paramsAndRet
-  -- A2.2-string Stage 1: string-VALUED map params are admitted (Str $val array),
-  -- but a string-valued map RETURN is deferred — the map-returning result$val
-  -- binder threads only the int sort in this stage, so route it to fallback.
-  || any (mapStrValuedTy am) [ t | Just t <- [mRet] ]
+  -- A2.2-string residue lift: string-valued map RETURNS are now admitted — the
+  -- result$val binder, mapRetChain, and the callee-return marker sites all
+  -- thread the Str value sort (strMapArraySort marker).
   || badPutValue mPost || badPutValue mPre
   || boolMapUnsafe mPost || boolMapUnsafe mPre
   where
@@ -1815,8 +1874,8 @@ strValTerm env se e = case e of
 
 -- | LEVER-A2.1: one peeled step of a straight-line map-returning body chain.
 data MapRetStep
-  = MRGet Name FQPred FQPred  -- ^ bound var, presence pred (PROVE), value select (pin)
-  | MRDef Name FQPred          -- ^ bound var, defining scalar term (pin)
+  = MRGet Name FQPred FQPred FQSort  -- ^ bound var, presence pred (PROVE), value select (pin), value sort (A2.2-string: Str for a string-map read, else int)
+  | MRDef Name FQPred                 -- ^ bound var, defining scalar term (pin)
 
 -- | LEVER-A2.1 (read-modify-write class): peel a straight-line, ANF'd,
 -- let-expanded map-returning body — a spine of lets whose RHSs are map-gets
@@ -1835,10 +1894,15 @@ mapRetChain se0 = go se0
             EApp "map-get" [mE, kE] -> do
               (h, vl) <- mapPairTermsB Map.empty se mE
               k <- scalarIntTerm Map.empty se kE
-              let pres = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
-                  sel  = FQApp "Map_select" [vl, k]
-              (steps, term) <- go (Map.insert v FQInt se) body
-              pure (MRGet v pres sel : steps, term)
+              -- A2.2-string: the bound var carries the value array's element
+              -- sort (Str for a string-map read), so a later step can use it as
+              -- a put VALUE (strValTerm's se lookup) and the binder is well-
+              -- sorted against the Str Map_select pin.
+              let pres  = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
+                  sel   = FQApp "Map_select" [vl, k]
+                  vSort = mapSelValSort se vl
+              (steps, term) <- go (Map.insert v vSort se) body
+              pure (MRGet v pres sel vSort : steps, term)
             rhs -> do
               t <- scalarIntTerm Map.empty se rhs
               (steps, term) <- go (Map.insert v FQInt se) body
@@ -2737,7 +2801,7 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             -- and its post components stay unsubstituted → not assumed.
             calleeRetSort = case mRetType of
               Just (TBytes _) | contractMentionsBytesOp contract -> byteArraySort
-              Just t | syntEncodableMapTy t, contractMentionsMapOp contract -> mapArraySort
+              Just t | syntEncodableMapTy t, contractMentionsMapOp contract -> syntMapRetSort t
               _ -> maybe FQInt typeToSort mRetType
         -- Build substitution: callee params → translated args.
         -- LEVER-A2.1 (cross-call map assume-guarantee): a map-op-bearing callee
@@ -2815,8 +2879,10 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             -- mapArraySort marker). Guarded on the marker: without it the
             -- components would be free vars, so the leftover check below
             -- drops the assumption (sound weakening) instead.
+            -- A2.2-string: string-map returns (strMapArraySort marker) substitute
+            -- their components identically — the substitution is name-driven.
             let resultCompSubst
-                  | calleeRetSort == mapArraySort = Map.fromList
+                  | isMapArrRetSort calleeRetSort = Map.fromList
                       [ ("result$has", FQVar (resultVar <> "$has"))
                       , ("result$val", FQVar (resultVar <> "$val")) ]
                   | otherwise = Map.empty
@@ -3039,11 +3105,14 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
       -- through mapPairTermsB (env renames v → rVar; its "$has" lookup then
       -- hits these keys). The component binders themselves are declared at
       -- flatten/compile time via collectCallResultComps.
+      -- A2.2-string: string-map returns (strMapArraySort marker) seed their
+      -- components too, $val at the marker's value sort — so a downstream
+      -- map-get over the let-bound string map is Str-sorted end to end.
       let env' = Map.insert v rVar env
           se0  = Map.insert rVar rSort se
-          se'  = if rSort == mapArraySort
+          se'  = if isMapArrRetSort rSort
                    then Map.insert (rVar <> "$has") mapArraySort
-                          (Map.insert (rVar <> "$val") mapArraySort se0)
+                          (Map.insert (rVar <> "$val") (markerValSort rSort) se0)
                    else se0
       mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
@@ -3413,9 +3482,11 @@ flattenBodyVC (CallVC _callee _args _mPre mPost resultVar resultSort cont) =
       -- LEVER-A2.1: a map-returning callee's result is a SPLIT component pair;
       -- declare the components (self-eq declaration, the resultLB pattern) so
       -- the assumed post and downstream map ops that root on them are bound.
-      compLBs = [ LetBinding (resultVar <> sfx) mapArraySort
-                             (FQVar (resultVar <> sfx))
-                | resultSort == mapArraySort, sfx <- ["$has", "$val"] ]
+      -- A2.2-string: string-map returns split too; $val at the marker's value sort.
+      compLBs = [ LetBinding (resultVar <> sfx) srt (FQVar (resultVar <> sfx))
+                | isMapArrRetSort resultSort
+                , (sfx, srt) <- [ ("$has", mapArraySort)
+                                , ("$val", markerValSort resultSort) ] ]
   in [ ( conjoinAll [guard, fromMaybe FQTrue mPost]
        , resultLB : compLBs ++ lbs
        , resultPred )
@@ -3429,7 +3500,7 @@ flattenBodyVC (CallVC _callee _args _mPre mPost resultVar resultSort cont) =
 arrayResultPath :: BodyVC -> Bool
 arrayResultPath bvc =
   any (\(_, lbs, rp) -> case rp of
-         FQVar v -> any (\lb -> lbName lb == v && lbSort lb == mapArraySort) lbs
+         FQVar v -> any (\lb -> lbName lb == v && isMapArrRetSort (lbSort lb)) lbs
          _       -> False)
       (flattenBodyVC bvc)
 
@@ -3592,6 +3663,26 @@ lexLess gs  fs  = FQOr [ mkTerm i | i <- [0 .. length gs - 1] ]
 -- 'measureVars'; the 'measureParams' 'isMeasureSort' gate then binds only the
 -- string/list ones (int operands are already bound via 'intParams'; list operands
 -- get a harmless unused carrier).
+-- | A2.2-string (residue lift): vars in map-put VALUE position. A string param
+-- used as a put value ((map-put m k s)) needs an FQStr carrier binder (via
+-- 'measureVars', filtered by 'isMeasureSort' — an int var collected here is
+-- filtered out and harmless) AND a body-channel SortEnv entry so 'strValTerm'
+-- resolves it. Type-blind, like 'strEqOperandVars'.
+mapPutValVars :: Expr -> Set.Set Name
+mapPutValVars e = case e of
+  EApp "map-put" [mE, kE, vE] ->
+    Set.unions [valVar vE, mapPutValVars mE, mapPutValVars kE, mapPutValVars vE]
+  EApp _ args   -> Set.unions (map mapPutValVars args)
+  EOp op args   -> mapPutValVars (EApp op args)
+  EIf a b c     -> Set.unions (map mapPutValVars [a, b, c])
+  ELet bs body  -> Set.unions (mapPutValVars body : [mapPutValVars r | (_, _, r) <- bs])
+  EMatch s arms -> Set.unions (mapPutValVars s : map (mapPutValVars . snd) arms)
+  EPair a b     -> Set.union (mapPutValVars a) (mapPutValVars b)
+  _             -> Set.empty
+  where
+    valVar (EVar v) = Set.singleton v
+    valVar _        = Set.empty
+
 strEqOperandVars :: Expr -> Set.Set Name
 strEqOperandVars e = case e of
   EApp op [l, r] | op `elem` (["=", "==", "/=", "!=", "≠"] :: [Text]) ->

@@ -6637,13 +6637,73 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Nothing  -> pendingWith "solver not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
 
-      it "A2S-5 firewalls never crash: string-map RETURN + string map-empty construction fall back; int map unaffected" $ do
+      it "A2S-5 firewalls never crash: string map-empty CONSTRUCTION falls back (returns now reflect); int map unaffected" $ do
+        -- Post-residue-lift: string-map RETURNS reflect (see A2S-7); the
+        -- remaining construction firewall is map-empty (its Map_default 0 value
+        -- root is int-sorted, so a string put onto it is not Str-rooted).
         erRet <- emitA2 "(def build [k: int] -> map[int,string] (post (= (map-get result k) \"x\")) (map-put (map-empty) k \"x\"))"
         erBodyFallback erRet `shouldSatisfy` elem "build"
         erEmpty <- emitA2 "(def fe [k: int] -> string (post (= result \"x\")) (map-get (map-put (map-empty) k \"x\") k))"
         erBodyFallback erEmpty `shouldSatisfy` elem "fe"
         erInt <- emitA2 "(def im [m: map[int,int] k: int] -> int (post (= result 7)) (map-get (map-put m k 7) k))"
         erBodyFaithfulFns erInt `shouldSatisfy` elem "im"
+
+      -- A2.2-string RESIDUE LIFT: string-valued map RETURNS + param-string put
+      -- values + string RMW chains + cross-call string-map assume-guarantee.
+      it "A2S-7 string-map return (the A4 revoke shape): put-then-return verifies; wrong-status twin REFUTED" $ do
+        erGood <- emitA2 "(def revoke [m: map[int,string] k: int] -> map[int,string] (post (= (map-get result k) \"revoked\")) (map-put m k \"revoked\"))"
+        erBodyFaithfulFns erGood `shouldSatisfy` elem "revoke"
+        erBad <- emitA2 "(def revoke [m: map[int,string] k: int] -> map[int,string] (post (= (map-get result k) \"active\")) (map-put m k \"revoked\"))"
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2S-8 param-string put value: set(m,k,s) round-trips SAFE; the literal twin REFUTED (not vacuous)" $ do
+        erGood <- emitA2 "(def setv [m: map[int,string] k: int s: string] -> string (post (= result s)) (map-get (map-put m k s) k))"
+        erBad  <- emitA2 "(def setv [m: map[int,string] k: int s: string] -> string (post (= result \"admin\")) (map-get (map-put m k s) k))"
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2S-9 string RMW chain: a let-bound string-map read (MRGet at Str) feeds the put back — SAFE" $ do
+        er <- emitA2 (unlines
+          [ "(def keep [m: map[int,string] k: int] -> map[int,string]"
+          , "  (pre (map-has m k))"
+          , "  (post (= (map-get result k) (map-get m k)))"
+          , "  (let [(old (map-get m k))] (map-put m k old)))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "keep"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2S-10 cross-call string-map A-G: a caller failing the callee's string-status pre is refuted at the call site" $ do
+        let src caller = unlines
+              [ "(def chk [m: map[int,string] k: int] -> int"
+              , "  (pre (and (map-has m k) (= (map-get m k) \"active\")))"
+              , "  (post (= result 1))"
+              , "  1)"
+              , caller ]
+        erBad  <- emitA2 (src "(def-shell use [m: map[int,string] k: int] -> int (post (>= result 0)) (chk m k))")
+        erGood <- emitA2 (src "(def-shell use [m: map[int,string] k: int] -> int (pre (and (map-has m k) (= (map-get m k) \"active\"))) (post (>= result 0)) (chk m k))")
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
 
       it "A2S-6 regression (strlit range fact): string-length over a string literal emits no ill-sorted strlit_ >= 0" $ do
         -- STRLIT bug the string surface exposed: injectRangeFacts' catch-all added
@@ -6997,15 +7057,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  (map-put m k v))" ]
         classifyFirst stmts `shouldBe` "qf_lia"
 
-      it "A3-3 residue routes out: string-valued map RETURN, whole-array =, both guards live" $ do
-        -- (a) A2.2-string Stage-1 residue: a string-VALUED map RETURN routes out
-        -- (mapClauseBlocked — result$val threads int only; string-map returns are
-        -- deferred). String-valued map PARAMS now reflect (A2.2-string); it is
-        -- the RETURN that remains residue.
+      it "A3-3 residue routes out: string-KEYED map, whole-array =, both guards live" $ do
+        -- (a) A2.2-string residue (post-lift): string-valued map RETURNS now
+        -- reflect (the residue lift threads result$val at the Str sort), so the
+        -- remaining value-class residue witness is a string-KEYED map — keys
+        -- are int-only (mapArrEncodableTy) until the Stage-2 key dimension.
         let sVal = parseA3
-              [ "(def sbuild [m: map[int,string] k: int] -> map[int,string]"
-              , "  (post (= (map-get result k) \"x\"))"
-              , "  (map-put m k \"x\"))" ]
+              [ "(def sget [m: map[string,int] k: string] -> int"
+              , "  (pre (map-has m k))"
+              , "  0)" ]
         classifyFirst sVal `shouldBe` "non_qf_lia"
         -- (b) whole-map = in the contract, ops only in the BODY (the
         -- body-relevance leg of the activation gate).
