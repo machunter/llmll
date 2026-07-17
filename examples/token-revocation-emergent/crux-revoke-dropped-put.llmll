@@ -1,0 +1,8 @@
+;; CRUX (refute twin): the dropped-put revocation — the handler returns the
+;; store UNCHANGED, so the token is never invalidated (revocation silently
+;; lost; the client can keep using it, violating RFC 7009 §2.1's immediate
+;; invalidation). MUST stay refuted.
+(def revoke [tokens: map[int,string] tid: int] -> map[int,string]
+  (pre (map-has tokens tid))
+  (post (and (map-has result tid) (= (map-get result tid) "revoked")))
+  tokens)

@@ -1,0 +1,20 @@
+;; CRUX (call-site refute pair): the RFC 7009 §2 POST-only endpoint gate,
+;; enforced by STRLIT literal distinctness. The bad endpoint forwards a GET to
+;; the revocation action; proving the callee's (= method "POST") pre under
+;; method := "GET" demands strlit_GET = strlit_POST — excluded by the ground
+;; distinctness fact → refuted AT THE CALL SITE (verb tampering, CWE-650).
+;; The good endpoint passes "POST" and discharges.
+(def do-revoke [tokens: map[int,string] tid: int method: string] -> int
+  (pre (and (= method "POST") (map-has tokens tid)))
+  (post (= result 1))
+  1)
+
+(def-shell good-endpoint [tokens: map[int,string] tid: int] -> int
+  (pre (map-has tokens tid))
+  (post (>= result 0))
+  (do-revoke tokens tid "POST"))
+
+(def-shell bad-endpoint [tokens: map[int,string] tid: int] -> int
+  (pre (map-has tokens tid))
+  (post (>= result 0))
+  (do-revoke tokens tid "GET"))

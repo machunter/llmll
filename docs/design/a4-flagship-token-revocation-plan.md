@@ -1,6 +1,6 @@
 ---
 title: A4 Flagship — Emergent Token-Revocation Service (RFC 7009/7662)
-status: SCOPED 2026-07-17 (user-settled) — Phase 1 SHIPPED v0.14.47 (returns + param-values + string RMW + cross-call A-G probed); next = Phase 2 (RFC seed contracts)
+status: COMPLETE 2026-07-17 — all five phases done; artifact = examples/token-revocation-emergent/ (8 fns / 5 modules, all body-faithful, 2 agent-invented; 9 frozen cruxes in the refute-crux gate; findings F-1..F-4 in its README)
 author: scoping talk (user + assistant), 2026-07-17
 track: Data Scope Extension Lever A, row A4 ("flagship data example") — the payoff demonstration for the v0.14.33–46 arc
 ---
@@ -26,10 +26,10 @@ The data counterpart of `examples/secure-channel-emergent` (the control-flow fla
 | Phase | Work | Gate |
 |---|---|---|
 | **1. Residue lift** ✅ **SHIPPED v0.14.47** | String-valued map **returns** (`strMapArraySort` marker; all `== mapArraySort` dispatch sites widened) + **param-string put values** (`mapPutValVars` → carrier + `SortEnv`) + string **RMW chains** (`MRGet` value sort). `revoke : tokens → tokens` and `set(m, k, s)` verify with refute twins; **cross-call string-map A-G probed** (risk 2 cleared: bad caller refuted at call site). 1254 H / 0, refute-crux 26/26. | ✅ all gates passed |
-| **2. Seed contracts** (R3 pipeline) | RFC 7009/7662 → top-level contracts with `:source` clause provenance, per the validated `examples/rfc1982_serial` procedure. ~3–6 seed functions (introspect, revoke, enforce, store ops). | Seed contracts verify as contracts (classify in-fragment); provenance inventory persisted |
-| **3. Pilot** (~half day) | 2–3 blind fills of *data-contract* holes (map-presence pre, status-literal post) — data holes are unproven for blind fill vs control-flow ones. | Fills verify body-faithful; else findings route back to brief vocabulary/compiler before the wave |
-| **4. The wave** | Emergent cascade from the seed; full audit trail (transcripts, per-fill verify records). | Whole-program SAFE ∧ body-faithful; strict-verified-core for the spine |
-| **5. Refute twins + close-out** | Author-injected mutations, CI gate, findings doc, demo script ending at `--trust-report`, examples/ placement, roadmap A4 row close. | `make refute-crux-gate` extended; findings written |
+| **2. Seed contracts** ✅ | Seven `:source`-tagged roots across five modules, every contract `qf_lia`; `VERIFICATION_SCOPE.md` = S0 model + Q1–Q9 inventory. **Bonus ship v0.14.48**: the STRLIT body-channel flip, found feasibility-probing the introspect shape (it fell back → vacuous SAFE; the expiry-skip bug now refutes). | ✅ all contracts in-fragment |
+| **3. Pilot** ✅ | 3 modules filled blind: 5 accepted fills incl. a **spontaneous 2-function cascade** (agent-invented contracts for `token-status-active`/`token-unexpired`). One harness finding (F-1 bare-atom converter, fixed pre-wave); zero compiler findings. | ✅ gate passed — wave opened |
+| **4. The wave** ✅ | `revocation` + `spine` filled; `serve`'s agent composed `(if (introspect …) (grant …) 0)` — the **cross-module A-G obligation discharged** (grant's pre proven from introspect's post). F-2: map-returning bare tail call falls back (pre-existing; agent inlined). | ✅ 8/8 body-faithful, whole-service SAFE, spine trust `verified: 5` |
+| **5. Refute twins + close-out** ✅ | 9 frozen cruxes (4 good twins = the agents' bodies; 5 refutes = expiry-skip / dropped-put / method-gate-at-call-site / unconditional-serve / fp-false-accept) added to `refute-crux-gate` → **35/35**. F-3: stale stack binary caught (gate preflight lesson). Findings F-1..F-4 in the example README. | ✅ gate green on the current binary |
 
 ## Risks
 

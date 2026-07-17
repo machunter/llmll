@@ -1,0 +1,2 @@
+FILL
+(if (map-has exp tid) (< now (map-get exp tid)) false)

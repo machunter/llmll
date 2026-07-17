@@ -1,5 +1,9 @@
 ;; module: spine — the fail-closed request handler (the whole-service invariant).
 ;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+(import introspection)
+(import enforcement)
+(open introspection)
+(open enforcement)
 ;;
 ;; The deliberate use-after-revoke shape (stated, not steered): serve returns a
 ;; grant EXACTLY when the token is active-and-valid, else 0 — the same

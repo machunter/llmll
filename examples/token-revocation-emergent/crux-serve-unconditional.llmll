@@ -1,0 +1,16 @@
+;; CRUX (refute twin): the use-after-revoke / goto-fail shape — serve grants
+;; UNCONDITIONALLY, skipping the whole validity gate. A revoked, expired, or
+;; unknown token is served anyway (RFC 7009 §2: the token "cannot be used
+;; again after the revocation"). MUST stay refuted: the fail-closed conjunct
+;; (=> ¬valid (= result 0)) is violated by result = tid > 0.
+(def serve [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> int
+  (pre (> tid 0))
+  (post (and (=> (and (map-has tokens tid)
+                      (and (= (map-get tokens tid) "active")
+                           (and (map-has exp tid) (< now (map-get exp tid)))))
+                 (= result tid))
+             (=> (not (and (map-has tokens tid)
+                           (and (= (map-get tokens tid) "active")
+                                (and (map-has exp tid) (< now (map-get exp tid))))))
+                 (= result 0))))
+  tid)

@@ -1,0 +1,7 @@
+;; CRUX (good twin): the fingerprint byte comparison as the agent wrote it —
+;; a claimed match is a proof of byte equality at i.
+(def fp-byte-match [a: bytes[32] b: bytes[32] i: int] -> int
+  (pre (and (>= i 0) (< i 32)))
+  (post (and (=> (= result 1) (= (bytes-get a i) (bytes-get b i)))
+             (or (= result 0) (= result 1))))
+  (if (= (bytes-get a i) (bytes-get b i)) 1 0))

@@ -1,0 +1,20 @@
+;; CRUX (good twin): the fail-closed handler, self-contained (the wave's actual
+;; spine composes imported introspect/grant; this inlines the gate for a
+;; single-file frozen verdict).
+(def serve [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> int
+  (pre (> tid 0))
+  (post (and (=> (and (map-has tokens tid)
+                      (and (= (map-get tokens tid) "active")
+                           (and (map-has exp tid) (< now (map-get exp tid)))))
+                 (= result tid))
+             (=> (not (and (map-has tokens tid)
+                           (and (= (map-get tokens tid) "active")
+                                (and (map-has exp tid) (< now (map-get exp tid))))))
+                 (= result 0))))
+  (if (map-has tokens tid)
+      (if (= (map-get tokens tid) "active")
+          (if (map-has exp tid)
+              (if (< now (map-get exp tid)) tid 0)
+              0)
+          0)
+      0))

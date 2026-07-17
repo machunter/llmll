@@ -1,0 +1,27 @@
+{
+ "token": "0845fb65e3537405781e89659a4532551c0eee1e59fcf42b502e69a6fd3a65d9",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "args": [
+     {
+      "kind": "var",
+      "name": "tokens"
+     },
+     {
+      "kind": "var",
+      "name": "tid"
+     },
+     {
+      "kind": "lit-string",
+      "value": "revoked"
+     }
+    ],
+    "fn": "map-put",
+    "kind": "app"
+   }
+  }
+ ]
+}

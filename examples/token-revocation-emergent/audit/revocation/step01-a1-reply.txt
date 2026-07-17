@@ -1,0 +1,2 @@
+FILL
+(map-put tokens tid "revoked")

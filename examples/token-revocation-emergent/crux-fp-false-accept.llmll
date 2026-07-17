@@ -1,0 +1,9 @@
+;; CRUX (refute pair): the fingerprint no-false-accept invariant. The good twin
+;; is the agent's fill (claim a match only on real byte equality); the bad twin
+;; claims a match UNCONDITIONALLY — a false accept at any mismatching index.
+;; MUST stay refuted.
+(def fp-byte-match [a: bytes[32] b: bytes[32] i: int] -> int
+  (pre (and (>= i 0) (< i 32)))
+  (post (and (=> (= result 1) (= (bytes-get a i) (bytes-get b i)))
+             (or (= result 0) (= result 1))))
+  1)

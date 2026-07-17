@@ -1,0 +1,23 @@
+{
+ "token": "4114801a0bd7b9313391b2bc3cc35ea661604d61ba9bdc751ecb705e722a1075",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "args": [
+     {
+      "kind": "var",
+      "name": "tokens"
+     },
+     {
+      "kind": "var",
+      "name": "tid"
+     }
+    ],
+    "fn": "revoke",
+    "kind": "app"
+   }
+  }
+ ]
+}

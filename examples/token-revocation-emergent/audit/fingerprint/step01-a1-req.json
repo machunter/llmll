@@ -1,0 +1,54 @@
+{
+ "token": "489a8fee7b3973d8697d27c9b280519e0f48b1554c522a0505eaa88f1ed6f502",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "cond": {
+     "args": [
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "a"
+        },
+        {
+         "kind": "var",
+         "name": "i"
+        }
+       ],
+       "fn": "bytes-get",
+       "kind": "app"
+      },
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "b"
+        },
+        {
+         "kind": "var",
+         "name": "i"
+        }
+       ],
+       "fn": "bytes-get",
+       "kind": "app"
+      }
+     ],
+     "kind": "op",
+     "op": "="
+    },
+    "else_branch": {
+     "kind": "lit-int",
+     "value": 0
+    },
+    "kind": "if",
+    "then_branch": {
+     "kind": "lit-int",
+     "value": 1
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,240 @@
+{
+ "token": "5e7ee74e60a360b3146f29c326bd41717adbbcbd0930d10b781cd254c37445a7",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/0/body",
+   "value": {
+    "args": [
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "tokens"
+       },
+       {
+        "kind": "var",
+        "name": "tid"
+       }
+      ],
+      "fn": "token-status-active",
+      "kind": "app"
+     },
+     {
+      "args": [
+       {
+        "kind": "var",
+        "name": "exp"
+       },
+       {
+        "kind": "var",
+        "name": "tid"
+       },
+       {
+        "kind": "var",
+        "name": "now"
+       }
+      ],
+      "fn": "token-unexpired",
+      "kind": "app"
+     }
+    ],
+    "kind": "op",
+    "op": "and"
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "token-status-active",
+    "params": [
+     {
+      "name": "tokens",
+      "param_type": {
+       "key_type": {
+        "kind": "primitive",
+        "name": "int"
+       },
+       "kind": "map",
+       "val_type": {
+        "kind": "primitive",
+        "name": "string"
+       }
+      }
+     },
+     {
+      "name": "tid",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "tokens"
+          },
+          {
+           "kind": "var",
+           "name": "tid"
+          }
+         ],
+         "fn": "map-has",
+         "kind": "app"
+        },
+        {
+         "args": [
+          {
+           "args": [
+            {
+             "kind": "var",
+             "name": "tokens"
+            },
+            {
+             "kind": "var",
+             "name": "tid"
+            }
+           ],
+           "fn": "map-get",
+           "kind": "app"
+          },
+          {
+           "kind": "lit-string",
+           "value": "active"
+          }
+         ],
+         "kind": "op",
+         "op": "="
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "="
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  },
+  {
+   "op": "add",
+   "path": "/statements/-",
+   "value": {
+    "body": {
+     "kind": "hole-named",
+     "name": "impl"
+    },
+    "kind": "def-shell",
+    "name": "token-unexpired",
+    "params": [
+     {
+      "name": "exp",
+      "param_type": {
+       "key_type": {
+        "kind": "primitive",
+        "name": "int"
+       },
+       "kind": "map",
+       "val_type": {
+        "kind": "primitive",
+        "name": "int"
+       }
+      }
+     },
+     {
+      "name": "tid",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     },
+     {
+      "name": "now",
+      "param_type": {
+       "kind": "primitive",
+       "name": "int"
+      }
+     }
+    ],
+    "post": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "result"
+      },
+      {
+       "args": [
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "exp"
+          },
+          {
+           "kind": "var",
+           "name": "tid"
+          }
+         ],
+         "fn": "map-has",
+         "kind": "app"
+        },
+        {
+         "args": [
+          {
+           "kind": "var",
+           "name": "now"
+          },
+          {
+           "args": [
+            {
+             "kind": "var",
+             "name": "exp"
+            },
+            {
+             "kind": "var",
+             "name": "tid"
+            }
+           ],
+           "fn": "map-get",
+           "kind": "app"
+          }
+         ],
+         "kind": "op",
+         "op": "<"
+        }
+       ],
+       "kind": "op",
+       "op": "and"
+      }
+     ],
+     "kind": "op",
+     "op": "="
+    },
+    "return_type": {
+     "kind": "primitive",
+     "name": "bool"
+    }
+   }
+  }
+ ]
+}

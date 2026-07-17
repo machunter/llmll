@@ -1,0 +1,4 @@
+REFINE
+(and (token-status-active tokens tid) (token-unexpired exp tid now))
+(def-shell token-status-active [tokens: map[int,string] tid: int] -> bool (post (= result (and (map-has tokens tid) (= (map-get tokens tid) "active")))) ?impl)
+(def-shell token-unexpired [exp: map[int,int] tid: int now: int] -> bool (post (= result (and (map-has exp tid) (< now (map-get exp tid))))) ?impl)

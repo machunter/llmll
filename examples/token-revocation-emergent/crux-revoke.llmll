@@ -1,0 +1,6 @@
+;; CRUX (good twin): revocation as the agents wrote it — RFC 7009 §2.1
+;; immediate invalidation via the status transition.
+(def revoke [tokens: map[int,string] tid: int] -> map[int,string]
+  (pre (map-has tokens tid))
+  (post (and (map-has result tid) (= (map-get result tid) "revoked")))
+  (map-put tokens tid "revoked"))

@@ -1,0 +1,2 @@
+FILL
+(if (= (bytes-get a i) (bytes-get b i)) 1 0)

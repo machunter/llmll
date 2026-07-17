@@ -1,0 +1,60 @@
+{
+ "token": "2c3287c34b8c195c21ad73e8275245c913533d19ef6e454e2cf8a0b98e28f7bd",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/4/body",
+   "value": {
+    "cond": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "tokens"
+      },
+      {
+       "kind": "var",
+       "name": "exp"
+      },
+      {
+       "kind": "var",
+       "name": "tid"
+      },
+      {
+       "kind": "var",
+       "name": "now"
+      }
+     ],
+     "fn": "introspect",
+     "kind": "app"
+    },
+    "else_branch": {
+     "kind": "lit-int",
+     "value": 0
+    },
+    "kind": "if",
+    "then_branch": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "tokens"
+      },
+      {
+       "kind": "var",
+       "name": "exp"
+      },
+      {
+       "kind": "var",
+       "name": "tid"
+      },
+      {
+       "kind": "var",
+       "name": "now"
+      }
+     ],
+     "fn": "grant",
+     "kind": "app"
+    }
+   }
+  }
+ ]
+}

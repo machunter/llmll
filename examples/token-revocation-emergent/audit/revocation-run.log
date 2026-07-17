@@ -1,0 +1,5 @@
+[revocation] step 1: def-shell revoke (/statements/0/body), 2 open
+[revocation]   accepted (patch, attempt 1)
+[revocation] step 2: def-shell handle-revocation (/statements/1/body), 1 open
+[revocation]   accepted (patch, attempt 2)
+[revocation] complete after 2 steps

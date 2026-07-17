@@ -1,0 +1,7 @@
+[introspection] step 1: def-shell introspect (/statements/0/body), 1 open
+[introspection]   accepted (refine, attempt 1)
+[introspection] step 2: def-shell token-status-active (/statements/1/body), 2 open
+[introspection]   accepted (patch, attempt 1)
+[introspection] step 3: def-shell token-unexpired (/statements/2/body), 1 open
+[introspection]   accepted (patch, attempt 1)
+[introspection] complete after 3 steps

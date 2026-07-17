@@ -1,0 +1,6 @@
+   .fq written to /tmp/fingerprint.ast.fq
+   body-faithful: fp-byte-match
+   call-pre obligations: fp-byte-match
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/fingerprint.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/fingerprint.ast.json.verified.json

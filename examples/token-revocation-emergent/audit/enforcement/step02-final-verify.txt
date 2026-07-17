@@ -1,0 +1,5 @@
+   .fq written to /tmp/enforcement.ast.fq
+   body-faithful: grant
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/enforcement.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/enforcement.ast.json.verified.json

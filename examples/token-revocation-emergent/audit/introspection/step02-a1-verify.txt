@@ -1,0 +1,7 @@
+   .fq written to /tmp/introspection.ast.fq
+   body-faithful: introspect, token-status-active
+   body-fallback: token-unexpired
+   call-pre obligations: token-status-active
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/introspection.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/introspection.ast.json.verified.json

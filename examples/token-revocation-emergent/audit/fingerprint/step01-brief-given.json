@@ -1,0 +1,126 @@
+{
+ "assumptions": null,
+ "available_functions": [
+  {
+   "name": "fp-byte-match",
+   "params": [
+    {
+     "name": "a",
+     "type": "bytes[32]"
+    },
+    {
+     "name": "b",
+     "type": "bytes[32]"
+    },
+    {
+     "name": "i",
+     "type": "int"
+    }
+   ],
+   "post": "(and (=> (= result 1) (= (bytes-get a i) (bytes-get b i))) (or (= result 0) (= result 1)))",
+   "pre": "(and (>= i 0) (< i 32))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "hole",
+   "tier": "asserted"
+  },
+  {
+   "name": "bytes-length",
+   "params": [
+    {
+     "name": "p0",
+     "type": "bytes[n]"
+    }
+   ],
+   "post": null,
+   "pre": null,
+   "return_type": "int",
+   "returns": "int",
+   "status": "builtin",
+   "tier": null
+  },
+  {
+   "name": "bytes-get",
+   "params": [
+    {
+     "name": "p0",
+     "type": "bytes[n]"
+    },
+    {
+     "name": "p1",
+     "type": "int"
+    }
+   ],
+   "post": null,
+   "pre": "(and (>= p1 0) (< p1 (bytes-length p0)))",
+   "return_type": "int",
+   "returns": "int",
+   "status": "builtin",
+   "tier": null
+  },
+  {
+   "name": "bytes-set",
+   "params": [
+    {
+     "name": "p0",
+     "type": "bytes[n]"
+    },
+    {
+     "name": "p1",
+     "type": "int"
+    },
+    {
+     "name": "p2",
+     "type": "int"
+    }
+   ],
+   "post": null,
+   "pre": "(and (>= p1 0) (< p1 (bytes-length p0)) (>= p2 0) (<= p2 255))",
+   "return_type": "bytes[n]",
+   "returns": "bytes[n]",
+   "status": "builtin",
+   "tier": null
+  },
+  {
+   "name": "bytes-zero",
+   "params": [],
+   "post": null,
+   "pre": null,
+   "return_type": "bytes[n]",
+   "returns": "bytes[n]",
+   "status": "builtin",
+   "tier": null
+  }
+ ],
+ "brief_version": "0.12.2",
+ "consumed_guarantees": null,
+ "contract_pre": "(and (>= i 0) (< i 32))",
+ "expected_return_type": "int",
+ "hole_kind": "hole-named",
+ "in_scope": [
+  {
+   "name": "a",
+   "source": "param",
+   "type": "bytes[32]"
+  },
+  {
+   "name": "b",
+   "source": "param",
+   "type": "bytes[32]"
+  },
+  {
+   "name": "fp-byte-match",
+   "source": "let-binding",
+   "type": "fn[3 args] -> int"
+  },
+  {
+   "name": "i",
+   "source": "param",
+   "type": "int"
+  }
+ ],
+ "obligation_id": null,
+ "path_condition": null,
+ "pointer": "/statements/0/body",
+ "postcondition_goal": "(and (=> (= result 1) (= (bytes-get a i) (bytes-get b i))) (or (= result 0) (= result 1)))"
+}

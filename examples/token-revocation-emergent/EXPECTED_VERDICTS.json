@@ -1,0 +1,22 @@
+{
+  "family": "token-revocation-emergent",
+  "frozen_at": "v0.14.48",
+  "frozen_date": "2026-07-17",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY (the standing A3-churn guard). The A4 data flagship's refute-crux layer: good twins are the blind agents' accepted fills (inlined to single files where the wave's version composes imports); refute twins are author-injected mutations of those fills, one per famous bug class. crux-introspect-expiry-skip additionally pins the v0.14.48 STRLIT body-channel flip — before it, this body fell back and the bug verified vacuously-SAFE. crux-method-gate refutes at the CALL SITE via STRLIT literal distinctness (strlit_GET != strlit_POST).",
+  "cases": [
+    { "file": "crux-introspect.llmll",             "flags": [], "expect_exit": 0, "expect": "safe" },
+    { "file": "crux-introspect-expiry-skip.llmll", "flags": [], "expect_exit": 1, "expect": "refuted", "localized": "introspect",
+      "why": "RFC 7662 validity-window conjunct dropped: token accepted past expiry" },
+    { "file": "crux-revoke.llmll",                 "flags": [], "expect_exit": 0, "expect": "safe" },
+    { "file": "crux-revoke-dropped-put.llmll",     "flags": [], "expect_exit": 1, "expect": "refuted", "localized": "revoke",
+      "why": "dropped-put revocation: store returned unchanged, token never invalidated (RFC 7009 immediate invalidation violated)" },
+    { "file": "crux-method-gate.llmll",            "flags": [], "expect_exit": 1, "expect": "refuted", "localized": "bad-endpoint",
+      "why": "verb tampering (CWE-650): GET forwarded to the POST-only revocation action; STRLIT distinctness refutes (= \"GET\" \"POST\") at the call site — good-endpoint in the same file must keep discharging" },
+    { "file": "crux-serve.llmll",                  "flags": [], "expect_exit": 0, "expect": "safe" },
+    { "file": "crux-serve-unconditional.llmll",    "flags": [], "expect_exit": 1, "expect": "refuted", "localized": "serve",
+      "why": "use-after-revoke / goto-fail shape: unconditional grant skips the whole validity gate" },
+    { "file": "crux-fp.llmll",                     "flags": [], "expect_exit": 0, "expect": "safe" },
+    { "file": "crux-fp-false-accept.llmll",        "flags": [], "expect_exit": 1, "expect": "refuted", "localized": "fp-byte-match",
+      "why": "false accept: match claimed without byte equality" }
+  ]
+}

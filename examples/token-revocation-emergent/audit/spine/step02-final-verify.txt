@@ -1,0 +1,6 @@
+   .fq written to /tmp/spine.ast.fq
+   body-faithful: serve
+   call-pre obligations: serve
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/spine.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/spine.ast.json.verified.json

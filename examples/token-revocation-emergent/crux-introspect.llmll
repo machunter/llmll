@@ -1,0 +1,11 @@
+;; CRUX (good twin): the RFC 7662 §2.2 active definition — the agents' cascade
+;; (introspect = status-check ∧ expiry-check), inlined to one self-contained fn.
+(def introspect [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> bool
+  (post (= result (and (map-has tokens tid)
+                       (and (= (map-get tokens tid) "active")
+                            (and (map-has exp tid) (< now (map-get exp tid)))))))
+  (if (map-has tokens tid)
+      (if (= (map-get tokens tid) "active")
+          (if (map-has exp tid) (< now (map-get exp tid)) false)
+          false)
+      false))

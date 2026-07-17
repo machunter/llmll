@@ -1,0 +1,11 @@
+;; CRUX (refute twin): the classic bug — token accepted past its expiry (the
+;; RFC 7662 §2.2 validity-window conjunct silently dropped). MUST stay refuted:
+;; before the STRLIT body-channel flip (v0.14.48) this body fell back and the
+;; bug verified vacuously-SAFE.
+(def introspect [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> bool
+  (post (= result (and (map-has tokens tid)
+                       (and (= (map-get tokens tid) "active")
+                            (and (map-has exp tid) (< now (map-get exp tid)))))))
+  (if (map-has tokens tid)
+      (= (map-get tokens tid) "active")
+      false))

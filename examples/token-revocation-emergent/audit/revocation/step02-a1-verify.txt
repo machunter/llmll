@@ -1,0 +1,6 @@
+   .fq written to /tmp/revocation.ast.fq
+   body-faithful: revoke
+   body-fallback: handle-revocation
+   Running liquid-fixpoint ...
+✅ /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/revocation.ast.json — SAFE (liquid-fixpoint)
+   .verified.json written to /Users/burcsahinoglu/Documents/llmll/examples/token-revocation-emergent/work/revocation.ast.json.verified.json

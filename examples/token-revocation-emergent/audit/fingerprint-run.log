@@ -1,0 +1,3 @@
+[fingerprint] step 1: def-shell fp-byte-match (/statements/0/body), 1 open
+[fingerprint]   accepted (patch, attempt 1)
+[fingerprint] complete after 1 steps

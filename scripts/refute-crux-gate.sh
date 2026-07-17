@@ -36,6 +36,7 @@ FAMILIES=(
   "total-recursion"
   "bytes-bounds"
   "rfc1982_serial"
+  "token-revocation-emergent"
 )
 
 if ! command -v jq &> /dev/null; then

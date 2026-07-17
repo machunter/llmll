@@ -1,0 +1,54 @@
+{
+ "token": "51b184f3b9fc40c765b6350e189272d267bbe846062a683322dc916821b08d69",
+ "patch": [
+  {
+   "op": "replace",
+   "path": "/statements/1/body",
+   "value": {
+    "cond": {
+     "args": [
+      {
+       "kind": "var",
+       "name": "tokens"
+      },
+      {
+       "kind": "var",
+       "name": "tid"
+      }
+     ],
+     "fn": "map-has",
+     "kind": "app"
+    },
+    "else_branch": {
+     "kind": "lit-bool",
+     "value": false
+    },
+    "kind": "if",
+    "then_branch": {
+     "args": [
+      {
+       "args": [
+        {
+         "kind": "var",
+         "name": "tokens"
+        },
+        {
+         "kind": "var",
+         "name": "tid"
+        }
+       ],
+       "fn": "map-get",
+       "kind": "app"
+      },
+      {
+       "kind": "lit-string",
+       "value": "active"
+      }
+     ],
+     "kind": "op",
+     "op": "="
+    }
+   }
+  }
+ ]
+}

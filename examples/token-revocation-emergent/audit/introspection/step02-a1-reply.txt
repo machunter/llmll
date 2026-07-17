@@ -1,0 +1,2 @@
+FILL
+(if (map-has tokens tid) (= (map-get tokens tid) "active") false)
