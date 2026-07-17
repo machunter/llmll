@@ -5956,11 +5956,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           _ -> expectationFailure "expected second call to use counter 1"
 
     describe "SortEnv rejection" $ do
-      it "EVar for a carrier (non-scalar) param returns Nothing (BOOL-FRAG: bool is now a scalar)" $ do
-        let body = EVar "s"
-            se = Map.fromList [("s", FQStr)]  -- opaque string carrier stays out of the fragment
+      it "EVar for a carrier (non-scalar) param returns Nothing (STRLIT body-flip: Str is now admitted; list stays out)" $ do
+        let body = EVar "xs"
+            se = Map.fromList [("xs", FQList)]  -- opaque list carrier stays out of the fragment
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Nothing
+        -- STRLIT body-channel flip: a Str-sorted var (ANF-hoisted string map-get
+        -- result / seeded put-value param) now reflects
+        let (_, strResult) = bodyToPredFrom 0 (Map.fromList [("s", FQStr)]) Map.empty Set.empty (EVar "s")
+        strResult `shouldBe` Just (SimpleVC [] (FQVar "s"))
 
       it "EVar for a bool param returns the bool atom (BOOL-FRAG)" $ do
         let body = EVar "b"
@@ -6704,6 +6708,41 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         case mG of
           Nothing  -> pendingWith "solver not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2S-11 body-channel STRLIT flip (the introspect shape): two-map status+expiry check verifies; the expiry-skip twin REFUTED" $ do
+        -- The A4 seed's central contract: RFC 7662 §2.2 active = present ∧
+        -- status-"active" ∧ within validity window — a string-map get compared
+        -- to a literal in GUARD position + bool comparison leaves. Closes the
+        -- STRLIT Stage-1 watch item (string-conditional bodies fell back →
+        -- vacuous SAFE): guard channel admits Str vars + string literals,
+        -- bodyToPredM admits Str vars + string-literal leaves.
+        let src leafBody = unlines
+              [ "(def introspect [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> bool"
+              , "  (post (= result (and (map-has tokens tid)"
+              , "                       (and (= (map-get tokens tid) \"active\")"
+              , "                            (and (map-has exp tid) (< now (map-get exp tid)))))))"
+              , leafBody <> ")" ]
+        erGood <- emitA2 (src (unlines
+          [ "  (if (map-has tokens tid)"
+          , "      (if (= (map-get tokens tid) \"active\")"
+          , "          (if (map-has exp tid) (< now (map-get exp tid)) false)"
+          , "          false)"
+          , "      false)" ]))
+        erBodyFaithfulFns erGood `shouldSatisfy` elem "introspect"
+        -- the classic bug: token accepted past expiry (validity-window clause dropped)
+        erBad <- emitA2 (src (unlines
+          [ "  (if (map-has tokens tid)"
+          , "      (= (map-get tokens tid) \"active\")"
+          , "      false)" ]))
+        erBodyFaithfulFns erBad `shouldSatisfy` elem "introspect"
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
 
       it "A2S-6 regression (strlit range fact): string-length over a string literal emits no ill-sorted strlit_ >= 0" $ do
         -- STRLIT bug the string surface exposed: injectRangeFacts' catch-all added
@@ -8435,10 +8474,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let result = evalState (classifyGuardM emptyRename intEnv (EVar "x")) 0
       result `shouldBe` Just (FQVar "x")
 
-    it "GC-2: rejects a carrier (non-scalar) variable (BOOL-FRAG: bool is now accepted)" $ do
-      let se = Map.fromList [("s", FQStr)] :: Map.Map T.Text FQSort
-      let result = evalState (classifyGuardM emptyRename se (EVar "s")) 0
+    it "GC-2: rejects a carrier (non-scalar) variable (STRLIT body-flip: Str is now accepted; list stays out)" $ do
+      let se = Map.fromList [("xs", FQList)] :: Map.Map T.Text FQSort
+      let result = evalState (classifyGuardM emptyRename se (EVar "xs")) 0
       result `shouldBe` Nothing
+      -- STRLIT body-channel flip: a Str-sorted var is a valid comparison operand
+      let seS = Map.fromList [("s", FQStr)] :: Map.Map T.Text FQSort
+      evalState (classifyGuardM emptyRename seS (EVar "s")) 0 `shouldBe` Just (FQVar "s")
 
     it "GC-2b: classifies a bool variable as its atom (BOOL-FRAG)" $ do
       let se = Map.fromList [("b", FQBool)] :: Map.Map T.Text FQSort

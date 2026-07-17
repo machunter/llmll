@@ -1741,27 +1741,8 @@ boolValLit (ELit (LitBool True))  = Just (FQLit 1)
 boolValLit (ELit (LitBool False)) = Just (FQLit 0)
 boolValLit _                      = Nothing
 
--- | STRLIT (Stage 1): the interned nullary Str-constant NAME of a string literal.
--- Each code point is fixed-width 6-hex (@ord c@ ≤ U+10FFFF fits in 6 hex digits),
--- so 'strlitConst' is INJECTIVE and its output lives entirely in the sanitize-
--- stable alphabet @[0-9a-f_]@ — 'sanitizeFQId' (FixpointIR:238, non-injective) is
--- the identity on it, so two distinct literals never collide post-sanitize. A
--- collision would identify distinct literals → a FALSE VERIFY; hence NEVER a hash.
--- The empty string interns to bare @strlit_@ (distinct from every non-empty literal).
-strlitConst :: Text -> Text
-strlitConst s = "strlit_" <> T.concat [ pad6 (ord c) | c <- T.unpack s ]
-  where pad6 n = T.justifyRight 6 '0' (T.pack (showHex n ""))
-
--- | STRLIT (Stage 2): the CODE-POINT length encoded in a 'strlitConst' name — the
--- inverse of its fixed-width 6-hex-per-code-point encoding. Strip the @strlit_@
--- prefix and divide the remaining hex by 6; exact because every code point
--- contributes exactly six hex digits (U+10FFFF = @10ffff@, the widest, is six).
--- The result equals @T.length s@ = the runtime @string_length@ (CodegenHs:302-303;
--- @Data.Text.length@ counts code points, an astral char = 1), so length facts
--- agree with the program under evaluation — the code-point convention (proposal
--- §Stage 2). @strlit_@ (the empty literal) recovers 0.
-strlitLen :: Text -> Integer
-strlitLen n = fromIntegral ((T.length n - T.length "strlit_") `div` 6)
+-- STRLIT: 'strlitConst' / 'strlitLen' moved to FixpointIR (re-exported here) so
+-- the guard channel (GuardClassifier) can intern literals without an import cycle.
 
 -- | LEVER-A2.2: the int-0/1 tag of a bool literal (true→1, false→0).
 boolTag :: Bool -> Integer
@@ -2740,6 +2721,11 @@ bodyToPredM :: Map Name Name  -- ^ renaming env
 bodyToPredM _ _ _ _ (ELit (LitInt n)) = return (Just (SimpleVC [] (FQLit n)))
 bodyToPredM _ _ _ _ (ELit (LitBool True))  = return (Just (SimpleVC [] FQTrue))
 bodyToPredM _ _ _ _ (ELit (LitBool False)) = return (Just (SimpleVC [] FQFalse))
+-- STRLIT (body-channel flip): a string literal as a body/branch LEAF reflects to
+-- its interned nullary Str constant — `(if (map-has m k) (map-get m k) "none")`
+-- now discharges body-faithfully (the string-returning defensive-read shape).
+bodyToPredM _ _ _ _ (ELit (LitString s)) =
+  return (Just (SimpleVC [] (FQApp (strlitConst s) [])))
 
 -- MATCH-WIDEN Slice 1: a bare nullary constructor of a mixed/payload sum (NOT
 -- int-tag-desugared, since buildCtorTagMap excludes non-all-nullary sums) reflects
@@ -2754,6 +2740,14 @@ bodyToPredM env sortEnv _ _ (EVar v) =
   in case Map.lookup renamed sortEnv of
        Just FQInt  -> return (Just (SimpleVC [] (FQVar renamed)))
        Just FQBool -> return (Just (SimpleVC [] (FQVar renamed)))  -- BOOL-FRAG: bare bool var body
+       -- STRLIT (body-channel flip): a Str-sorted var — an ANF-hoisted string
+       -- map-get result (CallVC-seeded at mapSelValSort) or a seeded put-value
+       -- param — reflects, so `(= t "active")` as a bool RESULT leaf and a
+       -- Str-var body/leaf are body-faithful. Sort-safe: the typechecker
+       -- confines a string term to string positions, and every equation it can
+       -- appear in meets another Str-sorted term (strlit constant, Str var, or
+       -- Str Map_select).
+       Just FQStr  -> return (Just (SimpleVC [] (FQVar renamed)))
        _           -> return Nothing  -- non-scalar or unknown sort → fallback
 
 -- v0.9.0: User-defined function call with contract (COMP-0 §2, §3)

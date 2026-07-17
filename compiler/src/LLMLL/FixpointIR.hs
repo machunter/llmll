@@ -38,11 +38,34 @@ module LLMLL.FixpointIR
     -- * Predicate emission
   , emitPred
   , emitPredParens
+    -- * STRLIT literal interning (shared by FixpointEmit + GuardClassifier)
+  , strlitConst
+  , strlitLen
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, ord)
+import Numeric (showHex)
+
+-- | STRLIT (Stage 1): the interned nullary Str-constant NAME of a string literal.
+-- Each code point is fixed-width 6-hex (@ord c@ ≤ U+10FFFF fits in 6 hex digits),
+-- so 'strlitConst' is INJECTIVE and its output lives entirely in the sanitize-
+-- stable alphabet @[0-9a-f_]@ — 'sanitizeFQId' (non-injective) is the identity on
+-- it, so two distinct literals never collide post-sanitize. A collision would
+-- identify distinct literals → a FALSE VERIFY; hence NEVER a hash. The empty
+-- string interns to bare @strlit_@. Lives here (not FixpointEmit) so the guard
+-- channel (GuardClassifier) can intern literals without an import cycle.
+strlitConst :: Text -> Text
+strlitConst s = "strlit_" <> T.concat [ pad6 (ord c) | c <- T.unpack s ]
+  where pad6 n = T.justifyRight 6 '0' (T.pack (showHex n ""))
+
+-- | STRLIT (Stage 2): the CODE-POINT length encoded in a 'strlitConst' name — the
+-- inverse of its fixed-width 6-hex-per-code-point encoding. Equals @T.length s@ =
+-- the runtime @string_length@ (code points; an astral char = 1), so length facts
+-- agree with the program under evaluation. @strlit_@ (the empty literal) recovers 0.
+strlitLen :: Text -> Integer
+strlitLen n = fromIntegral ((T.length n - T.length "strlit_") `div` 6)
 
 -- ---------------------------------------------------------------------------
 -- Sorts

@@ -24,7 +24,7 @@ import Data.Maybe (fromMaybe, isJust, catMaybes)
 import Control.Monad.State.Strict (State)
 
 import LLMLL.Syntax (Name, Expr(..), Literal(..))
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..))
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), strlitConst)
 -- F1: SortEnv is a type alias defined in FixpointEmit. We import it
 -- as Map Name FQSort directly since it's just a type alias.
 -- The canonical import path is LLMLL.FixpointEmit.SortEnv.
@@ -52,11 +52,23 @@ classifyGuardM env sortEnv (EVar v) =
   in case Map.lookup renamed sortEnv of
        Just FQInt  -> return (Just (FQVar renamed))
        Just FQBool -> return (Just (FQVar renamed))  -- BOOL-FRAG: bool var as a guard atom (path-split on b / ¬b)
+       -- STRLIT (body-channel flip): a Str-sorted var (an ANF-hoisted string
+       -- map-get result, or a seeded string param) as a comparison OPERAND —
+       -- `(if (= t "active") …)`. A BARE Str guard atom is ill-typed upstream
+       -- (an if-condition must be bool), so admitting FQStr here can only
+       -- produce =/≠ operands, which meet the Str literal below well-sorted.
+       Just FQStr  -> return (Just (FQVar renamed))
        _           -> return Nothing  -- non-scalar or unknown → fallback
 
 classifyGuardM _ _ (ELit (LitBool True))  = return (Just FQTrue)
 classifyGuardM _ _ (ELit (LitBool False)) = return (Just FQFalse)
 classifyGuardM _ _ (ELit (LitInt n))      = return (Just (FQLit n))
+-- STRLIT (body-channel flip): a string literal in guard position interns to its
+-- nullary Str constant, exactly as the contract channel (exprToPred) does —
+-- `(= (map-get m k) "active")` as an if-guard now reflects (the get is ANF-
+-- hoisted to a Str-sorted var first). Distinctness/length facts ride the
+-- addConst passes (constraint-derived, position-independent).
+classifyGuardM _ _ (ELit (LitString s))   = return (Just (FQApp (strlitConst s) []))
 
 -- Comparison operators (including Unicode aliases)
 classifyGuardM env se (EApp op [l, r])
