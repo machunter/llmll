@@ -1,13 +1,13 @@
 ---
 title: String-Valued Maps (A2.2-string) — `map[int,string]` in `Σ_auto`
-status: SHIPPED v0.14.46 (Stage 1: string-literal values; param-values / returns / construction / keys staged)
+status: SHIPPED v0.14.46 (Stage 1) + v0.14.47 (residue lift — returns + param-values + string RMW + cross-call A-G); remaining residue = map-empty construction + string keys
 author: language-team · 2026-07-14 (Rev 0), professor fold same day (Rev 1)
 track: Data Scope Extension Lever A2.2 (string values) — the sole remaining Lever-A item; downstream consumer of STRLIT
 ---
 
 # String-Valued Maps (A2.2-string)
 
-> **Status:** **SHIPPED v0.14.46** (Stage 1 — string-LITERAL values). Param-string values, string-valued map RETURNS, string map-empty construction, and string KEYS are staged follow-ons (all fall back cleanly today). The build also fixed a latent STRLIT range-fact crash (`strlit_… >= 0` ill-sorted; `injectRangeFacts` now excludes strlit constants).
+> **Status:** **SHIPPED v0.14.46** (Stage 1 — string-LITERAL values) **+ v0.14.47** (residue lift, Phase 1 of the A4 plan): string-valued map **RETURNS** (`strMapArraySort` marker `FQArr FQInt FQStr`; every `== mapArraySort` dispatch widened via `isMapArrRetSort`/`markerValSort`), **param-string put values** (`mapPutValVars` → carrier binder + body-`SortEnv` seeding), string **RMW chains** (`MRGet` carries the value sort), and **cross-call string-map A-G** (probed: caller failing a string-status pre refuted at the call site). Remaining residue: string `map-empty` construction + string KEYS (clean fallback). v0.14.46 also fixed a latent STRLIT range-fact crash (`strlit_… >= 0` ill-sorted; `injectRangeFacts` now excludes strlit constants).
 > **Enabled by:** STRLIT (v0.14.44 distinctness + v0.14.45 code-point length), which made a string literal in map-value position reflect. Design record: [`string-literal-distinctness-proposal.md`](string-literal-distinctness-proposal.md).
 > **Generalizes:** [`data-scope-lever-a-arrays-proposal.md`](data-scope-lever-a-arrays-proposal.md) §3 F2 disposition (lines 85–89), which specified string values as "remain admitted [but] routes out-of-fragment" pending literal reflection.
 

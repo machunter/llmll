@@ -4,6 +4,33 @@
 
 <a id="Latest"></a>
 
+## v0.14.47 — A2.2-string residue lift: string-map returns + param-string put values (2026-07-17)
+
+### Added — the A4-flagship API shapes verify (Phase 1 of the A4 plan)
+
+- **String-valued map RETURNS reflect.** `revoke : map[int,string] → map[int,string]` (put-then-return) now
+  verifies body-faithfully, with its wrong-status twin refuted. The string-map return marker is
+  `strMapArraySort` (`FQArr FQInt FQStr`, mirroring the int-map convention where the marker equals the
+  component sort); every `== mapArraySort` return-dispatch site widens via `isMapArrRetSort` /
+  `markerValSort` (result$val binders, `mapRetChain` gate + `MRGet` value sort, call-context component
+  declarations ×2, callee-return marker (`syntMapRetSort`), cross-call component substitution, CallVC
+  result seeding, flatten-side component LetBindings, `arrayResultPath`).
+- **Param-string put values reflect.** `set(m, k, s)` with `s : string` round-trips (`(= result s)` SAFE,
+  literal twin refuted — not vacuous). The coordinated change: `mapPutValVars` (a type-blind collector over
+  contract + body) feeds both the `FQStr` carrier binder (via `measureVars`) and the body-channel `SortEnv`
+  seeding (`strParamKeys`), so `strValTerm`'s var leg resolves.
+- **String RMW chains** discharge (`MRGet` carries the chain's value sort — a let-bound string-map read feeds
+  the put back), and **cross-call string-map assume-guarantee** works: a caller failing a callee's
+  string-status pre (`(= (map-get m k) "active")`) is refuted at the call site (the A2.1 substitution probed
+  on string maps — the A4 plan's watch item, cleared).
+- **Remaining residue** (clean fallback, never a crash): string `map-empty` construction (its `Map_default 0`
+  value root is int-sorted) and string **keys**. Design records updated:
+  `docs/design/string-valued-maps-proposal.md`, `docs/design/a4-flagship-token-revocation-plan.md` (Phase 1 ✅).
+
+**Tests:** 1254 Haskell, 45 Python (+4: A2S-7 return/revoke shape, A2S-8 param put value, A2S-9 string RMW,
+A2S-10 cross-call A-G; `A3-3`/`A2S-5` retargeted to the post-lift residue — string keys / map-empty
+construction). No schema or CLI-surface change. `make refute-crux-gate` 26/26.
+
 ## v0.14.46 — A2.2-string: string-valued maps (`map[int,string]`) reflect + STRLIT range-fact crash fix (2026-07-17)
 
 ### Added — string-valued maps discharge (was Advisory)
