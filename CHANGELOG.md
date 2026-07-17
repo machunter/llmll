@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.14.46 — A2.2-string: string-valued maps (`map[int,string]`) reflect + STRLIT range-fact crash fix (2026-07-17)
+
+### Added — string-valued maps discharge (was Advisory)
+
+- **`map[int,string]` joins the array-encoded map class.** The value component array threads a genuine `Str`
+  element sort (`$val : (Map_t int Str)`, via `mapValArraySort`), so a `map-get` is a `Str`-EUF term comparable
+  to the interned `strlit_` constants (STRLIT) — the "unreflected symbol" firewall that routed these clauses to
+  Advisory is gone (the STRLIT enabler, arrays proposal §89). Get-after-put with a string value **verifies**;
+  value distinctness across distinct keys rides `injectStrLitDistinct` (`get(k=1) ≠ "b"` proves; the `= "b"`
+  twin refutes); `string-length` on a map value composes with STRLIT Stage 2 (`injectStrLitLen`). The two
+  body-channel result/value sorts are recovered from the `SortEnv` (`mapSelValSort` / `strValTerm`) — no
+  `AliasMap` needed. `isStrLike` / `mapStrValuedTy` widen the admission gate; `okVal` admits a string put value.
+- **Scope:** Stage 1 = string-**literal** values on param maps (the status/tag-map pattern), get / put /
+  comparison / length. String-**param** put values, string-valued map **returns**, string `map-empty`
+  construction, and string **keys** are staged follow-ons — each routes to Advisory fallback (sound, never a
+  crash; firewalled via `mapClauseBlocked` + a `SortEnv`-rooted string-array check). Whole-map equality stays
+  firewalled (`wholeArrEqClause`, value-type-agnostic). Design record + professor fold:
+  `docs/design/string-valued-maps-proposal.md`.
+
+### Fixed — STRLIT range-fact crash (latent since v0.14.44)
+
+- **`injectRangeFacts` no longer emits `strlit_… >= 0`.** The measure-range catch-all treated an interned
+  nullary `Str` literal constant as an int measure application and conjoined `strlit_… >= 0` (`Str >= int`,
+  ill-sorted) → liquid-fixpoint crash. It fires whenever a string literal meets `string-length` or a
+  string-valued map value. `injectRangeFacts` now excludes `strlit_`-prefixed constants. Regression: A2S-6.
+
+**Tests:** 1250 Haskell, 45 Python (+6 A2.2-string: emission, get-after-put crux, value distinctness, length
+composition, firewall-no-crash, strlit range-fact regression; `A2-8`/`A3-3`/`A3-4` retargeted to the new
+residue boundary — string values reflect, returns/construction deferred). No schema or CLI-surface change.
+`make refute-crux-gate` 26/26.
+
 ## v0.14.45 — STRLIT Stage 2: literal-length pinning (`strLen(strlit_s) = |s|`, code points) (2026-07-14)
 
 ### Added — string-literal length-consistency reasoning discharges
