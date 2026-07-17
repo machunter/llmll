@@ -1,0 +1,17 @@
+;; module: enforcement — the protected resource's obligation (RFC 7662 §4).
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+;;
+;; grant's PRE is the assume-guarantee surface: a caller (the spine) must PROVE
+;; token validity — presence, active status, and unexpired — before granting.
+;; A caller that skips the introspection check is refuted at the call site.
+
+;; Grant access for a validated token. Callable only under a proof the token is
+;; active right now; echoes the granted token id.
+(def-shell grant [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> int
+  (pre (and (map-has tokens tid)
+            (and (= (map-get tokens tid) "active")
+                 (and (map-has exp tid) (< now (map-get exp tid)))))
+    :source "RFC 7662 §4 — the protected resource validates the token with the authorization server before granting access; validity per §2.2 active")
+  (post (= result tid)
+    :source "model: the grant is FOR the presented token (echo pins the body to the validated id)")
+  ?impl)

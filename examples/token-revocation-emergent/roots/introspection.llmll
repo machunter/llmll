@@ -1,0 +1,17 @@
+;; module: introspection — RFC 7662 token introspection.
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+;;
+;; Data model (VERIFICATION_SCOPE.md §S0): tokens : map[int,string] is the
+;; status store (token-id → "active" / "revoked" / "expired"); exp : map[int,int]
+;; is the expiry store (token-id → expiry instant); `now` is the evaluation
+;; instant. Token handles are int (v1 int-key gate).
+
+;; Is the token active RIGHT NOW? The RFC 7662 §2.2 "active" definition, exactly:
+;; issued-and-present, not revoked/expired by status, AND within its validity
+;; window. An unknown token is inactive (active:false), never an error.
+(def-shell introspect [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> bool
+  (post (= result (and (map-has tokens tid)
+                       (and (= (map-get tokens tid) "active")
+                            (and (map-has exp tid) (< now (map-get exp tid))))))
+    :source "RFC 7662 §2.2 — active: token issued by this server, not revoked, and within its given time window of validity; §2.2 exp claim; unknown/inactive token → active:false, not an error")
+  ?impl)

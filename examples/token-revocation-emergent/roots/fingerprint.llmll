@@ -1,0 +1,16 @@
+;; module: fingerprint — token-hash comparison (deployment-modeled; see the
+;; VERIFICATION_SCOPE.md disposition — this module's anchor is the OAuth
+;; security BCP practice of storing token HASHES rather than raw tokens, not a
+;; numbered normative clause of RFC 7009/7662).
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+
+;; Does byte i of the presented token's fingerprint match the stored one?
+;; result 1 is a PROOF of byte equality at i (the post is one-directional so a
+;; conservative mismatch report is admissible; a false match is not).
+(def-shell fp-byte-match [a: bytes[32] b: bytes[32] i: int] -> int
+  (pre (and (>= i 0) (< i 32))
+    :source "model: fixed 32-byte (SHA-256-width) fingerprints; index in bounds — the bytes surface's index-in-bounds obligation")
+  (post (and (=> (= result 1) (= (bytes-get a i) (bytes-get b i)))
+             (or (= result 0) (= result 1)))
+    :source "deployment model per OAuth 2.0 Security BCP token-hash storage practice — a claimed byte-match must be true (no false accept at any index)")
+  ?impl)

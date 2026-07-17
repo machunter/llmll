@@ -1,0 +1,27 @@
+;; module: revocation — RFC 7009 token revocation.
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+;;
+;; Model note (VERIFICATION_SCOPE.md §S0): invalidation is a STATUS TRANSITION,
+;; not deletion — the revoked token stays present with status "revoked", so a
+;; later introspect finds it and reports inactive (RFC 7662's not-revoked
+;; conjunct). The pre scopes revocation to a known token; the RFC's
+;; unknown-token-succeeds-silently clause is endpoint behavior, dispositioned
+;; out of the verified core (clause inventory row Q4).
+
+;; Revoke the token: invalidation takes effect immediately — after this call
+;; the token's status IS "revoked" (and it cannot introspect as active again).
+(def-shell revoke [tokens: map[int,string] tid: int] -> map[int,string]
+  (pre (map-has tokens tid)
+    :source "RFC 7009 §2.1 — the server verifies whether the token was issued to the client making the request (scoped here to: the token is known)")
+  (post (and (map-has result tid) (= (map-get result tid) "revoked"))
+    :source "RFC 7009 §2.1 — the authorization server invalidates the token; the invalidation takes place immediately, and the token cannot be used again after the revocation")
+  ?impl)
+
+;; The revocation endpoint gate: revocation is requested by HTTP POST only.
+;; A non-POST request must not reach the state transition.
+(def-shell handle-revocation [tokens: map[int,string] tid: int method: string] -> map[int,string]
+  (pre (and (= method "POST") (map-has tokens tid))
+    :source "RFC 7009 §2 — the client requests revocation by making an HTTP POST request to the token revocation endpoint")
+  (post (and (map-has result tid) (= (map-get result tid) "revoked"))
+    :source "RFC 7009 §2.1 — immediate invalidation, as for revoke")
+  ?impl)

@@ -1,0 +1,24 @@
+;; module: spine — the fail-closed request handler (the whole-service invariant).
+;; ROOT CONTRACTS ONLY — bodies are agent-authored (see ../README.md).
+;;
+;; The deliberate use-after-revoke shape (stated, not steered): serve returns a
+;; grant EXACTLY when the token is active-and-valid, else 0 — the same
+;; gate-then-deliver form as the secure-channel spine. No agent is steered
+;; toward or away from the unconditional-grant shortcut; the contract itself
+;; forbids it.
+
+;; Serve a request: a non-zero grant only for a token that is present, active,
+;; and unexpired; everything else serves 0 (fail closed).
+(def-shell serve [tokens: map[int,string] exp: map[int,int] tid: int now: int] -> int
+  (pre (> tid 0)
+    :source "model: token handles are positive (0 is the refused-grant sentinel)")
+  (post (and (=> (and (map-has tokens tid)
+                      (and (= (map-get tokens tid) "active")
+                           (and (map-has exp tid) (< now (map-get exp tid)))))
+                 (= result tid))
+             (=> (not (and (map-has tokens tid)
+                           (and (= (map-get tokens tid) "active")
+                                (and (map-has exp tid) (< now (map-get exp tid))))))
+                 (= result 0)))
+    :source "RFC 7009 §2 — the client MUST NOT use the token again after revocation (a revoked/expired/unknown token serves nothing); RFC 7662 §4 — validate before granting")
+  ?impl)
