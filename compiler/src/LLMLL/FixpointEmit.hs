@@ -626,7 +626,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     then [ (n, t) | (n, t) <- params, isJust (bytesLenOf aliases t) ]
                     else []
       mapParams = if arrGate
-                    then [ n | (n, t) <- params, mapArrEncodableTy aliases t ]
+                    then [ (n, t) | (n, t) <- params, mapArrEncodableTy aliases t ]
                     else []
       -- LEVER-A2.2: the $val arrays of this function's bool-valued maps (params
       -- + result). Each occurring Map_select on one carries the ground value-
@@ -679,10 +679,13 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     -- binders (m$has at int-0/1, m$val at the value array), both unconstrained
     -- (FQTrue) — a symbolic map is an arbitrary pair of arrays; the encoding's
     -- semantics live in how the ops read/write the pair, not in binder facts.
-    mapCompBinds <- fmap concat $ forM mapParams $ \n ->
-      forM ["$has", "$val"] $ \sfx -> do
+    -- A2.2-string: the $val binder threads the value-array sort (Str for a
+    -- string-valued map, else the int-element mapArraySort); $has is always
+    -- int-0/1. This is the param-side of the single sort-threading seam.
+    mapCompBinds <- fmap concat $ forM mapParams $ \(n, t) ->
+      forM [("$has", mapArraySort), ("$val", mapValArraySort aliases t)] $ \(sfx, srt) -> do
         bid <- freshBid
-        let b = FQBind bid (n <> sfx) (FQReft "v" mapArraySort FQTrue)
+        let b = FQBind bid (n <> sfx) (FQReft "v" srt FQTrue)
         addBind b
         return b
     let envIds = map bindId paramBinds ++ map bindId mapCompBinds
@@ -866,13 +869,17 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                 -- keys above. Their presence in the SortEnv is ALSO the body
                 -- channel's admissibility witness: mapPairTermsB roots only on
                 -- variables whose "$has" key is here.
+                -- A2.2-string: string-valued map params join the body-channel
+                -- SortEnv too, with the $val key at the Str array sort — the
+                -- body-side of the sort-threading seam, so mapPairTermsB can root
+                -- on them and the map-get result sort recovers Str from here.
                 mapKeys =
                   [ kv
                   | arrGate
                   , (v, t) <- params
-                  , mapIntIntTy aliases t
+                  , mapIntIntTy aliases t || mapStrValuedTy aliases t
                   , kv <- [ (v <> "$has", mapArraySort)
-                          , (v <> "$val", mapArraySort) ] ]
+                          , (v <> "$val", mapValArraySort aliases t) ] ]
                 sortEnv = foldr (uncurry Map.insert) sortEnv0 (resultKeys ++ adtKeys ++ tagKeys ++ mapKeys)
                 -- COMP-4 (b): parallel refinement env — each refined-payload
                 -- Result/two-arm-ADT param payload's declared refinement, keyed
@@ -1327,6 +1334,14 @@ isBoolLike am (TDependent _ base _) = isBoolLike am base
 isBoolLike am (TCustom n)           = maybe False (isBoolLike am) (Map.lookup n am)
 isBoolLike _  _                     = False
 
+-- | A2.2-string: is the (alias-resolved) type the built-in string? Mirrors
+-- 'isBoolLike'. Drives string-valued map admission + the Str $val array sort.
+isStrLike :: AliasMap -> Type -> Bool
+isStrLike _  TString                = True
+isStrLike am (TDependent _ base _)  = isStrLike am base
+isStrLike am (TCustom n)            = maybe False (isStrLike am) (Map.lookup n am)
+isStrLike _  _                      = False
+
 -- | Translatable SCALAR types in the body-faithful fragment (Σ_auto): int-like OR bool.
 -- BOOL-FRAG: a bool param/binder gets FQBool via typeToSort and is reasoned about
 -- natively (QF-LIA + Bool, decidable). Used only at the sort-env sites; isIntLike stays
@@ -1525,7 +1540,7 @@ mapIntIntTy am t = case resolveAliasTy am t of
 -- refute (professor review, 2026-07-13). String-valued maps stay out.
 mapArrEncodableTy :: AliasMap -> Type -> Bool
 mapArrEncodableTy am t = case resolveAliasTy am t of
-  TMap kt vt -> isIntLike am kt && isScalarLike am vt
+  TMap kt vt -> isIntLike am kt && (isScalarLike am vt || isStrLike am vt)
   _          -> False
 
 -- | LEVER-A2.2: a map whose keys are int and values are bool (the 0/1-bridged
@@ -1534,6 +1549,27 @@ boolValuedMapTy :: AliasMap -> Type -> Bool
 boolValuedMapTy am t = case resolveAliasTy am t of
   TMap kt vt -> isIntLike am kt && isBoolLike am vt
   _          -> False
+
+-- | A2.2-string: a map whose keys are int and values are string. Unlike the
+-- bool 0/1 bridge, a string value needs a GENUINE Str element sort — the $val
+-- array is (Map_t int Str), so a map-get is a Str-EUF term comparable to the
+-- interned strlit_ constants (STRLIT). Drives the $val sort ('mapValArraySort')
+-- and the Stage-1 firewall on string-VALUED map RETURNS (deferred).
+mapStrValuedTy :: AliasMap -> Type -> Bool
+mapStrValuedTy am t = case resolveAliasTy am t of
+  TMap kt vt -> isIntLike am kt && isStrLike am vt
+  _          -> False
+
+-- | A2.2-string: the $val component-array sort for a map type — (Map_t int Str)
+-- for a string-valued map, else the uniform int-element 'mapArraySort' (int
+-- values and the bool-0/1 bridge). The $has array is always 'mapArraySort'
+-- (presence is int-0/1). This is the single sort-threading seam: every $val
+-- binder site consults it, so a Str value array declares consistently and a
+-- Map_select over it is Str-sorted.
+mapValArraySort :: AliasMap -> Type -> FQSort
+mapValArraySort am t
+  | mapStrValuedTy am t = FQArr FQInt FQStr
+  | otherwise           = mapArraySort
 
 -- | LEVER-A2.2: the SYNTACTIC array-encodable map check used in 'bodyToPredM',
 -- which has no AliasMap (the PAIR-RET-2 precedent): a literal @map[int,int]@ or
@@ -1563,11 +1599,16 @@ mapArraySort = FQMapArr
 mapClauseBlocked :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Maybe Expr -> Bool
 mapClauseBlocked am params mRet mPost mPre =
      any (\(_, t) -> isMapTy am t && not (mapArrEncodableTy am t)) paramsAndRet
+  -- A2.2-string Stage 1: string-VALUED map params are admitted (Str $val array),
+  -- but a string-valued map RETURN is deferred — the map-returning result$val
+  -- binder threads only the int sort in this stage, so route it to fallback.
+  || any (mapStrValuedTy am) [ t | Just t <- [mRet] ]
   || badPutValue mPost || badPutValue mPre
   || boolMapUnsafe mPost || boolMapUnsafe mPre
   where
     paramsAndRet = params ++ [ ("result", t) | Just t <- [mRet] ]
     intParamSet  = Set.fromList [ n | (n, t) <- params, isIntLike am t ]
+    strParamSet  = Set.fromList [ n | (n, t) <- params, isStrLike am t ]
     boolMapVars  = Set.fromList [ n | (n, t) <- paramsAndRet, boolValuedMapTy am t ]
     badPutValue Nothing   = False
     badPutValue (Just e0) = go e0
@@ -1579,9 +1620,10 @@ mapClauseBlocked am params mRet mPost mPre =
         go (ELet bs b)    = any (\(_, _, r) -> go r) bs || go b
         go (EMatch s as)  = go s || any (go . snd) as
         go _              = False
-        okVal (ELit (LitInt _))  = True
-        okVal (ELit (LitBool _)) = True   -- LEVER-A2.2: bridged 0/1 (boolValLit)
-        okVal (EVar v)           = v `Set.member` intParamSet
+        okVal (ELit (LitInt _))    = True
+        okVal (ELit (LitBool _))   = True   -- LEVER-A2.2: bridged 0/1 (boolValLit)
+        okVal (ELit (LitString _)) = True   -- A2.2-string: reflects via strlitConst
+        okVal (EVar v)             = v `Set.member` intParamSet || v `Set.member` strParamSet
         okVal (EApp op [l, r])
           | op `elem` ["+", "-"] = okVal l && okVal r
         okVal (EOp op as)        = okVal (EApp op as)
@@ -1704,7 +1746,14 @@ mapPairTermsB env se = go
     go (EApp "map-put" [mE, kE, vE]) = do
       (h, vl) <- go mE
       k <- scalarIntTerm env se kE
-      v <- case boolValLit vE of { Just x -> Just x; Nothing -> scalarIntTerm env se vE }
+      -- A2.2-string: a put onto a Str value array (strValArrTerm — a $val binder
+      -- of a string-valued map, through any store chain) takes a Str value term
+      -- (strlit_ literal or Str-carrier param); otherwise the int/bool-0/1 path.
+      -- A map-empty root is int (Map_default 0), so a string put onto it is not
+      -- Str-rooted and falls through to scalarIntTerm → Nothing → fallback.
+      v <- if strValArrTerm se vl
+             then strValTerm env se vE
+             else case boolValLit vE of { Just x -> Just x; Nothing -> scalarIntTerm env se vE }
       pure ( FQApp "Map_store" [h, k, FQLit 1]
            , FQApp "Map_store" [vl, k, v] )
     go (EApp "map-empty" []) =
@@ -1730,6 +1779,39 @@ scalarIntTerm env se = go
       = FQBinArith bop <$> go l <*> go r
     go (EOp op as) = go (EApp op as)
     go _ = Nothing
+
+-- | A2.2-string: does this value-array term have a Str element sort — a $val
+-- binder declared (Map_t int Str), through any Map_store chain? Recovered from
+-- the SortEnv, so the body channel needs no AliasMap. A Map_default-rooted array
+-- (map-empty) is int-sorted, so a string put onto an empty map is NOT Str-rooted
+-- and correctly falls back (Stage-1 defers string map-empty construction).
+strValArrTerm :: SortEnv -> FQPred -> Bool
+strValArrTerm se (FQVar n) = case Map.lookup n se of
+  Just (FQArr _ FQStr) -> True
+  _                    -> False
+strValArrTerm se (FQApp "Map_store" (a:_)) = strValArrTerm se a
+strValArrTerm _  _ = False
+
+-- | A2.2-string: the element (range) sort a map-get yields from a value array —
+-- Str for a (Map_t int Str) $val, else int. Sorts the fresh map-get result
+-- binder to match the Map_select (replacing the FQInt hardwire at the map-get
+-- CallVC), so a string-valued get is well-sorted end to end.
+mapSelValSort :: SortEnv -> FQPred -> FQSort
+mapSelValSort se vl = if strValArrTerm se vl then FQStr else FQInt
+
+-- | A2.2-string: extract a map-put value as a Str-sorted term — a string literal
+-- (interned via 'strlitConst', reflecting exactly as STRLIT does elsewhere) or a
+-- Str-carrier param in scope. Used ONLY when the target value array is Str
+-- ('strValArrTerm'), so an int-element array put is unaffected and a string put
+-- onto a map-empty (int default) is rejected → fallback.
+strValTerm :: Map Name Name -> SortEnv -> Expr -> Maybe FQPred
+strValTerm env se e = case e of
+  ELit (LitString s) -> Just (FQApp (strlitConst s) [])
+  EVar v -> let v' = fromMaybe v (Map.lookup v env)
+            in case Map.lookup v' se of
+                 Just FQStr -> Just (FQVar v')
+                 _          -> Nothing
+  _ -> Nothing
 
 -- | LEVER-A2.1: one peeled step of a straight-line map-returning body chain.
 data MapRetStep
@@ -2894,10 +2976,14 @@ bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
   case (mapPairTermsB env se mE, scalarIntTerm env se kE) of
     (Just (h, vl), Just k) -> do
       r <- freshName "call_map_get"
+      -- A2.2-string: the result sort is the value array's element sort — Str for
+      -- a (Map_t int Str) $val, else int (mapSelValSort, recovered from the
+      -- SortEnv) — so a string-valued map-get is well-sorted, not an FQInt-vs-Str
+      -- mismatch against the Str Map_select.
       let pre  = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
           post = FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k])
       return . Just $ CallVC "map-get" [h, vl, k] (Just pre) (Just post)
-                             r FQInt (SimpleVC [] (FQVar r))
+                             r (mapSelValSort se vl) (SimpleVC [] (FQVar r))
     _ -> return Nothing
 
 -- Normalize EOp to EApp
@@ -3570,6 +3656,12 @@ injectRangeFacts c =
       -- measure fact exactly as before (byte-identical for the existing
       -- corpus).
       factsFor a@(FQApp f args)
+        -- STRLIT: an interned string-literal constant is a NULLARY Str constant,
+        -- not an int measure — `strlit_… >= 0` is ill-sorted (Str vs int) and
+        -- crashes liquid-fixpoint. Exclude it (the range-fact catch-all below
+        -- assumes an int-sorted measure application). Surfaces once a string
+        -- literal meets `string-length` or a string-valued map value.
+        | "strlit_" `T.isPrefixOf` f = []
         | f `elem` ["Map_store", "Map_default"] = []
         | f == "Map_select" = case args of
             (arr : _) | bytesRootedArr arr ->

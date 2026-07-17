@@ -6559,14 +6559,21 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFallback er `shouldSatisfy` elem "same"
         erFQText er `shouldNotSatisfy` T.isInfixOf "result_has"
 
-      it "A2-8 inadmissible value sort: a string-valued map op falls back whole (deferred class), never crashes" $ do
+      it "A2-8 string-valued map reflects (A2.2-string): get-after-put with a string value verifies body-faithfully (was fallback)" $ do
+        -- A2.2-string: a string-VALUED map param is now admitted — the $val array
+        -- threads the Str element sort ((Map_t int Str)), so a map-get is a Str
+        -- term comparable to the interned strlit_ constants. (String-valued map
+        -- RETURNS stay deferred → fallback; see A3-3.)
         er <- emitA2 (unlines
           [ "(def name-of [m: map[int,string] k: int] -> string"
-          , "  (pre (map-has m k))"
-          , "  (post (= (string-length result) (string-length result)))"
-          , "  (map-get m k))" ])
-        erBodyFallback er `shouldSatisfy` elem "name-of"
-        erFQText er `shouldNotSatisfy` T.isInfixOf "m_has"
+          , "  (post (= result \"admin\"))"
+          , "  (map-get (map-put m k \"admin\") k))" ])
+        erBodyFaithfulFns er `shouldSatisfy` elem "name-of"
+        erFQText er `shouldSatisfy` T.isInfixOf "(Map_t int Str)"
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
 
       it "A2-9 presence-gated defensive read: (if (map-has m k) (map-get m k) d) — pre discharges from the path" $ do
         er <- emitA2 (unlines
@@ -6577,6 +6584,75 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         m <- solveFq er
         case m of
           Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      -- A2.2-string (string-VALUED maps): a map[int,string] value array threads
+      -- the Str element sort ((Map_t int Str)), so a map-get is a Str-EUF term
+      -- comparable to the interned strlit_ constants (STRLIT) and its code-point
+      -- length pins (STRLIT Stage 2). String-valued map RETURNS and map-empty
+      -- construction of a string map stay deferred (firewalled to fallback).
+      it "A2S-1 emission: a string-valued map declares a (Map_t int Str) value array + stores a strlit value" $ do
+        er <- emitA2 (unlines
+          [ "(def gp [m: map[int,string] k: int] -> string"
+          , "  (post (= result \"admin\"))"
+          , "  (map-get (map-put m k \"admin\") k))" ])
+        let fq = erFQText er
+        fq `shouldSatisfy` T.isInfixOf "(Map_t int Str)"
+        fq `shouldSatisfy` T.isInfixOf "strlit_"
+        erBodyFaithfulFns er `shouldSatisfy` elem "gp"
+
+      it "A2S-2 get-after-put crux: the string value verifies SAFE; the wrong-value twin REFUTED" $ do
+        erGood <- emitA2 "(def gp [m: map[int,string] k: int] -> string (post (= result \"admin\")) (map-get (map-put m k \"admin\") k))"
+        erBad  <- emitA2 "(def gp [m: map[int,string] k: int] -> string (post (= result \"root\"))  (map-get (map-put m k \"admin\") k))"
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2S-3 value distinctness across keys (rides STRLIT distinctness): get at key 1 != \"b\" SAFE; == \"b\" REFUTED" $ do
+        erGood <- emitA2 "(def tk [m: map[int,string]] -> string (post (!= (map-get (map-put (map-put m 1 \"a\") 2 \"b\") 1) \"b\")) (map-get (map-put (map-put m 1 \"a\") 2 \"b\") 1))"
+        erBad  <- emitA2 "(def tk [m: map[int,string]] -> string (post (= (map-get (map-put (map-put m 1 \"a\") 2 \"b\") 1) \"b\")) (map-get (map-put (map-put m 1 \"a\") 2 \"b\") 1))"
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2S-4 string-length on a map value composes with STRLIT Stage 2: len 5 SAFE; len 3 REFUTED" $ do
+        erGood <- emitA2 "(def vl [m: map[int,string] k: int] -> int (post (= (string-length (map-get (map-put m k \"admin\") k)) 5)) (string-length (map-get (map-put m k \"admin\") k)))"
+        erBad  <- emitA2 "(def vl [m: map[int,string] k: int] -> int (post (= (string-length (map-get (map-put m k \"admin\") k)) 3)) (string-length (map-get (map-put m k \"admin\") k)))"
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2S-5 firewalls never crash: string-map RETURN + string map-empty construction fall back; int map unaffected" $ do
+        erRet <- emitA2 "(def build [k: int] -> map[int,string] (post (= (map-get result k) \"x\")) (map-put (map-empty) k \"x\"))"
+        erBodyFallback erRet `shouldSatisfy` elem "build"
+        erEmpty <- emitA2 "(def fe [k: int] -> string (post (= result \"x\")) (map-get (map-put (map-empty) k \"x\") k))"
+        erBodyFallback erEmpty `shouldSatisfy` elem "fe"
+        erInt <- emitA2 "(def im [m: map[int,int] k: int] -> int (post (= result 7)) (map-get (map-put m k 7) k))"
+        erBodyFaithfulFns erInt `shouldSatisfy` elem "im"
+
+      it "A2S-6 regression (strlit range fact): string-length over a string literal emits no ill-sorted strlit_ >= 0" $ do
+        -- STRLIT bug the string surface exposed: injectRangeFacts' catch-all added
+        -- `strlit_… >= 0` to the nullary Str constant (Str vs int) → lf crash.
+        er <- emitA2 "(def sl [n: int] -> int (post (= (string-length \"ab\") 2)) n)"
+        erFQText er `shouldNotSatisfy` T.isInfixOf "strlit_000061000062 ) >="
+        m <- solveFq er
+        case m of
+          Nothing  -> pendingWith "solver not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
 
       -- LEVER-A2.1 (cross-call map assume-guarantee): a map-op-bearing callee
@@ -6921,12 +6997,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  (map-put m k v))" ]
         classifyFirst stmts `shouldBe` "qf_lia"
 
-      it "A3-3 residue routes out: string-valued map, whole-array =, both guards live" $ do
-        -- (a) string-valued map: mapClauseBlocked (inadmissible value class).
+      it "A3-3 residue routes out: string-valued map RETURN, whole-array =, both guards live" $ do
+        -- (a) A2.2-string Stage-1 residue: a string-VALUED map RETURN routes out
+        -- (mapClauseBlocked — result$val threads int only; string-map returns are
+        -- deferred). String-valued map PARAMS now reflect (A2.2-string); it is
+        -- the RETURN that remains residue.
         let sVal = parseA3
-              [ "(def sget [m: map[int,string] k: int] -> int"
-              , "  (pre (map-has m k))"
-              , "  0)" ]
+              [ "(def sbuild [m: map[int,string] k: int] -> map[int,string]"
+              , "  (post (= (map-get result k) \"x\"))"
+              , "  (map-put m k \"x\"))" ]
         classifyFirst sVal `shouldBe` "non_qf_lia"
         -- (b) whole-map = in the contract, ops only in the BODY (the
         -- body-relevance leg of the activation gate).
@@ -6942,12 +7021,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  b)" ]
         classifyFirst bEq `shouldBe` "non_qf_lia"
 
-      it "A3-4 map-put with a non-int value arg in a clause routes out (badPutValue)" $ do
+      it "A3-4 map-put with a string value into a string-valued map is admitted (A2.2-string, okVal widened)" $ do
+        -- A2.2-string: a string-literal put value into a string-VALUED map now
+        -- reflects (strlitConst), so okVal admits it and the clause stays
+        -- in-fragment. (An int-map put of a string value is a typechecker error
+        -- upstream — the classifier need not re-firewall the ill-typed case.)
         let stmts = parseA3
-              [ "(def putS [m: map[int,int] k: int s: string] -> int"
-              , "  (pre (map-has (map-put m k s) k))"
+              [ "(def putS [m: map[int,string] k: int] -> int"
+              , "  (pre (map-has (map-put m k \"x\") k))"
+              , "  (post (>= result 0))"
               , "  0)" ]
-        classifyFirst stmts `shouldBe` "non_qf_lia"
+        classifyFirst stmts `shouldBe` "qf_lia"
 
       it "A3-5 brief vocabulary: array ops listed iff a bytes/map type is visible, with PROVE pres" $ do
         -- Positional accessors: 'feName'/'fePre' are ambiguous at this import
