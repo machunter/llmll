@@ -6249,12 +6249,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                   , "(def-shell dm [] -> int (let [(m (map-put (map-empty) 7 41))] (if (map-has m 7) (map-get m 7) 0)))" ])
         errsOf r `shouldBe` []
 
-      it "A0-2 v1 key gate: a map op on non-int keys is a diagnostic on the operation" $ do
-        let r = checkA0 "(def-shell f [m: map[string,int]] -> int (map-get m \"k\"))"
-        errsOf r `shouldSatisfy` any (T.isInfixOf "int key")
+      it "A0-2 key gate: a map op on a still-deferred key sort is a diagnostic on the operation (string keys now admitted)" $ do
+        -- A2.2-string (keys): {int, string} is the admissible key class; a bool
+        -- (or other) key sort stays a diagnostic on the operation.
+        let r = checkA0 "(def-shell f [m: map[bool,int]] -> int (map-get m true))"
+        errsOf r `shouldSatisfy` any (T.isInfixOf "int or string key")
+        let rOk = checkA0 "(def-shell g [m: map[string,int]] -> int (map-get m \"k\"))"
+        errsOf rOk `shouldBe` []
 
-      it "A0-2b the map[string,int] TYPE alone (no ops) stays legal T1" $ do
-        let r = checkA0 "(def-shell g [m: map[string,int]] -> int 1)"
+      it "A0-2b the map[bool,int] TYPE alone (no ops) stays legal T1" $ do
+        let r = checkA0 "(def-shell g [m: map[bool,int]] -> int 1)"
         errsOf r `shouldBe` []
 
       it "A0-3 bytes-get on a non-bytes argument is a type error" $ do
@@ -6832,6 +6836,60 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "  (if c (bump m k) m))" ])
         erBodyFallback erMix `shouldSatisfy` elem "mixed"
 
+      -- A2.2-string KEYS (the final Lever-A item): {int, string} is the
+      -- admissible key class. Literal keys reflect via the STRLIT interned
+      -- constants; ground pairwise distinctness makes literal-keyed reasoning
+      -- exact; literal/var key pairs get no fact (arrays §87(iii) — a var may
+      -- equal any literal). The array theory is key-sort polymorphic, so keys
+      -- are SELF-SORTING terms (mapKeyTerm) — no key-sort threading.
+      it "A2S-15 string keys: literal-key get-after-put SAFE; the ALIASED-KEY crux (distinct literals stay distinct) SAFE / wrong-value REFUTED" $ do
+        er1 <- emitA2 "(def k1 [m: map[string,int]] -> int (post (= result 7)) (map-get (map-put m \"alice\" 7) \"alice\"))"
+        erBodyFaithfulFns er1 `shouldSatisfy` elem "k1"
+        m1 <- solveFq er1
+        case m1 of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        -- the aliased-key crux, string edition: put "a" then "b", read "a" — strlit_a ≠ strlit_b excludes the identifying model
+        erG <- emitA2 "(def k2 [m: map[string,int]] -> int (post (= result 1)) (map-get (map-put (map-put m \"a\" 1) \"b\" 2) \"a\"))"
+        erB <- emitA2 "(def k2 [m: map[string,int]] -> int (post (= result 2)) (map-get (map-put (map-put m \"a\" 1) \"b\" 2) \"a\"))"
+        mG <- solveFq erG
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erB
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2S-16 string keys: literal/var NO-FACT (a var key may alias a literal — §87(iii)); presence-gated var-key reads verify" $ do
+        -- post (= result 5) after a put at "x" read at var k is UNPROVABLE (k may differ) → refuted
+        erNf <- emitA2 "(def k3 [m: map[string,int] k: string] -> int (pre (map-has m k)) (post (= result 5)) (map-get (map-put m \"x\" 5) k))"
+        mNf <- solveFq erNf
+        case mNf of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+        -- the presence-gated var-key read itself is body-faithful and SAFE
+        erPg <- emitA2 "(def k5 [m: map[string,int] k: string] -> int (pre (map-has m k)) (post (= result (map-get m k))) (map-get m k))"
+        erBodyFaithfulFns erPg `shouldSatisfy` elem "k5"
+        mPg <- solveFq erPg
+        case mPg of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
+      it "A2S-17 string keys x string values (both dims) + string-keyed map RETURN verify" $ do
+        er4 <- emitA2 "(def k4 [m: map[string,string]] -> string (post (= result \"admin\")) (map-get (map-put m \"role\" \"admin\") \"role\"))"
+        erBodyFaithfulFns er4 `shouldSatisfy` elem "k4"
+        m4 <- solveFq er4
+        case m4 of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        er6 <- emitA2 "(def k6 [m: map[string,string]] -> map[string,string] (post (= (map-get result \"s\") \"revoked\")) (map-put m \"s\" \"revoked\"))"
+        erBodyFaithfulFns er6 `shouldSatisfy` elem "k6"
+        m6 <- solveFq er6
+        case m6 of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+
       it "A2S-6 regression (strlit range fact): string-length over a string literal emits no ill-sorted strlit_ >= 0" $ do
         -- STRLIT bug the string surface exposed: injectRangeFacts' catch-all added
         -- `strlit_… >= 0` to the nullary Str constant (Str vs int) → lf crash.
@@ -7184,14 +7242,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "  (map-put m k v))" ]
         classifyFirst stmts `shouldBe` "qf_lia"
 
-      it "A3-3 residue routes out: string-KEYED map, whole-array =, both guards live" $ do
-        -- (a) A2.2-string residue (post-lift): string-valued map RETURNS now
-        -- reflect (the residue lift threads result$val at the Str sort), so the
-        -- remaining value-class residue witness is a string-KEYED map — keys
-        -- are int-only (mapArrEncodableTy) until the Stage-2 key dimension.
+      it "A3-3 residue routes out: bool-KEYED map, whole-array =, both guards live" $ do
+        -- (a) A2.2-string keys landed (string keys now reflect), so the
+        -- key-class residue witness is a bool-keyed map — the still-deferred
+        -- key sort (mapArrEncodableTy admits {int, string} keys only).
         let sVal = parseA3
-              [ "(def sget [m: map[string,int] k: string] -> int"
-              , "  (pre (map-has m k))"
+              [ "(def bget [m: map[bool,int] b: bool] -> int"
+              , "  (pre (map-has m b))"
               , "  0)" ]
         classifyFirst sVal `shouldBe` "non_qf_lia"
         -- (b) whole-map = in the contract, ops only in the BODY (the

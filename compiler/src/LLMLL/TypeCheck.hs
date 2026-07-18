@@ -1878,30 +1878,48 @@ inferArrayOp func args = case func of
       unless ok $
         tcError $ "function '" <> func <> "' expects int as argument "
                   <> tshow (j + 1) <> ", got " <> typeLabel t
-    -- First argument must be map[k,v]; key argument (index 1) must satisfy
-    -- the v1 int-only gate regardless of how the map's key sort resolved.
+    -- First argument must be map[k,v]; key argument (index 1) must match the
+    -- map's key sort. A2.2-string (keys): the admissible key class widens from
+    -- {int} to {int, string} — string keys reflect via the STRLIT interned
+    -- constants + ground distinctness (Lever A §3 v1.5, delivered); other key
+    -- sorts stay deferred.
     mapArgAndKey = do
       t <- argAt 0
       (kt, vt) <- case t of
         TMap kt vt -> do
           ktE <- expandAlias kt
           case ktE of
-            TInt   -> pure ()
-            TVar _ -> pure ()  -- unresolved key sort: gate lands on the key arg
-            other  -> tcError $ "map operation '" <> func <> "' requires int keys in v1 "
+            TInt    -> pure ()
+            TString -> pure ()  -- A2.2-string keys
+            TVar _  -> pure ()  -- unresolved key sort: gate lands on the key arg
+            other  -> tcError $ "map operation '" <> func <> "' requires int or string keys "
                                 <> "(got map[" <> typeLabel other <> ",...]); "
-                                <> "string and other key sorts are deferred (Lever A §3)"
+                                <> "other key sorts are deferred (Lever A §3)"
           pure (ktE, vt)
-        TVar _ -> pure (TInt, TVar "?")  -- unresolved map (hole/unknown): lenient
+        TVar _ -> pure (TVar "?", TVar "?")  -- unresolved map (hole/unknown): lenient
         other  -> do
           tcError $ "function '" <> func <> "' expects map[k,v] as argument 1, got "
                     <> typeLabel other
-          pure (TInt, TVar "?")
+          pure (TVar "?", TVar "?")
       kArgTy <- argAt 1
-      kOk <- compatibleExpanded kArgTy TInt
-      unless kOk $
-        tcError $ "map operation '" <> func <> "' requires an int key in v1, got "
-                  <> typeLabel kArgTy
+      case kt of
+        TInt -> do
+          kOk <- compatibleExpanded kArgTy TInt
+          unless kOk $
+            tcError $ "map operation '" <> func <> "' requires an int key for this map, got "
+                      <> typeLabel kArgTy
+        TString -> do
+          kOk <- compatibleExpanded kArgTy TString
+          unless kOk $
+            tcError $ "map operation '" <> func <> "' requires a string key for this map, got "
+                      <> typeLabel kArgTy
+        -- unresolved map/key sort: the key argument itself must land in the class
+        _ -> do
+          kInt <- compatibleExpanded kArgTy TInt
+          kStr <- compatibleExpanded kArgTy TString
+          unless (kInt || kStr) $
+            tcError $ "map operation '" <> func <> "' requires an int or string key, got "
+                      <> typeLabel kArgTy
       pure (kt, vt)
     valueArg j vt = do
       t <- argAt j
