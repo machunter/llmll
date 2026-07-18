@@ -6744,6 +6744,61 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Nothing  -> pendingWith "solver not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
 
+      it "A2S-12 MAP-RET-CALL (A4 F-2): a map-returning bare tail call verifies via component pins; wrong-status twin REFUTED" $ do
+        -- The wave agent's rejected composition — handle-revocation delegating
+        -- to revoke — now discharges: result$has/result$val are pinned to the
+        -- callee result's components (the mapRetChain terminal discipline
+        -- extended to call tails); the callee's post rides the path
+        -- component-substituted.
+        let src post = unlines
+              [ "(def revoke [tokens: map[int,string] tid: int] -> map[int,string]"
+              , "  (pre (map-has tokens tid))"
+              , "  (post (and (map-has result tid) (= (map-get result tid) \"revoked\")))"
+              , "  (map-put tokens tid \"revoked\"))"
+              , "(def-shell handle-revocation [tokens: map[int,string] tid: int method: string] -> map[int,string]"
+              , "  (pre (and (= method \"POST\") (map-has tokens tid)))"
+              , "  (post " <> post <> ")"
+              , "  (revoke tokens tid))" ]
+        erGood <- emitA2 (src "(and (map-has result tid) (= (map-get result tid) \"revoked\"))")
+        erBodyFaithfulFns erGood `shouldSatisfy` elem "handle-revocation"
+        erBad <- emitA2 (src "(= (map-get result tid) \"active\")")
+        erBodyFaithfulFns erBad `shouldSatisfy` elem "handle-revocation"
+        mG <- solveFq erGood
+        case mG of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        mB <- solveFq erBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+
+      it "A2S-13 MAP-RET-CALL scope: the int-map tail call verifies too; a MIXED tail (call arm + param arm) still falls back whole" $ do
+        erInt <- emitA2 (unlines
+          [ "(def bump [m: map[int,int] k: int] -> map[int,int]"
+          , "  (pre (map-has m k))"
+          , "  (post (= (map-get result k) 7))"
+          , "  (map-put m k 7))"
+          , "(def-shell wrap [m: map[int,int] k: int] -> map[int,int]"
+          , "  (pre (map-has m k))"
+          , "  (post (= (map-get result k) 7))"
+          , "  (bump m k))" ])
+        erBodyFaithfulFns erInt `shouldSatisfy` elem "wrap"
+        m <- solveFq erInt
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        -- refuse-not-pad: a param-tail arm alongside the call arm → fallback whole
+        erMix <- emitA2 (unlines
+          [ "(def bump [m: map[int,int] k: int] -> map[int,int]"
+          , "  (pre (map-has m k))"
+          , "  (post (= (map-get result k) 7))"
+          , "  (map-put m k 7))"
+          , "(def-shell mixed [m: map[int,int] k: int c: bool] -> map[int,int]"
+          , "  (pre (map-has m k))"
+          , "  (post (map-has result k))"
+          , "  (if c (bump m k) m))" ])
+        erBodyFallback erMix `shouldSatisfy` elem "mixed"
+
       it "A2S-6 regression (strlit range fact): string-length over a string literal emits no ill-sorted strlit_ >= 0" $ do
         -- STRLIT bug the string surface exposed: injectRangeFacts' catch-all added
         -- `strlit_… >= 0` to the nullary Str constant (Str vs int) → lf crash.

@@ -1031,7 +1031,19 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   -- byteArraySort and mapArraySort are the same FQArr FQInt FQInt,
                   -- so the sort alone cannot distinguish them; the retSort gate
                   -- does.
+                  -- MAP-RET-CALL (A4 finding F-2): a map-returning function whose
+                  -- every path tail IS a map-returning call result no longer falls
+                  -- back — the whole-map `result = rVar` the split encoding cannot
+                  -- express becomes the COMPONENT pins result$has = rVar$has ∧
+                  -- result$val = rVar$val (the mapRetChain terminal discipline,
+                  -- extended to call tails). The callee's post is already on the
+                  -- path, component-substituted (resultCompSubst), and rVar's
+                  -- components are declared (compLBs) — only the final equation
+                  -- was missing. Mixed tails (a param/pure-map arm alongside a
+                  -- call arm) still fall back whole (refuse-not-pad, §6.1).
                   else if maybe FQInt sortA1 mRet == FQInt && arrayResultPath bvc
+                          && not (arrGate && maybe False (mapArrEncodableTy aliases) mRet
+                                  && all pinnableTail (flattenBodyVC bvc))
                     then addBodyFallback name
                     else do
                     -- Warn at 257-4096
@@ -1065,6 +1077,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       ebid <- freshBid
                       addBind (FQBind ebid vn (FQReft "v" vs vp))
                       return ebid) (collectBranchBinders bvc)
+                    -- MAP-RET-CALL (F-2): in map-ret mode (map-returning fn whose
+                    -- tails are call results — the 1034 guard admitted it), the
+                    -- result is pinned COMPONENT-wise; a bare `result` binder is
+                    -- neither needed nor meaningful (mapRetChain's convention:
+                    -- the constraint reft var "result" at FQInt is unused).
+                    let mapRetMode = maybe FQInt sortA1 mRet == FQInt && arrayResultPath bvc
                     forM_ (zip provs paths) $ \(prov, (guard, lbs, resultPred)) -> do
                       -- Emit binders for each let-binding in this path
                       lbBindIds <- mapM (\lb -> do
@@ -1073,16 +1091,32 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                   (FQBinPred FQEq (FQVar "v") (lbRhs lb)))
                         addBind b
                         return bid) lbs
-                      -- Emit result binder
-                      rbid <- freshBid
-                      let resultBind = FQBind rbid "result" (FQReft "v" retSort FQTrue)
-                      addBind resultBind
-                      -- Build LHS: guard ∧ pre ∧ (result = body-result)
-                      let resultEq = FQBinPred FQEq (FQVar "result") resultPred
+                      -- Emit result binder(s): the scalar result, or (map-ret
+                      -- mode) the split result$has/result$val components at the
+                      -- return type's array sorts.
+                      resultBindIds <- if mapRetMode
+                        then do
+                          rh <- freshBid
+                          addBind (FQBind rh "result$has" (FQReft "v" mapArraySort FQTrue))
+                          rv <- freshBid
+                          addBind (FQBind rv "result$val"
+                                    (FQReft "v" (maybe mapArraySort (mapValArraySort aliases) mRet) FQTrue))
+                          return [rh, rv]
+                        else do
+                          rbid <- freshBid
+                          addBind (FQBind rbid "result" (FQReft "v" retSort FQTrue))
+                          return [rbid]
+                      -- Build LHS: guard ∧ pre ∧ (result = body-result), where the
+                      -- map-ret equation is the component pin pair.
+                      let resultEqs = case resultPred of
+                            FQVar v | mapRetMode ->
+                              [ FQBinPred FQEq (FQVar "result$has") (FQVar (v <> "$has"))
+                              , FQBinPred FQEq (FQVar "result$val") (FQVar (v <> "$val")) ]
+                            _ -> [FQBinPred FQEq (FQVar "result") resultPred]
                           lhsPred  = conjoinAll $ [guard | guard /= FQTrue]
                                                 ++ maybe [] (:[]) mPre
                                                 ++ resultLenFact
-                                                ++ [resultEq]
+                                                ++ resultEqs
                           lhs = FQReft "result" retSort lhsPred
                           rhs = FQReft "result" retSort postPred
                       -- Determine tag from structural branch provenance (the
@@ -1094,7 +1128,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                   Just True  -> "body-post-then"
                                   Just False -> "body-post-else"
                       cid <- freshCid
-                      let allEnvIds = envIds ++ extraBindIds ++ lbBindIds ++ [rbid]
+                      let allEnvIds = envIds ++ extraBindIds ++ lbBindIds ++ resultBindIds
                           c = FQConstraint cid allEnvIds lhs rhs [name, tag]
                       addConst c
                       let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
@@ -3497,6 +3531,16 @@ arrayResultPath bvc =
          FQVar v -> any (\lb -> lbName lb == v && isMapArrRetSort (lbSort lb)) lbs
          _       -> False)
       (flattenBodyVC bvc)
+
+-- | MAP-RET-CALL (A4 F-2): is this flattened path's tail a map-returning
+-- CALL-RESULT var (a marker-sorted LetBinding on the path)? Every path must be
+-- for the component-pinned tail-call emission; anything else — a param tail, a
+-- pure-map-term tail (mapRetChain's class), a scalar — routes the function to
+-- fallback whole as before.
+pinnableTail :: (FQPred, [LetBinding], FQPred) -> Bool
+pinnableTail (_, lbs, rp) = case rp of
+  FQVar v -> any (\lb -> lbName lb == v && isMapArrRetSort (lbSort lb)) lbs
+  _       -> False
 
 -- | Per-path outermost-branch provenance, in the SAME order as 'flattenBodyVC'.
 -- For each flattened path: @Just True@ if it descends from the then-subtree of
