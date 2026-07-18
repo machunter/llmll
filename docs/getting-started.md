@@ -1565,6 +1565,20 @@ A **refinement-aliased return** (`-> PositiveInt`) discharges: the body-VC prove
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
 - Schema `schemaVersion` is `0.8.0` (optional `decreases` array on `def-shell`; the reader also accepts `0.7.0` and `0.6.0` for backward compatibility — the newer fields are additive-optional). New `.ast.json` files should carry `"schemaVersion": "0.8.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
 
+### §4.26 Bytes and Map Patterns (Array Class)
+
+The array class of `Σ_auto` (`LLMLL.md §5.3.3`) discharges `bytes[n]` memory safety and `map[{int,string},{int,bool,string}]` get-after-put, key-presence, construction, and read-modify-write. Reads carry **PROVE-polarity preconditions** — the caller proves index-in-bounds (`bytes`) or key-presence (`map`) at the call site, and a missing proof (or a dropped update) is *refuted*, not merely asserted. Each pattern below is a frozen, verified example; the verdict column is the actual `llmll verify` output.
+
+| Pattern | Verdict | Example |
+|---|---|---|
+| `bytes[n]` in-bounds read: prove `0 ≤ i < n` before `bytes-get` | **SAFE**; the off-by-one twin (`<=` for `<`) is **refuted** at the `bytes-get` call site | [`examples/bytes-bounds/read-at.llmll`](../examples/bytes-bounds/read-at.llmll) / `read-at-off-by-one.llmll` |
+| `bytes[n]` in-bounds write: guarded `bytes-set` | guarded → verifies; the unguarded overflow is **refuted** at the `bytes-set` call site | [`examples/bytes-bounds/write-overflow.llmll`](../examples/bytes-bounds/write-overflow.llmll) |
+| Presence-and-validity-gated map read: RFC-introspect active-check (`map-has` present ∧ status ∧ validity-window, two maps) | **SAFE**; the variant that skips the expiry/validity check is **refuted** (then-branch fails its postcondition) | [`examples/token-revocation-emergent/crux-introspect.llmll`](../examples/token-revocation-emergent/crux-introspect.llmll) / `crux-introspect-expiry-skip.llmll` |
+| String-keyed method gate: endpoint proving the method precondition before delegating | endpoint verifies; the wrong-method caller is **refuted** at the call site | [`examples/token-revocation-emergent/crux-method-gate.llmll`](../examples/token-revocation-emergent/crux-method-gate.llmll) |
+| Status-map read-modify-write: `map-put` then return the updated `map[int,string]` | **SAFE**; the dropped-put twin is **refuted** (body VC fails the postcondition) | [`examples/token-revocation-emergent/crux-revoke.llmll`](../examples/token-revocation-emergent/crux-revoke.llmll) / `crux-revoke-dropped-put.llmll` |
+
+**Construction and keys.** `(map-empty)` is type-directed — the element sort is inferred from the first put value, so `(map-put (map-empty) k "active")` builds a `map[int,string]`; `bytes-zero` takes its length from the declared return type. Keys in `{int, string}` and values in `{int, bool, string}` are in-fragment. **Falls back** (contract-only, whole): non-`{int,string}` key sorts, direct reads on a bare `(map-empty)`, and whole-structure `=` over two maps or two `bytes` values (`LLMLL.md §5.3.5`).
+
 ---
 
 ## Part 5 — Core Language Quick Reference
