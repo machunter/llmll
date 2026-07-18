@@ -1,8 +1,10 @@
 # The Data Scope of LLMLL Verification — where we are, and where we're going
 
-> **Status:** Design / roadmap — **forward-looking, nothing here is shipped.** The "current state"
-> posts (1–5) describe capabilities that *are* shipped as of `llmll 0.14.11`; the "extension" posts
-> (6–8) are a proposal for future work, not a commitment.
+> **Status:** Design / roadmap — **partly shipped.** Posts 1–5 (the decidable core) describe
+> capabilities shipped as of `llmll 0.14.51`; **Lever A** of the extension — the SMT theory of
+> arrays for `bytes[n]`/`map` (Post 7) — has since **shipped** (v0.14.33–51), so Post 6's array and
+> map bug-classes are now caught and Post 8's goal is met. The two remaining levers (**B** dependent
+> lengths, **C** induction) are proposals for future work, not commitments.
 > **Audience:** a technically literate third party — someone who knows a little SMT and a little
 > functional programming, and wants to understand *exactly* what this compiler can and cannot
 > prove about data, and what it would take to widen that.
@@ -19,28 +21,34 @@ sharp question:
 
 > *"Will this use any complex data type: list, array, circular list, stacks, hash…?"*
 
-The honest answer is **"almost none of it, and not by accident."** LLMLL today verifies rich
-properties over **integers** and **non-recursive tagged unions**, and it can reason about the
-**length** of a list or string — but it cannot prove anything about the *contents* or *structure*
-of a list, array, map, or any recursive data structure. Those live outside the decidable core the
-whole trust story is built on.
+The answer, stated precisely: **more than it used to, but with a sharp and defended edge.** LLMLL
+verifies rich properties over **integers** and **non-recursive tagged unions**, reasons about the
+**length** of a list or string, and — since Lever A shipped (Post 7) — proves **index-in-bounds on
+`bytes[n]` buffers** and **get-after-put / key-presence on `map`s** with `{int,string}` keys and
+`{int,bool,string}` values. What it still cannot prove is the *contents* or *structure* of a
+**list** (indexing is Lever B, unshipped) or of any **recursive** data structure (Lever C, fenced).
+Those live outside the decidable core the whole trust story is built on.
 
 That answer deserves more than a shrug, for two reasons:
 
-1. **It is the single most important thing to understand about the language's reach.** The famous
-   bugs that would be *most* convincing to catch — a buffer overread that indexes past an array, a
-   use-after-free walking a linked list, a hash table that mishandles a collision — are precisely
-   the class we *cannot* verify today. Knowing where that wall is, and *why* it's there, is the
-   difference between an honest pitch and an overclaim.
+1. **It is the single most important thing to understand about the language's reach.** Of the famous
+   bugs that would be *most* convincing to catch, the wall now falls *between* them: a buffer
+   overread that indexes past a `bytes[n]` buffer and a hash table that mishandles a key are **now
+   caught** (Lever A); a use-after-free walking a linked list, or any invariant over recursive
+   structure, is **still outside** (Lever C). Knowing exactly where that wall sits, and *why*, is
+   the difference between a precise claim and an overclaim.
 
 2. **It is a roadmap, not a dead end.** The wall is made of *decidability*, and decidability can be
    bought — at known prices, with known trade-offs. This document lays out what we'd buy, in what
    order, and what each purchase unlocks.
 
-**What we are trying to achieve** is a verified example in which *the data structure itself is the
-risk* — the data-axis analog of the Heartbleed length-discipline story — caught within a theory
-the solver can actually decide. To get there we first have to be precise about the boundary. So:
-five posts on where we are, three on where we're going.
+**What we set out to achieve** was a verified example in which *the data structure itself is the
+risk* — the data-axis analog of the Heartbleed length-discipline story — caught within a theory the
+solver can actually decide. Lever A delivered it: `examples/bytes-bounds/` (an index that must be
+proved in-bounds) and `examples/token-revocation-emergent/` (key-presence-gated map reads, the A4
+flagship). What follows is precise about where the boundary sits now — five posts on the decidable
+core, then three on the bug classes, the extension levers, and the goal, with **Lever A now
+shipped** and Levers B and C still ahead.
 
 ---
 
@@ -284,17 +292,20 @@ skeptic would find convincing, and the theory each one demands:
 
 | Bug class (famous instance) | What the proof needs | In `Σ_auto` today? |
 |---|---|---|
-| Array / buffer index out-of-bounds (Heartbleed *as memory*, off-by-one) | a **theory of arrays** (`select`/`store`) *or* a dependent length + an index-in-bounds refinement | ✗ |
-| Hash / map correctness (get-after-put, key presence) | a **theory of arrays/maps** (extensional select/store) | ✗ |
+| Array / buffer index out-of-bounds (Heartbleed *as memory*, off-by-one) | a **theory of arrays** (`select`/`store`) *or* a dependent length + an index-in-bounds refinement | **✓ (Lever A — `bytes[n]`)** |
+| Hash / map correctness (get-after-put, key presence) | a **theory of arrays/maps** (extensional select/store) | **✓ (Lever A — `map[{int,string},{int,bool,string}]`)** |
 | Linked-list / tree structural invariants (sortedness, balance, acyclicity, use-after-free) | **inductive datatypes + induction** over the structure | ✗ |
 | Stack / queue discipline (LIFO/FIFO, non-empty pop) | inductive datatypes, *or* a bounded array model | ✗ |
 | Length / counting discipline (records ≤ capacity, credit ≥ 0) | QF-LIA + the length measure | **✓ (this is what we already do)** |
 
-The pattern is stark: everything except the last row is outside the decidable core. The Heartbleed
-example was convincing *precisely* because we reframed a memory bug as a **length** bug (row 5,
-which we can do) rather than an **array-indexing** bug (row 1, which we cannot). That reframing was
-honest — the real fix *was* a length check — but it is also why the example never touches an actual
-buffer. To verify *any* of the top four rows, we need to widen `Σ_auto`. That is the extension.
+The pattern, updated: rows 1–2 (array/buffer indexing and map correctness) are **now inside** the
+decidable core, bought by Lever A; rows 3–4 (linked-list/tree structure, stack/queue discipline)
+remain outside, awaiting Lever C. The Heartbleed example was originally convincing because we
+reframed a memory bug as a **length** bug (row 5) rather than an **array-indexing** bug (row 1) —
+that reframing was faithful, since the real fix *was* a length check, but it is why that example
+never touched an actual buffer. Today it can: `examples/bytes-bounds/` verifies an index directly
+against `select`/`store`. What still needs widening is rows 3–4 — the recursive-structure frontier
+(Post 7, Lever C).
 
 ---
 
@@ -302,24 +313,33 @@ buffer. To verify *any* of the top four rows, we need to widen `Σ_auto`. That i
 
 Three levers, in increasing order of power and cost. The design principle throughout: **buy exactly
 as much undecidability as a bug class needs, and no more** — prefer a decidable theory extension
-over an induction engine wherever the bug allows it.
+over an induction engine wherever the bug allows it. Lever A has shipped and is described below as
+the worked case, in past tense; Levers B and C remain proposals.
 
-### Lever A — the SMT theory of arrays (`bytes[n]`, `map[k,v]`)  · *decidable · recommended first*
+### Lever A — the SMT theory of arrays (`bytes[n]`, `map[k,v]`)  · *decidable · SHIPPED v0.14.33–51*
 
-Add the classical **theory of arrays** (McCarthy `select`/`store`, plus extensionality) as a new
-member of `Σ_auto`, backing `bytes[n]` and `map[k,v]`. The quantifier-free fragment (SMT-LIB
-`QF_AX` / combinatory array logic) is **decidable** and combines with QF-LIA by the same
-polite-theory machinery we already use for datatypes — so this stays inside the Post-1 discipline;
-"SAFE" remains a decidable predicate.
+The classical **theory of arrays** (McCarthy `select`/`store`, plus extensionality) is now a member
+of `Σ_auto`, backing `bytes[n]` and `map`. The quantifier-free fragment (SMT-LIB `QF_AX` /
+combinatory array logic) is **decidable** and combines with QF-LIA by the same polite-theory
+machinery datatypes use — so it stayed inside the Post-1 discipline; "SAFE" remained a decidable
+predicate (`LLMLL.md §5.3.3`).
 
-- **Unlocks:** array/buffer **index-in-bounds** (`0 ≤ i < len` as a genuine `select` guard — a
-  real memory-safety story, not a length proxy), and **map get-after-put** (`select (store m k v)
-  k = v`, key-presence).
-- **New refinement vocabulary:** `select`, `store`, and a first-class `array-length` fact so an
-  index refinement can be stated.
-- **Cost / risk:** moderate and *bounded* — a new decidable theory + solver wiring + refinement
-  surface. No change to the trust-tier story. This is the highest value-to-risk lever and the one
-  that makes a *memory-safety* example possible.
+- **What it delivered:** array/buffer **index-in-bounds** on `bytes[n]` (`0 ≤ i < n` as a genuine
+  `select`/`store` guard — memory-safety, not a length proxy) and **map get-after-put /
+  key-presence** (`select (store m k v) k = v`). `bytes-get`→`select`, `bytes-set`→`store`,
+  `map-put`→paired stores, `map-empty`→const arrays; an out-of-bounds read, a read without a
+  presence proof, or a dropped update in a verified function is **`refuted`**, not merely asserted.
+- **Shipped vocabulary:** `bytes-get`/`bytes-set`/`bytes-length`/`bytes-zero`,
+  `map-has`/`map-get`/`map-put`/`map-empty` (`LLMLL.md §13.12`), with index-in-bounds and
+  key-presence as PROVE-polarity call-site obligations.
+- **Where the new wall stands (the deliberate residues).** The purchase was scoped, not total: map
+  **keys** are `{int, string}` and **values** are `{int, bool, string}` — a `map` at any other
+  key/value sort falls back whole; **whole-structure equality** (`(= m1 m2)`, `(= b1 b2)`) never
+  reflects (the encoding carries junk at absent keys, so representational `=` diverges from
+  observational `=`); a direct read on a bare `(map-empty)` falls back; and `bytes[n]` length `n` is
+  a **literal**, not a variable (length-polymorphism is Lever B). **Lists are not arrays** — `list`
+  indexing did not ship here; that is Lever B. String *literals* reflect (equality, distinctness,
+  code-point length — STRLIT), but string *structure* (concat/substr/regex) does not.
 
 ### Lever B — dependent lengths / a widened measure catalog  · *decidable · a bridge*
 
@@ -352,28 +372,32 @@ next step.
 
 ### Comparison
 
-| | Lever A (arrays) | Lever B (dependent length) | Lever C (induction) |
+| | Lever A (arrays) — **shipped** | Lever B (dependent length) | Lever C (induction) |
 |---|---|---|---|
 | Theory | QF theory of arrays | measures + length-indexing | inductive datatypes + PLE / reflection |
 | Decidable? | **yes** | **yes** | **no** (in general) |
 | Stays in `Σ_auto`? | yes | yes | **no** — new tier or Lean route |
 | Unlocks | index-in-bounds, map get-after-put | safe list indexing | list/tree/stack structural invariants |
-| Effort / risk | moderate / bounded | low | high / research |
+| Effort / risk | **shipped (v0.14.33–51)** | low | high / research |
 | Depends on | — | Lever A | LEAN-GA production build |
 
-**Recommended sequence: A → B → (C via the Lean tier).** Lever A alone is enough to author a
-*convincing data-structure example* — a verified index-bounds story on a real `bytes`/array — at the
-lowest risk and without disturbing the decidability guarantee. That is the concrete near-term target
-this document argues for.
+**Sequence: A (done) → B → (C via the Lean tier).** Lever A alone was enough to author a *convincing
+data-structure example* — a verified index-bounds story on a real `bytes` buffer, and a
+key-presence-gated map service — at the lowest risk and without disturbing the decidability
+guarantee. Those examples now exist (`examples/bytes-bounds/`, `examples/token-revocation-emergent/`);
+the near-term frontier is Lever B (safe list indexing), then Lever C.
 
 ---
 
 ## Post 8 — What we're trying to achieve, and how we'll keep it honest
 
-**The goal.** A verified example in which *the data structure is the risk itself* — an array whose
-index must be proved in-bounds, or a map whose key must be proved present — catching a bug that
-looks like correct code, within a theory the solver decides. It is the data-axis sequel to the
-Heartbleed length story, and Lever A is its enabling purchase.
+**The goal, now met.** A verified example in which *the data structure is the risk itself* — a
+buffer whose index must be proved in-bounds, or a map whose key must be proved present — catching a
+bug that looks like correct code, within a theory the solver decides. Lever A was its enabling
+purchase, and two examples realize it: `examples/bytes-bounds/` (the off-by-one and the out-of-range
+write are `refuted`) and `examples/token-revocation-emergent/` (the A4 flagship — an RFC 7009/7662
+token service whose reads are gated on proved key-presence). It is the data-axis sequel to the
+Heartbleed length story.
 
 **The evaluation-integrity principle** (this is a standing rule for how these examples are built and
 run, not a detail of one demo):
@@ -395,10 +419,12 @@ contracts of callable functions — and **nothing else**. Two corollaries:
 Why this matters, and why it *connects back to the extension*: this principle is only satisfiable if
 the **contract alone is expressive enough** to make a data-structure hole both *fillable* (the agent
 can derive a solution from it) and *checkable* (the verifier can refute a wrong one) — with no
-out-of-band hinting. That is exactly what a richer data theory buys. Under today's `Σ_auto`, a
-`bytes` index bound cannot even be *stated* in a checkout brief as a checkable obligation, so an
-honest, hint-free data-structure experiment is not yet possible. Lever A is what makes the honest
-experiment *possible at all* — which is the real reason it comes first.
+out-of-band hinting. That is exactly what a richer data theory buys. Before Lever A, a `bytes` index
+bound could not even be *stated* in a checkout brief as a checkable obligation, so a hint-free
+data-structure experiment was not possible. Lever A is what made it possible — and
+`examples/token-revocation-emergent/` is that experiment carried out: the token-service holes were
+filled by blind agents from the checkout brief alone, and the verifier — not a scripted bug — is
+what refuted the wrong fills.
 
 **How this stays honest as a demonstration.** The compiler is the oracle. The agent is blind. A
 caught bug is therefore a *real* caught bug — the solver found a counterexample to a contract the
@@ -413,11 +439,11 @@ every example built under this roadmap is held to.
 - **This document** is the didactic reference. The **engineering tickets** (Levers A/B/C, with
   acceptance criteria and dependencies) live in
   [`compiler-team-roadmap.md`](../compiler-team-roadmap.md) → *Future — Data Scope Extension*.
-- **The goto-fail example** (CVE-2014-1266, the next example on deck) is deliberately scoped to
-  **today's** capabilities — non-recursive ADTs (Post 3), no arrays, no recursion. It fixes the
-  *types / return-types / trivial-bodies / real-orchestration / narration* critiques of the
-  Heartbleed example; it does **not** answer the data-structure question, and this document is the
-  record of why no example can, until Lever A ships.
-- **Recommended first move on the extension:** scope Lever A (theory of arrays) as the enabling
-  purchase for the first honest data-structure example, before committing to the recursive-data
-  frontier.
+- **The goto-fail example** (CVE-2014-1266) is deliberately scoped to non-recursive ADTs (Post 3),
+  no arrays, no recursion — a control-flow example that fixes the *types / return-types /
+  trivial-bodies / real-orchestration / narration* critiques of the Heartbleed example. The
+  *data-structure* question it does not answer is now answered elsewhere, by the Lever-A examples
+  (`examples/bytes-bounds/`, `examples/token-revocation-emergent/`).
+- **The extension's first move — Lever A (theory of arrays) — has shipped** (v0.14.33–51) as the
+  enabling purchase for the first data-structure examples. The remaining frontier is Lever B (safe
+  list indexing), then Lever C (recursive-data induction) via the Lean tier.
