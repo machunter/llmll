@@ -81,6 +81,10 @@ module LLMLL.FixpointEmit
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
+    -- * Refinement resolution (exported for the refine feasibility gate, LLMLL.Feasibility)
+  , resolveAllRefinements
+  , resolveAliasTy
+  , renameVar
     -- * STRLIT (exported for testing): literal interning + Stage-2 code-point length
   , strlitConst
   , strlitLen

@@ -102,6 +102,8 @@ library:
     - LLMLL.WeaknessCheck
     # LT-CDP (v0.11): contract discriminative power evidence axis
     - LLMLL.CDP
+    # cascade-l3: refine feasibility (no-miracle) gate
+    - LLMLL.Feasibility
     # v0.4: invariant pattern registry
     - LLMLL.InvariantRegistry
     # v0.4: downstream obligation mining

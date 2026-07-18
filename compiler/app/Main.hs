@@ -62,7 +62,7 @@ import LLMLL.Diagnostic
   , formatReportJson, megaparsecToDiagnostic, mkSpecWeakness, mkCandidateUnvalidated
   , mkReuseWarning)
 -- D4: liquid-fixpoint verification backend
-import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost)
+import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap)
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
@@ -95,6 +95,7 @@ import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligat
 import LLMLL.SpecCoverage (runCoverage, runCoverageWithLevels, formatCoverageText, formatCoverageJson)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, descentDischargedFns, exprToSExpr, importedContractedFns)
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv)
+import LLMLL.Feasibility (feasibilityOf, renderWitness, FeasVerdict(..))
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_out, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
 import System.IO (hGetLine)
@@ -2431,36 +2432,70 @@ refineGate gm fp pr = do
               let nameOf s     = fmap (\(n,_,_,_,_) -> n) (normalizeDefStmt s)
                   srcNames     = [ n | s <- srcStmts, Just n <- [nameOf s] ]
                   spawnedNames = [ n | s <- stmts, Just n <- [nameOf s], n `notElem` srcNames ]
+                  spawnedDefs  = [ (n, ps, mr, c)
+                                 | s <- stmts, Just (n, ps, mr, c, _) <- [normalizeDefStmt s]
+                                 , n `notElem` srcNames ]
                   isTypeDefS s = case s of STypeDef{} -> True; _ -> False
                   gateStmts    = [ s | s <- stmts
                                      , isTypeDefS s || maybe False (`elem` spawnedNames) (nameOf s) ]
+                  aliases      = buildAliasMap stmts
               if null spawnedNames then pure (Right ()) else do
-                mLF <- do a <- findExecutable "liquid-fixpoint"
-                          maybe (findExecutable "fixpoint") (pure . Just) a
-                case mLF of
-                  Nothing    -> pure (Right ())   -- no solver → skip (graceful)
-                  Just lfBin -> do
-                    results <- computeCDPFor gm CDPScopeAllDefLogic
-                                 (checkCDPCandidate lfBin [ s | s <- gateStmts, isTypeDefS s ])
-                                 Map.empty gateStmts
-                    -- Vacuity signal: a TRIVIAL (identity/constant) body satisfies the
-                    -- invented contract → it discriminates no real implementation. This is
-                    -- the principled CDP signal (WarnIdentity/ConstSatisfiesPost); the raw
-                    -- satisfying-fraction is unreliable on an unfilled G (CDP needs the
-                    -- function's own verification status to disambiguate tight-vs-inconsistent).
-                    let isTrivialSat WarnIdentitySatisfiesPost = True
-                        isTrivialSat WarnConstSatisfiesPost    = True
-                        isTrivialSat _                          = False
-                        vac = [ n | (n, r) <- Map.toList results
-                                  , n `elem` spawnedNames
-                                  , any isTrivialSat (cdpWarnings r) ]
-                    case vac of
-                      (n:_) -> pure $ Left $
-                        "refine gate: spawned sub-contract '" <> n <> "' is vacuous \8212 a "
-                        <> "trivial (identity/constant) body already satisfies it, so it "
-                        <> "discriminates no real implementation; strengthen the contract"
-                      [] -> pure (Right ())
+                -- cascade-l3: feasibility (no-miracle) gate. Reject a spawned
+                -- sub-contract that no body can discharge — some input satisfying
+                -- `pre` with no `result` satisfying the post (∃input. pre ∧
+                -- ∀result. ¬post). Runs BEFORE the heavier CDP vacuity pass so an
+                -- infeasible spawn short-circuits. Fail-open: no z3, or an
+                -- out-of-fragment / unknown result, falls through to CDP unchanged.
+                mZ3  <- findExecutable "z3"
+                feas <- case mZ3 of
+                          Nothing -> pure (Right ())
+                          Just z3 -> firstInfeasibleSpawn z3 aliases spawnedDefs
+                case feas of
+                  Left msg -> pure (Left msg)
+                  Right () -> do
+                    mLF <- do a <- findExecutable "liquid-fixpoint"
+                              maybe (findExecutable "fixpoint") (pure . Just) a
+                    case mLF of
+                      Nothing    -> pure (Right ())   -- no solver → skip (graceful)
+                      Just lfBin -> do
+                        results <- computeCDPFor gm CDPScopeAllDefLogic
+                                     (checkCDPCandidate lfBin [ s | s <- gateStmts, isTypeDefS s ])
+                                     Map.empty gateStmts
+                        -- Vacuity signal: a TRIVIAL (identity/constant) body satisfies the
+                        -- invented contract → it discriminates no real implementation. This is
+                        -- the principled CDP signal (WarnIdentity/ConstSatisfiesPost); the raw
+                        -- satisfying-fraction is unreliable on an unfilled G (CDP needs the
+                        -- function's own verification status to disambiguate tight-vs-inconsistent).
+                        let isTrivialSat WarnIdentitySatisfiesPost = True
+                            isTrivialSat WarnConstSatisfiesPost    = True
+                            isTrivialSat _                          = False
+                            vac = [ n | (n, r) <- Map.toList results
+                                      , n `elem` spawnedNames
+                                      , any isTrivialSat (cdpWarnings r) ]
+                        case vac of
+                          (n:_) -> pure $ Left $
+                            "refine gate: spawned sub-contract '" <> n <> "' is vacuous \8212 a "
+                            <> "trivial (identity/constant) body already satisfies it, so it "
+                            <> "discriminates no real implementation; strengthen the contract"
+                          [] -> pure (Right ())
         _ -> pure (Right ())
+
+-- | cascade-l3 feasibility gate driver: return the first spawned sub-contract that
+-- z3 proves INFEASIBLE (sat on ∃input. pre ∧ ∀result. ¬post), with its minimal
+-- witnessing input; Right () if every spawn is Feasible or Abstains. Fail-open —
+-- only a definitive 'Infeasible' rejects.
+firstInfeasibleSpawn
+  :: FilePath -> AliasMap
+  -> [(Name, [(Name, Type)], Maybe Type, Contract)] -> IO (Either T.Text ())
+firstInfeasibleSpawn _  _  []                      = pure (Right ())
+firstInfeasibleSpawn z3 am ((n, ps, mr, c) : rest) = do
+  v <- feasibilityOf z3 am ps mr c
+  case v of
+    Infeasible w -> pure $ Left $
+      "refine gate: spawned sub-contract '" <> n <> "' is infeasible \8212 at "
+      <> renderWitness w <> " (satisfying pre) no result satisfies the "
+      <> "postcondition; tighten the precondition"
+    _            -> firstInfeasibleSpawn z3 am rest
 
 -- ---------------------------------------------------------------------------
 -- v0.3: contract extraction helper (used by doVerify)

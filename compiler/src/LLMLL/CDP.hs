@@ -126,10 +126,12 @@ data CDPWarning
     -- pre∧post check, independent of Omega — no such check exists here.
     -- This condition is Omega-relative and cannot distinguish a genuinely
     -- vacuous contract from one that is merely tight for the closed §4.3.1
-    -- candidate set and unverified by other means. A true Omega-independent
-    -- semantic-UNSAT check remains future work (requires a structurally
-    -- different existential SAT query, not an extension of the per-candidate
-    -- Horn-refutation loop this module already runs). Score is suppressed.
+    -- candidate set and unverified by other means. The reserved true
+    -- Omega-independent semantic-UNSAT check — a structurally different
+    -- existential SAT query, not an extension of the per-candidate
+    -- Horn-refutation loop this module runs — is now realized for the refine
+    -- feasibility gate by 'LLMLL.Feasibility' (∃input. pre ∧ ∀result. ¬post,
+    -- discharged by z3 under the qsat tactic). Score is suppressed.
   | WarnSpecTooTightForOmega
     -- ^ The post-condition carries DLVerified or DLContractChecked evidence
     -- (the spec is provably correct), but no trivial-body candidate from the

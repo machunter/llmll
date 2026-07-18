@@ -49,6 +49,7 @@ library
       LLMLL.AgentSpec
       LLMLL.WeaknessCheck
       LLMLL.CDP
+      LLMLL.Feasibility
       LLMLL.InvariantRegistry
       LLMLL.ObligationMining
       LLMLL.SpecCoverage

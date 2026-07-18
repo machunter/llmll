@@ -28,6 +28,7 @@ import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligat
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, fqResultToReport)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), emitFixpoint, emitFixpointWith, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..))
+import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..))
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkReuseWarning, megaparsecToDiagnostic)
 import LLMLL.CodegenHs (generateHaskell, cgMainHs, cgHsSource, cgPackageYaml, emitExpr, emitLit, emitApp, toHsType, mapLlmllPrimType, runtimePreamble, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName)
@@ -12934,6 +12935,136 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- -----------------------------------------------------------------------
   -- REFINE-REUSE (RR): non-rejecting reuse-retrieval for `refine`
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- cascade-l3: refine feasibility (no-miracle) gate
+  -- -----------------------------------------------------------------------
+  describe "cascade-l3 feasibility gate (LLMLL.Feasibility)" $ do
+    let mkC mPre mPost = Contract mPre Nothing mPost Nothing Nothing
+        aliases0 = buildAliasMap []
+        -- Pos = {v:int | v > 0}
+        posAlias = buildAliasMap
+          [ STypeDef "Pos" (TDependent "v" TInt (EOp ">" [EVar "v", ELit (LitInt 0)])) ]
+        subXY    = EOp "-" [EVar "x", EVar "y"]
+        eqR e    = EOp "=" [EVar "result", e]
+        andE xs  = EApp "and" xs
+        findZ3   = findExecutable "z3"
+        params2  = [("x", TInt), ("y", TInt)]
+        -- test-1 contract: sub [x,y] -> int (pre true)(post (and (= result (- x y)) (>= result 0)))
+        c1Pre    = Just (ELit (LitBool True))
+        c1Post   = Just (andE [ eqR subXY, EOp ">=" [EVar "result", ELit (LitInt 0)] ])
+        intOf w n = read (T.unpack (fromJust (lookup n w))) :: Integer
+        totalAbs w = sum [ abs (read (T.unpack v) :: Integer) | (_, v) <- w ]
+
+    -- (1) local infeasibility: result must be both (x - y) and >= 0 ⇒ no result
+    -- exists whenever x < y. Gate rejects; witness is the minimal x<y boundary.
+    it "FEAS-1: local infeasibility (result = x-y ∧ result ≥ 0) rejects with a minimal x<y witness" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          v <- feasibilityOf z3 aliases0 params2 (Just TInt) (mkC c1Pre c1Post)
+          case v of
+            Infeasible w -> do
+              intOf w "x" `shouldSatisfy` (< intOf w "y")   -- witness satisfies x < y
+              totalAbs w  `shouldSatisfy` (<= 1)            -- minimized to the boundary
+            _ -> expectationFailure ("expected Infeasible, got " ++ show v)
+
+    -- (2) refined-return: Pos folds Rret (result > 0). With post result = x - y and
+    -- pre x >= y, the boundary x = y forces result = 0, which violates Rret ⇒ reject.
+    it "FEAS-2: refined return Pos folds Rret — boundary x = y has no positive result" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          let c2 = mkC (Just (EOp ">=" [EVar "x", EVar "y"])) (Just (eqR subXY))
+          v <- feasibilityOf z3 posAlias params2 (Just (TCustom "Pos")) c2
+          case v of
+            Infeasible w -> intOf w "x" `shouldBe` intOf w "y"
+            _            -> expectationFailure ("expected Infeasible, got " ++ show v)
+
+    -- (3) global contradiction: (result > x ∧ result < x) is UNSAT for every x.
+    it "FEAS-3: globally-contradictory post (result > x ∧ result < x) is infeasible" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          let c3 = mkC Nothing (Just (andE [ EOp ">" [EVar "result", EVar "x"]
+                                           , EOp "<" [EVar "result", EVar "x"] ]))
+          v <- feasibilityOf z3 aliases0 [("x", TInt)] (Just TInt) c3
+          case v of
+            Infeasible _ -> pure ()
+            _            -> expectationFailure ("expected Infeasible, got " ++ show v)
+
+    -- (4) feasible: for every x >= 2 there is a result with 0 < result < x ⇒ admit.
+    it "FEAS-4: feasible contract (pre x≥2, post 0<result<x) is admitted" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          let c4 = mkC (Just (EOp ">=" [EVar "x", ELit (LitInt 2)]))
+                       (Just (andE [ EOp ">" [EVar "result", ELit (LitInt 0)]
+                                   , EOp "<" [EVar "result", EVar "x"] ]))
+          v <- feasibilityOf z3 aliases0 [("x", TInt)] (Just TInt) c4
+          v `shouldBe` Feasible
+
+    -- (5) dead helper: an unsatisfiable pre makes the whole antecedent empty ⇒
+    -- vacuously feasible ⇒ admit (the feasibility gate is not a dead-code linter).
+    it "FEAS-5: dead helper (pre false) is vacuously feasible → admit" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          let c5 = mkC (Just (ELit (LitBool False))) (Just (eqR (EVar "x")))
+          v <- feasibilityOf z3 aliases0 [("x", TInt)] (Just TInt) c5
+          v `shouldBe` Feasible
+
+    -- (6) out-of-fragment post (string-length ⇒ FQApp) cannot be lowered ⇒ abstain.
+    -- buildQuery fails before z3, so this holds with or without a solver.
+    it "FEAS-6: non-LIA post (string-length ⇒ FQApp) abstains → admit" $ do
+      let c6 = mkC Nothing (Just (EOp ">=" [EVar "result", EApp "string-length" [ELit (LitString "ab")]]))
+      v <- feasibilityOf "z3" aliases0 [("x", TInt)] (Just TInt) c6
+      v `shouldBe` Abstain
+
+    -- (extra abstain paths, solver-independent) --------------------------------
+    it "FEAS-7: no declared return type abstains (result untypeable) → admit" $ do
+      v <- feasibilityOf "z3" aliases0 [("x", TInt)] Nothing (mkC Nothing (Just (eqR (EVar "x"))))
+      v `shouldBe` Abstain
+
+    it "FEAS-8: a non-Int/Bool param (string) abstains → admit" $ do
+      v <- feasibilityOf "z3" aliases0 [("s", TString)] (Just TInt)
+             (mkC Nothing (Just (EOp ">" [EVar "result", ELit (LitInt 0)])))
+      v `shouldBe` Abstain
+
+    -- (7) fqPredToSMT unit: prefix rendering + fail-open on out-of-fragment terms.
+    it "FEAS-SMT-1: fqPredToSMT renders prefix comparisons / arith / connectives" $ do
+      fqPredToSMT (FQBinPred FQGe (FQVar "x") (FQLit 0)) `shouldBe` Just "(>= x 0)"
+      fqPredToSMT (FQBinArith FQSub (FQVar "x") (FQVar "y")) `shouldBe` Just "(- x y)"
+      fqPredToSMT (FQBinPred FQNeq (FQVar "a") (FQVar "b")) `shouldBe` Just "(not (= a b))"
+      fqPredToSMT (FQAnd [ FQBinPred FQGt (FQVar "r") (FQLit 0)
+                         , FQBinPred FQLt (FQVar "r") (FQVar "x") ])
+        `shouldBe` Just "(and (> r 0) (< r x))"
+      fqPredToSMT (FQNot (FQVar "b")) `shouldBe` Just "(not b)"
+      fqPredToSMT (FQLit (-3))        `shouldBe` Just "(- 3)"
+
+    it "FEAS-SMT-2: fqPredToSMT is Nothing on out-of-fragment FQApp / FQKVar (and propagates)" $ do
+      fqPredToSMT (FQApp "strLen" [FQVar "s"]) `shouldBe` Nothing
+      fqPredToSMT (FQKVar "k0" [FQVar "v"])    `shouldBe` Nothing
+      fqPredToSMT (FQBinPred FQGe (FQVar "r") (FQApp "strLen" [FQVar "s"])) `shouldBe` Nothing
+
+    -- (8) minimizeWitness unit: a huge seed model tightens to the boundary within K.
+    it "FEAS-MIN: minimizeWitness tightens a large arbitrary model to the boundary within K" $ do
+      mZ3 <- findZ3
+      case mZ3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just z3 -> do
+          let q1 = fromJust (buildQuery aliases0 params2 (Just TInt) (mkC c1Pre c1Post))
+          best <- minimizeWitness z3 q1 [("x", "0"), ("y", "1000000000")]
+          intOf best "x" `shouldSatisfy` (< intOf best "y")  -- still a valid witness
+          totalAbs best  `shouldSatisfy` (<= 1)              -- shrank from 1e9 to the boundary
+
+    it "FEAS-WIT: renderWitness formats name=value pairs" $
+      renderWitness [("x", "0"), ("y", "1")] `shouldBe` "x=0,y=1"
+
   describe "REFINE-REUSE (RR)" $ do
     let mkC mPre mPost = Contract mPre Nothing mPost Nothing Nothing
         -- p >= k, p > k etc. built in EOp form — the representation the JSON
