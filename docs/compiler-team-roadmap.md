@@ -135,11 +135,13 @@ Tracked but off the critical path — gated on external availability or a concre
 
 > Widening the verification surface (`Σ_auto`) from *integers + non-recursive ADTs + length-measures*
 > to **complex data structures** (lists, arrays, maps, recursive types). Didactic reference and full
-> rationale: [`docs/design/data-scope-extension.md`](design/data-scope-extension.md). **Nothing
-> shipped** — this is the track behind "can LLMLL verify lists / arrays / maps / recursive data?"
-> Today the answer is *no, deliberately*: the boundary is **decidability** (the guarantee that
-> "SAFE" is a decidable predicate on a fixed VC). Motivated by the flagship-example goal — an example
-> where *the data structure itself is the risk* (the data-axis sequel to the Heartbleed length story).
+> rationale: [`docs/design/data-scope-extension.md`](design/data-scope-extension.md). **Lever A
+> shipped (v0.14.33–51)** — arrays (`bytes[n]`) and maps (`{int,string}` keys × `{int,bool,string}`
+> values) now verify (index-in-bounds, get-after-put, key-presence), and the flagship-example goal
+> is met (`examples/bytes-bounds/`, `examples/token-revocation-emergent/`). The remaining track
+> answers "can LLMLL verify **lists** / **recursive** data?" — today *no, deliberately*: the
+> boundary is **decidability** (the guarantee that "SAFE" is a decidable predicate on a fixed VC).
+> Levers **B** (lists) and **C** (recursive) below are that future work.
 
 | Lever | Item | Theory / decidability | Unlocks | Status / dependency |
 |---|---|---|---|---|
@@ -152,7 +154,7 @@ Tracked but off the critical path — gated on external availability or a concre
 > leak hints beyond the returned contract (pre/post goal, expected return type, in-scope bindings,
 > callable contracts). See [`data-scope-extension.md`](design/data-scope-extension.md) Post 8. This
 > is *why* the extension matters: a hint-free data-structure hole is only fillable-and-checkable if
-> the contract alone is expressive enough — which requires a richer data theory (Lever A first).
+> the contract alone is expressive enough — which requires a richer data theory — delivered by Lever A (shipped v0.14.33–51).
 
 ---
 
