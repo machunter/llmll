@@ -4,6 +4,37 @@
 
 <a id="Latest"></a>
 
+## v0.14.50 — string `map-empty` construction verifies + two latent elaborator crashes fixed (2026-07-17)
+
+### Fixed — two elaborator crashes latent since the A2.2-string arc
+
+- **A bare `(map-empty)` tail on a string-map return crashed** (`mapRetChain`'s terminal emitted the int
+  default `Map_default 0` against the Str-sorted `result$val` binder — "Cannot unify Str with int") and
+  **a contract-channel strlit put on `map-empty` crashed** (the type-blind `mapPairTermsC` stored a `strlit_`
+  into an int-defaulted array). Both surfaced by residue probing; both now **verify** (below), and the
+  degenerate direct-get/has-on-`(map-empty)` shape — an always-absent read whose int default meets Str
+  contexts ill-sorted — routes to fallback in every channel (never a crash).
+
+### Added — string `map-empty` construction (a Lever-A residue item closed)
+
+- **Type-directed defaults.** `Map_default` is polymorphic in the fixpoint theory (`func(2, [@(1);
+  (Map_t @(0) @(1))])` — the default *element* determines the array type), so the element sort is now
+  **inferred from the put value** (a strlit or Str-carrier var ⟹ a Str-defaulted value array,
+  `defaultElemFor FQStr` = the interned empty-string constant, semantically inert under the presence
+  obligation) and threaded to the `map-empty` leaf (`mapPairTermsBWith`/`mapPairTermsC`; `mapRetChain` passes
+  the return type's element sort). `(map-put (map-empty) k "x")` chains — body, contract, and
+  string-map-return positions — now verify body-faithfully, with the wrong-value twin refuted; the
+  Str-defaulted root is self-identifying downstream (`strValArrTerm`), so gets over fresh string stores sort
+  correctly. Int/bool empty-rooted chains are byte-equivalent (regression-checked).
+- **Residue (clean fallback):** direct get/has on `(map-empty)`; a string-**param** put value on an
+  empty-rooted chain in a **contract** clause (the type-blind channel cannot infer a var's sort —
+  `badPutValue` blocks it; the body channel infers it from the `SortEnv` and verifies). String **keys**
+  remain the sole open Lever-A item.
+
+**Tests:** 1258 Haskell, 45 Python (+1 A2S-14 crash regressions; A2S-5 retargeted — construction now
+verifies, the degenerate shapes pin the fallback). No schema or CLI-surface change. `make refute-crux-gate`
+passes.
+
 ## v0.14.49 — MAP-RET-CALL: map-returning tail calls verify via component pins (A4 finding F-2) (2026-07-17)
 
 ### Added — a map-returning function may delegate to a map-returning callee
