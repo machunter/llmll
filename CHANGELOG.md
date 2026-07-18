@@ -4,6 +4,29 @@
 
 <a id="Latest"></a>
 
+## v0.14.49 — MAP-RET-CALL: map-returning tail calls verify via component pins (A4 finding F-2) (2026-07-17)
+
+### Added — a map-returning function may delegate to a map-returning callee
+
+- **The bare tail call composes.** `(revoke tokens tid)` as the whole body of a map-returning function —
+  the composition the A4 wave agent tried and had rejected (it inlined instead) — now verifies
+  body-faithfully. The whole-map equation `result = rVar` the two-array split cannot express becomes the
+  **component pins** `result$has = rVar$has ∧ result$val = rVar$val` (the `mapRetChain` terminal discipline
+  extended to call tails). Everything else was already on the path: the callee's post rides
+  component-substituted (`resultCompSubst`, value-sort-aware since v0.14.47) and the callee-result
+  components are declared (`compLBs`). Works for int-, bool-, and string-valued maps; branch tails where
+  **every** arm is a map-returning call result compose too.
+- **Refuse-not-pad preserved.** A mixed tail (a call arm alongside a param/pure-map arm), and the original
+  ill-sorted case (an int-returning function with an array-sorted tail), still route to contract-only
+  fallback whole — the new path is gated on `mapArrEncodableTy` of the return type and on **every**
+  flattened path's tail being a marker-sorted call result (`pinnableTail`).
+- Refutation stays exact: the wrong-status twin (caller post demanding `"active"` from a `"revoked"`-posting
+  callee) is refuted, not vacuous.
+
+**Tests:** 1257 Haskell, 45 Python (+2: A2S-12 the F-2 witness pair, A2S-13 int-map tail + mixed-tail
+fallback guard). No schema or CLI-surface change. `make refute-crux-gate` passes (now with the v0.14.48
+stack-build preflight, finding F-3).
+
 ## v0.14.48 — STRLIT body-channel flip: string-conditional bodies verify (closes the Stage-1 watch item) (2026-07-17)
 
 ### Added — string comparisons in bodies are body-faithful (was vacuous-SAFE fallback)

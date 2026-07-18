@@ -80,13 +80,13 @@ body-faithful. Every prompt, reply, and verdict is under `audit/`.
    *bare-atom* body (`tid` — legal LLMLL) on a paren-counting technicality; the
    pilot agent worked around with the semantically identical `(+ tid 0)`, which
    stands in the audit trail. Converter fixed (`convert_reply.py`).
-2. **F-2 (compiler limitation, pre-existing, value-type-agnostic):** a
+2. **F-2 (compiler limitation, FIXED in v0.14.49 — MAP-RET-CALL):** a
    map-returning **bare tail call** (`(revoke tokens tid)` as the whole body)
-   is not a `mapRetChain` shape and routes to contract-only fallback, so the
-   natural sibling composition was rejected by the body-faithful bar; the agent
-   inlined the transition instead (`audit/revocation/step02`). Follow-on
-   candidate: pin the caller's `result$has/$val` to the callee's via the
-   component substitution that call-intermediate results already use.
+   routed to contract-only fallback, so the natural sibling composition was
+   rejected by the body-faithful bar; the agent inlined the transition instead
+   (`audit/revocation/step02` — the audit trail stands). Fixed: the caller's
+   `result$has/$val` are pinned to the callee result's components, so the
+   delegation now verifies body-faithfully (test A2S-12 is this exact pair).
 3. **F-3 (process, FIXED):** `refute-crux-gate` runs `stack exec`, which does
    not rebuild — a stale stack binary made this family's refutes vacuously
    SAFE until `stack build` was rerun. Fixed: the gate now runs `stack build`
