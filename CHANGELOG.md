@@ -4,6 +4,31 @@
 
 <a id="Latest"></a>
 
+## v0.14.51 — string map KEYS: `{int, string}` is the key class — Lever A closed (2026-07-17)
+
+### Added — string-keyed maps verify (the final Lever-A item)
+
+- **`map[string,int]`, `map[string,bool]`, `map[string,string]` join the array-encoded class.** The arrays
+  proposal's §87 v1.5 sketch, delivered: literal keys reflect via the STRLIT interned constants, ground
+  pairwise **distinctness makes literal-keyed reasoning exact** (the aliased-key crux, string edition:
+  `put "a", put "b", get "a"` proves 1 and refutes 2 — `strlit_a ≠ strlit_b` excludes the identifying model),
+  and **literal/var key pairs get no fact** (§87(iii): a var key may equal any literal — the no-fact refute is
+  a genuine counterexample). The theory is key-sort polymorphic, so keys are **self-sorting terms**
+  (`mapKeyTerm`: int-in-context or strlit/Str-carrier) — no key-sort threading; the `$has`/`$val` binder
+  sorts generalize per dimension (`mapHasArraySort`/`mapValArraySort`, four combos; return markers via
+  `isMapArrRetSort`/`markerValSort`/`markerHasSort`). Presence-gated var-key reads, both-dims
+  `map[string,string]`, and string-keyed map **returns** all verify body-faithfully.
+- **The typechecker's v1 int-only key gate widens** to `{int, string}` (key argument checked against the
+  map's key sort; other key sorts stay a diagnostic on the operation — `map[bool,int]` etc.).
+  `boolValuedMapTy` goes key-agnostic (string-keyed bool maps get the 0/1 bridge + range facts).
+- **Lever A is closed**: bytes + maps over `{int,string}` keys × `{int,bool,string}` values, construction
+  included, RMW/returns/tail-call composition/cross-module A-G included. Remaining fallback (deliberate):
+  non-`{int,string}` key sorts; direct reads on `(map-empty)`.
+
+**Tests:** 1261 Haskell, 45 Python (+3: A2S-15 aliased-key crux, A2S-16 literal/var no-fact + presence-gated
+var keys, A2S-17 both-dims + string-keyed returns; `A0-2`/`A3-3` retargeted to the bool-key residue). No
+schema or CLI-surface change. `make refute-crux-gate` passes.
+
 ## v0.14.50 — string `map-empty` construction verifies + two latent elaborator crashes fixed (2026-07-17)
 
 ### Fixed — two elaborator crashes latent since the A2.2-string arc
