@@ -87,11 +87,11 @@ body-faithful. Every prompt, reply, and verdict is under `audit/`.
    inlined the transition instead (`audit/revocation/step02`). Follow-on
    candidate: pin the caller's `result$has/$val` to the callee's via the
    component substitution that call-intermediate results already use.
-3. **F-3 (process):** `refute-crux-gate` runs `stack exec`, which does not
-   rebuild — a stale stack binary made the new family's refutes vacuously SAFE
-   until `stack build` was rerun. The 35-case gate now passes on the current
-   binary; keep `stack build` in the gate's preflight when the compiler has
-   changed.
+3. **F-3 (process, FIXED):** `refute-crux-gate` runs `stack exec`, which does
+   not rebuild — a stale stack binary made this family's refutes vacuously
+   SAFE until `stack build` was rerun. Fixed: the gate now runs `stack build`
+   as a preflight (`scripts/refute-crux-gate.sh`), so verdicts are always
+   checked against the current compiler and a failed build aborts the gate.
 4. **F-4 (positive):** data-contract holes are fillable blind — 8/8 accepted
    within 2 attempts, one spontaneous 2-function cascade, one unprompted
    cross-module composition discharging an assume-guarantee obligation.

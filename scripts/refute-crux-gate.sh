@@ -44,6 +44,14 @@ if ! command -v jq &> /dev/null; then
   exit 1
 fi
 
+# Preflight (A4 finding F-3): `stack exec` does NOT rebuild — after a compiler
+# change, a stale binary silently checks the frozen verdicts against the OLD
+# compiler (a new-feature refute then reads as vacuously SAFE). Build first so
+# every verdict is checked against the current sources; under `set -e` a failed
+# build aborts the gate loudly instead of gating against a stale binary.
+echo "▸ stack build (preflight — stale-binary guard, finding F-3)"
+(cd "$REPO_ROOT/compiler" && stack build)
+
 PASS=0
 FAIL=0
 
