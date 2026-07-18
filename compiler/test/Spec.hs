@@ -6641,16 +6641,49 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           Nothing  -> pendingWith "solver not installed"
           Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
 
-      it "A2S-5 firewalls never crash: string map-empty CONSTRUCTION falls back (returns now reflect); int map unaffected" $ do
-        -- Post-residue-lift: string-map RETURNS reflect (see A2S-7); the
-        -- remaining construction firewall is map-empty (its Map_default 0 value
-        -- root is int-sorted, so a string put onto it is not Str-rooted).
+      it "A2S-5 string map-empty CONSTRUCTION verifies (type-directed Str default); degenerate direct-get-on-empty falls back, never crashes" $ do
+        -- Map-empty lift: the element sort is inferred from the put value (a
+        -- strlit ⟹ a Str-defaulted value array — Map_default is polymorphic in
+        -- the fixpoint theory), so building a fresh string store verifies.
         erRet <- emitA2 "(def build [k: int] -> map[int,string] (post (= (map-get result k) \"x\")) (map-put (map-empty) k \"x\"))"
-        erBodyFallback erRet `shouldSatisfy` elem "build"
+        erBodyFaithfulFns erRet `shouldSatisfy` elem "build"
         erEmpty <- emitA2 "(def fe [k: int] -> string (post (= result \"x\")) (map-get (map-put (map-empty) k \"x\") k))"
-        erBodyFallback erEmpty `shouldSatisfy` elem "fe"
+        erBodyFaithfulFns erEmpty `shouldSatisfy` elem "fe"
+        m <- solveFq erEmpty
+        case m of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        -- the wrong-value twin from the fresh store refutes (not vacuous)
+        erEmptyBad <- emitA2 "(def fe [k: int] -> string (post (= result \"y\")) (map-get (map-put (map-empty) k \"x\") k))"
+        mB <- solveFq erEmptyBad
+        case mB of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Unsafe\""
+        -- residue: a DIRECT get on (map-empty) is degenerate → fallback, no crash
+        erDirect <- emitA2 "(def dg [k: int] -> int (post (>= result 0)) (if (= (map-get (map-empty) k) \"x\") 1 0))"
+        erBodyFallback erDirect `shouldSatisfy` elem "dg"
+        -- residue: a Str-PARAM value on an empty-rooted chain in a CONTRACT clause
+        -- (type-blind channel) → fallback, no crash
+        erPv <- emitA2 "(def pv [k: int s: string] -> int (pre (map-has (map-put (map-empty) k s) k)) (post (>= result 0)) 0)"
+        erBodyFallback erPv `shouldSatisfy` elem "pv"
         erInt <- emitA2 "(def im [m: map[int,int] k: int] -> int (post (= result 7)) (map-get (map-put m k 7) k))"
         erBodyFaithfulFns erInt `shouldSatisfy` elem "im"
+
+      it "A2S-14 map-empty lift crash regressions: bare (map-empty) string-map tail + contract-channel strlit-put-on-empty verify (were elaborator crashes)" $ do
+        -- hz1: mapRetChain's terminal now takes the return type's element sort
+        er1 <- emitA2 "(def fresh [k: int] -> map[int,string] (post (not (map-has result k))) (map-empty))"
+        erBodyFaithfulFns er1 `shouldSatisfy` elem "fresh"
+        m1 <- solveFq er1
+        case m1 of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
+        -- hz2: the contract channel infers the element sort from the strlit value
+        er2 <- emitA2 "(def g2 [k: int] -> int (pre (= (map-get (map-put (map-empty) k \"x\") k) \"x\")) (post (>= result 0)) 0)"
+        erBodyFaithfulFns er2 `shouldSatisfy` elem "g2"
+        m2 <- solveFq er2
+        case m2 of
+          Nothing  -> pendingWith "solver not installed"
+          Just out -> out `shouldSatisfy` T.isInfixOf "\"tag\":\"Safe\""
 
       -- A2.2-string RESIDUE LIFT: string-valued map RETURNS + param-string put
       -- values + string RMW chains + cross-call string-map assume-guarantee.

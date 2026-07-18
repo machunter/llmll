@@ -950,7 +950,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   | arrGate
                   , Just rt <- mRet
                   , mapIntIntTy aliases rt || mapStrValuedTy aliases rt
-                  = mapRetChain sortEnv bodyD
+                  = mapRetChain (if mapStrValuedTy aliases rt then FQStr else FQInt)
+                                sortEnv bodyD
                   | otherwise = Nothing
             -- Commit the ANF counter only when the dedicated path is taken —
             -- otherwise the generic path re-reads the untouched ref
@@ -1706,6 +1707,20 @@ mapClauseBlocked am params mRet mPost mPre =
     badPutValue Nothing   = False
     badPutValue (Just e0) = go e0
       where
+        -- A2.2-string (map-empty lift): a string-PARAM value on an EMPTY-rooted
+        -- chain in a contract clause is blocked — the type-blind contract
+        -- channel cannot infer the element sort from a var, so the store would
+        -- be ill-sorted against the int default. Literal values reveal the sort
+        -- (mapPairTermsC infers) and var values on var-rooted maps are fine
+        -- (the $val binder carries the sort).
+        go (EApp "map-put" [mE, kE, vE])
+          | emptyRooted mE, EVar v <- vE, v `Set.member` strParamSet = True
+          where emptyRooted e = case e of
+                  EApp "map-empty" []          -> True
+                  EOp  "map-empty" []          -> True
+                  EApp "map-put" (mE' : _)     -> emptyRooted mE'
+                  EOp  "map-put" (mE' : _)     -> emptyRooted mE'
+                  _                            -> False
         go (EApp "map-put" [mE, kE, vE]) = not (okVal vE) || go mE || go kE || go vE
         go (EApp _ args)  = any go args
         go (EOp op args)  = go (EApp op args)
@@ -1789,18 +1804,47 @@ isMapGetHead (EApp "map-get" _) = True
 isMapGetHead (EOp  "map-get" _) = True
 isMapGetHead _                  = False
 
+-- A2.2-string (map-empty lift): the value-array default ELEMENT for an element
+-- sort — the empty-string constant for Str (semantically inert: the presence
+-- obligation guards absent reads), 0 otherwise. Map_default is polymorphic in
+-- liquid-fixpoint (func(2, [@(1); (Map_t @(0) @(1))])) — the element argument
+-- alone determines the array type, so this is the entire Str-array story.
+defaultElemFor :: FQSort -> FQPred
+defaultElemFor FQStr = FQApp (strlitConst "") []
+defaultElemFor _     = FQLit 0
+
+-- A2.2-string (map-empty lift): is this expression literally (map-empty)?
+-- A DIRECT get/has on it is degenerate (always-absent read) and its int-default
+-- encoding meets Str terms ill-sorted → those shapes route to fallback whole.
+isMapEmptyE :: Expr -> Bool
+isMapEmptyE (EApp "map-empty" []) = True
+isMapEmptyE (EOp  "map-empty" []) = True
+isMapEmptyE _                     = False
+
+-- A2.2-string (map-empty lift): the element sort is now INFERRED from the put
+-- VALUE (a strlit value ⟹ a Str value array) and threaded down to the
+-- map-empty leaf, so `(map-put (map-empty) k "x")` emits a Str-defaulted value
+-- array instead of the int default that crashed the elaborator ("Cannot unify
+-- Str with int"). Var-valued puts reveal nothing here (the contract channel is
+-- type-blind) — a string-PARAM value on an empty-rooted chain is blocked at the
+-- clause level (badPutValue) instead.
 mapPairTermsC :: Expr -> Maybe (FQPred, FQPred)
-mapPairTermsC (EVar m) = Just (FQVar (m <> "$has"), FQVar (m <> "$val"))
-mapPairTermsC (EApp "map-put" [mE, kE, vE]) = do
-  (h, vl) <- mapPairTermsC mE
-  k <- exprToPred kE
-  v <- case boolValLit vE of { Just x -> Just x; Nothing -> exprToPred vE }
-  pure ( FQApp "Map_store" [h, k, FQLit 1]
-       , FQApp "Map_store" [vl, k, v] )
-mapPairTermsC (EApp "map-empty" []) =
-  Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [FQLit 0])
-mapPairTermsC (EOp f as) = mapPairTermsC (EApp f as)
-mapPairTermsC _ = Nothing
+mapPairTermsC = goC FQInt
+  where
+    goC _  (EVar m) = Just (FQVar (m <> "$has"), FQVar (m <> "$val"))
+    goC es (EApp "map-put" [mE, kE, vE]) = do
+      k <- exprToPred kE
+      v <- case boolValLit vE of { Just x -> Just x; Nothing -> exprToPred vE }
+      let es' = case v of
+                  FQApp n [] | "strlit_" `T.isPrefixOf` n -> FQStr
+                  _                                       -> es
+      (h, vl) <- goC es' mE
+      pure ( FQApp "Map_store" [h, k, FQLit 1]
+           , FQApp "Map_store" [vl, k, v] )
+    goC es (EApp "map-empty" []) =
+      Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [defaultElemFor es])
+    goC es (EOp f as) = goC es (EApp f as)
+    goC _ _ = Nothing
 
 -- | LEVER-A2, body channel: the same pair translation with the body's renaming
 -- env + SortEnv discipline. A variable root must have SPLIT binders in scope
@@ -1810,30 +1854,43 @@ mapPairTermsC _ = Nothing
 -- var would otherwise store an ill-sorted (or free) symbol into an int-element
 -- array. Failure → Nothing → the enclosing op falls back (§6.1).
 mapPairTermsB :: Map Name Name -> SortEnv -> Expr -> Maybe (FQPred, FQPred)
-mapPairTermsB env se = go
+mapPairTermsB = mapPairTermsBWith FQInt
+
+-- | A2.2-string (map-empty lift): the es-taking variant — the CONTEXT's element
+-- sort seeds the inference (mapRetChain passes the return type's, so a bare
+-- `(map-empty)` tail on a string-map return emits the Str default instead of
+-- the elaborator-crashing int one).
+mapPairTermsBWith :: FQSort -> Map Name Name -> SortEnv -> Expr -> Maybe (FQPred, FQPred)
+mapPairTermsBWith es0 env se = go es0
   where
-    go (EVar m) =
+    go _ (EVar m) =
       let m' = fromMaybe m (Map.lookup m env)
       in if Map.member (m' <> "$has") se
            then Just (FQVar (m' <> "$has"), FQVar (m' <> "$val"))
            else Nothing
-    go (EApp "map-put" [mE, kE, vE]) = do
-      (h, vl) <- go mE
+    -- A2.2-string (map-empty lift): the put VALUE translates FIRST — a Str value
+    -- (strlit literal, or a Str-carrier var in the SortEnv) fixes the element
+    -- sort, threaded down so a map-empty leaf gets a Str-defaulted value array:
+    -- `(map-put (map-empty) k "x")` and `(map-put (map-empty) k s)` now verify
+    -- (previously: fallback; and the int default crashed the elaborator when it
+    -- met a Str term). Var roots ignore the element sort (their $val binder
+    -- carries its own); the typechecker's homogeneous value typing makes the
+    -- value-first inference sound (a Str value on an int-valued map is a prior
+    -- type error).
+    go es (EApp "map-put" [mE, kE, vE]) = do
       k <- scalarIntTerm env se kE
-      -- A2.2-string: a put onto a Str value array (strValArrTerm — a $val binder
-      -- of a string-valued map, through any store chain) takes a Str value term
-      -- (strlit_ literal or Str-carrier param); otherwise the int/bool-0/1 path.
-      -- A map-empty root is int (Map_default 0), so a string put onto it is not
-      -- Str-rooted and falls through to scalarIntTerm → Nothing → fallback.
-      v <- if strValArrTerm se vl
-             then strValTerm env se vE
-             else case boolValLit vE of { Just x -> Just x; Nothing -> scalarIntTerm env se vE }
+      (v, es') <- case boolValLit vE of
+        Just x  -> Just (x, es)
+        Nothing -> case strValTerm env se vE of
+          Just s  -> Just (s, FQStr)
+          Nothing -> (\x -> (x, es)) <$> scalarIntTerm env se vE
+      (h, vl) <- go es' mE
       pure ( FQApp "Map_store" [h, k, FQLit 1]
            , FQApp "Map_store" [vl, k, v] )
-    go (EApp "map-empty" []) =
-      Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [FQLit 0])
-    go (EOp f as) = go (EApp f as)
-    go _ = Nothing
+    go es (EApp "map-empty" []) =
+      Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [defaultElemFor es])
+    go es (EOp f as) = go es (EApp f as)
+    go _ _ = Nothing
 
 -- | An int-in-context scalar term for map-op key/value positions (body
 -- channel): int literal, int-sorted in-scope variable, or +/- arithmetic over
@@ -1864,6 +1921,11 @@ strValArrTerm se (FQVar n) = case Map.lookup n se of
   Just (FQArr _ FQStr) -> True
   _                    -> False
 strValArrTerm se (FQApp "Map_store" (a:_)) = strValArrTerm se a
+-- A2.2-string (map-empty lift): a Str-DEFAULTED empty root (the type-directed
+-- default is self-identifying) — so a get over an empty-rooted string chain
+-- sorts its result var Str.
+strValArrTerm _  (FQApp "Map_default" [FQApp n []])
+  | "strlit_" `T.isPrefixOf` n = True
 strValArrTerm _  _ = False
 
 -- | A2.2-string: the element (range) sort a map-get yields from a value array —
@@ -1899,8 +1961,12 @@ data MapRetStep
 -- defining pin. Anything else — branches, contracted calls, shadowing a name
 -- already in the SortEnv, non-scalar lets — is Nothing → the whole body falls
 -- back (§6.1: never a partial reflection).
-mapRetChain :: SortEnv -> Expr -> Maybe ([MapRetStep], (FQPred, FQPred))
-mapRetChain se0 = go se0
+-- A2.2-string (map-empty lift): the chain takes the RETURN type's element sort,
+-- passed to the terminal translation — a bare `(map-empty)` (or an empty-rooted
+-- put chain whose value doesn't reveal the sort) on a string-map return then
+-- emits the Str-defaulted value array (the hz1 elaborator-crash fix).
+mapRetChain :: FQSort -> SortEnv -> Expr -> Maybe ([MapRetStep], (FQPred, FQPred))
+mapRetChain esRet se0 = go se0
   where
     go se (ELet [(PVar v, _, rhs0)] body)
       | Map.member v se = Nothing            -- shadowing → fall back whole
@@ -1924,7 +1990,7 @@ mapRetChain se0 = go se0
               pure (MRDef v t : steps, term)
     go se (ELet (b:bs) body) = go se (ELet [b] (ELet bs body))
     go se (ELet [] body)     = go se body
-    go se e                  = (,) [] <$> mapPairTermsB Map.empty se e
+    go se e                  = (,) [] <$> mapPairTermsBWith esRet Map.empty se e
     normOp (EOp f as) = EApp f as
     normOp e          = e
 
@@ -2528,6 +2594,12 @@ exprToPred (EApp "bytes-set" [b, i, v]) =
 -- mapClauseBlocked), map-put chains to paired stores, map-empty to const
 -- arrays. A bare map-put/map-empty NOT under map-has/map-get (e.g. a
 -- whole-structure equality) has no standalone case → falls back (review F1).
+-- A2.2-string (map-empty lift): a DIRECT get/has on (map-empty) is degenerate
+-- (an always-absent read) and its int-default encoding meets Str contexts
+-- ill-sorted (elaborator crash) — route to fallback. Put-chains over map-empty
+-- stay admitted (element sort inferred from the put value).
+exprToPred (EApp "map-has" [mE, _]) | isMapEmptyE mE = Nothing
+exprToPred (EApp "map-get" [mE, _]) | isMapEmptyE mE = Nothing
 exprToPred (EApp "map-has" [mE, kE]) = do
   (h, _) <- mapPairTermsC mE
   k <- exprToPred kE
@@ -3054,6 +3126,10 @@ bodyToPredM _ _ _ _ (EApp "bytes-zero" []) =
 -- LEVER-A2: `map-has m k` in body position (bool atom — a bool body result or,
 -- via GuardClassifier's twin case, an if-condition). Pure translation, no
 -- obligation: presence testing is total.
+-- A2.2-string (map-empty lift): direct get/has on (map-empty) → fallback (the
+-- degenerate always-absent read; its int default meets Str contexts ill-sorted).
+bodyToPredM _ _ _ _ (EApp "map-has" [mE, _]) | isMapEmptyE mE = return Nothing
+bodyToPredM _ _ _ _ (EApp "map-get" [mE, _]) | isMapEmptyE mE = return Nothing
 bodyToPredM env se _ _ (EApp "map-has" [mE, kE]) =
   return $ do
     (h, _) <- mapPairTermsB env se mE
