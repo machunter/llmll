@@ -1,7 +1,7 @@
 ---
 name: cascading-refinement-proposal
 title: "CASCADING REFINEMENT — agent-driven recursive hole decomposition"
-status: "Rev 5 (professor fold: QE/qsat-complete discharge, ∃result over refined return type, minimal witness, realizes reserved spec-inconsistent; 2026-07-18) — feasibility gate READY FOR ENGINEER"
+status: "Rev 8 (SHIPPED v0.14.53 — decomposition-trust meet as `unvouched_cdp_meet`; three professor rounds folded: two-axis bilattice, `:source`-scope + cooperative threat model, self-revealing exclusion + cycle decouple; 2026-07-19) — CASCADING-REFINEMENT LINE COMPLETE (Layers 1-4 shipped; joint-vacuity delegated to R5)"
 date: 2026-07-06
 author: language-team
 consumers: [professor, compiler-engineer]
@@ -191,17 +191,45 @@ needs is suspect. This is promoted from "candidate mitigation" (Rev 0) to a firs
 contract-quality story; it is peer-relative, so it does not degrade against an agent targeting a fixed
 public Ω.
 
-**(d) Decomposition-trust propagation — honest reporting, not adversarial-composition soundness.**
-Extend `effectiveLevel` (TrustReport.hs:68–76) so a refined function's trust carries a
-**decomposition-quality** signal = the **meet** (weakest) of its subtree's invented-contract CDP
-scores, surfaced the way `caller_obligations`/`callee_tier` surface tier — a cascade with one vacuous
-sub-contract reads weak even if every node is `verified`. **Limitation (Rev 1):** the meet scores
-contracts *in isolation* and therefore misses **joint (conspiratorial) vacuity** — two individually-
-discriminative sub-contracts that are jointly hollow (`G₁`'s post ∧ `G₂`'s pre together let `H`
-discharge vacuously). Contract adequacy is not compositional the way `min` assumes; rely-guarantee
-(Jones 1983) frames interacting components but presumes non-adversarial conditions. The meet is an
-honest *lower-bound report*, not a soundness guarantee against an adversarially-chosen decomposition —
-gating the *composed* decomposition, or R5 (c), is what would catch joint vacuity.
+**(d) Decomposition-trust meet — `unvouched_cdp_meet` — cooperative-author reporting, not adversarial-composition soundness. SHIPPED v0.14.53.**
+Report, per function, the **meet** (weakest) of the CDP scores over its **unvouched** transitive-callee
+subtree, so a cascade with one hollow invented sub-contract reads weak even when every node is
+`verified`. The signal is **two-axis** (Rev 6, professor finding 1 — a Belnap-style bilattice mirroring
+LLMLL's own `Maybe DisplayLevel` treatment at `TrustReport.hs:911-917`): a **`quality_meet`** on the
+truth order `hollow ⊏ scored ⊏ strong` (`null` when no member is measured, kept distinct from `hollow`),
+plus a **`coverage`** object carrying the knowledge axis — `measured` / `unmeasured` / `in_scope_total` /
+`excluded_vouched` / `excluded_fns`. The abstain CDP warnings and the epistemic
+`WarnSpecInconsistentOrUnproven` (Rev 6, finding 3) land in `unmeasured`, never folded into the meet, so
+an all-unmeasured subtree reads "no basis," not "strong."
+
+**Scope = unvouched, self-revealing exclusion (Rev 7-8).** The meet ranges only over subtree contracts
+with an unvouched clause — a present `pre`/`post` lacking a `:source` anchor (`Syntax.hs:307-309`;
+`:source` = "traceable to an originating standard," `LLMLL.md §4.6`), excluding `H`'s own anchored root.
+A fully `:source`-anchored contract is excluded from the meet but **named** in `excluded_fns`, so a forged
+`:source` exclusion of a hollow spawn is *visible* in the coverage rather than silent. This is a
+**cooperative-author heuristic**, not soundness-grade vouching (a `:source` string is unvalidated
+free-form metadata — Abadi-Lamport excludes *genuinely-guaranteed* assumptions, not self-declared ones);
+the invented set is a subset of the unvouched set, and an unanchored authored callee is correctly
+included (its discrimination is the only quality signal). A contract-only cyclic-SCC member sets
+**`floored_by_cycle`** WITHOUT collapsing the quality meet (Rev 8, professor round-3 — the boolean carries
+the termination degradation; the meet still reports the member's real CDP).
+
+**Report-only (normative).** `unvouched_cdp_meet` is emitted inside the per-function `discriminative_axis`
+under `--cdp` (not on the trust-tier entry — structurally enforcing this invariant) and, like `refuted` /
+`termination_unverified`, **never** feeds `effectiveLevel`, the `DisplayLevel`, admission, or
+`--strict-verified-core`. No solver — a pure fold over the already-computed CDP map
+(`LLMLL.TrustReport.computeDecompMeet`; types `DecompQuality` / `UnvouchedMeet` in `LLMLL.CDP`); nothing
+enters `Σ_auto`.
+
+**Threat model (Rev 7-8).** (d) is a **cooperative-author** diagnostic; adversarial-resistance for the
+cascade is Layer 3(c) R5's role — R5 catches both joint vacuity (below) and scope-forgery, since a forged
+exclusion does not replicate across independently-invented decompositions. (d) must not be promoted to a
+ranking/gating input over adversarial submitters without revisiting this framing. **Limitation (Rev 1,
+retained):** the meet scores contracts *in isolation* and misses **joint (conspiratorial) vacuity** — two
+individually-discriminative sub-contracts jointly hollow (`G₁`'s post ∧ `G₂`'s pre let `H` discharge
+vacuously). Contract adequacy is not compositional the way `min` assumes (Jones 1983, rely-guarantee; the
+standard per-unit vacuity boundary, Chockler–Kupferman–Vardi, `LLMLL.md §680`); the meet is an honest
+lower-bound report, and R5 (c) is what reaches joint vacuity.
 
 **Research-track relation.** This **extends** the tracked CDP concept (`roadmap:224`), it does not
 approximate or sidestep it: CDP today scores one contract in isolation for a human to read; cascading
@@ -269,8 +297,11 @@ The gate threshold `θ` and the meet-propagation are the new spec surface; the s
   iff `∃input. pre ∧ ∀result. ¬(Rret ∧ post)` is SAT; the νZ-minimized model is the returned witness.
   A new admission check discharged by a complete quantified-LIA procedure, not a new body-VC. (Tier-1
   `SAT(pre ∧ post)` is mere consistency, not feasibility — superseded.)
-- **Decomposition-trust meet** — Channel: **trust**. No solver: a lattice meet over subtree CDP
-  scores, propagated by the existing `effectiveLevel` machinery (TrustReport.hs:68–76). No fragment.
+- **Decomposition-trust meet** (`unvouched_cdp_meet`, SHIPPED v0.14.53) — Channel: **trust**
+  (report-only). No solver, **no fragment**: a pure two-axis fold (`quality_meet` + `coverage`) over the
+  already-computed per-function CDP map (`LLMLL.TrustReport.computeDecompMeet`), scoped to the unvouched
+  (`:source`-absent) transitive-callee subtree. Emitted in the `--cdp` `discriminative_axis`; never feeds
+  `effectiveLevel` / `DisplayLevel` / admission (§194 normative invariant).
 - **Call-graph acyclicity (Rev 1)** — Channel: **type/trust**. Fragment: **none** — a decidable graph
   reachability check on the augmented call graph at each `refine`, *not* an SMT obligation. (A
   legitimately-recursive decomposition routed to R7 would add a strict-descent obligation; QF-LIA if a
@@ -435,4 +466,46 @@ Substantive changes:
 Engineer deltas from the Rev-4 plan: (1) discharge tactic = QE or `qsat`, LIA-complete, not default
 `check-sat`; (2) `∃result` conjoins `Rret`; (3) reject path returns a νZ-minimized witness; (4) redirect
 the `CDP.hs:119-132` comment. Module placement, `refineGate` seam, fail-open backstop, and test family
-from Rev 4 stand.
+from Rev 4 stand. **Feasibility gate SHIPPED v0.14.52** (`LLMLL.Feasibility`).
+
+## Rev 6-8 changelog (decomposition-trust meet, Layer 3(d) — three professor rounds → SHIPPED v0.14.53)
+
+Layer 3(d) was designed across three professor rounds after Rev 5, settling at Rev 8 and shipping as
+`unvouched_cdp_meet`. The Layer 3(d) subsection (§194) and the verification-mapping row (§255) above are
+rewritten to the settled design; the substantive moves, per round:
+
+**Rev 6 (professor round 1 — bilattice + scope).** The single-scalar meet on `effectiveLevel` was replaced
+by a **two-axis** signal (finding 1): a `quality_meet` (`hollow ⊏ scored ⊏ strong`, `null` distinct from
+hollow) plus a `coverage` object, mirroring LLMLL's own `Maybe DisplayLevel` two-state (`TrustReport.hs:911-917`)
+— an all-unmeasured subtree now reads "no basis," not "strong" (kills the false-strong; Belnap 1977 bilattice,
+convergent with the internal precedent). The epistemic `WarnSpecInconsistentOrUnproven` routes to `unmeasured`,
+not the meet (finding 3). Scope moved to **invented-only**, operationalized via `:source`-absence (finding 2).
+Report-only made a normative invariant (finding 5). Joint vacuity confirmed as the standard per-unit boundary
+(finding 4, Chockler–Kupferman–Vardi).
+
+**Rev 7 (professor round 2 — forgeability + threat model).** `:source` is unvalidated free-form metadata, so
+`:source`-scoping is **agent-forgeable** in the exclude direction (round-2 finding 1); and it conflates
+vouched-ness with invented-ness (finding 2). The professor's Abadi-Lamport citation was corrected — a
+`:source` claim is not a *guarantee*, so the exclusion is a **cooperative-author heuristic**, not soundness-grade
+vouching (finding 3, dropped A-L over-claim). The signal was **relocated** to the `--cdp` `discriminative_axis`
+diagnostic surface (not the trust-tier entry), structurally enforcing report-only and answering the misuse
+concern. The cycle floor was **decoupled** from the quality meet (finding 3) — `floored_by_cycle` carries the
+termination degradation; the meet reports real CDP.
+
+**Rev 8 (professor round 3 — stratification, settled).** The scope question resolved to a **threat-model
+declaration** (round-3): (d) is a **cooperative-author** diagnostic; adversarial-resistance is Layer 3(c) R5's
+role (which catches both joint vacuity and scope-forgery). The provenance-bit alternative was **declined** —
+it half-closes the gaming surface (scope only, not content) at a JSON-AST schema + refine-lifecycle cost, while
+`:source`-scope + R5 backstop is equally sound for the declared threat model (a scope-boundary divergence, not a
+soundness one). The professor concurred (mutation-adequacy / coverage tradition: gameability is undecidable, the
+discipline is surface-separation + exposure, not ungameability) with one addition, adopted: the `coverage` object
+**exposes the excluded-vouched set** (`excluded_vouched` + `excluded_fns`), so a forged exclusion is
+self-revealing. **SHIPPED v0.14.53** (`f66fc10` + doc cut `efb5985`): `LLMLL.CDP` `DecompQuality`/`UnvouchedMeet`,
+`LLMLL.TrustReport.computeDecompMeet`, +6 tests (1279 H).
+
+Engineer/doc reconciliations: (1) the coverage count field is named **`measured`** (not the Rev-6/7 draft's
+`scored`) — a `hollow`/`strong` verdict carries no numeric score, so `measured` names the knowledge axis
+correctly (language-team adjudication, converges with the shipped code). (2) `docs/llmll-trust-report.schema.json`
+`DiscriminativeAxis` is `additionalProperties: false` and does not admit `unvouched_cdp_meet` — a pre-existing
+drift (it also omits `headline` / `excluded_candidate_count` since CDP deep-dive Rev 5); a strict trust-report
+consumer would reject the current output. **Routed to compiler-engineer** for a schema-reconcile patch.
