@@ -10,9 +10,9 @@
   "properties": {
 
     "trust_report_version": {
-      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs.",
+      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy.",
       "type": "string",
-      "const": "1.2.0"
+      "const": "1.5.0"
     },
 
     "entries": {
@@ -57,6 +57,42 @@
       "description": "v0.10.7 (OBLIG-PBT-5a) — groupings of canonical-property-body witness hashes that appear on the post-clause evidence of two or more distinct subject names. Each group is the result of a `:subjects [f g …]` joint lift (OBLIG-PBT-4); the scalar `tested` counts in `summary` and the `tested` slot of `tier_profile` / `tier_profile_post` exclude joint-only credit so N subjects sharing one property body do not contribute N. Optional in the emit shape (always present in v0.10.7+ emits, may be empty); v1.1.0 consumers that did not request this key may safely ignore it. Strictly additive over v1.1.0 — no `trust_report_version` bump.",
       "type": "array",
       "items": { "$ref": "#/$defs/JointPbtWitness" }
+    },
+
+    "refuted_fns": {
+      "description": "v1.3.0 (VERIFY-RPT-1) — body-faithful functions whose body VC the solver reported UNSAFE (refuted). Verify-time only; empty on a solver-less render.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+
+    "partial_fns": {
+      "description": "v1.5.0 (REC-PARTIAL-MARK) — recursive-cycle (SCC) members verified only at partial correctness (termination unverified). Derived from the call-graph SCC, so present even on a solver-less render.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+
+    "overflow_tainted_fns": {
+      "description": "v0.10.8 (INT-1) — functions whose body-faithful verified evidence carries unbounded-Int arithmetic; `--strict-verified-core` refuses these. Additive; no `trust_report_version` bump.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+
+    "measure_not_decreasing_fns": {
+      "description": "v0.14.25 (REC-DESCENT) — functions whose declared `(decreases …)` measure the solver disproved. Verify-time only. Additive.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+
+    "over_annotation": {
+      "description": "v0.14.5 (F-001, adv-spec-weaken-0) — module-level `(spec-entropy :intentional)` density: `ratio`, `threshold` (default 0.30), and `warning` (true iff `ratio` exceeds `threshold`). Additive.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratio", "threshold", "warning"],
+      "properties": {
+        "ratio":     { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "warning":   { "type": "boolean" }
+      }
     }
   },
 
@@ -258,13 +294,54 @@
             "enum": [
               "identity-satisfies-post",
               "const-satisfies-post",
-              "spec-inconsistent",
+              "spec-inconsistent-or-unproven",
+              "spec-too-tight-for-omega",
               "enumeration-too-narrow",
               "def-shell-out-of-scope",
               "candidates-empty-under-limit",
+              "body-unfaithful-candidates-excluded",
               "over-annotation-warning",
               "not-requested"
             ]
+          }
+        },
+        "excluded_candidate_count": {
+          "description": "CDP deep-dive Rev 5 (~v0.14.2) — count of type-compatible candidates excluded from measurement because their own synthetic body fell outside the QF-LIA-translatable fragment (`erBodyFallback`); a solver verdict on such an emission asserts nothing about satisfaction. Nonzero triggers `body-unfaithful-candidates-excluded`. Additive over v1.2.0.",
+          "type": "integer", "minimum": 0
+        },
+        "headline": {
+          "description": "CDP deep-dive Rev 5 (~v0.14.2) — the first fired warning label, else `\"measured\"` for a genuine loose-contract score with no warning. The typed flag a consumer reads first (professor's flag-not-score recommendation); `score` is advisory. Additive over v1.2.0.",
+          "type": "string"
+        },
+        "unvouched_cdp_meet": {
+          "description": "v0.14.53 (cascade-l3 Layer 3(d)) — decomposition-trust meet: the CDP meet (weakest) over the function's unvouched (`:source`-absent) transitive-callee subtree. Report-only; never feeds the trust tier / admission. See `docs/design/cascading-refinement-proposal.md` Rev 8 §194. Additive over v1.2.0.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["meet", "weakest_fn", "floored_by_cycle", "coverage"],
+          "properties": {
+            "meet": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["label", "score"],
+              "properties": {
+                "label": { "type": "string", "enum": ["hollow", "scored", "strong", "none"] },
+                "score": { "oneOf": [{ "type": "number", "minimum": 0.0, "maximum": 1.0 }, { "type": "null" }] }
+              }
+            },
+            "weakest_fn":       { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+            "floored_by_cycle": { "type": "boolean" },
+            "coverage": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["measured", "unmeasured", "in_scope_total", "excluded_vouched", "excluded_fns"],
+              "properties": {
+                "measured":         { "type": "integer", "minimum": 0 },
+                "unmeasured":       { "type": "integer", "minimum": 0 },
+                "in_scope_total":   { "type": "integer", "minimum": 0 },
+                "excluded_vouched": { "type": "integer", "minimum": 0 },
+                "excluded_fns":     { "type": "array", "items": { "type": "string" } }
+              }
+            }
           }
         }
       }
