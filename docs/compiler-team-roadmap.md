@@ -4,7 +4,7 @@
 >
 > **Governing criterion:** every deliverable is measured against *progress toward one-shot correctness* — does it reduce the iteration burden, increase obligation completeness, or shorten the repair distance for an agent writing LLMLL? The terminal state: an agent writes a program once, the compiler accepts it, contracts verify.
 >
-> **Relationship to `LLMLL.md §14`:** complementary. §14 is the language-visible feature list; this doc is the engineering backlog (open tickets, acceptance criteria, decisions). Shipped features move to Shipped Releases here and stay described in §14.
+> **Relationship to `LLMLL.md`:** complementary. `LLMLL.md` is the language reference (types, semantics, grammar, builtins); a shipped user-visible feature is described inline in its relevant reference section (§3 / §5.3.3–§5.3.5 / §13). This doc is the engineering backlog (open tickets, acceptance criteria, decisions); release history lives in [`CHANGELOG.md`](../CHANGELOG.md). Shipped features move to Shipped Releases here.
 
 ---
 
