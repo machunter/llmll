@@ -4,6 +4,36 @@
 
 <a id="Latest"></a>
 
+## v0.14.53 — decomposition-trust meet for `refine` cascades (2026-07-19)
+
+### Added — `unvouched_cdp_meet`: the decomposition's weakest-link CDP, report-only
+
+- **The decomposition-trust meet.** `verify --trust-report --cdp` now reports, per function, an
+  `unvouched_cdp_meet` inside its `discriminative_axis`: the lattice meet (weakest) of CDP scores over
+  the function's **unvouched** transitive-callee subtree — a cascade with one hollow invented
+  sub-contract reads weak even when every node is `verified`. Two-axis (professor-hardened): a
+  `quality_meet` (`hollow ⊏ scored ⊏ strong`; `null` when nothing is measured, kept distinct from
+  hollow) plus a `coverage` object (`measured` / `unmeasured` / `in_scope_total` / `excluded_vouched` /
+  `excluded_fns`). The abstain warnings and the epistemic `WarnSpecInconsistentOrUnproven` land in
+  `unmeasured`, never folded into the meet. New `LLMLL.CDP` types `DecompQuality`/`UnvouchedMeet`;
+  `computeDecompMeet` in `LLMLL.TrustReport`.
+- **Scope = unvouched, self-revealing exclusion.** The meet ranges only over subtree contracts with an
+  unvouched clause (a present `pre`/`post` lacking `:source`); a fully `:source`-anchored contract is
+  excluded but **named** in `excluded_fns`, so a forged `:source` exclusion of a hollow spawn is
+  visible. A contract-only cyclic-SCC member sets `floored_by_cycle` without collapsing the quality meet.
+- **Report-only.** Like `refuted` / `termination_unverified`, `unvouched_cdp_meet` is an orthogonal
+  informational marker — it never feeds `effectiveLevel`, the `DisplayLevel`, admission, or
+  `--strict-verified-core`. No solver: a pure fold over the already-computed CDP map, nothing enters
+  `Σ_auto`. A cooperative-author diagnostic; adversarial forgery is caught by R5 (Layer 3(c)), not this
+  signal. Closes Cascading-Refinement **Layer 3(d)** — the last item in the line (design
+  [`cascading-refinement-proposal.md`](docs/design/cascading-refinement-proposal.md) Rev 8, three
+  professor rounds).
+
+**Tests:** 1279 Haskell, 45 Python (+6: forged-exclusion self-revealing, cooperative hollow drag,
+all-unmeasured reads null, cyclic member keeps real CDP, all-vouched, classify + self-exclusion). No
+AST-schema or CLI-surface change; `trust_report_version` stays 1.5.0 (additive field, per the
+`joint_pbt_witnesses` precedent).
+
 ## v0.14.52 — feasibility (no-miracle) gate for `refine` (2026-07-18)
 
 ### Added — a spawned sub-contract no body can discharge is rejected at refine time
