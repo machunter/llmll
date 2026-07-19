@@ -164,7 +164,7 @@ Tracked but off the critical path — gated on external availability or a concre
 > decomposition is authored up front (holed out of a full solution); cascading refinement makes it
 > *emergent* — a `refine` op installs a hole's body **and spawns new contracted sub-holes** (new functions
 > with their own contracts), recursively, growing a refinement tree. Design (professor-folded):
-> [`docs/design/cascading-refinement-proposal.md`](design/cascading-refinement-proposal.md) (Rev 5).
+> [`docs/design/cascading-refinement-proposal.md`](design/cascading-refinement-proposal.md) (Rev 8).
 > **Layers 1–4 shipped — the line is complete** (v0.14.13 `refine` op + CDP vacuity gate, exercised
 > end-to-end by `examples/secure-channel-emergent/`; v0.14.29 reuse retrieval; v0.14.52 feasibility
 > (no-miracle) gate; v0.14.53 decomposition-trust meet). **Open:** none — the design-accepted

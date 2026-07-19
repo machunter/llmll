@@ -12,6 +12,7 @@
 | Implementation routing (owner, ticket tag, status) | `compiler-team-roadmap.md` Active Items table | Design docs (cite by tag) |
 | Verification matrix (QF-LIA / nonlinear / Lean) | `LLMLL.md §5.3.3 / §5.3.5` | README, roadmap, design docs (cite by section) |
 | JSON-AST schema | `docs/llmll-ast.schema.json` | README, LLMLL.md (cite by version) |
+| Trust-report JSON schema | `docs/llmll-trust-report.schema.json` (engineer-owned — schema-tied-to-output) | `LLMLL.md §4.4.4` (cite by `trust_report_version`) |
 | Per-experiment findings | `experiments/<harness>/findings.md` (H2-per-role) | Roadmap (cite by harness + finding ID) |
 | Triage routing decisions | The triage doc itself | Roadmap Active Items (cite by routing tag) |
 
@@ -32,6 +33,8 @@
 When a change does not appear in the matrix, the actor pauses and asks `language-team` to extend the matrix before acting. The matrix is the working contract; gaps are bugs to surface, not gaps to improvise around.
 
 > **Note (§14 phantom, corrected 2026-07-18).** `LLMLL.md` has no dedicated feature-list / release-history section; §14 "Version Roadmap" was removed at the v0.9.0 audit (`a79c131`) and its role delegated to `CHANGELOG.md` (release history) + this roadmap (schedule). A shipped user-visible feature is documented inline in `LLMLL.md`'s relevant reference section (§3 / §5 / §13), not a list.
+
+> **Trust-report-schema ownership (added 2026-07-19).** `docs/llmll-trust-report.schema.json` (the shape of `verify --trust-report --json`) is **engineer-owned**, schema-tied-to-output like `docs/llmll-ast.schema.json` in the compiler-engineer discipline: a change to the emitted trust-report JSON (a new top-level key, a new `discriminative_axis` field, a `warnings`-enum or `trust_report_version` change) updates this schema **in the same patch**. It was in neither doc-lead's six-doc scope nor the engineer's named surface, so it drifted 8 fields + a stale `1.2.0` const across ~v0.10.8–v0.14.53 before the `8e34b9c` reconcile; this row closes the ownership gap that caused it.
 
 > **Banner-pin authority (reconciled 2026-06-12).** The "Version banner" row (P1) and the banner detail in the "Engineer ships a release" row (D1) were reconciled to the **DRIFT-CI-1** gate ([`scripts/version_gate.sh`](../scripts/version_gate.sh), C1–C4), which post-dates the DOC-CONSOLIDATE §3 verbatim lift and is executable ground truth. The gate enforces `vX.Y.Z` equality across `compiler/package.yaml`, `compiler/llmll.cabal`, `README.md` line 1, `LLMLL.md` line 1, and the `CHANGELOG.md` `## vX.Y.Z` top heading; a release that bumps any one without the others fails CI. (Origin: the v0.11.2 release `22c6aa8` bumped the README banner but not LLMLL.md's, tripping C1; `6bf3f89` reconciled LLMLL.md and this protocol now records the full pin set so the gap cannot recur.)
 
