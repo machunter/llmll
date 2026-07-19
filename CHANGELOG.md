@@ -4,6 +4,33 @@
 
 <a id="Latest"></a>
 
+## v0.14.52 — feasibility (no-miracle) gate for `refine` (2026-07-18)
+
+### Added — a spawned sub-contract no body can discharge is rejected at refine time
+
+- **The feasibility (no-miracle) gate.** `refine` now rejects a spawned sub-contract that is
+  *infeasible* — some input satisfies `pre` while **no** `result` satisfies the post (including the
+  return-type refinement): `∃input. pre ∧ ∀result. ¬post`. The query is discharged by z3 under the
+  `qsat` tactic — a **complete** decision for the quantified-LIA fragment — and returns a **minimal
+  witnessing input**, reported in the rejection (`refine gate: spawned sub-contract 'G' is infeasible
+  — at <witness> (satisfying pre) no result satisfies the postcondition; tighten the precondition`).
+  New module `LLMLL.Feasibility` (driver `firstInfeasibleSpawn` in `refineGate`).
+- **Runs before the CDP vacuity pass** — an infeasible spawn short-circuits, so the heavier
+  per-candidate Horn loop never runs on a contract no body can satisfy. **Fail-open**: no z3, or a
+  result outside the decidable Int/Bool LIA fragment (unknown/abstain), falls through to the CDP
+  vacuity gate unchanged — the gate only ever *rejects* on a definitive `Infeasible`.
+- **Realizes the reserved CDP `WarnSpecInconsistentOrUnproven` check** — the Ω-independent
+  semantic-UNSAT query the CDP module reserved (a structurally different existential SAT query, not an
+  extension of the per-candidate Horn-refutation loop) is now the refine feasibility gate.
+  `FixpointEmit` exports the refinement-resolution helpers it needs (`resolveAllRefinements`,
+  `resolveAliasTy`, `renameVar`). Closes Cascading-Refinement **Layer 3 — feasibility gate**
+  (design [`cascading-refinement-proposal.md`](docs/design/cascading-refinement-proposal.md) Rev 5);
+  the decomposition-trust meet remains the sole open Layer-3 item.
+
+**Tests:** 1273 Haskell, 45 Python (+12: feasibility verdicts — infeasible/feasible/abstain,
+minimal-witness rendering, the fail-open no-z3 / out-of-fragment paths, run-before-CDP ordering). No
+schema or CLI-surface change. `make refute-crux-gate` passes.
+
 ## v0.14.51 — string map KEYS: `{int, string}` is the key class — Lever A closed (2026-07-17)
 
 ### Added — string-keyed maps verify (the final Lever-A item)
