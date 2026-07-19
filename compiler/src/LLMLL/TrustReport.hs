@@ -19,6 +19,8 @@ module LLMLL.TrustReport
   , renderRequiresPredicate     -- TRUST-PRE: s-expr rendering of a 'requires' predicate
   , buildTrustReport
   , buildTrustReportWithCDP   -- LT-CDP (v0.11): variant carrying the CDP map
+  , computeDecompMeet         -- Cascade L3(d) (Rev 8): decomposition-trust meet
+  , contractVouched           -- Cascade L3(d) (Rev 8): :source vouched predicate
   , formatTrustReport
   , formatTrustReportJson
   , effectiveLevel     -- v0.10: for obligation trust labels (F9)
@@ -43,7 +45,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Maybe (mapMaybe, catMaybes, maybeToList)
+import Data.Maybe (mapMaybe, catMaybes, maybeToList, isJust)
 import Data.List (nub, sortOn, foldl')
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -56,7 +58,7 @@ import LLMLL.Syntax
 import LLMLL.Module (mergeCS)
 import LLMLL.PBT (canonicalPropBodyHash, canonicalDefEvidenceHash)
 import LLMLL.FixpointEmit (augmentContractPost, buildAliasMap)  -- DEF-RET Unit 2
-import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotationRatio, overAnnotationThreshold)
+import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotationRatio, overAnnotationThreshold, DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet, dqLabel, dqNumScore)
 import LLMLL.AstEmit (exprToJson)
 import LLMLL.HoleAnalysis (buildCallGraph)  -- REC-PARTIAL-MARK: SCC over the call graph
                                             -- (recursiveNames is reimplemented locally
@@ -173,6 +175,13 @@ data TrustReport = TrustReport
   -- it does NOT feed the trust meet, 'DisplayLevel', or admission. Descent
   -- discharge (REC-BODY-VC (c), REC-DESCENT) will later clear a member.
   , trPartialFns       :: Set Name
+  -- Cascade Refinement L3(d) (Rev 8, docs/design/cascading-refinement-proposal.md
+  -- §194-204): per-function decomposition-trust meet over the function's
+  -- UNVOUCHED (:source-absent) transitive-callee subtree. Report-only, like
+  -- 'trPartialFns' — does NOT feed the trust meet, 'DisplayLevel', or admission
+  -- (§194 normative invariant). Empty without '--cdp'; emitted inside the
+  -- per-entry 'discriminative_axis' block, never as a tier field.
+  , trDecompMeet       :: Map Name UnvouchedMeet
   -- REC-DESCENT (v0.14.25): functions whose declared 'decreases' measure the
   -- solver disproved — a failing well-foundedness (e ≥ 0) or strict-descent
   -- (eᵍ[a] < eᶠ) constraint. DISTINCT from 'trRefutedFns': refuted = the
@@ -358,6 +367,19 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- cycle: 'FixpointEmit.admissibleDatatype'.
       partialFns = cyclicSccMembers
                      (entryStmts ++ concatMap meStatements (Map.elems cache))
+      -- Cascade L3(d) (Rev 8): vouched (:source-anchored) function names over the
+      -- whole program, and the per-function decomposition-trust meet over each
+      -- function's unvouched transitive-callee subtree. Pure fold over 'cdpMap';
+      -- 'reachable' and 'partialFns' are already computed above.
+      vouchedSet = Set.fromList
+        [ n | s <- entryStmts ++ concatMap meStatements (Map.elems cache)
+            , Just (n, _, _, c, _) <- [normalizeDefStmt s]
+            , contractVouched c ]
+      decompMeetMap
+        | Map.null cdpMap = Map.empty  -- '--cdp'-gated: no meet without CDP scores
+        | otherwise = Map.fromList
+            [ (teName e, computeDecompMeet reachable vouchedSet cdpMap partialFns (teName e))
+            | e <- markedEntries ]
   in TrustReport
        { trEntries         = markedEntries
        , trSummary         = summary
@@ -370,6 +392,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trCDP             = cdpMap
        , trRefutedFns      = Set.empty  -- VERIFY-RPT-1: populated by markRefuted post-solver
        , trPartialFns      = partialFns  -- REC-PARTIAL-MARK: derived, present on every path
+       , trDecompMeet      = decompMeetMap  -- Cascade L3(d) (Rev 8): decomposition-trust meet
        , trMeasureNotDecreasingFns = Set.empty  -- REC-DESCENT: populated by markMeasureNotDecreasing post-solver
        , trOverAnnotation  = overAnnotation
        }
@@ -835,6 +858,56 @@ transitiveClose graph = fixpoint initial
               ) reachable reachable
             ) current
       in if next == current then current else fixpoint next
+
+-- | Cascade L3(d) (Rev 8): a contract is VOUCHED iff it has at least one
+-- present clause and every present clause carries a ':source' provenance
+-- annotation (LLMLL.md §4.6 — traceability to an originating standard).
+-- Unvouched (the meet's scope) = some present clause lacks ':source', or no
+-- clause is present. A cooperative-author heuristic, not soundness-grade
+-- vouching: a ':source' string is unvalidated free-form metadata, so an
+-- adversarial exclusion is caught by R5, not this predicate (Rev-8 threat model).
+contractVouched :: Contract -> Bool
+contractVouched c =
+  let present =
+        [ isJust src
+        | (mClause, src) <- [ (contractPre  c, contractPreSource  c)
+                            , (contractPost c, contractPostSource c) ]
+        , isJust mClause ]
+  in not (null present) && and present
+
+-- | Cascade L3(d) (Rev 8): the decomposition-trust meet for 'fn' over its
+-- UNVOUCHED transitive-callee subtree, EXCLUDING 'fn' itself (the anchored
+-- root is not part of its own invented decomposition). Vouched members are
+-- excluded but named; the measured members' quality is met; abstain/epistemic
+-- members are counted unmeasured (never folded); a cyclic-SCC member sets the
+-- floor flag WITHOUT collapsing the quality meet (Rev-8 round-3). Pure — no solver.
+computeDecompMeet
+  :: Map Name (Set Name)  -- ^ transitive-callee closure ('transitiveClose')
+  -> Set Name             -- ^ vouched (:source-anchored) function names
+  -> Map Name CDPResult   -- ^ per-function CDP results
+  -> Set Name             -- ^ partial (cyclic-SCC) members ('trPartialFns')
+  -> Name                 -- ^ the function whose decomposition is scored
+  -> UnvouchedMeet
+computeDecompMeet reachable vouched cdp partial fn =
+  let subtree     = Set.delete fn (Map.findWithDefault Set.empty fn reachable)
+      (vouchedMs, unvouchedMs) = Set.partition (`Set.member` vouched) subtree
+      unvouchedL  = Set.toList unvouchedMs
+      classified  = [ (m, q) | m <- unvouchedL, Just q <- [Map.lookup m cdp >>= cdpQuality] ]
+      meetPair    = case classified of
+                      []     -> Nothing
+                      (x:xs) -> Just (foldl weaker x xs)
+      weaker a@(_, qa) b@(_, qb) = if dqMeet qa qb == qa then a else b
+      floored     = not (Set.null (Set.intersection unvouchedMs partial))
+  in UnvouchedMeet
+       { umQualityMeet     = fmap snd meetPair
+       , umWeakestFn       = fmap fst meetPair
+       , umFlooredByCycle  = floored
+       , umMeasured        = length classified
+       , umUnmeasured      = length unvouchedL - length classified
+       , umInScopeTotal    = length unvouchedL
+       , umExcludedVouched = Set.size vouchedMs
+       , umExcludedFns     = Set.toList vouchedMs
+       }
 
 -- | v0.8.1b: Enrich an entry with transitive drift and effective level.
 -- OBLIG-PBT-3: also populates per-clause effective levels (pre and post
@@ -1420,7 +1493,7 @@ formatTrustReportJson report =
       -- otherwise a single 'not-requested' warning so consumers see a uniform
       -- shape (proposal §5). The block is additive over v1.1.0 — consumers
       -- ignoring 'discriminative_axis' continue to work.
-      [ "discriminative_axis" .= cdpAxisJson (Map.lookup (teName e) (trCDP report))
+      [ "discriminative_axis" .= cdpAxisJson (Map.lookup (teName e) (trCDP report)) (Map.lookup (teName e) (trDecompMeet report))
       | tePre e /= Nothing || tePost e /= Nothing
       ] ++
       -- LT-PPR (v0.11): predicate enrichment fields — emitted only when a
@@ -1471,7 +1544,24 @@ formatTrustReportJson report =
     -- shape is uniform and consumers do not need to special-case the absence
     -- of the field. 'Just r' input populates the full block with score,
     -- candidate counts, distinguishing inputs, and typed warnings.
-    cdpAxisJson Nothing = object
+    -- Cascade L3(d) (Rev 8): the 'unvouched_cdp_meet' block nested inside each
+    -- per-entry 'discriminative_axis'. Uniform shape (a "none" quality label +
+    -- zeroed coverage when '--cdp' was not requested or no meet applies),
+    -- matching the block's uniform-shape discipline.
+    decompMeetJson mum = object
+      [ "meet" .= object
+          [ "label" .= maybe ("none" :: Text) dqLabel mq
+          , "score" .= (mq >>= dqNumScore) ]
+      , "weakest_fn"       .= (mum >>= umWeakestFn)
+      , "floored_by_cycle" .= maybe False umFlooredByCycle mum
+      , "coverage" .= object
+          [ "measured"         .= maybe 0 umMeasured        mum
+          , "unmeasured"       .= maybe 0 umUnmeasured      mum
+          , "in_scope_total"   .= maybe 0 umInScopeTotal    mum
+          , "excluded_vouched" .= maybe 0 umExcludedVouched mum
+          , "excluded_fns"     .= maybe [] umExcludedFns    mum ] ]
+      where mq = mum >>= umQualityMeet
+    cdpAxisJson Nothing mum = object
       [ "score"                      .= Null
       , "basis"                      .= ("not-measured" :: Text)
       , "candidate_count"            .= (0 :: Int)
@@ -1485,8 +1575,9 @@ formatTrustReportJson report =
       -- flag/witness a consumer should read first, per the professor's
       -- flag-not-score recommendation; the graded 'score' is advisory.
       , "headline"                   .= cdpWarningLabel WarnNotRequested
+      , "unvouched_cdp_meet"         .= decompMeetJson mum
       ]
-    cdpAxisJson (Just r) = object
+    cdpAxisJson (Just r) mum = object
       [ "score"                      .= cdpScore r
       , "basis"                      .= ("observational-candidate-set" :: Text)
       , "candidate_count"            .= cdpCandidateCount r
@@ -1507,6 +1598,7 @@ formatTrustReportJson report =
       , "headline"                   .= case cdpWarnings r of
                                            (w : _) -> cdpWarningLabel w
                                            []      -> "measured" :: Text
+      , "unvouched_cdp_meet"         .= decompMeetJson mum
       ]
 
 -- ---------------------------------------------------------------------------

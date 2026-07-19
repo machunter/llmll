@@ -47,7 +47,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts)
-import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel)
+import LLMLL.TrustReport (buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, TrustReport(..), TrustEntry(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, entryHeadlineLevel, computeDecompMeet)
 import LLMLL.ProofArtifact
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
@@ -81,7 +81,8 @@ import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, W
 import LLMLL.CDP
   ( CDPResult(..), CDPWarning(..), CDPScope(..)
   , computeCDPFor, overAnnotationRatio, overAnnotationThreshold
-  , cdpWarningLabel )
+  , cdpWarningLabel
+  , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, occursIn, TC)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime)
@@ -5465,14 +5466,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                               Nothing Nothing)
                     (EVar "x")]
           table = Map.empty
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
       let stmts = [SDefLogic "f" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing Nothing Nothing Nothing) (EVar "x")]
           table = Map.empty  -- empty: no origin for constraint 42
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -5484,7 +5485,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EApp "+" [EVar "x", EVar "y"])]
           table = Map.fromList
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -5497,7 +5498,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -5510,7 +5511,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -5522,7 +5523,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (EVar "x")]
           table = Map.fromList
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll")]
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False)
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -12938,6 +12939,57 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- -----------------------------------------------------------------------
   -- cascade-l3: refine feasibility (no-miracle) gate
   -- -----------------------------------------------------------------------
+  describe "cascade-l3 decomposition-trust meet (unvouched_cdp_meet, Rev 8)" $ do
+    let mkCDP score warns = CDPResult 0 0 0 score warns [] SpecEntropyStrict 0
+        hollow   = mkCDP Nothing  [WarnIdentitySatisfiesPost]
+        strong   = mkCDP Nothing  [WarnSpecTooTightForOmega]
+        scored s = mkCDP (Just s) []
+        abstain  = mkCDP Nothing  [WarnDefShellOutOfScope]
+        reach kids = Map.fromList [("H", Set.fromList kids)]
+    it "DECOMP-MEET-FORGED: a :source-stamped hollow spawn is excluded but named (self-revealing)" $ do
+      let r = computeDecompMeet (reach ["G1"]) (Set.fromList ["G1"])
+                                (Map.fromList [("G1", hollow)]) Set.empty "H"
+      umQualityMeet r     `shouldBe` Nothing
+      umInScopeTotal r    `shouldBe` 0
+      umExcludedVouched r `shouldBe` 1
+      umExcludedFns r     `shouldBe` ["G1"]
+    it "DECOMP-MEET-HOLLOW: an unvouched hollow spawn drags the meet to hollow" $ do
+      let r = computeDecompMeet (reach ["G1","G2"]) Set.empty
+                                (Map.fromList [("G1", hollow), ("G2", strong)]) Set.empty "H"
+      umQualityMeet r     `shouldBe` Just DQHollow
+      umWeakestFn r       `shouldBe` Just "G1"
+      umMeasured r        `shouldBe` 2
+      umExcludedVouched r `shouldBe` 0
+    it "DECOMP-MEET-UNMEASURED: an all-abstain subtree reads null (not strong), coverage exposes it" $ do
+      let r = computeDecompMeet (reach ["G1","G2"]) Set.empty
+                                (Map.fromList [("G1", abstain), ("G2", abstain)]) Set.empty "H"
+      umQualityMeet r  `shouldBe` Nothing
+      umMeasured r     `shouldBe` 0
+      umUnmeasured r   `shouldBe` 2
+      umInScopeTotal r `shouldBe` 2
+    it "DECOMP-MEET-CYCLE: a cyclic member keeps its real CDP; only the boolean floors" $ do
+      let r = computeDecompMeet (reach ["G1"]) Set.empty
+                                (Map.fromList [("G1", scored 0.8)]) (Set.fromList ["G1"]) "H"
+      umQualityMeet r    `shouldBe` Just (DQScored 0.8)
+      umFlooredByCycle r `shouldBe` True
+    it "DECOMP-MEET-VOUCHED: all-vouched descendants yield a null meet, named in excluded_fns" $ do
+      let r = computeDecompMeet (reach ["G1","G2"]) (Set.fromList ["G1","G2"])
+                                (Map.fromList [("G1", scored 0.9), ("G2", scored 0.9)]) Set.empty "H"
+      umQualityMeet r      `shouldBe` Nothing
+      umInScopeTotal r     `shouldBe` 0
+      umExcludedVouched r  `shouldBe` 2
+      sort (umExcludedFns r) `shouldBe` ["G1","G2"]
+    it "DECOMP-MEET-CLASSIFY: cdpQuality maps the axes; epistemic is unmeasured; self is excluded" $ do
+      cdpQuality hollow       `shouldBe` Just DQHollow
+      cdpQuality strong       `shouldBe` Just DQStrong
+      cdpQuality (scored 0.5) `shouldBe` Just (DQScored 0.5)
+      cdpQuality abstain      `shouldBe` Nothing
+      cdpQuality (mkCDP Nothing [WarnSpecInconsistentOrUnproven]) `shouldBe` Nothing
+      dqMeet DQHollow DQStrong `shouldBe` DQHollow
+      let r = computeDecompMeet (Map.fromList [("H", Set.fromList ["H"])]) Set.empty
+                                (Map.fromList [("H", hollow)]) Set.empty "H"
+      umInScopeTotal r `shouldBe` 0
+
   describe "cascade-l3 feasibility gate (LLMLL.Feasibility)" $ do
     let mkC mPre mPost = Contract mPre Nothing mPost Nothing Nothing
         aliases0 = buildAliasMap []

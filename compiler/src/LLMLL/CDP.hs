@@ -34,6 +34,13 @@ module LLMLL.CDP
   , CDPScope(..)
   , cdpWarningLabel
   , cdpScopeLabel
+    -- * Cascade L3(d): decomposition-trust meet (Rev 8)
+  , DecompQuality(..)
+  , UnvouchedMeet(..)
+  , cdpQuality
+  , dqMeet
+  , dqLabel
+  , dqNumScore
     -- * Computation
   , computeCDPFor
   , overAnnotationRatio
@@ -183,6 +190,81 @@ cdpWarningLabel WarnCandidatesEmptyUnderLimit = "candidates-empty-under-limit"
 cdpWarningLabel WarnBodyUnfaithfulCandidatesExcluded = "body-unfaithful-candidates-excluded"
 cdpWarningLabel WarnOverAnnotationModule      = "over-annotation-warning"
 cdpWarningLabel WarnNotRequested              = "not-requested"
+
+-- ---------------------------------------------------------------------------
+-- Cascade Refinement L3(d): decomposition-trust meet
+-- docs/design/cascading-refinement-proposal.md §194-204 (Rev 8).
+-- Report-only (never feeds effectiveLevel / DisplayLevel / admission /
+-- --strict-verified-core, §194 normative invariant). No solver, no SMT
+-- fragment: a pure fold over the already-computed 'CDPResult' map.
+-- ---------------------------------------------------------------------------
+
+-- | The QUALITY axis of a MEASURED CDP verdict (the bilattice truth order,
+-- kept separate from the knowledge/coverage axis, professor Rev-6 finding 1).
+-- Ordered 'DQHollow' ⊏ 'DQScored s' (by s) ⊏ 'DQStrong': a hollow verdict (a
+-- trivial identity/const body already satisfies the invented contract) is the
+-- bottom, a tight-and-independently-verified spec ('WarnSpecTooTightForOmega')
+-- the top, a real discriminative score orders between.
+data DecompQuality = DQHollow | DQScored Double | DQStrong
+  deriving (Show, Eq)
+
+-- | Classify a 'CDPResult' onto the quality axis, or 'Nothing' when it sits on
+-- the knowledge axis as UNMEASURED — the abstain warnings AND the epistemic
+-- 'WarnSpecInconsistentOrUnproven' (which, post the v0.14.52 feasibility gate,
+-- cannot be classified hollow-vs-tight from Ω alone; professor Rev-6 finding 3).
+-- Unmeasured members are counted in coverage, never folded into the meet.
+cdpQuality :: CDPResult -> Maybe DecompQuality
+cdpQuality r
+  | any isHollowW (cdpWarnings r)                 = Just DQHollow
+  | WarnSpecTooTightForOmega `elem` cdpWarnings r = Just DQStrong
+  | Just s <- cdpScore r                          = Just (DQScored s)
+  | otherwise                                     = Nothing
+  where
+    isHollowW WarnIdentitySatisfiesPost = True
+    isHollowW WarnConstSatisfiesPost    = True
+    isHollowW _                         = False
+
+-- | Meet (weakest) on the quality order. Total: 'DQHollow' < 'DQScored s' < 'DQStrong'.
+dqMeet :: DecompQuality -> DecompQuality -> DecompQuality
+dqMeet a b = if dqLe a b then a else b
+  where
+    dqLe DQHollow     _            = True
+    dqLe _            DQHollow     = False
+    dqLe _            DQStrong     = True
+    dqLe DQStrong     _            = False
+    dqLe (DQScored x) (DQScored y) = x <= y
+
+-- | Wire-line label for the quality point.
+dqLabel :: DecompQuality -> Text
+dqLabel DQHollow     = "hollow"
+dqLabel (DQScored _) = "scored"
+dqLabel DQStrong     = "strong"
+
+-- | The numeric score, present only for a graded 'DQScored'.
+dqNumScore :: DecompQuality -> Maybe Double
+dqNumScore (DQScored s) = Just s
+dqNumScore _            = Nothing
+
+-- | The decomposition-trust meet for one function over its UNVOUCHED
+-- transitive-callee subtree (Rev 8). Two-axis: 'umQualityMeet' meets the
+-- MEASURED members' quality (or 'Nothing' = null when none is measured, kept
+-- distinct from 'DQHollow' the way 'effectiveLevel' keeps its 'Nothing'); the
+-- knowledge axis is the coverage counts. 'umExcludedFns' name the ':source'-
+-- anchored (vouched) subtree members excluded from the meet, so a forged
+-- exclusion is self-revealing (professor Rev-8 round 3). 'umFlooredByCycle'
+-- flags a contract-only cyclic-SCC member in scope WITHOUT collapsing the
+-- quality meet (Rev-8 round-3 finding 3: the boolean carries the termination
+-- degradation; the meet still reports the member's real discrimination).
+data UnvouchedMeet = UnvouchedMeet
+  { umQualityMeet     :: Maybe DecompQuality
+  , umWeakestFn       :: Maybe Name
+  , umFlooredByCycle  :: Bool
+  , umMeasured        :: Int
+  , umUnmeasured      :: Int
+  , umInScopeTotal    :: Int
+  , umExcludedVouched :: Int
+  , umExcludedFns     :: [Name]
+  } deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
 -- Over-annotation threshold (proposal Risk #3)
