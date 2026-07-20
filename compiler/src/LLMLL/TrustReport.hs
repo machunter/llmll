@@ -214,6 +214,7 @@ data TrustSummary = TrustSummary
   { tsVerified :: Int  -- ^ Functions with body-faithful verified evidence
   , tsContractChecked :: Int  -- ^ Functions with contract-checked (non-body) evidence
   , tsTested   :: Int  -- ^ Functions with tested (but not solver-backed) clauses
+  , tsTestedJoint :: Int  -- ^ OBLIG-PBT-5b: functions whose post is jointly PBT-tested
   , tsAsserted :: Int  -- ^ Functions with asserted clauses
   , tsNone     :: Int  -- ^ Functions with no contracts
   , tsDrifts   :: Int  -- ^ Total epistemic drift warnings
@@ -234,6 +235,7 @@ data TierProfile = TierProfile
   , tpProved          :: Int
   , tpContractChecked :: Int
   , tpTested          :: Int
+  , tpTestedJoint     :: Int  -- ^ OBLIG-PBT-5b: jointly PBT-tested tier
   , tpAsserted        :: Int
   , tpNoContract      :: Int
   } deriving (Show, Eq)
@@ -269,8 +271,14 @@ data TierProfile = TierProfile
 -- REC-PARTIAL-MARK (1.5.0): additive top-level 'partial_fns' list + per-entry
 -- 'termination_unverified' flag (only-on-true). Derived from the call-graph SCC,
 -- never persisted; existing 1.4.0 consumers ignore the new keys.
+-- OBLIG-PBT-5b (1.6.0): additive 'tested_joint' count in the summary and each
+-- tier profile, and the 'tested-joint' value of 'post_level'/'pre_level' /
+-- 'effective_level' labels for a jointly-tested clause (a real 'DLTestedJoint'
+-- lattice tier, below 'tested', above 'asserted'). Existing 1.5.0 consumers that
+-- ignore 'tested_joint' still see a coherent shape; a joint clause that they
+-- previously read as 'asserted' now reads as the distinct 'tested-joint' label.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.5.0"
+trustReportEmitVersion = "1.6.0"
 
 -- ---------------------------------------------------------------------------
 -- Report Building
@@ -312,7 +320,13 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       -- cross-module caller's callee-meet sees the imported verified evidence
       -- (which is keyed qualified in 'mergedCS'). Entry-module-only; never
       -- overwrites a local bare entry. See 'injectOpenedAliases'.
-      allCS       = injectOpenedAliases entryStmts mergedCS
+      allCS0      = injectOpenedAliases entryStmts mergedCS
+      -- OBLIG-PBT-5b: reclassify joint-only DLTested POST clauses to DLTestedJoint
+      -- BEFORE entries and the transitive meet are built, so the joint tier
+      -- propagates to callers via 'enrichEntry' / 'evidenceMeet'. Reclassification
+      -- preserves 'erPbtWitnesses', so 'computeJointHashes' is unaffected.
+      jointHashes = computeJointHashes allCS0
+      allCS       = reclassifyJointCS jointHashes allCS0
       -- Collect all exports from cache for type-checking call resolution
       allExports  = collectAllExports cache
       -- Build entries for every function that has contracts
@@ -329,12 +343,8 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
       enrichedEntries = map (enrichEntry allCS reachable) allEntries
       -- v0.6: collect weakness-ok suppressions
       suppressions = extractSuppressions entryStmts
-      -- OBLIG-PBT-5a (v0.10.7): joint-witness detection. A canonical-property-
-      -- body hash appearing on the post-clause witnesses of two or more
-      -- distinct subject names is a ':subjects [...]' joint lift; in scalar
-      -- tier counts we exclude the joint-only credit so N subjects sharing
-      -- one property body do not contribute N to the 'tested' count.
-      jointHashes  = computeJointHashes allCS
+      -- OBLIG-PBT-5a/5b: joint-witness groups for the additive JSON emit.
+      -- ('jointHashes' is computed above, before reclassification.)
       jointGroups  = buildJointWitnessGroups allCS jointHashes
       -- TRUST-PRE (Part 2): rendered 'requires' per (qualified) function name,
       -- from the LIVE source contracts (so the predicate is available on every
@@ -1019,6 +1029,25 @@ effectiveLevelFromDep dep =
 -- EvidenceRecords belonging to two or more distinct subject names. Pre-
 -- clause witnesses do not exist (PBT-Lift is post-only per
 -- 'LLMLL.md §4.4.5'), so we only consult 'csPost'.
+-- | OBLIG-PBT-5b: reclassify a joint-only 'DLTested' POST clause to
+-- 'DLTestedJoint'. "Joint-only" = the clause has PBT witnesses and every one is
+-- shared with another subject (in 'jointHashes'); a solo+joint mix keeps
+-- 'DLTested' (it earned an independent witness). Applied to the merged
+-- ContractStatus map before entries + the transitive meet are built, so the
+-- joint tier propagates to callers. Preserves 'erPbtWitnesses', leaving
+-- 'computeJointHashes' invariant under it.
+reclassifyJointCS :: Set Text -> Map Name ContractStatus -> Map Name ContractStatus
+reclassifyJointCS jointHashes = Map.map reclassify
+  where
+    reclassify cs = cs { csPost = fmap reclassifyER (csPost cs) }
+    reclassifyER er = case erDisplayLevel er of
+      DLTested n
+        | let ws = erPbtWitnesses er
+        , not (null ws)
+        , all (\w -> Set.member (pwHash w) jointHashes) ws
+        -> er { erDisplayLevel = DLTestedJoint n }
+      _ -> er
+
 computeJointHashes :: Map Name ContractStatus -> Set Text
 computeJointHashes allCS =
   let pairs = Map.foldlWithKey' (\acc name cs ->
@@ -1047,25 +1076,25 @@ buildJointWitnessGroups allCS jointHashes =
 -- subject is also tested by a solo property, the solo witness's hash is
 -- absent from 'jointHashes', so the entry is not demoted. This preserves
 -- the +1 credit for subjects that earn it independently of the joint lift.
+-- OBLIG-PBT-5b: the joint flag now reads off the reclassified level — a joint-only
+-- clause is already 'DLTestedJoint' by the time entries are built (reclassifyJointCS).
+-- The 'jointHashes' arg is retained for signature/back-compat but unused.
 markJointPostWitness :: Set Text -> TrustEntry -> TrustEntry
-markJointPostWitness jointHashes e =
-  let isJoint = case tePost e of
-        Nothing -> False
-        Just er ->
-          let ws = erPbtWitnesses er
-          in case erDisplayLevel er of
-               DLTested _ -> not (null ws)
-                          && all (\w -> Set.member (pwHash w) jointHashes) ws
-               _          -> False
+markJointPostWitness _ e =
+  let isJoint = case fmap erDisplayLevel (tePost e) of
+                  Just (DLTestedJoint _) -> True
+                  _                      -> False
   in e { teJointPostWitness = isJoint }
 
 -- | Apply the OBLIG-PBT-5a demotion to a classified level. DLTested entries
 -- whose 'teJointPostWitness' flag is set classify as DLAsserted instead,
 -- so the scalar 'tested' count excludes joint-only credit. All other
 -- levels and entries pass through unchanged.
+-- OBLIG-PBT-5b: reclassification now happens upstream ('reclassifyJointCS', before
+-- the meet), so the effective level is already 'DLTestedJoint' for joint clauses.
+-- This is the identity; kept so 'entryHeadlineLevel' and any importers are stable.
 demoteJointTested :: TrustEntry -> Maybe DisplayLevel -> Maybe DisplayLevel
-demoteJointTested e (Just (DLTested _)) | teJointPostWitness e = Just DLAsserted
-demoteJointTested _ lvl                                        = lvl
+demoteJointTested _ lvl = lvl
 
 -- | COVERAGE-TIER: the single per-function tier notion the summary classifies
 -- on. TRUST-PRE (Position B): the post-side effective level ('teEffectivePostLevel',
@@ -1207,10 +1236,11 @@ computeSummary entries =
       verified = length [e | e <- entries, isVer (classify e)]
       contractChecked = length [e | e <- entries, isCC (classify e)]
       tested   = length [e | e <- entries, isTst (classify e)]
+      testedJoint = length [e | e <- entries, isTJ (classify e)]  -- OBLIG-PBT-5b
       asserted = length [e | e <- entries, isAss (classify e)]
       none     = length [e | e <- entries, classify e == Nothing]
       drifts   = sum (map (length . teDrifts) entries)
-  in TrustSummary verified contractChecked tested asserted none drifts
+  in TrustSummary verified contractChecked tested testedJoint asserted none drifts
   where
     isVer (Just dl) = isVerifiedLevel dl
     isVer _         = False
@@ -1218,6 +1248,8 @@ computeSummary entries =
     isCC _                          = False
     isTst (Just DLTested{}) = True
     isTst _                 = False
+    isTJ (Just DLTestedJoint{}) = True   -- OBLIG-PBT-5b
+    isTJ _                      = False
     isAss (Just DLAsserted) = True
     isAss _                 = False
 
@@ -1279,6 +1311,7 @@ classifyToProfile classify entries =
   let verified        = length [e | e <- entries, isVer (classify e)]
       contractChecked = length [e | e <- entries, isCC  (classify e)]
       tested          = length [e | e <- entries, isTst (classify e)]
+      testedJoint     = length [e | e <- entries, isTJ  (classify e)]  -- OBLIG-PBT-5b
       asserted        = length [e | e <- entries, isAss (classify e)]
       noContract      = length [e | e <- entries, classify e == Nothing]
   in TierProfile
@@ -1286,6 +1319,7 @@ classifyToProfile classify entries =
        , tpProved          = 0
        , tpContractChecked = contractChecked
        , tpTested          = tested
+       , tpTestedJoint     = testedJoint
        , tpAsserted        = asserted
        , tpNoContract      = noContract
        }
@@ -1296,6 +1330,8 @@ classifyToProfile classify entries =
     isCC _                          = False
     isTst (Just DLTested{}) = True
     isTst _                 = False
+    isTJ (Just DLTestedJoint{}) = True   -- OBLIG-PBT-5b
+    isTJ _                      = False
     isAss (Just DLAsserted) = True
     isAss _                 = False
 
@@ -1514,16 +1550,18 @@ formatTrustReportJson report =
       [ "verified"         .= tsVerified s
       , "contract_checked" .= tsContractChecked s
       , "tested"           .= tsTested s
+      , "tested_joint"     .= tsTestedJoint s   -- OBLIG-PBT-5b (1.6.0)
       , "asserted"         .= tsAsserted s
       , "no_contract"      .= tsNone s
       , "drifts"           .= tsDrifts s
       ]
-    -- v0.10.4 (R6d): six-Int tier-count aggregate, never scalarized.
+    -- v0.10.4 (R6d): tier-count aggregate, never scalarized.
     tierProfileJson tp = object
       [ "verified"         .= tpVerified tp
       , "proved"           .= tpProved tp
       , "contract_checked" .= tpContractChecked tp
       , "tested"           .= tpTested tp
+      , "tested_joint"     .= tpTestedJoint tp   -- OBLIG-PBT-5b (1.6.0)
       , "asserted"         .= tpAsserted tp
       , "no_contract"      .= tpNoContract tp
       ]

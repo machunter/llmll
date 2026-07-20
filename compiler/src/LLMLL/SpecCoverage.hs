@@ -276,8 +276,11 @@ computeSummary entries =
     isVer _         = False
     isCC (Just DLContractChecked{}) = True
     isCC _                          = False
-    isTst (Just DLTested{}) = True
-    isTst _                 = False
+    -- OBLIG-PBT-5b: joint-tested is tested evidence (weaker, but not asserted);
+    -- for the coarse coverage ratio it counts with 'tested', not 'asserted'.
+    isTst (Just DLTested{})      = True
+    isTst (Just DLTestedJoint{}) = True
+    isTst _                      = False
 
 -- ---------------------------------------------------------------------------
 -- Warning constructors

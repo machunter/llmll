@@ -2668,6 +2668,9 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
     tierOf (Just (DLVerifiedLean _))    = TVerified  -- peer of verified (proven strength)
     tierOf (Just (DLContractChecked _)) = TContractChecked
     tierOf (Just (DLTested _))          = TTested
+    -- OBLIG-PBT-5b: joint-tested is a positive tested tier for the (coarser)
+    -- proof-artifact; the tested-joint distinction is retained in the trust report.
+    tierOf (Just (DLTestedJoint _))     = TTested
     tierOf (Just DLAsserted)            = TAsserted
 
 -- | Re-derive + check a recorded artifact, fail-closed (§4.3).

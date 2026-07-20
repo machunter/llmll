@@ -4,6 +4,27 @@
 
 <a id="Latest"></a>
 
+## v0.14.60 — OBLIG-PBT-5b: `tested-joint` evidence tier (2026-07-20)
+
+### Added — a real `tested-joint` tier for jointly PBT-tested functions
+
+- **`DLTestedJoint`.** A `(check … :subjects [f g])` property tests N functions jointly from one body;
+  crediting each as fully `tested` over-credits. 5a (v0.10.7) handled this by *demoting* joint-only clauses
+  to `asserted` — sound, but it hid that the function was tested at all. 5b introduces a genuine
+  `tested-joint` tier in the evidence lattice: **below `tested`, above `asserted`, incomparable to
+  `contract-checked`**. Joint-only `DLTested` post clauses are reclassified to `DLTestedJoint`
+  (`reclassifyJointCS`) **before** the transitive meet, so the tier **propagates to callers** through
+  `evidenceMeet`. The EVID-0 lattice laws (commutativity, associativity — 125 triples) were extended and
+  stay green.
+- **Report surface.** Additive `tested_joint` count in `summary` and every `tier_profile`; the
+  `tested-joint` label on level fields; `trust_report_version` **1.5.0 → 1.6.0**
+  (`docs/llmll-trust-report.schema.json` updated). `EvidenceRecord.scope` was intentionally **not** added —
+  joint-ness is derived at report-build from the shared witness hashes (`computeJointHashes`), avoiding a
+  persisted field. `SpecCoverage` counts `tested-joint` with `tested`; the proof-artifact anti-laundering
+  maps it to the positive `TTested` tier.
+- Tests: lattice placement + EVID-0 laws extended, `J1`/`J2` retargeted to the tier, new `J7` label/count.
+  **1364 examples, 0 failures.**
+
 ## v0.14.59 — CONTRACT-READ-LINT: `contract-read-oob` warning (2026-07-20)
 
 ### Added — a non-blocking warning for verified-yet-always-crashing contract reads

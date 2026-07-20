@@ -384,6 +384,11 @@ raiseLowDP _                 = False
 --             DLAsserted                (bottom)
 data DisplayLevel
   = DLAsserted                             -- ^ Runtime assertion only; no evidence
+  | DLTestedJoint { dljSamples :: Int }   -- ^ OBLIG-PBT-5b: PBT-tested only JOINTLY with other
+                                          --   subjects (a single multi-subject property body
+                                          --   credits N subjects at once). Weaker than solo
+                                          --   'DLTested', stronger than 'DLAsserted'; incomparable
+                                          --   to 'DLContractChecked' (like 'DLTested').
   | DLTested   { dlSamples :: Int }       -- ^ QuickCheck passed N samples
   | DLContractChecked { dlProver :: Text } -- ^ SMT proved contract consistency (not body)
   | DLVerified { dlVerProver :: Text }    -- ^ SMT proved body satisfies contract
@@ -466,6 +471,14 @@ evidenceMeet (DLVerified p1) (DLVerified _)               = DLVerified p1
 evidenceMeet (DLVerifiedLean p1) (DLVerifiedLean _)       = DLVerifiedLean p1
 evidenceMeet (DLContractChecked p1) (DLContractChecked _)  = DLContractChecked p1
 evidenceMeet (DLTested n1) (DLTested n2)                   = DLTested (min n1 n2)
+-- OBLIG-PBT-5b: joint-tested is the glb of (solo) tested and itself; below tested,
+-- above asserted, incomparable to contract-checked (meets it at asserted). The TJ⊓V
+-- and TJ⊓VL cases fall through to the top-identity equations below (result TJ).
+evidenceMeet (DLTestedJoint n1) (DLTestedJoint n2)         = DLTestedJoint (min n1 n2)
+evidenceMeet (DLTested _) (DLTestedJoint n)                = DLTestedJoint n
+evidenceMeet (DLTestedJoint n) (DLTested _)                = DLTestedJoint n
+evidenceMeet DLContractChecked{} DLTestedJoint{}          = DLAsserted
+evidenceMeet DLTestedJoint{} DLContractChecked{}          = DLAsserted
 -- Verified and verified-lean are PEER tops (both 'proven' strength): the glb
 -- with any lower level is that lower level, and a mixed proven⊓proven stays at
 -- 'proven' strength (the result is still 'isVerifiedLevel'). Ordering the two
@@ -497,6 +510,14 @@ evidenceCovers (DLTested _) (DLTested _)     = True
 -- Incomparable: contract-checked vs tested
 evidenceCovers DLContractChecked{} DLTested{} = False
 evidenceCovers DLTested{} DLContractChecked{} = False
+-- OBLIG-PBT-5b: joint-tested. Solo-tested covers joint-tested (T ≥ TJ) but not the
+-- reverse; joint-tested is incomparable to contract-checked. (TJ vs Asserted / Verified
+-- / VerifiedLean are already decided by the absorbing/top equations above.)
+evidenceCovers (DLTestedJoint _) (DLTestedJoint _)     = True
+evidenceCovers (DLTested _) (DLTestedJoint _)          = True
+evidenceCovers (DLTestedJoint _) (DLTested _)          = False
+evidenceCovers (DLTestedJoint _) (DLContractChecked _) = False
+evidenceCovers (DLContractChecked _) (DLTestedJoint _) = False
 
 -- | Is this verified-level (proven-strength) evidence? True for both the SMT
 -- body-faithful tier ('DLVerified') and its Lean-kernel-checked peer
@@ -525,6 +546,7 @@ dlProverName _                     = Nothing
 -- | Human display label for a display level.
 dlLabel :: DisplayLevel -> Text
 dlLabel DLAsserted            = "asserted"
+dlLabel (DLTestedJoint n)     = "tested-joint (" <> tshow n <> " samples)"
 dlLabel (DLTested n)          = "tested (" <> tshow n <> " samples)"
 dlLabel (DLContractChecked p) = "contract-checked (" <> p <> ")"
 dlLabel (DLVerified p)        = "verified (" <> p <> ")"

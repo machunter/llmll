@@ -12,7 +12,7 @@
     "trust_report_version": {
       "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy.",
       "type": "string",
-      "const": "1.5.0"
+      "const": "1.6.0"
     },
 
     "entries": {
@@ -169,12 +169,13 @@
 
     "TrustSummary": {
       "type": "object",
-      "required": ["verified", "contract_checked", "tested", "asserted", "no_contract", "drifts"],
+      "required": ["verified", "contract_checked", "tested", "tested_joint", "asserted", "no_contract", "drifts"],
       "additionalProperties": false,
       "properties": {
         "verified":         { "type": "integer", "minimum": 0 },
         "contract_checked": { "type": "integer", "minimum": 0 },
         "tested":           { "type": "integer", "minimum": 0 },
+        "tested_joint":     { "type": "integer", "minimum": 0, "description": "v1.6.0 (OBLIG-PBT-5b) — functions whose post is jointly PBT-tested (a multi-subject `:subjects` property credits N subjects from one body). A distinct `tested-joint` tier: below `tested`, above `asserted`. Previously such functions were demoted into `asserted`." },
         "asserted":         { "type": "integer", "minimum": 0 },
         "no_contract":      { "type": "integer", "minimum": 0 },
         "drifts":           { "type": "integer", "minimum": 0, "description": "Total epistemic drift warnings across all entries. Not a tier — a violation count on the tier classification." }
@@ -184,7 +185,7 @@
     "TierProfile": {
       "description": "Six-Int aggregate of per-function effective tier classifications. Component-wise dominance is the only legitimate partial order; never total-ordered into a scalar.",
       "type": "object",
-      "required": ["verified", "proved", "contract_checked", "tested", "asserted", "no_contract"],
+      "required": ["verified", "proved", "contract_checked", "tested", "tested_joint", "asserted", "no_contract"],
       "additionalProperties": false,
       "properties": {
         "verified": {
@@ -206,6 +207,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Functions whose effective level is `tested` (PBT passed N samples, no static proof). Incomparable with `contract_checked` per the diamond lattice."
+        },
+        "tested_joint": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "v1.6.0 (OBLIG-PBT-5b) — functions whose effective level is `tested-joint`: PBT-tested only jointly with other subjects of one multi-subject `:subjects` property. Below `tested`, above `asserted` in the lattice; incomparable with `contract_checked`. Propagates through the transitive meet to callers."
         },
         "asserted": {
           "type": "integer",
