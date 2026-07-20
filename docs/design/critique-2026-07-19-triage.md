@@ -20,9 +20,9 @@ Tags follow the project's `XXX-N` convention. Lifecycle: *open → routed → in
 | Tag | Item | Priority | Owner | Status |
 |---|---|---|---|---|
 | **LIC-1** | Build manifests declare `license: MIT` while `LICENSE` + README + one-pager are **GPLv3 + LLMLL Runtime Library Exception**. | P1 | engineer | **SHIPPED (this triage)** — `compiler/package.yaml:5` + `compiler/llmll.cabal:13` `MIT → GPL-3`. `LICENSE` already carries GPLv3 text + the exception (v1.0, §677–696); no LICENSE change needed. The reviewer's secondary "exception text may be missing" read was a search-truncation artifact — verified present. |
-| **IMPORT-LINT-1** | Imports placed after definitions are silently ignored. | P2 | engineer | **Open — new.** Agent-hostile: an LLM re-ordering a file loses imports with no diagnostic. Fix = emit a warning (hard error under `--strict`). Not previously tracked. |
-| **LIST-IF-1** | List literals in `if` branches hit a parse limitation. | P2 | language-team → engineer | **Open — linked.** Same body-faithful-fragment boundary as the gotofail/MATCH-WIDEN track ([`match-widen-stretch-plan.md`](match-widen-stretch-plan.md); `Syntax.hs` mixed-arm handling). Route there rather than open a standalone fix. |
-| **DO-1** *(existing)* | `do`-notation silently discards non-final intermediate `Command`-typed binds. | P2 | engineer | **Re-affirmed, sub-item open.** Spec text shipped (`LLMLL.md §9.6`, 2026-05-23 triage row). The **compiler-side warn-or-error** on non-final `Command` binds remains the open engineer sub-item the reviewer independently rediscovered. |
+| **IMPORT-LINT-1** | "Imports placed after definitions are silently ignored." | P2 | docs | **VERIFIED STALE DOC — fixed.** Does not reproduce: a capability import placed *after* a `def-shell` parses and checks fine (`(import wasi.io (capability stdout))` after its use → `✅ OK`). Imports are collected regardless of position (`[imp \| SImport imp <- stmts]`). The claim lived only in `getting-started.md §4.8`, whose example also used stale syntax `(import wasi.io stdout)`. Corrected there. |
+| **LIST-IF-1** | "List literals in `if` branches hit a parse limitation." | P2 | docs | **VERIFIED STALE DOC — fixed.** Does not reproduce: the exact doc-failing expression `(if won (wasi.io.stdout (string-concat-many ["You won! " word "\n"])) …)` parses `✅ OK`. The `unexpected ]` restriction was fixed in the parser; `getting-started.md §4.7/§4.8` still warned about it. Corrected there. |
+| **DO-1** *(existing)* | `do`-notation silently discards non-final intermediate `Command`-typed binds. | P2 | — | **VERIFIED ALREADY IMPLEMENTED.** `checkDiscardedCommand` (`TypeCheck.hs:1592`) already emits a warning on every non-final `Command` step ("current codegen discards this intermediate command…"). Only the *hard-error* tightening is deferred by design (`(discard expr)` opt-out). Not open work. |
 | **DEFINV-1** | `def-invariant` syntax whose semantic enforcement is "not fully realized." | P2 | language-team | **Known.** This is the standing OBLIG-1 residual ("sole residual = def-invariant axioms"). No new action; tracked. |
 
 ## 3. Re-raises of already-settled items (no new action)
@@ -43,4 +43,22 @@ Tags follow the project's `XXX-N` convention. Lifecycle: *open → routed → in
 
 ---
 
-**End of triage record.** New actionable work: **LIC-1** (shipped here), **IMPORT-LINT-1** (new engineer lint), **LIST-IF-1** (folds into MATCH-WIDEN), **DO-1** compiler sub-item (already routed). Everything else is captured, declined, or a known residual. Future sessions read §2 to pick up the open rows.
+## 5. Verification outcome (2026-07-19)
+
+Each "agent-hostile edge" the reviewer flagged was reproduced against the compiler before routing. The
+reviewer stated they did not run the suite; the edges turned out to be **stale documentation**, not
+compiler defects:
+
+- **IMPORT-LINT-1** and **LIST-IF-1** — both non-reproducing. The precise doc-failing programs parse and
+  check cleanly on the current parser. `Parser.hs` and `TypeCheck.hs` are unchanged since `v0.14.51`
+  (`git log v0.14.51..HEAD` empty for both), so the tested binary is behaviorally identical to HEAD. The
+  false claims lived in `getting-started.md §4.7/§4.8` and were corrected in this release.
+- **DO-1** — the compiler already warns (`checkDiscardedCommand`); only the deferred hard-error remains,
+  by design.
+
+The reviewer trusted `getting-started.md` and repeated its stale gotchas as current — a direct example of
+the doc being the footgun. Fixing the docs (not the compiler) is the correct remediation.
+
+**End of triage record.** Net: **LIC-1** fixed (manifests), three stale gotchas corrected in
+`getting-started.md`, `DO-1` confirmed already-implemented. **No open compiler engineering** remains from
+this critique. Strategic points re-raise already-settled items (§3–§4).

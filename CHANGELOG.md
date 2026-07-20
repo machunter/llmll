@@ -13,14 +13,26 @@
   Exception**. Both manifests corrected `MIT → GPL-3`. The exception text (v1.0) was already present in
   `LICENSE`; no license-text change was needed. Surfaced by an external review of `main` at `e284fe0`.
 
+### Fixed — stale `getting-started.md` gotchas (surfaced by the critique)
+
+- **Three "agent-hostile edges" were verified to be stale documentation, not compiler bugs**, and
+  corrected in `docs/getting-started.md §4.7/§4.8`:
+  - **List literals in `if` branches** — the docs warned of a `unexpected ]` parse error; the exact
+    doc-failing expression now parses `✅ OK`. Restriction removed; `let`-hoist noted as no-longer-required.
+  - **Imports after definitions** — the docs claimed they are "silently ignored"; a capability import
+    placed *after* a `def-shell` is honored (`✅ OK`). Corrected to "position does not matter"; the stale
+    `(import wasi.io stdout)` example fixed to the real `(import wasi.io (capability stdout))` form.
+  - **`do`-notation intermediate-command discard** — the compiler already warns (`checkDiscardedCommand`,
+    `TypeCheck.hs:1592`); only the hard-error tightening remains deferred by design.
+  - Verified against the parser/checker (`Parser.hs`/`TypeCheck.hs` unchanged since `v0.14.51`).
+
 ### Docs — external-critique triage captured
 
-- **`docs/design/critique-2026-07-19-triage.md`.** Records the external review of `e284fe0`/v0.14.53 and
-  routes its findings: `LIC-1` (fixed above), `IMPORT-LINT-1` (new — warn on imports placed after
-  definitions), `LIST-IF-1` (list literals in `if` branches; folds into the MATCH-WIDEN body-faithful
-  fragment track), and the `DO-1` compiler warn-or-error sub-item. Remaining points re-raise
-  already-settled items (large trusted base → Path B declined; spec adequacy → known central risk;
-  crypto opacity → CRYPTO-1). The review's strategic read matches the project's own `strategic-positioning`.
+- **`docs/design/critique-2026-07-19-triage.md`.** Records + adjudicates the external review of
+  `e284fe0`/v0.14.53. New defect: `LIC-1` (fixed above). The three edges above are logged as
+  **verified-stale-doc** (§5 verification outcome). Strategic points re-raise already-settled items (large
+  trusted base → Path B declined; spec adequacy → known central risk; crypto opacity → CRYPTO-1); the
+  review's strategic read matches the project's own `strategic-positioning`.
 
 ## v0.14.53 — decomposition-trust meet for `refine` cascades (2026-07-19)
 

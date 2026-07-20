@@ -858,27 +858,24 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 
 | Feature | Status | Notes |
 | ------- | ------ | ----- |
-| `[...]` list literal as direct argument inside S-expression `if` branch | ❌ Parse error | Hoist into a `let` binding before the `if` (workaround below) |
+| `[...]` list literal as direct argument inside S-expression `if` branch | ✅ **Fixed** | Parses correctly, including as a nested function argument; the former `unexpected ]` restriction no longer applies |
 | `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
 | `pre`/`post` **non-linear** contracts (`*`, `/`, `mod`) | ⚠️ Emits `?proof-required` hole; runtime assert still active | planned |
 | `EPair` returning `TResult` approximation | ✅ **Fixed** | `EPair` now correctly typed `TPair a b`; `match` on pairs no longer suggests `Success`/`Error` arms |
 
-> [!WARNING]
-> **S-expression `[...]` inside `if` branches — use `let` to hoist.**  
-> The S-expression parser misreads `]` when a list literal appears as a function argument inside an `if` body:
+> [!NOTE]
+> **S-expression `[...]` inside `if` branches now parses.** A list literal as a function argument inside
+> an `if` body — the case that previously failed with `unexpected ]` — is accepted:
 >
 > ```lisp
-> ;; FAILS — parse error 'unexpected ]':
+> ;; Parses correctly (no let-hoist needed):
 > (if won
 >     (wasi.io.stdout (string-concat-many ["You won! " word "\n"]))
->     ...)
->
-> ;; WORKS — hoist the list into a let binding first:
-> (let [(msg (string-concat-many ["You won! " word "\n"]))]
->   (if won (wasi.io.stdout msg) ...))
+>     (wasi.io.stdout "lost"))
 > ```
 >
-> This restriction does not apply to JSON-AST (`{"kind": "lit-list", ...}` is always unambiguous).
+> The `let`-hoist workaround is no longer required (it remains valid). Verified against the parser at
+> `v0.14.54`; `Parser.hs` has not changed the relevant behavior since.
 
 ---
 
@@ -890,25 +887,23 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `def-main` field `"onDone"` or `"on_done"` | Silently ignored | `"on-done"` (with hyphen) |
 | `"isDone"` instead of `"done?"` | Silently ignored | `"done?"` |
 | `:init` as `{ "kind": "var", "name": "start-game" }` | Passes the function, not its result | Must be `{ "kind": "app", "fn": "start-game", "args": [] }` |
-| `[...]` list literal as direct argument inside S-expression `if` branch | Parse error: `unexpected ]` | Hoist into a `let` binding before the `if` (see §4.7) |
-| `import` after a function definition inside `(module ...)` | Import silently ignored; unknown function at call site | All `import` statements must come before any `def`, `def-shell`, or `letrec` (legacy) |
-| Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` before any `wasi.io.*` call |
+| Calling `wasi.io.stdout` without `(import wasi.io (capability ...))` | Compile-time `missing-capability` error | Add `(import wasi.io (capability stdout))` in the module (position does not matter) before relying on any `wasi.io.*` call |
 
-> [!IMPORTANT]
-> **`(module ...)` block — import ordering.** Inside a `(module ...)` wrapper, all `import` statements must appear **before** any `def`, `def-shell`, `type`, or `def-interface` statements (or `letrec` under `--grammar=legacy`). The parser reads imports in a first-pass and will silently ignore imports placed after definitions, causing unexpected "unknown function" errors at the call site. This ordering rule applies to both single-file and multi-file programs.
+> [!NOTE]
+> **`(module ...)` imports — position and capability.** `import` statements are collected regardless of
+> position: an import placed **after** a `def` or `def-shell` is honored, not silently dropped (verified —
+> a capability import following its use resolves correctly). Placing imports first is a readability
+> convention, not a requirement. The genuine requirement for `wasi.*` calls is a **capability import** in
+> each module — note the `(capability …)` form, not a bare symbol:
 >
 > ```lisp
-> ;; CORRECT — imports first:
 > (module my-app
->   (import wasi.io stdout)
->   (import haskell.aeson Data.Aeson)
+>   (import wasi.io (capability stdout))
 >   (def-shell greet [name: string] (wasi.io.stdout name)))
->
-> ;; WRONG — import after def-shell is ignored:
-> (module my-app
->   (def-shell greet [name: string] (wasi.io.stdout name))
->   (import wasi.io stdout))   ;; ← ignored, wasi.io.stdout unknown
 > ```
+>
+> Calling `wasi.io.stdout` without `(import wasi.io (capability stdout))` is a compile-time
+> `missing-capability` error — that is about the capability grant, not import ordering.
 
 ---
 
