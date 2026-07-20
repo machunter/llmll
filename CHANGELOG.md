@@ -4,6 +4,19 @@
 
 <a id="Latest"></a>
 
+## v0.14.55 — `def-invariant` §11.4 doc reconciliation (DEFINV-1) (2026-07-20)
+
+### Fixed — stale `def-invariant` claim in `LLMLL.md §11.4`
+
+- **`def-invariant` parses in `.llmll` source.** §11.4 claimed the S-expression parser *rejects*
+  `def-invariant` ("known compiler bug, fix in progress"); in fact the `(def-invariant …)` form landed in
+  the S-expression parser in v0.12.1 (`Parser.hs`) and parses today (verified `✅ OK`). Corrected §11.4:
+  it parses on **both** surfaces (JSON-AST + S-expression), is type-checked, and registers as a VC-env
+  predicate. The **enforcement** gap it also documents — Z3 verification of declared invariants on AST
+  merge — is genuinely deferred (**Phase 2b**) and unchanged. Closes `DEFINV-1`, the last of the four
+  "agent-hostile edges" from the 2026-07-19 external critique — all four resolved as stale-doc or
+  already-implemented, none a live compiler defect.
+
 ## v0.14.54 — license-metadata reconciliation + 2026-07-19 external-critique triage (2026-07-19)
 
 ### Fixed — `LIC-1`: build manifests declared the wrong license

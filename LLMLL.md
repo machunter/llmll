@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.54)
+# LLMLL: Large Language Model Logical Language (v0.14.55)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.54.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.55.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1872,7 +1872,7 @@ The current module system provides `mergeModuleEnvs` (name unification across im
 ### 11.4 Global Module Invariants (`def-invariant`)
 
 > [!WARNING]
-> **Parses (JSON-AST only); semantic enforcement not yet implemented.** `def-invariant` produces its own `SDefInvariant` AST node — a first-class node, not a reduction to `SDefLogic`. It currently parses only from **JSON-AST**; the S-expression production shown below is the intended grammar (§12) but is not yet implemented in the S-expression parser (known compiler bug, fix in progress) — a `def-invariant` form in `.llmll` source is rejected. Z3 invariant verification on merge is not yet implemented either way.
+> **Parses on both surfaces; invariant *enforcement* not yet implemented (Phase 2b).** `def-invariant` produces its own `SDefInvariant` AST node — a first-class node, not a reduction to `SDefLogic`. It parses from **both** JSON-AST and S-expression source (the `(def-invariant …)` form landed in the S-expression parser in v0.12.1, `Parser.hs`), is type-checked, and registers as a logic predicate in the VC environment. What is **not** implemented is enforcement: Z3 verification, on AST merge, that declared invariants are preserved (Phase 2b). A `def-invariant` in `.llmll` source is accepted but has no invariant-enforcement effect.
 
 A module can declare invariants that must hold over its state at all times. The example below is **illustrative, not runnable**: `sum`, `map-values`, `state-accounts`, and `state-total-supply` are not registered builtins or defined functions — they sketch the intended vocabulary of a future map-capable invariant surface (the data-scope extension track):
 
@@ -1882,7 +1882,7 @@ A module can declare invariants that must hold over its state at all times. The 
      (state-total-supply state)))
 ```
 
-This is the intended S-expression form (§12) — not yet parseable (see warning above). The equivalent JSON-AST, which does parse today and produces a real `SDefInvariant` node:
+This is the S-expression form (§12); it parses today (v0.12.1+) and produces a real `SDefInvariant` node — though this particular example additionally references undefined helpers (`sum`, `map-values`, …), so it type-checks only once those are defined. The equivalent JSON-AST:
 
 ```json
 { "kind": "def-invariant", "name": "balance-conservation",
