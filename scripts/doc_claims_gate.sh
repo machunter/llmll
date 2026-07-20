@@ -78,7 +78,13 @@ for f in "${fixtures[@]}"; do
     expect=$(header_field "$f" expect)
     claim=$(header_field "$f" claim)
     docref=$(header_field "$f" doc)
-    out=$("${LLMLL_CMD[@]}" check "$f" 2>&1 || true)
+    # @cmd: the subcommand+args to run (default "check {file}"); {file} -> fixture path.
+    # Lets a fixture exercise checkout/holes/verify/etc., not only `check`.
+    cmd=$(header_field "$f" cmd)
+    [ -n "$cmd" ] || cmd="check {file}"
+    cmd="${cmd//\{file\}/$f}"
+    read -r -a CMD_ARGS <<< "$cmd"
+    out=$("${LLMLL_CMD[@]}" "${CMD_ARGS[@]}" 2>&1 || true)
 
     matched=false
     # expect is "<verdict>" or "<verdict>:<substring>". The substring (optional for
@@ -88,7 +94,14 @@ for f in "${fixtures[@]}"; do
     sub=""
     case "$expect" in *:*) sub="${expect#*:}" ;; esac
 
-    if [ "$base" = "warn" ]; then
+    if [ "$base" = "output" ]; then
+        # Subcommand-agnostic: just assert the cited string appears anywhere in
+        # the output. Used with @cmd for non-check subcommands (checkout, etc.).
+        obs="output"
+        if [ -n "$sub" ] && printf '%s\n' "$out" | grep -qF "$sub"; then
+            matched=true
+        fi
+    elif [ "$base" = "warn" ]; then
         obs="no-warning"
         if printf '%s\n' "$out" | grep -q 'warning:' \
            && { [ -z "$sub" ] || printf '%s\n' "$out" | grep -qF "$sub"; }; then

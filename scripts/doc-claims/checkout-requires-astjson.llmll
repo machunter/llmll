@@ -1,0 +1,5 @@
+;; @doc: getting-started.md "checkout — lock a hole for exclusive editing"
+;; @cmd: checkout {file}
+;; @expect: output:checkout requires .ast.json
+;; @claim: `checkout` rejects an S-expression (.llmll) source with "checkout requires .ast.json input; run 'llmll build --emit json-ast' first" — you must build to JSON-AST first. Genuine restriction; exercises the gate's @cmd (non-check subcommand) support.
+(def f [x: int] (pre (> x 0)) ?hole)

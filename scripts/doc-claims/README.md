@@ -22,10 +22,16 @@ Each fixture is a `.llmll` file with a header:
 
 ```lisp
 ;; @doc:    <doc file and section the claim lives in>
-;; @expect: check-ok | parse-error | check-error | warn:<substring>
+;; @cmd:    <optional; subcommand+args to run, default "check {file}">
+;; @expect: check-ok | parse-error | check-error | warn:<substring> | output:<substring>
 ;; @claim:  <the human-readable claim being guarded>
 <the program>
 ```
+
+`@cmd` lets a fixture exercise a subcommand other than `check` — `{file}` is replaced
+with the fixture path (e.g. `@cmd: checkout {file}`). For non-`check` subcommands, pair it
+with the `output:<substring>` verdict, which just asserts the cited string appears in the
+command's output (the check-specific verdicts assume `check`'s output shape).
 
 ### Verdicts
 
@@ -35,6 +41,7 @@ Each fixture is a `.llmll` file with a header:
 | `parse-error[:<sub>]`   | contains `:phase parse` (and, if given, the substring `<sub>`)        |
 | `check-error[:<sub>]`   | contains a semantic `error:` but no parse error (and `<sub>` if given) |
 | `warn:<substr>`         | contains a `warning:` line whose text includes `<substr>`             |
+| `output:<substr>`       | output contains `<substr>` (subcommand-agnostic; for `@cmd` fixtures) |
 
 The optional `:<substring>` on `parse-error`/`check-error` (and the required one on
 `warn`) pins a **cited diagnostic message**, not just the verdict class — so a doc that
@@ -86,10 +93,16 @@ restriction claims (which surfaced the `export`/`trust` ordering cluster below).
 | `def-logic-rejected.llmll` | `def-logic` rejected with `removed-construct` | genuine restriction |
 | `letrec-default-rejected.llmll` | `letrec` rejected under the default grammar | genuine restriction |
 | `stale-import-syntax-rejected.llmll` | bare `(import wasi.io stdout)` is rejected | genuine restriction |
+| `checkout-requires-astjson.llmll` | `checkout` rejects a `.llmll` source (needs `.ast.json`) | genuine restriction (`@cmd`) |
 
 *fixed-stale* fixtures lock in a corrected claim (alert on regression); *genuine
 restriction* fixtures are forward drift-catchers (alert the day the restriction is
 relaxed and the doc must be updated).
 
-Known gaps (need a different harness than `llmll check`): `checkout`/`patch`-subcommand
-restriction claims, and JSON-AST-only claims. Worth a follow-on if the seam proves noisy.
+Known gaps (would need more machinery than a single-input fixture):
+
+- **`patch` scope/op claims** (move/copy unsupported, scope containment) — need a
+  checked-out `.ast.json` plus a `patch.json`, i.e. multi-file fixtures.
+- **JSON-AST-only claims** (e.g. the `let` simple-vs-pattern `oneOf`) — a `.ast.json`
+  fixture cannot carry the `;;`-comment header (invalid JSON); it would need a metadata
+  sidecar. Worth adding if that seam proves to drift.

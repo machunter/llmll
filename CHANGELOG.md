@@ -4,6 +4,18 @@
 
 <a id="Latest"></a>
 
+## v0.14.58 — DRIFT-CT-2: non-`check` subcommand support + `checkout` claim (2026-07-20)
+
+### Added — gate can now exercise subcommands beyond `check`
+
+- **`@cmd` header + `output:<substr>` verdict.** A DRIFT-CT-2 fixture can now run a subcommand other than
+  `check` (`@cmd: checkout {file}`, with `{file}` → fixture path) and assert a cited message appears anywhere
+  in the output (`output:<substr>`, subcommand-agnostic). New fixture `checkout-requires-astjson` guards that
+  `checkout` rejects a `.llmll` source with "checkout requires .ast.json input …" (the claim matched the
+  compiler — no doc fix needed). 10 fixtures, all pass. Remaining seams recorded as known gaps in
+  `scripts/doc-claims/README.md`: `patch` multi-file claims (need a checked-out `.ast.json` + `patch.json`)
+  and JSON-AST-only claims (a `.ast.json` fixture can't carry the `;;`-comment header).
+
 ## v0.14.57 — DRIFT-CT-2 broadened; `export`/`trust` ordering cluster corrected (2026-07-20)
 
 ### Fixed — stale "must appear before defs" ordering cluster
