@@ -1,0 +1,4 @@
+;; @doc: docs/design/contract-position-reads-disposition.md (CONTRACT-READ-LINT, disposition (c))
+;; @expect: warn:contract-read-oob
+;; @claim: a literal-index bytes-get that is out of bounds against a literal bytes[n] bound in a contract (pre/post) emits a non-blocking, JSON-visible contract-read-oob warning — verified-yet-always-crashing. Positive-behaviour guard for the CONTRACT-READ-LINT feature.
+(def-shell f [b: bytes[8]] (post (>= (bytes-get b 9) 0)) 0)

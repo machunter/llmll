@@ -1,8 +1,10 @@
 # Contract-Position Partial Reads (`bytes-get` / `map-get` in `pre`/`post`) — Disposition
 
-> **Status:** Settled (language-team disposition, 2026-07-12). No spec change; one lint follow-on
-> routed to compiler-engineer (CONTRACT-READ-LINT). Closes the finding routed by the LEVER-A1 and
-> LEVER-A2 implementation passes.
+> **Status:** Settled (language-team disposition, 2026-07-12). No spec change; the lint follow-on
+> (CONTRACT-READ-LINT) is **shipped** for the decidable bytes slice — a non-blocking, JSON-visible
+> `contract-read-oob` warning (see roadmap + CHANGELOG). Disposition (c)'s `map-get`-without-`map-has`
+> heuristic tier and disposition (b) (Dafny-style side-obligations) remain deferred. Closes the finding
+> routed by the LEVER-A1 and LEVER-A2 implementation passes.
 
 ## The question
 

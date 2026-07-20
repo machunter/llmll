@@ -885,6 +885,7 @@ collectConstructors stmts = concatMap go stmts
 
 checkStatement :: Statement -> TC ()
 checkStatement (SDefLogic name params mRet contract body) = do
+  lintContractReads name params contract          -- CONTRACT-READ-LINT
   withFunctionContext name False $ do
     let paramBindings = params
     withTaggedEnv SrcParam paramBindings $ do
@@ -953,6 +954,7 @@ checkStatement (SLetrec name params mRet contract dec body) = do
 -- Also gates on isCoreBodySyntactic before type-inference — structural violations
 -- are reported once here rather than as cascading downstream errors.
 checkStatement (SDef name params mRet contract body) = do
+  lintContractReads name params contract          -- CONTRACT-READ-LINT
   unless (isCoreBodySyntactic body) $
     modify $ \s -> s
       { tcErrors = tcErrors s ++
@@ -996,6 +998,7 @@ checkStatement (SDef name params mRet contract body) = do
 -- | LT-INV (v0.11): permissive-shell definition.
 -- Same type-checking rules as SDefLogic; no structural or callee-admissibility restrictions.
 checkStatement (SDefShell name params mRet contract body decreases) = do
+  lintContractReads name params contract          -- CONTRACT-READ-LINT
   withFunctionContext name False $ do
     withTaggedEnv SrcParam params $ do
       bodyType <- case (mRet, body) of
@@ -2212,3 +2215,43 @@ exprContainsVar v (EAwait e)        = exprContainsVar v e
 exprContainsVar v (EDo steps)       = any (\(DoStep _ e) -> exprContainsVar v e) steps
 exprContainsVar _ (ELit _)          = False
 exprContainsVar _ (EHole _)         = False
+
+-- CONTRACT-READ-LINT: warn on a statically out-of-bounds bytes read in a
+-- contract clause (pre/post) — the decidable slice: a literal index against a
+-- literal 'bytes[n]' parameter bound, e.g. '(bytes-get b 9)' where 'b : bytes[8]'.
+-- Contract reads are total selects (FixpointEmit.exprToPred), so the contract
+-- type-checks and can verify, but its generated runtime assertion aborts on every
+-- execution. Syntactic (no solver), non-blocking, JSON-visible via diagKind.
+-- See docs/design/contract-position-reads-disposition.md (disposition (c)).
+lintContractReads :: Name -> [(Name, Type)] -> Contract -> TC ()
+lintContractReads fnName params contract =
+    mapM_ lintClause [contractPre contract, contractPost contract]
+  where
+    bytesLens = [ (pn, n) | (pn, TBytes n) <- params ]
+    lintClause Nothing  = pure ()
+    lintClause (Just e) = mapM_ emitOOB (collectBytesGets e)
+    emitOOB :: (Name, Integer) -> TC ()
+    emitOOB (bvar, idx) =
+      case lookup bvar bytesLens of
+        Just n | idx < 0 || idx >= fromIntegral n ->
+          modify $ \s -> s { tcErrors = tcErrors s ++
+            [mkContractReadOOBWarning fnName bvar (tshow idx) (tshow n)] }
+        _ -> pure ()
+
+-- Collect '(bytes-get <var> <literal-int>)' reads anywhere in an expression —
+-- the decidable literal-index slice. A non-literal index is skipped (the
+-- recursive descent into args finds no match).
+collectBytesGets :: Expr -> [(Name, Integer)]
+collectBytesGets (EApp "bytes-get" [EVar b, ELit (LitInt i)]) = [(b, i)]
+collectBytesGets (EApp _ args)     = concatMap collectBytesGets args
+collectBytesGets (EOp _ args)      = concatMap collectBytesGets args
+collectBytesGets (EIf c t e)       = collectBytesGets c ++ collectBytesGets t ++ collectBytesGets e
+collectBytesGets (ELet binds body) = concatMap (\(_, _, e) -> collectBytesGets e) binds ++ collectBytesGets body
+collectBytesGets (EMatch e cases)  = collectBytesGets e ++ concatMap (collectBytesGets . snd) cases
+collectBytesGets (EPair a b)       = collectBytesGets a ++ collectBytesGets b
+collectBytesGets (ELambda _ body)  = collectBytesGets body
+collectBytesGets (EAwait e)        = collectBytesGets e
+collectBytesGets (EDo steps)       = concatMap (\(DoStep _ e) -> collectBytesGets e) steps
+collectBytesGets (ELit _)          = []
+collectBytesGets (EVar _)          = []
+collectBytesGets (EHole _)         = []

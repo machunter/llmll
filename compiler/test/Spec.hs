@@ -805,6 +805,49 @@ main = hspec $ do
           diagMessage (head nonExh) `shouldSatisfy` T.isInfixOf "Error"
 
   -- -----------------------------------------------------------------------
+  -- CONTRACT-READ-LINT: literal-index bytes-get out-of-bounds in a contract
+  -- -----------------------------------------------------------------------
+  describe "CONTRACT-READ-LINT (contract-read-oob)" $ do
+    let lintOf src =
+          case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
+            Left err    -> Left (show err)
+            Right stmts -> Right $ filter (\d -> diagKind d == Just "contract-read-oob")
+                                          (reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv stmts))
+
+    it "warns on an out-of-bounds literal bytes-get in post" $ do
+      case lintOf "(def-shell f [b: bytes[8]] (post (>= (bytes-get b 9) 0)) 0)" of
+        Left e   -> expectationFailure e
+        Right ws -> do
+          length ws `shouldBe` 1
+          diagMessage (head ws) `shouldSatisfy` T.isInfixOf "bytes[8]"
+          diagMessage (head ws) `shouldSatisfy` T.isInfixOf "9"
+
+    it "does not warn on an in-bounds literal bytes-get" $ do
+      case lintOf "(def-shell g [b: bytes[8]] (post (>= (bytes-get b 3) 0)) 0)" of
+        Left e   -> expectationFailure e
+        Right ws -> ws `shouldBe` []
+
+    it "does not warn on a non-literal (variable) index — decidable slice only" $ do
+      case lintOf "(def-shell h [b: bytes[8] i: int] (post (>= (bytes-get b i) 0)) 0)" of
+        Left e   -> expectationFailure e
+        Right ws -> ws `shouldBe` []
+
+    it "warns on an out-of-bounds read in pre as well as post" $ do
+      case lintOf "(def-shell k [b: bytes[8]] (pre (>= (bytes-get b 10) 0)) 0)" of
+        Left e   -> expectationFailure e
+        Right ws -> length ws `shouldBe` 1
+
+    it "emits the read as a non-blocking warning, not an error" $ do
+      case lintOf "(def-shell f [b: bytes[8]] (post (>= (bytes-get b 9) 0)) 0)" of
+        Left e   -> expectationFailure e
+        Right ws -> all (\d -> diagSeverity d == SevWarning) ws `shouldBe` True
+
+    it "fires for a strict-core def, not only def-shell" $ do
+      case lintOf "(def d [b: bytes[8]] (post (>= (bytes-get b 9) 0)) 0)" of
+        Left e   -> expectationFailure e
+        Right ws -> length ws `shouldBe` 1
+
+  -- -----------------------------------------------------------------------
   -- D2: letrec + :decreases
   -- -----------------------------------------------------------------------
   describe "D2 letrec :decreases" $ do

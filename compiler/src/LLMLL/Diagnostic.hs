@@ -42,6 +42,7 @@ module LLMLL.Diagnostic
   , mkCoreMembershipViolation
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
   , mkReuseWarning
+  , mkContractReadOOBWarning
   ) where
 
 import Data.Text (Text)
@@ -201,6 +202,23 @@ mkOpenShadowWarning name shadowedBy prevFrom =
   let msg = "open-shadow-warning: '" <> name <> "' from " <> prevFrom
             <> " is shadowed by " <> shadowedBy
   in (mkWarning Nothing msg) { diagKind = Just "open-shadow-warning" }
+
+-- | CONTRACT-READ-LINT: a literal-index @bytes-get@ in a contract clause
+-- (@pre@/@post@) that is statically out of bounds against a literal @bytes[n]@
+-- parameter bound — e.g. @(bytes-get b 9)@ where @b : bytes[8]@. Contract reads
+-- are total selects, so such a contract type-checks and can even verify, but the
+-- generated runtime assertion aborts on /every/ execution
+-- (verified-yet-always-crashing). Non-blocking, JSON-visible (the F-001 lesson).
+-- Args are pre-rendered Text (@fnName@, @bytesVar@, @idx@, @n@). See
+-- @docs/design/contract-position-reads-disposition.md@.
+mkContractReadOOBWarning :: Text -> Text -> Text -> Text -> Diagnostic
+mkContractReadOOBWarning fnName bytesVar idx n =
+  let msg = "contract-read-oob: '(bytes-get " <> bytesVar <> " " <> idx
+            <> ")' in '" <> fnName <> "' is always out of bounds — " <> bytesVar
+            <> " : bytes[" <> n <> "], index " <> idx <> " is outside [0," <> n
+            <> "). The contract can verify but its runtime assertion aborts on "
+            <> "every execution (verified-yet-always-crashing). Use an in-bounds index."
+  in (mkWarning Nothing msg) { diagKind = Just "contract-read-oob" }
 
 -- | v0.3: Cross-module call to a function with an unproven contract.
 mkTrustGapWarning :: Text -> Text -> Text -> Diagnostic

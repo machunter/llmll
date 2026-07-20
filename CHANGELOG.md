@@ -4,6 +4,22 @@
 
 <a id="Latest"></a>
 
+## v0.14.59 — CONTRACT-READ-LINT: `contract-read-oob` warning (2026-07-20)
+
+### Added — a non-blocking warning for verified-yet-always-crashing contract reads
+
+- **`contract-read-oob`.** A literal index against a literal `bytes[n]` bound in a `pre`/`post` — e.g.
+  `(bytes-get b 9)` where `b : bytes[8]` — now emits a warning. The contract type-checks and can verify
+  (contract reads are total selects, `FixpointEmit.exprToPred`), but its generated runtime assertion
+  aborts on **every** execution. The lint is syntactic (no solver), **non-blocking** (stays a warning
+  even under `--strict`), and **JSON-visible** via `diagKind` (the F-001 lesson: a guardrail invisible to
+  `--json` is invisible to agents). `TypeCheck.lintContractReads` + `Diagnostic.mkContractReadOOBWarning`,
+  hooked into `SDef` / `SDefShell` / `SDefLogic`; a non-literal (variable) index is left alone (outside the
+  decidable slice). Implements disposition (c) of
+  [`docs/design/contract-position-reads-disposition.md`](docs/design/contract-position-reads-disposition.md);
+  the `map-get`-without-`map-has` heuristic tier and the Dafny-style well-formedness side-obligation
+  (disposition (b)) remain deferred. **+6 tests; +1 DRIFT-CT-2 fixture (`contract-read-oob`, now 11).**
+
 ## v0.14.58 — DRIFT-CT-2: non-`check` subcommand support + `checkout` claim (2026-07-20)
 
 ### Added — gate can now exercise subcommands beyond `check`
