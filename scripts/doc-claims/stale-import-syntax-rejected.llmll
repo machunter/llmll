@@ -1,0 +1,5 @@
+;; @doc: getting-started.md §4.8 (corrected)
+;; @expect: parse-error
+;; @claim: the old bare-symbol import form `(import wasi.io stdout)` is NOT valid syntax — the capability form `(import wasi.io (capability stdout))` is required. This is a genuine current restriction; if a future change makes this form parse, this fixture flips and forces the doc to be updated.
+(module my-app
+  (import wasi.io stdout))

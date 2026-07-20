@@ -4,6 +4,19 @@
 
 <a id="Latest"></a>
 
+## v0.14.56 — DRIFT-CT-2 doc-claim drift gate (2026-07-20)
+
+### Added — `scripts/doc_claims_gate.sh` (DRIFT-CT-2)
+
+- **Doc-claim drift gate.** A CI gate (sibling of the DRIFT-CI-1 version gate) that runs each documented
+  *restriction claim* through `llmll check` and fails when the doc and the compiler disagree — the class of
+  stale gotcha the 2026-07-19 external critique tripped over (docs claiming a program is rejected/broken
+  while the compiler accepts it). Fixtures live in `scripts/doc-claims/` with `@doc`/`@expect`/`@claim`
+  headers (verdicts: `check-ok` / `parse-error` / `check-error` / `warn:<substr>`); on failure the gate
+  names the exact doc section to fix. Seeded with the four claims from the 2026-07-19 sweep. Wired into the
+  `spec-roundtrip` job of `.github/workflows/version-gate.yml` (runs against the freshly-built binary;
+  SKIPs cleanly when no binary is present). Format + how-to-extend: `scripts/doc-claims/README.md`.
+
 ## v0.14.55 — `def-invariant` §11.4 doc reconciliation (DEFINV-1) (2026-07-20)
 
 ### Fixed — stale `def-invariant` claim in `LLMLL.md §11.4`

@@ -1,0 +1,7 @@
+;; @doc: getting-started.md §4.7 / §4.8
+;; @expect: check-ok
+;; @claim: a list literal as a function argument inside an `if` branch parses and checks (was documented as a "unexpected ]" parse error; fixed in the parser, stale doc corrected v0.14.54)
+(def show-msg [won: bool word: string]
+  (if won
+      (string-concat-many ["You won! " word])
+      "lost"))

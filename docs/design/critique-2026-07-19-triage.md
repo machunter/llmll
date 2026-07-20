@@ -59,6 +59,14 @@ compiler defects:
 The reviewer trusted `getting-started.md` and repeated its stale gotchas as current — a direct example of
 the doc being the footgun. Fixing the docs (not the compiler) is the correct remediation.
 
+**Durable procedure (added post-triage).** To stop this class recurring, the docs' falsifiable
+restriction-claims are now gated in CI: `scripts/doc_claims_gate.sh` (**DRIFT-CT-2**, sibling of the
+DRIFT-CI-1 version gate) runs each claim's program through `llmll check` and fails when the observed
+verdict diverges from the doc — pointing at the exact `@doc` section. Seeded with the claims above;
+format + how-to-extend in [`scripts/doc-claims/README.md`](../../scripts/doc-claims/README.md). Wired into
+the `spec-roundtrip` job of `.github/workflows/version-gate.yml`. The compiler-engineer definition-of-done
+gains one line: *a change that alters parse/check/verify behaviour must run this gate and reconcile any flip.*
+
 **End of triage record.** Net: **LIC-1** fixed (manifests), three stale gotchas corrected in
 `getting-started.md`, `DO-1` confirmed already-implemented. **No open compiler engineering** remains from
 this critique. Strategic points re-raise already-settled items (§3–§4).

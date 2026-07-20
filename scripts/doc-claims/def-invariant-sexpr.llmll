@@ -1,0 +1,4 @@
+;; @doc: LLMLL.md §11.4
+;; @expect: check-ok
+;; @claim: (def-invariant ...) parses in .llmll (S-expression) source (was documented as "rejected / not implemented in the S-expr parser"; added v0.12.1, stale doc corrected v0.14.55). NOTE: this guards PARSING only — invariant *enforcement* (Z3-on-merge) is deferred (Phase 2b) by design.
+(def-invariant balance-nonneg [s: int] (>= s 0))

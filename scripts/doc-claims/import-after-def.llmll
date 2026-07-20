@@ -1,0 +1,6 @@
+;; @doc: getting-started.md §4.8
+;; @expect: check-ok
+;; @claim: a capability import placed AFTER a def-shell is honored, not "silently ignored" (position-independent; stale doc corrected v0.14.54)
+(module my-app
+  (def-shell greet [name: string] (wasi.io.stdout name))
+  (import wasi.io (capability stdout)))

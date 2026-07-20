@@ -6,14 +6,17 @@
 #
 # Two jobs:
 #   version-gate    — fast (<1 min). C1-C4 + pytest harness tests. No Stack.
-#   spec-roundtrip  — slower (~5 min steady-state). C5. Builds llmll, runs
-#                     scripts/spec_roundtrip.py against opt-in spec blocks.
+#   spec-roundtrip  — slower (~5 min steady-state). C5 + DRIFT-CT-2. Builds
+#                     llmll, runs scripts/doc_claims_gate.sh (doc restriction-
+#                     claims vs compiler behaviour) and scripts/spec_roundtrip.py
+#                     against opt-in spec blocks.
 #
-# Scope discipline: this workflow exists ONLY to enforce DRIFT-CI-1. It does
-# not run `stack test` or the Python harness suites at tools/llmll-orchestra/
-# and experiments/. Build/test CI is a separate ticket; the workflow file is
-# deliberately named `version-gate.yml`, not `ci.yml`, to avoid implying a
-# broader signal.
+# Scope discipline: this workflow enforces the two drift gates — DRIFT-CI-1
+# (banner/schema equality) and DRIFT-CT-2 (doc restriction-claims vs actual
+# compiler behaviour). It does not run `stack test` or the Python harness suites
+# at tools/llmll-orchestra/ and experiments/. Build/test CI is a separate ticket;
+# the workflow file is deliberately named `version-gate.yml`, not `ci.yml`, to
+# avoid implying a broader signal.
 #
 # Security posture: no run: block interpolates ${{ github.event.* }} or any
 # attacker-controllable context. The only ${{ }} expressions used are
@@ -78,6 +81,12 @@ jobs:
       - name: Build llmll
         working-directory: compiler
         run: stack build llmll
+
+      - name: Run doc-claim drift gate (DRIFT-CT-2)
+        working-directory: compiler
+        env:
+          LLMLL_BIN: stack exec llmll --
+        run: bash ../scripts/doc_claims_gate.sh
 
       - name: Set up Python
         uses: actions/setup-python@v5
