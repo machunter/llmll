@@ -1,0 +1,4 @@
+;; @doc: getting-started.md §4.10 (grammar modes)
+;; @expect: parse-error
+;; @claim: letrec is not accepted in .llmll source under the default GrammarCoreInversion mode (use def-shell for recursion). NOTE the S-expression path gives a generic parse error; the specific `core-grammar-violation` diagnostic the docs cite is emitted by the JSON-AST parser (ParserJSON.hs), not this surface. Genuine restriction — forward drift-catcher.
+(letrec f [x: int] (if (> x 0) (f (- x 1)) 0))

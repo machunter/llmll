@@ -1,0 +1,7 @@
+;; @doc: getting-started.md §4.9 (export) + LLMLL.md §4.4.3 (trust)
+;; @expect: check-ok
+;; @claim: `export` and `(trust ...)` declarations are honored when placed AFTER a def, not only before it — position-independent, same as `import`. The docs claimed both "must appear before the first def"; corrected v0.14.57. Guards the whole "must appear before defs" stale cluster.
+(module m
+  (def f [x: int] x)
+  (export f)
+  (trust f :level asserted))

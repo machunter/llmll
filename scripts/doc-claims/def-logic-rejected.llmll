@@ -1,0 +1,4 @@
+;; @doc: getting-started.md §4.10 (grammar modes) / LLMLL.md §12
+;; @expect: parse-error:removed-construct
+;; @claim: def-logic is rejected under all grammar modes with a `removed-construct` diagnostic (removed v0.12.1; use def / def-shell). Genuine current restriction — forward drift-catcher.
+(def-logic p [x: int] (> x 0))

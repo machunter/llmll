@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.14.56)
+# LLMLL: Large Language Model Logical Language (v0.14.57)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.14.56.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
+> **Current version: v0.14.57.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md) for the schedule.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -569,7 +569,7 @@ The downstream module can acknowledge the gap explicitly:
 
 This silences the warning and makes the trust decision visible in source. An agent auditing module B can enumerate all `(trust ...)` declarations to see which unproven contracts it depends on.
 
-`(trust ...)` declarations follow `import` semantics — per-function, multiple declarations per module, must appear before any `def` or `def-shell`. Duplicate declarations for the same function are idempotent (not an error).
+`(trust ...)` declarations are per-function, allow multiple declarations per module, and are collected regardless of position (the parser enforces no ordering relative to `def`/`def-shell` — the same as `import`). Duplicate declarations for the same function are idempotent (not an error).
 
 When the sidecar `.verified.json` file is missing for an imported module, all contracts default to `asserted`.
 
@@ -1942,7 +1942,7 @@ open-decl   = "(" "open" qual-ident [ "(" { IDENT } ")" ] ")" ;
 export-decl = "(" "export" { IDENT } ")" ;
               (* Listed names become the module's public interface.               *)
               (* Absent: all top-level defs exported (open default).             *)
-              (* Must appear before the first def / def-shell in the file.       *)
+              (* Collected regardless of position; parser enforces no ordering.  *)
 
 (* ============================================================ *)
 (* Trust declarations (§4.4.3) *)

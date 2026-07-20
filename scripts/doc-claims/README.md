@@ -29,12 +29,16 @@ Each fixture is a `.llmll` file with a header:
 
 ### Verdicts
 
-| `@expect`        | Passes when `llmll check` output…                              |
-| ---------------- | -------------------------------------------------------------- |
-| `check-ok`       | shows `✅ … OK` with no error (guards "this now works")         |
-| `parse-error`    | contains `:phase parse` (guards a genuine syntactic restriction) |
-| `check-error`    | contains a semantic `error:` but no parse error                |
-| `warn:<substr>`  | contains a `warning:` line whose text includes `<substr>`      |
+| `@expect`               | Passes when `llmll check` output…                                     |
+| ----------------------- | --------------------------------------------------------------------- |
+| `check-ok`              | shows `✅ … OK` with no error (guards "this now works")                |
+| `parse-error[:<sub>]`   | contains `:phase parse` (and, if given, the substring `<sub>`)        |
+| `check-error[:<sub>]`   | contains a semantic `error:` but no parse error (and `<sub>` if given) |
+| `warn:<substr>`         | contains a `warning:` line whose text includes `<substr>`             |
+
+The optional `:<substring>` on `parse-error`/`check-error` (and the required one on
+`warn`) pins a **cited diagnostic message**, not just the verdict class — so a doc that
+quotes a specific error/warning string is guarded against that string drifting too.
 
 Asserting `check-ok` on a formerly-"broken" program locks in the fix — the gate flags a
 regression. Asserting `parse-error` / `check-error` on a genuine restriction is the
@@ -66,14 +70,26 @@ SKIPs (exit 0) rather than failing — it cannot assert behaviour without a comp
 gate and reconcile any flip — the fixture's `@expect` *and* the doc section it names.
 Drift detection belongs at the point of change, not a downstream audit.
 
-## Current seed (from the 2026-07-19 sweep)
+## Fixtures
 
-| Fixture | Guards |
-| ------- | ------ |
-| `list-literal-in-if.llmll` | list literal as fn arg inside `if` parses (was a stale "unexpected ]" claim) |
-| `import-after-def.llmll` | capability import after a `def-shell` is honored (was "silently ignored") |
-| `def-invariant-sexpr.llmll` | `(def-invariant …)` parses in `.llmll` source (was "rejected") |
-| `stale-import-syntax-rejected.llmll` | bare `(import wasi.io stdout)` is genuinely rejected (forward drift-catcher) |
+Seeded from the 2026-07-19 sweep, then broadened by a systematic pass over the docs'
+restriction claims (which surfaced the `export`/`trust` ordering cluster below).
 
-Natural next fixture: the `do`-notation intermediate-command discard **warning**
-(`@expect: warn:discards this intermediate command`) — needs a valid do-block program.
+| Fixture | Guards | Kind |
+| ------- | ------ | ---- |
+| `list-literal-in-if.llmll` | list literal as fn arg inside `if` parses (was "unexpected ]") | fixed-stale |
+| `import-after-def.llmll` | capability import after a `def-shell` is honored (was "silently ignored") | fixed-stale |
+| `def-invariant-sexpr.llmll` | `(def-invariant …)` parses in `.llmll` source (was "rejected") | fixed-stale |
+| `decl-order-independent.llmll` | `export` + `(trust …)` after a def are honored (were "must appear before defs") | fixed-stale |
+| `do-notation-discard-warn.llmll` | non-final do-step `Command` emits the discard warning (DO-1) | positive behaviour |
+| `missing-capability.llmll` | `wasi.io.stdout` without a capability import is a compile error | genuine restriction |
+| `def-logic-rejected.llmll` | `def-logic` rejected with `removed-construct` | genuine restriction |
+| `letrec-default-rejected.llmll` | `letrec` rejected under the default grammar | genuine restriction |
+| `stale-import-syntax-rejected.llmll` | bare `(import wasi.io stdout)` is rejected | genuine restriction |
+
+*fixed-stale* fixtures lock in a corrected claim (alert on regression); *genuine
+restriction* fixtures are forward drift-catchers (alert the day the restriction is
+relaxed and the doc must be updated).
+
+Known gaps (need a different harness than `llmll check`): `checkout`/`patch`-subcommand
+restriction claims, and JSON-AST-only claims. Worth a follow-on if the seam proves noisy.

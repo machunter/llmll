@@ -1,4 +1,4 @@
-# LLMLL — v0.14.56
+# LLMLL — v0.14.57
 
 **AI writes the code; the compiler proves it matches the spec — and rejects a type-correct-but-wrong implementation before it merges.**
 

@@ -81,21 +81,27 @@ for f in "${fixtures[@]}"; do
     out=$("${LLMLL_CMD[@]}" check "$f" 2>&1 || true)
 
     matched=false
-    obs=""
-    case "$expect" in
-        warn:*)
-            sub="${expect#warn:}"
+    # expect is "<verdict>" or "<verdict>:<substring>". The substring (optional for
+    # parse-error/check-error, required for warn) must also appear in the output —
+    # this pins a cited diagnostic message, not just the verdict class.
+    base="${expect%%:*}"
+    sub=""
+    case "$expect" in *:*) sub="${expect#*:}" ;; esac
+
+    if [ "$base" = "warn" ]; then
+        obs="no-warning"
+        if printf '%s\n' "$out" | grep -q 'warning:' \
+           && { [ -z "$sub" ] || printf '%s\n' "$out" | grep -qF "$sub"; }; then
+            matched=true
             obs="warn"
-            if printf '%s\n' "$out" | grep -q 'warning:' \
-               && printf '%s\n' "$out" | grep -qF "$sub"; then
-                matched=true
-            fi
-            ;;
-        *)
-            obs=$(observed_verdict "$out")
-            [ "$obs" = "$expect" ] && matched=true
-            ;;
-    esac
+        fi
+    else
+        obs=$(observed_verdict "$out")
+        if [ "$obs" = "$base" ] \
+           && { [ -z "$sub" ] || printf '%s\n' "$out" | grep -qF "$sub"; }; then
+            matched=true
+        fi
+    fi
 
     if $matched; then
         pass=$((pass + 1))

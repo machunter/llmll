@@ -4,6 +4,25 @@
 
 <a id="Latest"></a>
 
+## v0.14.57 — DRIFT-CT-2 broadened; `export`/`trust` ordering cluster corrected (2026-07-20)
+
+### Fixed — stale "must appear before defs" ordering cluster
+
+- **`export` and `(trust …)` are position-independent**, not "must appear before the first def". A
+  systematic pass over the docs' restriction claims (extending the 2026-07-19 sweep) found the same stale
+  root as the already-corrected imports rule: `export`-after-def and `(trust …)`-after-def both check
+  `✅ OK`. Corrected `getting-started.md §4.9` (export), `LLMLL.md §4.4.3` (trust), and the `LLMLL.md §12`
+  export grammar comment. (The `open` grammar comment is left as-is — `open` is a multi-file construct not
+  exercised by this pass.)
+
+### Added — DRIFT-CT-2 coverage broadened 4 → 9 fixtures
+
+- New fixtures: `decl-order-independent` (export/trust after def), `do-notation-discard-warn` (the DO-1
+  warning — the gap left in v0.14.56), `missing-capability`, `def-logic-rejected`, `letrec-default-rejected`.
+  The gate's `@expect` now accepts an optional `:<substring>` on `parse-error`/`check-error` (matching the
+  existing `warn:<substr>`) to pin a cited diagnostic message, not just the verdict class. All 9 pass; the
+  drift-catch behaviour was re-verified. See `scripts/doc-claims/README.md`.
+
 ## v0.14.56 — DRIFT-CT-2 doc-claim drift gate (2026-07-20)
 
 ### Added — `scripts/doc_claims_gate.sh` (DRIFT-CT-2)

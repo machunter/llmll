@@ -1,0 +1,9 @@
+;; @doc: LLMLL.md §9.6 (do-notation intermediate-command discard)
+;; @expect: warn:discards this intermediate command
+;; @claim: a non-final do-block step that produces a Command emits a discard warning (DO-1, checkDiscardedCommand). Guards that the warning is not silently dropped — the fourth 2026-07-19 edge, now covered.
+(module m
+  (import wasi.io (capability stdout))
+  (def-shell prog [s0: int]
+    (do
+      [s1 <- (pair s0 (wasi.io.stdout "a"))]
+      (pair s1 (wasi.io.stdout "b")))))

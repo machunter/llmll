@@ -969,7 +969,7 @@ When `app.main` imports `app.auth`, all exported names from `app.auth` are acces
 ;; Omitting export entirely: all top-level defs are exported by default.
 ```
 
-The `export` declaration must appear before the first function definition (`def` or `def-shell`) — consistent with the "imports before defs" rule.
+The `export` declaration may appear anywhere among the top-level statements — it is collected regardless of position (the parser enforces no ordering relative to `def`/`def-shell`, the same as `import`). Placing it first is a readability convention, not a requirement.
 
 #### Hub imports
 
