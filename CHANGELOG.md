@@ -4,6 +4,24 @@
 
 <a id="Latest"></a>
 
+## v0.14.54 — license-metadata reconciliation + 2026-07-19 external-critique triage (2026-07-19)
+
+### Fixed — `LIC-1`: build manifests declared the wrong license
+
+- **License metadata.** `compiler/package.yaml` and `compiler/llmll.cabal` declared `MIT` while
+  `LICENSE`, `README.md`, and `docs/one-pager.md` all state **GPLv3 with the LLMLL Runtime Library
+  Exception**. Both manifests corrected `MIT → GPL-3`. The exception text (v1.0) was already present in
+  `LICENSE`; no license-text change was needed. Surfaced by an external review of `main` at `e284fe0`.
+
+### Docs — external-critique triage captured
+
+- **`docs/design/critique-2026-07-19-triage.md`.** Records the external review of `e284fe0`/v0.14.53 and
+  routes its findings: `LIC-1` (fixed above), `IMPORT-LINT-1` (new — warn on imports placed after
+  definitions), `LIST-IF-1` (list literals in `if` branches; folds into the MATCH-WIDEN body-faithful
+  fragment track), and the `DO-1` compiler warn-or-error sub-item. Remaining points re-raise
+  already-settled items (large trusted base → Path B declined; spec adequacy → known central risk;
+  crypto opacity → CRYPTO-1). The review's strategic read matches the project's own `strategic-positioning`.
+
 ## v0.14.53 — decomposition-trust meet for `refine` cascades (2026-07-19)
 
 ### Added — `unvouched_cdp_meet`: the decomposition's weakest-link CDP, report-only
