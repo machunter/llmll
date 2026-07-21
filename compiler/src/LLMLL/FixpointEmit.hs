@@ -253,14 +253,50 @@ buildContractEnvWith am stmts = Map.fromList $ mapMaybe go stmts
       let ds = desugarCtorValues ctorTags (Set.fromList (map fst params))
       in c { contractPre = ds <$> contractPre c, contractPost = ds <$> contractPost c }
     aug params mRet c = dsContract params (augmentContractPost am mRet (augmentContractPre am params c))
-    go (SDefLogic name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
-    go (SLetrec name params mRet contract _ _) = Just (name, (params, aug params mRet contract, mRet))
+    -- R1 (bool-ret-synth): the ContractEnv third slot is the return type that CallVC's
+    -- 'calleeRetSort' (~:2984) uses to sort a callee's opaque call-result binder. An
+    -- annotation-less, post-less function with a syntactically boolean body (e.g. a
+    -- predicate '(and (>= x 0) ...)') otherwise defaults that binder to FQInt, while an
+    -- 'if'-guard consuming it elaborates '&&' at Bool — the sort mismatch that crashed
+    -- liquid-fixpoint (regression of the BOOL-FRAG migration, v0.14.14). Synthesise
+    -- 'Just TBool' for exactly that case so the binder sorts FQBool. Scoped to no-post so
+    -- 'aug' (augmentContractPost) is a no-op and still sees the declared 'mRet' — the
+    -- only value that changes is the third slot 'calleeRetSort' reads.
+    synthRet mRet contract body
+      | Nothing <- mRet, Nothing <- contractPost contract, bodyIsBoolean body = Just TBool
+      | otherwise                                                             = mRet
+    go (SDefLogic name params mRet contract body) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
+    go (SLetrec name params mRet contract _dec body) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
     -- LT-INV (v0.11)
-    go (SDef      name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
-    go (SDefShell name params mRet contract _ _) = Just (name, (params, aug params mRet contract, mRet))
+    go (SDef      name params mRet contract body) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
+    go (SDefShell name params mRet contract body _dec) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
     -- v0.12.1: def-invariant registers in the VC env identically to SDefLogic.
-    go (SDefInvariant name params mRet contract _) = Just (name, (params, aug params mRet contract, mRet))
+    go (SDefInvariant name params mRet contract body) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
     go _ = Nothing
+
+-- | R1 (bool-ret-synth): True when an expression is syntactically boolean-valued.
+-- Reuses 'exprToPred' (the QF-LIA reflector, which normalises EOp→EApp) for leaf
+-- op-classification and reads its FQPred result head; recurses through the control
+-- forms 'exprToPred' rejects (EIf/ELet/EMatch). Conservative under-approximation:
+-- any non-boolean-headed or unclassifiable leaf (a bare call, a variable, an int
+-- literal, arithmetic) yields False, so it never mis-sorts an int result as Bool.
+bodyIsBoolean :: Expr -> Bool
+bodyIsBoolean (EIf _ t e)     = bodyIsBoolean t && bodyIsBoolean e
+bodyIsBoolean (ELet _ b)      = bodyIsBoolean b
+bodyIsBoolean (EMatch _ arms) = not (null arms) && all (bodyIsBoolean . snd) arms
+bodyIsBoolean e               = maybe False isBoolHead (exprToPred e)
+
+-- | The FQPred result heads that denote a boolean-valued expression. Comparisons
+-- (FQBinPred) and the logical connectives are boolean; FQVar/FQLit/FQBinArith/FQApp
+-- (arithmetic terms and opaque/uninterpreted applications) are not.
+isBoolHead :: FQPred -> Bool
+isBoolHead FQTrue          = True
+isBoolHead FQFalse         = True
+isBoolHead (FQBinPred _ _ _) = True
+isBoolHead (FQAnd _)       = True
+isBoolHead (FQOr _)        = True
+isBoolHead (FQNot _)       = True
+isBoolHead _               = False
 
 -- | REC-DESCENT: name → (param names, termination measure TUPLE) for every
 -- 'def-shell' that declares a non-empty 'decreases' clause. A k=1 tuple discharges

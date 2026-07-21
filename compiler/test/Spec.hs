@@ -9337,6 +9337,39 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       recs `shouldSatisfy` Set.member "countdown"
       guars `shouldBe` []  -- self-edge filtered: no function lists its own post
 
+  -- R1 (bool-ret-synth): buildContractEnv synthesises a TBool return type for an
+  -- annotation-less, post-less, syntactically-boolean-bodied function, so the CallVC
+  -- 'calleeRetSort' sorts its opaque call-result binder FQBool instead of the FQInt
+  -- default. Regression guard for the liquid-fixpoint 'and (Bool Bool) Bool supplied
+  -- Int' crash (conways_life_json_verifier) — the third ContractEnv slot is exactly
+  -- what calleeRetSort reads.
+  describe "R1 bool-return synthesis (calleeRetSort sort fix)" $ do
+    let parseR1 src = case parseStatements GrammarCoreInversion "<test>" (T.unlines src) of
+                        Left e   -> error (show e)
+                        Right ss -> ss
+
+    it "R1-1: synthesises Just TBool for an annotation-less boolean-bodied def; respects an explicit return type and a result-typing post" $ do
+      let stmts = parseR1
+            [ "(def-shell bpred [x: int] (and (>= x 0) (< x 10)))"                       -- no ret, bool body → Just TBool
+            , "(def-shell annotated [x: int] -> int (< x 5))"                            -- explicit ret kept (mRet-guard)
+            , "(def-shell bp [x: int] (post (>= result 0)) (and (>= x 0) (< x 10)))" ]   -- has post → not synthesised (post-guard)
+          third n = let (_, _, mr) = buildContractEnv stmts Map.! n in mr
+      third "bpred"     `shouldBe` Just TBool
+      third "annotated" `shouldBe` Just TInt
+      third "bp"        `shouldBe` Nothing
+
+    it "R1-2: rejects int/arithmetic bodies (no over-fix) and recurses through if/let control forms" $ do
+      let stmts = parseR1
+            [ "(def-shell iif [x: int] (if (>= x 0) x 0))"                 -- int-valued if → Nothing
+            , "(def-shell arith [n: int] (+ n n))"                         -- arithmetic → Nothing
+            , "(def-shell bif [x: int] (if (> x 0) (< x 10) false))"       -- if, both arms bool → Just TBool
+            , "(def-shell blet [x: int] (let [[y x]] (>= y 0)))" ]         -- let body bool → Just TBool
+          third n = let (_, _, mr) = buildContractEnv stmts Map.! n in mr
+      third "iif"   `shouldBe` Nothing
+      third "arith" `shouldBe` Nothing
+      third "bif"   `shouldBe` Just TBool
+      third "blet"  `shouldBe` Just TBool
+
   -- Bundle B0: per-function effect / authority summary (a sound MAY-over-
   -- approximation with ⊤ at opaque boundaries; informational — never gates
   -- trust). See docs/design/bundle-b0-effect-summary-proposal.md.
