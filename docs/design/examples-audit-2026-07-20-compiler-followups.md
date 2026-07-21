@@ -1,8 +1,19 @@
 # Examples-audit compiler follow-ups (2026-07-20)
 
 Two defects surfaced by the full `examples/` audit that are compiler/CI issues, not
-example-content edits. This is an implementation **plan** (compiler-engineer track),
-not a landed change. No compiler source or example files were modified producing it.
+example-content edits. Originally an implementation **plan**; both are now landed.
+
+> **Status (2026-07-21): BOTH RESOLVED.**
+> - **R1 — SHIPPED v0.14.62** (commits `01a183b` fix + `b9813c4` release). `buildContractEnvWith`
+>   synthesises `Just TBool` for an annotation-less, post-less, syntactically-boolean-bodied helper, so
+>   `calleeRetSort` sorts its call-result binder `FQBool`; `conways_life_json_verifier` verifies SAFE and
+>   `next-cell`/`count-neighbors` are body-faithful `verified` again. +2 tests → 1370 examples.
+> - **R2 — RESOLVED** (2026-07-21). `scripts/benchmark-erc20.sh` reordered: it now counts *confirmed*
+>   weaknesses (`Spec weakness detected for …`) and compares against the frozen list, instead of letting the
+>   verify `SAFE` banner shadow the weakness branch (the gate has teeth — verified it fails on a wrong count).
+>   The two confirmed weaknesses (`total-supply`, `balance-of`, identity-satisfiable `result >= 0` post) are
+>   recorded as expected in `EXPECTED_RESULTS.json` and disclosed in `WALKTHROUGH.md`. Contract strengthening
+>   stays deferred with the erc20 richer-benchmark (experiment-lead call).
 
 **Role routing:**
 - **R1** (liquid-fixpoint crash on a return-type-less boolean helper used as an `if` guard): **compiler-engineer** — VC emission sort bug in `FixpointEmit.hs`.
