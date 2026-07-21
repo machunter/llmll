@@ -70,10 +70,12 @@ present, land at the `asserted` tier.
 | [`tictactoe_sexp/`](tictactoe_sexp/) | Two-player Tic-Tac-Toe (`:done?` + `:on-done`) |
 | [`life_sexp/`](life_sexp/) · [`life_json/`](life_json/) | Conway's Life, multi-module, in each surface format |
 | [`hangman_json_verifier/`](hangman_json_verifier/) · [`tictactoe_json_verifier/`](tictactoe_json_verifier/) | Games with contracts — **asserted, not solver-proven** (the board is a `list`, outside the decidable fragment) |
+| [`conways_life_json_verifier/`](conways_life_json_verifier/) | Conway's Life with contracts; `next-cell`/`count-neighbors` reach body-faithful `verified` (the one game verifier that does) |
 | [`effect-authority/`](effect-authority/) | Effect-row authority over-approximation (informational obligation report) |
 | `../examples/withdraw.llmll` | Minimal `pre`/`post` acceptance-gate demo (single file) |
 
 ## Known issues (see `docs/design/examples-audit-2026-07-20-compiler-followups.md`)
 
-- [`conways_life_json_verifier/`](conways_life_json_verifier/) — currently **crashes** liquid-fixpoint under v0.14.61 (a Bool/Int sort mismatch from an untyped boolean helper; regression, fix routed to the compiler team). Its committed sidecar still records the older `verified` result.
 - [`proof_required_test/`](proof_required_test/) — its documented `--leanstral-mock` reproduction predates the fail-closed mock and no longer reproduces; slated for rewrite or archival.
+
+(The `conways_life_json_verifier/` liquid-fixpoint sort crash was fixed in v0.14.62.)

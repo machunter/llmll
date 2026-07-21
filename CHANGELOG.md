@@ -4,6 +4,25 @@
 
 <a id="Latest"></a>
 
+## v0.14.62 — fix: boolean-return sort for annotation-less predicate helpers (2026-07-21)
+
+### Fixed — `verify` no longer crashes liquid-fixpoint on a boolean predicate used as an `if`-guard
+
+- **Sort crash.** An annotation-less, post-less function with a syntactically boolean body (e.g. a predicate
+  `(and (>= x 0) (< x 10))`) had its opaque call-result binder default to `FQInt` in CallVC (`calleeRetSort`,
+  `FixpointEmit.hs`), while an enclosing `if`-guard consuming it elaborated `&&` at `Bool` — liquid-fixpoint
+  crashed with `Sort mismatch at argument #1 for function (declare-fun and (Bool Bool) Bool) supplied Int`.
+  Regression of the BOOL-FRAG migration (v0.14.14). `examples/conways_life_json_verifier` verifies **SAFE**
+  again, with `next-cell`/`count-neighbors` back to body-faithful `verified (liquid-fixpoint)`.
+- **Fix.** `buildContractEnvWith` synthesises a `TBool` return type for exactly that case — no declared
+  return type **and** no post **and** a syntactically boolean body — so `calleeRetSort` sorts the binder
+  `FQBool`. New helpers `bodyIsBoolean`/`isBoolHead` reuse `exprToPred` for leaf op-classification and recurse
+  through `if`/`let`/`match` control forms. Scoped conservatively: an explicit return type or a result-typing
+  post suppresses synthesis, and int/arithmetic bodies are never mis-sorted (the in-file `neighbor-alive` int
+  body stays `FQInt`).
+- No CLI, flag, or schema change. Surfaced by the examples audit
+  ([`docs/design/examples-audit-2026-07-20-compiler-followups.md`](docs/design/examples-audit-2026-07-20-compiler-followups.md) R1). **1370 Haskell examples, 0 failures** (Python suite unchanged at 45).
+
 ## v0.14.61 — R8: incremental patch re-verification (2026-07-20)
 
 ### Changed — `patch` re-verifies only the patched function, not the whole module
