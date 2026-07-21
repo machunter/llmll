@@ -37,6 +37,9 @@ FAMILIES=(
   "bytes-bounds"
   "rfc1982_serial"
   "token-revocation-emergent"
+  "nested-result"
+  "niw-measure"
+  "banking_ledger"
 )
 
 if ! command -v jq &> /dev/null; then

@@ -1,0 +1,11 @@
+{
+  "family": "banking_ledger",
+  "frozen_at": "v0.14.61",
+  "frozen_date": "2026-07-20",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY (the standing A3-churn guard). The 3-level assume-guarantee chain verifies; the bad twin drops clamp-withdraw's guard so withdraw's precondition is no longer established at the call site (use-after-check / goto-fail shape), refuted at the call site.",
+  "cases": [
+    { "file": "banking.llmll",     "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
+    { "file": "banking-bad.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "clamp-withdraw",
+      "why": "guard dropped: withdraw's precondition (>= balance requested) not proven at the call site" }
+  ]
+}

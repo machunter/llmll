@@ -1,0 +1,11 @@
+{
+  "family": "nested-result",
+  "frozen_at": "v0.14.61",
+  "frozen_date": "2026-07-20",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY (the standing A3-churn guard). A nested Result-variable match under a let reaches verified body-faithfully; the bad twin drops the balance>=0 discipline in the then-branch and is refuted on the postcondition channel.",
+  "cases": [
+    { "file": "safe-withdraw.llmll",     "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
+    { "file": "safe-withdraw-bad.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "safe-withdraw",
+      "why": "then-branch does not satisfy the balance>=0 postcondition" }
+  ]
+}

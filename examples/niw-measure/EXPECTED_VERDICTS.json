@@ -1,0 +1,11 @@
+{
+  "family": "niw-measure",
+  "frozen_at": "v0.14.61",
+  "frozen_date": "2026-07-20",
+  "note": "Frozen VERIFY verdicts + exit codes ONLY (the standing A3-churn guard). A string-length measure inside a refinement predicate (Word = {s | string-length s > 0}) is discharged via the EUF range axiom; the bad twin weakens the Word return to a bare string and is refuted on the postcondition channel.",
+  "cases": [
+    { "file": "word-pad.llmll",     "flags": ["--strict-verified-core"], "expect_exit": 0, "expect": "safe" },
+    { "file": "word-pad-bad.llmll", "flags": ["--strict-verified-core"], "expect_exit": 1, "expect": "refuted", "localized": "min-pad",
+      "why": "Word return weakened to a bare string: the string-length > 0 refinement no longer discharges" }
+  ]
+}

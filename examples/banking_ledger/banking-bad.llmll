@@ -1,15 +1,14 @@
-;; Banking Ledger — Compositional Verification Example
+;; Banking Ledger — the refuting twin (assume-guarantee teeth)
 ;;
-;; Demonstrates assume-guarantee reasoning across a 3-level call chain:
-;;   transfer → withdraw → safe-subtract
+;; Byte-identical to banking.llmll EXCEPT `clamp-withdraw` drops its guard and
+;; withdraws unconditionally. That is the use-after-check / goto-fail shape: the
+;; caller no longer establishes `withdraw`'s precondition (>= balance requested),
+;; so when requested > balance the withdraw would overdraw the account below zero.
+;; The verifier refutes it AT THE CALL SITE — `withdraw`'s precondition is not
+;; discharged — not by running the body. This is the whole point of the chain:
+;; a caller must PROVE the callee's precondition, it is never assumed.
 ;;
-;; Each function has pre/post contracts. The verifier:
-;;   1. Proves each function's body satisfies its own postcondition
-;;   2. At each call site, proves the caller satisfies the callee's precondition
-;;   3. Assumes the callee's postcondition holds (assume-guarantee)
-;;
-;; Run: llmll verify examples/banking_ledger/banking.llmll
-;; Run: llmll verify examples/banking_ledger/banking.llmll --strict-verified-core
+;; Run: llmll verify examples/banking_ledger/banking-bad.llmll   -> refuted (clamp-withdraw)
 
 ;; --- Layer 1: Primitive arithmetic with safety guarantee ---
 
@@ -32,14 +31,15 @@
   (post (and (= result (- from-bal amount)) (>= result 0)))
   (withdraw from-bal amount))
 
-;; --- Layer 2b: Conditional logic with call ---
+;; --- Layer 2b: Conditional logic with call — THE BUG ---
+;; Correct version guards the call: (if (>= balance requested) (withdraw …) balance).
+;; This drops the guard, so withdraw's precondition (>= balance requested) is
+;; unproven when requested > balance.
 
 (def-shell clamp-withdraw [balance: int requested: int]
   (pre (and (>= balance 0) (>= requested 0)))
   (post (>= result 0))
-  (if (>= balance requested)
-    (withdraw balance requested)
-    balance))
+  (withdraw balance requested))
 
 ;; --- Layer 2c: Let-binding with call result ---
 
